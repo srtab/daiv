@@ -28,7 +28,7 @@ from codebase.base import (
     User,
 )
 from codebase.clients import RepoClient
-from codebase.clients.base import Emoji, WebhookSetupResult
+from codebase.clients.base import CommentThread, Emoji, WebhookSetupResult
 from codebase.exceptions import CloneRefNotFoundError
 from codebase.utils import is_git_ref_not_found_text
 
@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 
     from github.IssueComment import IssueComment
     from github.PullRequest import PullRequest
+    from github.WorkflowRun import WorkflowRun
 
 
 logger = logging.getLogger("daiv.clients")
@@ -256,9 +257,15 @@ class GitHubClient(RepoClient):
         """
         Set webhooks for a repository.
         """
-        # Adding `pull_request_review_comment` also needs a callback for it and a review-comment
-        # reaction path — conversation comments and diff comments use different endpoints.
-        events = ["push", "issues", "pull_request_review", "issue_comment", "pull_request", "workflow_run"]
+        events = [
+            "push",
+            "issues",
+            "pull_request_review",
+            "pull_request_review_comment",
+            "issue_comment",
+            "pull_request",
+            "workflow_run",
+        ]
         config = {
             "url": url,
             "content_type": "json",
@@ -615,7 +622,7 @@ class GitHubClient(RepoClient):
         return self._serialize_pull_request(repo_id, pr)
 
     def create_merge_request_comment(
-        self, repo_id: str, merge_request_id: int, body: str, reply_to_id: str | None = None
+        self, repo_id: str, merge_request_id: int, body: str, reply_to: CommentThread | None = None
     ) -> str | None:
         """
         Comment on a merge request.
@@ -624,23 +631,26 @@ class GitHubClient(RepoClient):
             repo_id: The repository ID.
             merge_request_id: The merge request ID.
             body: The comment body.
-            reply_to_id: The ID of the comment to reply to.
+            reply_to: The thread to reply in; only a diff thread takes replies, so any other gets a new comment.
 
         Returns:
             The ID of the comment.
         """
         pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
-        if reply_to_id:
-            return pr.create_review_comment_reply(int(reply_to_id), body).id
+        if reply_to and reply_to.on_diff:
+            return pr.create_review_comment_reply(int(reply_to.id), body).id
         return pr.create_issue_comment(body).id
 
-    def _workflow_run_to_pipeline(self, run) -> Pipeline:
+    def _workflow_run_to_pipeline(self, run, *, with_jobs: bool = True) -> Pipeline:
+        jobs = run.jobs() if with_jobs else []
         return Pipeline(
             id=run.id,
             iid=None,
             sha=run.head_sha,
             status=github_conclusion_to_status(run.conclusion),
             web_url=run.html_url,
+            workflow_id=run.workflow_id,
+            workflow_name=run.name or "",
             jobs=[
                 Job(
                     id=job.id,
@@ -652,7 +662,7 @@ class GitHubClient(RepoClient):
                     allow_failure=False,
                     failure_reason=None,
                 )
-                for job in run.jobs()
+                for job in jobs
             ],
         )
 
@@ -673,6 +683,21 @@ class GitHubClient(RepoClient):
         # item straight off the iterator instead of counting and then indexing.
         run = next(iter(repo.get_workflow_runs(branch=ref)), None)
         return self._workflow_run_to_pipeline(run) if run is not None else None
+
+    def get_latest_pipelines_for_ref(self, repo_id: str, ref: str) -> list[Pipeline]:
+        """The newest run of each workflow on the head commit of ``ref``, without its jobs; empty when the branch is
+        gone."""
+        repo = self.client.get_repo(repo_id, lazy=True)
+        try:
+            head_sha = repo.get_branch(ref).commit.sha
+        except GithubException as exc:
+            if exc.status == 404:
+                return []
+            raise
+        newest: dict[int, WorkflowRun] = {}
+        for run in repo.get_workflow_runs(branch=ref, head_sha=head_sha):
+            newest.setdefault(run.workflow_id, run)
+        return [self._workflow_run_to_pipeline(run, with_jobs=False) for run in newest.values()]
 
     def get_merge_request_diff_stats(self, repo_id: str, merge_request_id: int) -> MergeRequestDiffStats:
         """
@@ -771,13 +796,22 @@ class GitHubClient(RepoClient):
         issue = self.client.get_repo(repo_id, lazy=True).get_issue(merge_request_id)
         return self._serialize_comment(issue.get_comment(note_id), NoteableType.MERGE_REQUEST)
 
-    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
+    def create_merge_request_note_emoji(
+        self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int, *, on_diff: bool = False
+    ):
         """
-        React to a comment on the pull request conversation.
+        React to a comment on the pull request.
 
-        Those are issue comments, so they resolve on the issues API; review (diff) comment ids do not.
+        A conversation comment is an issue comment, so it resolves on the issues API; a review (diff) comment resolves
+        on the pull requests API only.
         """
-        self.create_issue_emoji(repo_id, issue_id=merge_request_id, emoji=emoji, note_id=note_id)
+        if not on_diff:
+            self.create_issue_emoji(repo_id, issue_id=merge_request_id, emoji=emoji, note_id=note_id)
+            return
+        if not (emoji_reaction := EMOJI_MAP.get(emoji)):
+            raise ValueError(f"Unsupported emoji: {emoji}")
+        pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
+        pr.get_review_comment(note_id).create_reaction(emoji_reaction)
 
     # User
     @cached_property
@@ -795,8 +829,8 @@ class GitHubClient(RepoClient):
         """
         Serialize an issue comment, which is also what a pull request conversation comment is.
 
-        Only issue comments arrive here — DAIV subscribes to no review-comment event. The author's ``name`` is
-        left out: nothing reads it, and PyGithub completes a missing one with a ``/users`` request per comment.
+        Diff comments are review comments, which take another path. The author's ``name`` is left out: nothing reads
+        it, and PyGithub completes a missing one with a ``/users`` request per comment.
         """
         return Note(
             id=comment.id,

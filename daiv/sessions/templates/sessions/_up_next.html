@@ -1,0 +1,53 @@
+{% load i18n %}
+{% comment %}
+``sessionPage``'s ``upNext`` (``sessions.up_next``); must sit inside ``sessionPage`` inside ``chat({…})``, whose
+helpers name the bubbles and lines.
+{% endcomment %}
+<section class="up-next" x-show="upNext" x-cloak aria-labelledby="up-next-title" data-testid="session-up-next">
+  <div class="up-next__divider">
+    <h2 class="up-next__title" id="up-next-title" x-text="TranscriptLabels.t('up_next')"></h2>
+    <span class="up-next__info" x-data="{ open: false }" @mouseenter="open = true" @mouseleave="open = false">
+      <button type="button" class="up-next__info-btn" aria-describedby="up-next-info" aria-label="{% translate 'About Up next' %}"
+              :aria-expanded="open.toString()"
+              @click="open = true" @focus="open = true" @blur="open = false" @keydown.escape="open = false">i</button>
+      <span class="up-next__tip" id="up-next-info" role="tooltip" x-show="open" x-cloak
+            x-text="TranscriptLabels.t('up_next_info')"></span>
+    </span>
+  </div>
+
+  <template x-for="(group, gi) in upNext?.groups ?? []" :key="group.run_id || `group-${gi}`">
+    <div class="up-next__group">
+      <p class="up-next__heading" x-text="upNextHeading(group, gi)"></p>
+      <template x-for="b in group.bubbles" :key="b.id">
+        <article class="chat-turn chat-turn--user chat-turn--pending" data-testid="up-next-request">
+          <div class="chat-turn__body">
+            {% include "sessions/_opening_bubble.html" with bubble="b" clamp_id="`up-next-text-${b.id}`" %}
+          </div>
+          <p class="up-next__meta">
+            <span x-text="b.received ? TranscriptLabels.t('received') : bubbleKindLabel(b)"></span>
+            <span aria-hidden="true">·</span>
+            <time :datetime="b.created_at" :title="absoluteTime(b.created_at)" x-text="relativeTime(b.created_at)"></time>
+          </p>
+        </article>
+      </template>
+      <template x-if="group.told.length">
+        <div class="up-next__told">
+          <p class="up-next__told-label" x-text="TranscriptLabels.t('up_next_told')"></p>
+          <template x-for="line in group.told" :key="line.id">
+            {% include "sessions/_inbox_event_row.html" with event="line" %}
+          </template>
+        </div>
+      </template>
+    </div>
+  </template>
+
+  <template x-for="told in upNext?.told ?? []" :key="told.branch">
+    <div class="up-next__told">
+      <p class="up-next__told-label"
+         x-text="told.branch ? TranscriptLabels.t('up_next_told_branch', { branch: told.branch }) : TranscriptLabels.t('up_next_told')"></p>
+      <template x-for="line in told.lines" :key="line.id">
+        {% include "sessions/_inbox_event_row.html" with event="line" %}
+      </template>
+    </div>
+  </template>
+</section>

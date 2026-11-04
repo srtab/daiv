@@ -106,10 +106,12 @@ def publish_result_payload(
     merge_request: MergeRequest | None = None,
     diff_stats: MergeRequestDiffStats | None = None,
     error_kind: str | None = None,
+    pushed_sha: str | None = None,
 ) -> dict[str, Any]:
     """Build the wire payload for :data:`PUBLISH_RESULT_EVENT`; values that do not apply are ``None``."""
     return {
         "status": status,
+        "pushed_sha": pushed_sha or None,
         "merge_request_iid": merge_request.merge_request_id if merge_request else None,
         "merge_request_web_url": merge_request.web_url if merge_request else None,
         "files_changed": diff_stats.files_changed if diff_stats else None,
@@ -122,11 +124,14 @@ def publish_result_payload(
 def published_outcome_payload(outcome: PublishOutcome) -> dict[str, Any]:
     """The :func:`publish_result_payload` of a publish that pushed ``outcome``."""
     if outcome.merge_request is None:
-        return publish_result_payload(status="pushed", diff_stats=outcome.diff_stats, error_kind="mr_pending")
+        return publish_result_payload(
+            status="pushed", diff_stats=outcome.diff_stats, error_kind="mr_pending", pushed_sha=outcome.pushed_sha
+        )
     return publish_result_payload(
         status="opened" if outcome.created_merge_request else "pushed",
         merge_request=outcome.merge_request,
         diff_stats=outcome.diff_stats,
+        pushed_sha=outcome.pushed_sha,
     )
 
 

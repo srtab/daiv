@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from deepagents.middleware.filesystem import FilesystemPermission
 
     from automation.agent.context import RepoHandle
-    from automation.agent.workspace.git_manager import GitManager
+    from automation.agent.workspace.git_manager import FastForward, GitManager
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
     from automation.agent.workspace.session import SandboxSession
 
@@ -78,6 +78,12 @@ class Workspace(PublishWorkspace, Protocol):
     def is_ready(self) -> bool:
         """Whether the files and git can be reached yet: always on disk; on a sandbox, once its session is acquired,
         which a turn that skips the sandbox (``skips_sandbox``) or a failed acquisition never gets to."""
+        ...
+
+    async def fast_forward(self, branch: str) -> FastForward:
+        """Bring the checkout up to the remote ``branch`` before the agent starts, when someone pushed to it or rewrote
+        it since the checkout was made and it holds nothing unpublished (``GitManager.fast_forward``). A disk clone is
+        fresh, so it is mostly ``"unchanged"``; a warm sandbox keeps its checkout between runs."""
         ...
 
     async def download_file(self, path: str, *, max_bytes: int) -> FileDownloadResponse:

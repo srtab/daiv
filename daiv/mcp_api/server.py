@@ -79,6 +79,8 @@ in-review branch. Otherwise DAIV creates a new branch off `ref` and opens a new 
 
 Set `shared_session` to true to open one session over several repositories (at most 5, the first is the main one): \
 the agent sees all of them and DAIV opens one merge request per repository it changes.
+A `thread_id` job sent to a session that is busy joins that session's next run for its branch, \
+so two such jobs may return the same `job_id`; poll that `job_id` and read its result once.
 
 Jobs are rate-limited per user. Long-running jobs may exceed the 10-minute polling window; \
 continue polling with `get_job_status` if the result is not yet available.\
@@ -205,8 +207,9 @@ async def submit_job(
                 " exactly one entry whose session belongs to the calling user, who has not"
                 " archived it; a multi-repository session also accepts its full list, in order,"
                 " with no ``ref``."
-                " If a prior run on this thread is still in flight, the new job is queued"
-                " and runs FIFO after it terminates."
+                " If the session is busy, the job joins its next run for the job's branch,"
+                " which starts once the current run ends; jobs that join the same next run"
+                " share its job_id."
             )
         ),
     ] = None,

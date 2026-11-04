@@ -8,7 +8,7 @@ from asgiref.sync import sync_to_async
 from automation.agent.constants import REPO_PATH
 from automation.agent.context import extra_repo_path
 from automation.agent.workspace.backends import WORKSPACE_FENCE_PERMISSIONS, build_disk_workspace_backend
-from automation.agent.workspace.git_manager import GitManager
+from automation.agent.workspace.git_manager import FastForward, GitManager
 from automation.agent.workspace.git_runners import LocalGitRunner
 from automation.agent.workspace.repo_view import RepoWorkspace
 
@@ -49,6 +49,9 @@ class DiskWorkspace:
         none."""
         auth_env = await sync_to_async(self._ctx.repo.client.get_git_auth_env)(self._ctx.repository)
         return GitManager(LocalGitRunner(self._ctx.gitrepo, auth_env=auth_env))
+
+    async def fast_forward(self, branch: str) -> FastForward:
+        return await (await self.authenticated_git()).fast_forward(branch)
 
     async def download_file(self, path: str, *, max_bytes: int) -> FileDownloadResponse:
         (response,) = await self.backend.adownload_files([path])

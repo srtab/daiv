@@ -138,3 +138,17 @@ async def test_for_repo_sibling_refreshes_credentials_then_returns_its_git():
     assert view.repo_path == "/workspace/repos/g/mod"
     assert git._runner == SandboxGitRunner(workspace.bash, repo_path="/workspace/repos/g/mod")
     assert view.backend is workspace.backend
+
+
+async def test_fast_forward_runs_in_the_container_with_a_refreshed_credential():
+    client = FakeSandboxClient.opened({
+        "fetch origin chore/x": (0, ""),
+        "rev-parse FETCH_HEAD": (0, "a" * 40),
+        "rev-parse HEAD": (0, "a" * 40),
+    })
+    session = acquired_session(client, client.add_running_session("sess-1"))
+    session.refresh_credential = AsyncMock(return_value=True)
+
+    assert await SandboxWorkspace(session).fast_forward("chore/x") == "unchanged"
+    session.refresh_credential.assert_awaited_once_with()
+    assert client.ran("fetch origin chore/x")

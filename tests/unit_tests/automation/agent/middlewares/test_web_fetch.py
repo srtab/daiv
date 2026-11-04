@@ -1,23 +1,25 @@
 from __future__ import annotations
 
 import hashlib
-from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.core.cache import cache
 
 import pytest
+from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+from langchain_core.messages import AIMessage
 from pydantic import SecretStr
 
 from automation.agent.middlewares import web_fetch as web_fetch_module
 
 
-class _FakeModel:
-    def __init__(self, response_text: str):
-        self._response_text = response_text
+def _fake_model(content: str | list) -> FakeMessagesListChatModel:
+    return FakeMessagesListChatModel(responses=[AIMessage(content=content)])
 
-    async def ainvoke(self, _messages):
-        return SimpleNamespace(content=self._response_text)
+
+@pytest.fixture(autouse=True)
+def _clear_cache():
+    cache.clear()
 
 
 async def test_upgrade_http_to_https():
@@ -67,6 +69,19 @@ async def test_fetch_url_text_cross_host_redirect_returns_special_tag(httpx_mock
     assert result == "<redirect_url>https://other.test/path</redirect_url>"
 
 
+async def test_cross_host_redirect_keeps_the_requested_fragment(httpx_mock):
+    httpx_mock.add_response(url="https://site.test/a", status_code=302, headers={"location": "https://other.test/b"})
+    with (
+        patch.object(web_fetch_module, "site_settings") as mock_site_settings,
+        patch.object(web_fetch_module, "automation_env_settings") as mock_env_settings,
+    ):
+        mock_site_settings.web_fetch_timeout_seconds = 1
+        mock_env_settings.WEB_FETCH_PROXY_URL = None
+
+        result = await web_fetch_module.web_fetch_tool.ainvoke({"url": "https://site.test/a#breaking", "prompt": "x"})
+    assert result == "<redirect_url>https://other.test/b#breaking</redirect_url>"
+
+
 async def test_fetch_url_text_same_host_redirect_is_followed(httpx_mock):
     httpx_mock.add_response(url="https://site.test", status_code=302, headers={"location": "/new-path"})
     httpx_mock.add_response(
@@ -102,7 +117,6 @@ async def test_cache_key_for_response():
 
 
 async def test_get_cached_response():
-    cache.clear()
 
     cache.set(web_fetch_module._cache_key_for_response(url="https://example.com", prompt="x"), "ANSWER")
     assert web_fetch_module._get_cached_response(url="https://example.com", prompt="x") == "ANSWER"
@@ -110,7 +124,6 @@ async def test_get_cached_response():
 
 
 async def test_set_cached_response():
-    cache.clear()
 
     web_fetch_module._set_cached_response(url="https://example.com", prompt="x", response="ANSWER")
     assert cache.get(web_fetch_module._cache_key_for_response(url="https://example.com", prompt="x")) == "ANSWER"
@@ -128,14 +141,14 @@ async def test_fetch_markdown_for_url(httpx_mock):
         patch.object(web_fetch_module, "automation_env_settings") as mock_env_settings,
     ):
         mock_site_settings.web_fetch_timeout_seconds = 1
+        mock_site_settings.web_fetch_max_content_chars = 999_999
         mock_env_settings.WEB_FETCH_PROXY_URL = None
 
         result = await web_fetch_module._fetch_markdown_for_url("https://example.com")
-    assert result == "Hello, world!"
+    assert result.content == "Hello, world!"
 
 
 async def test_caches_full_response_by_url_and_prompt(httpx_mock):
-    cache.clear()
 
     httpx_mock.add_response(
         url="https://example.com/page",
@@ -154,7 +167,7 @@ async def test_caches_full_response_by_url_and_prompt(httpx_mock):
         mock_site_settings.web_fetch_max_content_chars = 999_999
         mock_site_settings.web_fetch_model_name = "openrouter:openai/gpt-4.1-mini"
 
-        mock_get_model.return_value = _FakeModel("ANSWER")
+        mock_get_model.return_value = _fake_model("ANSWER")
 
         result1 = await web_fetch_module.web_fetch_tool.ainvoke({
             "url": "https://example.com/page",
@@ -173,8 +186,53 @@ async def test_caches_full_response_by_url_and_prompt(httpx_mock):
     )
 
 
+_REASONING_BLOCK = {"type": "reasoning", "summary": [], "encrypted_content": "gAAAAopaque"}
+
+
+@pytest.mark.parametrize(
+    ("blocks", "expected", "cached"),
+    [
+        pytest.param(
+            [_REASONING_BLOCK, {"type": "text", "text": "ANSWER", "phase": "final_answer"}],
+            "ANSWER",
+            "ANSWER",
+            id="answer-text",
+        ),
+        pytest.param(
+            [_REASONING_BLOCK],
+            "Model processing returned no answer. Contents of https://example.com/page:\nBody",
+            None,
+            id="no-answer-text",
+        ),
+    ],
+)
+async def test_summary_keeps_only_the_answer_text_of_content_blocks(httpx_mock, blocks, expected, cached):
+
+    httpx_mock.add_response(
+        url="https://example.com/page",
+        status_code=200,
+        headers={"content-type": "text/html"},
+        text="<html><body><p>Body</p></body></html>",
+    )
+    with (
+        patch.object(web_fetch_module, "get_model") as mock_get_model,
+        patch.object(web_fetch_module, "site_settings") as mock_site_settings,
+        patch.object(web_fetch_module, "automation_env_settings") as mock_env_settings,
+    ):
+        mock_site_settings.web_fetch_cache_ttl_seconds = 15 * 60
+        mock_site_settings.web_fetch_timeout_seconds = 1
+        mock_env_settings.WEB_FETCH_PROXY_URL = None
+        mock_site_settings.web_fetch_max_content_chars = 999_999
+        mock_site_settings.web_fetch_model_name = "openai:gpt-6-luna"
+        mock_get_model.return_value = _fake_model(blocks)
+
+        result = await web_fetch_module.web_fetch_tool.ainvoke({"url": "https://example.com/page", "prompt": "P"})
+
+    assert result == expected
+    assert web_fetch_module._get_cached_response(url="https://example.com/page", prompt="P") == cached
+
+
 async def test_cache_key_changes_with_prompt(httpx_mock):
-    cache.clear()
 
     httpx_mock.add_response(
         url="https://example.com/page",
@@ -199,7 +257,7 @@ async def test_cache_key_changes_with_prompt(httpx_mock):
         mock_site_settings.web_fetch_max_content_chars = 999_999
         mock_site_settings.web_fetch_model_name = "openrouter:openai/gpt-4.1-mini"
 
-        mock_get_model.return_value = _FakeModel("ANSWER")
+        mock_get_model.return_value = _fake_model("ANSWER")
 
         await web_fetch_module.web_fetch_tool.ainvoke({"url": "https://example.com/page", "prompt": "P1"})
         await web_fetch_module.web_fetch_tool.ainvoke({"url": "https://example.com/page", "prompt": "P2"})
@@ -210,6 +268,22 @@ async def test_cache_key_changes_with_prompt(httpx_mock):
 async def test_invalid_url_returns_message():
     result = await web_fetch_module.web_fetch_tool.ainvoke({"url": "not-a-url", "prompt": "x"})
     assert result == "error: Invalid URL. Provide a fully-formed http(s) URL (e.g., https://example.com)."
+
+
+async def test_logs_the_outcome_of_each_call(httpx_mock, caplog):
+    httpx_mock.add_response(url="https://example.com/gone", status_code=404)
+    with (
+        patch.object(web_fetch_module, "site_settings") as mock_site_settings,
+        patch.object(web_fetch_module, "automation_env_settings") as mock_env_settings,
+        caplog.at_level("INFO", logger="daiv.tools"),
+    ):
+        mock_site_settings.web_fetch_timeout_seconds = 1
+        mock_env_settings.WEB_FETCH_PROXY_URL = None
+
+        await web_fetch_module.web_fetch_tool.ainvoke({"url": "https://example.com/gone", "prompt": "x"})
+
+    assert "[web_fetch] Tool result (outcome=fetch_error, chars=" in caplog.text
+    assert "url=https://example.com/gone" in caplog.text
 
 
 async def test_empty_prompt_returns_contents(httpx_mock):
@@ -232,12 +306,217 @@ async def test_empty_prompt_returns_contents(httpx_mock):
     assert result == "Contents of https://example.com:\nCONTENT"
 
 
-async def test_rejects_large_content(httpx_mock):
+SPHINX_PAGE = """<html><body>
+<nav><ul><li><a href="#features">Features</a></li><li><a href="#removed">Removed</a></li></ul></nav>
+<section id="s-features"><span id="features"></span>
+  <h2>Features<a class="headerlink" href="#features">¶</a></h2><p>new feature body</p>
+  <section id="s-minor"><span id="minor"></span>
+    <h3>Minor<a class="headerlink" href="#minor">¶</a></h3><p>minor body</p>
+  </section>
+</section>
+<section id="s-removed"><span id="removed"></span>
+  <h2>Removed<a class="headerlink" href="#removed">¶</a></h2><p>removed body</p>
+</section>
+</body></html>"""
+
+GITHUB_PAGE = """<html><body><article class="markdown-body">
+<div class="markdown-heading"><h2 class="heading-element">1.0.2</h2>
+  <a class="anchor" href="#102" id="user-content-102"><svg></svg></a></div>
+<p>release two body</p>
+<div class="markdown-heading"><h2 class="heading-element">1.0.1</h2>
+  <a class="anchor" href="#101" id="user-content-101"><svg></svg></a></div>
+<p>release one body</p>
+</article></body></html>"""
+
+
+@pytest.mark.parametrize(
+    ("page", "fragment", "kept", "dropped"),
+    [
+        pytest.param(SPHINX_PAGE, "features", ["new feature body", "minor body"], ["removed body"], id="sphinx"),
+        pytest.param(SPHINX_PAGE, "minor", ["minor body"], ["new feature body", "removed body"], id="sphinx-sub"),
+        pytest.param(SPHINX_PAGE, "s-removed", ["removed body"], ["new feature body"], id="container-id"),
+        pytest.param(GITHUB_PAGE, "102", ["release two body"], ["release one body"], id="github-self-link"),
+        pytest.param(
+            '<html><body><h2 id="características">C</h2><p>accent body</p><h2>Next</h2><p>next body</p></body></html>',
+            "caracter%C3%ADsticas",
+            ["accent body"],
+            ["next body"],
+            id="percent-encoded",
+        ),
+    ],
+)
+async def test_html_page_returns_only_the_named_section(page, fragment, kept, dropped):
+    result = web_fetch_module._html_page(page, fragment, max_chars=999_999)
+
+    assert result.fragment_note == ""
+    for text in kept:
+        assert text in result.content
+    for text in dropped:
+        assert text not in result.content
+
+
+@pytest.mark.parametrize(
+    ("page", "fragment"),
+    [
+        pytest.param(
+            '<html><body><a href="#usage">Usage</a><h2>Usage</h2><p>body</p></body></html>',
+            "usage",
+            id="link-only-points-at-fragment",
+        ),
+        pytest.param(
+            '<html><body><h2>Intro</h2><p>intro body</p><div id="comments"></div>'
+            "<footer><h2>Footer</h2><p>footer links</p></footer></body></html>",
+            "comments",
+            id="empty-anchor-not-on-a-heading",
+        ),
+    ],
+)
+async def test_html_page_without_the_named_section_returns_the_whole_page(page, fragment):
+    result = web_fetch_module._html_page(page, fragment, max_chars=999_999)
+
+    assert result.fragment_note == f"The page has no #{fragment} section."
+    assert "body" in result.content
+
+
+async def test_section_anchors_prefer_the_heading_permalink_over_a_cross_reference():
+    page = (
+        '<html><body><h3>Changes to <a href="#queryset-api"><code>QuerySet</code></a>'
+        '<a class="headerlink" href="#changes-to-queryset">¶</a></h3></body></html>'
+    )
+
+    assert web_fetch_module._html_page(page, "", max_chars=0).anchors == ["#changes-to-queryset  Changes to QuerySet"]
+
+
+async def test_unmatched_fragment_says_the_whole_page_is_returned(httpx_mock):
     httpx_mock.add_response(
-        url="https://example.com",
-        status_code=200,
-        headers={"content-type": "text/html"},
-        text="<html><body>XXXXXXXXXX</body></html>",
+        url="https://docs.test/releases/", status_code=200, headers={"content-type": "text/html"}, text=SPHINX_PAGE
+    )
+    with (
+        patch.object(web_fetch_module, "site_settings") as mock_site_settings,
+        patch.object(web_fetch_module, "automation_env_settings") as mock_env_settings,
+    ):
+        mock_site_settings.web_fetch_timeout_seconds = 1
+        mock_env_settings.WEB_FETCH_PROXY_URL = None
+        mock_site_settings.web_fetch_max_content_chars = 999_999
+        mock_site_settings.web_fetch_model_name = None
+
+        result = await web_fetch_module.web_fetch_tool.ainvoke({
+            "url": "https://docs.test/releases/#v2-0",
+            "prompt": "",
+        })
+
+    assert result.startswith("Note: The page has no #v2-0 section. This is the whole page.\nContents of")
+    assert "removed body" in result
+
+
+async def test_fragment_fetches_the_page_once_and_returns_only_that_section(httpx_mock):
+    httpx_mock.add_response(
+        url="https://docs.test/releases/", status_code=200, headers={"content-type": "text/html"}, text=SPHINX_PAGE
+    )
+    with (
+        patch.object(web_fetch_module, "site_settings") as mock_site_settings,
+        patch.object(web_fetch_module, "automation_env_settings") as mock_env_settings,
+    ):
+        mock_site_settings.web_fetch_timeout_seconds = 1
+        mock_env_settings.WEB_FETCH_PROXY_URL = None
+        mock_site_settings.web_fetch_max_content_chars = 999_999
+        mock_site_settings.web_fetch_model_name = None
+
+        result = await web_fetch_module.web_fetch_tool.ainvoke({
+            "url": "https://docs.test/releases/#removed",
+            "prompt": "",
+        })
+
+    assert "removed body" in result
+    assert "new feature body" not in result
+    assert [str(request.url) for request in httpx_mock.get_requests()] == ["https://docs.test/releases/"]
+
+
+async def test_rejects_large_content_and_lists_section_anchors(httpx_mock):
+    httpx_mock.add_response(
+        url="https://docs.test/releases/", status_code=200, headers={"content-type": "text/html"}, text=SPHINX_PAGE
+    )
+    with (
+        patch.object(web_fetch_module, "site_settings") as mock_site_settings,
+        patch.object(web_fetch_module, "automation_env_settings") as mock_env_settings,
+    ):
+        mock_site_settings.web_fetch_timeout_seconds = 1
+        mock_site_settings.web_fetch_cache_ttl_seconds = 60
+        mock_env_settings.WEB_FETCH_PROXY_URL = None
+        mock_site_settings.web_fetch_max_content_chars = 5
+
+        result = await web_fetch_module.web_fetch_tool.ainvoke({
+            "url": "https://docs.test/releases/#missing",
+            "prompt": "x",
+        })
+
+    assert result.startswith("error: Page content is too large to analyze in one pass")
+    assert "#missing" in result
+    assert "#features  Features\n#minor  Minor\n#removed  Removed" in result
+    assert "narrower URL" not in result
+
+
+@pytest.mark.parametrize(
+    ("fragment", "expected"),
+    [
+        pytest.param(
+            "features", "Fetch one of its subsections instead by adding its anchor", id="lists-its-subsections"
+        ),
+        pytest.param("removed", "Fetch a narrower URL instead", id="no-subsections"),
+    ],
+)
+async def test_rejects_a_large_section_without_offering_it_again(httpx_mock, fragment, expected):
+    httpx_mock.add_response(
+        url="https://docs.test/releases/", status_code=200, headers={"content-type": "text/html"}, text=SPHINX_PAGE
+    )
+    with (
+        patch.object(web_fetch_module, "site_settings") as mock_site_settings,
+        patch.object(web_fetch_module, "automation_env_settings") as mock_env_settings,
+    ):
+        mock_site_settings.web_fetch_timeout_seconds = 1
+        mock_site_settings.web_fetch_cache_ttl_seconds = 60
+        mock_env_settings.WEB_FETCH_PROXY_URL = None
+        mock_site_settings.web_fetch_max_content_chars = 5
+
+        result = await web_fetch_module.web_fetch_tool.ainvoke({
+            "url": f"https://docs.test/releases/#{fragment}",
+            "prompt": "x",
+        })
+
+    assert result.startswith(f"error: The #{fragment} section is too large to analyze in one pass")
+    assert expected in result
+    assert f"#{fragment}  " not in result
+    assert "#removed  Removed" not in result
+
+
+async def test_section_fetches_after_a_large_page_reuse_its_body(httpx_mock):
+    httpx_mock.add_response(
+        url="https://docs.test/releases/", status_code=200, headers={"content-type": "text/html"}, text=SPHINX_PAGE
+    )
+    with (
+        patch.object(web_fetch_module, "site_settings") as mock_site_settings,
+        patch.object(web_fetch_module, "automation_env_settings") as mock_env_settings,
+    ):
+        mock_site_settings.web_fetch_timeout_seconds = 1
+        mock_site_settings.web_fetch_cache_ttl_seconds = 60
+        mock_env_settings.WEB_FETCH_PROXY_URL = None
+        mock_site_settings.web_fetch_model_name = None
+        mock_site_settings.web_fetch_max_content_chars = 40
+
+        too_large = await web_fetch_module.web_fetch_tool.ainvoke({"url": "https://docs.test/releases/", "prompt": ""})
+        section = await web_fetch_module.web_fetch_tool.ainvoke({
+            "url": "https://docs.test/releases/#removed",
+            "prompt": "",
+        })
+
+    assert too_large.startswith("error: Page content is too large")
+    assert "removed body" in section
+    assert len(httpx_mock.get_requests()) == 1
+
+
+async def test_rejects_large_text_content_without_anchors(httpx_mock):
+    httpx_mock.add_response(
+        url="https://example.com/CHANGES.rst", status_code=200, headers={"content-type": "text/plain"}, text="X" * 10
     )
     with (
         patch.object(web_fetch_module, "site_settings") as mock_site_settings,
@@ -247,8 +526,14 @@ async def test_rejects_large_content(httpx_mock):
         mock_env_settings.WEB_FETCH_PROXY_URL = None
         mock_site_settings.web_fetch_max_content_chars = 5
 
-        result = await web_fetch_module.web_fetch_tool.ainvoke({"url": "https://example.com", "prompt": "x"})
-    assert result.startswith("error: Page content is too large to safely analyze in one pass.")
+        result = await web_fetch_module.web_fetch_tool.ainvoke({
+            "url": "https://example.com/CHANGES.rst#v5-0",
+            "prompt": "x",
+        })
+
+    assert result.startswith("error: Page content is too large to analyze in one pass")
+    assert "#v5-0 was ignored: only HTML pages can be narrowed to a section." in result
+    assert "#fragment" not in result
 
 
 async def test_get_auth_headers_exact_domain_match():

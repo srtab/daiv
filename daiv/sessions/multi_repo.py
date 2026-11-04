@@ -16,6 +16,7 @@ from sessions.services import (
     _aclaim_run,
     _aenqueue_batch_title,
     _astart_run,
+    _asubmit_follow_up,
     asubmit_batch_runs,
     create_run,
 )
@@ -99,7 +100,7 @@ def _validate_continuation(repos: list[RepoTarget], stored_ids: list[str]) -> No
 
 
 def _create_session_run(*, repos: list[RepoTarget], thread_id: str, status: str, run_kwargs: dict, user: User) -> Run:
-    """Create the run on ``repos[0]`` and a session row for each later one; a continuation passes the main alone."""
+    """Create the run on ``repos[0]`` and a session row for each later one."""
     main, *extras = repos
     with transaction.atomic():
         run = create_run(
@@ -198,7 +199,8 @@ async def asubmit_shared_session_run(
     references: Sequence[RefIn] | None = None,
     mcp_overrides: dict | None = None,
 ) -> BatchSubmitResult:
-    """Submit one run over several repositories: a new shared session, or a continuation of one."""
+    """Submit one run over several repositories: a new shared session, or a continuation of one, which goes to its
+    inbox like any follow-up job (:func:`sessions.services._asubmit_follow_up`) and follows the session's branch."""
     validate_shared_repos(repos, continuation=thread_id is not None)
     refs = [*(references or []), *(ref for t in repos for ref in t.references)]
     stored_refs = [ref.to_stored() for ref in refs]
@@ -206,20 +208,7 @@ async def asubmit_shared_session_run(
         raise SharedSessionError(f"references exceeds the maximum of {MAX_REFS_PER_SUBMISSION}")
 
     batch_id = uuid.uuid4()
-    run_kwargs = {
-        "trigger_type": trigger_type,
-        "prompt": prompt,
-        "agent_model": agent_model,
-        "agent_thinking_level": agent_thinking_level,
-        "muted": muted,
-        "batch_id": batch_id,
-        "mcp_overrides": mcp_overrides,
-    }
-
-    if thread_id is None:
-        await aassert_repo_access(user, [target.repo_id for target in repos])
-        session_repos, session_thread_id = repos, str(uuid.uuid4())
-    else:
+    if thread_id is not None:
         try:
             uuid.UUID(thread_id)
         except (ValueError, TypeError) as err:
@@ -230,18 +219,40 @@ async def asubmit_shared_session_run(
             raise SharedSessionError(f"thread {thread_id} is not a multi-repository session")
         _validate_continuation(repos, stored_ids)
         await aassert_repo_access(user, stored_ids)
-        session_repos = [RepoTarget(session.repo_id, session.ref, repos[0].sandbox_environment_id)]
-        session_thread_id = thread_id
+        follow_up = await _asubmit_follow_up(
+            session,
+            RepoTarget(session.repo_id, "", repos[0].sandbox_environment_id),
+            user=user,
+            prompt=prompt,
+            trigger_type=trigger_type,
+            agent_model=agent_model,
+            agent_thinking_level=agent_thinking_level,
+            muted=muted,
+            references=stored_refs,
+            mcp_overrides=mcp_overrides,
+        )
+        return BatchSubmitResult(batch_id=batch_id, outcomes=[follow_up])
+
+    await aassert_repo_access(user, [target.repo_id for target in repos])
+    run_kwargs = {
+        "trigger_type": trigger_type,
+        "prompt": prompt,
+        "agent_model": agent_model,
+        "agent_thinking_level": agent_thinking_level,
+        "muted": muted,
+        "batch_id": batch_id,
+        "mcp_overrides": mcp_overrides,
+    }
 
     def create(status: str):
         return sync_to_async(_create_session_run)(
-            repos=session_repos, thread_id=session_thread_id, status=status, run_kwargs=run_kwargs, user=user
+            repos=repos, thread_id=str(uuid.uuid4()), status=status, run_kwargs=run_kwargs, user=user
         )
 
     log_context = "submit_shared_session_run"
     claimed = await _aclaim_run(
         create,
-        target=session_repos[0],
+        target=repos[0],
         initial_status=RunStatus.READY,
         stored_refs=stored_refs,
         log_context=log_context,

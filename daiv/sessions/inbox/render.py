@@ -1,0 +1,350 @@
+"""What the model receives for an inbox run (``specs/001-session-inbox/contracts/agent-input.md``).
+
+Two messages, built from the events the run took:
+
+- the **context**, a ``synthetic_message(kind="inbox")`` the transcript hides: one line per remembered event, oldest
+  first, and of a subject's events only the newest. A waking event a newer one replaced keeps its line, with the later
+  replaced waking events and the newest event as ``Superseded by …`` lines beneath it; the replaced remembered events
+  are dropped. A foreign publish names the publishing session and links its page. A line about the branch moving says
+  whether the working copy followed it, and when the working copy moved with no such event, a line says so on its own.
+  Capped at ``CONTEXT_MAX_CHARS``: past it, the oldest remembered lines collapse into ``N more <kind> events``.
+  Omitted when there is nothing to report.
+- the **request**, a ``HumanMessage``: people's words when the run took any (chat messages, mentions with their
+  authors, the follow-up job's prompt), then DAIV's own sections (a delegated batch's summary, the CI fix prompt), in
+  precedence order and separated by a blank line.
+
+Everything here is addressed to the model, so none of it is translated. The owner's identity never appears.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from itertools import groupby
+from operator import attrgetter
+from typing import TYPE_CHECKING
+
+from asgiref.sync import sync_to_async
+
+from sessions.inbox.kinds import PRECEDENCE
+from sessions.models import EventKind, EventState, InboxEvent, QuietReason
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from langchain_core.messages import HumanMessage
+
+    from automation.agent.workspace.git_manager import FastForward
+    from sessions.models import Run
+
+INBOX_CONTEXT_KIND = "inbox"
+CONTEXT_MAX_CHARS = 8000
+QUOTE_MAX_CHARS = 1000
+CONTEXT_HEADER = "Since your last run on this session:"
+MENTION_REPLY_NOTE = "Reply as you would on the merge request; your final message is posted there."
+
+FIX_RUN_PROMPT = (
+    "CI failed on this merge request. Failed jobs: {names}. Pipeline: {url}\n\n"
+    "Read the job logs to find the cause, then fix it. If the failure is not something a "
+    "code change can fix, explain why instead of guessing."
+)
+
+_QUIET_REASONS = {
+    QuietReason.NOT_DAIV_COMMIT: "the commit is not one you pushed",
+    QuietReason.ALREADY_EXAMINED: "you already examined this commit",
+    QuietReason.BUDGET_SPENT: "the CI fix attempts are spent",
+    QuietReason.WATCH_OFF: "the CI watch is off",
+    QuietReason.RUN_LIMIT: "too many runs in a row started without a person",
+}
+_CI_STATUS = {EventKind.CI_FAILED: "FAILED", EventKind.CI_PASSED: "PASSED", EventKind.CI_STOPPED: "STOPPED"}
+_DELEGATED_OUTCOMES = {
+    "passing": "passing",
+    "stopped_after_attempts": "still failing after the fix attempts",
+    "no_push": "failed, and the run that looked at it pushed nothing",
+}
+
+
+@dataclass(frozen=True)
+class RenderedInput:
+    context: HumanMessage | None
+    request: HumanMessage
+
+    @property
+    def messages(self) -> tuple[HumanMessage, ...]:
+        """The run's input, context first."""
+        return (self.request,) if self.context is None else (self.context, self.request)
+
+
+_FAST_FORWARDED = {
+    "advanced": "Your working copy was fast-forwarded.",
+    "replaced": "The branch was rewritten (rebased or force-pushed), so your working copy was moved to its new head.",
+    "diverged": "Your working copy could not be fast-forwarded because you have unpublished commits.",
+}
+
+
+@dataclass
+class _Entry:
+    position: int
+    lines: list[str]
+    kind: str
+    collapsible: bool
+
+
+SUMMARY_MAX_CHARS = 140
+
+
+class RunInput:
+    """What the model receives for the events a run took."""
+
+    def __init__(self, events: Sequence[InboxEvent]):
+        self.events = events
+
+    @classmethod
+    def of_run(cls, run: Run) -> RunInput:
+        """The events ``run`` took, and the ones they superseded, oldest first. SYNC ONLY."""
+        return cls(list(InboxEvent.objects.filter(run=run).select_related("author").order_by("created_at", "id")))
+
+    @classmethod
+    async def aof_run(cls, run: Run) -> RunInput:
+        return await sync_to_async(cls.of_run)(run)
+
+    def render(self, run: Run, *, fast_forward: FastForward | None = None) -> RenderedInput:
+        """The input for ``run`` from its events, and what bringing its checkout up to the remote branch did."""
+        # Deferred: ``sessions.signals`` imports this module at app load, and the agent stack must not load with it.
+        from langchain_core.messages import HumanMessage
+
+        from automation.agent.synthetic import synthetic_message
+
+        context = self.context(fast_forward=fast_forward, branch=run.ref)
+        return RenderedInput(
+            context=synthetic_message(context, kind=INBOX_CONTEXT_KIND) if context else None,
+            request=HumanMessage(content=self.request(), id=run.message_id or None),
+        )
+
+    def request(self) -> str:
+        """The request sections for the waking events, in precedence order."""
+        waking = sorted(
+            (event for event in self.events if event.wake and event.state != EventState.SUPERSEDED),
+            key=lambda event: (PRECEDENCE[event.kind], event.created_at),
+        )
+        sections = [
+            self._section(kind, list(group))
+            for kind, group in groupby(waking, key=attrgetter("kind"))
+            if kind in PRECEDENCE
+        ]
+        return "\n\n".join(section for section in sections if section)
+
+    @staticmethod
+    def _section(kind: str, events: list[InboxEvent]) -> str:
+        if kind == EventKind.CHAT_MESSAGE:
+            if len(events) == 1:
+                return events[0].payload["text"]
+            return "\n\n".join(f"[{event.created_at:%H:%M}] {event.payload['text']}" for event in events)
+        if kind == EventKind.MENTION:
+            mentions = [
+                f"{EventText(event).author_name()} mentioned you on !{event.merge_request_iid} "
+                f"({event.payload['web_url']}):\n{EventText.blockquote(event.payload['body'])}"
+                for event in events
+            ]
+            return "\n\n".join([*mentions, MENTION_REPLY_NOTE])
+        if kind == EventKind.FOLLOW_UP_JOB:
+            return "\n\n".join(event.payload["prompt"] for event in events)
+        if kind == EventKind.DELEGATION_FINISHED:
+            return "\n\n".join(event.payload["summary"] for event in events)
+        return "\n\n".join(
+            FIX_RUN_PROMPT.format(
+                names=", ".join(event.payload["failed_jobs"]) or "the pipeline", url=event.payload["web_url"]
+            )
+            for event in events
+        )
+
+    def context(self, *, fast_forward: FastForward | None = None, branch: str = "") -> str:
+        """The context message's text for the events, or ``""`` when no line is due."""
+        position = {event.pk: index for index, event in enumerate(self.events)}
+        moved = _FAST_FORWARDED.get(fast_forward or "")
+        entries: list[_Entry] = []
+        for chain in self._chains():
+            newest = chain[-1]
+            replaced = [event for event in chain[:-1] if event.wake and event.state == EventState.SUPERSEDED]
+            if replaced:
+                entries.append(
+                    _Entry(
+                        position=position[replaced[0].pk],
+                        lines=[
+                            EventText(replaced[0]).line(),
+                            *(f"  Superseded by {EventText(event).short()}." for event in [*replaced[1:], newest]),
+                        ],
+                        kind=newest.kind,
+                        collapsible=not newest.wake,
+                    )
+                )
+            elif not newest.wake and newest.state != EventState.SUPERSEDED:
+                entries.append(
+                    _Entry(
+                        position=position[newest.pk],
+                        lines=[EventText(newest).line()],
+                        kind=newest.kind,
+                        collapsible=True,
+                    )
+                )
+        pushes = [entry for entry in entries if entry.kind == EventKind.BRANCH_PUSHED]
+        if moved and pushes:
+            pushes[-1].lines[-1] = f"{pushes[-1].lines[-1]} {moved}"
+            pushes[-1].collapsible = False
+        elif moved:
+            entries.append(
+                _Entry(
+                    position=len(self.events),
+                    lines=[f"- The branch {branch} moved on the remote. {moved}"],
+                    kind="",
+                    collapsible=False,
+                )
+            )
+        if not entries:
+            return ""
+        return self._fit(sorted(entries, key=attrgetter("position")))
+
+    def _chains(self) -> list[list[InboxEvent]]:
+        """The events grouped by subject, each group oldest first; an event with no subject is a group of its own."""
+        by_subject: dict[str, list[InboxEvent]] = {}
+        alone: list[list[InboxEvent]] = []
+        for event in self.events:
+            if event.subject:
+                by_subject.setdefault(event.subject, []).append(event)
+            else:
+                alone.append([event])
+        return [*by_subject.values(), *alone]
+
+    @staticmethod
+    def _fit(entries: list[_Entry]) -> str:
+        collapsed: dict[str, int] = {}
+        kept = list(entries)
+
+        def _text() -> str:
+            summary = [f"- {count} more {kind.replace('_', ' ')} events" for kind, count in collapsed.items()]
+            body = [line for entry in kept for line in entry.lines]
+            return "\n".join([CONTEXT_HEADER, "", *summary, *body])
+
+        while len(_text()) > CONTEXT_MAX_CHARS:
+            oldest = next((entry for entry in kept if entry.collapsible), None)
+            if oldest is None:
+                break
+            kept.remove(oldest)
+            collapsed[oldest.kind] = collapsed.get(oldest.kind, 0) + 1
+        return _text()
+
+
+class EventText:
+    """How one inbox event reads: a summary for the session page, a line and a description for the model."""
+
+    def __init__(self, event: InboxEvent):
+        self.event = event
+
+    def author_name(self) -> str:
+        event = self.event
+        return event.author_username or (event.author.username if event.author is not None else "someone")
+
+    def summary(self) -> str:
+        """A one-line summary of the event for the session page, built from its payload alone."""
+        event = self.event
+        payload = event.payload
+        match event.kind:
+            case EventKind.CHAT_MESSAGE:
+                text = payload["text"]
+            case EventKind.MENTION:
+                text = f"{self.author_name()} on !{event.merge_request_iid}: {payload['body']}"
+            case EventKind.FOLLOW_UP_JOB:
+                text = payload["prompt"]
+            case EventKind.DELEGATION_FINISHED:
+                text = f"{payload['succeeded']} of {payload['total']} succeeded" if "total" in payload else ""
+            case EventKind.COMMENT:
+                text = f"{self.author_name()} on !{event.merge_request_iid}: {payload['body']}"
+            case EventKind.CI_FAILED | EventKind.CI_PASSED | EventKind.CI_STOPPED:
+                text = (
+                    f"CI on !{event.merge_request_iid}: pipeline {payload['pipeline_id']} {self._ci_status().lower()}"
+                )
+            case EventKind.FOREIGN_PUBLISH:
+                text = self._foreign_publish(link=False)
+            case _:
+                text = self.describe()
+        text = " ".join(text.split())
+        return text if len(text) <= SUMMARY_MAX_CHARS else f"{text[: SUMMARY_MAX_CHARS - 1]}…"
+
+    def line(self) -> str:
+        return f"- {self.describe()}"
+
+    def describe(self) -> str:
+        event = self.event
+        payload = event.payload
+        match event.kind:
+            case EventKind.CI_FAILED | EventKind.CI_PASSED | EventKind.CI_STOPPED:
+                jobs = f", jobs: {', '.join(payload['failed_jobs'])}" if payload.get("failed_jobs") else ""
+                text = (
+                    f"CI on !{event.merge_request_iid} (branch {event.ref}): pipeline {payload['pipeline_id']} "
+                    f"{self._ci_status()} on {payload['sha'][:8]}{jobs}. {payload['web_url']}"
+                )
+                return f"{text} {self._not_woken()}" if event.reason else text
+            case EventKind.BRANCH_PUSHED:
+                count = payload["commit_count"]
+                return (
+                    f"The branch {event.ref} moved: {payload['pusher_username']} pushed {count} "
+                    f"{'commit' if count == 1 else 'commits'} ({payload['before'][:8]} → {payload['after'][:8]})."
+                )
+            case EventKind.FOREIGN_PUBLISH:
+                return self._foreign_publish(link=True)
+            case EventKind.MR_MERGED:
+                target = payload["target_branch"]
+                return f"!{event.merge_request_iid} was merged into {target} by {payload['by_username']}."
+            case EventKind.MR_CLOSED:
+                return f"!{event.merge_request_iid} was closed by {payload['by_username']}."
+            case EventKind.COMMENT:
+                return (
+                    f"Comment by {self.author_name()} on !{event.merge_request_iid} (not addressed to you): "
+                    f'"{self.cut(payload["body"])}"'
+                )
+            case EventKind.DELEGATED_CI_OUTCOME:
+                outcome = _DELEGATED_OUTCOMES.get(payload["outcome"], payload["outcome"])
+                return (
+                    f"Delegated session {payload['child_thread_id'][:8]}… (!{payload['merge_request_iid']}): "
+                    f"CI {outcome}."
+                )
+            case EventKind.DELEGATION_FINISHED:
+                return f"Delegated jobs finished. {self._not_woken()}\n  {self.cut(payload['summary'])}"
+            case EventKind.NOTICE:
+                return payload["text"]
+        return f"{event.get_kind_display()}."
+
+    def short(self) -> str:
+        event = self.event
+        if event.kind in _CI_STATUS:
+            return f"pipeline {event.payload['pipeline_id']} on {event.payload['sha'][:8]}: {self._ci_status()}"
+        return self.describe().rstrip(".")
+
+    def _ci_status(self) -> str:
+        event = self.event
+        status = _CI_STATUS[event.kind]
+        return f"{status} ({event.payload['status']})" if event.kind == EventKind.CI_STOPPED else status
+
+    def _not_woken(self) -> str:
+        reason = self.event.reason
+        return f"You were not asked to act on it: {_QUIET_REASONS.get(reason, reason)}."
+
+    def _foreign_publish(self, *, link: bool) -> str:
+        """The publishing session named by its title, and with ``link`` its page's URL; an event posted before the
+        payload carried them says only that it was a session of the publisher's own."""
+        event = self.event
+        payload = event.payload
+        source = f'their session "{payload["title"]}"' if payload.get("title") else "a session of their own"
+        if link and payload.get("web_url"):
+            source = f"{source} ({payload['web_url']})"
+        return (
+            f"{payload['owner_username']} published {payload['sha'][:8]} to the branch {event.ref} from {source}; this "
+            "session still owns the merge request."
+        )
+
+    @staticmethod
+    def cut(text: str) -> str:
+        return text if len(text) <= QUOTE_MAX_CHARS else f"{text[:QUOTE_MAX_CHARS]}…"
+
+    @staticmethod
+    def blockquote(text: str) -> str:
+        return "\n".join(f"> {line}" for line in EventText.cut(text).splitlines() or [""])

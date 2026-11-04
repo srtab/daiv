@@ -1,5 +1,5 @@
 import threading
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -164,3 +164,14 @@ async def test_for_repo_sibling_runs_git_in_its_clone_and_mints_its_auth(tmp_pat
     assert (await view.authenticated_git())._runner == LocalGitRunner(sibling.gitrepo, auth_env=auth_env)
     sibling.client.get_git_auth_env.assert_called_once_with(sibling.repository)
     ctx.repo.client.get_git_auth_env.assert_not_called()
+
+
+async def test_fast_forward_fetches_with_a_credential_minted_now(tmp_path):
+    ctx = _ctx(tmp_path)
+    workspace = DiskWorkspace(ctx)
+    git = MagicMock(fast_forward=AsyncMock(return_value="advanced"))
+
+    with patch.object(DiskWorkspace, "authenticated_git", AsyncMock(return_value=git)):
+        assert await workspace.fast_forward("chore/x") == "advanced"
+
+    git.fast_forward.assert_awaited_once_with("chore/x")

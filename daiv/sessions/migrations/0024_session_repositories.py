@@ -5,7 +5,10 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("agent_sessions", "0020_run_publish_result"), ("sandbox_envs", "0006_drop_network_enabled")]
+    dependencies = [
+        ("agent_sessions", "0023_remove_session_inbox_muted"),
+        ("sandbox_envs", "0006_drop_network_enabled"),
+    ]
 
     operations = [
         migrations.AddField(

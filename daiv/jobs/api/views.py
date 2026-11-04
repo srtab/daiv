@@ -37,8 +37,8 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
     If ``thread_id`` is supplied, the new job continues an existing thread: exactly one
     repo must be provided (a multi-repository session also takes its full list) and the
     session owning that thread must belong to the caller, who has not archived it.
-    If a prior run on the thread is still in flight, the new Run is created in ``QUEUED``
-    state and will be released FIFO when the prior run terminates.
+    If the session is busy, the job joins its next run for the job's branch (``QUEUED``), which
+    other jobs on that branch may share, and so their ``job_id``.
     """
     try:
         result = await asubmit_jobs(
@@ -69,7 +69,8 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
             repo_id=spec.repo_id,
             ref=spec.ref,
             thread_id=str(outcome.session_id),
-            status=cast("Literal['QUEUED', 'READY']", outcome.status),
+            # A follow-up's run may have started, or even ended, by the time it is returned.
+            status="QUEUED" if outcome.status == RunStatus.QUEUED else "READY",
         )
         # A shared session's single outcome pairs with its main repository, the first spec.
         for spec, outcome in zip(payload.repos, result.outcomes, strict=False)

@@ -102,7 +102,7 @@ The `goal` only titles the batch; it is never sent to a leg.
 | Legs cannot ask questions | Nobody is watching a leg, so it decides or reports instead of stopping for input. |
 | Legs and the resumed run keep the coordinator's mute | A muted job or schedule stays quiet through its delegations. |
 | Only the coordinator's session can check or cancel its legs | The tools see the batches their own session delegated, and no other session's. |
-| At most **3 resumes in a row** may delegate again | A coordinator resumed three times in a row by its own delegations, with no other run on its session in between, finishes in that turn instead of delegating again, so failing legs cannot loop it. |
+| At most **3 runs in a row** nobody asked for | After three runs in a row on the coordinator's session that no person started, a finished batch is only remembered instead of resuming it, until a person starts a run there, and its owner is told, so failing legs cannot loop it. |
 
 If no target starts, the tool says so and no resume comes: the coordinator deals with the failures in the same turn. If the resumed run cannot be queued when the last leg finishes, or gives up waiting for the coordinator's session, DAIV retries it within a few minutes, and it starts any leg left waiting after the coordinator's turn ended.
 

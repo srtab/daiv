@@ -12,13 +12,14 @@ from dashboard.home import INBOX_LIMIT
 from dashboard.tasks import BOT_USERNAME_CACHE_KEY, BOT_USERNAME_PENDING_KEY
 from notifications.choices import EnvelopeStatus
 from notifications.models import RunEnvelope
-from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin, WatchState
+from sessions.models import EventKind, HiddenSession, QuietReason, Run, RunStatus, Session, SessionOrigin
 
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
 from core.conf import settings as core_settings
 from schedules.models import DispatchError, Frequency, ScheduledJob
+from tests.unit_tests.sessions.inbox.conftest import make_event
 
 
 @pytest.fixture(autouse=True)
@@ -79,6 +80,14 @@ def _make_session(user, origin, *, status=RunStatus.SUCCESSFUL, days_ago=0):
         created_at=_local_noon(days_ago),
     )
     return session
+
+
+def _gave_up(session, *, days_ago=0):
+    """CI on the session's merge request ran out of attempts ``days_ago``."""
+    make_event(
+        session, EventKind.CI_FAILED, wake=False, reason=QuietReason.BUDGET_SPENT, merge_request_iid=9,
+        created_at=_local_noon(days_ago),
+    )  # fmt: skip
 
 
 def _mcp_url() -> str:
@@ -158,8 +167,7 @@ class TestNeedsYouInbox:
         _classified_session(member_user, EnvelopeStatus.NEEDS_ATTENTION)
         _classified_session(member_user, EnvelopeStatus.FOUND_ISSUES)
         _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.WAITING_INPUT)
-        watched = _make_session(member_user, SessionOrigin.MR_WEBHOOK, days_ago=2)
-        Session.objects.filter(pk=watched.pk).update(watch_state=WatchState.EXHAUSTED)
+        _gave_up(_make_session(member_user, SessionOrigin.MR_WEBHOOK, days_ago=2), days_ago=2)
         _failing_schedule(member_user)
         _make_session(member_user, SessionOrigin.UI_JOB, status=RunStatus.FAILED)
         _make_session(member_user, SessionOrigin.CHAT)
@@ -271,8 +279,7 @@ class TestNeedsYouInbox:
     def test_findings_and_a_given_up_watch_age_out_after_a_week(self, member_user, member_client):
         _classified_session(member_user, EnvelopeStatus.FOUND_ISSUES, days_ago=6)
         _classified_session(member_user, EnvelopeStatus.NEEDS_ATTENTION, days_ago=8)
-        stale_watch = _make_session(member_user, SessionOrigin.MR_WEBHOOK, days_ago=8)
-        Session.objects.filter(pk=stale_watch.pk).update(watch_state=WatchState.EXHAUSTED)
+        _gave_up(_make_session(member_user, SessionOrigin.MR_WEBHOOK, days_ago=8), days_ago=8)
 
         assert _keys(_inbox(member_client)) == ["found-issues"]
 
@@ -296,10 +303,16 @@ class TestNeedsYouInbox:
         assert _keys(_inbox(member_client)) == ["needs-input", "failed", "failed"]
 
     def test_a_question_in_a_session_whose_ci_watch_gave_up_shows_as_the_question(self, member_user, member_client):
-        session = _make_session(member_user, SessionOrigin.MR_WEBHOOK, status=RunStatus.WAITING_INPUT)
-        Session.objects.filter(pk=session.pk).update(watch_state=WatchState.EXHAUSTED)
+        _gave_up(_make_session(member_user, SessionOrigin.MR_WEBHOOK, status=RunStatus.WAITING_INPUT))
 
         assert _keys(_inbox(member_client)) == ["needs-input"]
+
+    def test_ci_that_passed_after_giving_up_is_cleared(self, member_user, member_client):
+        session = _make_session(member_user, SessionOrigin.MR_WEBHOOK, days_ago=2)
+        _gave_up(session, days_ago=2)
+        make_event(session, EventKind.CI_PASSED, merge_request_iid=9, created_at=timezone.now() - timedelta(days=1))
+
+        assert _inbox(member_client)["items"] == []
 
     def test_all_clear_and_schedules_that_will_not_run_stay_out(self, member_user, member_client):
         _classified_session(member_user, EnvelopeStatus.ALL_CLEAR)

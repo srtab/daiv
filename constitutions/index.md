@@ -14,18 +14,20 @@ relative to `constitutions/`.
 4. `architecture/layering.md` — the app layers, import contracts, the `Workspace`, and the
    extension points. Adding a module or package, importing across apps, or adding an agent
    tool, a view or an endpoint.
-5. `patterns/security.md` — the sandbox, egress, credentials, inbound authentication and
+5. `patterns/code-organization.md` — whether behaviour is a class's method or a function.
+   Adding a module, a function or a helper.
+6. `patterns/security.md` — the sandbox, egress, credentials, inbound authentication and
    repository access. Touching any of them, adding an entry point, or handling a secret.
-6. `patterns/platforms-and-providers.md` — GitLab and GitHub parity, providers, models and
+7. `patterns/platforms-and-providers.md` — GitLab and GitHub parity, providers, models and
    shared identifiers. Calling the git platform, or choosing or configuring a model.
-7. `patterns/errors.md` — failure results, logging, disclosure and run binding. Adding an
+8. `patterns/errors.md` — failure results, logging, disclosure and run binding. Adding an
    error path, a log line, a tool's failure result, or an entry point that runs the agent.
-8. `patterns/tests.md` — test layout, what to test, and isolation. Planning or verifying a
+9. `patterns/tests.md` — test layout, what to test, and isolation. Planning or verifying a
    change, or writing tests.
-9. `patterns/agent-evals.md` — measuring agent behaviour. Changing a prompt, a built-in skill,
-   a tool description, a subagent, or a middleware that changes what the model sees.
-10. `../DESIGN.md` — design tokens, components and UI patterns. Changing a template or styles.
-11. `../docs/` — the user documentation. Changing a feature, setting or behaviour users see.
+10. `patterns/agent-evals.md` — measuring agent behaviour. Changing a prompt, a built-in
+    skill, a tool description, a subagent, or a middleware that changes what the model sees.
+11. `../DESIGN.md` — design tokens, components and UI patterns. Changing a template or styles.
+12. `../docs/` — the user documentation. Changing a feature, setting or behaviour users see.
 
 There is no decision log. The reason for a rule sits beside the rule, in its _Prevents_ line,
 and the commit that introduced it holds the rest.

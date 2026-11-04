@@ -7,6 +7,10 @@ seed, the frames that arrive later, and a label whose number is interpolated cli
 
 from __future__ import annotations
 
+import json
+
+import pytest
+
 from tests.unit_tests.jsdriver import requires_node, run_node
 from tests.unit_tests.test_template_comments import DAIV_DIR
 
@@ -18,11 +22,17 @@ HARNESS = """
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
-const { src, props, starts, frames, dispatch, visibility } = JSON.parse(readFileSync(0, "utf8"));
+const { src, props, starts, frames, dispatch, sessionFrames, visibility } = JSON.parse(readFileSync(0, "utf8"));
 const stores = {};
 let opened = null;
 
 let constructed = 0;
+const dispatched = [];
+let warnings = 0;
+
+class FakeCustomEvent {
+  constructor(type, init = {}) { this.type = type; this.detail = init.detail; }
+}
 
 class FakeEventSource {
   constructor(url) { this.url = url; this.listeners = {}; this.closed = false; opened = this; constructed += 1; }
@@ -32,7 +42,9 @@ class FakeEventSource {
 
 const docListeners = {};
 const sandbox = {
-  console: { warn: () => {}, error: () => {} },
+  console: { warn: () => { warnings += 1; }, error: () => {} },
+  CustomEvent: FakeCustomEvent,
+  dispatchEvent: (event) => dispatched.push({ type: event.type, detail: event.detail }),
   EventSource: FakeEventSource,
   document: {
     visibilityState: "visible",
@@ -48,6 +60,7 @@ const nav = stores.nav;
 for (let i = 0; i < starts; i++) nav.start(props);
 for (const frame of frames) opened.listeners.snapshot({ data: JSON.stringify(frame) });
 for (const name of dispatch) opened.listeners[name]({ data: "{}" });
+for (const data of sessionFrames) opened.listeners.session({ data });
 for (const state of visibility) {
   sandbox.document.visibilityState = state;
   docListeners.visibilitychange();
@@ -56,11 +69,12 @@ for (const state of visibility) {
 process.stdout.write(JSON.stringify({
   unread: nav.unread,
   running: nav.running,
-  latestRunningStart: nav.latestRunningStart,
   runningLabel: nav.runningLabel,
   url: opened && opened.url,
   closed: opened ? opened.closed : null,
   constructed,
+  dispatched,
+  warnings,
 }));
 """
 
@@ -69,6 +83,7 @@ def drive(
     seed: dict | None = None,
     frames: list[dict] | None = None,
     dispatch: list[str] | None = None,
+    session_frames: list[str] | None = None,
     visibility: list[str] | None = None,
     starts: int = 1,
     running_label: str = "{count} running",
@@ -88,6 +103,7 @@ def drive(
         "starts": starts,
         "frames": frames or [],
         "dispatch": dispatch or [],
+        "sessionFrames": session_frames or [],
         "visibility": visibility or [],
     }
     return run_node(HARNESS, payload)
@@ -119,17 +135,6 @@ def test_a_partial_snapshot_leaves_the_other_count_alone():
 def test_an_unreadable_frame_is_ignored_rather_than_clearing_the_badges():
     state = drive({"unread_count": 3, "running_runs": 2}, frames=[{"unread_count": "nonsense"}])
     assert (state["unread"], state["running"]) == (3, 2)
-
-
-def test_the_latest_running_start_follows_the_seed_then_each_snapshot():
-    seeded = drive({"latest_running_start": "2026-10-22T13:15:19+00:00"})
-    moved = drive(
-        {"latest_running_start": "2026-10-22T13:15:19+00:00"},
-        frames=[{"running_runs": 1, "latest_running_start": "2026-10-22T13:16:20+00:00"}],
-    )
-
-    assert seeded["latestRunningStart"] == "2026-10-22T13:15:19+00:00"
-    assert moved["latestRunningStart"] == "2026-10-22T13:16:20+00:00"
 
 
 def test_the_label_interpolates_the_live_count():
@@ -179,3 +184,31 @@ def test_a_stream_the_server_ended_is_not_reopened_by_visibility():
     state = drive({}, dispatch=["end"], visibility=["hidden", "visible"])
     assert state["closed"] is True
     assert state["constructed"] == 1
+
+
+@pytest.mark.parametrize("revision", [3, 0])
+def test_a_session_frame_is_announced_to_the_page(revision):
+    """The bus reads a missing key as 0, so 0 is a real revision the page must fetch against."""
+    state = drive(session_frames=[json.dumps({"revision": revision})])
+    assert state["dispatched"] == [{"type": "daiv:session-changed", "detail": {"revision": revision}}]
+
+
+def test_every_session_frame_is_announced_in_order():
+    state = drive(session_frames=['{"revision": 4}', '{"revision": 5}'])
+    assert [event["detail"]["revision"] for event in state["dispatched"]] == [4, 5]
+
+
+@pytest.mark.parametrize(
+    "data", ["not json", "null", "3", "{}", '{"revision": "3"}', '{"revision": 1.5}', '{"revision": null}']
+)
+def test_an_unreadable_session_frame_is_ignored(data):
+    state = drive({"unread_count": 3, "running_runs": 2}, session_frames=[data])
+    assert state["dispatched"] == []
+    assert state["warnings"] == 1
+    assert (state["unread"], state["running"]) == (3, 2)
+    assert state["closed"] is False
+
+
+def test_a_bad_session_frame_does_not_stop_the_next_one():
+    state = drive(session_frames=["not json", '{"revision": 7}'])
+    assert [event["detail"]["revision"] for event in state["dispatched"]] == [7]

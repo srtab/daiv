@@ -264,7 +264,8 @@ CONTROL_TAGS = frozenset({"button", "textarea", "input", "select"})
 # composer box, over the transcript, and is on screen only while sending — the one control
 # in there that is an affordance rather than an input being held inert.
 # `context-meter` is the live reading itself; dimming it mid-turn hides it exactly when it moves.
-CRISP = frozenset({"chat-jump", "context-meter"})
+# The prompt and Send/Stop stay live: a message sent mid-turn waits for the session's next run.
+CRISP = frozenset({"chat-jump", "context-meter", "chat-composer__textarea", "composer-send"})
 
 
 def _is_invisible(classes: list[str], attrs: dict[str, str]) -> bool:
@@ -297,7 +298,7 @@ class _ComposerControls(ElementStack):
 def test_every_composer_control_goes_inert_while_a_turn_is_in_flight(member_client, member_user):
     """`.chat-composer--sending` names its controls one by one, so the composer is only as
     inert as that list is current. A control added to the action row and left off it reads
-    as live mid-turn beside four neighbours that have dimmed.
+    as live mid-turn beside neighbours that have dimmed.
     """
     faded = {match.group(1) for match in SENDING.finditer(INPUT_CSS.read_text(encoding="utf-8"))}
     assert faded, "the composer no longer dims anything while sending — is this test still looking?"

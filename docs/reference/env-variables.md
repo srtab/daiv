@@ -306,7 +306,7 @@ This section documents the environment variables for each tool configuration use
 
 ### Web Fetch
 
-The native `web_fetch` tool fetches a URL, converts HTML to markdown, then uses a small/fast model to answer a prompt about the page content.
+The native `web_fetch` tool fetches a URL, converts HTML to markdown, then uses a small/fast model to answer a prompt about the page content. A `#fragment` on an HTML page's URL limits it to the section that anchor names; a page over the max content size is rejected with a list of its section anchors.
 
 | Variable                        | Description                                                    | Default        | Example |
 |---------------------------------|----------------------------------------------------------------|:--------------:|---------|

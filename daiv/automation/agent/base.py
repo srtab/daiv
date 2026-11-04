@@ -341,6 +341,9 @@ def get_model_kwargs(*, resolved: ResolvedProvider, thinking_level: ThinkingLeve
             kw["use_responses_api"] = True
         if sdk_kw["base_url"]:
             kw["openai_api_base"] = sdk_kw["base_url"]
+        # langchain-openai only defaults this on for OpenAI's own URL and client; without it a
+        # streamed call to vLLM and most compatible servers returns no token usage at all.
+        kw["stream_usage"] = True
         _apply_openai_reasoning(kw, thinking_level, resolved.model_name)
 
     elif row.provider_type == ProviderType.OPENROUTER:

@@ -38,7 +38,7 @@ class WatchPlatform:
     first build, and ``sync_to_async(self.client.get_pipeline)`` would run that on the event loop.
     What the per-instance memo then saves is the thread hop, not the installation lookup.
 
-    The methods have deliberately different error policies. ``aread_pipeline`` and
+    The methods have deliberately different error policies. ``aread_pipeline``, ``aread_latest_pipelines`` and
     ``aread_merge_request`` raise, because an unreadable pipeline is not a verdict and only the caller
     knows whether to leave the watch armed. ``ais_head_pipeline`` answers ``False``, because "cannot
     correlate" is a skip.
@@ -65,11 +65,14 @@ class WatchPlatform:
         """
         await self._aclient()
 
-    async def aread_pipeline(self, *, ref: str, pipeline_id: int | None) -> Pipeline | None:
+    async def aread_pipeline(self, *, pipeline_id: int) -> Pipeline | None:
         client = await self._aclient()
-        if pipeline_id is not None:
-            return await sync_to_async(client.get_pipeline)(self.repo_id, pipeline_id)
-        return await sync_to_async(client.get_latest_pipeline_for_ref)(self.repo_id, ref)
+        return await sync_to_async(client.get_pipeline)(self.repo_id, pipeline_id)
+
+    async def aread_latest_pipelines(self, *, ref: str) -> list[Pipeline]:
+        """The latest pipeline of each CI subject on ``ref``, without its jobs."""
+        client = await self._aclient()
+        return await sync_to_async(client.get_latest_pipelines_for_ref)(self.repo_id, ref)
 
     async def aread_merge_request(self, merge_request_iid: int) -> MergeRequest:
         client = await self._aclient()

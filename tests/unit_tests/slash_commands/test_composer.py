@@ -29,7 +29,6 @@ def test_issue_only_commands_excluded():
     names = {row["name"] for row in composer_command_rows() if row["kind"] == "command"}
 
     assert "clear" not in names
-    assert "clone-to-topics" not in names
 
 
 def test_builtin_skills_included(custom_skills_root):

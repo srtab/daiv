@@ -54,7 +54,7 @@ class BaseManager:
         if outcome.agent_result["question"] is None:
             return None
         footer = render_to_string(
-            "webhooks/ask_user_question.txt", {"asker": asker, "bot_username": self.client.current_user.username}
+            "core/ask_user_question.txt", {"asker": asker, "bot_username": self.client.current_user.username}
         )
         return self._append_footer(outcome.response_text, footer.strip())
 

@@ -8,7 +8,7 @@ from deepagents.backends.composite import CompositeBackend
 
 from automation.agent.constants import REPO_PATH, WORKSPACE_PATH
 from automation.agent.context import extra_repo_path
-from automation.agent.workspace.git_manager import GitManager
+from automation.agent.workspace.git_manager import FastForward, GitManager
 from automation.agent.workspace.git_runners import SandboxGitRunner
 from automation.agent.workspace.repo_view import RepoWorkspace
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend
@@ -91,6 +91,9 @@ class SandboxWorkspace:
             return git
 
         return RepoWorkspace(self.backend, path, authenticate)
+
+    async def fast_forward(self, branch: str) -> FastForward:
+        return await (await self.authenticated_git()).fast_forward(branch)
 
     async def download_file(self, path: str, *, max_bytes: int) -> FileDownloadResponse:
         (response,) = await self.bash.adownload_files([path], max_bytes=max_bytes)

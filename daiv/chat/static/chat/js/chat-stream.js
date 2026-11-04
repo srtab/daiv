@@ -273,8 +273,9 @@
       const turn = turns[i];
       if (turn.role === "run_status") continue;
       if (turn.role === "user") return [];
-      for (let j = turn.segments.length - 1; j >= 0; j--) {
-        const s = turn.segments[j];
+      const segments = turn.segments ?? [];
+      for (let j = segments.length - 1; j >= 0; j--) {
+        const s = segments[j];
         if (s.type === "tool_call" && s.name === "write_todos") return parseTodos(s);
       }
     }
@@ -294,7 +295,7 @@
     };
     for (const t of turns) {
       if (t.role === "run_status") continue;
-      for (const seg of t.segments) {
+      for (const seg of t.segments ?? []) {
         if (seg.type !== "tool_call") continue;
         if (seg.name === "publish_artifact") {
           const payload = artifactPayload(seg);
@@ -379,8 +380,11 @@
     draftRef: "",
     streaming: false,
     resuming: !!config.activeRunId,
-    // Whether the session has a run in flight, streamed here or not; the poll and this page's own runs keep it current.
+    // Whether the session has a run in flight, streamed here or not; turns fetches and own runs keep it current.
     sessionLive: !!config.sessionLive,
+    // The next run a message sent while the session was busy waits for.
+    queuedRunId: "",
+    queueing: false,
     waitingSince: config.waitingSince || "",
     runStoppable: config.liveRunStoppable ?? true,
     publishPhase: "",
@@ -611,13 +615,33 @@
       this.slashIndex = 0;
     },
 
-    // One handler instead of per-key `@keydown.*.prevent` bindings: Alpine's modifiers
-    // preventDefault unconditionally, and plain Enter must keep inserting newlines
-    // whenever the menu is closed.
+    // One handler, since Alpine's key modifiers preventDefault unconditionally. A touch keyboard
+    // has no Ctrl, so there Enter keeps its line break and the Send button sends.
     onPromptKeydown(e) {
       // Enter commits an IME candidate; stealing it would cancel the composition.
       if (e.isComposing || e.keyCode === 229) return;
-      if (!this.slashMenuOpen) return;
+      if (this.slashMenuOpen && this._onSlashMenuKeydown(e)) return;
+      if (e.key !== "Enter" || e.shiftKey || e.altKey) return;
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        this._breakLine(e.target);
+      } else if (!window.matchMedia?.("(pointer: coarse)").matches) {
+        e.preventDefault();
+        this.submit();
+      }
+    },
+
+    _breakLine(prompt) {
+      // ``insertText`` keeps the line break in the browser's undo history.
+      if (!document.execCommand?.("insertText", false, "\n")) {
+        prompt.setRangeText("\n", prompt.selectionStart, prompt.selectionEnd, "end");
+      }
+      this.draftMessage = prompt.value;
+      this.autosize();
+    },
+
+    // Whether the open command menu took the key.
+    _onSlashMenuKeydown(e) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
         this.moveSlashHighlight(1);
@@ -633,7 +657,10 @@
         // closeSheet() listener also fire.
         e.stopPropagation();
         this.slashDismissed = true;
+      } else {
+        return false;
       }
+      return true;
     },
 
     moveSlashHighlight(delta) {
@@ -666,15 +693,8 @@
       // While a stream is attached it owns ``turns``; swapping the array would detach
       // the streaming placeholder and hide live output.
       if (this.streaming || this.resuming) return;
-      // The poller re-emits the WHOLE transcript every few seconds. Reassigning ``turns``
-      // re-runs every x-html/x-text binding (re-rendered markdown, re-highlighted code,
-      // repaint) even when nothing changed — the visible every-poll flicker. Skip
-      // the swap when the transcript is byte-identical to what we already show, so
-      // steady-state polls during a long-running tool are free; only a genuine
-      // change repaints. Both sides come from the same server serializer
-      // (annotate_transcript(build_turns(...))), so key order is stable and the
-      // JSON compare is reliable. Alpine's keyed x-for reuses each turn's DOM node
-      // on reassignment, so open tool <details> survive a real change too.
+      // Each fetch carries the WHOLE transcript and reassigning ``turns`` re-renders every turn, so an unchanged one is
+      // skipped; both sides come from one server serializer, so their key order, and this compare, is stable.
       if (JSON.stringify(turns) === JSON.stringify(this.turns)) return;
       this.turns = turns;
       // Mirror the live-stream path (dispatch() scrolls after every event): follow
@@ -810,7 +830,7 @@
       });
 
       if (this.resuming && this.thread && config.activeRunId) {
-        this.followLiveRun({
+        this._followRun({
           id: config.activeRunId,
           stoppable: this.runStoppable,
           started_at: config.activeRunStartedAt,
@@ -850,11 +870,16 @@
 
     // ---------- Run stream (EventSource against the relay) -------------
 
+    followLiveRun(run) {
+      if (this.streaming || this.resuming) return;
+      this._followRun(run);
+    },
+
     // Rejoin a run executing server-side with a full replay; the clock counts from the
     // server-reported start so a rejoined run doesn't restart at 0.
-    followLiveRun({ id, stoppable, started_at }) {
-      if (this.streaming) return;
+    _followRun({ id, stoppable, started_at }) {
       this.waitingSince = "";
+      this.queuedRunId = "";
       this.runStoppable = stoppable;
       this.sessionLive = true;
       this.resuming = true;
@@ -862,9 +887,17 @@
       this._resumeRun(id);
     },
 
-    // A reload once the session settles would drop an unsent draft or race a send that just started.
-    holdReload(event) {
-      if (this.streaming || this.resuming || this.draftMessage.trim()) event.preventDefault();
+    // An attached stream owns this state while it runs.
+    applySessionState(data) {
+      if (this.streaming || this.resuming) return;
+      if ("active" in data) this.sessionLive = Boolean(data.active);
+      if ("merge_request" in data) {
+        this._applyRepoState({ merge_request: data.merge_request, ref: data.thread_ref || undefined });
+      }
+      if ("diff_stats" in data) this.diffStats = normalizeDiffStats(data.diff_stats);
+      const usage = normalizeContextUsage(data.context_usage);
+      if (usage) this.contextUsage = usage;
+      if ("waiting_since" in data) this.waitingSince = data.waiting_since || "";
     },
 
     async _resumeRun(runId) {
@@ -877,7 +910,7 @@
       for (const t of this.turns) {
         if (t.role === "run_status") continue;
         if (t.id) messages.add(t.id);
-        for (const s of t.segments) {
+        for (const s of t.segments ?? []) {
           if (s.type === "tool_call" && s.id) tools.add(s.id);
         }
       }
@@ -887,7 +920,7 @@
       const turn = this.turns[this.turns.length - 1];
       this._toolIndex.clear();
       this._reasoningIndex.clear();
-      this._activeRun = { threadId: this.thread.thread_id, runId };
+      this._activeRun = { threadId: this.thread.thread_id, runId, own: false };
       this.resuming = false;
       this.streaming = true;
       this.$nextTick(() => this.scrollToBottom({ force: true }));
@@ -1020,7 +1053,7 @@
         this._pushRunStatus("failed", REASON_ERRORS[reason]);
       }
       this.streaming = false;
-      const runId = this._activeRun?.runId;
+      const run = this._activeRun;
       this._activeRun = null;
       this._replayDedup = null;
       this._lastFrameAt = 0;
@@ -1028,7 +1061,13 @@
       // sentinel, so refreshing here (never on RUN_FINISHED) reads this turn's totals.
       this._refreshSpend();
       this.scrollToBottom();
-      window.dispatchEvent(new CustomEvent("daiv:live-run-ended", { detail: { runId } }));
+      this._announceRunEnded(run, reason);
+    },
+
+    _announceRunEnded(run, reason) {
+      window.dispatchEvent(
+        new CustomEvent("daiv:live-run-ended", { detail: { runId: run?.runId, reason, own: Boolean(run?.own) } }),
+      );
     },
 
     // ---------- Derived getters (right rail) ---------------------------
@@ -1264,18 +1303,27 @@
       return parseQuestions(seg);
     },
 
-    // Open only in the transcript's last message turn, with no run in flight; anything later means answered.
+    // Open with no run in flight until the owner replies; a run something else started (CI, a delegated batch, a
+    // follow-up job, a mention) passes it by.
     isQuestionOpen(ti) {
       if (this.archived || this.streaming || this.resuming) return false;
       return !this._repliedAfter(ti);
     },
 
     _repliedAfter(ti) {
+      let passing = false;
       for (let i = ti + 1; i < this.turns.length; i++) {
-        const role = this.turns[i].role;
-        if (role === "user" || role === "assistant") return true;
+        const turn = this.turns[i];
+        if (turn.role === "user") passing = this._startedByOthers(turn);
+        if ((turn.role === "user" || turn.role === "assistant") && !passing) return true;
       }
       return false;
+    },
+
+    // A run's first turn that DAIV wrote, or that inbox events opened without the owner's own chat message.
+    _startedByOthers(turn) {
+      if (turn.author === "daiv") return true;
+      return Array.isArray(turn.opening) && !turn.opening.some((bubble) => bubble.kind === "chat_message");
     },
 
     _questionDraft(seg) {
@@ -1308,7 +1356,8 @@
       if (!question) return [];
       let reply;
       for (let i = ti + 1; i < this.turns.length && !reply; i++) {
-        if (this.turns[i].role === "user") reply = this.turns[i];
+        const turn = this.turns[i];
+        if (turn.role === "user" && !this._startedByOthers(turn)) reply = turn;
       }
       const text = reply?.segments.find((s) => s.type === "text")?.content || "";
       const prefix = answerPrefix(question);
@@ -1469,7 +1518,7 @@
     // ---------- User actions ------------------------------------------
 
     canSend(text = this.draftMessage) {
-      if (!text.trim() || this.waiting || this.archived) return false;
+      if (!text.trim() || this.archived || this.queueing) return false;
       if (this.thread) return true;
       return !!(this.draftRepoId && this.draftRef);
     },
@@ -1483,7 +1532,8 @@
 
     async submit(text = null) {
       const message = text ?? this.draftMessage;
-      if (!this.canSend(message) || this.streaming || this.resuming) return;
+      if (!this.canSend(message)) return;
+      if (this.streaming || this.resuming || this.waiting) return this._sendToNextRun(message, text === null);
 
       // Read the picker's selection before creating the thread: the live picker is
       // ``x-if``'d on ``!thread``, so assigning ``thread`` first schedules its removal
@@ -1523,74 +1573,42 @@
       this._autoFollow = true;
       this.$nextTick(() => this.scrollToBottom({ force: true }));
 
-      // Send only user turns. Streamed assistant turns carry a client-minted
-      // UUID (set when we pushed the placeholder), but the server stored the
-      // AIMessage under its own LangChain-generated id — echoing the assistant
-      // turn back would slip past ag_ui_langgraph's id-based dedupe and append
-      // a duplicate AIMessage to the checkpoint. The agent reads prior history
-      // from the checkpointer; it doesn't need the client to replay it.
-      const priorMessages = this.turns
-        .slice(0, -1)
-        .filter((t) => t.role === "user")
-        .map((t) => ({
-          id: t.id,
-          role: t.role,
-          content: t.segments
-            .filter((s) => s.type === "text")
-            .map((s) => s.content)
-            .join("\n\n"),
-        }))
-        .filter((m) => m.content);
+      const priorMessages = this._userMessages(this.turns.slice(0, -1));
 
       // The server pins these to ``Session.agent_model`` / ``agent_thinking_level`` on
       // first sight of the thread and rejects a divergent value afterwards.
       const forwardedProps = {};
       if (agentModel) forwardedProps.agent_model = agentModel;
       if (agentThinkingLevel) forwardedProps.agent_thinking_level = agentThinkingLevel;
-      // Only sent once the user has actually touched the Tools sheet: an absent key tells
-      // the server to keep the thread's stored overrides. Sending an untouched selection
-      // would be harmless but would re-diff it against a pool the admin may have changed.
-      if (this._mcpTouched) forwardedProps.mcp_servers = [...this.mcpSelected];
 
-      const body = {
-        threadId: this.thread.thread_id,
-        runId: uuid(),
-        state: {},
-        messages: priorMessages,
-        tools: [],
-        context: [],
-        forwardedProps,
-      };
+      const runId = uuid();
 
       if (text === null) this.draftMessage = "";
       this.$nextTick(() => this.autosize());
       this.streaming = true;
       this.runStoppable = true;
       this.runStartedAt = Date.now();
-      this._activeRun = { threadId: this.thread.thread_id, runId: body.runId };
+      this._activeRun = { threadId: this.thread.thread_id, runId, own: true };
 
-      // Forward the picker's selection so the API resolves the requested env per-request;
-      // missing or empty falls through to the GLOBAL default on the server.
-      const envHeaders = this.selectedSandboxEnvId ? { "X-Sandbox-Env": this.selectedSandboxEnvId } : {};
-
-      let reason = "finished";
+      let reason = "not_started";
       try {
-        const resp = await fetch(this.endpoint, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "X-Repo-ID": this.thread.repo_id,
-            "X-Ref": this.thread.ref,
-            "X-CSRFToken": this.csrfToken,
-            ...envHeaders,
-          },
-          body: JSON.stringify(body),
-          credentials: "include",
-        });
+        const resp = await this._postRun({ runId, messages: priorMessages, forwardedProps });
 
         if (!resp.ok) {
           this._pushRunStatus("failed", await formatHttpError(resp));
+          return;
+        }
+        // This page has no session top bar, details or Up next; the session page, already at this address, has them
+        // and rejoins the run the server recorded or lists the message it queued.
+        if (!config.thread) {
+          reason = "handed-over";
+          window.location.reload();
+          return;
+        }
+        const handle = await resp.json().catch(() => ({}));
+        if (handle?.queued) {
+          reason = "queued";
+          this._queueTurn(assistantTurn, handle.queued);
           return;
         }
 
@@ -1601,8 +1619,170 @@
         console.error("chat: failed to start run", err);
         this._pushRunStatus("failed", "Connection lost — please retry.");
       } finally {
-        this._finishTurn(assistantTurn, reason);
+        if (reason !== "queued" && reason !== "handed-over") this._finishTurn(assistantTurn, reason);
       }
+    },
+
+    // Only user turns: a streamed assistant turn's client-minted id slips past ag_ui_langgraph's id dedupe, so
+    // echoing it would append a duplicate AIMessage to the checkpoint.
+    _userMessages(turns) {
+      return turns
+        .filter((t) => t.role === "user")
+        .map((t) => ({
+          id: t.id,
+          role: t.role,
+          content: t.segments
+            .filter((s) => s.type === "text")
+            .map((s) => s.content)
+            .join("\n\n"),
+        }))
+        .filter((m) => m.content);
+    },
+
+    _postRun({ runId = uuid(), messages, forwardedProps }) {
+      // Only sent once the user has actually touched the Tools sheet: an absent key tells
+      // the server to keep the thread's stored overrides. Sending an untouched selection
+      // would be harmless but would re-diff it against a pool the admin may have changed.
+      if (this._mcpTouched) forwardedProps = { ...forwardedProps, mcp_servers: [...this.mcpSelected] };
+      const body = {
+        threadId: this.thread.thread_id,
+        runId,
+        state: {},
+        messages,
+        tools: [],
+        context: [],
+        forwardedProps,
+      };
+      // Forward the picker's selection so the API resolves the requested env per-request;
+      // missing or empty falls through to the GLOBAL default on the server.
+      const envHeaders = this.selectedSandboxEnvId ? { "X-Sandbox-Env": this.selectedSandboxEnvId } : {};
+      return fetch(this.endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "X-Repo-ID": this.thread.repo_id,
+          "X-Ref": this.thread.ref,
+          "X-CSRFToken": this.csrfToken,
+          ...envHeaders,
+        },
+        body: JSON.stringify(body),
+        credentials: "include",
+      });
+    },
+
+    // While the session is busy a message waits for its next run, shown in Up next; the run on screen keeps its
+    // stream. ``queue`` keeps it waiting even if that run ended before it arrived, so this page never misses a run.
+    async _sendToNextRun(message, fromDraft) {
+      if (fromDraft) {
+        this.draftMessage = "";
+        this.$nextTick(() => this.autosize());
+      }
+      this.queueing = true;
+      let failure = "";
+      try {
+        const resp = await this._postRun({
+          messages: [{ id: uuid(), role: "user", content: message }],
+          forwardedProps: { queue: true },
+        });
+        if (resp.ok) {
+          this._announceQueued((await resp.json()).queued, message);
+        } else {
+          failure = await formatHttpError(resp);
+        }
+      } catch (err) {
+        console.error("chat: failed to queue a message", err);
+        failure = "Connection lost — please retry.";
+      } finally {
+        this.queueing = false;
+      }
+      if (!failure) return;
+      if (fromDraft && !this.draftMessage.trim()) this.draftMessage = message;
+      window.showToast?.(failure, "error");
+    },
+
+    // What a remembered inbox event is, for its row in the timeline.
+    inboxEventLabel(kind) {
+      return window.TranscriptLabels.t(`inbox_${kind}`);
+    },
+
+    inboxEventKind(event) {
+      const kind = this.inboxEventLabel(event.kind);
+      return event.failure_label ? window.TranscriptLabels.t("inbox_not_handled", { kind }) : kind;
+    },
+
+    // The bubbles a run opens with: the requests it took, or, for a run DAIV started with no inbox event, what
+    // its trigger received; ``null`` for a run that opens with its prompt.
+    anchorBubbles(anchor) {
+      if (anchor.opening) return anchor.opening;
+      if (anchor.author !== "daiv") return null;
+      const ci = anchor.origin === "pipeline_webhook";
+      return [
+        {
+          id: `${anchor.id}-received`,
+          kind: ci ? "ci_failed" : "delegation_finished",
+          received: true,
+          failed: ci,
+          text: "",
+          source_iid: null,
+          created_at: anchor.sent_at,
+        },
+      ];
+    },
+
+    bubbleKindLabel(bubble) {
+      const T = window.TranscriptLabels;
+      if (bubble.kind === "chat_message") return T.t("bubble_chat");
+      if (bubble.kind === "mention") return T.t("inbox_mention");
+      if (bubble.kind !== "follow_up_job" && bubble.kind !== "job") return "";
+      return T.t({ api_job: "bubble_api_job", mcp_job: "bubble_mcp_job" }[bubble.trigger_type] ?? "bubble_job");
+    },
+
+    receivedSource(bubble) {
+      const T = window.TranscriptLabels;
+      if (bubble.kind !== "ci_failed") return T.t("delegated_jobs");
+      return bubble.source_iid ? T.t("received_ci", { iid: bubble.source_iid }) : T.t("received_ci_plain");
+    },
+
+    // Take ``assistantTurn`` and the user turn that opened it out of the conversation; returns that turn's text.
+    _detachTurn(assistantTurn) {
+      const at = this.turns.indexOf(assistantTurn);
+      const sent = at > 0 && this.turns[at - 1].role === "user" ? at - 1 : at;
+      const text = sent < at ? this.turns[sent].segments.map((segment) => segment.content ?? "").join("") : "";
+      if (at >= 0) this.turns.splice(sent, at - sent + 1);
+      return text;
+    },
+
+    // Stopped before DAIV answered: the server took the turn back, so its message returns to the composer of the
+    // page whose Stop did it.
+    _withdrawTurn(assistantTurn) {
+      const text = this._detachTurn(assistantTurn);
+      if (!text || !this._activeRun?.stopped) return;
+      this.draftMessage = this.draftMessage.trim() ? `${text}\n\n${this.draftMessage}` : text;
+      this.$nextTick(() => this.autosize());
+    },
+
+    // The session was busy, so the message waits for its next run (the ``daiv.queued`` answer). It leaves the
+    // conversation for Up next until that run opens with it; ``followLiveRun`` tails the run once it starts.
+    _queueTurn(assistantTurn, queued) {
+      this._announceQueued(queued, this._detachTurn(assistantTurn));
+      const run = this._activeRun;
+      this.streaming = false;
+      this.runStartedAt = null;
+      this._activeRun = null;
+      this.sessionLive = true;
+      this.scrollToBottom();
+      this._announceRunEnded(run, "queued");
+    },
+
+    // Up next shows a queued message.
+    _announceQueued(queued, text) {
+      this.queuedRunId = queued.run_id || "";
+      window.dispatchEvent(
+        new CustomEvent("daiv:up-next-provisional", {
+          detail: { event_id: queued.event_id, run_id: this.queuedRunId, text },
+        }),
+      );
     },
 
     async stop() {
@@ -1610,6 +1790,7 @@
       // stream stays open so the server's RUN_ERROR(run_cancelled) event and
       // end frame settle the turn state.
       if (!this._activeRun || !this.cancelEndpoint) return;
+      this._activeRun.stopped = true;
       try {
         const resp = await fetch(this.cancelEndpoint, {
           method: "POST",
@@ -1756,8 +1937,10 @@
         // Cancel and interrupt (stale takeover / shutdown) are neutral, non-failure
         // terminations → the grey "aborted" marker. Messages mirror the server constants
         // (core.constants) so the live marker matches what reload renders.
-        if (evt.code === "run_cancelled") {
-          this._pushRunStatus("aborted", "Stopped by user.");
+        if (evt.code === "run_withdrawn") {
+          this._withdrawTurn(turn);
+        } else if (evt.code === "run_cancelled") {
+          this._pushRunStatus("aborted", "Stopped by user.", { silent: true });
         } else if (evt.code === "run_interrupted") {
           this._pushRunStatus("aborted", evt.message || "Run was interrupted before completing.");
         } else if (!this._hasFailedPublish()) {
@@ -1836,14 +2019,13 @@
       return `run-status-${run ? run.recordId || run.runId : uuid()}`;
     },
 
-    _pushRunStatus(status, message) {
+    _pushRunStatus(status, message, { silent = false } = {}) {
       const id = this._runStatusId();
       const existing = this.turns.find((t) => t.id === id);
       if (existing) {
-        existing.status = status;
-        existing.message = message;
+        Object.assign(existing, { status, message, silent });
       } else {
-        this.turns.push({ id, role: "run_status", status, message });
+        this.turns.push({ id, role: "run_status", status, message, silent });
       }
       this.scrollToBottom();
     },
@@ -1909,7 +2091,7 @@
       }));
     },
 
-    // A run the hash names may render only on a later poll, so each poll retries until it lands.
+    // A run the hash names may render only on a later turns fetch, so each fetch retries until it lands.
     revealRunAnchor() {
       if (!this._pendingRunAnchor) return false;
       const target = document.getElementById(this._pendingRunAnchor);
@@ -1949,15 +2131,8 @@
   };
   };
 
-  // Collapse tall user-message bubbles. Measures the rendered height once on
-  // init: user text is immutable after creation, and Alpine's keyed x-for reuses
-  // the DOM node across the wholesale `turns` reassignment that polling performs,
-  // so a single measurement is stable. Both inputs to the overflow test are read
-  // from CSS so the JS decision can't drift from the visible clamp: the line
-  // budget from the --chat-user-clamp-lines custom property, and the per-line
-  // height from the element's computed line-height (CSS clamps to the same
-  // budget * line-height, see .chat-text--clamped). `id` is the shared id the
-  // text region exposes and the toggle points its aria-controls at.
+  // Measured once: user text never changes and the keyed x-for keeps each node across a fetch's `turns` swap. Both the
+  // line budget and the line height are read from CSS, so the overflow test cannot drift from .chat-text--clamped.
   const userClamp = (id) => ({
     id,
     collapsed: false,
