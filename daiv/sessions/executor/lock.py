@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 
+from sessions.live.notify import asession_changed, session_changed
 from sessions.models import RunStatus, Session, SessionOrigin
 
 if TYPE_CHECKING:
@@ -181,9 +182,10 @@ class SessionLock:
     def release_for_run(thread_id: str, run_id: object) -> None:
         """:meth:`release` for the slot the inbox drainer claimed for a run, once that run ended or never queued.
         SYNC ONLY."""
-        Session.objects.filter(thread_id=thread_id, active_run_id=str(run_id)).update(
+        if Session.objects.filter(thread_id=thread_id, active_run_id=str(run_id)).update(
             active_run_id=None, last_active_at=timezone.now()
-        )
+        ):
+            session_changed(thread_id)
 
     @staticmethod
     async def heartbeat(thread_id: str, holder_id: str) -> bool:
@@ -201,9 +203,10 @@ class SessionLock:
     @staticmethod
     async def release(thread_id: str, holder_id: str) -> None:
         """Clear the slot only if we still hold it (no-op if already reassigned)."""
-        await Session.objects.filter(thread_id=thread_id, active_run_id=holder_id).aupdate(
+        if await Session.objects.filter(thread_id=thread_id, active_run_id=holder_id).aupdate(
             active_run_id=None, last_active_at=timezone.now()
-        )
+        ):
+            await asession_changed(thread_id)
 
 
 def _claim(thread_id: str, holder_id: str) -> bool:
@@ -212,6 +215,7 @@ def _claim(thread_id: str, holder_id: str) -> bool:
     if Session.objects.filter(thread_id=thread_id, active_run_id__isnull=True).update(
         active_run_id=holder_id, last_active_at=now
     ):
+        session_changed(thread_id)
         return True
 
     # Slow path: the slot is held. Take it over only if the holder's heartbeat
@@ -238,6 +242,7 @@ def _claim(thread_id: str, holder_id: str) -> bool:
             prior_holder,
             holder_id,
         )
+        session_changed(thread_id)
     return bool(taken)
 
 

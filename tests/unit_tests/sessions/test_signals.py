@@ -319,6 +319,7 @@ class TestSyncReleasesQueuedSibling:
 def test_deleting_run_removes_artifact_rows_and_stored_files_on_commit(django_capture_on_commit_callbacks):
     from django.core.files.storage import default_storage
 
+    from sessions.artifacts import delete_artifact_files
     from sessions.models import RunArtifact
 
     run = _create_run(session=_make_session(), status=RunStatus.SUCCESSFUL)
@@ -329,8 +330,9 @@ def test_deleting_run_removes_artifact_rows_and_stored_files_on_commit(django_ca
         run.delete()
         assert default_storage.exists(name)
 
-    assert len(callbacks) == 1
-    callbacks[0]()
+    removals = [callback for callback in callbacks if callback.func is delete_artifact_files]
+    assert len(removals) == 1
+    removals[0]()
     assert not RunArtifact.objects.filter(pk=artifact.pk).exists()
     assert not default_storage.exists(name)
 

@@ -16,6 +16,7 @@ from core import ui_events
 from sessions.delegation import resume_coordinator
 from sessions.inbox.complete import RunEnd
 from sessions.inbox.requester import Requester
+from sessions.live.notify import session_changed
 from sessions.models import EventState, InboxEvent, MergeRequestOwnership, Run, RunStatus, Session
 from sessions.queue import dispatch_next_queued, release_runs_waiting_for
 from sessions.signal_defs import run_ended, run_finished
@@ -90,6 +91,20 @@ def publish_nav_runs_changed(sender: type, instance: Any, created: bool, **kwarg
     if update_fields is not None and "status" not in update_fields:
         return
     transaction.on_commit(ui_events.publisher.runs_changed)
+
+
+@receiver(post_save, sender=Run, dispatch_uid="sessions.poke_session_on_run_save")
+def poke_session_on_run_save(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
+    """Poke the run's session page when a run appears (a QUEUED run shows in Up next) or its status may have moved."""
+    update_fields = kwargs.get("update_fields")
+    if created or update_fields is None or "status" in update_fields:
+        session_changed(instance.session_id)
+
+
+@receiver(post_delete, sender=Run, dispatch_uid="sessions.poke_session_on_run_delete")
+def poke_session_on_run_delete(sender: type, instance: Any, **kwargs: Any) -> None:
+    """Poke the page of the session a deleted run left: a withdrawn turn or a dropped next run no longer shows."""
+    session_changed(instance.session_id)
 
 
 def _sync_run_for_task(task_result_id: Any) -> None:
