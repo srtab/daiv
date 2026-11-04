@@ -152,6 +152,21 @@ def test_changes_during_a_fetch_cost_exactly_one_more():
     assert _types(result) == ["daiv:session-turns", "daiv:session-turns"]
 
 
+def test_a_change_during_a_fetch_that_the_response_already_carries_costs_nothing_more():
+    result = _run([["hold", None], ["changed", 2], ["changed", 3], ["release", [0, _turns(3)]]])
+
+    assert result["fetches"] == 1
+
+
+def test_a_run_ending_during_a_fetch_always_costs_one_more():
+    """The run's end may not have bumped the revision yet, so a response at the announced revision can predate it."""
+    steps = [["hold", None], ["changed", 2], _ended("r1", "finished", frames=4), ["release", [0, _turns(2)]]]
+
+    result = _run(steps, live_run_id="r1")
+
+    assert result["fetches"] == 2
+
+
 def test_a_named_live_run_is_handed_to_the_chat():
     result = _run([["respond", _turns(live_run=R2)], ["changed", 2]])
 

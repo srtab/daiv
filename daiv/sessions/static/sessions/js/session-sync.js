@@ -12,12 +12,15 @@ document.addEventListener("alpine:init", () => {
     _keptRunCount: null,
     _retry: null,
     _retryTimer: null,
+    _announced: revision,
     _fetching: false,
     _dirty: false,
+    _forced: false,
     destroy() {
       clearTimeout(this._retryTimer);
     },
     changed({ revision }) {
+      this._announced = revision;
       if (revision !== this._revision) this.refresh();
     },
     runEnded({ runId, reason, own, frames }) {
@@ -36,19 +39,23 @@ document.addEventListener("alpine:init", () => {
         const delay = first ? FIRST_RETRY_MS : Math.min(this._retry.delay * 2, MAX_RETRY_MS);
         this._retry = { runId, delay };
       }
-      this.refresh();
+      this.refresh({ force: true });
     },
-    async refresh() {
+    // A change announced during a fetch costs one more unless the response already carries it; a run's end may not
+    // have bumped the revision yet, so it always does.
+    async refresh({ force = false } = {}) {
       if (this._fetching) {
         this._dirty = true;
+        this._forced ||= force;
         return;
       }
       this._fetching = true;
       try {
         do {
           this._dirty = false;
+          this._forced = false;
           await this._fetchTurns();
-        } while (this._dirty);
+        } while (this._forced || (this._dirty && this._revision !== this._announced));
       } finally {
         this._fetching = false;
       }
