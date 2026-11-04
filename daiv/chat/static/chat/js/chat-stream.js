@@ -1593,6 +1593,13 @@
           this._queueTurn(assistantTurn, handle.queued);
           return;
         }
+        // This page has no session top bar or details; the session page, already at this address, has them and
+        // rejoins the run the server recorded.
+        if (!config.thread) {
+          reason = "handed-over";
+          window.location.reload();
+          return;
+        }
 
         // The run now executes server-side detached from any connection; all
         // event consumption goes through the resumable relay stream.
@@ -1601,7 +1608,7 @@
         console.error("chat: failed to start run", err);
         this._pushRunStatus("failed", "Connection lost — please retry.");
       } finally {
-        if (reason !== "queued") this._finishTurn(assistantTurn, reason);
+        if (reason !== "queued" && reason !== "handed-over") this._finishTurn(assistantTurn, reason);
       }
     },
 

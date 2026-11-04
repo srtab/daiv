@@ -122,8 +122,8 @@ class RunHooks:
     """Trigger callbacks.
 
     ``on_context_ready(ref)`` is awaited inside the run once the clone is ready and any fallback re-pin is done,
-    before the model is resolved; ``ref`` is the ref the clone landed on. A trigger that creates its ``Run`` there,
-    rather than naming it in ``spec.run_id``, returns the row's id: the executor binds it as the active run
+    before the model is resolved; ``ref`` is the ref the clone landed on. A trigger that keeps its ``Run`` out of
+    ``spec.run_id`` returns the row's id there: the executor binds it as the active run
     (``bind_active_run``) and records the run's measurements on it, but records the resolved model only on
     ``spec.run_id``. An error it raises fails the run as a setup error.
 

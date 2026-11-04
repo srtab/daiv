@@ -24,3 +24,28 @@ def test_a_new_thread_moves_the_address_bar_to_its_session_page():
     match = resolve(out["path"])
     assert match.url_name == "session_detail"
     assert match.kwargs == {"thread_id": out["threadId"]}
+
+
+HAND_OVER_BODY = """
+let reloads = 0;
+let streamed = 0;
+sandbox.window.location.reload = () => { reloads += 1; };
+sandbox.history.replaceState = () => {};
+const chat = registry.chat({ endpoint: "/api/chat" });
+Object.assign(chat, {
+  canSend: () => true,
+  scrollToBottom: () => {},
+  autosize: () => {},
+  $nextTick: () => {},
+  _postRun: async () => ({ ok: true, json: async () => ({ run_id: "r1", thread_id: chat.thread.thread_id }) }),
+  _streamRun: async () => { streamed += 1; return "finished"; },
+});
+await chat.submit("hi");
+process.stdout.write(JSON.stringify({ reloads, streamed }));
+"""
+
+
+def test_a_new_thread_hands_its_accepted_run_to_the_session_page():
+    out = run_chat_stream(HAND_OVER_BODY, {}, extra_globals="history: {},")
+
+    assert out == {"reloads": 1, "streamed": 0}

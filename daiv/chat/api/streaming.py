@@ -121,7 +121,7 @@ _ANSWER_EVENT_PREFIXES = ("TEXT_MESSAGE_", "THINKING_", "REASONING_", "TOOL_CALL
 class _Turn:
     """What a chat turn has recorded so far, filled in as the executor reaches each step."""
 
-    chat_run: Run | None = None
+    chat_run: Run
     announced: bool = False
     usage: CostAwareUsageMetadataCallbackHandler | None = None
     response: str = ""
@@ -159,12 +159,12 @@ class ChatRunStreamer:
     """AG-UI event generator for one chat turn, run through the executor's ``stream_run``; ``runner.run_to_relay``
     publishes it.
 
-    Chat owns: the ``resolved_env`` and ``ref_fallback`` events, the ``Run`` row (started once the
-    clone is ready, finalized with token/cost usage), RUN_ERROR events with sanitized messages, and releasing the run
-    slot the view claimed — after the ``Run`` row is final, so a new turn never finds this one still running. The
-    inbox events the view took for the turn are linked to its ``Run`` once it exists and reach the model as a hidden
-    context message ahead of the person's words; once the slot is released, the session's inbox is drained, so a
-    message sent meanwhile starts its run at once.
+    Chat owns: the ``resolved_env`` and ``ref_fallback`` events, the ``Run`` row (recorded by the view before it
+    answers, moved to the ref the clone lands on, finalized with token/cost usage), RUN_ERROR events with sanitized
+    messages, and releasing the run slot the view claimed — after the ``Run`` row is final, so a new turn never finds
+    this one still running. The inbox events the view took for the turn are linked to its ``Run`` once the clone is
+    ready and reach the model as a hidden context message ahead of the person's words; once the slot is released, the
+    session's inbox is drained, so a message sent meanwhile starts its run at once.
     """
 
     repo_id: str
@@ -172,9 +172,9 @@ class ChatRunStreamer:
     thread_id: str
     run_id: str
     input_data: RunAgentInput
+    chat_run: Run
     user_id: int | None = None
     prompt: str = ""
-    message_id: str = ""
     sandbox_environment_id: str | None = None
     agent_model: str | None = None
     agent_thinking_level: str | None = None
@@ -185,7 +185,7 @@ class ChatRunStreamer:
     # streamer's first emit swaps it to the real name without waiting for a page
     # refresh. ``None`` skips the emit — the view decides when emission is meaningful.
     auto_resolved_env: dict[str, str] | None = None
-    _turn: _Turn = field(default_factory=_Turn, init=False, repr=False)
+    _turn: _Turn = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         # The view passes thread_id/run_id alongside input_data; a future refactor
@@ -194,6 +194,7 @@ class ChatRunStreamer:
             raise ValueError(f"thread_id mismatch: {self.thread_id!r} vs input_data {self.input_data.thread_id!r}")
         if self.run_id != self.input_data.run_id:
             raise ValueError(f"run_id mismatch: {self.run_id!r} vs input_data {self.input_data.run_id!r}")
+        object.__setattr__(self, "_turn", _Turn(chat_run=self.chat_run))
 
     @property
     def withdrawn(self) -> bool:
@@ -257,9 +258,9 @@ class ChatRunStreamer:
 
     @staticmethod
     def _announce(turn: _Turn) -> CustomEvent | None:
-        """A ``run_record`` event naming the turn's ``Run`` row, once it exists, so the page keys this run's live
-        marker as a reload renders it; ``None`` before the row exists and after it was announced."""
-        if turn.chat_run is None or turn.announced:
+        """A ``run_record`` event naming the turn's ``Run`` row, once, so the page keys this run's live marker as a
+        reload renders it; ``None`` after it was announced."""
+        if turn.announced:
             return None
         turn.announced = True
         return CustomEvent(type=EventType.CUSTOM, name="run_record", value={"id": str(turn.chat_run.pk)})
@@ -286,17 +287,12 @@ class ChatRunStreamer:
         )
 
     async def _start_turn(self, turn: _Turn, ref: str) -> str:
-        """Record the turn as a RUNNING ``Run`` on the ref the clone landed on; return its id for the executor to bind
-        as the run's ``Run``."""
-        run = await start_chat_run(
-            session_id=self.thread_id,
-            user_id=self.user_id,
-            prompt=self.prompt,
-            repo_id=self.repo_id,
-            ref=ref,
-            message_id=self.message_id,
-        )
-        turn.chat_run = run
+        """Move the turn's ``Run`` to the ref the clone landed on and link the events the view took to it; return its
+        id for the executor to bind as the run's ``Run``."""
+        run = turn.chat_run
+        if run.ref != ref:
+            await Run.objects.filter(pk=run.pk).aupdate(ref=ref)
+            run.ref = ref
         await ChatClaim(self.thread_id, self.run_id).alink(run)
         return str(run.pk)
 
@@ -364,8 +360,6 @@ class ChatRunStreamer:
         """Write what the session's inbox holds for this turn into the thread, ahead of the person's message. The
         turn runs without it when that fails: the person's request is what matters, and the events stay linked to
         the run."""
-        if turn.chat_run is None:
-            return
         try:
             run_input = await RunInput.aof_run(turn.chat_run)
             context = run_input.render(turn.chat_run, fast_forward=run.fast_forward).context
@@ -402,11 +396,11 @@ class ChatRunStreamer:
         return True
 
     async def _withdraw(self, turn: _Turn) -> bool:
-        """Whether the turn is taken back: it is ``withdrawable`` and its ``Run`` row, if any, is gone
-        (``RunEnd.awithdraw``). Decided once, so the code the page is sent and the row agree; never raises."""
+        """Whether the turn is taken back: it is ``withdrawable`` and its ``Run`` row is gone (``RunEnd.awithdraw``).
+        Decided once, so the code the page is sent and the row agree; never raises."""
         if turn.withdrawn is None:
             turn.withdrawn = turn.withdrawable
-            if turn.withdrawn and turn.chat_run is not None:
+            if turn.withdrawn:
                 try:
                     await RunEnd(turn.chat_run).awithdraw()
                 except Exception:
@@ -415,10 +409,10 @@ class ChatRunStreamer:
         return turn.withdrawn
 
     async def _end_turn(self, turn: _Turn, *, succeeded: bool) -> None:
-        """Withdraw or finalize the ``Run`` row, put back the inbox events the view took that no ``Run`` took over (the
-        turn ended before its ``Run`` existed), then release the slot; each failure is logged, never raised over how
+        """Withdraw or finalize the ``Run`` row, put back the inbox events the view took that it never took over (the
+        turn ended before the clone was ready), then release the slot; each failure is logged, never raised over how
         the turn ended."""
-        if not await self._withdraw(turn) and turn.chat_run is not None:
+        if not await self._withdraw(turn):
             try:
                 await finalize_chat_run(
                     turn.chat_run,

@@ -1307,6 +1307,50 @@ async def test_completions_returns_run_handle_json_by_default(
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_an_accepted_turn_is_recorded_before_the_view_answers(client: TestAsyncClient, authed, fake_redis):
+    """The session page renders a turn from its ``Run``, so the page the browser loads next already shows it."""
+    from django.core.cache import cache
+
+    _, raw, user = authed
+    await cache.aclear()
+    with patch("chat.api.runner.supervisor.spawn"):
+        response = await client.post(
+            "/chat/completions",
+            json=_run_agent_input(threadId="t-accepted"),
+            headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+        )
+
+    assert response.status_code == 200
+    run = await Run.objects.aget(session_id="t-accepted")
+    assert (run.status, run.trigger_type, run.prompt, run.message_id, run.ref) == (
+        RunStatus.RUNNING,
+        SessionOrigin.CHAT,
+        "hello",
+        "m-1",
+        "main",
+    )
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_turn_that_could_not_start_leaves_no_run(client: TestAsyncClient, authed, fake_redis, patched_streamer):
+    from django.core.cache import cache
+
+    _, raw, user = authed
+    await cache.aclear()
+    with patch("chat.api.runner.supervisor.spawn", side_effect=RuntimeError("already live for run_id=r-1")):
+        response = await client.post(
+            "/chat/completions",
+            json=_run_agent_input(threadId="t-spawnfail"),
+            headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+        )
+
+    assert response.status_code == 409
+    assert not await Run.objects.filter(session_id="t-spawnfail").aexists()
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_completions_streams_inline_for_event_stream_accept(
     client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
 ):

@@ -16,6 +16,7 @@ from sessions.admission import AdmissionError, RepoAccessError, aassert_repo_acc
 from sessions.executor.lock import SessionLock, session_activity, stale_cutoff
 from sessions.inbox import kinds
 from sessions.inbox.chat_claim import ChatClaim
+from sessions.inbox.complete import RunEnd
 from sessions.inbox.next_runs import NextRuns
 from sessions.inbox.post import Inbox
 from sessions.live import relay
@@ -29,7 +30,7 @@ from core.constants import CANCELLED_BY_USER_MESSAGE
 from core.sse import KEEP_ALIVE_FRAME, STREAM_MAX_DURATION_S, data_frame, end_frame, retry_frame, sse_response
 
 from . import runner
-from .streaming import ChatRunStreamer
+from .streaming import ChatRunStreamer, start_chat_run
 from .threads import ChatSessionService, _extract_last_user_message, _extract_last_user_message_id
 
 logger = logging.getLogger("daiv.chat")
@@ -314,15 +315,24 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     if auto_resolved and created and env_obj is not None:
         auto_resolved_env = {"id": str(env_obj.id), "name": str(env_obj.name), "scope": str(env_obj.scope)}
 
+    # Recorded before the answer, so the session page the browser loads next already shows the turn.
+    chat_run = await start_chat_run(
+        session_id=thread_id,
+        user_id=user.pk,
+        prompt=prompt,
+        repo_id=repo_id,
+        ref=ref,
+        message_id=_extract_last_user_message_id(input_data),
+    )
     streamer = ChatRunStreamer(
         repo_id=repo_id,
         ref=ref,
         thread_id=thread_id,
         run_id=run_id,
         input_data=input_data,
+        chat_run=chat_run,
         user_id=user.pk,
         prompt=prompt,
-        message_id=_extract_last_user_message_id(input_data),
         sandbox_environment_id=(str(session.sandbox_environment_id) if session.sandbox_environment_id else None),
         agent_model=session.agent_model or None,
         agent_thinking_level=session.agent_thinking_level or None,
@@ -337,9 +347,10 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     except RuntimeError as err:
         # ``spawn`` rejects a run_id already live in this process's registry. A client can
         # reuse a run_id across threads, which ``try_claim``'s per-thread slot doesn't catch —
-        # so put back the events and release the slot we just claimed above, or the collision wedges
+        # so take back the turn and release the slot we just claimed above, or the collision wedges
         # the session until stale takeover (STALE_RUN_MINUTES).
         try:
+            await RunEnd(chat_run).awithdraw()
             await ChatClaim(thread_id, run_id).arelease()
         except Exception:
             # The inbox sweep retries the events once the session goes quiet; the slot must still be freed.
