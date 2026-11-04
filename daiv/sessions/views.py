@@ -298,6 +298,8 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         ctx = super().get_context_data(**kwargs)
         session = ctx.setdefault("session", None)
+        if session is not None:
+            ctx["nav_session_thread_id"] = session.thread_id
 
         # Populate sandbox envs both for the empty hero state and a live session.
         ctx["sandbox_envs"] = list(SandboxEnvironment.objects.visible_to(self.request.user))

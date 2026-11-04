@@ -105,6 +105,15 @@ def test_session_new_chat_renders_empty_state(member_client):
 
 
 @pytest.mark.django_db
+def test_the_new_chat_page_subscribes_to_no_session(member_client):
+    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        resp = member_client.get(reverse("session_new_chat"))
+
+    assert "url: '/api/nav/events'" in resp.content.decode()
+    assert "nav_session_thread_id" not in resp.context
+
+
+@pytest.mark.django_db
 def test_session_new_chat_has_no_breadcrumb(member_client):
     """The chat page is the composer plus the transcript; "Sessions › New" only
     pushes both down, and the sidebar already links back to the list."""
@@ -151,6 +160,15 @@ def test_detail_renders_for_own_session(member_client, member_user):
     assert resp.status_code == 200
     assert resp.context["session"] == session
     assert resp.context["expired"] is False
+
+
+@pytest.mark.django_db
+def test_the_page_subscribes_the_nav_stream_to_its_session(member_client, member_user):
+    session = _create_session(user=member_user)
+
+    resp = _get_detail(member_client, session)
+
+    assert f"url: '/api/nav/events?session={session.thread_id}'" in resp.content.decode()
 
 
 @pytest.mark.django_db

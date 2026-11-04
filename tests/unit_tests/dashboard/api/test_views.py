@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import json
 import uuid
-from unittest.mock import patch
+from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock, patch
 
 from django.db import Error as DatabaseError
 from django.utils import timezone
@@ -23,6 +24,10 @@ from notifications.models import Notification
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
+from core.ui_events import UIEventKind
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 @pytest.fixture(autouse=True)
@@ -32,11 +37,18 @@ def _bus_configured(settings):
     settings.DJANGO_REDIS_URL = "redis://localhost:6379/0"
 
 
+@pytest.fixture
+def stranger(db):
+    return User.objects.create_user(username="stranger", email="stranger@example.com", password="pw", role="member")  # noqa: S106
+
+
 class FakeStream:
     """Stands in for ``UIEventStream``: a scripted sequence of answers to
-    ``wait_for_change``, then "nothing changed" forever — exactly the idle stream."""
+    ``wait_for_change``, then "nothing changed" forever — exactly the idle stream.
 
-    def __init__(self, changes: list[bool] | None = None, error: Exception | None = None):
+    ``True`` is a run poke; a set of kinds is a burst carrying exactly those."""
+
+    def __init__(self, changes: list[bool | set[UIEventKind]] | None = None, error: Exception | None = None):
         self.changes = list(changes or [])
         self.error = error
         self.closed = False
@@ -51,14 +63,24 @@ class FakeStream:
     async def wait_for_change(self, timeout):
         if self.error is not None:
             raise self.error
-        return self.changes.pop(0) if self.changes else False
+        change = self.changes.pop(0) if self.changes else False
+        if isinstance(change, bool):
+            return frozenset({UIEventKind.RUNS}) if change else frozenset()
+        return frozenset(change)
 
 
-async def read_frames(user, stream: FakeStream, count: int) -> list[str]:
-    """Pull ``count`` frames, then abandon the (endless) stream."""
+async def read_frames(
+    user, stream: FakeStream, count: int, *, session: str = "", revisions: Sequence[int] = ()
+) -> list[str]:
+    """Pull ``count`` frames, then abandon the (endless) stream.
+
+    ``revisions`` are the values the session's revision reads return, in order."""
     frames = []
-    generator = _nav_frames(user)
-    with patch("dashboard.api.views.UIEventStream.for_user", return_value=stream):
+    generator = _nav_frames(user, session)
+    with (
+        patch("dashboard.api.views.UIEventStream.for_user", return_value=stream),
+        patch("dashboard.api.views.aread_session_revision", AsyncMock(side_effect=list(revisions))),
+    ):
         try:
             async for frame in generator:
                 frames.append(frame)
@@ -86,6 +108,10 @@ def start_run(user, *, status=RunStatus.RUNNING, repo_id="daiv/api") -> Run:
 
 def snapshots(frames: list[str]) -> list[dict]:
     return [json.loads(frame.split("data: ", 1)[1].strip()) for frame in frames if frame.startswith("event: snapshot")]
+
+
+def session_frames(frames: list[str]) -> list[dict]:
+    return [json.loads(frame.split("data: ", 1)[1].strip()) for frame in frames if frame.startswith("event: session")]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -163,7 +189,109 @@ class TestNavFrames:
                 await anext(generator)
             finally:
                 await generator.aclose()
-        for_user.assert_called_once_with(member_user.pk)
+        for_user.assert_called_once_with(member_user.pk, session=None)
+
+    async def test_no_session_param_subscribes_as_before(self, member_user):
+        stream = FakeStream()
+        with (
+            patch("dashboard.api.views.UIEventStream.for_user", return_value=stream) as for_user,
+            patch("dashboard.api.views.aread_session_revision", AsyncMock()) as read_revision,
+        ):
+            generator = _nav_frames(member_user)
+            try:
+                frames = [await anext(generator) for _ in range(3)]
+            finally:
+                await generator.aclose()
+        assert [frame.split("\n", 1)[0] for frame in frames] == ["retry: 3000", "event: snapshot", ": keep-alive"]
+        for_user.assert_called_once_with(member_user.pk, session=None)
+        read_revision.assert_not_awaited()
+
+    async def test_a_session_page_gets_its_revision_on_connect(self, member_user):
+        session = await start_run(member_user)
+        frames = await read_frames(member_user, FakeStream(), count=3, session=session.session_id, revisions=[4])
+        assert frames[0] == "retry: 3000\n\n"
+        assert frames[1].startswith("event: snapshot\n")
+        assert frames[2] == 'event: session\ndata: {"revision": 4}\n\n'
+
+    async def test_the_session_is_subscribed_to_for_a_visible_session(self, member_user):
+        session = await start_run(member_user)
+        with patch("dashboard.api.views.UIEventStream.for_user", return_value=FakeStream()) as for_user:
+            generator = _nav_frames(member_user, session.session_id)
+            try:
+                await anext(generator)
+                await anext(generator)
+            finally:
+                await generator.aclose()
+        for_user.assert_called_once_with(member_user.pk, session=session.session_id)
+
+    async def test_a_session_poke_sends_the_new_revision_without_a_recount(self, member_user):
+        session = await start_run(member_user)
+        frames = await read_frames(
+            member_user, FakeStream([{UIEventKind.SESSION}]), count=4, session=session.session_id, revisions=[4, 5]
+        )
+        assert session_frames(frames) == [{"revision": 4}, {"revision": 5}]
+        assert len(snapshots(frames)) == 1
+        assert frames[3].startswith("event: session\n")
+
+    async def test_a_mixed_burst_sends_both(self, member_user):
+        session = await start_run(member_user, status=RunStatus.SUCCESSFUL)
+        stream = FakeStream()
+        generator = _nav_frames(member_user, session.session_id)
+        with (
+            patch("dashboard.api.views.UIEventStream.for_user", return_value=stream),
+            patch("dashboard.api.views.aread_session_revision", AsyncMock(side_effect=[4, 5])),
+        ):
+            try:
+                frames = [await anext(generator) for _ in range(3)]
+                await start_run(member_user, repo_id="daiv/other")
+                stream.changes.append({UIEventKind.RUNS, UIEventKind.SESSION})
+                frames += [await anext(generator) for _ in range(2)]
+            finally:
+                await generator.aclose()
+        assert snapshots(frames)[-1]["running_runs"] == 1
+        assert session_frames(frames) == [{"revision": 4}, {"revision": 5}]
+
+    async def test_an_invisible_session_is_ignored_and_the_badges_still_work(self, member_user, stranger):
+        theirs = await start_run(stranger, repo_id="daiv/private")
+        stream = FakeStream()
+        with (
+            patch("dashboard.api.views.UIEventStream.for_user", return_value=stream) as for_user,
+            patch("dashboard.api.views.aread_session_revision", AsyncMock()) as read_revision,
+        ):
+            generator = _nav_frames(member_user, theirs.session_id)
+            try:
+                frames = [await anext(generator) for _ in range(3)]
+            finally:
+                await generator.aclose()
+        assert [frame.split("\n", 1)[0] for frame in frames] == ["retry: 3000", "event: snapshot", ": keep-alive"]
+        for_user.assert_called_once_with(member_user.pk, session=None)
+        read_revision.assert_not_awaited()
+
+    async def test_an_unknown_session_is_ignored(self, member_user):
+        with patch("dashboard.api.views.UIEventStream.for_user", return_value=FakeStream()) as for_user:
+            generator = _nav_frames(member_user, "no-such-thread")
+            try:
+                frames = [await anext(generator) for _ in range(3)]
+            finally:
+                await generator.aclose()
+        assert session_frames(frames) == []
+        assert frames[2] == ": keep-alive\n\n"
+        for_user.assert_called_once_with(member_user.pk, session=None)
+
+    async def test_a_failed_visibility_check_ignores_the_session_and_keeps_the_badges(self, member_user, caplog):
+        session = await start_run(member_user)
+        with (
+            patch("dashboard.api.views.Session.objects.visible_to", side_effect=DatabaseError("connection lost")),
+            patch("dashboard.api.views.UIEventStream.for_user", return_value=FakeStream()) as for_user,
+        ):
+            generator = _nav_frames(member_user, session.session_id)
+            try:
+                frames = [await anext(generator) for _ in range(2)]
+            finally:
+                await generator.aclose()
+        assert frames[1].startswith("event: snapshot\n")
+        for_user.assert_called_once_with(member_user.pk, session=None)
+        assert "visibility check failed" in caplog.text
 
     async def test_an_idle_stream_sends_keep_alives_not_snapshots(self, member_user):
         frames = await read_frames(member_user, FakeStream(), count=4)
