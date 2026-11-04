@@ -9,6 +9,7 @@
  * Seeded from the server-rendered counts so the first paint has no flash, then replaced
  * wholesale by each `snapshot` frame — the stream sends state, not deltas, so a
  * reconnect needs no replay.
+ * A `session` frame is re-announced to the page as a `daiv:session-changed` window event.
  *
  *     <div x-data="..." x-init="$store.nav.start({ url, state, runningLabel })">
  *
@@ -69,6 +70,7 @@ document.addEventListener("alpine:init", () => {
       if (this._source || this._ended || !this._url) return;
       this._source = new EventSource(this._url);
       this._source.addEventListener("snapshot", (event) => this._apply(event.data));
+      this._source.addEventListener("session", (event) => this._announceSession(event.data));
       this._source.addEventListener("end", () => this.stop());
     },
 
@@ -86,6 +88,21 @@ document.addEventListener("alpine:init", () => {
         return;
       }
       this._applyState(snapshot);
+    },
+
+    _announceSession(data) {
+      let revision;
+      try {
+        revision = JSON.parse(data)?.revision;
+      } catch {
+        console.warn("nav: unreadable session frame");
+        return;
+      }
+      if (!Number.isInteger(revision)) {
+        console.warn("nav: session frame without an integer revision");
+        return;
+      }
+      window.dispatchEvent(new CustomEvent("daiv:session-changed", { detail: { revision } }));
     },
 
     /** The only place the wire keys are read, so the seed and the stream can't drift. */

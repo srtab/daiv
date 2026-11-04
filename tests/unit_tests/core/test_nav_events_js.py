@@ -7,6 +7,8 @@ seed, the frames that arrive later, and a label whose number is interpolated cli
 
 from __future__ import annotations
 
+import pytest
+
 from tests.unit_tests.jsdriver import requires_node, run_node
 from tests.unit_tests.test_template_comments import DAIV_DIR
 
@@ -18,11 +20,17 @@ HARNESS = """
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
-const { src, props, starts, frames, dispatch, visibility } = JSON.parse(readFileSync(0, "utf8"));
+const { src, props, starts, frames, dispatch, sessionFrames, visibility } = JSON.parse(readFileSync(0, "utf8"));
 const stores = {};
 let opened = null;
 
 let constructed = 0;
+const dispatched = [];
+let warnings = 0;
+
+class FakeCustomEvent {
+  constructor(type, init = {}) { this.type = type; this.detail = init.detail; }
+}
 
 class FakeEventSource {
   constructor(url) { this.url = url; this.listeners = {}; this.closed = false; opened = this; constructed += 1; }
@@ -32,7 +40,9 @@ class FakeEventSource {
 
 const docListeners = {};
 const sandbox = {
-  console: { warn: () => {}, error: () => {} },
+  console: { warn: () => { warnings += 1; }, error: () => {} },
+  CustomEvent: FakeCustomEvent,
+  dispatchEvent: (event) => dispatched.push({ type: event.type, detail: event.detail }),
   EventSource: FakeEventSource,
   document: {
     visibilityState: "visible",
@@ -48,6 +58,7 @@ const nav = stores.nav;
 for (let i = 0; i < starts; i++) nav.start(props);
 for (const frame of frames) opened.listeners.snapshot({ data: JSON.stringify(frame) });
 for (const name of dispatch) opened.listeners[name]({ data: "{}" });
+for (const data of sessionFrames) opened.listeners.session({ data });
 for (const state of visibility) {
   sandbox.document.visibilityState = state;
   docListeners.visibilitychange();
@@ -61,6 +72,8 @@ process.stdout.write(JSON.stringify({
   url: opened && opened.url,
   closed: opened ? opened.closed : null,
   constructed,
+  dispatched,
+  warnings,
 }));
 """
 
@@ -69,6 +82,7 @@ def drive(
     seed: dict | None = None,
     frames: list[dict] | None = None,
     dispatch: list[str] | None = None,
+    session_frames: list[str] | None = None,
     visibility: list[str] | None = None,
     starts: int = 1,
     running_label: str = "{count} running",
@@ -88,6 +102,7 @@ def drive(
         "starts": starts,
         "frames": frames or [],
         "dispatch": dispatch or [],
+        "sessionFrames": session_frames or [],
         "visibility": visibility or [],
     }
     return run_node(HARNESS, payload)
@@ -179,3 +194,35 @@ def test_a_stream_the_server_ended_is_not_reopened_by_visibility():
     state = drive({}, dispatch=["end"], visibility=["hidden", "visible"])
     assert state["closed"] is True
     assert state["constructed"] == 1
+
+
+def test_a_session_frame_is_announced_to_the_page():
+    state = drive(session_frames=['{"revision": 3}'])
+    assert state["dispatched"] == [{"type": "daiv:session-changed", "detail": {"revision": 3}}]
+
+
+def test_a_zero_revision_is_announced_not_treated_as_missing():
+    """The bus reads a missing key as 0, so 0 is a real revision the page must fetch against."""
+    state = drive(session_frames=['{"revision": 0}'])
+    assert state["dispatched"] == [{"type": "daiv:session-changed", "detail": {"revision": 0}}]
+
+
+def test_every_session_frame_is_announced_in_order():
+    state = drive(session_frames=['{"revision": 4}', '{"revision": 5}'])
+    assert [event["detail"]["revision"] for event in state["dispatched"]] == [4, 5]
+
+
+@pytest.mark.parametrize(
+    "data", ["not json", "null", "3", "{}", '{"revision": "3"}', '{"revision": 1.5}', '{"revision": null}']
+)
+def test_an_unreadable_session_frame_is_ignored(data):
+    state = drive({"unread_count": 3, "running_runs": 2}, session_frames=[data])
+    assert state["dispatched"] == []
+    assert state["warnings"] == 1
+    assert (state["unread"], state["running"]) == (3, 2)
+    assert state["closed"] is False
+
+
+def test_a_bad_session_frame_does_not_stop_the_next_one():
+    state = drive(session_frames=["not json", '{"revision": 7}'])
+    assert [event["detail"]["revision"] for event in state["dispatched"]] == [7]
