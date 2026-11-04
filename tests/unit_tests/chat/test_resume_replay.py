@@ -191,25 +191,7 @@ def test_a_followed_run_is_timed_from_its_server_start():
 def test_a_rejoined_run_announces_its_end():
     result = _follow()
 
-    assert result["ended"] == [{"runId": "r2", "reason": "finished", "own": False, "frames": 0}]
-
-
-def test_a_rejoined_run_counts_its_frames():
-    result = _follow([{"type": "RUN_STARTED", "timestamp": 1000}])
-
-    assert [e["frames"] for e in result["ended"]] == [1]
-
-
-def test_a_rejoin_that_only_replays_shown_frames_counts_none():
-    shown = [e for e in REPLAY_FRAMES if e.get("messageId") == "msg-1" or e.get("toolCallId") == "tc-1"]
-    out = run_chat_stream(
-        FOLLOW_BODY.replace("chat.turns = [];", "chat.turns = payload.turns;"),
-        {"frames": shown, "turns": HYDRATED_TURNS},
-        prelude=FOLLOW_PRELUDE,
-        extra_globals="EventSource: FakeEventSource, setTimeout,",
-    )
-
-    assert [e["frames"] for e in out["ended"]] == [0]
+    assert result["ended"] == [{"runId": "r2", "reason": "finished", "own": False}]
 
 
 FOLLOW_TWICE_BODY = """

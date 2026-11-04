@@ -196,6 +196,19 @@ def test_the_page_wires_session_sync_to_revisions(member_client, member_user):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(("redis_url", "polls"), [("", "true"), ("redis://redis:6379/0", "false")])
+def test_the_page_polls_only_without_a_bus(member_client, member_user, settings, redis_url, polls):
+    """Without the bus no announcement ever comes, so the page fetches on its own while the session is in flight."""
+    settings.DJANGO_REDIS_URL = redis_url
+    session = _create_session(user=member_user)
+
+    with patch("sessions.page_state.aread_session_revision", AsyncMock(return_value=7)):
+        html = _get_detail(member_client, session).content.decode()
+
+    assert f"active: false, polls: {polls} }})" in html
+
+
+@pytest.mark.django_db
 def test_detail_seeds_the_tools_sheet_with_the_effective_selection(member_client, member_user):
     """The reloaded Tools sheet is seeded with the effective selection (defaults with the
     session's stored overrides applied), not with the raw ``mcp_overrides`` keys."""
@@ -389,7 +402,7 @@ def test_session_sync_knows_whether_the_page_rendered_expired(member_client, mem
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
     assert resp.context["expired"] is expired
-    assert f"revision: 3, expired: {rendered} }})" in resp.content.decode()
+    assert f"revision: 3, expired: {rendered}, active: false," in resp.content.decode()
 
 
 @pytest.mark.django_db

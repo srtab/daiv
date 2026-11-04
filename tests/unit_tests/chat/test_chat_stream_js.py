@@ -822,7 +822,7 @@ def test_a_queued_send_announces_its_end_as_queued():
     (detail,) = _send_while_busy()["ended"]
 
     assert detail["runId"]
-    assert (detail["reason"], detail["own"], detail["frames"]) == ("queued", True, 0)
+    assert (detail["reason"], detail["own"]) == ("queued", True)
 
 
 MID_RUN_BODY = """
@@ -1253,7 +1253,7 @@ process.stdout.write(JSON.stringify({ ended }));
 """)
 
     (detail,) = out["ended"]
-    assert (detail["reason"], detail["own"], detail["frames"]) == ("finished", True, 1)
+    assert (detail["reason"], detail["own"]) == ("finished", True)
     assert detail["runId"]
 
 
@@ -1278,7 +1278,7 @@ def test_a_send_that_never_streamed_announces_not_started(fetch):
 
     (detail,) = out["ended"]
     assert detail["runId"]
-    assert (detail["reason"], detail["own"], detail["frames"]) == ("not_started", True, 0)
+    assert (detail["reason"], detail["own"]) == ("not_started", True)
     assert (out["failed"], out["constructed"]) == (1, 0)
 
 
@@ -1322,6 +1322,7 @@ process.stdout.write(JSON.stringify({
   diffStats: chat.diffStats,
   contextUsage: chat.contextUsage,
   waitingSince: chat.waitingSince,
+  sessionLive: chat.sessionLive,
 }));
 """
 
@@ -1338,7 +1339,16 @@ def test_served_state_updates_the_merge_request_diff_and_context_when_idle():
         "diffStats": {"added": 12, "removed": 3},
         "contextUsage": {"usedTokens": 5000, "outputTokens": 40, "cachedTokens": 100, "windowTokens": 200000},
         "waitingSince": "",
+        "sessionLive": False,
     }
+
+
+@pytest.mark.parametrize("active", [True, False])
+def test_served_state_says_whether_the_session_is_in_flight(active):
+    """A fetch that keeps the streamed transcript still moves the page's in-flight state."""
+    out = _apply_served_state({"active": active}, {"sessionLive": not active})
+
+    assert out["sessionLive"] is active
 
 
 def test_served_state_keeps_what_it_does_not_carry():

@@ -225,3 +225,20 @@ async def test_a_row_change_that_lands_with_the_revision_is_in_the_state(member_
     assert state.live_run.id == str(run.pk)
     payload = turns_payload(state, session)
     assert (payload["active"], payload["thread_ref"], payload["title"]) == (True, "daiv/fix", "Renamed")
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(("in_flight", "banner"), [(False, True), (True, False)])
+async def test_the_payload_says_whether_a_render_would_show_the_expired_banner(member_user, in_flight, banner):
+    """A run going on an expired session leaves the banner while the checkpoint is still missing."""
+    session = await _session(member_user, in_flight=in_flight)
+    expired = AsyncMock(return_value=HydratedThread([], True, None, None, None))
+
+    with (
+        patch("sessions.page_state.ahydrate_thread", expired),
+        patch("sessions.page_state.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        state = await aload_session_state(session, member_user, always_look_up_merge_request=False)
+
+    payload = turns_payload(state, session)
+    assert (payload["expired"], payload["expired_banner"]) == (True, banner)

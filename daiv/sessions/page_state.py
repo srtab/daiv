@@ -151,8 +151,9 @@ async def _alook_up_merge_request(session: Session, *, fresh: bool) -> tuple[dic
 def turns_payload(state: SessionState, session: Session) -> dict[str, Any]:
     """The turns endpoint's body: what an open page applies to stay current without a reload.
 
-    ``expired`` is the hydration's own flag, not the page's ``expired_banner``. ``merge_request`` is left out while
-    it is not known, so a page keeps the one it has.
+    ``expired`` is the hydration's own flag; ``expired_banner`` is whether a render would show the expired banner,
+    which a page that shows it reloads to leave. ``merge_request`` is left out while it is not known, so a page keeps
+    the one it has.
     """
     activity, live = state.activity, state.live_run
     payload = {
@@ -162,6 +163,7 @@ def turns_payload(state: SessionState, session: Session) -> dict[str, Any]:
         "background": background_in_flight(activity, state.runs),
         "waiting_since": activity.waiting_since.isoformat() if activity.waiting_since else None,
         "expired": state.hydrated.expired,
+        "expired_banner": state.expired_banner,
         "live_run": {"id": live.id, "stoppable": live.stoppable, "started_at": live.started_at.isoformat()}
         if live
         else None,

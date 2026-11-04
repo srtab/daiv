@@ -33,6 +33,7 @@ from sandbox_envs.services import env_picker_context
 from automation.picker.context import agent_picker_context
 from core.mixins import Breadcrumb, BreadcrumbMixin
 from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
+from core.ui_events import redis_connections
 from core.utils import is_htmx
 from sessions.admission import RepoAccessError
 from sessions.artifacts import ArtifactKind, open_artifact_file
@@ -340,6 +341,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         runs, is_in_flight, live = state.runs, state.activity.in_flight, state.live_run
         waiting_since = state.activity.waiting_since
         ctx["session_revision"] = state.revision
+        ctx["session_polls"] = not redis_connections.configured
         ctx["thread_ref"] = state.thread_ref
         ctx["expired"] = state.expired_banner
         ctx["watch_only"] = ctx["expired"] and not runs and session.origin == SessionOrigin.PIPELINE_WEBHOOK

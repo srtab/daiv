@@ -890,6 +890,7 @@
     // An attached stream owns this state while it runs.
     applySessionState(data) {
       if (this.streaming || this.resuming) return;
+      if ("active" in data) this.sessionLive = Boolean(data.active);
       if ("merge_request" in data) {
         this._applyRepoState({ merge_request: data.merge_request, ref: data.thread_ref || undefined });
       }
@@ -919,7 +920,7 @@
       const turn = this.turns[this.turns.length - 1];
       this._toolIndex.clear();
       this._reasoningIndex.clear();
-      this._activeRun = { threadId: this.thread.thread_id, runId, own: false, frames: 0 };
+      this._activeRun = { threadId: this.thread.thread_id, runId, own: false };
       this.resuming = false;
       this.streaming = true;
       this.$nextTick(() => this.scrollToBottom({ force: true }));
@@ -958,7 +959,6 @@
             this._dropReplayedThinking(turn);
             return;
           }
-          run.frames += 1;
           this.dispatch(evt, turn, at);
         };
         source.addEventListener("end", (event) => {
@@ -1063,7 +1063,7 @@
       this.scrollToBottom();
       window.dispatchEvent(
         new CustomEvent("daiv:live-run-ended", {
-          detail: { runId: run?.runId, reason, own: Boolean(run?.own), frames: run?.frames ?? 0 },
+          detail: { runId: run?.runId, reason, own: Boolean(run?.own) },
         }),
       );
     },
@@ -1586,7 +1586,7 @@
       this.streaming = true;
       this.runStoppable = true;
       this.runStartedAt = Date.now();
-      this._activeRun = { threadId: this.thread.thread_id, runId, own: true, frames: 0 };
+      this._activeRun = { threadId: this.thread.thread_id, runId, own: true };
 
       let reason = "not_started";
       try {
@@ -1771,7 +1771,7 @@
       this.sessionLive = true;
       this.scrollToBottom();
       window.dispatchEvent(
-        new CustomEvent("daiv:live-run-ended", { detail: { runId, reason: "queued", own: true, frames: 0 } }),
+        new CustomEvent("daiv:live-run-ended", { detail: { runId, reason: "queued", own: true } }),
       );
     },
 

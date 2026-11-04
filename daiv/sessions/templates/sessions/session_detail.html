@@ -46,7 +46,7 @@
   {% translate "Off for this merge request" as watch_off_label %}
   {% translate "Couldn't change the CI watch; try again" as watch_failed_label %}
   {% session_title session as page_title %}
-  <div x-data="sessionSync({ turnsUrl: '{% url 'api:session_turns' session.thread_id %}', liveRunId: '{{ live_run_id|default:''|escapejs }}', revision: {{ session_revision|default:0 }}, expired: {{ expired|yesno:"true,false" }} })"
+  <div x-data="sessionSync({ turnsUrl: '{% url 'api:session_turns' session.thread_id %}', liveRunId: '{{ live_run_id|default:''|escapejs }}', revision: {{ session_revision|default:0 }}, expired: {{ expired|yesno:"true,false" }}, active: {{ is_in_flight|yesno:"true,false" }}, polls: {{ session_polls|yesno:"true,false" }} })"
        @daiv:live-run-ended.window="runEnded($event.detail)"
        @daiv:session-changed.window="changed($event.detail)"
        style="display:none" aria-hidden="true"></div>

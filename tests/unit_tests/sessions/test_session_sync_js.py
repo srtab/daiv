@@ -1,7 +1,8 @@
 """Drive ``session-sync.js``'s real Alpine state under Node.
 
 ``changed`` is a ``daiv:session-changed`` frame's revision and ``ended`` a ``daiv:live-run-ended`` detail; the
-harness calls the component the way the template's listeners do. ``setInterval`` throws, so any polling fails a test.
+harness calls the component the way the template's listeners do. ``setInterval`` throws: the only polling allowed
+is a ``setTimeout`` chain, and ``timers`` counts what is still scheduled.
 """
 
 from __future__ import annotations
@@ -71,6 +72,16 @@ for (const [action, value] of steps) {
   else if (action === "release") pending[value[0]](value[1]);
   else if (action === "changed") sync.changed({ revision: value });
   else if (action === "ended") { ends.push(now); sync.runEnded(value); }
+  else if (action === "untilHandover") {
+    const before = handovers.length;
+    while (handovers.length === before && timers.length) {
+      const due = [...timers].sort((a, b) => a.at - b.at)[0];
+      timers = timers.filter((t) => t !== due);
+      now = due.at;
+      due.fn();
+      await settle();
+    }
+  }
   else if (action === "advance") {
     const end = now + value;
     for (;;) {
@@ -95,8 +106,23 @@ R1 = {"id": "r1", "stoppable": True, "started_at": "2026-11-04T10:00:00+00:00"}
 R2 = {"id": "r2", "stoppable": False, "started_at": "2026-11-04T10:05:00+00:00"}
 
 
-def _run(steps: list, *, live_run_id: str = "", revision: int = 1, expired: bool = False) -> dict:
-    args = {"turnsUrl": TURNS_URL, "liveRunId": live_run_id, "revision": revision, "expired": expired}
+def _run(
+    steps: list,
+    *,
+    live_run_id: str = "",
+    revision: int = 1,
+    expired: bool = False,
+    active: bool = False,
+    polls: bool = False,
+) -> dict:
+    args = {
+        "turnsUrl": TURNS_URL,
+        "liveRunId": live_run_id,
+        "revision": revision,
+        "expired": expired,
+        "active": active,
+        "polls": polls,
+    }
     return run_node(HARNESS, {"src": str(SESSION_SYNC_JS), "args": args, "steps": steps})
 
 
@@ -109,8 +135,8 @@ def _types(result: dict) -> list[str]:
     return [event["type"] for event in result["events"]]
 
 
-def _ended(run_id: str, reason: str, *, own: bool = False, frames: int = 0) -> list:
-    return ["ended", {"runId": run_id, "reason": reason, "own": own, "frames": frames}]
+def _ended(run_id: str, reason: str, *, own: bool = False) -> list:
+    return ["ended", {"runId": run_id, "reason": reason, "own": own}]
 
 
 def test_an_unchanged_revision_fetches_nothing():
@@ -160,7 +186,7 @@ def test_a_change_during_a_fetch_that_the_response_already_carries_costs_nothing
 
 def test_a_run_ending_during_a_fetch_always_costs_one_more():
     """The run's end may not have bumped the revision yet, so a response at the announced revision can predate it."""
-    steps = [["hold", None], ["changed", 2], _ended("r1", "finished", frames=4), ["release", [0, _turns(2)]]]
+    steps = [["hold", None], ["changed", 2], _ended("r1", "finished"), ["release", [0, _turns(2)]]]
 
     result = _run(steps, live_run_id="r1")
 
@@ -176,7 +202,7 @@ def test_a_named_live_run_is_handed_to_the_chat():
 
 def test_a_finished_run_is_not_followed_again():
     """The run's own end pokes while it still holds the slot, so the next fetch can still name it."""
-    steps = [["respond", _turns(live_run=R1)], _ended("r1", "finished", frames=4), ["respond", _turns(3, live_run=R1)]]
+    steps = [["respond", _turns(live_run=R1)], _ended("r1", "finished"), ["respond", _turns(3, live_run=R1)]]
 
     result = _run([*steps, ["changed", 3]], live_run_id="r1")
 
@@ -198,7 +224,7 @@ def test_after_its_own_turn_the_page_takes_only_the_header():
     """The tab that sent the turn keeps what it streamed; the header and server-only segments still apply."""
     payload = _turns(2, run_count=3)
 
-    result = _run([["respond", payload], _ended("r3", "finished", own=True, frames=12)])
+    result = _run([["respond", payload], _ended("r3", "finished", own=True)])
 
     assert result["events"] == [{"type": "daiv:session-header", "detail": {**payload, "requestedAt": 0}}]
 
@@ -206,7 +232,7 @@ def test_after_its_own_turn_the_page_takes_only_the_header():
 def test_a_new_run_after_its_own_turn_brings_the_transcript_back():
     steps = [
         ["respond", _turns(2, run_count=3)],
-        _ended("r3", "finished", own=True, frames=12),
+        _ended("r3", "finished", own=True),
         ["respond", _turns(3, run_count=3)],
         ["changed", 3],
         ["respond", _turns(4, run_count=4)],
@@ -220,8 +246,72 @@ def test_a_new_run_after_its_own_turn_brings_the_transcript_back():
     assert _types(result) == ["daiv:session-header", "daiv:session-header", "daiv:session-turns", "daiv:session-turns"]
 
 
+INBOX_ENTRY = {"id": "inbox-7", "role": "inbox_event", "kind": "mention", "failure_label": ""}
+
+
+def test_an_inbox_entry_after_its_own_turn_brings_the_transcript_back():
+    """Its own run's stream never carries the inbox, so a change there is the server's to show."""
+    failed = {**INBOX_ENTRY, "failure_label": "Access denied"}
+    steps = [
+        ["respond", _turns(2, run_count=3, turns=[INBOX_ENTRY])],
+        _ended("r3", "finished", own=True),
+        ["respond", _turns(3, run_count=3, turns=[INBOX_ENTRY])],
+        ["changed", 3],
+        ["respond", _turns(4, run_count=3, turns=[failed])],
+        ["changed", 4],
+    ]
+
+    result = _run(steps)
+
+    assert _types(result) == ["daiv:session-header", "daiv:session-header", "daiv:session-turns"]
+
+
+def test_a_finished_stream_whose_run_still_holds_the_slot_is_fetched_until_it_lets_go():
+    """Its relay failed and it carries on unpublished, so no stream and no revision shows its progress."""
+    steps = [
+        ["respond", _turns(2, live_run=R1, run_count=1)],
+        _ended("r1", "finished", own=True),
+        ["respond", _turns(2, live_run=R1, run_count=1)],
+        ["advance", 4_999],
+        ["respond", _turns(3, run_count=1)],
+        ["advance", 1],
+        ["advance", 60_000],
+    ]
+
+    result = _run(steps, live_run_id="r1")
+
+    assert _types(result) == ["daiv:session-turns", "daiv:session-turns", "daiv:session-turns"]
+    assert (result["fetches"], result["handovers"], result["timers"]) == (3, [], 0)
+
+
+def test_without_a_bus_a_page_rendered_in_flight_fetches_until_the_session_settles():
+    steps = [["respond", _turns(1, live_run=R1)], ["respond", _turns(1, active=True)], ["respond", _turns(1)]]
+
+    result = _run([*steps, ["advance", 60_000]], active=True, polls=True)
+
+    assert result["fetches"] == 3
+    assert result["timers"] == 0
+
+
+def test_without_a_bus_failed_fetches_back_off():
+    steps = [["fail", 500], ["fail", 500], ["respond", _turns(1)], ["advance", 4_999]]
+
+    early = _run(steps, active=True, polls=True)
+    result = _run([*steps[:3], ["advance", 5_000 + 10_000 + 20_000], ["advance", 60_000]], active=True, polls=True)
+
+    assert early["fetches"] == 0
+    assert (result["fetches"], result["timers"]) == (3, 0)
+
+
+@pytest.mark.parametrize("polls", [True, False])
+def test_an_idle_page_with_or_without_a_bus_schedules_nothing(polls):
+    result = _run([["advance", 600_000]], polls=polls)
+
+    assert (result["fetches"], result["timers"]) == (0, 0)
+
+
 def test_a_dropped_stream_rejoins_after_two_seconds():
-    steps = [["respond", _turns(2, live_run=R1)], _ended("r1", "connection_lost", frames=3), ["advance", 1999]]
+    steps = [["respond", _turns(2, live_run=R1)], _ended("r1", "connection_lost"), ["advance", 1999]]
 
     early = _run(steps, live_run_id="r1")
     result = _run([*steps, ["advance", 1]], live_run_id="r1")
@@ -231,11 +321,11 @@ def test_a_dropped_stream_rejoins_after_two_seconds():
     assert result["events"][-1] == {"type": "daiv:session-live-run", "detail": R1}
 
 
-def _failing(times: int, *, frames: int = 0) -> list:
+def _failing(times: int) -> list:
+    """Each attempt's stream fails as soon as the run is handed over again."""
     steps = []
     for attempt in range(times):
-        steps += [["respond", _turns(attempt + 2, live_run=R1)], _ended("r1", "error", frames=frames)]
-        steps.append(["advance", 60_000])
+        steps += [["respond", _turns(attempt + 2, live_run=R1)], _ended("r1", "error"), ["untilHandover", None]]
     return steps
 
 
@@ -249,12 +339,29 @@ def test_a_relay_that_keeps_failing_backs_off_to_thirty_seconds():
     assert _delays(result) == [2000, 4000, 8000, 16000, 30000]
 
 
-def test_a_stream_that_delivered_frames_resets_the_back_off():
-    steps = [*_failing(3), ["respond", _turns(9, live_run=R1)], _ended("r1", "stale", frames=1), ["advance", 60_000]]
+def test_a_stream_that_stayed_up_resets_the_back_off():
+    steps = [*_failing(3), ["advance", 10_000], ["respond", _turns(9, live_run=R1)], _ended("r1", "stale")]
 
-    result = _run(steps, live_run_id="r1")
+    result = _run([*steps, ["untilHandover", None]], live_run_id="r1")
 
     assert _delays(result) == [2000, 4000, 8000, 2000]
+
+
+def test_a_stream_that_replays_and_drops_keeps_backing_off():
+    """A rejoin replays frames the page never had, so only how long the stream stayed up tells a healthy one."""
+    steps = [*_failing(2), ["advance", 9_999], ["respond", _turns(9, live_run=R1)], _ended("r1", "stale")]
+
+    result = _run([*steps, ["untilHandover", None]], live_run_id="r1")
+
+    assert _delays(result) == [2000, 4000, 8000]
+
+
+def test_a_rejoin_waiting_for_its_back_off_is_dropped_once_the_run_is_over():
+    steps = [["respond", _turns(2, live_run=R1)], _ended("r1", "connection_lost"), ["respond", _turns(3)]]
+
+    result = _run([*steps, ["changed", 3], ["advance", 60_000]], live_run_id="r1")
+
+    assert (result["handovers"], result["timers"]) == ([], 0)
 
 
 def test_a_send_that_never_started_is_followed_at_once_if_the_server_runs_it():
@@ -306,16 +413,16 @@ def test_a_settled_session_never_reloads():
 
 def test_a_page_rendered_expired_reloads_once_the_session_has_state_again():
     """Its banner and missing composer are server-rendered, so only a reload brings the composer back."""
-    steps = [["respond", _turns(2, expired=False)], ["changed", 2]]
+    steps = [["respond", _turns(2, expired=True, expired_banner=False)], ["changed", 2]]
 
-    result = _run([*steps, ["respond", _turns(3, expired=False)], ["changed", 3]], expired=True)
+    result = _run([*steps, ["respond", _turns(3, expired_banner=False)], ["changed", 3]], expired=True)
 
     assert result["reloads"] == 1
 
 
 @pytest.mark.parametrize(("rendered", "served"), [(True, True), (False, False), (False, True)])
 def test_a_page_reloads_only_when_it_rendered_expired_and_no_longer_is(rendered, served):
-    result = _run([["respond", _turns(2, expired=served)], ["changed", 2]], expired=rendered)
+    result = _run([["respond", _turns(2, expired_banner=served)], ["changed", 2]], expired=rendered)
 
     assert result["reloads"] == 0
     assert _types(result) == ["daiv:session-turns"]
@@ -331,7 +438,7 @@ def test_a_failed_fetch_schedules_nothing():
 
 def test_after_a_failed_fetch_an_unchanged_revision_still_fetches_and_rejoins_the_dropped_run():
     """A live run bumps no revision while it runs, so the reconnect resync is what brings the dropped stream back."""
-    steps = [["fail", 502], _ended("r1", "connection_lost", frames=3), ["respond", _turns(1, live_run=R1)]]
+    steps = [["fail", 502], _ended("r1", "connection_lost"), ["respond", _turns(1, live_run=R1)]]
 
     result = _run([*steps, ["changed", 1], ["advance", 2000]], live_run_id="r1")
 
