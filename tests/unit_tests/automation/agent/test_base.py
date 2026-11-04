@@ -100,21 +100,7 @@ class TestGetModelKwargs:
         assert kw["openai_api_base"] == "http://localhost:8000/v1"
         assert kw["model_kwargs"]["extra_headers"] == {"X-Trace": "yes"}
         assert "use_responses_api" not in kw
-
-    @pytest.mark.parametrize("verify_ssl", [True, False])
-    def test_openai_compatible_streams_usage(self, verify_ssl):
-        """vLLM-style servers send no usage on a streamed call unless asked, and a custom base URL
-        or http client turns off langchain-openai's own default."""
-        Provider.objects.create(
-            slug="vllm",
-            display_name="vLLM",
-            provider_type=ProviderType.OPENAI,
-            api_key="sk-v",
-            base_url="https://vllm.example.test/v1",
-            verify_ssl=verify_ssl,
-        )
-        model = get_model(model="vllm:qwen3.8")
-        assert model.stream_usage is True
+        assert kw["stream_usage"] is True
 
     def test_openai_compatible_opted_into_responses_api(self):
         Provider.objects.create(
