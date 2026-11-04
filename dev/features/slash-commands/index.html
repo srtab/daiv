@@ -910,17 +910,6 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#clone-to-topics" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /clone-to-topics
-      
-    </span>
-  </a>
-  
-</li>
-        
       </ul>
     </nav>
   
@@ -1593,17 +1582,6 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#clone-to-topics" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        /clone-to-topics
-      
-    </span>
-  </a>
-  
-</li>
-        
       </ul>
     </nav>
   
@@ -1797,11 +1775,6 @@
 <td>Issues, MRs/PRs</td>
 <td>Resets the conversation context to start fresh</td>
 </tr>
-<tr>
-<td><code>/clone-to-topics &lt;topics&gt;</code></td>
-<td>Issues only</td>
-<td>Clones the issue to all repositories matching the specified topics</td>
-</tr>
 </tbody>
 </table>
 <h3 id="help">/help</h3>
@@ -1816,14 +1789,6 @@
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a>@daiv /clear
 </code></pre></div></td></tr></table></div>
 <p>Starts a fresh conversation context for the current issue or merge/pull request. Useful when DAIV's context becomes stale or it starts drifting. The earlier conversation stays in the session's history; DAIV just stops seeing it.</p>
-<h3 id="clone-to-topics">/clone-to-topics</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a>@daiv /clone-to-topics backend, api
-</code></pre></div></td></tr></table></div>
-<p>Clones the current issue (title, description, and labels) to all repositories matching the specified topics. The current repository is excluded. Only available on issues.</p>
-<div class="admonition note">
-<p class="admonition-title">Topic matching is platform-dependent</p>
-<p>On GitLab, a repository must carry <strong>all</strong> the listed topics to be included. On GitHub, a repository is included if it matches <strong>any</strong> of the listed topics.</p>
-</div>
 <h2 id="built-in-skills">Built-in skills</h2>
 <p>Skills are invoked the same way as commands. DAIV ships with the following built-in skills:</p>
 <table>
@@ -1857,23 +1822,23 @@
 </tbody>
 </table>
 <h3 id="plan">/plan</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a>@daiv /plan implement rate limiting for the API
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a>@daiv /plan implement rate limiting for the API
 </code></pre></div></td></tr></table></div>
 <p>DAIV explores the codebase without making any changes and posts a detailed implementation plan. This is what runs automatically when an issue is addressed without the <code>daiv-auto</code> label (see <a href="../issue-addressing/">Issue Addressing</a>).</p>
 <h3 id="code-review">/code-review</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a>@daiv /code-review
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a>@daiv /code-review
 </code></pre></div></td></tr></table></div>
 <p>Reviews the current merge/pull request diff for correctness, security, performance, structure, and your repository's <a href="../pull-request-assistant/#custom-review-rules">custom review rules</a>. Posts numbered findings grouped by severity, as a single report comment.</p>
 <h3 id="security-audit">/security-audit</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a>@daiv /security-audit
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a>@daiv /security-audit
 </code></pre></div></td></tr></table></div>
 <p>Performs a dedicated security scan of the code changes, looking for injection flaws, hardcoded secrets, authentication issues, and data handling risks.</p>
 <h3 id="init">/init</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1"></a>@daiv /init
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a>@daiv /init
 </code></pre></div></td></tr></table></div>
 <p>Analyzes the repository structure and generates an <code>AGENTS.md</code> file with short, repo-specific, high-leverage guidance for AI coding agents (verified commands, repo map, invariants and footguns, and where changes usually go). If one already exists, it updates it to reduce duplication and remove low-signal text.</p>
 <h3 id="skill-creator">/skill-creator</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-9-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1"></a>@daiv /skill-creator
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1"></a>@daiv /skill-creator
 </code></pre></div></td></tr></table></div>
 <p>Walks you through creating a new custom skill for your repository. See <a href="../../customization/agent-skills/">Agent Skills</a> for more on custom skills.</p>
 <h2 id="custom-commands-skills">Custom commands (skills)</h2>
@@ -1906,7 +1871,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 30, 2026 18:33:53 UTC">October 30, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 4, 2026 09:56:40 UTC">November 4, 2026</span>
   </span>
 
     

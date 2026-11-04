@@ -14,12 +14,11 @@ Use `/help` to see everything available in the current context.
 
 These commands have fixed behavior and are always available:
 
-| Command                     | Scopes          | Description                                                        |
-| --------------------------- | --------------- | ------------------------------------------------------------------ |
-| `/help`                     | Issues, MRs/PRs | Lists all available commands and skills                            |
-| `/agents`                   | Issues, MRs/PRs | Lists available subagents with descriptions                        |
-| `/clear`                    | Issues, MRs/PRs | Resets the conversation context to start fresh                     |
-| `/clone-to-topics <topics>` | Issues only     | Clones the issue to all repositories matching the specified topics |
+| Command   | Scopes          | Description                                    |
+| --------- | --------------- | ---------------------------------------------- |
+| `/help`   | Issues, MRs/PRs | Lists all available commands and skills        |
+| `/agents` | Issues, MRs/PRs | Lists available subagents with descriptions    |
+| `/clear`  | Issues, MRs/PRs | Resets the conversation context to start fresh |
 
 ### /help
 
@@ -44,18 +43,6 @@ Lists the available subagents with their names and descriptions. See [Subagents]
 ```
 
 Starts a fresh conversation context for the current issue or merge/pull request. Useful when DAIV's context becomes stale or it starts drifting. The earlier conversation stays in the session's history; DAIV just stops seeing it.
-
-### /clone-to-topics
-
-```
-@daiv /clone-to-topics backend, api
-```
-
-Clones the current issue (title, description, and labels) to all repositories matching the specified topics. The current repository is excluded. Only available on issues.
-
-Topic matching is platform-dependent
-
-On GitLab, a repository must carry **all** the listed topics to be included. On GitHub, a repository is included if it matches **any** of the listed topics.
 
 ## Built-in skills
 
