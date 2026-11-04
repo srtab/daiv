@@ -735,7 +735,14 @@ class SiteConfiguration(models.Model):
         manage automatically).
         """
         cached = cache.get(SITE_CONFIGURATION_CACHE_KEY)
-        if cached is not None:
+        if cached is not None and not cached.get_deferred_fields():
+            # The cache backend pickles the instance, so a field added by a later
+            # migration (e.g. ``model_request_timeout_seconds``) is absent from the
+            # pickled ``__dict__`` and therefore deferred after unpickling. Accessing
+            # such a field from the event loop would trigger a blocking
+            # ``refresh_from_db`` (SynchronousOnlyOperation). Only a fully-loaded
+            # cached instance is safe to return; a stale one falls through to the DB
+            # path below, which re-caches a fresh instance.
             return cached
 
         from django.db import close_old_connections
