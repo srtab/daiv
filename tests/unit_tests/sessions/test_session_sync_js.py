@@ -266,8 +266,18 @@ def test_a_settled_session_never_reloads():
 
 
 def test_a_failed_fetch_schedules_nothing():
-    """A failure only releases the page's held status; the next change or reconnect brings the state."""
+    """A failure only releases the page's held status; the next announcement fetches again."""
     result = _run([["fail", 500], ["changed", 2], ["advance", 600_000], ["fail", 0], ["changed", 2], ["advance", 1]])
 
     assert (result["fetches"], result["timers"]) == (2, 0)
     assert result["events"] == [{"type": "daiv:session-header", "detail": None}] * 2
+
+
+def test_after_a_failed_fetch_an_unchanged_revision_still_fetches_and_rejoins_the_dropped_run():
+    """A live run bumps no revision while it runs, so the reconnect resync is what brings the dropped stream back."""
+    steps = [["fail", 502], _ended("r1", "connection_lost", frames=3), ["respond", _turns(1, live_run=R1)]]
+
+    result = _run([*steps, ["changed", 1], ["advance", 2000]], live_run_id="r1")
+
+    assert result["fetches"] == 2
+    assert result["handovers"] == [{"id": "r1", "at": 2000}]

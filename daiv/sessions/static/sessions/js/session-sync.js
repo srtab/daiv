@@ -59,7 +59,9 @@ document.addEventListener("alpine:init", () => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         data = await res.json();
       } catch {
-        // An empty header still releases the "running" the page holds from a run's end.
+        // A running run bumps no revision, so forgetting it lets the next announcement (even a reconnect's) refetch.
+        // The empty header still releases the "running" the page holds from a run's end.
+        this._revision = null;
         window.dispatchEvent(new CustomEvent("daiv:session-header", { detail: null }));
         return;
       }
