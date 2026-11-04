@@ -202,6 +202,18 @@ def test_a_rejoined_run_counts_its_frames():
     assert [e["frames"] for e in result["ended"]] == [1]
 
 
+def test_a_rejoin_that_only_replays_shown_frames_counts_none():
+    shown = [e for e in REPLAY_FRAMES if e.get("messageId") == "msg-1" or e.get("toolCallId") == "tc-1"]
+    out = run_chat_stream(
+        FOLLOW_BODY.replace("chat.turns = [];", "chat.turns = payload.turns;"),
+        {"frames": shown, "turns": HYDRATED_TURNS},
+        prelude=FOLLOW_PRELUDE,
+        extra_globals="EventSource: FakeEventSource, setTimeout,",
+    )
+
+    assert [e["frames"] for e in out["ended"]] == [0]
+
+
 FOLLOW_TWICE_BODY = """
 const chat = registry.chat({ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream" });
 chat.turns = [];

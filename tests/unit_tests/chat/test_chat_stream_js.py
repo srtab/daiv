@@ -1221,12 +1221,12 @@ SEND_GLOBALS = (
 SEND_EVENT_SOURCE = EVENT_SOURCE.replace("constructor() {", "constructor() { constructed += 1;")
 
 
-def _send(scenario: str) -> dict:
+def _send(scenario: str, *, extra_globals: str = SEND_GLOBALS) -> dict:
     return run_chat_stream(
         SEND_BODY.replace("__SCENARIO__", scenario),
         {},
         prelude=SEND_PRELUDE + SEND_EVENT_SOURCE,
-        extra_globals=SEND_GLOBALS,
+        extra_globals=extra_globals,
     )
 
 
@@ -1245,6 +1245,31 @@ process.stdout.write(JSON.stringify({ ended }));
     (detail,) = out["ended"]
     assert (detail["reason"], detail["own"], detail["frames"]) == ("finished", True, 1)
     assert detail["runId"]
+
+
+UNSTARTED_SCENARIO = """
+await chat.submit();
+const ended = dispatched.filter((e) => e.type === "daiv:live-run-ended").map((e) => e.detail);
+const failed = chat.turns.filter((t) => t.role === "run_status" && t.status === "failed").length;
+process.stdout.write(JSON.stringify({ ended, failed, constructed }));
+"""
+
+
+@pytest.mark.parametrize(
+    "fetch",
+    [
+        "fetch: async () => ({ ok: false, status: 500, json: async () => ({}), text: async () => '' }),",
+        "fetch: async () => { throw new Error('offline'); },",
+    ],
+    ids=["post-not-ok", "post-throws"],
+)
+def test_a_send_that_never_streamed_announces_not_started(fetch):
+    out = _send(UNSTARTED_SCENARIO, extra_globals="EventSource: FakeEventSource, setTimeout, " + fetch)
+
+    (detail,) = out["ended"]
+    assert detail["runId"]
+    assert (detail["reason"], detail["own"], detail["frames"]) == ("not_started", True, 0)
+    assert (out["failed"], out["constructed"]) == (1, 0)
 
 
 def test_a_live_run_named_while_sending_is_not_followed():

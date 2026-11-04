@@ -954,7 +954,6 @@
           resolve(reason);
         };
         source.onmessage = (event) => {
-          run.frames += 1;
           let evt;
           try {
             evt = JSON.parse(event.data);
@@ -971,6 +970,7 @@
             this._dropReplayedThinking(turn);
             return;
           }
+          run.frames += 1;
           this.dispatch(evt, turn, at);
         };
         source.addEventListener("end", (event) => {
@@ -1600,7 +1600,7 @@
       this.runStartedAt = Date.now();
       this._activeRun = { threadId: this.thread.thread_id, runId, own: true, frames: 0 };
 
-      let reason = "finished";
+      let reason = "not_started";
       try {
         const resp = await this._postRun({ runId, messages: priorMessages, forwardedProps });
 
