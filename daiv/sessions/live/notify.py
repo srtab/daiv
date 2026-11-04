@@ -20,10 +20,11 @@ logger = logging.getLogger("daiv.sessions")
 
 
 def publish_session_changed(thread_id: str) -> None:
-    """SYNC ONLY: poke ``thread_id``'s page, then its parent's. Never raises."""
+    """SYNC ONLY: poke ``thread_id``'s page, then, if that poke went out, its parent's. Never raises."""
     from sessions.models import Session
 
-    ui_events.publisher.session_changed(thread_id)
+    if not ui_events.publisher.session_changed(thread_id):
+        return
     try:
         parent_id = Session.objects.filter(pk=thread_id).values_list("parent_id", flat=True).first()
     except Error:

@@ -9,7 +9,7 @@ from django.test import TestCase
 
 import pytest
 from asgiref.sync import sync_to_async
-from sessions.live.notify import aownership_changed, asession_changed, session_changed
+from sessions.live.notify import aownership_changed, asession_changed, publish_session_changed, session_changed
 from sessions.models import MergeRequestOwnership, Session, SessionOrigin
 
 PUBLISH = "core.ui_events.publisher.session_changed"
@@ -63,6 +63,16 @@ class TestSessionChanged:
             TestCase.captureOnCommitCallbacks(execute=True),
         ):
             session_changed(child.thread_id)
+
+        publish.assert_called_once_with(child.thread_id)
+
+    def test_a_poke_that_did_not_go_out_skips_the_parent_lookup(self, django_assert_num_queries):
+        """No bus, or a bus that just failed: the parent's poke would not go out either."""
+        parent = _session(origin=SessionOrigin.API_JOB)
+        child = _session(origin=SessionOrigin.DELEGATED_JOB, parent=parent)
+
+        with patch(PUBLISH, return_value=False) as publish, django_assert_num_queries(0):
+            publish_session_changed(child.thread_id)
 
         publish.assert_called_once_with(child.thread_id)
 

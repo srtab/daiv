@@ -197,10 +197,13 @@ async def apersist_session_ref(
     request opens, so either leaves it alone.
     """
     branch = (mr_to_payload(merge_request) or {}).get("source_branch")
+    updated = 0
     if isinstance(branch, str) and branch and branch != current_ref:
-        await Session.objects.filter(thread_id=thread_id).aupdate(ref=branch)
+        updated = await Session.objects.filter(thread_id=thread_id).exclude(ref=branch).aupdate(ref=branch)
     elif current_ref and (branch == current_ref or (merge_request is None and not published)):
-        await Session.objects.filter(thread_id=thread_id, ref="").aupdate(ref=current_ref)
+        updated = await Session.objects.filter(thread_id=thread_id, ref="").aupdate(ref=current_ref)
+    if updated:
+        await asession_changed(thread_id)
 
 
 async def aget_session_ref(*, thread_id: str) -> str:
@@ -240,7 +243,8 @@ async def areset_session_ref(*, thread_id: str, new_ref: str) -> None:
     Unlike :func:`apersist_session_ref` (success-only, driven by the run's outcome), this
     fires the moment the clone falls back, so the session self-heals even if the turn fails.
     """
-    await Session.objects.filter(thread_id=thread_id).aupdate(ref=new_ref)
+    if await Session.objects.filter(thread_id=thread_id).exclude(ref=new_ref).aupdate(ref=new_ref):
+        await asession_changed(thread_id)
 
 
 def pinned_agent_override(session: Session) -> tuple[str, str]:

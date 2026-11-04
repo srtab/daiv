@@ -293,7 +293,6 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
             run.refresh_from_db(fields=["status", "cancel_requested_at"])
             return False
         run.cancel_requested_at = now
-        session_changed(run.session_id)
         finished = self.finish(
             run,
             RunStatus.FAILED,
@@ -304,6 +303,7 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
             started_at=run.started_at or now,
         )
         if not finished:
+            session_changed(run.session_id)
             run.refresh_from_db(fields=["status"])
             return run.status not in RunStatus.terminal()
         DBTaskResult.objects.filter(run=run, status=TaskResultStatus.READY).update(

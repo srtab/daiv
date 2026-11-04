@@ -13,6 +13,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 import pytest
+from asgiref.sync import sync_to_async
 from ninja.testing import TestAsyncClient
 from sessions.executor.lock import SessionLock, stale_cutoff
 from sessions.inbox import kinds
@@ -20,6 +21,7 @@ from sessions.inbox.chat_claim import ChatClaim
 from sessions.inbox.complete import RunEnd
 from sessions.inbox.drain import Drain
 from sessions.inbox.ownership import Ownerships
+from sessions.inbox.pending import PendingEvents
 from sessions.inbox.post import Inbox
 from sessions.models import (
     EventKind,
@@ -34,7 +36,7 @@ from sessions.models import (
 )
 from sessions.pipeline_watch.store import WatchStore
 from sessions.queue import EnqueueFailure, dispatch_next_queued
-from sessions.services import RepoTarget, asubmit_batch_runs
+from sessions.services import RepoTarget, apersist_session_ref, areset_session_ref, asubmit_batch_runs
 from sessions.tasks import generate_batch_title_task, generate_title_task
 
 from accounts.models import APIKey, User
@@ -213,6 +215,16 @@ class TestCancelPokes:
         assert Run.objects.get(pk=leg.pk).status == RunStatus.RUNNING
         publish.assert_any_call(leg.session_id)
         publish.assert_any_call(coordinator.thread_id)
+
+    def test_stopping_a_run_that_never_started_pokes_once(self, session, publish):
+        run = make_run(session, status=RunStatus.QUEUED)
+        publish.reset_mock()
+
+        with TestCase.captureOnCommitCallbacks(execute=True):
+            assert Run.objects.cancel(run) is True
+
+        assert Run.objects.get(pk=run.pk).status == RunStatus.FAILED
+        assert publish.call_args_list == [call(session.thread_id)]
 
     def test_a_run_already_asked_to_stop_does_not_poke(self, publish):
         coordinator = make_coordinator()
@@ -655,3 +667,49 @@ async def test_renaming_pokes(publish):
 
     assert response.status_code == 200
     publish.assert_any_call(session.thread_id)
+
+
+@pytest.mark.django_db(transaction=True)
+class TestBranchChangesPoke:
+    async def test_persisting_a_new_working_branch_pokes(self, publish):
+        thread_id = await amake_job_session()
+        publish.reset_mock()
+
+        await apersist_session_ref(
+            thread_id=thread_id, current_ref="main", merge_request={"source_branch": "daiv/fix"}, published=True
+        )
+
+        assert (await Session.objects.aget(pk=thread_id)).ref == "daiv/fix"
+        publish.assert_any_call(thread_id)
+
+    async def test_persisting_the_branch_it_already_has_does_not_poke(self, publish):
+        thread_id = await amake_job_session()
+        await Session.objects.filter(pk=thread_id).aupdate(ref="daiv/fix")
+        publish.reset_mock()
+
+        await apersist_session_ref(
+            thread_id=thread_id, current_ref="main", merge_request={"source_branch": "daiv/fix"}, published=True
+        )
+
+        publish.assert_not_called()
+
+    async def test_falling_back_off_a_vanished_branch_pokes(self, publish):
+        thread_id = await amake_job_session()
+        publish.reset_mock()
+
+        await areset_session_ref(thread_id=thread_id, new_ref="main-fallback")
+
+        publish.assert_any_call(thread_id)
+
+    async def test_requests_following_the_session_to_its_new_branch_poke(self, publish):
+        session = await amake_session(ref="feat/new")
+        run = await Run.objects.acreate(
+            session=session, repo_id=session.repo_id, ref="feat/old", status=RunStatus.QUEUED,
+            trigger_type=SessionOrigin.CHAT,
+        )  # fmt: skip
+        event = await amake_event(session, EventKind.CHAT_MESSAGE, ref="feat/old", run=run)
+        publish.reset_mock()
+
+        await sync_to_async(PendingEvents(session, [event]).follow_session_branch)([run])
+
+        publish.assert_any_call(session.thread_id)

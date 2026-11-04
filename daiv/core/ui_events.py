@@ -139,14 +139,14 @@ class UIEventPublisher:
             return
         self._publish(Channel.for_user(user_id), UIEventKind.NOTIFICATIONS)
 
-    def session_changed(self, thread_id: str) -> None:
-        """Bump a session's revision, then poke the viewers of its page.
+    def session_changed(self, thread_id: str) -> bool:
+        """Bump a session's revision, then poke the viewers of its page; returns whether the poke went out.
 
         One pipeline, so the counter and the poke can't be separated by a failure between
         them; the counter moves first so a reader woken by the poke never sees a stale one.
         """
         if not self._connections.configured:
-            return
+            return False
         channel = Channel.for_session(thread_id)
         try:
             revision_key = Channel.session_revision(thread_id)
@@ -157,6 +157,8 @@ class UIEventPublisher:
             pipe.execute()
         except Exception as err:  # noqa: BLE001
             self._log_failure(channel, UIEventKind.SESSION, err)
+            return False
+        return True
 
     def _publish(self, channel: str, kind: UIEventKind) -> None:
         if not self._connections.configured:

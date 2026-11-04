@@ -69,6 +69,7 @@ class PendingEvents:
             ref=session.ref, updated_at=timezone.now()
         )
         InboxEvent.objects.filter(pk__in=[event.pk for event in moved if event.run_id not in kept]).update(run=None)
+        session_changed(session.thread_id)
         for event in moved:
             event.ref = session.ref
             if event.run_id not in kept:

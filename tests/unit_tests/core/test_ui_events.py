@@ -136,7 +136,7 @@ class TestPublish:
         settings.DJANGO_REDIS_CHECKPOINT_TTL_MINUTES = 90
         pipe = Mock()
         client = Mock(pipeline=Mock(return_value=pipe))
-        publisher_with(client).session_changed("t1")
+        assert publisher_with(client).session_changed("t1") is True
         pipe.incr.assert_called_once_with("daiv:ui-events:session-rev:t1")
         pipe.expire.assert_called_once_with("daiv:ui-events:session-rev:t1", 90 * 60)
         pipe.publish.assert_called_once_with("daiv:ui-events:session:t1", '{"kind": "session"}')
@@ -147,12 +147,12 @@ class TestPublish:
         settings.DJANGO_REDIS_CHECKPOINT_TTL_MINUTES = 90
         pipe = Mock(execute=Mock(side_effect=redis.ConnectionError("redis is down")))
         with caplog.at_level(logging.WARNING, logger="daiv.core"):
-            publisher_with(Mock(pipeline=Mock(return_value=pipe))).session_changed("t1")
+            assert publisher_with(Mock(pipeline=Mock(return_value=pipe))).session_changed("t1") is False
         assert "failed to publish" in caplog.text
 
     def test_session_changed_on_an_unconfigured_bus_is_a_silent_no_op(self, caplog):
         client = Mock()
-        publisher_with(client, configured=False).session_changed("t1")
+        assert publisher_with(client, configured=False).session_changed("t1") is False
         client.pipeline.assert_not_called()
         assert "failed to publish" not in caplog.text
 
