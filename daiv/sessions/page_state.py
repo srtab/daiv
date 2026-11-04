@@ -2,9 +2,10 @@
 that keeps an open page current (``session_turns``), so the two cannot drift.
 
 The session's revision (``core.ui_events``) is read before anything else, so a change that lands while the state is
-built costs the page one extra fetch, never a missed one. A merge request the checkpoint does not carry is looked up
-on the git platform on every render, but on a fetch only once nothing is in flight: a routine fetch while a run goes
-never calls the platform.
+built costs the page one extra fetch, never a missed one. The caller's ``Session`` row is re-read after it for the same
+reason: a slot claim or release, or a rename, changes only that row. A merge request the checkpoint does not carry is
+looked up on the git platform on every render, but on a fetch only once nothing is in flight: a routine fetch while a
+run goes never calls the platform, and leaves ``merge_request`` out rather than report none.
 """
 
 from __future__ import annotations
@@ -40,6 +41,7 @@ if TYPE_CHECKING:
     from sessions.models import Session
 
 _HEADER_KEYS = ("latest_run", "run_count", "delegations", "ci", "watch", "up_next")
+_ROW_FIELDS = ["active_run_id", "last_active_at", "title", "ref"]
 
 
 @dataclass(frozen=True)
@@ -49,7 +51,8 @@ class SessionState:
     ``runs`` are oldest first. ``live_run`` is the slot holder as the viewer sees it (``live_run_for``). ``header`` is
     :func:`~sessions.header.build_session_header` plus ``up_next``. ``expired_banner`` is whether the page says the
     session expired: no checkpoint or archive, nothing in flight, and no failed run whose prompt or marker
-    ``annotate_transcript`` recovers.
+    ``annotate_transcript`` recovers. ``merge_request_known`` is false when the checkpoint has none and the platform
+    was not asked, so a ``None`` ``merge_request`` says nothing.
     """
 
     revision: int
@@ -58,6 +61,7 @@ class SessionState:
     activity: SessionActivity
     hydrated: HydratedThread
     merge_request: dict | None
+    merge_request_known: bool
     thread_ref: str
     live_run: LiveRun | None
     header: dict[str, Any]
@@ -67,8 +71,10 @@ class SessionState:
 
 async def aload_session_state(session: Session, user: User, *, always_look_up_merge_request: bool) -> SessionState:
     """``session``'s :class:`SessionState` for ``user``; ``always_look_up_merge_request`` asks the platform for a
-    merge request the checkpoint lacks even while a run is in flight."""
+    merge request the checkpoint lacks even while a run is in flight. Re-reads the fields of ``session`` that runs and
+    renames change, so ``session`` comes back current."""
     revision = await aread_session_revision(session.thread_id)
+    await session.arefresh_from_db(fields=_ROW_FIELDS)
     hydrated = await ahydrate_thread(session.thread_id)
     runs = [run async for run in Run.objects.filter(session=session).order_by("created_at")]
     activity = session_activity(session, runs)
@@ -77,6 +83,7 @@ async def aload_session_state(session: Session, user: User, *, always_look_up_me
     look_up = always_look_up_merge_request or not activity.in_flight
     if merge_request is None and look_up and session.repo_id and session.ref:
         merge_request = await aget_existing_mr_payload(session.repo_id, session.ref)
+    merge_request_known = look_up or merge_request is not None
 
     annotated = annotate_transcript(build_turns(hydrated.messages, in_flight=activity.in_flight), runs, activity)
     expired_banner = hydrated.expired and not activity.in_flight and not annotated
@@ -106,6 +113,7 @@ async def aload_session_state(session: Session, user: User, *, always_look_up_me
         activity=activity,
         hydrated=hydrated,
         merge_request=merge_request,
+        merge_request_known=merge_request_known,
         # The pill is the working branch, as the live stream's ``_applyRepoState`` couples it to the merge request;
         # ``Session.ref`` lags it on any run that never synced back.
         thread_ref=(merge_request or {}).get("source_branch") or session.ref,
@@ -119,10 +127,11 @@ async def aload_session_state(session: Session, user: User, *, always_look_up_me
 def turns_payload(state: SessionState, session: Session) -> dict[str, Any]:
     """The turns endpoint's body: what an open page applies to stay current without a reload.
 
-    ``expired`` is the hydration's own flag, not the page's ``expired_banner``.
+    ``expired`` is the hydration's own flag, not the page's ``expired_banner``. ``merge_request`` is left out while
+    it is not known, so a page keeps the one it has.
     """
     activity, live = state.activity, state.live_run
-    return {
+    payload = {
         "revision": state.revision,
         "turns": state.turns,
         "active": activity.in_flight,
@@ -133,9 +142,11 @@ def turns_payload(state: SessionState, session: Session) -> dict[str, Any]:
         if live
         else None,
         **{key: state.header[key] for key in _HEADER_KEYS},
-        "merge_request": state.merge_request,
         "diff_stats": state.hydrated.diff_stats,
         "context_usage": state.hydrated.context_usage,
         "thread_ref": state.thread_ref,
         "title": session_title(session),
     }
+    if state.merge_request_known:
+        payload["merge_request"] = state.merge_request
+    return payload

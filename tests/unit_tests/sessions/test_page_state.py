@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 from unittest.mock import AsyncMock, Mock, call, patch
+
+from django.utils import timezone
 
 import pytest
 from sessions.hydration import HydratedThread
 from sessions.models import Run, RunStatus, Session, SessionOrigin
-from sessions.page_state import aload_session_state
+from sessions.page_state import aload_session_state, turns_payload
 
 MERGE_REQUEST = {
     "id": 5,
@@ -136,3 +139,36 @@ async def test_the_retry_follows_the_run_access_the_state_reports(member_user):
 
     assert state.can_act is False
     assert state.header["latest_run"]["retry"] == ""
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_row_change_that_lands_with_the_revision_is_in_the_state(member_user):
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()),
+        origin=SessionOrigin.UI_JOB,
+        repo_id="group/project",
+        ref="feature",
+        user=member_user,
+        last_active_at=timezone.now() - timedelta(days=1),
+    )
+    run = await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.UI_JOB, repo_id=session.repo_id, status=RunStatus.RUNNING
+    )
+
+    async def claim_then_read(thread_id):
+        await Session.objects.filter(pk=thread_id).aupdate(
+            active_run_id=str(run.pk), last_active_at=timezone.now(), title="Renamed", ref="daiv/fix"
+        )
+        return 8
+
+    with (
+        patch("sessions.page_state.aread_session_revision", AsyncMock(side_effect=claim_then_read)),
+        patch("sessions.page_state.ahydrate_thread", _hydration()),
+        patch("sessions.page_state.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        state = await aload_session_state(session, member_user, always_look_up_merge_request=False)
+
+    assert state.live_run is not None
+    assert state.live_run.id == str(run.pk)
+    payload = turns_payload(state, session)
+    assert (payload["active"], payload["thread_ref"], payload["title"]) == (True, "daiv/fix", "Renamed")

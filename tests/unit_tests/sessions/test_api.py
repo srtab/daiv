@@ -557,6 +557,30 @@ async def test_session_turns_keeps_the_keys_older_pages_read(client, authed):
     } <= data.keys()
 
 
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_leaves_out_a_merge_request_it_did_not_look_up(client, authed):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user, ref="daiv/fix")
+    run = await _create_run_async(session, trigger_type=SessionOrigin.UI_JOB, status=RunStatus.RUNNING)
+    await Session.objects.filter(pk=session.pk).aupdate(active_run_id=str(run.pk), last_active_at=timezone.now())
+    lookup = AsyncMock(return_value=None)
+    hydrated = AsyncMock(return_value=HydratedThread([], False, None, None, None))
+
+    with (
+        patch("sessions.page_state.ahydrate_thread", hydrated),
+        patch("sessions.page_state.aget_existing_mr_payload", lookup),
+    ):
+        in_flight = (await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))).json()
+        await Run.objects.filter(pk=run.pk).aupdate(status=RunStatus.SUCCESSFUL)
+        settled = (await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))).json()
+
+    assert in_flight["active"] is True
+    assert "merge_request" not in in_flight
+    assert settled["active"] is False
+    assert settled["merge_request"] is None
+    lookup.assert_awaited_once_with("group/project", "daiv/fix")
+
+
 # ---------------------------------------------------------------------------
 # session actions: rename, CI watch, archive
 # ---------------------------------------------------------------------------
