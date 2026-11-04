@@ -10,6 +10,7 @@ from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 from django.test import TestCase
+from django.utils import timezone
 
 import pytest
 from ninja.testing import TestAsyncClient
@@ -38,7 +39,13 @@ from sessions.tasks import generate_batch_title_task, generate_title_task
 from accounts.models import APIKey, User
 from codebase.authorization import RepositoryAccessDenied
 from daiv.api import api
-from tests.unit_tests.sessions.conftest import active_holder, amake_job_session, amake_owned_merge_request
+from tests.unit_tests.sessions.conftest import (
+    active_holder,
+    amake_job_session,
+    amake_owned_merge_request,
+    make_coordinator,
+    make_leg,
+)
 from tests.unit_tests.sessions.inbox.conftest import amake_event, amake_session, ci_payload, make_event
 
 PUBLISH = "core.ui_events.publisher.session_changed"
@@ -189,6 +196,31 @@ class TestReleaseForRun:
 
         with TestCase.captureOnCommitCallbacks(execute=True):
             SessionLock.release_for_run(session.thread_id, "run-1")
+
+        publish.assert_not_called()
+
+
+@pytest.mark.django_db
+class TestCancelPokes:
+    def test_asking_a_running_delegated_run_to_stop_pokes_its_coordinator(self, publish):
+        coordinator = make_coordinator()
+        leg = make_leg(coordinator, uuid.uuid4(), status=RunStatus.RUNNING, finished_at=None)
+
+        with TestCase.captureOnCommitCallbacks(execute=True):
+            assert Run.objects.cancel(leg) is True
+
+        assert Run.objects.get(pk=leg.pk).status == RunStatus.RUNNING
+        publish.assert_any_call(leg.session_id)
+        publish.assert_any_call(coordinator.thread_id)
+
+    def test_a_run_already_asked_to_stop_does_not_poke(self, publish):
+        coordinator = make_coordinator()
+        leg = make_leg(
+            coordinator, uuid.uuid4(), status=RunStatus.RUNNING, finished_at=None, cancel_requested_at=timezone.now()
+        )
+
+        with TestCase.captureOnCommitCallbacks(execute=True):
+            assert Run.objects.cancel(leg) is False
 
         publish.assert_not_called()
 

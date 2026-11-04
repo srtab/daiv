@@ -293,6 +293,7 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
             run.refresh_from_db(fields=["status", "cancel_requested_at"])
             return False
         run.cancel_requested_at = now
+        session_changed(run.session_id)
         finished = self.finish(
             run,
             RunStatus.FAILED,
