@@ -130,6 +130,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed runs on OpenAI-compatible providers with their own base URL, such as a self-hosted vLLM, recording no token usage or cost when the model's reply was streamed. Chat runs on those providers never had usage, and since session pages stream every run live, no run on them did.
 - Fixed `web_fetch` returning its summarising model's raw output, encrypted reasoning included, instead of the answer when that model replies in content blocks, as OpenAI models on the Responses API do. On production about 70% of each summary was reasoning the agent could not read.
 - Fixed the Skills pages showing a replaced custom skill's first upload date. The skill list, the skill's page and the "already exists" notice on upload now show when it was last uploaded, matching the uploader they name.
 - Fixed tool calls that the agent's middleware rejects without running the tool, such as a second parallel edit to the same file, spinning in the live transcript until the run ended. They now show as failed as soon as they are rejected. The agent is also told to send at most one `edit_file` or `write_file` call per file in a response, since deepagents rejects the rest.

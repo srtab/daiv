@@ -100,6 +100,7 @@ class TestGetModelKwargs:
         assert kw["openai_api_base"] == "http://localhost:8000/v1"
         assert kw["model_kwargs"]["extra_headers"] == {"X-Trace": "yes"}
         assert "use_responses_api" not in kw
+        assert kw["stream_usage"] is True
 
     def test_openai_compatible_opted_into_responses_api(self):
         Provider.objects.create(
