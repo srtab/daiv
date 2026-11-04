@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from unittest.mock import call, patch
 
@@ -103,3 +104,17 @@ class TestAsessionChanged:
             await aownership_changed(ownership.pk)
 
         publish.assert_not_called()
+
+    @pytest.mark.parametrize("error", [DatabaseError, InterfaceError])
+    async def test_a_failed_ownership_lookup_pokes_nothing_and_does_not_raise(self, error, caplog):
+        """Its caller's write has already landed, so the failure must not turn into the caller's."""
+        with (
+            patch(PUBLISH) as publish,
+            patch.object(MergeRequestOwnership.objects, "filter", side_effect=error),
+            caplog.at_level(logging.WARNING, logger="daiv.sessions"),
+        ):
+            await aownership_changed(7)
+
+        publish.assert_not_called()
+        [record] = caplog.records
+        assert record.levelno == logging.WARNING
