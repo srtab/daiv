@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, Mock, call, patch
 from django.utils import timezone
 
 import pytest
+from gitlab.exceptions import GitlabError
 from sessions.hydration import HydratedThread
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.page_state import aload_session_state, turns_payload
@@ -101,6 +102,58 @@ async def test_the_render_always_looks_it_up(member_user):
 
     lookup.assert_awaited_once_with("group/project", "feature")
     assert state.merge_request == MERGE_REQUEST
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_settled_fetches_within_a_minute_ask_the_platform_once(member_user):
+    session = await _session(member_user, in_flight=False)
+    lookup = AsyncMock(return_value=None)
+
+    with (
+        patch("sessions.page_state.ahydrate_thread", _hydration()),
+        patch("sessions.page_state.aget_existing_mr_payload", lookup),
+    ):
+        first = await aload_session_state(session, member_user, always_look_up_merge_request=False)
+        second = await aload_session_state(session, member_user, always_look_up_merge_request=False)
+
+    lookup.assert_awaited_once_with("group/project", "feature")
+    assert "merge_request" in turns_payload(first, session)
+    assert turns_payload(second, session)["merge_request"] is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_the_render_refreshes_the_merge_request_a_fetch_reuses(member_user):
+    session = await _session(member_user, in_flight=False)
+    lookup = AsyncMock(side_effect=[None, MERGE_REQUEST])
+
+    with (
+        patch("sessions.page_state.ahydrate_thread", _hydration()),
+        patch("sessions.page_state.aget_existing_mr_payload", lookup),
+    ):
+        await aload_session_state(session, member_user, always_look_up_merge_request=False)
+        rendered = await aload_session_state(session, member_user, always_look_up_merge_request=True)
+        fetched = await aload_session_state(session, member_user, always_look_up_merge_request=False)
+
+    assert lookup.await_count == 2
+    assert rendered.merge_request == fetched.merge_request == MERGE_REQUEST
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_failed_lookup_is_not_cached_and_leaves_the_merge_request_out(member_user):
+    session = await _session(member_user, in_flight=False)
+    lookup = AsyncMock(side_effect=[GitlabError("api 500"), MERGE_REQUEST])
+
+    with (
+        patch("sessions.page_state.ahydrate_thread", _hydration()),
+        patch("sessions.page_state.aget_existing_mr_payload", lookup),
+    ):
+        failed = await aload_session_state(session, member_user, always_look_up_merge_request=False)
+        retried = await aload_session_state(session, member_user, always_look_up_merge_request=False)
+
+    assert "merge_request" not in turns_payload(failed, session)
+    assert failed.thread_ref == "feature"
+    assert turns_payload(retried, session)["merge_request"] == MERGE_REQUEST
+    assert lookup.await_count == 2
 
 
 @pytest.mark.django_db(transaction=True)

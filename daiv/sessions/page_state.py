@@ -4,18 +4,23 @@ that keeps an open page current (``session_turns``), so the two cannot drift.
 The session's revision (``core.ui_events``) is read before anything else, so a change that lands while the state is
 built costs the page one extra fetch, never a missed one. The caller's ``Session`` row is re-read after it for the same
 reason: a slot claim or release, or a rename, changes only that row. A merge request the checkpoint does not carry is
-looked up on the git platform on every render, but on a fetch only once nothing is in flight: a routine fetch while a
-run goes never calls the platform, and leaves ``merge_request`` out rather than report none.
+looked up on the git platform on every render, but on a fetch only once nothing is in flight, and then from the answer
+cached per branch for a minute, which each render refreshes. A fetch while a run goes never calls the platform; it, like
+a lookup the platform failed, leaves ``merge_request`` out rather than report none.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+
+from django.core.cache import cache
 
 from asgiref.sync import sync_to_async
 
 from codebase.authorization import can_run
+from codebase.clients.base import PLATFORM_ERRORS
 from core.ui_events import aread_session_revision
 from sessions.executor.lock import background_in_flight, live_run_for, session_activity
 from sessions.header import build_session_header, delegations_for, retry_for
@@ -40,6 +45,10 @@ if TYPE_CHECKING:
     from sessions.hydration import HydratedThread
     from sessions.models import Session
 
+logger = logging.getLogger("daiv.sessions")
+
+MERGE_REQUEST_CACHE_TIMEOUT = 60
+
 _HEADER_KEYS = ("latest_run", "run_count", "delegations", "ci", "watch", "up_next")
 _ROW_FIELDS = ["active_run_id", "last_active_at", "title", "ref"]
 
@@ -52,7 +61,7 @@ class SessionState:
     :func:`~sessions.header.build_session_header` plus ``up_next``. ``expired_banner`` is whether the page says the
     session expired: no checkpoint or archive, nothing in flight, and no failed run whose prompt or marker
     ``annotate_transcript`` recovers. ``merge_request_known`` is false when the checkpoint has none and the platform
-    was not asked, so a ``None`` ``merge_request`` says nothing.
+    was not asked or did not answer, so a ``None`` ``merge_request`` says nothing.
     """
 
     revision: int
@@ -81,9 +90,9 @@ async def aload_session_state(session: Session, user: User, *, always_look_up_me
 
     merge_request = hydrated.merge_request_payload
     look_up = always_look_up_merge_request or not activity.in_flight
-    if merge_request is None and look_up and session.repo_id and session.ref:
-        merge_request = await aget_existing_mr_payload(session.repo_id, session.ref)
     merge_request_known = look_up or merge_request is not None
+    if merge_request is None and look_up and session.repo_id and session.ref:
+        merge_request, merge_request_known = await _alook_up_merge_request(session, fresh=always_look_up_merge_request)
 
     annotated = annotate_transcript(build_turns(hydrated.messages, in_flight=activity.in_flight), runs, activity)
     expired_banner = hydrated.expired and not activity.in_flight and not annotated
@@ -122,6 +131,21 @@ async def aload_session_state(session: Session, user: User, *, always_look_up_me
         can_act=can_act,
         expired_banner=expired_banner,
     )
+
+
+async def _alook_up_merge_request(session: Session, *, fresh: bool) -> tuple[dict | None, bool]:
+    """``session``'s open merge request on its branch, and whether the platform answered. A ``fresh`` lookup skips
+    the cached answer; every answer is cached for :data:`MERGE_REQUEST_CACHE_TIMEOUT` seconds, a failure never."""
+    key = f"sessions:merge-request:{session.thread_id}:{session.ref}"
+    if not fresh and (cached := await cache.aget(key)) is not None:
+        return cached["merge_request"], True
+    try:
+        merge_request = await aget_existing_mr_payload(session.repo_id, session.ref)
+    except PLATFORM_ERRORS:
+        logger.exception("Failed to look up the merge request of %s on %s", session.repo_id, session.ref)
+        return None, False
+    await cache.aset(key, {"merge_request": merge_request}, MERGE_REQUEST_CACHE_TIMEOUT)
+    return merge_request, True
 
 
 def turns_payload(state: SessionState, session: Session) -> dict[str, Any]:
