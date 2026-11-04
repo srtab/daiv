@@ -1061,10 +1061,12 @@
       // sentinel, so refreshing here (never on RUN_FINISHED) reads this turn's totals.
       this._refreshSpend();
       this.scrollToBottom();
+      this._announceRunEnded(run, reason);
+    },
+
+    _announceRunEnded(run, reason) {
       window.dispatchEvent(
-        new CustomEvent("daiv:live-run-ended", {
-          detail: { runId: run?.runId, reason, own: Boolean(run?.own) },
-        }),
+        new CustomEvent("daiv:live-run-ended", { detail: { runId: run?.runId, reason, own: Boolean(run?.own) } }),
       );
     },
 
@@ -1764,15 +1766,13 @@
     // conversation for Up next until that run opens with it; ``followLiveRun`` tails the run once it starts.
     _queueTurn(assistantTurn, queued) {
       this._announceQueued(queued, this._detachTurn(assistantTurn));
-      const runId = this._activeRun?.runId;
+      const run = this._activeRun;
       this.streaming = false;
       this.runStartedAt = null;
       this._activeRun = null;
       this.sessionLive = true;
       this.scrollToBottom();
-      window.dispatchEvent(
-        new CustomEvent("daiv:live-run-ended", { detail: { runId, reason: "queued", own: true } }),
-      );
+      this._announceRunEnded(run, "queued");
     },
 
     // Up next shows a queued message.

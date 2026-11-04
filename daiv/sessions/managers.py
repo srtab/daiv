@@ -249,8 +249,7 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
         if not self._unfinished(run, where).update(status=status, **fields):
             return False
         self._apply(run, status, fields)
-        transaction.on_commit(ui_events.publisher.runs_changed)
-        session_changed(run.session_id)
+        self._announce_status_moved(run)
         self._emit_run_finished(run, skip_dispatch=skip_dispatch, never_started=never_started)
         return True
 
@@ -330,9 +329,14 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
         if not self._unfinished(run).update(**fields):
             return False
         if "status" in fields:
-            transaction.on_commit(ui_events.publisher.runs_changed)
-            session_changed(run.session_id)
+            self._announce_status_moved(run)
         return True
+
+    @staticmethod
+    def _announce_status_moved(run: Run) -> None:
+        """Refresh the nav badge and poke ``run``'s session page once the status write commits."""
+        transaction.on_commit(ui_events.publisher.runs_changed)
+        session_changed(run.session_id)
 
     def _announce_finished(self, run: Run, **flags: bool) -> None:
         try:

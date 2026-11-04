@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import uuid
 from unittest.mock import call, patch
 
@@ -9,8 +8,8 @@ from django.test import TestCase
 
 import pytest
 from asgiref.sync import sync_to_async
-from sessions.live.notify import aownership_changed, asession_changed, publish_session_changed, session_changed
-from sessions.models import MergeRequestOwnership, Session, SessionOrigin
+from sessions.live.notify import asession_changed, publish_session_changed, session_changed
+from sessions.models import Session, SessionOrigin
 
 PUBLISH = "core.ui_events.publisher.session_changed"
 
@@ -93,38 +92,3 @@ class TestAsessionChanged:
             await asession_changed(None)
 
         publish.assert_not_called()
-
-    async def test_an_ownership_change_pokes_its_session(self):
-        session = await sync_to_async(_session)()
-        ownership = await MergeRequestOwnership.objects.acreate(
-            repo_id=session.repo_id, merge_request_iid=7, session=session, source_branch="daiv/fix"
-        )
-
-        with patch(PUBLISH) as publish:
-            await aownership_changed(ownership.pk)
-
-        publish.assert_called_once_with(session.thread_id)
-
-    async def test_an_ownership_without_a_session_pokes_nothing(self):
-        ownership = await MergeRequestOwnership.objects.acreate(
-            repo_id="acme/api", merge_request_iid=8, session=None, source_branch="daiv/fix"
-        )
-
-        with patch(PUBLISH) as publish:
-            await aownership_changed(ownership.pk)
-
-        publish.assert_not_called()
-
-    @pytest.mark.parametrize("error", [DatabaseError, InterfaceError])
-    async def test_a_failed_ownership_lookup_pokes_nothing_and_does_not_raise(self, error, caplog):
-        """Its caller's write has already landed, so the failure must not turn into the caller's."""
-        with (
-            patch(PUBLISH) as publish,
-            patch.object(MergeRequestOwnership.objects, "filter", side_effect=error),
-            caplog.at_level(logging.WARNING, logger="daiv.sessions"),
-        ):
-            await aownership_changed(7)
-
-        publish.assert_not_called()
-        [record] = caplog.records
-        assert record.levelno == logging.WARNING

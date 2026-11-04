@@ -264,7 +264,7 @@ class TestLatestOfEachSubject:
         ownership = await _owned(watch_enabled=False)
         watch.platform.latest = [_workflow_run("failed", pipeline_id=100, workflow_id=11)]
         await watch.make().aevaluate_latest(ref=BRANCH)
-        await WatchStore().aset_enabled(ownership.pk, enabled=True)
+        await WatchStore().aset_enabled(ownership, enabled=True)
 
         await watch.make().aevaluate_latest(ref=BRANCH)
 

@@ -61,7 +61,7 @@ class TestSetEnabled:
     async def test_turning_it_on_gives_the_attempts_back(self):
         ownership = await _owned(watch_enabled=False, attempts=3)
 
-        await WatchStore().aset_enabled(ownership.pk, enabled=True)
+        await WatchStore().aset_enabled(ownership, enabled=True)
 
         await ownership.arefresh_from_db()
         assert (ownership.watch_enabled, ownership.attempts) == (True, 0)
@@ -69,7 +69,7 @@ class TestSetEnabled:
     async def test_turning_it_off_keeps_them(self):
         ownership = await _owned(attempts=2)
 
-        await WatchStore().aset_enabled(ownership.pk, enabled=False)
+        await WatchStore().aset_enabled(ownership, enabled=False)
 
         await ownership.arefresh_from_db()
         assert (ownership.watch_enabled, ownership.attempts) == (False, 2)

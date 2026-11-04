@@ -69,7 +69,8 @@ def _hand_over_queued(run_id: object, user_id: int) -> int:
 
 @receiver(post_save, sender=Run, dispatch_uid="sessions.publish_nav_runs_changed")
 def publish_nav_runs_changed(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
-    """Poke the nav SSE readers whenever a Run's status may have moved.
+    """Poke the nav SSE readers whenever a Run's status may have moved, and the run's session page whenever a run
+    appears (a QUEUED run shows in Up next) or its status may have moved.
 
     The sidebar's "N running" badge is per-viewer, so readers recompute their own
     count from this poke (see ``core.ui_events``). Deferred to commit so the recount
@@ -83,22 +84,12 @@ def publish_nav_runs_changed(sender: type, instance: Any, created: bool, **kwarg
     row no reader's count can include. A run's finish and a sync's non-terminal write skip this
     signal: ``RunManager.finish`` and ``RunManager.update_unfinished`` refresh the badge themselves.
     """
-    if created:
-        if instance.status == RunStatus.RUNNING:
-            transaction.on_commit(ui_events.publisher.runs_changed)
-        return
     update_fields = kwargs.get("update_fields")
-    if update_fields is not None and "status" not in update_fields:
+    if not created and update_fields is not None and "status" not in update_fields:
         return
-    transaction.on_commit(ui_events.publisher.runs_changed)
-
-
-@receiver(post_save, sender=Run, dispatch_uid="sessions.poke_session_on_run_save")
-def poke_session_on_run_save(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
-    """Poke the run's session page when a run appears (a QUEUED run shows in Up next) or its status may have moved."""
-    update_fields = kwargs.get("update_fields")
-    if created or update_fields is None or "status" in update_fields:
-        session_changed(instance.session_id)
+    if not created or instance.status == RunStatus.RUNNING:
+        transaction.on_commit(ui_events.publisher.runs_changed)
+    session_changed(instance.session_id)
 
 
 @receiver(post_delete, sender=Run, dispatch_uid="sessions.poke_session_on_run_delete")

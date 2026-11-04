@@ -133,8 +133,7 @@ def running_jobs_count(request, user) -> int:
 
 
 def nav(request) -> dict[str, Any]:
-    """Supply ``nav_running_jobs``, ``nav_latest_running_start`` and ``nav_active_section`` to every
-    authenticated request.
+    """Supply ``nav_running_jobs`` and ``nav_active_section`` to every authenticated request.
 
     The running values are wrapped in ``SimpleLazyObject`` so the DB query runs only if the
     template actually references them — non-HTML responses (redirects, HTMX fragments, SSE)
@@ -146,6 +145,5 @@ def nav(request) -> dict[str, Any]:
 
     return {
         "nav_running_jobs": SimpleLazyObject(lambda: running_jobs_count(request, user)),
-        "nav_latest_running_start": SimpleLazyObject(lambda: running_state(request, user)["latest_running_start"]),
         "nav_active_section": _resolve_active_section(request),
     }

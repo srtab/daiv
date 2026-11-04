@@ -112,14 +112,8 @@ async def session_archive(request: HttpRequest, thread_id: str, payload: Archive
 
 @sessions_router.get("/{thread_id}/turns", response=dict, url_name="session_turns")
 async def session_turns(request: HttpRequest, thread_id: str):
-    """The session as its page shows it (``sessions.page_state``), which an open page fetches when the nav stream
-    announces a change. ``live_run`` names the slot holder, so the page can stream that run from the relay instead;
-    ``background`` is kept for pages loaded before the nav stream carried ``session`` frames, telling one that
-    rendered idle whether a run that started since is one it should follow; ``latest_run``, ``ci``
-    (with ``watch``, its single-watch shape for older pages), ``run_count`` and ``delegations`` keep the page's top
-    bar and details panel current. ``up_next`` is what the session will do next (``sessions.up_next``), ``None`` when
-    nothing is pending. ``revision``, ``merge_request``, ``diff_stats``, ``context_usage``, ``thread_ref`` and
-    ``title`` let a page settle in place."""
+    """The session as its page shows it (``sessions.page_state.turns_payload``), which an open page fetches when the
+    nav stream announces a change."""
     user = request.auth  # ty: ignore[unresolved-attribute]
     session = await _get_visible_session(user, thread_id)
     return turns_payload(await aload_session_state(session, user, always_look_up_merge_request=False), session)

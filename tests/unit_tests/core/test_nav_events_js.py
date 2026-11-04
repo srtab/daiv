@@ -7,6 +7,8 @@ seed, the frames that arrive later, and a label whose number is interpolated cli
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from tests.unit_tests.jsdriver import requires_node, run_node
@@ -67,7 +69,6 @@ for (const state of visibility) {
 process.stdout.write(JSON.stringify({
   unread: nav.unread,
   running: nav.running,
-  latestRunningStart: nav.latestRunningStart,
   runningLabel: nav.runningLabel,
   url: opened && opened.url,
   closed: opened ? opened.closed : null,
@@ -136,17 +137,6 @@ def test_an_unreadable_frame_is_ignored_rather_than_clearing_the_badges():
     assert (state["unread"], state["running"]) == (3, 2)
 
 
-def test_the_latest_running_start_follows_the_seed_then_each_snapshot():
-    seeded = drive({"latest_running_start": "2026-10-22T13:15:19+00:00"})
-    moved = drive(
-        {"latest_running_start": "2026-10-22T13:15:19+00:00"},
-        frames=[{"running_runs": 1, "latest_running_start": "2026-10-22T13:16:20+00:00"}],
-    )
-
-    assert seeded["latestRunningStart"] == "2026-10-22T13:15:19+00:00"
-    assert moved["latestRunningStart"] == "2026-10-22T13:16:20+00:00"
-
-
 def test_the_label_interpolates_the_live_count():
     """The number cannot go through `blocktranslate`, so the store fills the placeholder
     the server left in the translated sentence."""
@@ -196,15 +186,11 @@ def test_a_stream_the_server_ended_is_not_reopened_by_visibility():
     assert state["constructed"] == 1
 
 
-def test_a_session_frame_is_announced_to_the_page():
-    state = drive(session_frames=['{"revision": 3}'])
-    assert state["dispatched"] == [{"type": "daiv:session-changed", "detail": {"revision": 3}}]
-
-
-def test_a_zero_revision_is_announced_not_treated_as_missing():
+@pytest.mark.parametrize("revision", [3, 0])
+def test_a_session_frame_is_announced_to_the_page(revision):
     """The bus reads a missing key as 0, so 0 is a real revision the page must fetch against."""
-    state = drive(session_frames=['{"revision": 0}'])
-    assert state["dispatched"] == [{"type": "daiv:session-changed", "detail": {"revision": 0}}]
+    state = drive(session_frames=[json.dumps({"revision": revision})])
+    assert state["dispatched"] == [{"type": "daiv:session-changed", "detail": {"revision": revision}}]
 
 
 def test_every_session_frame_is_announced_in_order():

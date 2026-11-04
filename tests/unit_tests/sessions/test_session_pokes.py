@@ -555,38 +555,17 @@ class TestOwnershipChangesPoke:
 
 @pytest.mark.django_db(transaction=True)
 class TestWatchChangesPoke:
-    async def test_recording_a_pipeline_pokes_the_owning_session(self, publish):
-        ownership = await amake_owned_merge_request()
-
-        assert await WatchStore().arecord_pipeline(ownership.pk, 5, "failed") is True
-
-        publish.assert_any_call(ownership.session_id)
-
-    async def test_recording_a_pipeline_already_judged_does_not_poke(self, publish):
-        ownership = await amake_owned_merge_request(last_pipeline_id=5, last_pipeline_status="failed")
-
-        assert await WatchStore().arecord_pipeline(ownership.pk, 5, "failed") is False
-
-        publish.assert_not_called()
-
-    async def test_forgetting_a_pipeline_pokes_the_owning_session(self, publish):
-        ownership = await amake_owned_merge_request(last_pipeline_id=5, last_pipeline_status="failed")
-
-        await WatchStore().aforget_pipeline(ownership.pk, 5, "failed", previous=(None, ""))
-
-        publish.assert_any_call(ownership.session_id)
-
     async def test_turning_the_watch_off_pokes_the_owning_session(self, publish):
         ownership = await amake_owned_merge_request()
 
-        await WatchStore().aset_enabled(ownership.pk, enabled=False)
+        await WatchStore().aset_enabled(ownership, enabled=False)
 
         publish.assert_any_call(ownership.session_id)
 
     async def test_turning_the_watch_on_pokes_the_owning_session(self, publish):
         ownership = await amake_owned_merge_request(watch_enabled=False, attempts=2)
 
-        await WatchStore().aset_enabled(ownership.pk, enabled=True)
+        await WatchStore().aset_enabled(ownership, enabled=True)
 
         publish.assert_any_call(ownership.session_id)
 

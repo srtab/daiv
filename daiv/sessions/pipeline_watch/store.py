@@ -11,7 +11,7 @@ from django.db.models import Exists, OuterRef, Q, Subquery
 from django.db.models.functions import Coalesce, Greatest
 
 from sessions.inbox.ownership import Ownerships
-from sessions.live.notify import aownership_changed
+from sessions.live.notify import asession_changed
 from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, QuietReason
 
 if TYPE_CHECKING:
@@ -74,8 +74,6 @@ class WatchStore:
             .filter(Q(last_pipeline_id__isnull=True) | ~judged)
             .aupdate(last_pipeline_id=pipeline_id, last_pipeline_status=status)
         )
-        if updated:
-            await aownership_changed(ownership_id)
         return updated == 1
 
     async def asuperseded(self, session_id: str | None, subject: str, sha: str, pipeline_id: int) -> bool:
@@ -122,10 +120,9 @@ class WatchStore:
         self, ownership_id: int, pipeline_id: int, status: str, *, previous: tuple[int | None, str]
     ) -> None:
         """Undo :meth:`arecord_pipeline` after posting the pipeline's result failed, unless a later one was recorded."""
-        if await MergeRequestOwnership.objects.filter(
+        await MergeRequestOwnership.objects.filter(
             pk=ownership_id, last_pipeline_id=pipeline_id, last_pipeline_status=status
-        ).aupdate(last_pipeline_id=previous[0], last_pipeline_status=previous[1]):
-            await aownership_changed(ownership_id)
+        ).aupdate(last_pipeline_id=previous[0], last_pipeline_status=previous[1])
 
     async def agave_up_before(self, event: InboxEvent) -> bool:
         """Whether an earlier pipeline on the commit of ``event``, a ``budget_spent`` CI failure, already ran out of
@@ -143,14 +140,14 @@ class WatchStore:
             .aexists()
         )
 
-    async def aset_enabled(self, ownership_id: int, *, enabled: bool) -> None:
+    async def aset_enabled(self, ownership: MergeRequestOwnership, *, enabled: bool) -> None:
         """Turn the watch on or off. Turning it on gives it its attempts back, as a person asking again is a new budget,
         and forgets the last pipeline judged so it is judged anew."""
         updates = {"watch_enabled": enabled}
         if enabled:
             updates |= {"attempts": 0, "last_pipeline_id": None, "last_pipeline_status": ""}
-        if await MergeRequestOwnership.objects.filter(pk=ownership_id).aupdate(**updates):
-            await aownership_changed(ownership_id)
+        if await MergeRequestOwnership.objects.filter(pk=ownership.pk).aupdate(**updates):
+            await asession_changed(ownership.session_id)
 
     def quiet(self, *, since: datetime, limit: int) -> QuerySet[MergeRequestOwnership, dict[str, Any]]:
         """Open, watched merge requests nothing was heard of since ``since``, at most ``limit``, stalest first: no CI

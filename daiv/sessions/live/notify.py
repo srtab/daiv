@@ -50,22 +50,6 @@ async def asession_changed(thread_id: str | None) -> None:
     await asyncio.to_thread(_publish_in_thread, thread_id)
 
 
-async def aownership_changed(ownership_id: int) -> None:
-    """Poke the page of the session that owns merge request ownership ``ownership_id``. Never raises."""
-    from sessions.models import MergeRequestOwnership
-
-    try:
-        thread_id = (
-            await MergeRequestOwnership.objects.filter(pk=ownership_id).values_list("session_id", flat=True).afirst()
-        )
-    except Error:
-        logger.warning(
-            "live: ownership lookup failed for ownership_id=%s; its session was not poked", ownership_id, exc_info=True
-        )
-        return
-    await asession_changed(thread_id)
-
-
 def _publish_in_thread(thread_id: str) -> None:
     try:
         publish_session_changed(thread_id)

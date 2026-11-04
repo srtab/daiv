@@ -145,7 +145,7 @@ class TestNavFrames:
         await start_run(member_user)
         frames = await read_frames(member_user, FakeStream(), count=2)
         rendered = await sync_to_async(lambda: member_client.get("/dashboard/").content.decode())()
-        for key in snapshots(frames)[0]:
+        for key in snapshots(frames)[0].keys() - {"latest_running_start"}:
             assert f"{key}: " in rendered
 
     async def test_the_snapshot_carries_both_counts_and_the_latest_start(self, member_user):
@@ -192,16 +192,6 @@ class TestNavFrames:
         )
         frames = await read_frames(member_user, FakeStream(), count=2)
         assert snapshots(frames)[0]["unread_count"] == 0
-
-    async def test_it_listens_for_the_pokes_this_viewer_needs(self, member_user):
-        with patch("dashboard.api.views.UIEventStream.for_user", return_value=FakeStream()) as for_user:
-            generator = _nav_frames(member_user)
-            try:
-                await anext(generator)
-                await anext(generator)
-            finally:
-                await generator.aclose()
-        for_user.assert_called_once_with(member_user.pk, session=None)
 
     async def test_no_session_param_subscribes_as_before(self, member_user):
         stream = FakeStream()

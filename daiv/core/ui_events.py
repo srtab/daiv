@@ -189,13 +189,10 @@ async def aread_session_revision(thread_id: str, *, connections: RedisConnection
     if not connections.configured:
         return 0
     try:
-        return _parse_revision(await connections.async_client().get(Channel.session_revision(thread_id)))
+        raw = await connections.async_client().get(Channel.session_revision(thread_id))
     except (redis.RedisError, OSError) as err:
         logger.warning("ui_events: failed to read the revision of session %s: %s", thread_id, err)
         return 0
-
-
-def _parse_revision(raw: bytes | str | None) -> int:
     return int(raw) if raw is not None else 0
 
 
