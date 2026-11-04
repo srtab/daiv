@@ -117,6 +117,24 @@ async def finalize_chat_run(
 _ANSWER_EVENT_PREFIXES = ("TEXT_MESSAGE_", "THINKING_", "REASONING_", "TOOL_CALL_", "SUBAGENT_")
 
 
+async def arelease_turn(thread_id: str, run_id: str) -> None:
+    """Put back the inbox events the chat turn ``run_id`` took that its ``Run`` never took over (the turn ended before
+    the clone was ready), release its slot, then drain the session's inbox, so a message sent meanwhile starts its run
+    at once. Each failure is logged, never raised."""
+    try:
+        await ChatClaim(thread_id, run_id).arelease()
+    except Exception:
+        logger.exception(
+            "chat: could not put back the inbox events of thread_id=%s; they return once it is idle", thread_id
+        )
+    try:
+        await SessionLock.release(thread_id, run_id)
+    except Exception:
+        logger.exception("chat: failed to release run slot for thread_id=%s", thread_id)
+        return
+    await sync_to_async(Drain(thread_id).start_logged)()
+
+
 @dataclass
 class _Turn:
     """What a chat turn has recorded so far, filled in as the executor reaches each step."""
@@ -209,7 +227,7 @@ class ChatRunStreamer:
                 yield CustomEvent(type=EventType.CUSTOM, name="resolved_env", value=self.auto_resolved_env)
             # Names the run's row so the page keys its live marker as a reload renders it.
             yield CustomEvent(type=EventType.CUSTOM, name="run_record", value={"id": str(self.chat_run.pk)})
-            hooks = RunHooks(on_context_ready=self._start_turn, on_success=partial(self._record_outcome, turn))
+            hooks = RunHooks(on_context_ready=self._on_context_ready, on_success=partial(self._record_outcome, turn))
             async with contextlib.aclosing(
                 stream_run(
                     self._run_spec(), partial(self._agui_events, turn), hooks, should_stop=run_relay.cancel_requested
@@ -271,7 +289,7 @@ class ChatRunStreamer:
             extra_metadata={"override_source": "explicit" if self.agent_model else None},
         )
 
-    async def _start_turn(self, ref: str) -> None:
+    async def _on_context_ready(self, ref: str) -> None:
         """Move the turn's ``Run`` to the ref the clone landed on and link the events the view took to it."""
         run = self.chat_run
         if run.ref != ref:
@@ -392,8 +410,7 @@ class ChatRunStreamer:
         return turn.withdrawn
 
     async def _end_turn(self, turn: _Turn, *, succeeded: bool) -> None:
-        """Withdraw or finalize the ``Run`` row, put back the inbox events the view took that it never took over (the
-        turn ended before the clone was ready), then release the slot; each failure is logged, never raised over how
+        """Withdraw or finalize the ``Run`` row, then ``arelease_turn``; each failure is logged, never raised over how
         the turn ended."""
         if not await self._withdraw(turn):
             try:
@@ -409,15 +426,4 @@ class ChatRunStreamer:
                 )
             except Exception:
                 logger.exception("chat: failed to finalize chat run for thread_id=%s", self.thread_id)
-        try:
-            await ChatClaim(self.thread_id, self.run_id).arelease()
-        except Exception:
-            logger.exception(
-                "chat: could not put back the inbox events of thread_id=%s; they return once it is idle", self.thread_id
-            )
-        try:
-            await SessionLock.release(self.thread_id, self.run_id)
-        except Exception:
-            logger.exception("chat: failed to release run slot for thread_id=%s", self.thread_id)
-            return
-        await sync_to_async(Drain(self.thread_id).start_logged)()
+        await arelease_turn(self.thread_id, self.run_id)

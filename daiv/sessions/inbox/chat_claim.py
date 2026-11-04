@@ -1,7 +1,7 @@
 """The events an inline chat turn takes from its inbox (``specs/001-session-inbox/contracts/inbox-service.md``).
 
-The turn takes them under its holder id right after it claims the slot, before its ``Run`` exists; the ``Run`` takes
-them over once its row exists, and a turn that ends before that puts them back.
+The turn takes them under its holder id right after it claims the slot; its ``Run`` takes them over once the clone is
+ready, and a turn that ends before that puts them back.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ class ChatClaim:
 
     def take(self) -> list[InboxEvent]:
         """Take the session's pending remembered events for its branch for the chat turn that just claimed the slot
-        under ``holder_id``, before its ``Run`` exists. SYNC ONLY.
+        under ``holder_id``. SYNC ONLY.
 
         A waking event is left for the drain, which starts its run once the turn ends: only the drain renders a waking
         event's request and charges a CI attempt. It is still superseded by a newer event of its subject, so a turn that
@@ -56,7 +56,7 @@ class ChatClaim:
         return await sync_to_async(self.take)()
 
     async def alink(self, run: Run) -> None:
-        """Point the events the chat turn took under ``holder_id`` at its ``Run``, now that the row exists."""
+        """Point the events the chat turn took under ``holder_id`` at its ``Run``, once the clone is ready."""
         await InboxEvent.objects.filter(
             session_id=run.session_id, claim_token=self.holder_id, state=EventState.TAKEN
         ).aupdate(run=run, claim_token="")
@@ -69,7 +69,7 @@ class ChatClaim:
 
     async def arelease(self) -> int:
         """Put back for the session's next turn the events the chat turn ``holder_id`` took and no ``Run`` took over;
-        returns how many. Such a turn ended before its ``Run`` existed, so the events never reached the model and cost
+        returns how many. Such a turn ended before the clone was ready, so the events never reached the model and cost
         no attempt."""
         return await InboxEvent.objects.filter(
             session_id=self.thread_id, claim_token=self.holder_id, state=EventState.TAKEN, run__isnull=True

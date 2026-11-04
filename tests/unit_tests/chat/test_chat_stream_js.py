@@ -823,7 +823,7 @@ const thread = { thread_id: "t1", repo_id: "r", ref: "main" };
 const chat = reactive(registry.chat({
   endpoint: "/api/chat",
   streamEndpoint: "/api/chat/stream",
-  thread: payload.rendered ? thread : null,
+  thread,
 }));
 chat.$watch = watchOn(chat);
 chat.$nextTick = (cb) => cb && cb();
@@ -869,7 +869,7 @@ QUEUED_REPLY = {
 
 
 def _send_mid_run(
-    state: dict, reply: dict = QUEUED_REPLY, *, status: int = 200, rendered: bool = True, draft: str = "Also add a test"
+    state: dict, reply: dict = QUEUED_REPLY, *, status: int = 200, draft: str = "Also add a test"
 ) -> dict:
     fetch = (
         "fetch: async (url, init) => { sent.push({ url, body: JSON.parse(init.body) }); "
@@ -878,7 +878,7 @@ def _send_mid_run(
     )
     return run_chat_stream(
         MID_RUN_BODY,
-        {"state": state, "rendered": rendered, "draft": draft},
+        {"state": state, "draft": draft},
         prelude=REACTIVITY + EVENT_SOURCE + MID_RUN_PRELUDE,
         extra_globals=GLOBALS + " EventSource: FakeEventSource, setTimeout, " + fetch,
     )
@@ -905,12 +905,6 @@ def test_a_message_sent_mid_run_waits_for_the_next_run_and_leaves_the_live_one_a
     assert (out["draft"], out["queuedRunId"]) == ("", "next-run")
     assert out["provisional"] == [{"event_id": "e1", "run_id": "next-run", "text": "Also add a test"}]
     assert out["reloads"] == 0
-
-
-def test_a_page_that_started_its_session_reloads_to_show_a_message_queued_mid_run():
-    out = _send_mid_run({"streaming": True}, rendered=False)
-
-    assert (out["reloads"], out["draft"]) == (1, "")
 
 
 @pytest.mark.parametrize("draft", ["/clear", "  /plan the migration", "/unknown is not a command"])

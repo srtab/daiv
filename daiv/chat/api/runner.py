@@ -54,7 +54,7 @@ async def run_to_relay(streamer: ChatRunStreamer) -> None:
 
     The whole body runs inside its own ``ThreadSensitiveContext`` so every Django
     ORM ``a*`` call the run makes (``events()`` alone hits ``set_runtime_ctx``,
-    the heartbeat, ``finalize_chat_run`` and the lock release; the view records the Run itself)
+    the heartbeat, ``finalize_chat_run`` and the lock release)
     resolves ``sync_to_async(thread_sensitive=True)`` to a run-owned single-thread
     executor that lives exactly as long as the run — instead of the process-global
     one shared across every detached run. Paired with the fresh spawn context (see

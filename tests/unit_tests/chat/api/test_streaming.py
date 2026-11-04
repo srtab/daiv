@@ -11,7 +11,6 @@ stay focused on the stream and slot invariants. A class that needs the row in th
 
 import asyncio
 import json
-import uuid
 from contextlib import asynccontextmanager, contextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -586,26 +585,12 @@ async def test_an_exception_ag_ui_swallows_never_reaches_the_relay(_executor_sta
 def test_streamer_post_init_rejects_thread_id_mismatch():
     """Construction-time guard: thread_id/run_id must match input_data."""
     with pytest.raises(ValueError, match="thread_id mismatch"):
-        ChatRunStreamer(
-            repo_id="a/b",
-            ref="main",
-            thread_id="t-foo",
-            run_id="r-1",
-            input_data=SimpleNamespace(thread_id="t-bar", run_id="r-1"),
-            chat_run=_stub_run(),
-        )
+        _streamer(SimpleNamespace(thread_id="t-bar", run_id="r-1"), thread_id="t-foo")
 
 
 def test_streamer_post_init_rejects_run_id_mismatch():
     with pytest.raises(ValueError, match="run_id mismatch"):
-        ChatRunStreamer(
-            repo_id="a/b",
-            ref="main",
-            thread_id="t",
-            run_id="r-1",
-            input_data=SimpleNamespace(thread_id="t", run_id="r-2"),
-            chat_run=_stub_run(),
-        )
+        _streamer(SimpleNamespace(thread_id="t", run_id="r-2"), thread_id="t")
 
 
 @pytest.mark.django_db(transaction=True)
@@ -739,38 +724,6 @@ async def test_events_stops_when_slot_lost_to_stale_takeover():
     assert [e.type for e in seen] == [EventType.CUSTOM, EventType.STATE_SNAPSHOT, EventType.RUN_ERROR]
     assert seen[-1].code == "run_interrupted"  # the stop closed the stream before the second snapshot
     assert finalize_calls == [{"success": False, "error_message": "Run was interrupted before completing."}]
-
-
-class TestStartChatRunPersistence:
-    """Isolated class so the module-level autouse ``_patch_run_lifecycle`` can be
-    overridden here — the real ``start_chat_run`` must run against the DB.
-    """
-
-    @pytest.fixture(autouse=True)
-    def _patch_run_lifecycle(self):
-        """Override the module-level autouse: do NOT stub start_chat_run so the real
-        DB-backed implementation runs for the persistence assertion.
-        """
-
-    @pytest.mark.django_db(transaction=True)
-    async def test_start_chat_run_persists_message_id(self):
-
-        from sessions.models import Session, SessionOrigin
-
-        from chat.api.streaming import start_chat_run
-
-        session = await Session.objects.acreate(
-            thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/project", ref="main"
-        )
-        run = await start_chat_run(
-            session_id=session.thread_id,
-            user_id=None,
-            prompt="hello",
-            repo_id="group/project",
-            ref="main",
-            message_id="h-99",
-        )
-        assert run.message_id == "h-99"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -924,13 +877,7 @@ async def test_events_hands_the_turns_settings_to_the_executor(_executor_stack):
         patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
         patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
     ):
-        streamer = ChatRunStreamer(
-            repo_id="a/b",
-            ref="main",
-            thread_id="t-stream",
-            run_id="r-1",
-            input_data=_run_input(),
-            chat_run=_stub_run(),
+        streamer = _streamer(
             user_id=7,
             sandbox_environment_id="env-1",
             agent_model="openrouter:z-ai/glm-5.2",
@@ -973,32 +920,23 @@ async def test_chat_runs_on_the_resolved_recursion_limit(_executor_stack):
     assert agui.call_args.kwargs["config"]["recursion_limit"] == 123
 
 
-class TestResolvedModelRecord:
-    """Isolated class so the module-level autouse ``_patch_run_lifecycle`` can be overridden here — the turn's
-    ``Run`` is a real row, which the executor's model record has to land on."""
+@pytest.mark.django_db(transaction=True)
+async def test_a_chat_run_records_the_model_it_ran_on_but_leaves_the_session_unpinned():
+    await amake_job_session("t-stream")
+    run = await _arecord_run()
 
-    @pytest.fixture(autouse=True)
-    def _patch_run_lifecycle(self):
-        """Override the module-level autouse: the turn's ``Run`` is a real row."""
+    with (
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        async for _ in _streamer(chat_run=run).events():
+            pass
 
-    @pytest.mark.django_db(transaction=True)
-    async def test_a_chat_run_records_the_model_it_ran_on_but_leaves_the_session_unpinned(self):
-        await amake_job_session("t-stream")
-        recorded = await _arecord_run()
-
-        with (
-            patch("chat.api.streaming.finalize_chat_run", new=AsyncMock()),
-            patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=_mock_agent([])),
-            patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
-            patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
-        ):
-            async for _ in _streamer(chat_run=recorded).events():
-                pass
-
-        run = await Run.objects.aget(session_id="t-stream")
-        session = await Session.objects.aget(thread_id="t-stream")
-        assert (run.agent_model, run.agent_thinking_level) == ("claude-4-7-opus", "medium")
-        assert (session.agent_model, session.agent_thinking_level) == ("", "")
+    await run.arefresh_from_db()
+    session = await Session.objects.aget(thread_id="t-stream")
+    assert (run.agent_model, run.agent_thinking_level) == ("claude-4-7-opus", "medium")
+    assert (session.agent_model, session.agent_thinking_level) == ("", "")
 
 
 def _failing_ctx(*_args, **_kwargs):
@@ -1019,7 +957,7 @@ def _recorded_turn(
     checkpoint: dict | None = None,
     errors: dict[str, Exception] | None = None,
 ):
-    """Patch the chat turn's collaborators around ``agui_agent``; yield ``calls``, which logs start and each
+    """Patch the chat turn's collaborators around ``agui_agent``; yield ``calls``, which logs each
     after-run step in order. ``checkpoint`` is the finished turn's state, which the ref sync and the claim read.
     ``errors`` maps a step name to the exception it raises after it is logged."""
     calls: list[tuple] = []
@@ -1166,24 +1104,11 @@ class TestChatAfterRunMatrix:
 
         assert calls == [("finalize", False, RUN_FAILED_MESSAGE), _RELEASE]
 
-    async def test_the_run_row_is_named_once_before_the_agents_first_event(self):
-        with _recorded_turn(_mock_agent([_snapshot(), _snapshot()])):
+    async def test_the_stream_opens_by_naming_the_run_row(self):
+        with _recorded_turn(_mock_agent([_snapshot()])):
             events = [event async for event in _streamer().events()]
 
-        records = [event for event in events if event.type == EventType.CUSTOM and event.name == "run_record"]
-        assert (events[0], len(records)) == (records[0], 1)
-        assert records[0].value == {"id": "run-pk"}
-
-    async def test_a_failure_before_the_agents_first_event_names_the_run_row_before_the_error(self):
-        graph = MagicMock(aget_state=AsyncMock(), aupdate_state=AsyncMock())
-
-        with _recorded_turn(_raising_agent(), graph=graph):
-            events = [event async for event in _streamer().events()]
-
-        assert [(event.type, getattr(event, "name", None)) for event in events] == [
-            (EventType.CUSTOM, "run_record"),
-            (EventType.RUN_ERROR, None),
-        ]
+        assert (events[0].name, events[0].value) == ("run_record", {"id": "run-pk"})
 
     async def test_a_setup_failure_fails_the_run_the_view_recorded(self):
         with _recorded_turn(_mock_agent([]), runtime_ctx=_failing_ctx) as calls:
@@ -1196,8 +1121,6 @@ class TestChatAfterRunMatrix:
         assert calls == [("finalize", False, RUN_FAILED_MESSAGE), _RELEASE]
 
     async def test_a_lost_lock_stops_the_turn_and_skips_ref_and_watch(self):
-        from core.constants import INTERRUPTED_MESSAGE
-
         with _recorded_turn(_mock_agent([_snapshot(), _snapshot()]), heartbeat=False) as calls:
             events = [event async for event in _streamer().events()]
 
@@ -1355,8 +1278,6 @@ class TestChatAfterRunMatrix:
         assert "failed to release run slot" in caplog.text
 
     async def test_a_reader_that_goes_away_mid_turn_still_ends_the_turn(self):
-        from core.constants import INTERRUPTED_MESSAGE
-
         with _recorded_turn(_mock_agent([_snapshot(), _snapshot()])) as calls:
             events = _streamer().events()
             assert (await anext(events)).name == "run_record"
@@ -1414,8 +1335,6 @@ class TestChatAfterRunMatrix:
         assert usages == [{"total_tokens": 12}]
 
     async def test_a_reader_that_goes_away_while_the_clone_fails_to_close_still_ends_the_turn(self):
-        from core.constants import INTERRUPTED_MESSAGE
-
         def _failing_close(*_args, **_kwargs):
             ctx = _mock_ctx()
             ctx.__aexit__ = AsyncMock(side_effect=OSError("clone cleanup failed"))
@@ -1436,15 +1355,7 @@ class TestChatAfterRunMatrix:
             cloned.append(True)
             return _mock_ctx()
 
-        streamer = ChatRunStreamer(
-            repo_id="a/b",
-            ref="main",
-            thread_id="t-stream",
-            run_id="r-1",
-            input_data=_run_input(),
-            chat_run=_stub_run(),
-            auto_resolved_env={"id": "env-1", "name": "Default", "scope": "global"},
-        )
+        streamer = _streamer(auto_resolved_env={"id": "env-1", "name": "Default", "scope": "global"})
         with _recorded_turn(_mock_agent([]), runtime_ctx=_ctx) as calls:
             events = streamer.events()
             first = await anext(events)
@@ -1547,10 +1458,6 @@ class TestTurnMeasurements:
 
 @pytest.mark.django_db(transaction=True)
 class TestInboxContext:
-    @pytest.fixture(autouse=True)
-    def _patch_run_lifecycle(self):
-        """Override the module-level autouse: the turn's ``Run`` row is real, so events can point at it."""
-
     async def _session_with_taken_events(self) -> Session:
         from sessions.models import EventKind, EventState
 
@@ -1567,7 +1474,7 @@ class TestInboxContext:
 
         await self._session_with_taken_events()
         run = await _arecord_run()
-        await _streamer(chat_run=run)._start_turn("main")
+        await _streamer(chat_run=run)._on_context_ready("main")
 
         event = await InboxEvent.objects.aget()
         assert (event.run_id, event.claim_token) == (run.pk, "")
@@ -1578,7 +1485,7 @@ class TestInboxContext:
         await self._session_with_taken_events()
         streamer = _streamer(chat_run=await _arecord_run())
         turn = streamer._turn
-        await streamer._start_turn("main")
+        await streamer._on_context_ready("main")
         agent = MagicMock(aupdate_state=AsyncMock())
 
         await streamer._add_inbox_context(
@@ -1595,7 +1502,7 @@ class TestInboxContext:
         await Session.objects.acreate(thread_id="t-stream", origin="chat", repo_id="a/b", ref="main")
         streamer = _streamer(chat_run=await _arecord_run())
         turn = streamer._turn
-        await streamer._start_turn("main")
+        await streamer._on_context_ready("main")
         agent = MagicMock(aupdate_state=AsyncMock())
 
         await streamer._add_inbox_context(turn, SimpleNamespace(agent=agent, config={}, fast_forward=None))
@@ -1606,7 +1513,7 @@ class TestInboxContext:
         await Session.objects.acreate(thread_id="t-stream", origin="chat", repo_id="a/b", ref="main")
         streamer = _streamer(chat_run=await _arecord_run())
         turn = streamer._turn
-        await streamer._start_turn("main")
+        await streamer._on_context_ready("main")
         agent = MagicMock(aupdate_state=AsyncMock())
 
         await streamer._add_inbox_context(turn, SimpleNamespace(agent=agent, config={}, fast_forward="advanced"))
@@ -1618,7 +1525,7 @@ class TestInboxContext:
         await self._session_with_taken_events()
         streamer = _streamer(chat_run=await _arecord_run())
         turn = streamer._turn
-        await streamer._start_turn("main")
+        await streamer._on_context_ready("main")
         agent = MagicMock(aupdate_state=AsyncMock(side_effect=RuntimeError("redis down")))
 
         with caplog.at_level("ERROR", logger="daiv.chat"):

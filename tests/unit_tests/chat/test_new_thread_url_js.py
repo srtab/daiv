@@ -1,5 +1,7 @@
 from django.urls import resolve
 
+import pytest
+
 from tests.unit_tests.chat.chat_stream_driver import run_chat_stream
 from tests.unit_tests.jsdriver import requires_node
 
@@ -37,7 +39,7 @@ Object.assign(chat, {
   scrollToBottom: () => {},
   autosize: () => {},
   $nextTick: () => {},
-  _postRun: async () => ({ ok: true, json: async () => ({ run_id: "r1", thread_id: chat.thread.thread_id }) }),
+  _postRun: async () => ({ ok: true, json: async () => payload.reply }),
   _streamRun: async () => { streamed += 1; return "finished"; },
 });
 await chat.submit("hi");
@@ -45,7 +47,12 @@ process.stdout.write(JSON.stringify({ reloads, streamed }));
 """
 
 
-def test_a_new_thread_hands_its_accepted_run_to_the_session_page():
-    out = run_chat_stream(HAND_OVER_BODY, {}, extra_globals="history: {},")
+@pytest.mark.parametrize(
+    "reply",
+    [{"run_id": "r1"}, {"run_id": "r1", "queued": {"event_id": "e1", "run_id": "next-run", "position": "next"}}],
+    ids=["started", "queued"],
+)
+def test_a_new_thread_hands_its_accepted_message_to_the_session_page(reply):
+    out = run_chat_stream(HAND_OVER_BODY, {"reply": reply}, extra_globals="history: {},")
 
     assert out == {"reloads": 1, "streamed": 0}

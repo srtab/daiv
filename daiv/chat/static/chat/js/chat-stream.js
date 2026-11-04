@@ -1587,17 +1587,17 @@
           this._pushRunStatus("failed", await formatHttpError(resp));
           return;
         }
+        // This page has no session top bar, details or Up next; the session page, already at this address, has them
+        // and rejoins the run the server recorded or lists the message it queued.
+        if (!config.thread) {
+          reason = "handed-over";
+          window.location.reload();
+          return;
+        }
         const handle = await resp.json().catch(() => ({}));
         if (handle?.queued) {
           reason = "queued";
           this._queueTurn(assistantTurn, handle.queued);
-          return;
-        }
-        // This page has no session top bar or details; the session page, already at this address, has them and
-        // rejoins the run the server recorded.
-        if (!config.thread) {
-          reason = "handed-over";
-          window.location.reload();
           return;
         }
 
@@ -1762,7 +1762,7 @@
       this.scrollToBottom();
     },
 
-    // Up next shows a queued message; a page rendered before its session existed has no Up next until it reloads.
+    // Up next shows a queued message.
     _announceQueued(queued, text) {
       this.queuedRunId = queued.run_id || "";
       window.dispatchEvent(
@@ -1770,7 +1770,6 @@
           detail: { event_id: queued.event_id, run_id: this.queuedRunId, text },
         }),
       );
-      if (!config.thread) window.location.reload();
     },
 
     async stop() {
