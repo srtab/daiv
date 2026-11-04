@@ -95,8 +95,10 @@
          activeRunId: "{{ live_run_id|default:''|escapejs }}",
          activeRunStartedAt: "{{ live_run_started_at|default:''|escapejs }}",
          liveRunStoppable: {{ live_run_stoppable|yesno:"true,false" }},
-         {# Any run in flight, streamed from the relay or polled until it holds the slot, so the load-time #}
-         {# scroll can tell "still working" from "finished" without duplicating that logic in JS. #}
+         {% comment %}
+         Any run in flight, streamed from the relay or still waiting for the slot, so the load-time
+         scroll can tell "still working" from "finished" without duplicating that logic in JS.
+         {% endcomment %}
          sessionLive: {{ is_in_flight|yesno:"true,false" }},
          archived: {{ archived|yesno:"true,false" }},
          diffInDetails: {{ session|yesno:"true,false" }},

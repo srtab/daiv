@@ -88,8 +88,8 @@ def running_snapshot(visible) -> dict[str, Any]:
     """The RUNNING rows of a ``Run.objects.visible_to(user)`` queryset, under the nav stream's keys.
 
     ``running_runs`` is the badge. ``latest_running_start`` moves whenever another run starts, even when one
-    finishing at the same moment leaves the count unchanged, which is how the session page hears that a run
-    started on its session after it rendered.
+    finishing at the same moment leaves the count unchanged; it is kept for session pages loaded before the nav
+    stream carried ``session`` frames, which watch it to hear that a run started after they rendered.
     """
     stats = visible.filter(status=RunStatus.RUNNING).aggregate(running_runs=Count("pk"), latest=Max("started_at"))
     latest = stats["latest"]

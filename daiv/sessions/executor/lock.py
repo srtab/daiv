@@ -49,7 +49,7 @@ class LiveRun:
 
 @dataclass(frozen=True)
 class SessionActivity:
-    """What a session's runs are doing, read once per page view or poll so every part shares one staleness cutoff.
+    """What a session's runs are doing, read once per page view or fetch so every part shares one staleness cutoff.
 
     In flight, either the slot has a holder (``holder`` is its started run when identifiable, ``live`` the run the
     page streams) or it is free and ``waiting`` lists the runs yet to start, oldest first. A chat run never waits: it
@@ -130,8 +130,8 @@ def background_in_flight(activity: SessionActivity, runs: Iterable[Run]) -> bool
     """Whether a live run other than an inline chat turn (a job, a webhook, a CI fix, a delegation resume, a chat
     message the inbox runs) keeps the session of ``activity`` in flight.
 
-    Only these wake a session page that rendered idle: an inline chat turn streams to the tab that started it, and
-    is the only run that is RUNNING without a task.
+    Kept for session pages loaded before the nav stream carried ``session`` frames, which wake on these runs only:
+    an inline chat turn streams to the tab that started it, and is the only run that is RUNNING without a task.
     """
     return activity.in_flight and any(
         run.status not in RunStatus.terminal() and not _inline_chat_turn(run) for run in runs

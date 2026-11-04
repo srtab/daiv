@@ -27,7 +27,7 @@ sessions_router = Router(tags=["sessions"], auth=[AuthBearer(), django_auth])
 
 
 async def _get_visible_session(user, thread_id: str) -> Session:
-    """The same visibility as the detail page this endpoint feeds, so a repo reader's poll does not 404."""
+    """The same visibility as the detail page this endpoint feeds, so a repo reader's fetch does not 404."""
     session = await sync_to_async(lambda: Session.objects.visible_to(user).filter(thread_id=thread_id).first())()
     if session is None:
         raise HttpError(404, "Session not found")
@@ -112,9 +112,10 @@ async def session_archive(request: HttpRequest, thread_id: str, payload: Archive
 
 @sessions_router.get("/{thread_id}/turns", response=dict, url_name="session_turns")
 async def session_turns(request: HttpRequest, thread_id: str):
-    """The session as its page shows it (``sessions.page_state``), which an open page fetches to stay current.
-    ``live_run`` names the slot holder, so the page can stream that run from the relay instead; ``background``
-    tells a page that rendered idle whether a run that started since is one it should follow; ``latest_run``, ``ci``
+    """The session as its page shows it (``sessions.page_state``), which an open page fetches when the nav stream
+    announces a change. ``live_run`` names the slot holder, so the page can stream that run from the relay instead;
+    ``background`` is kept for pages loaded before the nav stream carried ``session`` frames, telling one that
+    rendered idle whether a run that started since is one it should follow; ``latest_run``, ``ci``
     (with ``watch``, its single-watch shape for older pages), ``run_count`` and ``delegations`` keep the page's top
     bar and details panel current. ``up_next`` is what the session will do next (``sessions.up_next``), ``None`` when
     nothing is pending. ``revision``, ``merge_request``, ``diff_stats``, ``context_usage``, ``thread_ref`` and
@@ -126,7 +127,8 @@ async def session_turns(request: HttpRequest, thread_id: str):
 
 @sessions_router.get("/{thread_id}/up-next", response=dict, url_name="session_up_next")
 async def session_up_next(request: HttpRequest, thread_id: str):
-    """What the session will do next, which the detail page polls while a run streams to it."""
+    """What the session will do next; kept for detail pages loaded before the nav stream carried ``session`` frames,
+    which poll it while a run streams to them."""
     user = request.auth  # ty: ignore[unresolved-attribute]
     session = await _get_visible_session(user, thread_id)
     unfinished = session.runs.exclude(status__in=RunStatus.terminal()).select_related("user").order_by("created_at")

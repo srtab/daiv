@@ -380,7 +380,7 @@
     draftRef: "",
     streaming: false,
     resuming: !!config.activeRunId,
-    // Whether the session has a run in flight, streamed here or not; the poll and this page's own runs keep it current.
+    // Whether the session has a run in flight, streamed here or not; turns fetches and own runs keep it current.
     sessionLive: !!config.sessionLive,
     // The next run a message sent while the session was busy waits for.
     queuedRunId: "",
@@ -693,15 +693,8 @@
       // While a stream is attached it owns ``turns``; swapping the array would detach
       // the streaming placeholder and hide live output.
       if (this.streaming || this.resuming) return;
-      // The poller re-emits the WHOLE transcript every few seconds. Reassigning ``turns``
-      // re-runs every x-html/x-text binding (re-rendered markdown, re-highlighted code,
-      // repaint) even when nothing changed — the visible every-poll flicker. Skip
-      // the swap when the transcript is byte-identical to what we already show, so
-      // steady-state polls during a long-running tool are free; only a genuine
-      // change repaints. Both sides come from the same server serializer
-      // (annotate_transcript(build_turns(...))), so key order is stable and the
-      // JSON compare is reliable. Alpine's keyed x-for reuses each turn's DOM node
-      // on reassignment, so open tool <details> survive a real change too.
+      // Each fetch carries the WHOLE transcript and reassigning ``turns`` re-renders every turn, so an unchanged one is
+      // skipped; both sides come from one server serializer, so their key order, and this compare, is stable.
       if (JSON.stringify(turns) === JSON.stringify(this.turns)) return;
       this.turns = turns;
       // Mirror the live-stream path (dispatch() scrolls after every event): follow
@@ -877,13 +870,13 @@
 
     // ---------- Run stream (EventSource against the relay) -------------
 
-    // Rejoin a run executing server-side with a full replay; the clock counts from the
-    // server-reported start so a rejoined run doesn't restart at 0.
     followLiveRun(run) {
       if (this.streaming || this.resuming) return;
       this._followRun(run);
     },
 
+    // Rejoin a run executing server-side with a full replay; the clock counts from the
+    // server-reported start so a rejoined run doesn't restart at 0.
     _followRun({ id, stoppable, started_at }) {
       this.waitingSince = "";
       this.queuedRunId = "";
@@ -2098,7 +2091,7 @@
       }));
     },
 
-    // A run the hash names may render only on a later poll, so each poll retries until it lands.
+    // A run the hash names may render only on a later turns fetch, so each fetch retries until it lands.
     revealRunAnchor() {
       if (!this._pendingRunAnchor) return false;
       const target = document.getElementById(this._pendingRunAnchor);
@@ -2138,15 +2131,8 @@
   };
   };
 
-  // Collapse tall user-message bubbles. Measures the rendered height once on
-  // init: user text is immutable after creation, and Alpine's keyed x-for reuses
-  // the DOM node across the wholesale `turns` reassignment that polling performs,
-  // so a single measurement is stable. Both inputs to the overflow test are read
-  // from CSS so the JS decision can't drift from the visible clamp: the line
-  // budget from the --chat-user-clamp-lines custom property, and the per-line
-  // height from the element's computed line-height (CSS clamps to the same
-  // budget * line-height, see .chat-text--clamped). `id` is the shared id the
-  // text region exposes and the toggle points its aria-controls at.
+  // Measured once: user text never changes and the keyed x-for keeps each node across a fetch's `turns` swap. Both the
+  // line budget and the line height are read from CSS, so the overflow test cannot drift from .chat-text--clamped.
   const userClamp = (id) => ({
     id,
     collapsed: false,

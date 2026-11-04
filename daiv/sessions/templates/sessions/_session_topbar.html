@@ -1,6 +1,6 @@
 {% load i18n icon_tags session_tags %}
 {% comment %}
-Must sit inside ``sessionPage`` inside ``chat({…})``: status, merge request and CI read state the stream and poll update.
+Must sit inside ``sessionPage`` inside ``chat({…})``: status, merge request and CI read state the stream and turns fetches update.
 ``can_act`` (run access to the repository) shows rename and the CI toggle; Archive changes only the viewer's lists and composer.
 {% endcomment %}
 {% session_title session as title %}

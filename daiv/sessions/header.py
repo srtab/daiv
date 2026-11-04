@@ -2,7 +2,7 @@
 and what its Retry sends, CI on the merge requests the session owns, and the issue an issue-webhook session
 addresses.
 
-``latest_run_payload`` and ``ci_payload`` are also what the turns poll returns, so what the page rendered and what
+``latest_run_payload`` and ``ci_payload`` are also what the turns endpoint returns, so what the page rendered and what
 keeps it current are built by the same code.
 
 CI is reported per merge request the session owns (``MergeRequestOwnership``), from the latest CI event of each CI

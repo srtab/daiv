@@ -9,7 +9,6 @@
  * Seeded from the server-rendered counts so the first paint has no flash, then replaced
  * wholesale by each `snapshot` frame — the stream sends state, not deltas, so a
  * reconnect needs no replay.
- * A `session` frame is re-announced to the page as a `daiv:session-changed` window event.
  *
  *     <div x-data="..." x-init="$store.nav.start({ url, state, runningLabel })">
  *
@@ -18,8 +17,11 @@
  * frames are one shape read by one function — a key renamed on the Python side then breaks
  * both, not just the stream.
  *
- * `latestRunningStart` drives no badge: it moves whenever a run the viewer can see starts,
- * which the session page watches to pick up a run that started after it rendered.
+ * On a session page `url` carries `?session=<thread_id>`, and each `session` frame the stream
+ * then sends is re-announced to the page as a `daiv:session-changed` window event.
+ *
+ * `latestRunningStart` drives no badge and no current page reads it: the stream keeps sending
+ * it for session pages loaded before it carried `session` frames.
  *
  * `runningLabel` is the sidebar badge's translated sentence with `{count}` still in it:
  * a live number can't go through `blocktranslate`, and keeping the whole sentence as one

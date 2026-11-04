@@ -3,8 +3,8 @@
 The nav badges (unread notifications, running runs) are fed by one long-lived stream
 per tab: the first frame carries a snapshot, and thereafter a frame is sent only when
 a ``core.ui_events`` poke means the snapshot actually moved. Beside the two counts it
-carries the latest running run's start, which the session page watches to notice a
-run that started after it rendered. A tab on a session page adds ``?session=<thread_id>``,
+carries the latest running run's start, which only session pages loaded before the
+``session`` frames existed still watch. A session page subscribes with ``?session=<thread_id>``,
 and the same stream then also carries ``event: session`` frames with that session's
 change revision, so the page needs no connection of its own to hear that it changed.
 
