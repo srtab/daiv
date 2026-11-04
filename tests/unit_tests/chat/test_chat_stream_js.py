@@ -781,38 +781,48 @@ const queued = {
   streaming: chat.streaming,
   live: chat.sessionLive,
   queuedRunId: chat.queuedRunId,
-  ended: dispatched.filter((e) => e.type === "daiv:live-run-ended").length,
   provisional: dispatched.filter((e) => e.type === "daiv:up-next-provisional").map((e) => e.detail),
   opened: opened !== null,
 };
+const ended = dispatched.filter((e) => e.type === "daiv:live-run-ended").map((e) => e.detail);
 chat.followLiveRun({ id: "next-run", stoppable: true, started_at: new Date().toISOString() });
 const following = { streaming: chat.streaming, run: chat._activeRun?.runId, queuedRunId: chat.queuedRunId };
-process.stdout.write(JSON.stringify({ queued, following }));
+process.stdout.write(JSON.stringify({ queued, ended, following }));
 chat.destroy();
 """
 
 
-def test_a_message_sent_while_the_session_is_busy_moves_to_up_next():
+def _send_while_busy() -> dict:
     reply = {"run_id": "r1", "thread_id": "t1", "queued": {"event_id": "e1", "run_id": "next-run", "position": "next"}}
     fetch = f"fetch: async () => ({{ ok: true, json: async () => ({json.dumps(reply)}) }}),"
-
-    out = run_chat_stream(
+    return run_chat_stream(
         QUEUED_MESSAGE_BODY,
         {},
         prelude=REACTIVITY + EVENT_SOURCE,
         extra_globals=GLOBALS + " EventSource: FakeEventSource, setTimeout, " + fetch,
     )
 
+
+def test_a_message_sent_while_the_session_is_busy_moves_to_up_next():
+    out = _send_while_busy()
+
     assert out["queued"] == {
         "turns": [],
         "streaming": False,
         "live": True,
         "queuedRunId": "next-run",
-        "ended": 0,
         "provisional": [{"event_id": "e1", "run_id": "next-run", "text": "Also add a test"}],
         "opened": False,
     }
     assert out["following"] == {"streaming": True, "run": "next-run", "queuedRunId": ""}
+
+
+def test_a_queued_send_announces_its_end_as_queued():
+    """The page may have named a live run while this send was in flight; the end lets it hand that run over."""
+    (detail,) = _send_while_busy()["ended"]
+
+    assert detail["runId"]
+    assert (detail["reason"], detail["own"], detail["frames"]) == ("queued", True, 0)
 
 
 MID_RUN_BODY = """

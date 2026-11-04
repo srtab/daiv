@@ -1771,11 +1771,15 @@
     // conversation for Up next until that run opens with it; ``followLiveRun`` tails the run once it starts.
     _queueTurn(assistantTurn, queued) {
       this._announceQueued(queued, this._detachTurn(assistantTurn));
+      const runId = this._activeRun?.runId;
       this.streaming = false;
       this.runStartedAt = null;
       this._activeRun = null;
       this.sessionLive = true;
       this.scrollToBottom();
+      window.dispatchEvent(
+        new CustomEvent("daiv:live-run-ended", { detail: { runId, reason: "queued", own: true, frames: 0 } }),
+      );
     },
 
     // Up next shows a queued message.

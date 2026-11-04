@@ -258,6 +258,30 @@ def test_a_send_that_never_started_keeps_its_failed_turn_on_screen():
     assert _types(result) == ["daiv:session-header", "daiv:session-header"]
 
 
+def test_a_run_named_while_a_send_was_queued_is_handed_over_again_once_the_send_ends():
+    """The chat drops the first handover while its POST is in flight; the queued end is what frees the run."""
+    steps = [["respond", _turns(2, live_run=R1)], ["changed", 2], ["respond", _turns(2, live_run=R1, run_count=2)]]
+
+    result = _run([*steps, _ended("mine", "queued", own=True), ["advance", 60_000]])
+
+    assert _types(result) == [
+        "daiv:session-turns",
+        "daiv:session-live-run",
+        "daiv:session-turns",
+        "daiv:session-live-run",
+    ]
+    assert result["handovers"] == [{"id": "r1", "at": 0}, {"id": "r1", "at": 0}]
+    assert result["timers"] == 0
+
+
+def test_a_queued_end_is_no_stream_failure():
+    """It starts no back-off and marks nothing finished, so the run it names is followed at once."""
+    result = _run([["respond", _turns(2, live_run=R1)], _ended("r1", "queued", own=True)], live_run_id="r1")
+
+    assert result["handovers"] == [{"id": "r1", "at": 0}]
+    assert _types(result) == ["daiv:session-turns", "daiv:session-live-run"]
+
+
 def test_a_settled_session_never_reloads():
     result = _run([["respond", _turns(2, active=False)], ["changed", 2], ["advance", 60_000]])
 

@@ -27,6 +27,9 @@ document.addEventListener("alpine:init", () => {
         this._keepTranscript = Boolean(own);
         this._keptRunCount = null;
         this._retry = null;
+      } else if (reason === "queued") {
+        this._keepTranscript = false;
+        this._retry = null;
       } else {
         this._keepTranscript = false;
         const first = frames > 0 || this._retry?.runId !== runId;
