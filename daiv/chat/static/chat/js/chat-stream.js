@@ -837,7 +837,7 @@
       });
 
       if (this.resuming && this.thread && config.activeRunId) {
-        this.followLiveRun({
+        this._followRun({
           id: config.activeRunId,
           stoppable: this.runStoppable,
           started_at: config.activeRunStartedAt,
@@ -879,8 +879,12 @@
 
     // Rejoin a run executing server-side with a full replay; the clock counts from the
     // server-reported start so a rejoined run doesn't restart at 0.
-    followLiveRun({ id, stoppable, started_at }) {
-      if (this.streaming) return;
+    followLiveRun(run) {
+      if (this.streaming || this.resuming) return;
+      this._followRun(run);
+    },
+
+    _followRun({ id, stoppable, started_at }) {
       this.waitingSince = "";
       this.queuedRunId = "";
       this.runStoppable = stoppable;
@@ -893,6 +897,18 @@
     // A reload once the session settles would drop an unsent draft or race a send that just started.
     holdReload(event) {
       if (this.streaming || this.resuming || this.draftMessage.trim()) event.preventDefault();
+    },
+
+    // An attached stream owns this state while it runs.
+    applySessionState(data) {
+      if (this.streaming || this.resuming) return;
+      if ("merge_request" in data) {
+        this._applyRepoState({ merge_request: data.merge_request, ref: data.thread_ref || undefined });
+      }
+      if ("diff_stats" in data) this.diffStats = normalizeDiffStats(data.diff_stats);
+      const usage = normalizeContextUsage(data.context_usage);
+      if (usage) this.contextUsage = usage;
+      if ("waiting_since" in data) this.waitingSince = data.waiting_since || "";
     },
 
     async _resumeRun(runId) {
@@ -915,7 +931,7 @@
       const turn = this.turns[this.turns.length - 1];
       this._toolIndex.clear();
       this._reasoningIndex.clear();
-      this._activeRun = { threadId: this.thread.thread_id, runId };
+      this._activeRun = { threadId: this.thread.thread_id, runId, own: false, frames: 0 };
       this.resuming = false;
       this.streaming = true;
       this.$nextTick(() => this.scrollToBottom({ force: true }));
@@ -938,6 +954,7 @@
           resolve(reason);
         };
         source.onmessage = (event) => {
+          run.frames += 1;
           let evt;
           try {
             evt = JSON.parse(event.data);
@@ -1048,7 +1065,7 @@
         this._pushRunStatus("failed", REASON_ERRORS[reason]);
       }
       this.streaming = false;
-      const runId = this._activeRun?.runId;
+      const run = this._activeRun;
       this._activeRun = null;
       this._replayDedup = null;
       this._lastFrameAt = 0;
@@ -1056,7 +1073,11 @@
       // sentinel, so refreshing here (never on RUN_FINISHED) reads this turn's totals.
       this._refreshSpend();
       this.scrollToBottom();
-      window.dispatchEvent(new CustomEvent("daiv:live-run-ended", { detail: { runId } }));
+      window.dispatchEvent(
+        new CustomEvent("daiv:live-run-ended", {
+          detail: { runId: run?.runId, reason, own: Boolean(run?.own), frames: run?.frames ?? 0 },
+        }),
+      );
     },
 
     // ---------- Derived getters (right rail) ---------------------------
@@ -1577,7 +1598,7 @@
       this.streaming = true;
       this.runStoppable = true;
       this.runStartedAt = Date.now();
-      this._activeRun = { threadId: this.thread.thread_id, runId };
+      this._activeRun = { threadId: this.thread.thread_id, runId, own: true, frames: 0 };
 
       let reason = "finished";
       try {

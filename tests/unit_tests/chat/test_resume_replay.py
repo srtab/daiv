@@ -155,6 +155,7 @@ chat.followLiveRun({ id: "r2", stoppable: false, started_at: "2026-10-23T10:00:0
 const url = opened.url;
 const runStoppable = chat.runStoppable;
 const runStartedAt = chat.runStartedAt;
+for (const evt of payload.frames) opened.onmessage({ data: JSON.stringify(evt) });
 opened.listeners.end({ data: JSON.stringify({ reason: "finished" }) });
 await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -162,12 +163,17 @@ const ended = dispatched.filter((e) => e.type === "daiv:live-run-ended");
 process.stdout.write(JSON.stringify({ url, runStoppable, runStartedAt, ended: ended.map((e) => e.detail) }));
 """
 
-FOLLOW_PRELUDE = PRELUDE.replace("constructor() {", "constructor(url) { this.url = url;")
+FOLLOW_PRELUDE = "let constructed = 0;\n" + PRELUDE.replace(
+    "constructor() {", "constructor(url) { this.url = url; constructed += 1;"
+)
 
 
-def _follow() -> dict:
+def _follow(frames=()) -> dict:
     return run_chat_stream(
-        FOLLOW_BODY, {}, prelude=FOLLOW_PRELUDE, extra_globals="EventSource: FakeEventSource, setTimeout,"
+        FOLLOW_BODY,
+        {"frames": list(frames)},
+        prelude=FOLLOW_PRELUDE,
+        extra_globals="EventSource: FakeEventSource, setTimeout,",
     )
 
 
@@ -187,7 +193,36 @@ def test_a_followed_run_is_timed_from_its_server_start():
 def test_a_rejoined_run_announces_its_end():
     result = _follow()
 
-    assert result["ended"] == [{"runId": "r2"}]
+    assert result["ended"] == [{"runId": "r2", "reason": "finished", "own": False, "frames": 0}]
+
+
+def test_a_rejoined_run_counts_its_frames():
+    result = _follow([{"type": "RUN_STARTED", "timestamp": 1000}])
+
+    assert [e["frames"] for e in result["ended"]] == [1]
+
+
+FOLLOW_TWICE_BODY = """
+const chat = registry.chat({ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream" });
+chat.turns = [];
+chat.thread = { thread_id: "t1", repo_id: "r", ref: "main" };
+chat.$nextTick = (cb) => cb();
+chat.scrollToBottom = () => {};
+if (payload.resuming) chat.resuming = true;
+
+chat.followLiveRun({ id: "r2", stoppable: false });
+chat.followLiveRun({ id: "r2", stoppable: false });
+process.stdout.write(JSON.stringify({ constructed }));
+"""
+
+
+@pytest.mark.parametrize(("resuming", "streams"), [(False, 1), (True, 0)], ids=["idle", "page-loaded-resuming"])
+def test_following_while_already_resuming_opens_no_second_stream(resuming, streams):
+    result = run_chat_stream(
+        FOLLOW_TWICE_BODY, {"resuming": resuming}, prelude=FOLLOW_PRELUDE, extra_globals="EventSource: FakeEventSource,"
+    )
+
+    assert result == {"constructed": streams}
 
 
 def test_polled_turns_do_not_replace_the_array_while_streaming():
