@@ -96,7 +96,7 @@ def test_session_new_chat_requires_login(client):
 
 @pytest.mark.django_db
 def test_session_new_chat_renders_empty_state(member_client):
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_new_chat"))
     assert resp.status_code == 200
     assert resp.context["session"] is None
@@ -106,7 +106,7 @@ def test_session_new_chat_renders_empty_state(member_client):
 
 @pytest.mark.django_db
 def test_the_new_chat_page_subscribes_to_no_session(member_client):
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_new_chat"))
 
     assert "url: '/api/nav/events'" in resp.content.decode()
@@ -155,7 +155,7 @@ def test_detail_404_for_other_users_session(member_client, other_user):
 @pytest.mark.django_db
 def test_detail_renders_for_own_session(member_client, member_user):
     session = _create_session(user=member_user)
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
     assert resp.status_code == 200
     assert resp.context["session"] == session
@@ -169,6 +169,17 @@ def test_the_page_subscribes_the_nav_stream_to_its_session(member_client, member
     resp = _get_detail(member_client, session)
 
     assert f"url: '/api/nav/events?session={session.thread_id}'" in resp.content.decode()
+
+
+@pytest.mark.django_db
+def test_the_page_seeds_the_revision(member_client, member_user):
+    session = _create_session(user=member_user)
+
+    with patch("sessions.page_state.aread_session_revision", AsyncMock(return_value=9)) as revision:
+        resp = _get_detail(member_client, session)
+
+    revision.assert_awaited_once_with(session.thread_id)
+    assert resp.context["session_revision"] == 9
 
 
 @pytest.mark.django_db
@@ -193,7 +204,7 @@ def test_detail_seeds_the_tools_sheet_with_the_effective_selection(member_client
         status=MCPServer.Status.ON_DEMAND,
     )
     session = _create_session(user=member_user, mcp_overrides={"b": "on"})
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
     assert resp.status_code == 200
     # default {"a"} + override {"b": "on"} → both checked, not just the overridden name.
@@ -204,7 +215,7 @@ def test_detail_seeds_the_tools_sheet_with_the_effective_selection(member_client
 @pytest.mark.django_db
 def test_detail_seeds_the_slash_command_catalog(member_client, member_user):
     session = _create_session(user=member_user)
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
     assert resp.status_code == 200
     assert any(row["name"] == "help" and row["kind"] == "command" for row in resp.context["slash_command_rows"])
@@ -214,7 +225,7 @@ def test_detail_seeds_the_slash_command_catalog(member_client, member_user):
 def test_new_chat_seeds_the_slash_command_catalog(member_client):
     """The catalog must be set above the ``session is None`` early return: the "/" menu
     has to work on the very first message, before any thread exists."""
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_new_chat"))
     assert resp.status_code == 200
     assert any(row["name"] == "help" and row["kind"] == "command" for row in resp.context["slash_command_rows"])
@@ -230,7 +241,7 @@ def test_detail_with_live_checkpoint_renders_transcript(member_client, member_us
 
     with (
         patch("sessions.hydration.open_checkpointer") as cp_ctx,
-        patch("sessions.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+        patch("sessions.page_state.aget_existing_mr_payload", AsyncMock(return_value=None)),
     ):
         saver = MagicMock()
         saver.aget_tuple = AsyncMock(return_value=tup)
@@ -263,7 +274,7 @@ def test_detail_reconstructs_deltachannel_transcript(member_client, member_user)
 
     with (
         patch("sessions.hydration.open_checkpointer") as cp_ctx,
-        patch("sessions.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+        patch("sessions.page_state.aget_existing_mr_payload", AsyncMock(return_value=None)),
     ):
         saver = MagicMock()
         saver.aget_tuple = AsyncMock(return_value=tup)
@@ -305,7 +316,7 @@ def test_detail_with_an_expired_checkpoint_renders_the_archived_transcript(membe
 
     with (
         patch("sessions.hydration.open_checkpointer") as cp_ctx,
-        patch("sessions.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+        patch("sessions.page_state.aget_existing_mr_payload", AsyncMock(return_value=None)),
     ):
         saver = MagicMock()
         saver.aget_tuple = AsyncMock(return_value=None)
@@ -324,7 +335,9 @@ def test_detail_ci_watch_placeholder_shows_watch_notice_not_expired(member_clien
         user=member_user, origin=SessionOrigin.PIPELINE_WEBHOOK, merge_request_iid=42, watch_state=WatchState.WATCHING
     )
 
-    with patch("sessions.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], True, None, None, None))):
+    with patch(
+        "sessions.page_state.ahydrate_thread", AsyncMock(return_value=HydratedThread([], True, None, None, None))
+    ):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
     assert resp.status_code == 200
@@ -385,7 +398,7 @@ def test_detail_run_not_started_shows_its_prompt_as_pending(member_client, membe
     session = _create_session(user=member_user, ref="")
     run = _create_run(session, trigger_type=SessionOrigin.UI_JOB, status=status, prompt="please fix X")
 
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
     assert resp.context["waiting_since"] == run.created_at.isoformat()
@@ -426,7 +439,7 @@ def test_detail_missing_checkpoint_replays_prompt_turn_when_last_run_failed(memb
         error_message="git.exc.GitCommandError: clone failed",
     )
 
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
     assert resp.status_code == 200
@@ -467,7 +480,7 @@ def test_detail_failed_run_without_prompt_shows_marker(member_client, member_use
         error_message="RuntimeError: boom",
     )
 
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
     assert resp.status_code == 200
@@ -491,7 +504,7 @@ def test_detail_uses_run_status_chip_not_per_turn_error_markup(member_client, me
     """Failures now render as a standalone run-status chip, not per-turn error markup.
     The chip <template> is present regardless of data; the old per-turn error markup is gone."""
     session = _create_session(user=member_user)
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
     content = resp.content.decode()
@@ -553,7 +566,7 @@ def test_detail_visible_to_run_actor(member_client, member_user):
         user=None, external_provider="gitlab", external_uid="77", origin=SessionOrigin.ISSUE_WEBHOOK
     )
 
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
     assert resp.status_code == 200
@@ -567,7 +580,7 @@ def test_detail_in_flight_context(member_client, member_user):
     run_done = _create_run(session, status=RunStatus.SUCCESSFUL)
     run_live = _create_run(session, status=RunStatus.RUNNING)
 
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
     assert resp.context["is_in_flight"] is True
@@ -586,7 +599,7 @@ def test_detail_renders_session_live_flag(member_client, member_user):
     session_live = _create_session(user=member_user)
     _create_run(session_live, status=RunStatus.RUNNING)
 
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_live.thread_id}))
 
     assert "sessionLive: true" in resp.content.decode()
@@ -594,7 +607,7 @@ def test_detail_renders_session_live_flag(member_client, member_user):
     session_done = _create_session(user=member_user)
     _create_run(session_done, status=RunStatus.SUCCESSFUL)
 
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_done.thread_id}))
 
     assert "sessionLive: false" in resp.content.decode()
@@ -608,7 +621,7 @@ def test_any_live_holder_is_exposed_for_streaming(member_client, member_user):
     session_chat.active_run_id = "agui-run-1"
     session_chat.save(update_fields=["active_run_id"])
 
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_chat.thread_id}))
 
     assert resp.context["live_run_id"] == "agui-run-1"
@@ -619,7 +632,7 @@ def test_any_live_holder_is_exposed_for_streaming(member_client, member_user):
     session_bg.active_run_id = bg_run.id
     session_bg.save(update_fields=["active_run_id"])
 
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_bg.thread_id}))
 
     assert resp.context["live_run_id"] == str(bg_run.id)
@@ -630,7 +643,7 @@ def test_any_live_holder_is_exposed_for_streaming(member_client, member_user):
     session_done.active_run_id = done_run.id
     session_done.save(update_fields=["active_run_id"])
 
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_done.thread_id}))
 
     assert resp.context["live_run_id"] == ""
@@ -645,7 +658,7 @@ def test_only_the_sessions_owner_is_offered_stop(client, member_user, other_user
     grant_read_access(member_user, session.repo_id)
     url = reverse("session_detail", kwargs={"thread_id": session.thread_id})
 
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         client.force_login(member_user)
         reader = client.get(url)
         client.force_login(other_user)
@@ -666,7 +679,7 @@ def test_live_run_started_at_seeds_the_working_timer(member_client, member_user)
     session_chat.active_run_id = "agui-run-1"
     session_chat.save(update_fields=["active_run_id"])
 
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_chat.thread_id}))
 
     assert resp.context["live_run_started_at"] == started.isoformat()
@@ -677,7 +690,7 @@ def test_live_run_started_at_seeds_the_working_timer(member_client, member_user)
     session_queued.active_run_id = "agui-run-2"
     session_queued.save(update_fields=["active_run_id"])
 
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session_queued.thread_id}))
 
     assert resp.context["live_run_started_at"] == queued_run.created_at.isoformat()
@@ -699,7 +712,7 @@ def test_failed_middle_run_gets_marker_after_its_turn(member_client, member_user
         HumanMessage(content="two", id="h2"),
         AIMessage(content="done", id="a2"),
     ]
-    with patch("sessions.views.ahydrate_thread", _hydration(messages)):
+    with patch("sessions.page_state.ahydrate_thread", _hydration(messages)):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
     assert resp.status_code == 200
@@ -807,7 +820,7 @@ def test_detail_hydrates_diff_stats_from_the_checkpoint(member_client, member_us
 
     with (
         patch("sessions.hydration.open_checkpointer") as cp_ctx,
-        patch("sessions.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+        patch("sessions.page_state.aget_existing_mr_payload", AsyncMock(return_value=None)),
     ):
         saver = MagicMock()
         saver.aget_tuple = AsyncMock(return_value=tup)
@@ -826,7 +839,7 @@ def test_detail_diff_stats_none_when_the_checkpoint_has_none(member_client, memb
 
     with (
         patch("sessions.hydration.open_checkpointer") as cp_ctx,
-        patch("sessions.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+        patch("sessions.page_state.aget_existing_mr_payload", AsyncMock(return_value=None)),
     ):
         saver = MagicMock()
         saver.aget_tuple = AsyncMock(return_value=tup)
@@ -845,7 +858,9 @@ def test_detail_seeds_the_ref_pill_with_the_published_branch(member_client, memb
     session = _create_session(user=member_user, ref="main")
     mr = {"id": 7, "url": "https://x/7", "source_branch": "feat/published"}
 
-    with patch("sessions.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, mr, None, None))):
+    with patch(
+        "sessions.page_state.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, mr, None, None))
+    ):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
     assert resp.status_code == 200
@@ -858,7 +873,7 @@ def test_detail_seeds_the_ref_pill_with_the_published_branch(member_client, memb
 def test_detail_ref_pill_falls_back_to_the_session_ref_without_a_merge_request(member_client, member_user):
     session = _create_session(user=member_user, ref="main")
 
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
     assert resp.context["thread_ref"] == "main"
@@ -870,7 +885,7 @@ def test_detail_context_has_no_artifacts_key(member_client, member_user):
     session = _create_session(user=member_user)
     make_artifact(_create_run(session), filename="audit.html", content=b"<p>x</p>", title="Dependency audit")
 
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
     assert resp.status_code == 200
@@ -882,7 +897,7 @@ def test_detail_never_renders_the_bottom_artifacts_card(member_client, member_us
     session = _create_session(user=member_user)
     make_artifact(_create_run(session), filename="audit.html", content=b"<p>x</p>", title="Dependency audit")
 
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
     assert 'id="session-artifacts-heading"' not in resp.content.decode()
@@ -894,7 +909,9 @@ def test_detail_expired_session_keeps_the_banner_and_renders_its_artifacts(membe
     run = _create_run(session, trigger_type=SessionOrigin.UI_JOB)
     artifact = make_artifact(run, filename="audit.html", content=b"<p>x</p>", title="Dependency audit")
 
-    with patch("sessions.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], True, None, None, None))):
+    with patch(
+        "sessions.page_state.ahydrate_thread", AsyncMock(return_value=HydratedThread([], True, None, None, None))
+    ):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
     assert resp.status_code == 200
@@ -914,7 +931,9 @@ def test_detail_in_flight_run_on_an_expired_session_keeps_the_working_state(memb
     make_artifact(_create_run(session, trigger_type=SessionOrigin.UI_JOB))
     _create_run(session, trigger_type=SessionOrigin.UI_JOB, status=RunStatus.RUNNING)
 
-    with patch("sessions.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], True, None, None, None))):
+    with patch(
+        "sessions.page_state.ahydrate_thread", AsyncMock(return_value=HydratedThread([], True, None, None, None))
+    ):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
     assert resp.context["expired"] is False
@@ -928,8 +947,8 @@ def test_detail_in_flight_run_on_an_expired_session_keeps_the_working_state(memb
 
 def _get_detail(client, session: Session, *, merge_request=None):
     with (
-        patch("sessions.views.ahydrate_thread", _null_hydration()),
-        patch("sessions.views.aget_existing_mr_payload", AsyncMock(return_value=merge_request)),
+        patch("sessions.page_state.ahydrate_thread", _null_hydration()),
+        patch("sessions.page_state.aget_existing_mr_payload", AsyncMock(return_value=merge_request)),
     ):
         return client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
@@ -1107,7 +1126,7 @@ def test_detail_hands_the_latest_runs_retry_to_the_page(member_client, member_us
     session = _create_session(user=member_user)
     run = _create_run(session, status=RunStatus.FAILED, prompt="fix it")
 
-    with patch("sessions.views.can_run", return_value=True):
+    with patch("sessions.page_state.can_run", return_value=True):
         resp = _get_detail(member_client, session)
 
     latest = resp.context["header"]["latest_run"]
@@ -1152,7 +1171,7 @@ def test_detail_remembers_the_panel_per_user(member_client, member_user):
 
 @pytest.mark.django_db
 def test_session_new_chat_has_no_top_bar_or_panel(member_client):
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         resp = member_client.get(reverse("session_new_chat"))
 
     assert resp.context["header"] is None
@@ -1187,7 +1206,7 @@ def test_detail_offers_rename_the_ci_toggle_and_archive_to_a_runner(member_clien
 def test_detail_offers_only_archive_to_a_viewer_who_cannot_run(member_client, member_user):
     session = _create_session(user=member_user, title="Fix the login redirect")
 
-    with patch("sessions.views.can_run", return_value=False):
+    with patch("sessions.page_state.can_run", return_value=False):
         resp = _get_detail(member_client, session, merge_request={"id": 5, "url": "", "draft": False})
     topbar = _topbar(resp)
 
@@ -1220,7 +1239,7 @@ def test_detail_marks_a_session_the_viewer_archived(member_client, member_user, 
 @pytest.mark.django_db
 def test_detail_and_new_chat_embed_the_transcript_labels(member_client, member_user):
     session = _create_session(user=member_user)
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         detail = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
         new_chat = member_client.get(reverse("session_new_chat"))
     assert 'id="chat-transcript-labels"' in detail.content.decode()
@@ -1230,7 +1249,7 @@ def test_detail_and_new_chat_embed_the_transcript_labels(member_client, member_u
 
 
 def _detail_html(client, session: Session) -> str:
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         return client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id})).content.decode()
 
 
@@ -1286,7 +1305,7 @@ def test_show_raw_follows_the_setting_then_debug(
     settings.DEBUG = debug
     session = _create_session(user=member_user)
     assert _labels_payload(_detail_html(member_client, session))["show_raw"] is expected
-    with patch("sessions.views.ahydrate_thread", _null_hydration()):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
         new_chat = member_client.get(reverse("session_new_chat")).content.decode()
     assert _labels_payload(new_chat)["show_raw"] is expected
 
@@ -1355,7 +1374,7 @@ def test_templates_call_the_label_helper_that_matches_the_label_shape(name):
 @pytest.mark.django_db
 class TestUpNext:
     def _get(self, client, session):
-        with patch("sessions.views.ahydrate_thread", _null_hydration()):
+        with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
             return client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
 
     @pytest.mark.parametrize("viewer", ["owner", "reader"])
@@ -1423,8 +1442,8 @@ def test_detail_shows_delegated_jobs_current_state(member_client, member_user):
     messages = delegate_messages(batch)
 
     with (
-        patch("sessions.views.ahydrate_thread", _hydration(messages)),
-        patch("sessions.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+        patch("sessions.page_state.ahydrate_thread", _hydration(messages)),
+        patch("sessions.page_state.aget_existing_mr_payload", AsyncMock(return_value=None)),
     ):
         resp = member_client.get(reverse("session_detail", kwargs={"thread_id": coordinator.thread_id}))
 

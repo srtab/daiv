@@ -39,14 +39,14 @@ def create_session(user, **kwargs) -> Session:
 
 def render_new_chat(client) -> str:
     """The empty hero state: no thread yet, so the pickers are live."""
-    with patch("sessions.views.ahydrate_thread", AsyncMock(return_value=_EMPTY_THREAD)):
+    with patch("sessions.page_state.ahydrate_thread", AsyncMock(return_value=_EMPTY_THREAD)):
         return client.get(reverse("session_new_chat")).content.decode()
 
 
 def render_thread(client, session: Session) -> str:
     """An existing thread, with repo, ref, model and env pinned by its first turn."""
     with (
-        patch("sessions.views.ahydrate_thread", AsyncMock(return_value=_EMPTY_THREAD)),
-        patch("sessions.views.aget_existing_mr_payload", AsyncMock(return_value=None)),
+        patch("sessions.page_state.ahydrate_thread", AsyncMock(return_value=_EMPTY_THREAD)),
+        patch("sessions.page_state.aget_existing_mr_payload", AsyncMock(return_value=None)),
     ):
         return client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id})).content.decode()

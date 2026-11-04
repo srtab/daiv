@@ -1,0 +1,138 @@
+from __future__ import annotations
+
+import uuid
+from unittest.mock import AsyncMock, Mock, call, patch
+
+import pytest
+from sessions.hydration import HydratedThread
+from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.page_state import aload_session_state
+
+MERGE_REQUEST = {
+    "id": 5,
+    "url": "https://example.com/mr/5",
+    "title": "Fix",
+    "draft": False,
+    "source_branch": "daiv/fix",
+    "target_branch": "main",
+}
+
+
+async def _session(user, *, in_flight: bool) -> Session:
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="group/project", ref="feature", user=user
+    )
+    status = RunStatus.RUNNING if in_flight else RunStatus.SUCCESSFUL
+    run = await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.UI_JOB, repo_id=session.repo_id, status=status
+    )
+    if in_flight:
+        session.active_run_id = str(run.pk)
+        await session.asave(update_fields=["active_run_id"])
+    return session
+
+
+def _hydration(merge_request=None):
+    return AsyncMock(return_value=HydratedThread([], False, merge_request, None, None))
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_the_revision_is_read_before_the_state_is_built(member_user):
+    session = await _session(member_user, in_flight=False)
+    order = Mock()
+    order.attach_mock(AsyncMock(return_value=7), "revision")
+    order.attach_mock(_hydration(), "hydrate")
+
+    with (
+        patch("sessions.page_state.aread_session_revision", order.revision),
+        patch("sessions.page_state.ahydrate_thread", order.hydrate),
+        patch("sessions.page_state.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        state = await aload_session_state(session, member_user, always_look_up_merge_request=False)
+
+    assert order.mock_calls == [call.revision(session.thread_id), call.hydrate(session.thread_id)]
+    assert state.revision == 7
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_routine_fetch_does_not_ask_the_platform_while_in_flight(member_user):
+    session = await _session(member_user, in_flight=True)
+    lookup = AsyncMock(return_value=MERGE_REQUEST)
+
+    with (
+        patch("sessions.page_state.ahydrate_thread", _hydration()),
+        patch("sessions.page_state.aget_existing_mr_payload", lookup),
+    ):
+        state = await aload_session_state(session, member_user, always_look_up_merge_request=False)
+
+    lookup.assert_not_awaited()
+    assert state.activity.in_flight is True
+    assert (state.merge_request, state.thread_ref) == (None, "feature")
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_settled_fetch_does_look_up_the_merge_request(member_user):
+    session = await _session(member_user, in_flight=False)
+    lookup = AsyncMock(return_value=MERGE_REQUEST)
+
+    with (
+        patch("sessions.page_state.ahydrate_thread", _hydration()),
+        patch("sessions.page_state.aget_existing_mr_payload", lookup),
+    ):
+        state = await aload_session_state(session, member_user, always_look_up_merge_request=False)
+
+    lookup.assert_awaited_once_with("group/project", "feature")
+    assert (state.merge_request, state.thread_ref) == (MERGE_REQUEST, "daiv/fix")
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_the_render_always_looks_it_up(member_user):
+    session = await _session(member_user, in_flight=True)
+    lookup = AsyncMock(return_value=MERGE_REQUEST)
+
+    with (
+        patch("sessions.page_state.ahydrate_thread", _hydration()),
+        patch("sessions.page_state.aget_existing_mr_payload", lookup),
+    ):
+        state = await aload_session_state(session, member_user, always_look_up_merge_request=True)
+
+    lookup.assert_awaited_once_with("group/project", "feature")
+    assert state.merge_request == MERGE_REQUEST
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_the_checkpointed_merge_request_needs_no_lookup(member_user):
+    session = await _session(member_user, in_flight=False)
+    lookup = AsyncMock(return_value=None)
+
+    with (
+        patch("sessions.page_state.ahydrate_thread", _hydration(MERGE_REQUEST)),
+        patch("sessions.page_state.aget_existing_mr_payload", lookup),
+    ):
+        state = await aload_session_state(session, member_user, always_look_up_merge_request=True)
+
+    lookup.assert_not_awaited()
+    assert state.merge_request == MERGE_REQUEST
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_the_retry_follows_the_run_access_the_state_reports(member_user):
+    session = await _session(member_user, in_flight=False)
+    await Run.objects.acreate(
+        session=session,
+        trigger_type=SessionOrigin.UI_JOB,
+        repo_id=session.repo_id,
+        status=RunStatus.FAILED,
+        prompt="fix it",
+    )
+
+    with (
+        patch("sessions.page_state.ahydrate_thread", _hydration()),
+        patch("sessions.page_state.aget_existing_mr_payload", AsyncMock(return_value=None)),
+        patch("sessions.page_state.can_run", Mock(return_value=False)),
+        patch("sessions.header.can_run", Mock(return_value=True)),
+    ):
+        state = await aload_session_state(session, member_user, always_look_up_merge_request=False)
+
+    assert state.can_act is False
+    assert state.header["latest_run"]["retry"] == ""

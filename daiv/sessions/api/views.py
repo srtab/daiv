@@ -10,22 +10,12 @@ from ninja.security import django_auth
 
 from accounts.api.security import AuthBearer
 from codebase.authorization import can_run
-from sessions.executor.lock import background_in_flight, live_run_for, session_activity
-from sessions.header import aci_payload, delegations_for, latest_run_payload, retry_for, watch_payload
-from sessions.hydration import ahydrate_thread
-from sessions.inbox.timeline import Timeline
+from sessions.header import aci_payload, watch_payload
 from sessions.live.notify import asession_changed
 from sessions.models import HiddenSession, MergeRequestOwnership, RunStatus, Session
+from sessions.page_state import aload_session_state, turns_payload
 from sessions.pipeline_watch.service import PipelineWatch
 from sessions.titling import MAX_TITLE_LENGTH
-from sessions.transcript import (
-    annotate_transcript,
-    expired_run_turns,
-    interleave_inbox_events,
-    mark_run_openings,
-    mark_skill_links,
-)
-from sessions.turns import build_turns
 from sessions.up_next import aup_next_payload
 
 if TYPE_CHECKING:
@@ -122,46 +112,16 @@ async def session_archive(request: HttpRequest, thread_id: str, payload: Archive
 
 @sessions_router.get("/{thread_id}/turns", response=dict, url_name="session_turns")
 async def session_turns(request: HttpRequest, thread_id: str):
-    """Re-hydrated transcript of an in-flight session, which the detail page polls while no run streams to it.
+    """The session as its page shows it (``sessions.page_state``), which an open page fetches to stay current.
     ``live_run`` names the slot holder, so the page can stream that run from the relay instead; ``background``
     tells a page that rendered idle whether a run that started since is one it should follow; ``latest_run``, ``ci``
     (with ``watch``, its single-watch shape for older pages), ``run_count`` and ``delegations`` keep the page's top
     bar and details panel current. ``up_next`` is what the session will do next (``sessions.up_next``), ``None`` when
-    nothing is pending."""
-    session = await _get_visible_session(request.auth, thread_id)  # ty: ignore[unresolved-attribute]
-    hydrated = await ahydrate_thread(thread_id)
-    runs = [r async for r in session.runs.order_by("created_at")]
-    activity = session_activity(session, runs)
-    turns = annotate_transcript(build_turns(hydrated.messages, in_flight=activity.in_flight), runs, activity)
+    nothing is pending. ``revision``, ``merge_request``, ``diff_stats``, ``context_usage``, ``thread_ref`` and
+    ``title`` let a page settle in place."""
     user = request.auth  # ty: ignore[unresolved-attribute]
-
-    def finish_turns():
-        if not hydrated.messages:
-            turns.extend(expired_run_turns(runs, turns))
-        turns[:] = interleave_inbox_events(turns, runs, Timeline(session.thread_id).events())
-        mark_run_openings(turns, Timeline(session.thread_id).opening_events())
-        mark_skill_links(turns, session.thread_id)
-        delegations = delegations_for(turns, session, user)
-        retry = retry_for(session, runs, turns, user)
-        return live_run_for(activity.live, session, user), latest_run_payload(runs, retry), delegations
-
-    live, latest_run, delegations = await sync_to_async(finish_turns)()
-    response = {
-        "turns": turns,
-        "active": activity.in_flight,
-        "background": background_in_flight(activity, runs),
-        "waiting_since": activity.waiting_since.isoformat() if activity.waiting_since else None,
-        "expired": hydrated.expired,
-        "latest_run": latest_run,
-        "run_count": len(runs),
-        "delegations": delegations,
-        "live_run": {"id": live.id, "stoppable": live.stoppable, "started_at": live.started_at.isoformat()}
-        if live
-        else None,
-    }
-    response |= await _ci(session)
-    response["up_next"] = await aup_next_payload(session, runs, user, activity)
-    return response
+    session = await _get_visible_session(user, thread_id)
+    return turns_payload(await aload_session_state(session, user, always_look_up_merge_request=False), session)
 
 
 @sessions_router.get("/{thread_id}/up-next", response=dict, url_name="session_up_next")
