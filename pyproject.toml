@@ -287,7 +287,6 @@ include = [
   "daiv/skills/models.py",
   "daiv/skills/views.py",
   "daiv/slash_commands/actions/agents.py",
-  "daiv/slash_commands/actions/clone_to_topic.py",
   "daiv/slash_commands/actions/help.py",
   "daiv/webhooks/managers/issue_addressor.py",
   "daiv/webhooks/tasks.py",
