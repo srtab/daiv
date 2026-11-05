@@ -31,7 +31,7 @@ from deepagents.backends.protocol import (
 from deepagents.middleware.filesystem import EMPTY_CONTENT_WARNING
 
 from automation.agent.constants import WORKSPACE_PATH
-from core.constants import SANDBOX_DOWNLOAD_MAX_BYTES
+from core.constants import SANDBOX_DOWNLOAD_MAX_BYTES, SANDBOX_TIMEOUT_EXIT_CODE
 from core.sandbox.client import DAIVSandboxClient, is_transient_sandbox_error
 from core.sandbox.schemas import (
     FsEditRequest,
@@ -136,7 +136,6 @@ def _fs_transport_failure_text(exc: httpx.HTTPError, op: str, target: str) -> st
 DOWNLOAD_TOO_LARGE = "file_too_large"
 _DOWNLOAD_MARKER = "__DAIV_DOWNLOAD__"
 _DOWNLOAD_EXIT_ERRORS = {3: IS_DIRECTORY, 4: FILE_NOT_FOUND, 5: PERMISSION_DENIED, 6: DOWNLOAD_TOO_LARGE}
-_SANDBOX_TIMEOUT_EXIT = 124
 
 
 def _download_command(path: str, max_bytes: int) -> str:
@@ -167,7 +166,7 @@ def _download_response(path: str, result: RunCommandResult | None) -> FileDownlo
         error = "the sandbox returned no result for this file"
     elif result.exit_code in _DOWNLOAD_EXIT_ERRORS:
         return FileDownloadResponse(path=path, error=_DOWNLOAD_EXIT_ERRORS[result.exit_code])
-    elif result.exit_code == _SANDBOX_TIMEOUT_EXIT:
+    elif result.exit_code == SANDBOX_TIMEOUT_EXIT_CODE:
         error = "reading the file timed out in the sandbox"
     elif result.exit_code != 0:
         error = f"the file could not be read (exit {result.exit_code})"
@@ -256,7 +255,9 @@ class SandboxFileBackend(BackendProtocol):
             raise RuntimeError("SandboxFileBackend is not bound to a sandbox session")
         return self._session.client, session_id
 
-    async def run_commands(self, commands: list[str], *, fail_fast: bool) -> RunCommandsResponse:
+    async def run_commands(
+        self, commands: list[str], *, fail_fast: bool, timeout: int | None = None
+    ) -> RunCommandsResponse:
         """Run shell commands in the bound session's workspace.
 
         The run's command-execution handle (used by the ``bash`` tool and ``SandboxGitRunner``). A thin
@@ -268,7 +269,9 @@ class SandboxFileBackend(BackendProtocol):
         protocol would activate deepagents' always-registered, ungated ``execute`` tool.
         """
         client, session_id = self._require_bound()
-        return await client.run_commands(session_id, RunCommandsRequest(commands=commands, fail_fast=fail_fast))
+        return await client.run_commands(
+            session_id, RunCommandsRequest(commands=commands, fail_fast=fail_fast, timeout=timeout)
+        )
 
     # -- path mapping -------------------------------------------------------
     # The sandbox is authoritative and the agent addresses files by their sandbox-absolute path

@@ -104,7 +104,7 @@ Variables marked with:
 | Variable                | Description                        | Default        | Example         |
 |-------------------------|------------------------------------|:--------------:|-----------------|
 | `DAIV_SANDBOX_URL`     | URL of the sandbox service    | `http://sandbox:8000` | `http://sandbox:8000` |
-| `DAIV_SANDBOX_TIMEOUT` | Timeout for sandbox requests in seconds        | `600`          | `600`           |
+| `DAIV_SANDBOX_TIMEOUT` | Timeout for sandbox requests in seconds, and the longest timeout the agent can give a bash command, whose request waits up to 60 seconds longer | `600`          | `600`           |
 | `DAIV_SANDBOX_API_KEY` :material-lock: | API key for sandbox requests        | *(none)*          | `random-api-key`           |
 | `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` | JSON array of extra bash command rules to block globally | *(none)* | `'["curl", "npm publish"]'` |
 | `DAIV_SANDBOX_COMMAND_POLICY_ALLOW` | JSON array of bash command rules to permit; currently has no effect (see [Precedence](../features/sandbox.md#precedence)) | *(none)* | `'["my-safe-tool"]'` |
