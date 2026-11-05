@@ -38,10 +38,10 @@ THEME_TOKEN = re.compile(r"(--color-[\w-]+):\s*(#[0-9a-fA-F]{3,6}|var\(--color-[
 SURFACES = frozenset({".composer-sheet", ".composer-autocomplete", ".picker-popover", ".filter-menu"})
 
 # BEM families rendering inside those surfaces, including the ones whose names say nothing
-# about where they mount: `.sheet-row` is the options sheet *and* the env picker, `.chat-todo`
-# is the progress sheet.
+# about where they mount: `.sheet-row` is the options sheet *and* the env picker. The progress
+# drawer (and its `.chat-todo` rows) sits on surface-1, darker than the sheets, so theirs is the stricter bar.
 FAMILIES = re.compile(
-    r"\.(composer-sheet|composer-autocomplete|picker-popover|env-popover|sheet-row|sheet-disclosure|filter-menu|chat-todo)"
+    r"\.(composer-sheet|composer-autocomplete|picker-popover|env-popover|sheet-row|sheet-disclosure|filter-menu|chat-todo|progress-drawer)"
 )
 
 # Decorative punctuation between two values, carrying no information of its own (WCAG 1.4.3

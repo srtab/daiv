@@ -1,9 +1,10 @@
 """Markup-level guards for the redesigned chat composer.
 
-These assert the *anatomy* the composer is built around — one context row in the dock,
-one action row, everything else behind a sheet — and that the surfaces it replaced are
-really gone. They deliberately don't assert on the Alpine-only branches (both the locked
-and the live model label ship in the HTML; which one shows is a client-side decision).
+These assert the *anatomy* the composer is built around — one row of ``+``, text and
+buttons, the context row under it, the progress drawer tucked behind it, everything else
+behind a sheet — and that the surfaces it replaced are really gone. They deliberately
+don't assert on the Alpine-only branches (both the locked and the live model label ship
+in the HTML; which one shows is a client-side decision).
 """
 
 from __future__ import annotations
@@ -33,15 +34,15 @@ def test_summary_strip_and_rail_are_gone(member_client, member_user):
 
 
 @pytest.mark.django_db
-def test_context_row_lives_in_the_dock_above_the_composer(member_client):
+def test_context_row_lives_in_the_dock_below_the_composer(member_client):
     """Repo and branch belong to the sticky dock, not the scrolling column — the two facts
     people misjudge have to stay on screen."""
     html = render_new_chat(member_client)
 
     dock = html.index('class="chat-dock"')
-    context_row = html.index('class="chat-context"')
     composer = html.index('class="chat-composer"')
-    assert dock < context_row < composer
+    context_row = html.index('class="chat-context"')
+    assert dock < composer < context_row
 
 
 @pytest.mark.django_db
@@ -86,13 +87,33 @@ def test_composer_rests_at_one_row(member_client, member_user):
 
 
 @pytest.mark.django_db
-def test_both_sheets_are_rendered_with_their_triggers(member_client, member_user):
+def test_progress_lives_in_a_drawer_not_a_sheet(member_client, member_user):
     html = render_thread(member_client, create_session(member_user))
 
     assert "composer-sheet--options" in html
-    assert "composer-sheet--progress" in html
     assert "composer-trigger--icon" in html
-    assert "composer-trigger--pill" in html
+    assert 'class="progress-drawer"' in html
+    assert "composer-sheet--progress" not in html
+    assert "composer-trigger--pill" not in html
+
+
+@pytest.mark.django_db
+def test_the_drawer_tucks_behind_the_composer_and_outside_its_form(member_client, member_user):
+    """Before the form in the dock is what lets the composer paint over its lower edge; outside
+    the form keeps it out of the controls that go inert while a turn runs, which is when it is read."""
+    html = render_thread(member_client, create_session(member_user))
+
+    assert html.index('class="chat-dock"') < html.index('class="progress-drawer"') < html.index('class="chat-composer"')
+
+
+@pytest.mark.django_db
+def test_the_plus_and_the_buttons_flank_the_text(member_client, member_user):
+    html = render_thread(member_client, create_session(member_user))
+    composer = html[html.index('class="chat-composer"') :]
+
+    plus = composer.index("composer-trigger--icon")
+    text = composer.index('id="chat_prompt"')
+    assert plus < text < composer.index('class="chat-composer__buttons"')
 
 
 # Whole tag, so the assertion survives a reordering of the partial's attributes.
@@ -101,13 +122,15 @@ SCRIM_TAG = re.compile(r"<div[^>]*class=\"sheet-backdrop\"[^>]*>")
 
 @pytest.mark.django_db
 def test_the_composer_sheets_dim_the_transcript_behind_them(member_client):
-    """Below 1100px the options and progress sheets cover the transcript, so they dim it. The
-    pickers in the dock are `.picker-popover`s and covered template-side by
-    `test_every_popover_dims_the_page_behind_its_sheet`; the composer's own two sheets are
-    not, and share the one scrim that `sheet` opens — so this is their only guard."""
+    """Below 1100px the composer's sheets cover the transcript, so they dim it; the progress
+    drawer opens in place on the same `sheet` state and leaves it undimmed. The pickers in the
+    dock are `.picker-popover`s and covered template-side by
+    `test_every_popover_dims_the_page_behind_its_sheet`; the composer's own sheets are not, and
+    share the one scrim that `sheet` opens — so this is their only guard."""
     scrims = [X_SHOW.search(tag)[1] for tag in SCRIM_TAG.findall(render_new_chat(member_client))]
 
-    assert scrims.count("sheet") == 1, f"expected exactly one scrim for the composer sheets, got {scrims}"
+    expected = "sheet && sheet !== 'progress'"
+    assert scrims.count(expected) == 1, f"expected exactly one scrim for the composer sheets, got {scrims}"
 
 
 @pytest.mark.django_db
@@ -124,33 +147,22 @@ def test_model_label_is_locked_for_an_existing_thread(member_client, member_user
 
 
 @pytest.mark.django_db
-def test_hero_carries_a_selection_line_instead_of_pickers(member_client):
-    """The three hero pickers are replaced by the context row plus one quiet line that
-    opens the options sheet."""
+def test_hero_carries_no_pickers_or_selection_line(member_client):
+    """What the first turn runs with is one ``+`` away in the composer; the hero only greets."""
     html = render_new_chat(member_client)
 
-    assert "chat-hero__selection" in html
+    assert "chat-hero__selection" not in html
     assert "chat-hero__picker" not in html
 
 
 @pytest.mark.django_db
-def test_progress_sheet_tints_the_line_counts(member_client, member_user):
-    """``+x`` and ``−y`` are tinted wherever they appear — on the pill and on the Files
-    changed group label — rather than rendered as one flat string."""
+def test_progress_drawer_tints_the_line_counts(member_client, member_user):
+    """``+x`` and ``−y`` are tinted wherever they appear — on the drawer's bar and on the
+    Files changed group label — rather than rendered as one flat string."""
     html = render_thread(member_client, create_session(member_user))
 
     assert "diff-stat__plus" in html
     assert "diff-stat__minus" in html
-
-
-@pytest.mark.django_db
-def test_effort_word_yields_only_when_the_row_is_crowded(member_client, member_user):
-    """The model label sheds its effort word before the name truncates, but only once a
-    progress pill is actually sharing the action row — a phone with no pill keeps it."""
-    html = render_thread(member_client, create_session(member_user))
-
-    assert "chat-composer__actions--crowded" in html
-    assert "'chat-composer__actions--crowded': progressPill" in html
 
 
 @pytest.mark.django_db
@@ -160,7 +172,7 @@ def test_options_sheet_hosts_no_floating_popover(member_client, member_user):
     html = render_thread(member_client, create_session(member_user))
 
     sheet_start = html.index('class="composer-sheet composer-sheet--options')
-    sheet = html[sheet_start : html.index("composer-sheet composer-sheet--progress")]
+    sheet = html[sheet_start : html.index('id="chat_prompt"')]
     assert sheet.count("sheet-disclosure") >= 2
     assert not POPOVER_CONTAINER.search(sheet)
 
@@ -238,14 +250,14 @@ TODOS_WRAPPER = re.compile(r"\.chat-todos \{([^}]*)\}")
 
 
 @pytest.mark.django_db
-def test_progress_sheet_mounts_its_todo_rows_in_the_sizing_wrapper(member_client, member_user):
+def test_progress_drawer_mounts_its_todo_rows_in_the_sizing_wrapper(member_client, member_user):
     """`.chat-todo` carries no type or spacing of its own. Bare rows inherit the 16px body
-    font — out of scale with every other line in the sheet — and sit flush, so a todo long
+    font — out of scale with every other line in the drawer — and sit flush, so a todo long
     enough to wrap is indistinguishable from two todos."""
     html = render_thread(member_client, create_session(member_user))
-    sheet = html[html.index("composer-sheet composer-sheet--progress") :]
+    drawer = html[html.index('class="progress-drawer"') :]
 
-    assert sheet.index('class="chat-todos"') < sheet.index('class="chat-todo"')
+    assert drawer.index('class="chat-todos"') < drawer.index('class="chat-todo"')
 
     wrapper = TODOS_WRAPPER.search(DIFF_CSS.read_text(encoding="utf-8"))
     assert wrapper, ".chat-todos is gone — the rows it sizes are mounted in nothing"
@@ -260,12 +272,10 @@ def test_progress_sheet_mounts_its_todo_rows_in_the_sizing_wrapper(member_client
 # against what the composer actually renders.
 SENDING = re.compile(r"\.chat-composer--sending\s+\.([\w-]+)")
 CONTROL_TAGS = frozenset({"button", "textarea", "input", "select"})
-# Exempt by name so it stays a decision, not a gap: `.chat-jump` is positioned above the
-# composer box, over the transcript, and is on screen only while sending — the one control
-# in there that is an affordance rather than an input being held inert.
-# `context-meter` is the live reading itself; dimming it mid-turn hides it exactly when it moves.
+# Exempt by name so it stays a decision, not a gap: `context-meter` is the live reading
+# itself; dimming it mid-turn hides it exactly when it moves.
 # The prompt and Send/Stop stay live: a message sent mid-turn waits for the session's next run.
-CRISP = frozenset({"chat-jump", "context-meter", "chat-composer__textarea", "composer-send"})
+CRISP = frozenset({"context-meter", "chat-composer__textarea", "composer-send"})
 
 
 def _is_invisible(classes: list[str], attrs: dict[str, str]) -> bool:

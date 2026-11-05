@@ -29,7 +29,7 @@ SURFACE_SCRIPTS = (
     "chat/static/chat/js/chat-stream.js",
     "configuration/static/configuration/js/config-section-picker.js",
 )
-EXPECTED_SURFACES = 10
+EXPECTED_SURFACES = 9
 
 # Surfaces that carry their own container class (`.picker-popover` is matched by CONTAINER
 # instead). A new kind of surface belongs here, not just tagged `data-surface`. The

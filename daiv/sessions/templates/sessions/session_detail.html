@@ -64,17 +64,18 @@
   {% translate "Show more" as show_more_label %}
   {% translate "Show less" as show_less_label %}
 
-  {# Composer wording. The progress pill and the MCP rows are assembled in JS from live #}
+  {# Composer wording. The progress drawer and the MCP rows are assembled in JS from live #}
   {# counts, so the pieces are translated here and handed over rather than built from an #}
   {# English template. #}
   {% translate "file" as file_word %}
   {% translate "files" as files_word %}
-  {% translate "stopped" as stopped_word %}
+  {% translate "All steps done" as all_done_label %}
+  {% translate "Stopped at: {step}" as stopped_at_label %}
+  {% translate "Files changed" as files_changed_label %}
   {% translate "tool" as tool_word %}
   {% translate "tools" as tools_word %}
   {% translate "filtered to" as filtered_to_word %}
   {% translate "not synced yet" as not_synced_word %}
-  {% translate "MCP servers" as mcp_servers_word %}
   {% translate "Context: {percent} of {window} used" as aria_context %}
   {% translate "Context: {count} tokens used" as aria_context_no_window %}
   {% translate "Plenty of room" as headroom_ok %}
@@ -119,12 +120,13 @@
          labels: {
            file: "{{ file_word|escapejs }}",
            files: "{{ files_word|escapejs }}",
-           stopped: "{{ stopped_word|escapejs }}",
+           allDone: "{{ all_done_label|escapejs }}",
+           stoppedAt: "{{ stopped_at_label|escapejs }}",
+           filesChanged: "{{ files_changed_label|escapejs }}",
            tool: "{{ tool_word|escapejs }}",
            tools: "{{ tools_word|escapejs }}",
            filteredTo: "{{ filtered_to_word|escapejs }}",
            notSynced: "{{ not_synced_word|escapejs }}",
-           mcpServers: "{{ mcp_servers_word|escapejs }}",
            ariaContext: "{{ aria_context|escapejs }}",
            ariaContextNoWindow: "{{ aria_context_no_window|escapejs }}",
            headroomOk: "{{ headroom_ok|escapejs }}",
@@ -175,7 +177,7 @@
       {% endif %}
 
       <div class="chat-transcript">
-        {# Empty state — pick a repo first, then the composer fades in. #}
+        {# Empty state, centred above the composer. #}
         <template x-if="!thread && turns.length === 0">
           <div class="chat-hero">
             <span class="chat-hero__eyebrow">{% translate "New session" %}</span>
@@ -187,13 +189,6 @@
               <p class="chat-hero__subtitle" :class="{ 'chat-hero__subtitle--hidden': !draftRepoId }">
                 {% translate "Ready when you are — describe the change, the bug, or what to explore." %}
               </p>
-              {% comment %}
-              Hero-only: what the first turn will run with, and the way into the options
-              sheet before a thread exists. Disappears the moment a thread does.
-              {% endcomment %}
-              <button type="button" class="chat-hero__selection"
-                      @click="openSheet('options')"
-                      x-text="heroSelectionLabel"></button>
             </div>
           </div>
         </template>

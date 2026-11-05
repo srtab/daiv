@@ -151,12 +151,13 @@
   const DEFAULT_LABELS = {
     file: "file",
     files: "files",
-    stopped: "stopped",
+    allDone: "All steps done",
+    stoppedAt: "Stopped at: {step}",
+    filesChanged: "Files changed",
     tool: "tool",
     tools: "tools",
     filteredTo: "filtered to",
     notSynced: "not synced yet",
-    mcpServers: "MCP servers",
     // Context meter + spend. BRACE placeholders only, and no literal "%" in a msgid —
     // the sign travels inside a placeholder value ({percent} arrives as "42%").
     ariaContext: "Context: {percent} of {window} used",
@@ -281,8 +282,6 @@
     }
     return [];
   };
-
-  const countDone = (todos) => todos.filter((t) => (t.status || "").toLowerCase() === "completed").length;
 
   // One walk for two outputs. `files`: every file the agent has written, most-recent first, as
   // { path, op, fromPath?, segmentId }. `artifacts`: the last publish result per artifact id, what its URL serves now.
@@ -805,9 +804,8 @@
         if (groupKey !== publishedGroupKey) this.currentGroupKey = publishedGroupKey = groupKey;
       });
 
-      // A progress sheet whose trigger just disappeared (follow-up ask clears the todos
-      // and files) would otherwise stay "open" and pop back into view on the next turn.
-      this.$watch("!progressPill", (gone) => {
+      // A drawer emptied by a follow-up ask would otherwise reopen on its own next turn.
+      this.$watch("!progressDrawer", (gone) => {
         if (gone && this.sheet === "progress") this.sheet = "";
       });
 
@@ -1094,46 +1092,38 @@
       return { tone: "thinking", label: window.TranscriptLabels.t("thinking") };
     },
 
-    get todosProgress() {
-      const todos = this.latestTodos;
-      return `${countDone(todos)}/${todos.length}`;
-    },
-
     get showJumpToLatest() {
       return this.streaming && !this._autoFollow;
     },
 
-    // ---------- Progress trigger --------------------------------------
+    // ---------- Progress drawer ---------------------------------------
 
-    // The composer's progress pill, or ``null`` when there is nothing behind it. The
-    // decision is made on *content*, never on run state: no todos, no files and no diff
-    // means no button, because an empty sheet is worse than no way into one.
-    //
-    // Mid-turn the pill reports counts only — the work isn't committed yet, so line
-    // numbers would be a guess. A cancelled turn is the one state where work can sit
-    // uncommitted for good, so it keeps counts too.
-    get progressPill() {
+    // ``null`` when there is nothing to show: an empty drawer is worse than none. Line totals
+    // wait for a finished run, since mid-turn or after a stop they describe unpublished work.
+    get progressDrawer() {
       const todos = this.latestTodos;
       const files = this.filesTouched;
-      const parts = [];
-      if (todos.length) parts.push(`${countDone(todos)}/${todos.length}`);
-      if (files.length) parts.push(this._filesLabel(files.length));
-
-      if (this.streaming || this.resuming) {
-        return parts.length ? { tone: "live", label: parts.join(" · ") } : null;
-      }
-      // A cancelled turn can leave work uncommitted for good, so counts stay the only
-      // truth there — a line total would describe something that was never published.
-      if (this._lastRunAborted()) {
-        return parts.length ? { tone: "warn", label: [this._labels.stopped, ...parts].join(" · ") } : null;
-      }
-      // ``diff`` rather than a joined label: added and removed are tinted separately,
-      // the way they are everywhere else a diff is reported. A session page shows it in its details panel instead.
+      const live = this.streaming || this.resuming;
+      const stopped = !live && this._lastRunAborted();
       const stats = this.diffStats;
-      if (!config.diffInDetails && stats && (stats.added || stats.removed)) {
-        return { tone: "idle", label: "", diff: stats };
-      }
-      return parts.length ? { tone: "idle", label: parts.join(" · ") } : null;
+      const diff = !live && !stopped && !config.diffInDetails && stats && (stats.added || stats.removed) ? stats : null;
+      if (!todos.length && !files.length && !diff) return null;
+
+      const status = (t) => (t.status || "").toLowerCase();
+      const running = todos.findIndex((t) => status(t) === "in_progress");
+      const at = running >= 0 ? running : todos.findIndex((t) => status(t) !== "completed");
+      const current = todos[at];
+      let text = this._labels.filesChanged;
+      if (todos.length && !current) text = this._labels.allDone;
+      else if (current) text = stopped ? formatBraces(this._labels.stoppedAt, { step: current.content }) : current.content;
+
+      return {
+        tone: live ? "live" : stopped ? "warn" : "idle",
+        step: todos.length ? `${current ? at + 1 : todos.length}/${todos.length}` : "",
+        text,
+        files: files.length ? this._filesLabel(files.length) : "",
+        diff,
+      };
     },
 
     // ---------- Context meter ------------------------------------------
@@ -1246,10 +1236,6 @@
 
     // What the hero's selection line shows before a thread exists: the two things the
     // first turn will run with that aren't already on screen.
-    get heroSelectionLabel() {
-      return `${this.lockedEnvLabel} · ${this.mcpSelected.length} ${this._labels.mcpServers}`;
-    },
-
     _filesLabel(n) {
       return `${n} ${n === 1 ? this._labels.file : this._labels.files}`;
     },

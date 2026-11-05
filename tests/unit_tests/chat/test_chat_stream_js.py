@@ -1,4 +1,4 @@
-"""Behavioral tests for ``chat-stream.js`` under node: the ``#run-<id>`` link target, the progress pill's diff, the
+"""Behavioral tests for ``chat-stream.js`` under node: the ``#run-<id>`` link target, the progress drawer, the
 run blocks the transcript renders, the id a live run-status marker takes and the context a tool body gets."""
 
 from __future__ import annotations
@@ -159,27 +159,83 @@ def test_revealing_a_run_cancels_a_scroll_to_bottom_already_queued():
     assert result == {"scrolls": ["run-r1"], "autoFollow": False}
 
 
-PILL_BODY = """
+DRAWER_BODY = """
 const chat = registry.chat({ endpoint: "/api/chat", diffInDetails: payload.diffInDetails });
 chat.diffStats = { added: 48, removed: 12 };
+chat.latestTodos = payload.todos;
 chat.filesTouched = payload.files;
-process.stdout.write(JSON.stringify(chat.progressPill));
+chat.streaming = payload.streaming;
+chat.turns = payload.turns;
+process.stdout.write(JSON.stringify(chat.progressDrawer));
 """
 
-
-def _pill(*, diff_in_details: bool, files=()):
-    return run_chat_stream(
-        PILL_BODY, {"diffInDetails": diff_in_details, "files": [{"path": p} for p in files]}, extra_globals=GLOBALS
-    )
+STOPPED = [{"role": "run_status", "status": "aborted"}]
 
 
-def test_the_progress_pill_shows_the_diff_where_no_header_does():
-    assert _pill(diff_in_details=False) == {"tone": "idle", "label": "", "diff": {"added": 48, "removed": 12}}
+def _todos(*statuses: str) -> list[dict]:
+    return [{"content": f"step {i}", "status": status} for i, status in enumerate(statuses, 1)]
 
 
-def test_a_session_page_takes_the_diff_and_leaves_the_pill_its_counts():
-    assert _pill(diff_in_details=True, files=["a.py", "b.py"]) == {"tone": "idle", "label": "2 files"}
-    assert _pill(diff_in_details=True) is None
+def _drawer(*, todos=(), files=(), streaming=False, turns=(), diff_in_details=True):
+    payload = {
+        "diffInDetails": diff_in_details,
+        "todos": list(todos),
+        "files": [{"path": p} for p in files],
+        "streaming": streaming,
+        "turns": list(turns),
+    }
+    return run_chat_stream(DRAWER_BODY, payload, extra_globals=GLOBALS)
+
+
+def test_a_running_drawer_names_the_step_in_progress_and_its_position():
+    drawer = _drawer(todos=_todos("completed", "in_progress", "pending"), files=["a.py"], streaming=True)
+
+    assert drawer == {"tone": "live", "step": "2/3", "text": "step 2", "files": "1 file", "diff": None}
+
+
+def test_before_a_step_starts_the_drawer_names_the_next_pending_one():
+    drawer = _drawer(todos=_todos("completed", "pending", "pending"), streaming=True)
+
+    assert (drawer["step"], drawer["text"]) == ("2/3", "step 2")
+
+
+def test_a_drawer_whose_steps_are_all_done_says_so():
+    drawer = _drawer(todos=_todos("completed", "completed"))
+
+    assert drawer == {"tone": "idle", "step": "2/2", "text": "All steps done", "files": "", "diff": None}
+
+
+def test_a_stopped_run_names_the_step_it_stopped_at():
+    drawer = _drawer(todos=_todos("completed", "in_progress", "pending"), turns=STOPPED)
+
+    assert (drawer["tone"], drawer["step"], drawer["text"]) == ("warn", "2/3", "Stopped at: step 2")
+
+
+def test_a_run_without_todos_reports_its_files():
+    drawer = _drawer(files=["a.py", "b.py"], streaming=True)
+
+    assert drawer == {"tone": "live", "step": "", "text": "Files changed", "files": "2 files", "diff": None}
+
+
+def test_a_finished_run_shows_the_diff_where_no_details_panel_does():
+    drawer = _drawer(diff_in_details=False)
+
+    assert drawer == {
+        "tone": "idle",
+        "step": "",
+        "text": "Files changed",
+        "files": "",
+        "diff": {"added": 48, "removed": 12},
+    }
+
+
+def test_the_diff_waits_for_the_run_to_finish():
+    assert _drawer(diff_in_details=False, streaming=True) is None
+    assert _drawer(diff_in_details=False, turns=STOPPED) is None
+
+
+def test_no_todos_and_no_files_means_no_drawer():
+    assert _drawer() is None
 
 
 DRIVE_BODY = """
