@@ -930,7 +930,7 @@
           }
         ],
         "default": null,
-        "description": "1-indexed last *complete* source line in `content`. Text reads only. Equals the request's `offset` (an empty window) when a byte-capped page holds no complete line at all, i.e. a single line longer than the read limit \u2014 expected, not a bug.",
+        "description": "1-indexed last *complete* source line in `content`. Text reads only. Equals the request's `offset` when a byte-capped page holds no complete line at all \u2014 a single line longer than the read limit.",
         "title": "End Line"
       },
       "error": {
@@ -1083,7 +1083,7 @@
           }
         ],
         "default": null,
-        "description": "Maximum execution time in seconds for each command. Overrides the server default (DAIV_SANDBOX_COMMAND_TIMEOUT). 0 means no timeout.",
+        "description": "Maximum execution time in seconds for each command. A command that exceeds it is killed, along with every process it started, and the remaining commands are skipped. Overrides the server default (DAIV_SANDBOX_COMMAND_TIMEOUT). 0 means no timeout.",
         "title": "Timeout"
       }
     },
@@ -1111,6 +1111,12 @@
             "description": "Output of the command.",
             "title": "Output",
             "type": "string"
+          },
+          "timed_out": {
+            "default": false,
+            "description": "True when the command exceeded its timeout and was killed with every process it started. `exit_code` is then 124 and `output` holds what it printed before it was killed.",
+            "title": "Timed Out",
+            "type": "boolean"
           },
           "workdir": {
             "description": "Working directory of the command.",
@@ -1160,6 +1166,12 @@
         "description": "Output of the command.",
         "title": "Output",
         "type": "string"
+      },
+      "timed_out": {
+        "default": false,
+        "description": "True when the command exceeded its timeout and was killed with every process it started. `exit_code` is then 124 and `output` holds what it printed before it was killed.",
+        "title": "Timed Out",
+        "type": "boolean"
       },
       "workdir": {
         "description": "Working directory of the command.",

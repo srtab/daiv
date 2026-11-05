@@ -156,6 +156,29 @@ async def test_call_before_open_raises(fake_settings):
         await client.run_commands("sid", RunCommandsRequest(commands=["echo"], fail_fast=True))
 
 
+async def test_run_commands_with_a_timeout_waits_for_every_command_to_time_out(fake_settings, mock_post):
+    """The HTTP call outlasts the commands, so the sandbox, not the client, ends a long command."""
+    from core.sandbox.client import DAIVSandboxClient
+    from core.sandbox.schemas import RunCommandsRequest
+
+    mock_post["json_body"] = {"results": []}
+    async with DAIVSandboxClient() as client:
+        await client.run_commands("sid", RunCommandsRequest(commands=["a", "b"], timeout=300))
+
+    assert mock_post["kwargs"]["timeout"] == 660
+
+
+async def test_run_commands_without_a_timeout_uses_the_client_timeout(fake_settings, mock_post):
+    from core.sandbox.client import DAIVSandboxClient
+    from core.sandbox.schemas import RunCommandsRequest
+
+    mock_post["json_body"] = {"results": []}
+    async with DAIVSandboxClient() as client:
+        await client.run_commands("sid", RunCommandsRequest(commands=["a"]))
+
+    assert mock_post["kwargs"]["timeout"] is httpx.USE_CLIENT_DEFAULT
+
+
 async def test_fs_write_posts_to_fs_write(fake_settings, mock_post):
     from core.sandbox.client import DAIVSandboxClient
     from core.sandbox.schemas import FsWriteRequest

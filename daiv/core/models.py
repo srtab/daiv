@@ -450,7 +450,12 @@ class SiteConfiguration(models.Model):
 
     # -- Sandbox --
     sandbox_timeout = models.FloatField(
-        _("sandbox timeout"), blank=True, null=True, help_text=_("Timeout for sandbox requests, in seconds.")
+        _("sandbox timeout"),
+        blank=True,
+        null=True,
+        help_text=_(
+            "Timeout for sandbox requests, in seconds. Also the longest timeout the agent can give a bash command."
+        ),
     )
 
     # -- Authentication --
