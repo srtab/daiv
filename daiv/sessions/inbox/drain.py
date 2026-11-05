@@ -272,12 +272,9 @@ class _Take:
         subjects = {(event.repo_id, event.subject) for event in taken if event.subject}
         if not subjects:
             return
-        on_branch = Q(repo_id="") & (Q(ref="") | Q(ref=branch))
-        if branch == self.session.ref:
-            on_branch |= ~Q(repo_id="")
         InboxEvent.objects.filter(
             reduce(or_, (Q(repo_id=repo_id, subject=subject) for repo_id, subject in subjects)),
-            on_branch,
+            NextRuns(self.session).events_on(branch),
             session=self.session,
             state=EventState.SUPERSEDED,
             run__isnull=True,

@@ -159,11 +159,10 @@ class RunEnd:
         run = self.run
         if not Session.objects.filter(pk=run.session_id, user__isnull=True).exists() or not run.response_text:
             return
-        by_repo: dict[str, set[int]] = {}
-        for event in woken_by_ci:
-            by_repo.setdefault(event.repo_id or run.repo_id, set()).add(event.merge_request_iid)
-        for repo_id, iids in by_repo.items():
-            MergeRequestReplies.comment_on_merge_requests(repo_id, iids, lambda replies: replies.reply(run, asker=""))
+        MergeRequestReplies.comment_on_merge_requests(
+            {(event.repo_id or run.repo_id, event.merge_request_iid) for event in woken_by_ci},
+            lambda replies: replies.reply(run, asker=""),
+        )
 
     def _reply_to_mentions(self, mentions: list[InboxEvent]) -> None:
         """Post the run's answer in the thread of the latest mention on each merge request, then in each earlier
@@ -189,7 +188,7 @@ class RunEnd:
         """Remind the parent of a delegated session of each CI failure that woke the run, when the run pushed
         nothing."""
         run = self.run
-        if Run.objects.filter(pk=run.pk).exclude(pushed_sha="", sibling_pushed_shas=[]).exists():
+        if Run.objects.filter(pk=run.pk).that_pushed().exists():
             return
         session = Session.objects.only("thread_id", "parent_id", "repo_id").get(pk=run.session_id)
         for event in woken_by_ci:
@@ -231,64 +230,63 @@ class FailedAttempt:
                 ", ".join(f"{event.kind}:{event.source_key}" for event in exhausted),
             )
             unfixed = [event for event in exhausted if event.kind == EventKind.CI_FAILED and event.wake]
-            self._forget_examined(unfixed)
-            self._note_unfixed_ci_failures([event for event in unfixed if event.merge_request_iid is not None])
-            self._tell_parents_nothing_was_pushed([event for event in unfixed if event.merge_request_iid is not None])
-            self._tell_mentions_they_failed([
+            on_merge_request = [event for event in unfixed if event.merge_request_iid is not None]
+            mentions = [
                 event for event in exhausted if event.kind == EventKind.MENTION and event.merge_request_iid is not None
-            ])
+            ]
+            sessions = Session.objects.only("thread_id", "parent_id", "repo_id", "user").in_bulk({
+                event.session_id for event in [*unfixed, *mentions]
+            })
+            self._forget_examined(unfixed, sessions)
+            self._note_unfixed_ci_failures(on_merge_request, sessions)
+            self._tell_parents_nothing_was_pushed(on_merge_request, sessions)
+            self._tell_mentions_they_failed(mentions, sessions)
 
-    def _forget_examined(self, failures: list[InboxEvent]) -> None:
+    def _forget_examined(self, failures: list[InboxEvent], sessions: dict[str, Session]) -> None:
         """Leave unexamined the commits of CI failures no run got to examine, so a re-run pipeline on one can wake
         again."""
-        own = dict(Session.objects.filter(pk__in={event.session_id for event in failures}).values_list("pk", "repo_id"))
         for event in failures:
+            if (session := sessions.get(event.session_id)) is None:
+                continue
             MergeRequestOwnership.objects.filter(
-                repo_id=event.repo_id or own.get(event.session_id),
+                repo_id=event.repo_id or session.repo_id,
                 merge_request_iid=event.merge_request_iid,
                 last_examined_sha=event.payload["sha"],
             ).update(last_examined_sha="")
 
-    def _note_unfixed_ci_failures(self, failures: list[InboxEvent]) -> None:
+    def _note_unfixed_ci_failures(self, failures: list[InboxEvent], sessions: dict[str, Session]) -> None:
         """Post the note that DAIV could not address them on the merge requests of CI failures no run could fix, when
         their session has no DAIV user."""
-        ownerless = dict(
-            Session.objects.filter(pk__in={event.session_id for event in failures}, user__isnull=True).values_list(
-                "pk", "repo_id"
-            )
+        MergeRequestReplies.comment_on_merge_requests(
+            {
+                (event.repo_id or session.repo_id, event.merge_request_iid)
+                for event in failures
+                if (session := sessions.get(event.session_id)) is not None and session.user_id is None
+            },
+            MergeRequestReplies.unable_note,
         )
-        by_repo: dict[str, set[int]] = {}
-        for event in failures:
-            if event.session_id in ownerless:
-                by_repo.setdefault(event.repo_id or ownerless[event.session_id], set()).add(event.merge_request_iid)
-        for repo_id, iids in by_repo.items():
-            MergeRequestReplies.comment_on_merge_requests(repo_id, iids, MergeRequestReplies.unable_note)
 
-    def _tell_parents_nothing_was_pushed(self, failures: list[InboxEvent]) -> None:
+    def _tell_parents_nothing_was_pushed(self, failures: list[InboxEvent], sessions: dict[str, Session]) -> None:
         """Remind the parent of a delegated session of each CI failure no run could fix and none of the runs that tried
         it pushed for."""
-        sessions = Session.objects.only("thread_id", "parent_id", "repo_id").in_bulk({
-            event.session_id for event in failures
-        })
         for event in failures:
             session = sessions.get(event.session_id)
             if session is None or session.parent_id is None:
                 continue
             tried = {*event.payload.get("tried_runs", []), *([str(event.run_id)] if event.run_id else [])}
-            if not Run.objects.filter(pk__in=tried).exclude(pushed_sha="", sibling_pushed_shas=[]).exists():
+            if not Run.objects.filter(pk__in=tried).that_pushed().exists():
                 Inbox.post_no_push(session, event)
 
-    def _tell_mentions_they_failed(self, mentions: list[InboxEvent]) -> None:
+    def _tell_mentions_they_failed(self, mentions: list[InboxEvent], sessions: dict[str, Session]) -> None:
         """Post the note that DAIV could not address them in the threads of mentions no run could answer."""
         from codebase.clients import RepoClient
 
-        repo_ids = dict(
-            Session.objects.filter(pk__in={event.session_id for event in mentions}).values_list("pk", "repo_id")
-        )
         for event in mentions:
             try:
                 replies = MergeRequestReplies(RepoClient.create_instance())
-                replies.reply_in_thread(event.repo_id or repo_ids[event.session_id], event, replies.unable_note())
+                replies.reply_in_thread(
+                    event.repo_id or sessions[event.session_id].repo_id, event, replies.unable_note()
+                )
             except Exception:
                 logger.exception("inbox: could not tell mention event=%s that it failed", event.pk)
 
@@ -301,12 +299,13 @@ class MergeRequestReplies:
 
     @classmethod
     def comment_on_merge_requests(
-        cls, repo_id: str, merge_request_iids: Iterable[int], body: Callable[[MergeRequestReplies], str]
+        cls, merge_requests: Iterable[tuple[str, int]], body: Callable[[MergeRequestReplies], str]
     ) -> None:
-        """Post ``body`` on each merge request; a failed post is logged and the next one is still tried."""
+        """Post ``body`` on each ``(repo_id, iid)`` merge request; a failed post is logged and the next one is still
+        tried."""
         from codebase.clients import RepoClient
 
-        for iid in sorted(merge_request_iids):
+        for repo_id, iid in sorted(merge_requests):
             try:
                 replies = cls(RepoClient.create_instance())
                 replies.client.create_merge_request_comment(repo_id, iid, body(replies))

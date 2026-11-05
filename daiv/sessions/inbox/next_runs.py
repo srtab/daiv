@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from django.db import IntegrityError, transaction
-from django.db.models import Exists, OuterRef
+from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
@@ -53,6 +53,12 @@ class NextRuns:
             return self.session.ref
         return event.ref
 
+    def events_on(self, branch: str) -> Q:
+        """The SQL side of :meth:`branch_of`, as far as the columns tell: the events posted on ``branch`` or on none
+        and, on the session's branch, those about its other repositories."""
+        own = Q(repo_id="") & (Q(ref="") | Q(ref=branch))
+        return own | ~Q(repo_id="") if branch == self.session.ref else own
+
     def for_branch(self, ref: str, requester: Requester) -> Run | None:
         """The QUEUED next run for the branch ``ref`` and ``requester``. SYNC ONLY."""
         return self.queued().filter(ref=ref, **requester.run_lookup()).first()
@@ -79,10 +85,10 @@ class NextRuns:
         requester, or a new one while the session is busy or another next run waits. ``None`` when the session is idle,
         or a QUEUED run the inbox did not create holds that place (``run_one_next_run_per_user``,
         ``run_one_next_run_per_account``); the event then waits for the drain after it."""
-        requester = Requester.of_event(event, self.session)
-        run = self.for_branch(self.branch_of(event), requester)
+        requester, ref = Requester.of_event(event, self.session), self.branch_of(event)
+        run = self.for_branch(ref, requester)
         if run is None and (self.is_busy() or self.job_run_active()):
-            run = self._create(event, requester)
+            run = self._create(event, requester, ref)
         if run is not None:
             InboxEvent.objects.filter(pk=event.pk).update(run=run)
             event.run = run
@@ -114,8 +120,7 @@ class NextRuns:
             )
         )
 
-    def _create(self, event: InboxEvent, requester: Requester) -> Run | None:
-        ref = self.branch_of(event)
+    def _create(self, event: InboxEvent, requester: Requester, ref: str) -> Run | None:
         try:
             with transaction.atomic():
                 return Run.objects.create(

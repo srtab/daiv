@@ -630,28 +630,16 @@ async def test_after_run_records_the_commits_it_pushed_to_sibling_repositories()
     rows.aupdate.assert_any_await(sibling_pushed_shas=["sha1"])
 
 
-async def test_after_run_claims_no_sibling_merge_request_it_did_not_publish_to():
-    state = {"published": False, "repo_publishes": _sibling_state("g/mod", published=False)}
+@pytest.mark.parametrize(("published", "arm_watch"), [(False, True), (True, False)], ids=["unpublished", "watch-off"])
+async def test_after_run_claims_no_sibling_merge_request_unless_published_with_the_watch(published, arm_watch):
+    state = {"published": published, "repo_publishes": _sibling_state("g/mod", published=published)}
 
     with (
         agent_stack(_agent(state=state)) as stack,
         patch("sessions.executor.run._persist_resolved_agent", new=AsyncMock()),
         patch("sessions.executor.run._record_measurements", new=AsyncMock()),
     ):
-        await execute_run(make_spec(persist_ref=True, arm_watch=True, run_id="run-1"))
-
-    assert stack.claimed == []
-
-
-async def test_after_run_claims_no_sibling_merge_request_without_the_watch():
-    state = {"published": True, "repo_publishes": _sibling_state("g/mod")}
-
-    with (
-        agent_stack(_agent(state=state)) as stack,
-        patch("sessions.executor.run._persist_resolved_agent", new=AsyncMock()),
-        patch("sessions.executor.run._record_measurements", new=AsyncMock()),
-    ):
-        await execute_run(make_spec(persist_ref=True, run_id="run-1"))
+        await execute_run(make_spec(persist_ref=True, arm_watch=arm_watch, run_id="run-1"))
 
     assert stack.claimed == []
     assert [rp.repo_id for rp in stack.persist_extra.await_args.args[1]] == ["g/mod"]

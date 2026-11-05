@@ -286,7 +286,9 @@ class TestOwnerlessCiReport:
         client.create_merge_request_comment.side_effect = [RuntimeError("platform down"), None]
 
         with caplog.at_level("ERROR", logger="daiv.sessions"):
-            MergeRequestReplies.comment_on_merge_requests("group/repo", [2, 1], lambda replies: "body")
+            MergeRequestReplies.comment_on_merge_requests(
+                [("group/repo", 2), ("group/repo", 1)], lambda replies: "body"
+            )
 
         assert [call.args[1] for call in client.create_merge_request_comment.call_args_list] == [1, 2]
         assert "could not comment on group/repo!1" in caplog.text
@@ -299,7 +301,9 @@ class TestOwnerlessCiReport:
             patch("codebase.clients.RepoClient.create_instance", side_effect=[RuntimeError("platform down"), client]),
             caplog.at_level("ERROR", logger="daiv.sessions"),
         ):
-            MergeRequestReplies.comment_on_merge_requests("group/repo", [2, 1], lambda replies: "body")
+            MergeRequestReplies.comment_on_merge_requests(
+                [("group/repo", 2), ("group/repo", 1)], lambda replies: "body"
+            )
 
         assert [call.args[1] for call in client.create_merge_request_comment.call_args_list] == [2]
         assert "could not comment on group/repo!1" in caplog.text

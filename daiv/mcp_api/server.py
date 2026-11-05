@@ -31,7 +31,7 @@ from sessions.admission import (
 from sessions.artifacts import aserialize_run_artifacts_for_status
 from sessions.models import Run, RunStatus, SessionOrigin
 from sessions.multi_repo import THREAD_NOT_FOUND, asubmit_jobs
-from sessions.services import MAX_REPOS_PER_BATCH, BatchSubmitFailure, RepoTarget, alist_user_runs
+from sessions.services import MAX_REPOS_PER_BATCH, RepoTarget, alist_user_runs
 
 from automation.agent.references import MAX_REFS_PER_SUBMISSION, RefIn
 from codebase.authorization import asearch_viewable_repositories
@@ -327,8 +327,7 @@ async def submit_job(
             "thread_id": str(outcome.session_id) if outcome.session_id else None,
             "status": str(outcome.status),
         }
-        for spec, outcome in zip(specs[:1] if result.shared else specs, result.outcomes, strict=True)
-        if not isinstance(outcome, BatchSubmitFailure)
+        for spec, outcome in result.started(specs)
     ]
     job_ids = [str(run.id) for run in result.runs]
 

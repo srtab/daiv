@@ -84,21 +84,19 @@ async def test_load_extra_repos_is_ordered_by_position(member_user, enqueue):
 
 
 @pytest.mark.parametrize(
-    "ids", [["g/a", "g/a"], [f"g/r{i}" for i in range(MAX_REPOS_PER_SESSION + 1)], []], ids=["dup", "many", "empty"]
+    ("repos", "continuation", "match"),
+    [
+        ([RepoTarget("g/a"), RepoTarget("g/a")], False, ""),
+        ([RepoTarget(f"g/r{i}") for i in range(MAX_REPOS_PER_SESSION + 1)], False, ""),
+        ([], False, ""),
+        ([RepoTarget("g/app"), RepoTarget("g/mod", prompt="other")], False, r"repos\[\]\.prompt"),
+        ([RepoTarget("g/app", "other")], True, "cannot set a ref"),
+    ],
+    ids=["dup", "many", "empty", "per-repository-prompt", "ref-on-continuation"],
 )
-def test_rejects_duplicates_too_many_and_empty(ids):
-    with pytest.raises(SharedSessionError):
-        validate_shared_repos([RepoTarget(i) for i in ids], continuation=False)
-
-
-def test_rejects_a_per_repository_prompt():
-    with pytest.raises(SharedSessionError, match=r"repos\[\]\.prompt"):
-        validate_shared_repos([RepoTarget("g/app"), RepoTarget("g/mod", prompt="other")], continuation=False)
-
-
-def test_rejects_a_ref_on_a_continuation():
-    with pytest.raises(SharedSessionError, match="cannot set a ref"):
-        validate_shared_repos([RepoTarget("g/app", "other")], continuation=True)
+def test_rejects_an_invalid_shared_session(repos, continuation, match):
+    with pytest.raises(SharedSessionError, match=match):
+        validate_shared_repos(repos, continuation=continuation)
 
 
 async def test_every_repositorys_references_join_the_session(member_user, enqueue):

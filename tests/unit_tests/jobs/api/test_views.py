@@ -11,6 +11,7 @@ from mcp_connectors.models import MCPServer
 from ninja.testing import TestAsyncClient
 from sessions.executor.tasks import run_job_task
 from sessions.models import EventKind, HiddenSession, InboxEvent, Run, RunStatus, Session, SessionOrigin
+from sessions.services import BatchSubmitResult
 
 from accounts.models import APIKey, User
 from core.models import Provider, ProviderType
@@ -689,7 +690,7 @@ class TestThreadContinuationAPI:
     async def test_a_follow_up_whose_run_already_started_is_reported_accepted(self, authenticated_client):
         """The inbox may start a follow-up's run before the submit returns; it is still the job the caller asked for."""
         run = SimpleNamespace(id=uuid.uuid4(), session_id=uuid.uuid4(), status=RunStatus.RUNNING)
-        result = SimpleNamespace(batch_id=uuid.uuid4(), outcomes=[run], failed=[], shared=False)
+        result = BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[run])
         with patch("sessions.multi_repo.asubmit_batch_runs", new=AsyncMock(return_value=result)):
             response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="x"))
 

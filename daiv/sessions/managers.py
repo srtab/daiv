@@ -191,6 +191,10 @@ class RunQuerySet(models.QuerySet["Run"]):
         """Runs outside the sessions ``user`` archived out of their own lists."""
         return self.filter(~_archived_by(user, models.OuterRef("session")))
 
+    def that_pushed(self) -> models.QuerySet[Run]:
+        """Runs that pushed a commit, to their main repository or to another of their session's repositories."""
+        return self.exclude(pushed_sha="", sibling_pushed_shas=[])
+
     def latest_in_session(self) -> models.QuerySet[Run]:
         """Each session's newest run, whoever started it: the run ``with_latest_status`` reads the status of."""
         newest = _session_runs_newest_first(models.OuterRef("session")).values("pk")[:1]

@@ -264,9 +264,7 @@ async def set_runtime_ctx(
             the remote (a merged-and-deleted branch) retries on the repository default branch
             instead of raising. ``ctx.repo.ref`` then reflects the branch actually used.
         repo_client: The run's platform client (``ctx.repo.client``); the configured platform's when omitted.
-        extra_repos: Repositories cloned beside the main one, in parallel off the event loop and kept in order; a
-            missing ref falls back to the default branch under the same ``fallback_ref_on_missing`` rule as the main
-            one.
+        extra_repos: Repositories cloned in parallel beside the main one, in order; a missing ref falls back alike.
 
     Yields:
         RuntimeCtx: The runtime context

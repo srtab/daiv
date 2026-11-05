@@ -74,6 +74,11 @@ class BatchSubmitResult:
     def failed(self) -> list[BatchSubmitFailure]:
         return [outcome for outcome in self.outcomes if isinstance(outcome, BatchSubmitFailure)]
 
+    def started[T](self, targets: Sequence[T]) -> list[tuple[T, Run]]:
+        """Each started ``Run`` with the target it was submitted for, ``targets`` being the submitted ones in order."""
+        paired = zip(targets[:1] if self.shared else targets, self.outcomes, strict=True)
+        return [(target, outcome) for target, outcome in paired if not isinstance(outcome, BatchSubmitFailure)]
+
 
 def _validate(repos: list[RepoTarget]) -> None:
     if not repos:

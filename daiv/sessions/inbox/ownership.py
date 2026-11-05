@@ -310,9 +310,10 @@ class Ownerships:
             return
         if await Run.objects.filter(repo_id=self.repo_id, pushed_sha=after).aexists():
             return
-        session_runs = Run.objects.filter(session_id=ownership.session_id)
-        if any([after in shas async for shas in session_runs.values_list("sibling_pushed_shas", flat=True)]):
-            return
+        sibling_pushes = Run.objects.filter(session_id=ownership.session_id).exclude(sibling_pushed_shas=[])
+        async for shas in sibling_pushes.values_list("sibling_pushed_shas", flat=True):
+            if after in shas:
+                return
         if (owned := await self.afind_open(ownership.merge_request_iid)) is None:
             return
         await Inbox(owned.session.thread_id).apost(

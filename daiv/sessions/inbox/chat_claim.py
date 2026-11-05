@@ -7,7 +7,7 @@ ready, and a turn that ends before that puts them back.
 from __future__ import annotations
 
 from django.db import transaction
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Exists, OuterRef
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
@@ -37,7 +37,7 @@ class ChatClaim:
             session = Session.objects.select_for_update().get(pk=self.thread_id)
             pending = list(
                 InboxEvent.objects.filter(
-                    Q(ref="") | Q(ref=session.ref) | ~Q(repo_id=""), session=session, state=EventState.PENDING
+                    NextRuns(session).events_on(session.ref), session=session, state=EventState.PENDING
                 ).order_by("created_at", "id")
             )
             survivors = PendingEvents(session, pending).supersede()

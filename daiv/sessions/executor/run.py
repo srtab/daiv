@@ -383,7 +383,6 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
     extra_rows = await aload_extra_repos(spec.thread_id) if spec.thread_id is not None else []
     main_ref = spec.ref
     if extra_rows and not main_ref:
-        # Like its extra repositories, a multi-repo run with no ref of its own continues on the session's branch.
         main_ref = await aget_session_ref(thread_id=thread_id) or None
     async with (
         set_runtime_ctx(
@@ -628,7 +627,13 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
     if spec.arm_watch and published and spec.run_id is not None:
         pushed_sha = (run.publish.payload or {}).get("pushed_sha") if run.publish is not None else None
         await _claim_merge_request(run, spec.run_id, merge_request, pushed_sha=pushed_sha or "")
-    await _record_sibling_publishes(spec, run, sibling_publishes, claim=True)
+    await _record_sibling_publishes(spec, run, sibling_publishes)
+    if spec.arm_watch and spec.run_id is not None:
+        for publish in sibling_publishes:
+            if publish.published:
+                await _claim_merge_request(
+                    run, spec.run_id, publish.merge_request, pushed_sha=publish.pushed_sha, repo_id=publish.repo_id
+                )
 
     agent_result = build_agent_result(
         response=response_text,
@@ -640,13 +645,9 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
     return RunOutcome(agent_result=agent_result, response_text=response_text, snapshot=snapshot)
 
 
-async def _record_sibling_publishes(
-    spec: RunSpec, run: AgentRun, publishes: Sequence[RepoPublish], *, claim: bool = False
-) -> None:
+async def _record_sibling_publishes(spec: RunSpec, run: AgentRun, publishes: Sequence[RepoPublish]) -> None:
     """Keep each extra repository's branch and merge request on its row, so the next turn continues there, and the
-    commits the run pushed there on the run (``Run.sibling_pushed_shas``), so they are known as DAIV's. With
-    ``claim``, the session also claims each merge request the run published to, as it does the main repository's, so
-    its CI failures and mentions reach the session's inbox."""
+    commits the run pushed there on the run (``Run.sibling_pushed_shas``), so they are known as DAIV's."""
     if publishes and spec.persist_ref:
         try:
             await apersist_extra_repo_state(run.thread_id, publishes)
@@ -658,13 +659,6 @@ async def _record_sibling_publishes(
             await Run.objects.filter(pk=spec.run_id).aupdate(sibling_pushed_shas=pushed_shas)
         except Exception:
             logger.exception("executor: failed to record the extra repositories' pushes for run=%s", spec.run_id)
-    if not claim or not spec.arm_watch or spec.run_id is None:
-        return
-    for publish in publishes:
-        if publish.published:
-            await _claim_merge_request(
-                run, spec.run_id, publish.merge_request, pushed_sha=publish.pushed_sha, repo_id=publish.repo_id
-            )
 
 
 async def _claim_merge_request(
