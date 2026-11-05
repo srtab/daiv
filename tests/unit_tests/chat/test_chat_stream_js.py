@@ -1,8 +1,9 @@
-"""Behavioral tests for ``chat-stream.js`` under node: the ``#run-<id>`` link target, the progress pill's diff, the
+"""Behavioral tests for ``chat-stream.js`` under node: the ``#run-<id>`` link target, the progress drawer, the
 run blocks the transcript renders, the id a live run-status marker takes and the context a tool body gets."""
 
 from __future__ import annotations
 
+import functools
 import json
 from types import SimpleNamespace
 
@@ -21,6 +22,7 @@ from tests.unit_tests.chat.transcript_fixtures import (
     question,
     read,
     refused_question,
+    status_turn,
     text,
     thinking,
     tool_call,
@@ -159,27 +161,146 @@ def test_revealing_a_run_cancels_a_scroll_to_bottom_already_queued():
     assert result == {"scrolls": ["run-r1"], "autoFollow": False}
 
 
-PILL_BODY = """
-const chat = registry.chat({ endpoint: "/api/chat", diffInDetails: payload.diffInDetails });
-chat.diffStats = { added: 48, removed: 12 };
-chat.filesTouched = payload.files;
-process.stdout.write(JSON.stringify(chat.progressPill));
+DRAWER_BODY = """
+const drive = (c) => {
+  const chat = reactive(registry.chat({ endpoint: "/api/chat", diffInDetails: c.diffInDetails }));
+  chat.$watch = watchOn(chat);
+  chat.$nextTick = () => {};
+  chat.turns = c.turns;
+  chat.init();
+  chat.diffStats = { added: 48, removed: 12 };
+  chat.streaming = c.streaming;
+  chat.latestTodos = c.todos;
+  chat.filesTouched = c.files;
+  return chat;
+};
+const results = {};
+for (const [name, c] of Object.entries(payload.cases)) {
+  const chat = drive(c);
+  const before = chat.progressDrawer;
+  results[name] = before;
+  if (c.then === "refile") {
+    chat.filesTouched = c.files.map((f) => ({ ...f, segmentId: "tool-later" }));
+    results[name] = { kept: chat.progressDrawer === before };
+  } else if (c.then === "empty") {
+    chat.sheet = "progress";
+    chat.latestTodos = [];
+    chat.filesTouched = [];
+    results[name] = { drawer: chat.progressDrawer, sheet: chat.sheet };
+  }
+  chat.destroy();
+}
+process.stdout.write(JSON.stringify(results));
 """
 
-
-def _pill(*, diff_in_details: bool, files=()):
-    return run_chat_stream(
-        PILL_BODY, {"diffInDetails": diff_in_details, "files": [{"path": p} for p in files]}, extra_globals=GLOBALS
-    )
+STOPPED = [status_turn("aborted")]
 
 
-def test_the_progress_pill_shows_the_diff_where_no_header_does():
-    assert _pill(diff_in_details=False) == {"tone": "idle", "label": "", "diff": {"added": 48, "removed": 12}}
+def _todos(*statuses: str) -> list[dict]:
+    return [{"content": f"step {i}", "status": status} for i, status in enumerate(statuses, 1)]
 
 
-def test_a_session_page_takes_the_diff_and_leaves_the_pill_its_counts():
-    assert _pill(diff_in_details=True, files=["a.py", "b.py"]) == {"tone": "idle", "label": "2 files"}
-    assert _pill(diff_in_details=True) is None
+def _case(*, todos=(), files=(), streaming=False, turns=(), diff_in_details=True, then=""):
+    return {
+        "diffInDetails": diff_in_details,
+        "todos": list(todos),
+        "files": [{"path": p, "op": "modified", "segmentId": f"tool-{p}"} for p in files],
+        "streaming": streaming,
+        "turns": list(turns),
+        "then": then,
+    }
+
+
+DRAWER_CASES = {
+    "running": _case(todos=_todos("completed", "in_progress", "pending"), files=["a.py"], streaming=True),
+    "pending": _case(todos=_todos("completed", "pending", "pending"), streaming=True),
+    "all-done": _case(todos=_todos("completed", "completed")),
+    "stopped": _case(todos=_todos("completed", "in_progress", "pending"), turns=STOPPED),
+    "stopped-no-todos": _case(files=["a.py"], turns=STOPPED),
+    "stopped-all-done": _case(todos=_todos("completed", "completed"), files=["a.py"], turns=STOPPED),
+    "files-only": _case(files=["a.py", "b.py"], streaming=True),
+    "diff": _case(diff_in_details=False),
+    "diff-live": _case(diff_in_details=False, streaming=True),
+    "diff-stopped": _case(diff_in_details=False, turns=STOPPED),
+    "empty": _case(),
+    "refile": _case(files=["a.py"], streaming=True, then="refile"),
+    "emptied": _case(files=["a.py"], streaming=True, then="empty"),
+}
+
+
+@functools.cache
+def _drawers() -> dict:
+    """One node run for every case: each is a fresh component driven through ``init()``."""
+    return run_chat_stream(DRAWER_BODY, {"cases": DRAWER_CASES}, prelude=REACTIVITY, extra_globals=GLOBALS)
+
+
+def test_a_running_drawer_names_the_step_in_progress_and_its_position():
+    assert _drawers()["running"] == {"tone": "live", "step": "2/3", "text": "step 2", "files": "1 file", "diff": None}
+
+
+def test_before_a_step_starts_the_drawer_names_the_next_pending_one():
+    drawer = _drawers()["pending"]
+
+    assert (drawer["step"], drawer["text"]) == ("2/3", "step 2")
+
+
+def test_a_drawer_whose_steps_are_all_done_says_so():
+    drawer = _drawers()["all-done"]
+
+    assert drawer == {"tone": "idle", "step": "2/2", "text": "All steps done", "files": "", "diff": None}
+
+
+def test_a_stopped_run_names_the_step_it_stopped_at():
+    drawer = _drawers()["stopped"]
+
+    assert (drawer["tone"], drawer["step"], drawer["text"]) == ("warn", "2/3", "Stopped at: step 2")
+
+
+@pytest.mark.parametrize("case", ["stopped-no-todos", "stopped-all-done"])
+def test_a_stopped_run_without_an_open_step_still_says_it_stopped(case):
+    drawer = _drawers()[case]
+
+    assert (drawer["tone"], drawer["text"]) == ("warn", "Stopped")
+
+
+def test_a_run_without_todos_reports_its_files():
+    assert _drawers()["files-only"] == {
+        "tone": "live",
+        "step": "",
+        "text": "Files changed",
+        "files": "2 files",
+        "diff": None,
+    }
+
+
+def test_a_finished_run_shows_the_diff_where_no_details_panel_does():
+    assert _drawers()["diff"] == {
+        "tone": "idle",
+        "step": "",
+        "text": "Files changed",
+        "files": "",
+        "diff": {"added": 48, "removed": 12},
+    }
+
+
+def test_the_diff_waits_for_the_run_to_finish():
+    assert _drawers()["diff-live"] is None
+    assert _drawers()["diff-stopped"] is None
+
+
+def test_no_todos_and_no_files_means_no_drawer():
+    assert _drawers()["empty"] is None
+
+
+def test_an_unchanged_drawer_keeps_its_object():
+    """Re-editing a file already listed replaces ``filesTouched`` without changing what the
+    bar says; a fresh object would still re-run every binding the drawer mounts."""
+    assert _drawers()["refile"] == {"kept": True}
+
+
+def test_an_emptied_drawer_closes_itself():
+    """A follow-up ask clears the todos and files; left open, the drawer would reopen on its own next turn."""
+    assert _drawers()["emptied"] == {"drawer": None, "sheet": ""}
 
 
 DRIVE_BODY = """

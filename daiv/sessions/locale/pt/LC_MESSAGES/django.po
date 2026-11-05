@@ -347,8 +347,14 @@ msgstr "ficheiro"
 msgid "files"
 msgstr "ficheiros"
 
-msgid "stopped"
-msgstr "parada"
+msgid "All steps done"
+msgstr "Todos os passos concluídos"
+
+msgid "Stopped"
+msgstr "Parada"
+
+msgid "Stopped at: {step}"
+msgstr "Parada em: {step}"
 
 msgid "tool"
 msgstr "ferramenta"
@@ -361,9 +367,6 @@ msgstr "filtrado para"
 
 msgid "not synced yet"
 msgstr "ainda não sincronizado"
-
-msgid "MCP servers"
-msgstr "servidores MCP"
 
 #, python-format
 msgid ""
