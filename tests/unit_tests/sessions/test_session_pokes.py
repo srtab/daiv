@@ -276,7 +276,12 @@ class TestInboxWritesPoke:
 
         with TestCase.captureOnCommitCallbacks(execute=True):
             Inbox.post_delegated_ci_outcome(
-                child, merge_request_iid=9, pipeline_id=1, outcome="passing", web_url="https://ci/1"
+                child,
+                repo_id=child.repo_id,
+                merge_request_iid=9,
+                pipeline_id=1,
+                outcome="passing",
+                web_url="https://ci/1",
             )
 
         publish.assert_any_call(session.thread_id)

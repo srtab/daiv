@@ -22,7 +22,8 @@ class RepoPublish:
     """How one of the session's extra repositories fared at the end of a turn; kept in ``GitState.repo_publishes``.
 
     ``current_ref`` is the branch the clone is on (``""`` on a detached HEAD). ``error`` is set when the publish failed,
-    which left that repository's work unpublished.
+    which left that repository's work unpublished. ``pushed_sha`` is the commit the publish pushed, ``""`` when it
+    pushed none.
     """
 
     repo_id: str
@@ -30,6 +31,7 @@ class RepoPublish:
     published: bool
     current_ref: str
     error: str | None = None
+    pushed_sha: str = ""
 
     def to_state(self) -> dict[str, Any]:
         return {
@@ -38,6 +40,7 @@ class RepoPublish:
             "published": self.published,
             "current_ref": self.current_ref,
             "error": self.error,
+            "pushed_sha": self.pushed_sha,
         }
 
     @classmethod
@@ -49,6 +52,7 @@ class RepoPublish:
             published=bool(data.get("published")),
             current_ref=data.get("current_ref") or "",
             error=data.get("error"),
+            pushed_sha=data.get("pushed_sha") or "",
         )
 
 

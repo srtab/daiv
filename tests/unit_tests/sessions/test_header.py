@@ -231,6 +231,7 @@ class TestCiPayload:
 
         assert ci_payload(session) == [
             {
+                "repo_id": "",
                 "merge_request_iid": 7,
                 "status": status,
                 "label": label,
@@ -381,6 +382,19 @@ class TestCiSubjects:
         self._result(session, EventKind.CI_PASSED, "ci:7:12", sha="head")
 
         assert ci_payload(session)[0]["status"] == "passing"
+
+    def test_a_merge_request_in_another_repository_is_reported_apart_from_the_one_sharing_its_iid(self, policy):
+        session = _session()
+        _owned(session)
+        _owned(session, repo_id="group/lib", source_branch="daiv/lib")
+        _ci_event(session, EventKind.CI_FAILED, wake=False)
+        _ci_event(
+            session, EventKind.CI_PASSED, wake=False, repo_id="group/lib", payload=ci_event_payload(status="success")
+        )
+
+        statuses = {item["repo_id"]: item["status"] for item in ci_payload(session)}
+
+        assert statuses == {"": "failing", "group/lib": "passing"}
 
 
 def test_watch_payload_is_the_first_merge_requests_ci_in_the_old_shape():

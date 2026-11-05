@@ -10,7 +10,7 @@ from sessions.admission import AdmissionError, RepoAccessError
 from sessions.artifacts import aserialize_run_artifacts_for_status
 from sessions.models import Run, RunStatus, SessionOrigin
 from sessions.multi_repo import asubmit_jobs
-from sessions.services import BatchSubmitFailure, RepoTarget
+from sessions.services import RepoTarget
 
 from accounts.api.security import AuthBearer
 from core.api.throttling import JobsRateThrottle
@@ -72,9 +72,7 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
             # A follow-up's run may have started, or even ended, by the time it is returned.
             status="QUEUED" if outcome.status == RunStatus.QUEUED else "READY",
         )
-        # A shared session's single outcome pairs with its main repository, the first spec.
-        for spec, outcome in zip(payload.repos, result.outcomes, strict=False)
-        if not isinstance(outcome, BatchSubmitFailure)
+        for spec, outcome in result.started(payload.repos)
     ]
 
     failed = [JobSubmitFailureItem(repo_id=f.repo_id, ref=f.ref, error=f.error) for f in result.failed]

@@ -7,7 +7,7 @@ from django.urls import reverse
 from django.utils.translation import gettext as _
 
 from asgiref.sync import async_to_sync
-from sessions.models import EventKind, Run, RunStatus
+from sessions.models import EventKind, InboxEvent, Run, RunStatus
 
 from notifications.channels.registry import enabled_channel_types
 from notifications.policy import notification_source_for_watch
@@ -29,7 +29,7 @@ def _explanation(ownership: MergeRequestOwnership) -> str:
     run = (
         Run.objects
         .filter(
-            repo_id=ownership.repo_id,
+            InboxEvent.about_repo(ownership.repo_id, prefix="inbox_events__"),
             status__in=RunStatus.terminal(),
             inbox_events__kind=EventKind.CI_FAILED,
             inbox_events__wake=True,

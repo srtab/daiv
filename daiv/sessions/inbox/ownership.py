@@ -1,7 +1,9 @@
 """Which session owns a merge request DAIV published (``MergeRequestOwnership``, FR-001).
 
 A run that publishes claims the merge request (:meth:`Ownerships.aclaim`), after which CI results, mentions, pushes
-and merges on it reach the owning session's inbox. The claim rules:
+and merges on it reach the owning session's inbox. A multi-repository run also claims the merge request it published in
+each other repository, for its session; that merge request's events name its repository (``InboxEvent.repo_id``).
+The claim rules:
 
 | Current state | Publishing session | Result |
 |---|---|---|
@@ -73,16 +75,22 @@ class Ownerships:
 
     @classmethod
     async def aclaim(
-        cls, *, run_id: uuid.UUID | str, merge_request: MergeRequest | dict | None, pushed_sha: str
+        cls,
+        *,
+        run_id: uuid.UUID | str,
+        merge_request: MergeRequest | dict | None,
+        pushed_sha: str,
+        repo_id: str | None = None,
     ) -> MergeRequestOwnership | None:
         """Apply the claim rules for the merge request the run ``run_id`` published, which pushed ``pushed_sha``;
-        ``None`` when the merge request is unknown."""
+        ``None`` when the merge request is unknown. ``repo_id`` is the merge request's repository when it is another
+        of a multi-repository session's repositories, else the run's own."""
         payload = mr_to_payload(merge_request) or {}
         iid, branch = payload.get("id"), payload.get("source_branch")
         if not iid or not branch:
             return None
         ownership, posts = await sync_to_async(cls._claim_for_run)(
-            run_id, iid, branch, pushed_sha, payload.get("title") or ""
+            run_id, iid, branch, pushed_sha, payload.get("title") or "", repo_id
         )
         ownerships = cls(ownership.repo_id)
         for post in posts:
@@ -91,10 +99,10 @@ class Ownerships:
 
     @classmethod
     def _claim_for_run(
-        cls, run_id: uuid.UUID | str, iid: int, branch: str, pushed_sha: str, title: str
+        cls, run_id: uuid.UUID | str, iid: int, branch: str, pushed_sha: str, title: str, repo_id: str | None
     ) -> tuple[MergeRequestOwnership, list[dict]]:
         run = Run.objects.select_related("session__user").get(pk=run_id)
-        return cls(run.repo_id)._claim(run, iid, branch, pushed_sha, title)
+        return cls(repo_id or run.repo_id)._claim(run, iid, branch, pushed_sha, title)
 
     def _post_logged(self, post: dict[str, Any]) -> None:
         """Post ``post``, logging a failure instead of raising: the ownership change it reports has committed, and the
@@ -123,12 +131,12 @@ class Ownerships:
                 MergeRequestOwnership.objects
                 .select_for_update(of=("self",))
                 .select_related("session")
-                .filter(repo_id=run.repo_id, merge_request_iid=iid)
+                .filter(repo_id=self.repo_id, merge_request_iid=iid)
                 .first()
             )
             if row is None:
                 row = MergeRequestOwnership.objects.create(
-                    repo_id=run.repo_id,
+                    repo_id=self.repo_id,
                     merge_request_iid=iid,
                     session=session,
                     owner=session.user,
@@ -164,22 +172,27 @@ class Ownerships:
     def _username(session: Session) -> str:
         return session.user.username if session.user is not None else session.external_username or "someone"
 
+    def _merge_request(self, session: Session, iid: int) -> str:
+        """The merge request ``iid`` as ``session`` names it: with its repository when that is not the session's own."""
+        return f"!{iid}" if session.repo_id == self.repo_id else f"{self.repo_id}!{iid}"
+
     def _moved_notice(
         self, previous: Session, session: Session, iid: int, branch: str, run_id: uuid.UUID | str
     ) -> dict[str, Any]:
         return {
             "thread_id": previous.thread_id,
             "kind": EventKind.NOTICE,
-            "source_key": f"ownership-moved:{iid}:{run_id}",
+            "source_key": f"ownership-moved:{self.repo_id}:{iid}:{run_id}",
             "payload": {
                 "text": (
-                    f"!{iid} is now owned by a session of {self._username(session)}, which published to it; CI "
-                    "results and mentions on it go there from now on."
+                    f"{self._merge_request(previous, iid)} is now owned by a session of {self._username(session)}, "
+                    "which published to it; CI results and mentions on it go there from now on."
                 )
             },
             "wake": False,
             "ref": branch,
             "merge_request_iid": iid,
+            "repo_id": self.repo_id,
         }
 
     def _foreign_publish(
@@ -200,6 +213,7 @@ class Ownerships:
             "subject": kinds.Subject.branch(branch),
             "ref": branch,
             "merge_request_iid": iid,
+            "repo_id": self.repo_id,
         }
 
     def find_open(self, merge_request_iid: int, *, title: str = "") -> MergeRequestOwnership | None:
@@ -296,6 +310,10 @@ class Ownerships:
             return
         if await Run.objects.filter(repo_id=self.repo_id, pushed_sha=after).aexists():
             return
+        sibling_pushes = Run.objects.filter(session_id=ownership.session_id).exclude(sibling_pushed_shas=[])
+        async for shas in sibling_pushes.values_list("sibling_pushed_shas", flat=True):
+            if after in shas:
+                return
         if (owned := await self.afind_open(ownership.merge_request_iid)) is None:
             return
         await Inbox(owned.session.thread_id).apost(
@@ -311,6 +329,7 @@ class Ownerships:
             subject=kinds.Subject.branch(branch),
             ref=branch,
             merge_request_iid=ownership.merge_request_iid,
+            repo_id=self.repo_id,
         )
 
     async def aclose(self, merge_request_iid: int, *, merged: bool, by_username: str, target_branch: str) -> bool:
@@ -334,6 +353,7 @@ class Ownerships:
                 wake=False,
                 subject=kinds.Subject.mr_state(merge_request_iid),
                 merge_request_iid=merge_request_iid,
+                repo_id=self.repo_id,
             )
         except Exception:
             await MergeRequestOwnership.objects.filter(pk=owned.pk, closed_at=closed_at).aupdate(closed_at=None)
@@ -358,13 +378,17 @@ class Ownerships:
                 return False
             await Inbox(owned.session.thread_id).apost(
                 kind=EventKind.NOTICE,
-                source_key=f"mr-reopened:{merge_request_iid}:{timezone.now().timestamp():.0f}",
+                source_key=f"mr-reopened:{self.repo_id}:{merge_request_iid}:{timezone.now().timestamp():.0f}",
                 payload={
-                    "text": f"!{merge_request_iid} was reopened by {by_username}; its CI and mentions come here again."
+                    "text": (
+                        f"{self._merge_request(owned.session, merge_request_iid)} was reopened by {by_username}; its "
+                        "CI and mentions come here again."
+                    )
                 },
                 wake=False,
                 subject=kinds.Subject.mr_state(merge_request_iid),
                 merge_request_iid=merge_request_iid,
+                repo_id=self.repo_id,
             )
         except Exception:
             await MergeRequestOwnership.objects.filter(pk=closed.pk, closed_at__isnull=True).aupdate(

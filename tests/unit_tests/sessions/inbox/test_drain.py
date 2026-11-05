@@ -867,3 +867,108 @@ class TestStoppedWatch:
         stored = await _state(failure)
         assert (stored.state, stored.wake, stored.reason) == (EventState.PENDING, False, QuietReason.WATCH_OFF)
         assert not await Run.objects.filter(pk=next_run.pk).aexists()
+
+
+class TestSiblingRepository:
+    """Events about a merge request in another repository of a multi-repository session wake the session's own runs,
+    on its branch, with that repository checked out beside it."""
+
+    SIBLING = "group/lib"
+
+    async def _owned(self, session: Session, repo_id: str, **fields) -> MergeRequestOwnership:
+        branch = "daiv/lib" if repo_id == self.SIBLING else session.ref
+        return await MergeRequestOwnership.objects.acreate(
+            repo_id=repo_id, merge_request_iid=9, session=session, source_branch=branch, **fields
+        )
+
+    async def _failure(self, session: Session, **fields) -> InboxEvent:
+        defaults = {"repo_id": self.SIBLING, "ref": "daiv/lib", "merge_request_iid": 9, "subject": "ci:9"}
+        return await amake_event(session, **({"payload": ci_payload(sha="e96f1f77")} | defaults | fields))
+
+    async def test_its_ci_failure_wakes_a_run_of_the_session_on_the_sessions_branch(self, enqueue):
+        session = await amake_session(ref="chore/x")
+        failure = await self._failure(session)
+
+        run = await Drain(session.thread_id).astart()
+
+        assert (run.repo_id, run.ref, run.merge_request_iid) == (session.repo_id, "chore/x", None)
+        assert run.trigger_type == SessionOrigin.PIPELINE_WEBHOOK
+        assert f"CI failed on the merge request {self.SIBLING}!9." in run.prompt
+        stored = await _state(failure)
+        assert (stored.state, stored.run_id, stored.ref) == (EventState.TAKEN, run.pk, "daiv/lib")
+
+    async def test_its_failure_spends_its_own_merge_requests_attempt_not_the_main_ones_of_the_same_iid(self, enqueue):
+        session = await amake_session()
+        main = await self._owned(session, session.repo_id, attempts=1)
+        sibling = await self._owned(session, self.SIBLING)
+        await self._failure(session)
+
+        await Drain(session.thread_id).astart()
+
+        await main.arefresh_from_db()
+        await sibling.arefresh_from_db()
+        assert (main.attempts, main.last_examined_sha) == (1, "")
+        assert (sibling.attempts, sibling.last_examined_sha) == (1, "e96f1f77")
+
+    async def test_a_failed_enqueue_refunds_its_own_merge_requests_attempt(self):
+        session = await amake_session()
+        main = await self._owned(session, session.repo_id, attempts=1, last_examined_sha="e96f1f77")
+        sibling = await self._owned(session, self.SIBLING)
+        await self._failure(session)
+
+        with patch(
+            "sessions.inbox.drain.aenqueue_run", new=AsyncMock(return_value=EnqueueFailure(task_enqueued=False))
+        ):
+            assert await Drain(session.thread_id).astart() is None
+
+        await main.arefresh_from_db()
+        await sibling.arefresh_from_db()
+        assert (main.attempts, main.last_examined_sha) == (1, "e96f1f77")
+        assert (sibling.attempts, sibling.last_examined_sha) == (0, "")
+
+    async def test_it_and_the_main_repositorys_merge_request_of_the_same_iid_do_not_supersede_each_other(self, enqueue):
+        session = await amake_session()
+        main_failure = await amake_event(session, merge_request_iid=9, subject="ci:9")
+        sibling_failure = await self._failure(session)
+
+        run = await Drain(session.thread_id).astart()
+
+        for event in (main_failure, sibling_failure):
+            assert ((await _state(event)).state, (await _state(event)).run_id) == (EventState.TAKEN, run.pk)
+
+    async def test_a_newer_result_on_it_supersedes_its_older_failure_and_links_it_to_the_run(self, enqueue):
+        session = await amake_session()
+        older = await self._failure(session, payload=ci_payload(1))
+        newer = await self._failure(session, payload=ci_payload(2))
+
+        run = await Drain(session.thread_id).astart()
+
+        assert ((await _state(older)).state, (await _state(older)).run_id) == (EventState.SUPERSEDED, run.pk)
+        assert (await _state(newer)).state == EventState.TAKEN
+
+    async def test_its_event_follows_the_session_to_a_new_branch_and_keeps_its_own(self, enqueue):
+        session = await amake_session(ref="chore/x")
+        next_run = await _queued_next_run(session)
+        failure = await self._failure(session, run=next_run)
+        await Session.objects.filter(pk=session.pk).aupdate(ref="daiv/new-branch")
+
+        run = await Drain(session.thread_id).astart()
+
+        assert (run.pk, run.ref) == (next_run.pk, "daiv/new-branch")
+        assert ((await _state(failure)).run_id, (await _state(failure)).ref) == (run.pk, "daiv/lib")
+
+    @pytest.mark.parametrize(
+        "ownership_fields", [{"closed_at": timezone.now()}, {"watch_enabled": False}], ids=["closed", "turned-off"]
+    )
+    async def test_its_stopped_watch_quiets_its_failure_and_not_the_main_ones(self, enqueue, ownership_fields):
+        session = await amake_session()
+        await self._owned(session, session.repo_id)
+        await self._owned(session, self.SIBLING, **ownership_fields)
+        main_failure = await amake_event(session, merge_request_iid=9, subject="ci:9")
+        sibling_failure = await self._failure(session)
+
+        run = await Drain(session.thread_id).astart()
+
+        assert (await _state(main_failure)).run_id == run.pk
+        stored = await _state(sibling_failure)
+        assert (stored.wake, stored.reason) == (False, QuietReason.WATCH_OFF)

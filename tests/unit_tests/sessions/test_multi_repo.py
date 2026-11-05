@@ -6,16 +6,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from asgiref.sync import sync_to_async
 from sandbox_envs.models import SandboxEnvironment, Visibility
-from sessions.admission import RepoAccessError
+from sessions.admission import AdmissionError, RepoAccessError
 from sessions.models import Run, RunStatus, Session, SessionOrigin, SessionRepository
 from sessions.multi_repo import (
     MAX_REPOS_PER_SESSION,
+    THREAD_NOT_FOUND,
     SharedSessionError,
+    _asubmit_shared_session_run,
     ais_multi_repo,
     aload_extra_repos,
     apersist_extra_repo_state,
     asubmit_jobs,
-    asubmit_shared_session_run,
+    validate_shared_repos,
 )
 from sessions.services import RepoTarget
 
@@ -50,7 +52,7 @@ def envs(member_user):
 
 
 async def _submit(user, repos, **kwargs):
-    return await asubmit_shared_session_run(
+    return await _asubmit_shared_session_run(
         user=user, prompt="fix", repos=repos, trigger_type=SessionOrigin.API_JOB, **kwargs
     )
 
@@ -82,20 +84,19 @@ async def test_load_extra_repos_is_ordered_by_position(member_user, enqueue):
 
 
 @pytest.mark.parametrize(
-    "ids", [["g/a", "g/a"], [f"g/r{i}" for i in range(MAX_REPOS_PER_SESSION + 1)], []], ids=["dup", "many", "empty"]
+    ("repos", "continuation", "match"),
+    [
+        ([RepoTarget("g/a"), RepoTarget("g/a")], False, ""),
+        ([RepoTarget(f"g/r{i}") for i in range(MAX_REPOS_PER_SESSION + 1)], False, ""),
+        ([], False, ""),
+        ([RepoTarget("g/app"), RepoTarget("g/mod", prompt="other")], False, r"repos\[\]\.prompt"),
+        ([RepoTarget("g/app", "other")], True, "cannot set a ref"),
+    ],
+    ids=["dup", "many", "empty", "per-repository-prompt", "ref-on-continuation"],
 )
-async def test_rejects_duplicates_too_many_and_empty(member_user, enqueue, ids):
-    with pytest.raises(SharedSessionError):
-        await _submit(member_user, [RepoTarget(i) for i in ids])
-
-    assert await Run.objects.acount() == 0
-
-
-async def test_rejects_a_per_repository_prompt(member_user, enqueue):
-    with pytest.raises(SharedSessionError, match=r"repos\[\]\.prompt"):
-        await _submit(member_user, [RepoTarget("g/app"), RepoTarget("g/mod", prompt="other")])
-
-    assert await Run.objects.acount() == 0
+def test_rejects_an_invalid_shared_session(repos, continuation, match):
+    with pytest.raises(SharedSessionError, match=match):
+        validate_shared_repos(repos, continuation=continuation)
 
 
 async def test_every_repositorys_references_join_the_session(member_user, enqueue):
@@ -140,10 +141,9 @@ async def test_continuation_accepts_main_alone_or_identical_list(member_user, en
         [RepoTarget("g/app"), RepoTarget("g/mod")],
         [RepoTarget("g/app"), RepoTarget("g/mod"), RepoTarget("g/lib"), RepoTarget("g/new")],
         [RepoTarget("g/other")],
-        [RepoTarget("g/app", "other")],
     ],
 )
-async def test_continuation_rejects_other_lists_and_refs(member_user, enqueue, repos):
+async def test_continuation_rejects_other_repository_lists(member_user, enqueue, repos):
     thread_id = await _new_session(member_user)
 
     with pytest.raises(SharedSessionError):
@@ -174,14 +174,6 @@ async def test_continuation_queues_behind_an_active_run(member_user, enqueue):
     enqueue.assert_not_awaited()
 
 
-async def test_shared_flag_on_single_repo_thread_is_rejected(member_user, enqueue):
-    thread_id = str(uuid.uuid4())
-    await Session.objects.acreate(thread_id=thread_id, origin=SessionOrigin.API_JOB, repo_id="g/app")
-
-    with pytest.raises(SharedSessionError, match="is not a multi-repository session"):
-        await _submit(member_user, [RepoTarget("g/app")], thread_id=thread_id)
-
-
 async def test_a_shared_flag_on_a_single_repo_thread_continues_it_as_one(member_user, enqueue):
     """A one-repository ``shared_session`` stores no extra repositories; its continuation is an ordinary one."""
     thread_id = str(uuid.uuid4())
@@ -191,7 +183,7 @@ async def test_a_shared_flag_on_a_single_repo_thread_continues_it_as_one(member_
     with (
         patch("sessions.multi_repo.aadmit", AsyncMock(return_value=admission)),
         patch("sessions.multi_repo.asubmit_batch_runs", AsyncMock()) as batch,
-        patch("sessions.multi_repo.asubmit_shared_session_run", AsyncMock()) as shared,
+        patch("sessions.multi_repo._asubmit_shared_session_run", AsyncMock()) as shared,
     ):
         await asubmit_jobs(
             user=member_user,
@@ -211,9 +203,24 @@ async def test_a_shared_flag_on_a_single_repo_thread_continues_it_as_one(member_
     shared.assert_not_awaited()
 
 
+def _submit_jobs(user, repos, **kwargs):
+    return asubmit_jobs(
+        user=user,
+        repos=repos,
+        prompt="fix",
+        agent_model=None,
+        agent_thinking_level=None,
+        environment=None,
+        muted=None,
+        trigger_type=SessionOrigin.API_JOB,
+        references=None,
+        **kwargs,
+    )
+
+
 async def test_unknown_thread_is_rejected(member_user, enqueue):
-    with pytest.raises(SharedSessionError, match="is not a multi-repository session"):
-        await _submit(member_user, [RepoTarget("g/app")], thread_id=str(uuid.uuid4()))
+    with pytest.raises(AdmissionError, match=THREAD_NOT_FOUND):
+        await _submit_jobs(member_user, [RepoTarget("g/app")], shared=True, thread_id=str(uuid.uuid4()))
 
 
 async def test_access_checked_for_every_repo(member_user, enqueue):
@@ -221,7 +228,7 @@ async def test_access_checked_for_every_repo(member_user, enqueue):
         patch("sessions.admission.assert_can_run", side_effect=RepositoryAccessDenied(["g/mod"])) as check,
         pytest.raises(RepoAccessError),
     ):
-        await _submit(member_user, [RepoTarget("g/app"), RepoTarget("g/mod")])
+        await _submit_jobs(member_user, [RepoTarget("g/app"), RepoTarget("g/mod")], shared=True, thread_id=None)
 
     assert list(check.call_args.args[1]) == ["g/app", "g/mod"]
     assert await Run.objects.acount() == 0

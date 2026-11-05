@@ -5,10 +5,11 @@ addresses.
 ``latest_run_payload`` and ``ci_payload`` are also what the turns endpoint returns, so what the page rendered and what
 keeps it current are built by the same code.
 
-CI is reported per merge request the session owns (``MergeRequestOwnership``), from the latest CI event of each CI
-subject in its inbox (one on GitLab, one per workflow on GitHub) on the newest one's commit: ``failing`` when any
-fails, else ``stopped`` (a status that needs a person) when any is, else ``passing``; or ``running`` while no result
-has arrived since DAIV last published or a run is looking at a failure. A failure names its failing jobs, says
+CI is reported per merge request the session owns (``MergeRequestOwnership``), named by its ``repo_id`` (blank for the
+session's own repository) and iid, from the latest CI event of each CI subject in its inbox (one on GitLab, one per
+workflow on GitHub) on the newest one's commit: ``failing`` when any fails, else ``stopped`` (a status that needs a
+person) when any is, else ``passing``; or ``running`` while no result has arrived since DAIV last published or a run is
+looking at a failure. A failure names its failing jobs, says
 "Stopped after N attempts" when the watch ran out of them, and links the last run that looked at one
 (``explanation_run_id``), whose summary says what it found. ``watch_payload`` keeps the single-watch shape older pages
 read, from the first merge request, for one release.
@@ -33,18 +34,9 @@ from codebase.models import RepositoryCatalog
 from codebase.repo_config import RepositoryConfig
 from sessions.delegation import FAILED, RUNNING, WAITING, load_delegations
 from sessions.inbox_display import stopped_after
-from sessions.models import (
-    EventKind,
-    InboxEvent,
-    MergeRequestOwnership,
-    QuietReason,
-    Run,
-    RunStatus,
-    Session,
-    SessionOrigin,
-)
+from sessions.models import EventKind, MergeRequestOwnership, QuietReason, Run, RunStatus, Session, SessionOrigin
 from sessions.pipeline_watch.policy import WatchPolicy
-from sessions.pipeline_watch.store import latest_ci_results, on_newest_commit
+from sessions.pipeline_watch.store import ci_results, latest_ci_results, on_newest_commit
 from sessions.templatetags.session_tags import session_title, status_variant
 from sessions.transcript import mark_delegations, marker_id, retry_message
 
@@ -115,24 +107,25 @@ def ci_payload(session: Session) -> list[dict[str, Any]]:
     )
     if not ownerships:
         return []
+    policies = {repo_id: _watch_policy(repo_id) for repo_id in dict.fromkeys(o.repo_id for o in ownerships)}
+    return [_ci_item(session, ownership, policies[ownership.repo_id]) for ownership in ownerships]
+
+
+def _watch_policy(repo_id: str) -> WatchPolicy:
     try:
-        config = RepositoryConfig.get_config(session.repo_id)
+        config = RepositoryConfig.get_config(repo_id)
     except PLATFORM_ERRORS:
-        logger.exception(
-            "Failed to read the repository configuration for %s; showing CI with its defaults", session.repo_id
-        )
+        logger.exception("Failed to read the repository configuration for %s; showing CI with its defaults", repo_id)
         config = RepositoryConfig()
-    policy = WatchPolicy(config)
-    return [_ci_item(session, ownership, policy) for ownership in ownerships]
+    return WatchPolicy(config)
 
 
 aci_payload = sync_to_async(ci_payload)
 
 
 def _ci_item(session: Session, ownership: MergeRequestOwnership, policy: WatchPolicy) -> dict[str, Any]:
-    events = InboxEvent.objects.filter(session=session, merge_request_iid=ownership.merge_request_iid)
-    results = on_newest_commit(list(latest_ci_results(session.pk, ownership.merge_request_iid)))
-    woke = events.filter(kind=EventKind.CI_FAILED, wake=True, run__isnull=False).order_by("-created_at")
+    results = on_newest_commit(list(latest_ci_results(ownership)))
+    woke = ci_results(ownership).filter(kind=EventKind.CI_FAILED, wake=True, run__isnull=False).order_by("-created_at")
     looking = woke.exclude(run__status__in=RunStatus.terminal()).exists()
     if not results or results[0].created_at < ownership.updated_at or looking:
         status = "running"
@@ -147,6 +140,7 @@ def _ci_item(session: Session, ownership: MergeRequestOwnership, policy: WatchPo
     else:
         label = _ci_label(status)
     return {
+        "repo_id": "" if ownership.repo_id == session.repo_id else ownership.repo_id,
         "merge_request_iid": ownership.merge_request_iid,
         "status": status,
         "label": label,

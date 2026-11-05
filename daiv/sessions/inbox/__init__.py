@@ -28,6 +28,10 @@ a delegated batch finishing: each becomes an ``InboxEvent`` on that session, pos
   job sent without a branch and a finished batch follow the session to the branch its runs moved to; a mention or a
   CI result keeps its merge request's. Of the pending events sharing a ``subject`` only the newest is taken; the older
   ones become ``superseded``.
+- **An event about another repository of a multi-repository session names it** (``InboxEvent.repo_id``, blank for the
+  session's own). Its ``ref`` and merge request are that repository's, it waits for the session's next run on the
+  session's branch, as a chat message does, and a subject is only shared by events about the same repository. A CI
+  attempt is spent and an answer posted on that repository's merge request.
 - **Remembered events reach the model as a hidden synthetic message.** :meth:`sessions.inbox.render.RunInput.render`
   turns the taken events into a ``synthetic_message(kind="inbox")`` the transcript hides, followed by one
   ``HumanMessage`` with people's words, or a DAIV-written prompt when only CI or a delegation woke the run.

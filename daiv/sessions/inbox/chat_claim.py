@@ -7,7 +7,7 @@ ready, and a turn that ends before that puts them back.
 from __future__ import annotations
 
 from django.db import transaction
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Exists, OuterRef
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
@@ -26,8 +26,8 @@ class ChatClaim:
         self.holder_id = holder_id
 
     def take(self) -> list[InboxEvent]:
-        """Take the session's pending remembered events for its branch for the chat turn that just claimed the slot
-        under ``holder_id``. SYNC ONLY.
+        """Take the session's pending remembered events for its branch, and those about its other repositories, for the
+        chat turn that just claimed the slot under ``holder_id``. SYNC ONLY.
 
         A waking event is left for the drain, which starts its run once the turn ends: only the drain renders a waking
         event's request and charges a CI attempt. It is still superseded by a newer event of its subject, so a turn that
@@ -37,7 +37,7 @@ class ChatClaim:
             session = Session.objects.select_for_update().get(pk=self.thread_id)
             pending = list(
                 InboxEvent.objects.filter(
-                    Q(ref="") | Q(ref=session.ref), session=session, state=EventState.PENDING
+                    NextRuns(session).events_on(session.ref), session=session, state=EventState.PENDING
                 ).order_by("created_at", "id")
             )
             survivors = PendingEvents(session, pending).supersede()
@@ -65,7 +65,10 @@ class ChatClaim:
         linked += await (
             InboxEvent.objects
             .filter(session_id=run.session_id, state=EventState.SUPERSEDED, run__isnull=True, claim_token="")
-            .filter(subject__in=InboxEvent.objects.filter(run=run).exclude(subject="").values("subject"))
+            .exclude(subject="")
+            .filter(
+                Exists(InboxEvent.objects.filter(run=run, repo_id=OuterRef("repo_id"), subject=OuterRef("subject")))
+            )
             .aupdate(run=run)
         )
         if linked:

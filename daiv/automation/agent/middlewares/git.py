@@ -457,10 +457,10 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         and the private ``code_changes`` / ``protected_branch_fallback_source`` flags. A merge the agent left with
         conflict markers is not published: the turn ends with a reply naming the files instead of failing.
 
-        The session's extra repositories publish first, each to its own merge request (see
+        The session's extra repositories publish after the main one, each to its own merge request (see
         :func:`~automation.agent.publishers.apublish_extra_repos`), and land in ``repo_publishes`` on every return. With
         extra repositories, a failed main publish is recorded in ``main_publish_error`` and ends the turn with a notice
-        rather than raising, which would discard the extra repositories' results. An extra repository whose publish
+        rather than raising, which would skip the extra repositories' publishes. An extra repository whose publish
         failed is named in the turn's closing notice too.
 
         Short-circuited runs (a builtin slash command jumps from ``SlashCommandMiddleware.abefore_agent``
@@ -504,12 +504,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
 
         ctx = runtime.context
         multi_repo = bool(ctx.extra_repos)
-        repo_publishes: list[RepoPublish] = []
         if multi_repo:
-            repo_publishes = await apublish_extra_repos(
-                ctx, self._workspace, settings=self._settings, session_links=self._session_links, skip_ci=self.skip_ci
-            )
-            update["repo_publishes"] = [publish.to_state() for publish in repo_publishes]
             update["main_publish_error"] = None
 
         publisher = GitChangePublisher(ctx, self._workspace, settings=self._settings, session_links=self._session_links)
@@ -542,6 +537,13 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 f"I couldn't publish the changes in the main repository `{ctx.repository.slug}` "
                 f"({type(exc).__name__}). The other repositories were published on their own, and their results stand."
             )
+
+        repo_publishes: list[RepoPublish] = []
+        if multi_repo:
+            repo_publishes = await apublish_extra_repos(
+                ctx, self._workspace, settings=self._settings, session_links=self._session_links, skip_ci=self.skip_ci
+            )
+            update["repo_publishes"] = [publish.to_state() for publish in repo_publishes]
 
         # A link block only goes stale when a publish opens a merge request or rewrites its description.
         if outcome is None or outcome.published or any(publish.published for publish in repo_publishes):

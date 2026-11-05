@@ -10,8 +10,8 @@ step sits where it does:
    trigger can tell its user. A one-shot run (``thread_id=None``, evals) has no session and holds no slot.
 2. The sandbox spec is built from ``spec.sandbox_env_id`` (``None``: the GLOBAL default alone); an id that names
    no environment fails the run here, as a setup error. ``set_runtime_ctx`` clones the repository at ``spec.ref``
-   and opens the sandbox client; a multi-repository session clones its main repository at ``Session.ref`` instead,
-   read now that the slot is held, so a turn queued behind another continues on the branch that turn moved to. The
+   and opens the sandbox client; a multi-repository run with no ``spec.ref`` clones its main repository at
+   ``Session.ref`` instead, read now that the slot is held, like its extra repositories at their rows' branches. The
    checkpointer opens, and a one-shot run checkpoints in memory under a fresh thread id instead. If the spec allows
    it (``fallback_ref_on_missing``) and the clone fell back to another ref than the one it asked for, the session's
    working branch is re-pinned to it at once, so the next turn doesn't ask for a branch that is gone; a failed

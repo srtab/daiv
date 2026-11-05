@@ -290,3 +290,44 @@ class TestRenderInput:
 
         assert rendered.context is None
         assert rendered.messages == (rendered.request,)
+
+
+class TestSiblingRepository:
+    """An event about another repository of a multi-repository session names it; one about the session's own does
+    not."""
+
+    def test_a_ci_failure_on_it_asks_for_a_fix_naming_the_merge_request_and_its_repository(self):
+        request = RunInput([_event(EventKind.CI_FAILED, ci_payload(), repo_id="group/lib")]).request()
+
+        assert request.startswith("CI failed on the merge request group/lib!9. Failed jobs: build.")
+
+    def test_its_mention_names_its_merge_request_with_the_repository(self):
+        mention = _event(
+            EventKind.MENTION, {"note_id": 1, "body": "why?", "web_url": "https://mr/9"}, repo_id="group/lib",
+            author_username="alice",
+        )  # fmt: skip
+
+        assert "alice mentioned you on group/lib!9 (https://mr/9)" in RunInput([mention]).request()
+
+    def test_its_remembered_events_name_the_repository_beside_the_merge_request_and_branch(self):
+        passed = _event(EventKind.CI_PASSED, ci_payload(status="success", jobs=()), repo_id="group/lib", ref="daiv/lib")
+        pushed = _event(
+            EventKind.BRANCH_PUSHED,
+            {"before": "a" * 8, "after": "b" * 8, "commit_count": 1, "pusher_username": "bob"},
+            repo_id="group/lib", ref="daiv/lib", minute=1,
+        )  # fmt: skip
+
+        assert EventText(passed).describe().startswith("CI on group/lib!9 (branch daiv/lib): pipeline")
+        assert EventText(pushed).describe().startswith("The branch daiv/lib of group/lib moved: bob pushed 1 commit")
+
+    def test_results_of_the_same_iid_in_two_repositories_each_keep_their_line(self):
+        main = _event(EventKind.CI_PASSED, ci_payload(1, status="success", jobs=()), wake=False, subject="ci:9")
+        sibling = _event(
+            EventKind.CI_PASSED, ci_payload(2, status="success", jobs=()), wake=False, subject="ci:9",
+            repo_id="group/lib", minute=1,
+        )  # fmt: skip
+
+        context = RunInput([main, sibling]).context()
+
+        assert "- CI on !9 (branch chore/x): pipeline 1 PASSED" in context
+        assert "- CI on group/lib!9 (branch chore/x): pipeline 2 PASSED" in context
