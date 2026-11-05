@@ -425,6 +425,14 @@ class Run(models.Model):
     )
     merge_requests = models.JSONField(_("merge requests"), default=list, blank=True)
     publish_errors = models.JSONField(_("publish errors"), default=list, blank=True)
+    sibling_pushed_shas = models.JSONField(
+        _("sibling pushed commits"),
+        default=list,
+        blank=True,
+        help_text=_(
+            "The commits the run pushed to its session's other repositories, without which repository each went to."
+        ),
+    )
 
     # Denormalized result / error / usage — copied verbatim from Activity.
     result_summary = models.TextField(_("result summary"), blank=True, default="")
@@ -858,6 +866,13 @@ class InboxEvent(models.Model):
     kind = models.CharField(_("kind"), max_length=32, choices=EventKind.choices)
     source_key = models.CharField(_("source key"), max_length=255)
     subject = models.CharField(_("subject"), max_length=255, blank=True, default="")
+    repo_id = models.CharField(
+        _("repository"),
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=_("The repository the event concerns when it is not the session's own; blank when it is."),
+    )
     ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
     merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
     wake = models.BooleanField(_("wakes the agent"))
@@ -916,3 +931,22 @@ class InboxEvent(models.Model):
 
     def __str__(self) -> str:
         return f"{self.get_kind_display()} on session {self.session_id} ({self.state})"
+
+    @property
+    def subject_key(self) -> tuple[str, str]:
+        """What a newer event shares with this one to replace it: its ``subject``, about the same repository."""
+        return self.repo_id, self.subject
+
+    def effective_repo_id(self, own_repo_id: str) -> str:
+        """The repository the event is about: ``repo_id``, or ``own_repo_id``, its session's, when blank."""
+        return self.repo_id or own_repo_id
+
+    @staticmethod
+    def about_repo(repo_id: Any, *, prefix: str = "") -> models.Q:
+        """The events about the repository ``repo_id`` (a value or an ``OuterRef``): those naming it, and those naming
+        none in a session whose own repository it is. ``prefix`` is the lookup path to the event, as ``inbox_events__``.
+        """
+        return models.Q(**{f"{prefix}repo_id": repo_id}) | models.Q(**{
+            f"{prefix}repo_id": "",
+            f"{prefix}session__repo_id": repo_id,
+        })

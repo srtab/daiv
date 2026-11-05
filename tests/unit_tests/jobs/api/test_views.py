@@ -11,6 +11,7 @@ from mcp_connectors.models import MCPServer
 from ninja.testing import TestAsyncClient
 from sessions.executor.tasks import run_job_task
 from sessions.models import EventKind, HiddenSession, InboxEvent, Run, RunStatus, Session, SessionOrigin
+from sessions.services import BatchSubmitResult
 
 from accounts.models import APIKey, User
 from core.models import Provider, ProviderType
@@ -362,7 +363,7 @@ def _shared_submit(captured: dict):
 
     async def _fake(**kwargs):
         captured.update(kwargs)
-        return BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[FakeRun(task_result_id=None)])
+        return BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[FakeRun(task_result_id=None)], shared=True)
 
     return _fake
 
@@ -370,7 +371,7 @@ def _shared_submit(captured: dict):
 @pytest.mark.django_db(transaction=True)
 async def test_shared_session_returns_one_job_on_the_main_repo(authenticated_client: TestAsyncClient):
     captured: dict = {}
-    with patch("sessions.multi_repo.asubmit_shared_session_run", side_effect=_shared_submit(captured)):
+    with patch("sessions.multi_repo._asubmit_shared_session_run", side_effect=_shared_submit(captured)):
         response = await authenticated_client.post("/jobs", json={**_SHARED_BODY, "shared_session": True})
 
     assert response.status_code == 202
@@ -383,7 +384,7 @@ async def test_shared_session_returns_one_job_on_the_main_repo(authenticated_cli
 async def test_shared_session_errors_are_400(authenticated_client: TestAsyncClient):
     from sessions.multi_repo import SharedSessionError
 
-    with patch("sessions.multi_repo.asubmit_shared_session_run", side_effect=SharedSessionError("too many")):
+    with patch("sessions.multi_repo._asubmit_shared_session_run", side_effect=SharedSessionError("too many")):
         response = await authenticated_client.post("/jobs", json={**_SHARED_BODY, "shared_session": True})
 
     assert response.status_code == 400
@@ -439,7 +440,7 @@ async def test_continuing_a_multi_repo_thread_needs_no_flag(authenticated_client
     captured: dict = {}
     with (
         patch("sessions.multi_repo.ais_multi_repo", new=AsyncMock(return_value=True)),
-        patch("sessions.multi_repo.asubmit_shared_session_run", side_effect=_shared_submit(captured)),
+        patch("sessions.multi_repo._asubmit_shared_session_run", side_effect=_shared_submit(captured)),
         patch("sessions.multi_repo.asubmit_batch_runs") as batch,
     ):
         response = await authenticated_client.post(
@@ -492,7 +493,7 @@ async def test_batch_path_unchanged_without_flag(authenticated_client: TestAsync
     captured: dict = {}
     with (
         patch("sessions.multi_repo.asubmit_batch_runs", side_effect=_fake_batch_two(captured)),
-        patch("sessions.multi_repo.asubmit_shared_session_run") as shared,
+        patch("sessions.multi_repo._asubmit_shared_session_run") as shared,
     ):
         response = await authenticated_client.post("/jobs", json=_SHARED_BODY)
 
@@ -689,7 +690,7 @@ class TestThreadContinuationAPI:
     async def test_a_follow_up_whose_run_already_started_is_reported_accepted(self, authenticated_client):
         """The inbox may start a follow-up's run before the submit returns; it is still the job the caller asked for."""
         run = SimpleNamespace(id=uuid.uuid4(), session_id=uuid.uuid4(), status=RunStatus.RUNNING)
-        result = SimpleNamespace(batch_id=uuid.uuid4(), outcomes=[run], failed=[])
+        result = BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[run])
         with patch("sessions.multi_repo.asubmit_batch_runs", new=AsyncMock(return_value=result)):
             response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="x"))
 

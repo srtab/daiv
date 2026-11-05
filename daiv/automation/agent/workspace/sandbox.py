@@ -22,7 +22,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.tools")
 
-# One refresh re-mints every repository's token, so the publishes of one turn end share it.
 CREDENTIAL_REFRESH_WINDOW_SECONDS = 60
 
 

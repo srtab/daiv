@@ -383,7 +383,7 @@ _SHARED_REPOS = [{"repo_id": "g/app", "ref": None}, {"repo_id": "g/mod", "ref": 
 def _shared_result(run):
     from sessions.services import BatchSubmitResult
 
-    return BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[run])
+    return BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[run], shared=True)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -394,7 +394,7 @@ async def test_shared_session_returns_one_job_on_the_main_repo(_default_mcp_user
     with (
         patch("mcp_api.server._allow_job_submission", return_value=True),
         patch(
-            "sessions.multi_repo.asubmit_shared_session_run", new=AsyncMock(return_value=_shared_result(run))
+            "sessions.multi_repo._asubmit_shared_session_run", new=AsyncMock(return_value=_shared_result(run))
         ) as shared,
     ):
         result = await submit_job(repos=_SHARED_REPOS, prompt="x", shared_session=True)
@@ -411,7 +411,7 @@ async def test_shared_session_errors_are_returned(_default_mcp_user):
     with (
         patch("mcp_api.server._allow_job_submission", return_value=True),
         patch(
-            "sessions.multi_repo.asubmit_shared_session_run", new=AsyncMock(side_effect=SharedSessionError("too many"))
+            "sessions.multi_repo._asubmit_shared_session_run", new=AsyncMock(side_effect=SharedSessionError("too many"))
         ),
     ):
         result = await submit_job(repos=_SHARED_REPOS, prompt="x", shared_session=True)
@@ -445,7 +445,7 @@ async def test_continuing_a_multi_repo_thread_needs_no_flag(_default_mcp_user):
         patch("mcp_api.server._allow_job_submission", return_value=True),
         patch("sessions.multi_repo.ais_multi_repo", new=AsyncMock(return_value=True)),
         patch(
-            "sessions.multi_repo.asubmit_shared_session_run", new=AsyncMock(return_value=_shared_result(run))
+            "sessions.multi_repo._asubmit_shared_session_run", new=AsyncMock(return_value=_shared_result(run))
         ) as shared,
         patch("sessions.multi_repo.asubmit_batch_runs") as batch,
     ):
@@ -488,7 +488,7 @@ async def test_batch_path_unchanged_without_flag(_default_mcp_user):
             "sessions.multi_repo.asubmit_batch_runs",
             new=AsyncMock(return_value=BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=runs)),
         ),
-        patch("sessions.multi_repo.asubmit_shared_session_run") as shared,
+        patch("sessions.multi_repo._asubmit_shared_session_run") as shared,
     ):
         result = await submit_job(repos=_SHARED_REPOS, prompt="x")
 

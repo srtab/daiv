@@ -212,7 +212,7 @@ class TestIssueAfterRunMatrix:
         assert run.context_kwargs["ref"] == "fix/42"
         assert run.context_kwargs["acting_user_id"] == 5
         run.persist.assert_awaited_once_with(thread_id="t-issue", current_ref="main", merge_request=mr, published=True)
-        assert run.claimed == [{"run_id": "run-42", "merge_request": mr, "pushed_sha": ""}]
+        assert run.claimed == [{"run_id": "run-42", "merge_request": mr, "pushed_sha": "", "repo_id": None}]
         run.recover.assert_not_awaited()
         [reply] = captured_client.create_issue_comment.call_args_list
         assert reply.args[2] == "done"

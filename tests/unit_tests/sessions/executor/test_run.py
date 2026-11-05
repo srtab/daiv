@@ -156,8 +156,8 @@ async def test_one_shot_run_loads_no_extra_repos():
     assert stack.context_kwargs["extra_repos"] == []
 
 
-async def test_a_multi_repo_run_clones_main_on_the_sessions_current_branch():
-    spec = make_spec(ref="dev", fallback_ref_on_missing=True)
+async def test_a_multi_repo_run_without_a_ref_clones_main_on_the_sessions_current_branch():
+    spec = make_spec(ref="", fallback_ref_on_missing=True)
 
     with agent_stack(_agent()) as stack:
         stack.load_extra_repos.return_value = [SimpleNamespace(repo_id="g/mod", ref="", sandbox_environment_id=None)]
@@ -167,6 +167,17 @@ async def test_a_multi_repo_run_clones_main_on_the_sessions_current_branch():
     stack.session_ref.assert_awaited_once_with(thread_id=spec.thread_id)
     assert stack.context_kwargs["ref"] == "daiv/fix-1"
     stack.reset.assert_awaited_once_with(thread_id=spec.thread_id, new_ref="main")
+
+
+async def test_a_multi_repo_run_clones_main_on_the_ref_it_was_given():
+    """A CI failure on an older merge request of the session runs on that merge request's branch."""
+    with agent_stack(_agent()) as stack:
+        stack.load_extra_repos.return_value = [SimpleNamespace(repo_id="g/mod", ref="", sandbox_environment_id=None)]
+        stack.session_ref.return_value = "daiv/fix-2"
+        await execute_run(make_spec(ref="daiv/fix-1"))
+
+    stack.session_ref.assert_not_awaited()
+    assert stack.context_kwargs["ref"] == "daiv/fix-1"
 
 
 async def test_a_single_repo_run_clones_the_ref_it_was_given():
@@ -537,7 +548,7 @@ async def test_the_ref_sync_and_the_claim_run_when_asked():
     stack.persist.assert_awaited_once_with(
         thread_id=spec.thread_id, current_ref="main", merge_request=MR, published=True
     )
-    assert stack.claimed == [{"run_id": "run-1", "merge_request": MR, "pushed_sha": ""}]
+    assert stack.claimed == [{"run_id": "run-1", "merge_request": MR, "pushed_sha": "", "repo_id": None}]
 
 
 async def test_the_claim_carries_the_sha_the_run_pushed():
@@ -553,10 +564,10 @@ async def test_the_claim_carries_the_sha_the_run_pushed():
     with agent_stack(agent) as stack, persist, measure, record:
         await execute_run(make_spec(arm_watch=True, run_id="run-1"))
 
-    assert stack.claimed == [{"run_id": "run-1", "merge_request": MR, "pushed_sha": "e96f1f77"}]
+    assert stack.claimed == [{"run_id": "run-1", "merge_request": MR, "pushed_sha": "e96f1f77", "repo_id": None}]
 
 
-def _sibling_state(*repo_ids: str) -> list[dict]:
+def _sibling_state(*repo_ids: str, published: bool = True) -> list[dict]:
     from automation.agent.git_state import RepoPublish
     from codebase.base import MergeRequest, User
 
@@ -573,14 +584,15 @@ def _sibling_state(*repo_ids: str) -> list[dict]:
                 web_url=f"https://git/{repo_id}/-/merge_requests/{index}",
                 author=User(id=1, username="bot"),
             ),
-            published=True,
+            published=published,
             current_ref=f"daiv/{index}",
+            pushed_sha=f"sha{index}" if published else "",
         ).to_state()
         for index, repo_id in enumerate(repo_ids, start=1)
     ]
 
 
-async def test_after_run_keeps_each_sibling_publish_and_claims_only_the_main_mr():
+async def test_after_run_keeps_each_sibling_publish_and_claims_each_published_merge_request():
     spec = make_spec(persist_ref=True, arm_watch=True, run_id="run-1")
     state = {"merge_request": MR, "published": True, "repo_publishes": _sibling_state("g/mod", "g/lib")}
 
@@ -591,10 +603,46 @@ async def test_after_run_keeps_each_sibling_publish_and_claims_only_the_main_mr(
     ):
         await execute_run(spec)
 
-    assert stack.claimed == [{"run_id": "run-1", "merge_request": MR, "pushed_sha": ""}]
+    assert [(claim["repo_id"], claim["pushed_sha"]) for claim in stack.claimed] == [
+        (None, ""),
+        ("g/mod", "sha1"),
+        ("g/lib", "sha2"),
+    ]
+    assert [claim["merge_request"].merge_request_id for claim in stack.claimed[1:]] == [1, 2]
     persisted = stack.persist_extra.await_args.args
     assert persisted[0] == spec.thread_id
     assert [rp.repo_id for rp in persisted[1]] == ["g/mod", "g/lib"]
+
+
+async def test_after_run_records_the_commits_it_pushed_to_sibling_repositories():
+    state = {"published": True, "repo_publishes": [*_sibling_state("g/mod"), *_sibling_state("g/lib", published=False)]}
+    rows = MagicMock(aupdate=AsyncMock())
+
+    with (
+        agent_stack(_agent(state=state)),
+        patch("sessions.executor.run._persist_resolved_agent", new=AsyncMock()),
+        patch("sessions.executor.run._record_measurements", new=AsyncMock()),
+        patch("sessions.executor.run.Run.objects.filter", return_value=rows) as runs,
+    ):
+        await execute_run(make_spec(run_id="run-1"))
+
+    runs.assert_any_call(pk="run-1")
+    rows.aupdate.assert_any_await(sibling_pushed_shas=["sha1"])
+
+
+@pytest.mark.parametrize(("published", "arm_watch"), [(False, True), (True, False)], ids=["unpublished", "watch-off"])
+async def test_after_run_claims_no_sibling_merge_request_unless_published_with_the_watch(published, arm_watch):
+    state = {"published": published, "repo_publishes": _sibling_state("g/mod", published=published)}
+
+    with (
+        agent_stack(_agent(state=state)) as stack,
+        patch("sessions.executor.run._persist_resolved_agent", new=AsyncMock()),
+        patch("sessions.executor.run._record_measurements", new=AsyncMock()),
+    ):
+        await execute_run(make_spec(persist_ref=True, arm_watch=arm_watch, run_id="run-1"))
+
+    assert stack.claimed == []
+    assert [rp.repo_id for rp in stack.persist_extra.await_args.args[1]] == ["g/mod"]
 
 
 async def test_after_run_ignores_an_unreadable_sibling_publish():
@@ -1159,9 +1207,10 @@ async def test_a_recovered_sibling_draft_is_kept_on_its_row():
             patch("sessions.executor.run.recover_draft", new=AsyncMock(side_effect=_recover)),
             pytest.raises(RuntimeError, match="agent blew up"),
         ):
-            await execute_run(make_spec(recover_draft=True, persist_ref=True, arm_watch=True))
+            await execute_run(make_spec(recover_draft=True, persist_ref=True, arm_watch=True, run_id="run-1"))
 
     assert [rp.repo_id for rp in stack.persist_extra.await_args.args[1]] == ["g/mod"]
+    assert stack.claimed == []
 
 
 def _recovery_outcome(*, created: bool) -> PublishOutcome:

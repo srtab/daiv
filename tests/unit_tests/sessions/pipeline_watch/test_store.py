@@ -178,7 +178,7 @@ class TestJudged:
     @staticmethod
     async def _judged(*, watch_on: bool) -> bool:
         ownership = await MergeRequestOwnership.objects.aget()
-        return await WatchStore().ajudged(ownership.session_id, "ci:7", 100, "failed", watch_on=watch_on)
+        return await WatchStore().ajudged(ownership, "ci:7", 100, "failed", watch_on=watch_on)
 
     @staticmethod
     async def _failure(**fields) -> None:
@@ -210,8 +210,73 @@ class TestPassed:
         session = await Session.objects.aget(pk=ownership.session_id)
         store = WatchStore()
 
-        assert await store.apassed(session.pk, "ci:7:11", 100, "success") is False
+        assert await store.apassed(ownership, "ci:7:11", 100, "success") is False
         await self._post(session, EventKind.CI_PASSED, "success")
-        assert await store.apassed(session.pk, "ci:7:11", 100, "success") is True
+        assert await store.apassed(ownership, "ci:7:11", 100, "success") is True
         await self._post(session, EventKind.CI_FAILED, "failed")
-        assert await store.apassed(session.pk, "ci:7:11", 100, "failed") is False
+        assert await store.apassed(ownership, "ci:7:11", 100, "failed") is False
+
+
+class TestSiblingRepository:
+    """A multi-repository session can own merge requests of the same iid in two repositories: each one's CI is its
+    own."""
+
+    SIBLING = "group/lib"
+
+    async def _owned_in_both(self) -> tuple[MergeRequestOwnership, MergeRequestOwnership]:
+        main = await _owned(7)
+        sibling = await MergeRequestOwnership.objects.acreate(
+            repo_id=self.SIBLING, merge_request_iid=7, session_id=main.session_id, source_branch="daiv/branch"
+        )
+        return main, sibling
+
+    async def test_a_result_on_one_repositorys_merge_request_is_not_the_others(self):
+        main, sibling = await self._owned_in_both()
+        session = await Session.objects.aget(pk=main.session_id)
+        await amake_event(
+            session, EventKind.CI_PASSED, repo_id=self.SIBLING, merge_request_iid=7, subject="ci:7",
+            payload=ci_payload(100, status="success"),
+        )  # fmt: skip
+        store = WatchStore()
+
+        assert await store.ajudged(sibling, "ci:7", 100, "success", watch_on=True) is True
+        assert await store.ajudged(main, "ci:7", 100, "success", watch_on=True) is False
+        assert await store.apassed(sibling, "ci:7", 100, "success") is True
+        assert await store.apassed(main, "ci:7", 100, "success") is False
+
+    async def test_a_newer_pipeline_on_one_repositorys_merge_request_supersedes_nothing_on_the_others(self):
+        main, sibling = await self._owned_in_both()
+        session = await Session.objects.aget(pk=main.session_id)
+        await amake_event(
+            session, EventKind.CI_FAILED, repo_id=self.SIBLING, merge_request_iid=7, subject="ci:7",
+            payload=ci_payload(200, sha="abc"),
+        )  # fmt: skip
+        store = WatchStore()
+
+        assert await store.asuperseded(sibling, "ci:7", "abc", 100) is True
+        assert await store.asuperseded(main, "ci:7", "abc", 100) is False
+
+    async def test_a_give_up_is_cleared_only_by_a_pass_on_its_own_repositorys_merge_request(self):
+        main, _ = await self._owned_in_both()
+        session = await Session.objects.aget(pk=main.session_id)
+        await amake_event(
+            session, repo_id=self.SIBLING, merge_request_iid=7, subject="ci:7", wake=False,
+            reason=QuietReason.BUDGET_SPENT,
+        )  # fmt: skip
+        await amake_event(session, EventKind.CI_PASSED, merge_request_iid=7, subject="ci:7")
+
+        assert await TestGaveUp._gave_up(session) is True
+
+        await amake_event(session, EventKind.CI_PASSED, repo_id=self.SIBLING, merge_request_iid=7, subject="ci:7")
+
+        assert await TestGaveUp._gave_up(session) is False
+
+    async def test_a_recent_result_on_the_main_merge_request_leaves_the_siblings_quiet(self):
+        main, _ = await self._owned_in_both()
+        await MergeRequestOwnership.objects.aupdate(updated_at=timezone.now() - timedelta(hours=1))
+        session = await Session.objects.aget(pk=main.session_id)
+        await amake_event(session, EventKind.CI_PASSED, merge_request_iid=7, created_at=timezone.now())
+
+        rows = await sync_to_async(list)(WatchStore().quiet(since=timezone.now() - timedelta(minutes=30), limit=10))
+
+        assert [row["repo_id"] for row in rows] == [self.SIBLING]
