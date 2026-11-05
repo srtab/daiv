@@ -26,8 +26,8 @@ class ChatClaim:
         self.holder_id = holder_id
 
     def take(self) -> list[InboxEvent]:
-        """Take the session's pending remembered events for its branch for the chat turn that just claimed the slot
-        under ``holder_id``. SYNC ONLY.
+        """Take the session's pending remembered events for its branch, and those about its other repositories, for the
+        chat turn that just claimed the slot under ``holder_id``. SYNC ONLY.
 
         A waking event is left for the drain, which starts its run once the turn ends: only the drain renders a waking
         event's request and charges a CI attempt. It is still superseded by a newer event of its subject, so a turn that
@@ -37,7 +37,7 @@ class ChatClaim:
             session = Session.objects.select_for_update().get(pk=self.thread_id)
             pending = list(
                 InboxEvent.objects.filter(
-                    Q(ref="") | Q(ref=session.ref), session=session, state=EventState.PENDING
+                    Q(ref="") | Q(ref=session.ref) | ~Q(repo_id=""), session=session, state=EventState.PENDING
                 ).order_by("created_at", "id")
             )
             survivors = PendingEvents(session, pending).supersede()

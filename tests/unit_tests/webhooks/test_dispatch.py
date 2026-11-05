@@ -10,7 +10,7 @@ from github.GithubException import GithubException
 from gitlab.exceptions import GitlabError
 from sessions.ids import compute_thread_id
 from sessions.inbox.drain import Drain
-from sessions.models import EventKind, InboxEvent, Run, Session
+from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, Run, Session, SessionOrigin, SessionRepository
 from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment, dispatch_mr_comment_run
 
 from accounts.models import User
@@ -497,6 +497,30 @@ class TestOwnedMergeRequest:
         event = await InboxEvent.objects.aget(session_id=owned.session_id)
         assert (event.kind, event.wake, event.source_key) == (EventKind.COMMENT, False, "comment:note:300")
         steps.client.create_merge_request_note_emoji.assert_not_called()
+
+    async def test_a_mention_on_a_multi_repository_sessions_other_merge_request_wakes_that_session(self, steps):
+        steps.client.git_platform = GitPlatform.GITLAB
+        session = await Session.objects.acreate(
+            thread_id="multi-repo", origin=SessionOrigin.API_JOB, repo_id="group/app", ref="daiv/app"
+        )
+        await SessionRepository.objects.acreate(session=session, position=1, repo_id="group/repo", ref="daiv/lib")
+        await MergeRequestOwnership.objects.acreate(
+            repo_id="group/app", merge_request_iid=7, session=session, source_branch="daiv/app"
+        )
+        await MergeRequestOwnership.objects.acreate(
+            repo_id="group/repo", merge_request_iid=7, session=session, source_branch="daiv/lib"
+        )
+
+        await _mr_comment_run(steps, mention=self._mention())
+
+        event = await InboxEvent.objects.aget(session=session)
+        assert (event.kind, event.wake, event.repo_id, event.ref, event.merge_request_iid) == (
+            EventKind.MENTION, True, "group/repo", "daiv/lib", 7,
+        )  # fmt: skip
+        steps.create_run.assert_not_called()
+        steps.client.create_merge_request_note_emoji.assert_called_once_with(
+            "group/repo", 7, Emoji.EYES, 300, on_diff=False
+        )
 
     async def test_a_comment_on_an_unowned_merge_request_concerns_no_one(self, steps):
         await dispatch_mr_comment(

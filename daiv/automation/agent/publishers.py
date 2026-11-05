@@ -726,7 +726,11 @@ async def _apublish_extra_repo(
         error = publish_failure(slug, exc)
     else:
         return RepoPublish(
-            repo_id=handle.repo_id, merge_request=outcome.merge_request, published=outcome.published, current_ref=branch
+            repo_id=handle.repo_id,
+            merge_request=outcome.merge_request,
+            published=outcome.published,
+            current_ref=branch,
+            pushed_sha=outcome.pushed_sha,
         )
     return RepoPublish(repo_id=handle.repo_id, merge_request=target, published=False, current_ref=branch, error=error)
 

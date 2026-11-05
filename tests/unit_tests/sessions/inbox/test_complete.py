@@ -535,3 +535,71 @@ class TestMentionReplies:
         await RunEnd(run).aon_run_ended()
 
         client.create_merge_request_comment.assert_not_called()
+
+
+class TestSiblingRepository:
+    """What a run's end posts on a merge request goes to the repository of the event that asked for it."""
+
+    SIBLING = "group/lib"
+
+    @pytest.fixture
+    def client(self):
+        client = MagicMock()
+        client.current_user.username = "daiv"
+        with patch("codebase.clients.RepoClient.create_instance", return_value=client):
+            yield client
+
+    async def _run(self, trigger=SessionOrigin.MR_WEBHOOK, status=RunStatus.SUCCESSFUL) -> Run:
+        session = await amake_session()
+        return await Run.objects.acreate(
+            session=session, trigger_type=trigger, repo_id=session.repo_id, status=status, result_summary="Fixed it."
+        )
+
+    async def _event(self, run: Run, kind: str, *, repo_id: str, **fields) -> InboxEvent:
+        session = await Session.objects.aget(pk=run.session_id)
+        return await amake_event(
+            session, kind, run=run, state=EventState.TAKEN, merge_request_iid=9, repo_id=repo_id, **fields
+        )
+
+    async def test_mentions_of_the_same_iid_in_two_repositories_are_each_answered_in_their_own(self, drain, client):
+        run = await self._run()
+        payload = mention_payload(note_id=1) | {"discussion_id": "d1"}
+        await self._event(run, EventKind.MENTION, repo_id="", payload=payload)
+        await self._event(run, EventKind.MENTION, repo_id=self.SIBLING, payload=payload | {"discussion_id": "d2"})
+
+        await RunEnd(run).aon_run_ended()
+
+        replies = [
+            (call.args[0], call.args[1], call.kwargs["reply_to"].id)
+            for call in client.create_merge_request_comment.call_args_list
+        ]
+        assert replies == [("group/repo", 9, "d1"), (self.SIBLING, 9, "d2")]
+
+    async def test_an_ownerless_sessions_ci_report_goes_on_the_failing_repositorys_merge_request(self, drain, client):
+        run = await self._run(trigger=SessionOrigin.PIPELINE_WEBHOOK)
+        await self._event(run, EventKind.CI_FAILED, repo_id=self.SIBLING)
+
+        await RunEnd(run).aon_run_ended()
+
+        client.create_merge_request_comment.assert_called_once_with(self.SIBLING, 9, "Fixed it.")
+
+    async def test_a_failure_no_run_could_examine_leaves_only_its_own_merge_requests_commit_unexamined(self, drain):
+        run = await self._run(trigger=SessionOrigin.PIPELINE_WEBHOOK, status=RunStatus.FAILED)
+        event = await self._event(run, EventKind.CI_FAILED, repo_id=self.SIBLING, attempts=MAX_EVENT_ATTEMPTS - 1)
+        sha = event.payload["sha"]
+        main, sibling = [
+            await MergeRequestOwnership.objects.acreate(
+                repo_id=repo_id,
+                merge_request_iid=9,
+                session_id=run.session_id,
+                source_branch="x",
+                last_examined_sha=sha,
+            )  # fmt: skip
+            for repo_id in ("group/repo", self.SIBLING)
+        ]
+
+        await RunEnd(run).aon_run_ended()
+
+        await main.arefresh_from_db()
+        await sibling.arefresh_from_db()
+        assert (main.last_examined_sha, sibling.last_examined_sha) == (sha, "")

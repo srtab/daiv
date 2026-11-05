@@ -742,3 +742,41 @@ async def test_a_deleted_owning_session_is_replaced_before_posting(watch):
     event = await _event()
     await ownership.arefresh_from_db()
     assert event.session_id == ownership.session_id is not None
+
+
+class TestSiblingRepository:
+    """The merge request a multi-repository session published in another of its repositories is watched for that
+    session like its own, its events naming the repository."""
+
+    MAIN = "group/app"
+
+    async def _owned(self, **fields) -> MergeRequestOwnership:
+        """``REPO``'s !7, owned by a session of ``MAIN`` that also owns ``MAIN``'s !7."""
+        session = await Session.objects.acreate(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id=self.MAIN, ref="daiv/app"
+        )
+        await MergeRequestOwnership.objects.acreate(
+            repo_id=self.MAIN, merge_request_iid=7, session=session, source_branch="daiv/app", last_daiv_sha="0ther"
+        )
+        defaults = {"repo_id": REPO, "merge_request_iid": 7, "source_branch": BRANCH, "last_daiv_sha": SHA}
+        return await MergeRequestOwnership.objects.acreate(session=session, **(defaults | fields))
+
+    async def test_a_failure_on_daivs_commit_wakes_the_session_naming_the_repository(self, watch, drain):
+        ownership = await self._owned()
+        watch.platform.pipeline = make_pipeline("failed", [make_job("failed", name="test")])
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        event = await _event()
+        assert (event.session_id, event.kind, event.wake) == (ownership.session_id, EventKind.CI_FAILED, True)
+        assert (event.repo_id, event.ref, event.merge_request_iid, event.subject) == (REPO, BRANCH, 7, "ci:7")
+        assert [call.args[0].thread_id for call in drain.call_args_list] == [ownership.session_id]
+
+    async def test_a_failure_on_a_commit_daiv_did_not_push_there_is_only_remembered(self, watch):
+        await self._owned(last_daiv_sha="d1ff3r3nt")
+        watch.platform.pipeline = make_pipeline("failed")
+
+        await watch.make().aevaluate(ref=BRANCH, pipeline_id=100)
+
+        event = await _event()
+        assert (event.repo_id, event.wake, event.reason) == (REPO, False, QuietReason.NOT_DAIV_COMMIT)

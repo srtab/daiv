@@ -56,7 +56,12 @@ class WakePolicy:
         waking = [event for event in events if event.wake]
         stopped = self._stopped_ci(waking)
         reasons = dict.fromkeys(
-            (event.pk for event in waking if (event.kind, event.merge_request_iid) in stopped), QuietReason.WATCH_OFF
+            (
+                event.pk
+                for event in waking
+                if event.kind == EventKind.CI_FAILED and self._merge_request(event) in stopped
+            ),
+            QuietReason.WATCH_OFF,
         )
         gated = [event.pk for event in waking if event.kind in GATED_KINDS and event.pk not in reasons]
         if gated and (reason := self._gate()) is not None:
@@ -106,20 +111,26 @@ class WakePolicy:
             return QuietReason.RUN_LIMIT
         return None
 
-    def _stopped_ci(self, events: list[InboxEvent]) -> set[tuple[str, int]]:
-        """The ``(kind, merge_request_iid)`` of the CI failures among ``events`` whose merge request was closed, or
+    def _merge_request(self, event: InboxEvent) -> tuple[str, int | None]:
+        return event.repo_id or self.session.repo_id, event.merge_request_iid
+
+    def _stopped_ci(self, events: list[InboxEvent]) -> set[tuple[str, int | None]]:
+        """The ``(repo_id, merge_request_iid)`` of the CI failures among ``events`` whose merge request was closed, or
         whose watch was turned off."""
-        iids = {event.merge_request_iid for event in events if event.kind == EventKind.CI_FAILED}
-        iids.discard(None)
-        if not iids:
+        failed = {
+            self._merge_request(event)
+            for event in events
+            if event.kind == EventKind.CI_FAILED and event.merge_request_iid is not None
+        }
+        if not failed:
             return set()
         stopped = (
             MergeRequestOwnership.objects
-            .filter(repo_id=self.session.repo_id, merge_request_iid__in=iids)
+            .filter(repo_id__in={repo_id for repo_id, _ in failed}, merge_request_iid__in={iid for _, iid in failed})
             .filter(Q(closed_at__isnull=False) | Q(watch_enabled=False))
-            .values_list("merge_request_iid", flat=True)
+            .values_list("repo_id", "merge_request_iid")
         )
-        return {(EventKind.CI_FAILED, iid) for iid in stopped}
+        return set(stopped) & failed
 
     def _last_person_run_at(self) -> datetime | None:
         return (

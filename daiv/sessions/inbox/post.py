@@ -53,6 +53,7 @@ class Inbox:
         subject: str = "",
         ref: str = "",
         merge_request_iid: int | None = None,
+        repo_id: str = "",
         reason: QuietReason | None = None,
         author: User | None = None,
         author_username: str = "",
@@ -64,8 +65,11 @@ class Inbox:
 
         A waking event on a busy session joins the session's next run for the event's branch and requester
         (:meth:`sessions.inbox.requester.Requester.of_event`), which is created when there is none yet. A waking event
-        with no ``ref`` concerns the session's own branch. ``author_provider``/``author_uid``: the platform account of
-        an author no DAIV user is linked to.
+        with no ``ref`` concerns the session's own branch. ``repo_id`` is the repository of the merge request the
+        event concerns, stored only when it is not the session's own: ``ref`` and ``merge_request_iid`` are then that
+        repository's, and the event waits for the session's next run on its own branch
+        (:meth:`sessions.inbox.next_runs.NextRuns.branch_of`). ``author_provider``/``author_uid``: the platform account
+        of an author no DAIV user is linked to.
 
         Raises ``ValueError`` for an invalid payload, or ``wake`` on a kind that never wakes, and
         ``Session.DoesNotExist`` when there is no such session.
@@ -87,7 +91,13 @@ class Inbox:
         }
         with transaction.atomic():
             session = Session.objects.select_for_update().get(pk=self.thread_id)
-            event = InboxEvent(session=session, wake=wake, ref=ref or (session.ref if wake else ""), **fields)
+            event = InboxEvent(
+                session=session,
+                wake=wake,
+                ref=ref or (session.ref if wake else ""),
+                repo_id="" if repo_id == session.repo_id else repo_id,
+                **fields,
+            )
             InboxEvent.objects.bulk_create([event], ignore_conflicts=True)
             stored = InboxEvent.objects.get(session=session, source_key=event.source_key)
             if stored.pk != event.pk:
@@ -110,6 +120,7 @@ class Inbox:
         subject: str = "",
         ref: str = "",
         merge_request_iid: int | None = None,
+        repo_id: str = "",
         reason: QuietReason | None = None,
         author: User | None = None,
         author_username: str = "",
@@ -124,6 +135,7 @@ class Inbox:
             subject=subject,
             ref=ref,
             merge_request_iid=merge_request_iid,
+            repo_id=repo_id,
             reason=reason,
             author=author,
             author_username=author_username,
@@ -133,10 +145,18 @@ class Inbox:
 
     @classmethod
     def post_delegated_ci_outcome(
-        cls, child: Session, *, merge_request_iid: int, pipeline_id: int, outcome: DelegatedOutcome, web_url: str
+        cls,
+        child: Session,
+        *,
+        repo_id: str,
+        merge_request_iid: int,
+        pipeline_id: int,
+        outcome: DelegatedOutcome,
+        web_url: str,
     ) -> None:
-        """Remind ``child``'s parent session, when it has one, how CI ended on a merge request ``child`` owns. Logs a
-        failure instead of raising, since the child's own event already landed. SYNC ONLY."""
+        """Remind ``child``'s parent session, when it has one, how CI ended on ``repo_id``'s merge request
+        ``merge_request_iid``, which ``child`` owns. Logs a failure instead of raising, since the child's own event
+        already landed. SYNC ONLY."""
         if child.parent_id is None:
             return
         try:
@@ -151,6 +171,7 @@ class Inbox:
                 },
                 wake=False,
                 subject=Subject.child_ci(child.thread_id, merge_request_iid),
+                repo_id=repo_id,
             )
         except Exception:
             logger.exception(
@@ -161,10 +182,22 @@ class Inbox:
 
     @classmethod
     async def apost_delegated_ci_outcome(
-        cls, child: Session, *, merge_request_iid: int, pipeline_id: int, outcome: DelegatedOutcome, web_url: str
+        cls,
+        child: Session,
+        *,
+        repo_id: str,
+        merge_request_iid: int,
+        pipeline_id: int,
+        outcome: DelegatedOutcome,
+        web_url: str,
     ) -> None:
         await sync_to_async(cls.post_delegated_ci_outcome)(
-            child, merge_request_iid=merge_request_iid, pipeline_id=pipeline_id, outcome=outcome, web_url=web_url
+            child,
+            repo_id=repo_id,
+            merge_request_iid=merge_request_iid,
+            pipeline_id=pipeline_id,
+            outcome=outcome,
+            web_url=web_url,
         )
 
     @classmethod
@@ -173,6 +206,7 @@ class Inbox:
         (:meth:`post_delegated_ci_outcome`). SYNC ONLY."""
         cls.post_delegated_ci_outcome(
             child,
+            repo_id=ci_failure.repo_id or child.repo_id,
             merge_request_iid=ci_failure.merge_request_iid,
             pipeline_id=ci_failure.payload["pipeline_id"],
             outcome="no_push",

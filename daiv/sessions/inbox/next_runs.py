@@ -44,6 +44,15 @@ class NextRuns:
             trigger_type__in=INBOX_TRIGGERS,
         ).order_by("created_at")
 
+    def branch_of(self, event: InboxEvent) -> str:
+        """The branch whose next run the pending ``event`` waits in: the session's for a request that follows it
+        (:meth:`sessions.inbox.kinds.EventContent.follows_session`) and for an event about another of its repositories,
+        whose runs run on the session's branch with that repository checked out beside it; else the one it was posted
+        on."""
+        if event.repo_id or EventContent.of(event).follows_session():
+            return self.session.ref
+        return event.ref
+
     def for_branch(self, ref: str, requester: Requester) -> Run | None:
         """The QUEUED next run for the branch ``ref`` and ``requester``. SYNC ONLY."""
         return self.queued().filter(ref=ref, **requester.run_lookup()).first()
@@ -71,7 +80,7 @@ class NextRuns:
         or a QUEUED run the inbox did not create holds that place (``run_one_next_run_per_user``,
         ``run_one_next_run_per_account``); the event then waits for the drain after it."""
         requester = Requester.of_event(event, self.session)
-        run = self.for_branch(event.ref, requester)
+        run = self.for_branch(self.branch_of(event), requester)
         if run is None and (self.is_busy() or self.job_run_active()):
             run = self._create(event, requester)
         if run is not None:
@@ -106,6 +115,7 @@ class NextRuns:
         )
 
     def _create(self, event: InboxEvent, requester: Requester) -> Run | None:
+        ref = self.branch_of(event)
         try:
             with transaction.atomic():
                 return Run.objects.create(
@@ -113,8 +123,8 @@ class NextRuns:
                     trigger_type=EventContent.of(event).run_trigger_type(),
                     status=RunStatus.QUEUED,
                     repo_id=self.session.repo_id,
-                    ref=event.ref,
-                    merge_request_iid=event.merge_request_iid,
+                    ref=ref,
+                    merge_request_iid=None if event.repo_id else event.merge_request_iid,
                     sandbox_environment_id=self.session.sandbox_environment_id,
                     **requester.run_fields(event.author_username),
                 )
@@ -122,7 +132,7 @@ class NextRuns:
             logger.info(
                 "inbox: an older queued run holds thread_id=%s's place on %r; event=%s waits for it",
                 self.session.thread_id,
-                event.ref,
+                ref,
                 event.pk,
             )
             return None

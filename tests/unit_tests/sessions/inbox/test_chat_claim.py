@@ -43,6 +43,18 @@ class TestTake:
         assert not await Run.objects.filter(pk=emptied.pk).aexists()
         assert await Run.objects.filter(pk=kept.pk).aexists()
 
+    async def test_a_chat_turn_takes_what_happened_on_the_sessions_other_repositories_branches(self):
+        session = await amake_session(ref="chore/x")
+        sibling = await amake_event(
+            session, EventKind.CI_PASSED, repo_id="group/lib", ref="daiv/lib", merge_request_iid=9
+        )
+        elsewhere = await amake_event(session, EventKind.CI_PASSED, ref="feat/y", merge_request_iid=8)
+
+        taken = await ChatClaim(session.thread_id, "chat-run").atake()
+
+        assert [event.pk for event in taken] == [sibling.pk]
+        assert (await _state(elsewhere)).state == EventState.PENDING
+
 
 class TestRelease:
     async def test_the_events_a_turn_took_and_no_run_took_over_go_back_to_pending(self):

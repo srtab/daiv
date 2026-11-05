@@ -153,7 +153,7 @@ class PipelineWatch:
         for latest in listed:
             subject = kinds.Subject.ci(ownership.merge_request_iid, latest.workflow_id)
             if ownership.last_pipeline_id is not None and await self._store.ajudged(
-                ownership.session_id, subject, latest.id, latest.status, watch_on=watch_on
+                ownership, subject, latest.id, latest.status, watch_on=watch_on
             ):
                 continue
             try:
@@ -182,7 +182,7 @@ class PipelineWatch:
             return
         if (report.id, report.status) == (ownership.last_pipeline_id, ownership.last_pipeline_status):
             return
-        if await self._store.asuperseded(ownership.session_id, _subject(ownership, report), report.sha, report.id):
+        if await self._store.asuperseded(ownership, _subject(ownership, report), report.sha, report.id):
             logger.info(
                 "pipeline_watch: pipeline %s on %s@%s was replaced by a newer one", report.id, self.repo_id, ref
             )
@@ -228,6 +228,7 @@ class PipelineWatch:
             subject=_subject(ownership, report),
             ref=ownership.source_branch,
             merge_request_iid=ownership.merge_request_iid,
+            repo_id=self.repo_id,
             reason=reason,
         )
         if not result.created:
@@ -243,6 +244,7 @@ class PipelineWatch:
         ):
             await Inbox.apost_delegated_ci_outcome(
                 session,
+                repo_id=self.repo_id,
                 merge_request_iid=ownership.merge_request_iid,
                 pipeline_id=report.id,
                 outcome="passing" if kind == EventKind.CI_PASSED else "stopped_after_attempts",
@@ -268,7 +270,7 @@ class PipelineWatch:
                 return False
             subject = kinds.Subject.ci(ownership.merge_request_iid, latest.workflow_id)
             if latest.status != "success" and not await self._store.apassed(
-                session.pk, subject, latest.id, latest.status
+                ownership, subject, latest.id, latest.status
             ):
                 return False
         return True

@@ -624,8 +624,9 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
         except Exception:
             logger.exception("executor: failed to persist session ref for thread_id=%s", run.thread_id)
     if spec.arm_watch and published and spec.run_id is not None:
-        await _claim_merge_request(run, spec.run_id, merge_request)
-    await _record_sibling_publishes(spec, run, sibling_publishes)
+        pushed_sha = (run.publish.payload or {}).get("pushed_sha") if run.publish is not None else None
+        await _claim_merge_request(run, spec.run_id, merge_request, pushed_sha=pushed_sha or "")
+    await _record_sibling_publishes(spec, run, sibling_publishes, claim=True)
 
     agent_result = build_agent_result(
         response=response_text,
@@ -637,29 +638,46 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
     return RunOutcome(agent_result=agent_result, response_text=response_text, snapshot=snapshot)
 
 
-async def _record_sibling_publishes(spec: RunSpec, run: AgentRun, publishes: Sequence[RepoPublish]) -> None:
-    """Keep each extra repository's branch and merge request on its row, so the next turn continues there."""
-    if not publishes or not spec.persist_ref:
+async def _record_sibling_publishes(
+    spec: RunSpec, run: AgentRun, publishes: Sequence[RepoPublish], *, claim: bool = False
+) -> None:
+    """Keep each extra repository's branch and merge request on its row, so the next turn continues there. With
+    ``claim``, the session also claims each merge request the run published to, as it does the main repository's, so
+    its CI failures and mentions reach the session's inbox."""
+    if publishes and spec.persist_ref:
+        try:
+            await apersist_extra_repo_state(run.thread_id, publishes)
+        except Exception:
+            logger.exception("executor: failed to persist extra repository state for thread_id=%s", run.thread_id)
+    if not claim or not spec.arm_watch or spec.run_id is None:
         return
-    try:
-        await apersist_extra_repo_state(run.thread_id, publishes)
-    except Exception:
-        logger.exception("executor: failed to persist extra repository state for thread_id=%s", run.thread_id)
+    for publish in publishes:
+        if publish.published:
+            await _claim_merge_request(
+                run, spec.run_id, publish.merge_request, pushed_sha=publish.pushed_sha, repo_id=publish.repo_id
+            )
 
 
-async def _claim_merge_request(run: AgentRun, run_id: str, merge_request: Any) -> None:
-    """Claim the merge request the run published for its session, then judge the branch's CI at once: the push
-    happened during publish, so its pipeline event can arrive before the claim exists. Best-effort: logged, never
-    raised over a run that already published."""
+async def _claim_merge_request(
+    run: AgentRun, run_id: str, merge_request: Any, *, pushed_sha: str, repo_id: str | None = None
+) -> None:
+    """Claim the merge request the run published for its session, in ``repo_id`` when it is not the run's own, then
+    judge the branch's CI at once: the push happened during publish, so its pipeline event can arrive before the claim
+    exists. Best-effort: logged, never raised over a run that already published."""
     from sessions.tasks import evaluate_pipeline_watch_task
 
-    pushed_sha = (run.publish.payload or {}).get("pushed_sha") if run.publish is not None else None
     try:
-        ownership = await Ownerships.aclaim(run_id=run_id, merge_request=merge_request, pushed_sha=pushed_sha or "")
+        ownership = await Ownerships.aclaim(
+            run_id=run_id, merge_request=merge_request, pushed_sha=pushed_sha, repo_id=repo_id
+        )
         if ownership is not None:
             await evaluate_pipeline_watch_task.aenqueue(repo_id=ownership.repo_id, ref=ownership.source_branch)
     except Exception:
-        logger.exception("executor: failed to claim the merge request for thread_id=%s", run.thread_id)
+        logger.exception(
+            "executor: failed to claim the merge request of %s for thread_id=%s",
+            repo_id or "the main repository",
+            run.thread_id,
+        )
 
 
 async def _read_snapshot(run: AgentRun) -> StateSnapshot | None:

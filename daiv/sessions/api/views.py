@@ -49,6 +49,7 @@ class TitleIn(Schema):
 class CIWatchIn(Schema):
     on: bool
     merge_request_iid: int | None = Field(default=None, gt=0)
+    repo_id: str = ""
 
 
 class ArchiveIn(Schema):
@@ -73,19 +74,22 @@ async def session_ci_watch(request: HttpRequest, thread_id: str, payload: CIWatc
     """Turn the CI watch on one merge request the session owns on or off, returning the session's CI as the page shows
     it (``ci``, and ``watch`` in the single-watch shape).
 
-    ``merge_request_iid`` defaults to the session's only open merge request. Turning the watch on gives it its attempts
-    back. A 409 carries the session's CI and a ``reason``: ``not_owned`` when the session does not own that merge
-    request, ``disabled`` when the repository has the watch switched off.
+    ``repo_id`` is the merge request's repository, the session's own when blank, and ``merge_request_iid`` defaults to
+    the session's only open merge request there. Turning the watch on gives it its attempts back. A 409 carries the
+    session's CI and a ``reason``: ``not_owned`` when the session does not own that merge request, ``disabled`` when
+    the repository has the watch switched off.
     """
     session = await _get_runnable_session(request.auth, thread_id)  # ty: ignore[unresolved-attribute]
-    owned = MergeRequestOwnership.objects.filter(session=session, closed_at__isnull=True)
+    owned = MergeRequestOwnership.objects.filter(
+        session=session, repo_id=payload.repo_id or session.repo_id, closed_at__isnull=True
+    )
     if payload.merge_request_iid is not None:
         owned = owned.filter(merge_request_iid=payload.merge_request_iid)
     ownerships = [ownership async for ownership in owned[:2]]
     if len(ownerships) != 1:
         refusal = {"detail": "This session doesn't own that merge request", "reason": "not_owned"}
         return 409, refusal | await _ci(session)
-    watch = PipelineWatch(session.repo_id)
+    watch = PipelineWatch(ownerships[0].repo_id)
     if not payload.on:
         await watch.aturn_off(ownerships[0])
     elif not await watch.aturn_on(ownerships[0]):

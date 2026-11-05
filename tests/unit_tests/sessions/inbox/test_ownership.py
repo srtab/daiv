@@ -343,3 +343,60 @@ class TestOwnershipForBranch:
         await MergeRequestOwnership.objects.aupdate(closed_at=timezone.now())
 
         assert await Ownerships(REPO).afor_branch(MR["source_branch"]) is None
+
+
+class TestSiblingRepository:
+    """A multi-repository run claims the merge request it published in another repository for its session."""
+
+    SIBLING = "group/lib"
+
+    async def _claim_sibling(self, run: Run, sha: str = "5f6e7d8c") -> MergeRequestOwnership:
+        return await Ownerships.aclaim(run_id=run.pk, merge_request=MR, pushed_sha=sha, repo_id=self.SIBLING)
+
+    async def test_it_is_owned_by_the_runs_session_apart_from_the_main_repositorys_merge_request_of_the_same_iid(self):
+        run = await _publishing_run(await _user("alice"))
+
+        main = await _claim(run)
+        sibling = await self._claim_sibling(run)
+
+        assert (sibling.repo_id, sibling.merge_request_iid, sibling.session_id) == (self.SIBLING, 9, run.session_id)
+        assert (sibling.last_daiv_sha, main.last_daiv_sha) == ("5f6e7d8c", "e96f1f77")
+        assert await MergeRequestOwnership.objects.acount() == 2
+
+    async def test_moving_both_merge_requests_tells_the_previous_session_of_each(self):
+        alice = await _user("alice")
+        first, second = await _publishing_run(None), await _publishing_run(alice)
+        await _claim(first)
+        await self._claim_sibling(first)
+
+        await _claim(second)
+        await self._claim_sibling(second)
+
+        notices = await _events(first.session_id)
+        assert [(event.repo_id, event.payload["text"].split()[0]) for event in notices] == [
+            ("", "!9"),
+            (self.SIBLING, f"{self.SIBLING}!9"),
+        ]
+
+    async def test_its_close_and_reopen_reach_the_session_naming_the_repository(self):
+        run = await _publishing_run(await _user("alice"))
+        await self._claim_sibling(run)
+
+        await Ownerships(self.SIBLING).aclose(9, merged=False, by_username="sfr", target_branch="main")
+        await Ownerships(self.SIBLING).areopen(9, by_username="sfr")
+
+        closed, reopened = await _events(run.session_id)
+        assert (closed.kind, closed.repo_id, closed.merge_request_iid) == (EventKind.MR_CLOSED, self.SIBLING, 9)
+        assert reopened.repo_id == self.SIBLING
+        assert reopened.payload["text"].startswith(f"{self.SIBLING}!9 was reopened")
+
+    async def test_a_push_daiv_did_not_make_is_remembered_on_the_repositorys_branch(self):
+        run = await _publishing_run(await _user("alice"))
+        await self._claim_sibling(run)
+
+        await Ownerships(self.SIBLING).aclassify_push(
+            branch=MR["source_branch"], before="5f6e7d8c", after="0a1b2c3d", pusher_username="bob", commit_count=1
+        )
+
+        [pushed] = await _events(run.session_id)
+        assert (pushed.kind, pushed.repo_id, pushed.ref) == (EventKind.BRANCH_PUSHED, self.SIBLING, MR["source_branch"])

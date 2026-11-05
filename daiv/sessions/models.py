@@ -858,6 +858,13 @@ class InboxEvent(models.Model):
     kind = models.CharField(_("kind"), max_length=32, choices=EventKind.choices)
     source_key = models.CharField(_("source key"), max_length=255)
     subject = models.CharField(_("subject"), max_length=255, blank=True, default="")
+    repo_id = models.CharField(
+        _("repository"),
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=_("The repository the event concerns when it is not the session's own; blank when it is."),
+    )
     ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
     merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
     wake = models.BooleanField(_("wakes the agent"))
@@ -916,3 +923,13 @@ class InboxEvent(models.Model):
 
     def __str__(self) -> str:
         return f"{self.get_kind_display()} on session {self.session_id} ({self.state})"
+
+    @staticmethod
+    def about_repo(repo_id: Any, *, prefix: str = "") -> models.Q:
+        """The events about the repository ``repo_id`` (a value or an ``OuterRef``): those naming it, and those naming
+        none in a session whose own repository it is. ``prefix`` is the lookup path to the event, as ``inbox_events__``.
+        """
+        return models.Q(**{f"{prefix}repo_id": repo_id}) | models.Q(**{
+            f"{prefix}repo_id": "",
+            f"{prefix}session__repo_id": repo_id,
+        })

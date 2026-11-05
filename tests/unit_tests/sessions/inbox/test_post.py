@@ -275,7 +275,12 @@ class TestDelegatedCiOutcome:
 
         for outcome in ("no_push", "stopped_after_attempts", "passing"):
             await Inbox.apost_delegated_ci_outcome(
-                child, merge_request_iid=9, pipeline_id=830724, outcome=outcome, web_url="https://ci/830724"
+                child,
+                repo_id=child.repo_id,
+                merge_request_iid=9,
+                pipeline_id=830724,
+                outcome=outcome,
+                web_url="https://ci/830724",
             )
 
         outcomes = [event.payload["outcome"] async for event in InboxEvent.objects.filter(session=parent)]
@@ -286,7 +291,12 @@ class TestDelegatedCiOutcome:
 
         for _ in range(2):
             await Inbox.apost_delegated_ci_outcome(
-                child, merge_request_iid=9, pipeline_id=830724, outcome="passing", web_url="https://ci/830724"
+                child,
+                repo_id=child.repo_id,
+                merge_request_iid=9,
+                pipeline_id=830724,
+                outcome="passing",
+                web_url="https://ci/830724",
             )
 
         assert await InboxEvent.objects.filter(session=parent).acount() == 1
@@ -295,7 +305,12 @@ class TestDelegatedCiOutcome:
         session = await amake_session()
 
         await Inbox.apost_delegated_ci_outcome(
-            session, merge_request_iid=9, pipeline_id=1, outcome="passing", web_url="https://ci/1"
+            session,
+            repo_id=session.repo_id,
+            merge_request_iid=9,
+            pipeline_id=1,
+            outcome="passing",
+            web_url="https://ci/1",
         )
 
         assert await InboxEvent.objects.acount() == 0
@@ -319,3 +334,23 @@ class TestRefusals:
             await Inbox(session.thread_id).apost(
                 kind=EventKind.NOTICE, source_key="k", payload={"text": "t"}, wake=True
             )
+
+
+class TestSiblingRepository:
+    async def test_an_event_about_the_sessions_own_repository_names_none(self, drain):
+        session = await amake_session()
+
+        result = await _post_ci(session.thread_id, repo_id=session.repo_id)
+
+        assert result.event.repo_id == ""
+
+    async def test_an_event_about_another_repository_keeps_its_branch_and_joins_the_next_run_on_the_sessions(
+        self, drain
+    ):
+        session = await amake_session(ref="chore/x", active_run_id="chat-run")
+
+        result = await _post_ci(session.thread_id, repo_id="group/lib", ref="daiv/lib")
+
+        run = await Run.objects.aget(pk=result.run_id)
+        assert (result.event.repo_id, result.event.ref) == ("group/lib", "daiv/lib")
+        assert (run.repo_id, run.ref, run.merge_request_iid) == (session.repo_id, "chore/x", None)

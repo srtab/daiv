@@ -13,7 +13,8 @@ Two messages, built from the events the run took:
   authors, the follow-up job's prompt), then DAIV's own sections (a delegated batch's summary, the CI fix prompt), in
   precedence order and separated by a blank line.
 
-Everything here is addressed to the model, so none of it is translated. The owner's identity never appears.
+An event about another of a multi-repository session's repositories names that repository beside its merge request
+and branch. Everything here is addressed to the model, so none of it is translated. The owner's identity never appears.
 """
 
 from __future__ import annotations
@@ -43,7 +44,7 @@ CONTEXT_HEADER = "Since your last run on this session:"
 MENTION_REPLY_NOTE = "Reply as you would on the merge request; your final message is posted there."
 
 FIX_RUN_PROMPT = (
-    "CI failed on this merge request. Failed jobs: {names}. Pipeline: {url}\n\n"
+    "CI failed on {merge_request}. Failed jobs: {names}. Pipeline: {url}\n\n"
     "Read the job logs to find the cause, then fix it. If the failure is not something a "
     "code change can fix, explain why instead of guessing."
 )
@@ -141,7 +142,7 @@ class RunInput:
             return "\n\n".join(f"[{event.created_at:%H:%M}] {event.payload['text']}" for event in events)
         if kind == EventKind.MENTION:
             mentions = [
-                f"{EventText(event).author_name()} mentioned you on !{event.merge_request_iid} "
+                f"{EventText(event).author_name()} mentioned you on {EventText(event).merge_request()} "
                 f"({event.payload['web_url']}):\n{EventText.blockquote(event.payload['body'])}"
                 for event in events
             ]
@@ -152,7 +153,11 @@ class RunInput:
             return "\n\n".join(event.payload["summary"] for event in events)
         return "\n\n".join(
             FIX_RUN_PROMPT.format(
-                names=", ".join(event.payload["failed_jobs"]) or "the pipeline", url=event.payload["web_url"]
+                merge_request=(
+                    f"the merge request {EventText(event).merge_request()}" if event.repo_id else "this merge request"
+                ),
+                names=", ".join(event.payload["failed_jobs"]) or "the pipeline",
+                url=event.payload["web_url"],
             )
             for event in events
         )
@@ -204,12 +209,13 @@ class RunInput:
         return self._fit(sorted(entries, key=attrgetter("position")))
 
     def _chains(self) -> list[list[InboxEvent]]:
-        """The events grouped by subject, each group oldest first; an event with no subject is a group of its own."""
-        by_subject: dict[str, list[InboxEvent]] = {}
+        """The events grouped by subject and repository, each group oldest first; an event with no subject is a group
+        of its own."""
+        by_subject: dict[tuple[str, str], list[InboxEvent]] = {}
         alone: list[list[InboxEvent]] = []
         for event in self.events:
             if event.subject:
-                by_subject.setdefault(event.subject, []).append(event)
+                by_subject.setdefault((event.repo_id, event.subject), []).append(event)
             else:
                 alone.append([event])
         return [*by_subject.values(), *alone]
@@ -243,6 +249,15 @@ class EventText:
         event = self.event
         return event.author_username or (event.author.username if event.author is not None else "someone")
 
+    def merge_request(self, iid: int | None = None) -> str:
+        """The event's merge request, or ``iid``, prefixed with its repository when it is not the session's own."""
+        return f"{self.event.repo_id}!{iid or self.event.merge_request_iid}"
+
+    def branch(self) -> str:
+        """The event's branch, named with its repository when it is not the session's own."""
+        event = self.event
+        return f"{event.ref} of {event.repo_id}" if event.repo_id else event.ref
+
     def summary(self) -> str:
         """A one-line summary of the event for the session page, built from its payload alone."""
         event = self.event
@@ -251,17 +266,15 @@ class EventText:
             case EventKind.CHAT_MESSAGE:
                 text = payload["text"]
             case EventKind.MENTION:
-                text = f"{self.author_name()} on !{event.merge_request_iid}: {payload['body']}"
+                text = f"{self.author_name()} on {self.merge_request()}: {payload['body']}"
             case EventKind.FOLLOW_UP_JOB:
                 text = payload["prompt"]
             case EventKind.DELEGATION_FINISHED:
                 text = f"{payload['succeeded']} of {payload['total']} succeeded" if "total" in payload else ""
             case EventKind.COMMENT:
-                text = f"{self.author_name()} on !{event.merge_request_iid}: {payload['body']}"
+                text = f"{self.author_name()} on {self.merge_request()}: {payload['body']}"
             case EventKind.CI_FAILED | EventKind.CI_PASSED | EventKind.CI_STOPPED:
-                text = (
-                    f"CI on !{event.merge_request_iid}: pipeline {payload['pipeline_id']} {self._ci_status().lower()}"
-                )
+                text = f"CI on {self.merge_request()}: pipeline {payload['pipeline_id']} {self._ci_status().lower()}"
             case EventKind.FOREIGN_PUBLISH:
                 text = self._foreign_publish(link=False)
             case _:
@@ -279,32 +292,33 @@ class EventText:
             case EventKind.CI_FAILED | EventKind.CI_PASSED | EventKind.CI_STOPPED:
                 jobs = f", jobs: {', '.join(payload['failed_jobs'])}" if payload.get("failed_jobs") else ""
                 text = (
-                    f"CI on !{event.merge_request_iid} (branch {event.ref}): pipeline {payload['pipeline_id']} "
+                    f"CI on {self.merge_request()} (branch {event.ref}): pipeline {payload['pipeline_id']} "
                     f"{self._ci_status()} on {payload['sha'][:8]}{jobs}. {payload['web_url']}"
                 )
                 return f"{text} {self._not_woken()}" if event.reason else text
             case EventKind.BRANCH_PUSHED:
                 count = payload["commit_count"]
                 return (
-                    f"The branch {event.ref} moved: {payload['pusher_username']} pushed {count} "
+                    f"The branch {self.branch()} moved: {payload['pusher_username']} pushed {count} "
                     f"{'commit' if count == 1 else 'commits'} ({payload['before'][:8]} → {payload['after'][:8]})."
                 )
             case EventKind.FOREIGN_PUBLISH:
                 return self._foreign_publish(link=True)
             case EventKind.MR_MERGED:
                 target = payload["target_branch"]
-                return f"!{event.merge_request_iid} was merged into {target} by {payload['by_username']}."
+                return f"{self.merge_request()} was merged into {target} by {payload['by_username']}."
             case EventKind.MR_CLOSED:
-                return f"!{event.merge_request_iid} was closed by {payload['by_username']}."
+                return f"{self.merge_request()} was closed by {payload['by_username']}."
             case EventKind.COMMENT:
                 return (
-                    f"Comment by {self.author_name()} on !{event.merge_request_iid} (not addressed to you): "
+                    f"Comment by {self.author_name()} on {self.merge_request()} (not addressed to you): "
                     f'"{self.cut(payload["body"])}"'
                 )
             case EventKind.DELEGATED_CI_OUTCOME:
                 outcome = _DELEGATED_OUTCOMES.get(payload["outcome"], payload["outcome"])
                 return (
-                    f"Delegated session {payload['child_thread_id'][:8]}… (!{payload['merge_request_iid']}): "
+                    f"Delegated session {payload['child_thread_id'][:8]}… "
+                    f"({self.merge_request(payload['merge_request_iid'])}): "
                     f"CI {outcome}."
                 )
             case EventKind.DELEGATION_FINISHED:
@@ -337,8 +351,8 @@ class EventText:
         if link and payload.get("web_url"):
             source = f"{source} ({payload['web_url']})"
         return (
-            f"{payload['owner_username']} published {payload['sha'][:8]} to the branch {event.ref} from {source}; this "
-            "session still owns the merge request."
+            f"{payload['owner_username']} published {payload['sha'][:8]} to the branch {self.branch()} from {source}; "
+            "this session still owns the merge request."
         )
 
     @staticmethod
