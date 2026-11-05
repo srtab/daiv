@@ -21,7 +21,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
 const {
-  src, labelsSrc, initial, watch, delegations, repositories, wide, stored, storageBlocked, archived, steps,
+  src, labelsSrc, initial, watch, delegations, repositories, thread, wide, stored, storageBlocked, archived, steps,
 } = JSON.parse(readFileSync(0, "utf8"));
 const components = {};
 const fetches = [];
@@ -84,7 +84,7 @@ const page = components.sessionPage({
 });
 const focused = [];
 Object.assign(page, {
-  streaming: false, resuming: false, waiting: false, archived, csrfToken: "tok", $nextTick: (cb) => cb(),
+  streaming: false, resuming: false, waiting: false, archived, thread, csrfToken: "tok", $nextTick: (cb) => cb(),
   $watch: (expression, callback) => { watchers[expression] = callback; },
   $refs: {
     titleInput: { focus: () => focused.push("input"), select() {} },
@@ -93,13 +93,7 @@ Object.assign(page, {
 });
 page.init();
 const flush = () => new Promise((resolve) => setImmediate(resolve));
-const ids = new WeakMap();
-let lastId = 0;
-const idOf = (value) => {
-  if (value == null) return null;
-  if (!ids.has(value)) ids.set(value, ++lastId);
-  return ids.get(value);
-};
+let lastRepositories;
 const seen = [];
 let sending = null;
 for (const [action, value] of steps) {
@@ -130,10 +124,12 @@ for (const [action, value] of steps) {
       ciTexts: page.ci.map((item) => page.ciText(item)),
       delegations: page.delegations, delegationsLabel: page.delegationsBadge.label,
       delegationsState: page.delegationsBadge.state, legs: (page.delegations?.legs ?? []).map((leg) => leg.repo_id),
-      repositories: page.repositories, repositoriesId: idOf(page.repositories),
+      repositories: page.repositories, repositoryRows: page.repositoryRows,
+      repositoriesKept: page.repositories === lastRepositories,
       timers: timers.map((timer) => timer.ms),
       intervals: intervals.filter((i) => !i.cleared).map((i) => i.ms),
     });
+    lastRepositories = page.repositories;
   }
 }
 process.stdout.write(JSON.stringify({
@@ -159,6 +155,7 @@ def _run(
     watch=None,
     delegations=None,
     repositories=None,
+    thread=None,
     wide=True,
     stored=None,
     storage_blocked=False,
@@ -171,6 +168,7 @@ def _run(
         "watch": watch,
         "delegations": delegations,
         "repositories": repositories,
+        "thread": thread,
         "wide": wide,
         "stored": stored,
         "storageBlocked": storage_blocked,
@@ -704,13 +702,21 @@ def test_a_failed_fetch_keeps_the_repositories_card():
     assert seen["repositories"] == repositories
 
 
-def test_a_fetch_that_could_not_look_up_the_main_merge_request_keeps_the_pages():
-    rendered = {"rows": [_repo("g/app", "daiv/fix", 7), _repo("g/mod", "main")], "publish_errors": []}
-    fetched = {"rows": [{"repo_id": "g/app", "ref": "daiv/fix"}, _repo("g/mod", "daiv/fix", 3)], "publish_errors": []}
+def test_the_main_row_takes_the_chats_branch_and_merge_request():
+    repositories = {"rows": [_repo("g/app", "main", 7), _repo("g/mod", "main")], "publish_errors": []}
+    thread = {"ref": "daiv/fix", "merge_request": {"url": "https://gl/g/app/-/merge_requests/9", "id": 9}}
 
-    seen = _run([["poll", {"latest_run": DONE, "repositories": fetched}], ["read", None]], repositories=rendered)
+    seen = _read(repositories=repositories, thread=thread)
 
-    assert seen["seen"][0]["repositories"]["rows"] == [_repo("g/app", "daiv/fix", 7), _repo("g/mod", "daiv/fix", 3)]
+    assert seen["repositoryRows"] == [_repo("g/app", "daiv/fix", 9), _repo("g/mod", "main")]
+
+
+def test_without_the_chats_merge_request_the_main_row_keeps_the_servers():
+    repositories = {"rows": [_repo("g/app", "main", 7), _repo("g/mod", "main")], "publish_errors": []}
+
+    seen = _read(repositories=repositories, thread={"ref": "main", "merge_request": None})
+
+    assert seen["repositoryRows"] == repositories["rows"]
 
 
 def test_an_unchanged_repositories_card_is_left_alone():
@@ -725,6 +731,6 @@ def test_an_unchanged_repositories_card_is_left_alone():
         ["read", None],
     ]
 
-    ids = [s["repositoriesId"] for s in _run(steps, repositories=repositories)["seen"]]
+    kept = [s["repositoriesKept"] for s in _run(steps, repositories=repositories)["seen"]]
 
-    assert ids[0] == ids[1] != ids[2]
+    assert kept == [False, True, False]

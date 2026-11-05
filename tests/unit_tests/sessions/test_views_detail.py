@@ -177,11 +177,6 @@ def _multi_repo_session(user) -> Session:
     return session
 
 
-def _get_detail(client, session: Session):
-    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
-        return client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
-
-
 @pytest.mark.django_db
 def test_detail_lists_every_repository_and_its_mr(member_client, member_user):
     resp = _get_detail(member_client, _multi_repo_session(member_user))
@@ -190,7 +185,6 @@ def test_detail_lists_every_repository_and_its_mr(member_client, member_user):
         {"repo_id": "g/app", "ref": "main", "mr_url": "", "mr_iid": 7},
         {"repo_id": "g/mod", "ref": "feat/mod", "mr_url": "https://gl/g/mod/-/merge_requests/3", "mr_iid": 3},
     ]
-    assert 'x-for="(repo, index) in repositories.rows"' in resp.content.decode()
 
 
 @pytest.mark.django_db

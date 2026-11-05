@@ -270,7 +270,7 @@ async def test_the_payload_carries_what_a_turn_did_to_each_repository(member_use
     )
     after = await fetch()
 
-    main = {"repo_id": "group/project", "ref": "daiv/fix", "mr_url": MERGE_REQUEST["url"], "mr_iid": 5}
+    main = {"repo_id": "group/project", "ref": "feature", "mr_url": "", "mr_iid": None}
     lib = {"repo_id": "group/lib", "ref": "feature", "mr_url": "", "mr_iid": None}
     published = {"repo_id": "group/lib", "ref": "daiv/lib", "mr_url": "https://example.com/lib/mr/3", "mr_iid": 3}
     assert before["repositories"] == {"rows": [main, lib], "publish_errors": []}
@@ -278,18 +278,3 @@ async def test_the_payload_carries_what_a_turn_did_to_each_repository(member_use
         "rows": [main, published],
         "publish_errors": [{"repo_id": "group/other", "error": "push rejected"}],
     }
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_a_fetch_that_does_not_know_the_merge_request_leaves_the_main_ones_out(member_user):
-    session = await _session(member_user, in_flight=True)
-    await SessionRepository.objects.acreate(session=session, position=1, repo_id="group/lib", ref="feature")
-
-    with patch("sessions.page_state.ahydrate_thread", _hydration()):
-        state = await aload_session_state(session, member_user, always_look_up_merge_request=False)
-
-    assert turns_payload(state, session)["repositories"]["rows"] == [
-        {"repo_id": "group/project", "ref": "feature"},
-        {"repo_id": "group/lib", "ref": "feature", "mr_url": "", "mr_iid": None},
-    ]
-    assert "mr_url" in state.header["repositories"]["rows"][0]

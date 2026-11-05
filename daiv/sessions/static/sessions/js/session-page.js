@@ -188,15 +188,17 @@ document.addEventListener("alpine:init", () => {
       if ("repositories" in data) this._applyRepositories(data.repositories ?? null);
       if (data.title && !this.editingTitle) this._showTitle(data.title);
     },
-    // A main row without its merge request was fetched while it was not known; an unchanged card is left alone, as
-    // rewriting its errors would have them announced again.
+    // An unchanged card is left alone, as rewriting its errors would have them announced again.
     _applyRepositories(next) {
-      const [main, ...extras] = next?.rows ?? [];
-      if (main && !("mr_url" in main)) {
-        const { mr_url = "", mr_iid = null } = this.repositories?.rows[0] ?? {};
-        next = { ...next, rows: [{ ...main, mr_url, mr_iid }, ...extras] };
-      }
       if (JSON.stringify(next) !== JSON.stringify(this.repositories)) this.repositories = next;
+    },
+    // The main repository's branch and merge request are the chat's, which the live stream keeps current.
+    get repositoryRows() {
+      const [main, ...extras] = this.repositories?.rows ?? [];
+      if (!main) return [];
+      const mr = this.thread?.merge_request;
+      const live = mr ? { mr_url: mr.url || "", mr_iid: mr.id ?? null } : {};
+      return [{ ...main, ref: this.thread?.ref || main.ref, ...live }, ...extras];
     },
     _showCi(data) {
       this.ci = data?.ci ?? [];

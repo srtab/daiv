@@ -26,7 +26,8 @@ from sessions.executor.lock import background_in_flight, live_run_for, session_a
 from sessions.header import build_session_header, delegations_for, retry_for
 from sessions.hydration import ahydrate_thread
 from sessions.inbox.timeline import Timeline
-from sessions.models import Run, RunStatus, SessionRepository
+from sessions.models import Run, RunStatus
+from sessions.multi_repo import aload_extra_repos
 from sessions.repo_state import aget_existing_mr_payload
 from sessions.templatetags.session_tags import session_title
 from sessions.transcript import (
@@ -43,7 +44,7 @@ if TYPE_CHECKING:
     from accounts.models import User
     from sessions.executor.lock import LiveRun, SessionActivity
     from sessions.hydration import HydratedThread
-    from sessions.models import Session
+    from sessions.models import Session, SessionRepository
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -96,9 +97,7 @@ async def aload_session_state(session: Session, user: User, *, always_look_up_me
 
     annotated = annotate_transcript(build_turns(hydrated.messages, in_flight=activity.in_flight), runs, activity)
     expired_banner = hydrated.expired and not activity.in_flight and not annotated
-    # The pill is the working branch, as the live stream's ``_applyRepoState`` couples it to the merge request;
-    # ``Session.ref`` lags it on any run that never synced back.
-    thread_ref = (merge_request or {}).get("source_branch") or session.ref
+    extra_repositories = await aload_extra_repos(session.thread_id)
 
     def finish() -> tuple[list[dict[str, Any]], dict[str, Any], bool, LiveRun | None]:
         turns = interleave_inbox_events(
@@ -115,7 +114,7 @@ async def aload_session_state(session: Session, user: User, *, always_look_up_me
             session, runs, retry=retry, user=user, delegations=delegations, merge_request=merge_request
         )
         header["up_next"] = up_next_payload(session, runs, user, activity)
-        header["repositories"] = _repositories(session, runs, merge_request, thread_ref)
+        header["repositories"] = _repositories(session, runs, extra_repositories)
         return turns, header, can_act, live_run_for(activity.live, session, user)
 
     turns, header, can_act, live_run = await sync_to_async(finish)()
@@ -127,7 +126,9 @@ async def aload_session_state(session: Session, user: User, *, always_look_up_me
         hydrated=hydrated,
         merge_request=merge_request,
         merge_request_known=merge_request_known,
-        thread_ref=thread_ref,
+        # The pill is the working branch, as the live stream's ``_applyRepoState`` couples it to the merge request;
+        # ``Session.ref`` lags it on any run that never synced back.
+        thread_ref=(merge_request or {}).get("source_branch") or session.ref,
         live_run=live_run,
         header=header,
         can_act=can_act,
@@ -135,23 +136,17 @@ async def aload_session_state(session: Session, user: User, *, always_look_up_me
     )
 
 
-def _repositories(session: Session, runs: list[Run], merge_request: dict | None, thread_ref: str) -> dict | None:
-    """SYNC ONLY: a multi-repository session's ``rows``, the main repository first, each with its branch and merge
-    request, and the ``publish_errors`` of its latest run once it finished; ``None`` for a single-repository session."""
-    extra_repositories = list(SessionRepository.objects.filter(session=session))
+def _repositories(session: Session, runs: list[Run], extra_repositories: list[SessionRepository]) -> dict | None:
+    """A multi-repository session's ``rows``, the main repository first, each with its branch and merge request, and
+    the ``publish_errors`` of its latest run once it finished; ``None`` for a single-repository session. The main row
+    holds what the database knows; the page lays the chat's live branch and merge request over it."""
     if not extra_repositories:
         return None
-    main_mr = merge_request or {}
     run_url = next((r.merge_request_web_url for r in reversed(runs) if r.merge_request_web_url), "")
     latest = runs[-1] if runs else None
     return {
         "rows": [
-            {
-                "repo_id": session.repo_id,
-                "ref": thread_ref,
-                "mr_url": main_mr.get("url") or run_url,
-                "mr_iid": main_mr.get("id") or session.merge_request_iid,
-            },
+            {"repo_id": session.repo_id, "ref": session.ref, "mr_url": run_url, "mr_iid": session.merge_request_iid},
             *(
                 {"repo_id": r.repo_id, "ref": r.ref, "mr_url": r.merge_request_web_url, "mr_iid": r.merge_request_iid}
                 for r in extra_repositories
@@ -181,7 +176,7 @@ def turns_payload(state: SessionState, session: Session) -> dict[str, Any]:
 
     ``expired`` is the hydration's own flag; ``expired_banner`` is whether a render would show the expired banner,
     which a page that shows it reloads to leave. ``merge_request`` is left out while it is not known, so a page keeps
-    the one it has; so is the main repository's in ``repositories``.
+    the one it has.
     """
     activity, live = state.activity, state.live_run
     payload = {
@@ -203,7 +198,4 @@ def turns_payload(state: SessionState, session: Session) -> dict[str, Any]:
     }
     if state.merge_request_known:
         payload["merge_request"] = state.merge_request
-    elif repositories := payload["repositories"]:
-        main, *extras = repositories["rows"]
-        payload["repositories"] = {**repositories, "rows": [{"repo_id": main["repo_id"], "ref": main["ref"]}, *extras]}
     return payload
