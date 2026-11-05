@@ -257,6 +257,19 @@ class SiteConfiguration(models.Model):
         validators=[MinValueValidator(1)],
         help_text=_("Maximum recursion depth for agent loops."),
     )
+    model_request_timeout_seconds = models.PositiveIntegerField(
+        _("model request timeout"),
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(1)],
+        help_text=_("Per-request timeout for LLM API calls, in seconds. Applies to every provider."),
+    )
+    model_max_retries = models.PositiveIntegerField(
+        _("model max retries"),
+        blank=True,
+        null=True,
+        help_text=_("Retries for a failed LLM API call before the error propagates. Applies to every provider."),
+    )
     pipeline_watch_enabled = models.BooleanField(
         _("pipeline watch enabled"),
         blank=True,
@@ -584,7 +597,13 @@ class SiteConfiguration(models.Model):
         FieldGroup(
             key="agent",
             title=_("Agent"),
-            match=("agent_*", "suggest_context_file_enabled", "session_link_enabled"),
+            match=(
+                "agent_*",
+                "suggest_context_file_enabled",
+                "session_link_enabled",
+                "model_request_timeout_seconds",
+                "model_max_retries",
+            ),
             icon="agent",
             category="AI tasks",
         ),
@@ -716,7 +735,14 @@ class SiteConfiguration(models.Model):
         manage automatically).
         """
         cached = cache.get(SITE_CONFIGURATION_CACHE_KEY)
-        if cached is not None:
+        if cached is not None and not cached.get_deferred_fields():
+            # The cache backend pickles the instance, so a field added by a later
+            # migration (e.g. ``model_request_timeout_seconds``) is absent from the
+            # pickled ``__dict__`` and therefore deferred after unpickling. Accessing
+            # such a field from the event loop would trigger a blocking
+            # ``refresh_from_db`` (SynchronousOnlyOperation). Only a fully-loaded
+            # cached instance is safe to return; a stale one falls through to the DB
+            # path below, which re-caches a fresh instance.
             return cached
 
         from django.db import close_old_connections
@@ -743,6 +769,13 @@ class SiteConfiguration(models.Model):
         from an async event loop, the entire lookup runs in a separate
         thread via a ``ThreadPoolExecutor`` to avoid
         ``SynchronousOnlyOperation``.
+
+        The returned instance is always fully loaded (no deferred fields), so
+        attribute access is safe from the event loop. ``_fetch_from_cache_or_db``
+        rejects a stale cached instance that carries deferred fields (left
+        behind when a migration adds a field after the instance was pickled)
+        and rebuilds it from the database; any fast path added here must
+        preserve that guarantee or route through ``_fetch_from_cache_or_db``.
 
         Returns ``None`` if the database is not yet available (e.g. during
         early startup or Django system checks).

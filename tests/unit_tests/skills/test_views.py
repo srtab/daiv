@@ -9,6 +9,7 @@ from django.contrib.messages import get_messages
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.timesince import timesince
 
 import pytest
 from skills.models import GlobalSkill, SkillInvocation
@@ -112,6 +113,26 @@ def test_upload_with_force_overwrites(client, admin_user, storage, build_skill_z
     assert resp.status_code == 302
     assert resp.url == reverse("skills:list")
     assert GlobalSkill.objects.get(name="demo").description == "v2"
+
+
+@pytest.mark.django_db
+def test_replaced_skill_shows_last_upload_date(client, admin_user, storage, build_skill_zip):
+    data = build_skill_zip(skill_name="demo")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+    first_upload = timezone.now() - timedelta(days=400)
+    GlobalSkill.objects.filter(name="demo").update(created=first_upload, modified=first_upload)
+    skill = storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+    last_upload = timezone.localtime(skill.modified).strftime("%Y-%m-%d %H:%M")
+    client.force_login(admin_user)
+
+    listing = client.get(reverse("skills:list")).content.decode()
+    detail = client.get(reverse("skills:detail", args=["demo"])).content.decode()
+    uploaded = SimpleUploadedFile("demo.zip", data, content_type="application/zip")
+    conflict = client.post(reverse("skills:upload"), data={"zip": uploaded}).content.decode()
+
+    assert f"Uploaded {timesince(skill.modified)} ago" in listing
+    assert last_upload in detail
+    assert f"on {last_upload}." in conflict
 
 
 @pytest.mark.django_db

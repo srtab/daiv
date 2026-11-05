@@ -109,6 +109,24 @@ msgstr "limite de recursão"
 msgid "Maximum recursion depth for agent loops."
 msgstr "Profundidade máxima de recursão para os ciclos do agente."
 
+msgid "model request timeout"
+msgstr "tempo limite dos pedidos ao modelo"
+
+msgid "Per-request timeout for LLM API calls, in seconds. Applies to every provider."
+msgstr ""
+"Tempo limite de cada pedido à API do LLM, em segundos. Aplica-se a todos os "
+"fornecedores."
+
+msgid "model max retries"
+msgstr "máximo de novas tentativas do modelo"
+
+msgid ""
+"Retries for a failed LLM API call before the error propagates. Applies to "
+"every provider."
+msgstr ""
+"Novas tentativas de um pedido à API do LLM que falhou antes de o erro ser "
+"propagado. Aplica-se a todos os fornecedores."
+
 msgid "Model for generating commit messages and PR descriptions from diffs."
 msgstr ""
 "Modelo para gerar mensagens de commit e descrições de PR a partir de diffs."

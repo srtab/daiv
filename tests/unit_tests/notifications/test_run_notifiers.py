@@ -9,9 +9,10 @@ from notifications.choices import ChannelType, EnvelopeStatus
 from notifications.models import Notification, NotificationDelivery, RunEnvelope
 from notifications.policy import NOTIFY_WORTHY_STATUSES, RECLASSIFY_MAX_AGE
 from notifications.run_notifiers import ACTIONABLE_CONTEXT_LIMIT, NOTABLE_RUNS_CONTEXT_LIMIT, emit_run_notification
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import EventKind, EventState, Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
+from tests.unit_tests.sessions.inbox.conftest import make_event
 
 
 def _session(*, origin=SessionOrigin.API_JOB, thread_id="thread-run-1", repo_id="x/y", **kwargs):
@@ -598,6 +599,47 @@ class TestRunFanoutToSubscribers:
         assert Notification.objects.filter(recipient=member_user).count() == 1
         assert Notification.objects.filter(recipient=sub1).count() == 0
         assert Notification.objects.filter(recipient=sub2).count() == 1
+
+
+@pytest.mark.django_db
+class TestRunsACiFailureWoke:
+    """Every run a CI failure woke tells its owner how it ended, all-clear included (FR-018, SC-007)."""
+
+    EXPLANATION = "The failure is a flaky auth step, not the change; I pushed nothing."
+
+    def _ci_run(self, user, *, status=EnvelopeStatus.ALL_CLEAR, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, **kwargs):
+        session = _session(origin=trigger_type, thread_id=str(uuid.uuid4()), user=user, **kwargs.pop("session", {}))
+        run, envelope = _classified_run(
+            session, status=status, count=0, summary=self.EXPLANATION, trigger_type=trigger_type, user=user, **kwargs
+        )
+        make_event(session, EventKind.CI_FAILED, run=run, state=EventState.HANDLED, wake=True)
+        return run, envelope
+
+    def test_an_all_clear_fix_notifies_its_owner_with_the_explanation(self, member_user, email_binding):
+        emit_run_notification(*self._ci_run(member_user))
+
+        notification = Notification.objects.get(recipient=member_user, event_type="job.finished")
+        assert (notification.subject, notification.body) == ("Agent run on x/y finished", self.EXPLANATION)
+        assert notification.context["status_tone"] == "success"
+        assert NotificationDelivery.objects.filter(channel_type=ChannelType.EMAIL).count() == 1
+
+    def test_a_question_on_a_run_a_mention_also_woke_notifies(self, member_user, email_binding):
+        emit_run_notification(
+            *self._ci_run(member_user, status=EnvelopeStatus.NEEDS_INPUT, trigger_type=SessionOrigin.MR_WEBHOOK)
+        )
+
+        assert Notification.objects.filter(recipient=member_user).count() == 1
+
+    def test_a_schedules_all_clear_fix_has_its_own_subject(self, member_user, run_schedule):
+        emit_run_notification(*self._ci_run(member_user, session={"scheduled_job": run_schedule}))
+
+        notification = Notification.objects.get(recipient=member_user, event_type="schedule.finished")
+        assert notification.subject == f"'run-schedule' finished on x/y — {run_schedule.user}"
+
+    def test_a_muted_run_stays_silent(self, member_user, email_binding):
+        emit_run_notification(*self._ci_run(member_user, muted=True))
+
+        assert Notification.objects.count() == 0
 
 
 QUESTION_LINES = "Database: Which database engine should the project move to?"

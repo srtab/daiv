@@ -128,8 +128,8 @@ def _render_payload(run, envelope) -> tuple[str, str, dict]:
     status = envelope.status
     count = envelope.count
 
-    # The caller gates on notifies() first; an unmatched status would leave subject unbound,
-    # so the else raises instead of guessing.
+    # The caller gates on notifies() first, which lets an all-clear through only for a run a CI failure woke;
+    # an unmatched status would leave subject unbound, so the else raises instead of guessing.
     if is_schedule:
         params = {"name": name, "owner": owner, "repo": repo, "count": count}
         if status == EnvelopeStatus.FOUND_ISSUES:
@@ -140,6 +140,8 @@ def _render_payload(run, envelope) -> tuple[str, str, dict]:
             subject = _("'%(name)s' is waiting for an answer on %(repo)s — %(owner)s") % params
         elif status == EnvelopeStatus.FAILED:
             subject = _("'%(name)s' failed on %(repo)s — %(owner)s") % params
+        elif status == EnvelopeStatus.ALL_CLEAR:
+            subject = _("'%(name)s' finished on %(repo)s — %(owner)s") % params
         else:
             raise ValueError(f"unexpected notify-worthy envelope status {status!r}")
     else:
@@ -152,6 +154,8 @@ def _render_payload(run, envelope) -> tuple[str, str, dict]:
             subject = _("Agent run on %(repo)s is waiting for your answer") % params
         elif status == EnvelopeStatus.FAILED:
             subject = _("Agent run on %(repo)s failed") % params
+        elif status == EnvelopeStatus.ALL_CLEAR:
+            subject = _("Agent run on %(repo)s finished") % params
         else:
             raise ValueError(f"unexpected notify-worthy envelope status {status!r}")
 
@@ -340,9 +344,9 @@ def _handle_batch_completion(run, siblings, total: int) -> None:
 def emit_run_notification(run, envelope) -> None:
     """Notify recipients when a Run is classified, driven by the envelope (not raw status).
 
-    Chat is never classified, so no chat special-case is needed. all-clear is silent; found-issues /
-    needs-attention / needs-input / failed notify unless muted, within the relevance window, except where
-    ``notifies()`` says otherwise.
+    Chat is never classified, so no chat special-case is needed. all-clear is silent, except for a run a CI failure
+    woke; found-issues / needs-attention / needs-input / failed notify unless muted, within the relevance window,
+    except where ``notifies()`` says otherwise.
     Delivery is at-least-once-then-deduped (the per-run unique constraint + the re-drive backstop).
     """
     from sessions.models import Run

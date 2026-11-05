@@ -1,6 +1,5 @@
-// A run this page streams or waits on is shown from the chat component's flags; otherwise the status is the
-// server's, refreshed by each sessionSync fetch of the turns endpoint. Rename, the CI toggle and Archive write
-// through the sessions API; rename and the CI toggle are only rendered for someone who may run on the repository.
+// Applies each turns fetch sessionSync announces and polls nothing; the status follows the chat while it streams or
+// waits on a run. Rename, the CI toggle and Archive write through the sessions API.
 document.addEventListener("alpine:init", () => {
   const WIDE = "(min-width: 1100px)";
 
@@ -14,6 +13,43 @@ document.addEventListener("alpine:init", () => {
     }
   };
 
+  // ``upNext`` with the chat message its sender just queued, under the group of the run that will take it.
+  const withProvisional = (upNext, provisional) => {
+    const id = `inbox-${provisional.event_id}`;
+    const groups = upNext?.groups ?? [];
+    if (groups.some((group) => group.bubbles.some((bubble) => bubble.id === id))) return upNext;
+    const bubble = {
+      id,
+      event_id: provisional.event_id,
+      kind: "chat_message",
+      received: false,
+      failed: false,
+      text: provisional.text,
+      source_iid: null,
+      trigger_type: "",
+      web_url: "",
+      created_at: provisional.created_at,
+    };
+    // A message with no run yet, or one the payload does not know, waits behind the inbox runs listed, before the jobs.
+    const at = provisional.run_id ? groups.findIndex((group) => group.run_id === provisional.run_id) : -1;
+    const own = { run_id: provisional.run_id, who: "", is_viewer: true, starting: false, bubbles: [bubble], told: [] };
+    const jobs = groups.findIndex((group) => !group.starting && group.bubbles.some((b) => b.kind === "job"));
+    const end = jobs < 0 ? groups.length : jobs;
+    const next =
+      at < 0
+        ? [...groups.slice(0, end), own, ...groups.slice(end)]
+        : groups.map((group, index) => (index === at ? { ...group, bubbles: [...group.bubbles, bubble] } : group));
+    return { groups: next, told: upNext?.told ?? [] };
+  };
+
+  const delegationsSummary = (delegations) => {
+    const T = window.TranscriptLabels;
+    if (delegations.running) return { state: "running", text: T.tn("delegations_running", delegations.running) };
+    if (delegations.waiting) return { state: "queued", text: T.tn("delegations_queued", delegations.waiting) };
+    if (delegations.failed) return { state: "failed", text: T.tn("delegations_failed", delegations.failed) };
+    return { state: "", text: "" };
+  };
+
   // x-show reveals on the next animation frame, so a scroll sent from $nextTick can land on a hidden panel.
   const whenShown = (el, then, frames = 10) => {
     if (el.getClientRects().length) then();
@@ -22,8 +58,13 @@ document.addEventListener("alpine:init", () => {
 
   Alpine.data("sessionPage", (config) => ({
     latest: null,
+    // CI on each merge request the session owns; `watch` is the first one's, which the top bar's toggle acts on.
+    ci: [],
     watch: null,
+    // What the session will do next (``sessions.up_next``).
+    upNext: null,
     runCount: 0,
+    delegations: null,
     title: config.title || "",
     titleDraft: "",
     titleWidth: 0,
@@ -37,6 +78,7 @@ document.addEventListener("alpine:init", () => {
     _watchAt: -Infinity,
     _media: null,
     _onMedia: null,
+    _provisional: [],
     init() {
       this.applyHeader(readJSON("session-header"));
       this._media = window.matchMedia?.(WIDE) ?? null;
@@ -50,6 +92,32 @@ document.addEventListener("alpine:init", () => {
     },
     destroy() {
       this._media?.removeEventListener?.("change", this._onMedia);
+    },
+    // The sender's queued message, shown until a payload asked for after it was sent, which the server built
+    // knowing it, replaces it.
+    addProvisional({ event_id, run_id, text }) {
+      const provisional = { event_id, run_id, text, at: performance.now(), created_at: new Date().toISOString() };
+      this._provisional.push(provisional);
+      this.upNext = withProvisional(this.upNext, provisional);
+    },
+    upNextHeading(group, index) {
+      const T = window.TranscriptLabels;
+      const who = group.is_viewer ? T.t("up_next_you") : group.who;
+      const step = index === 0 ? "up_next_next" : "up_next_then";
+      const title = who ? T.t(step, { who }) : T.t(`${step}_anyone`);
+      return [title, this._upNextWhen(group, index)].filter(Boolean).join(" · ");
+    },
+    _upNextWhen(group, index) {
+      const T = window.TranscriptLabels;
+      if (group.starting) return T.t("up_next_starting");
+      if (index === 0) return this.busy ? T.t("up_next_after_live") : "";
+      const previous = this.upNext.groups[index - 1];
+      if (previous.is_viewer) return T.t("up_next_after_yours");
+      return previous.who ? T.t("up_next_after_theirs", { who: previous.who }) : "";
+    },
+    _applyUpNext(upNext, requestedAt) {
+      this._provisional = this._provisional.filter((provisional) => provisional.at >= requestedAt);
+      this.upNext = this._provisional.reduce(withProvisional, upNext);
     },
     _remembered() {
       try {
@@ -87,6 +155,12 @@ document.addEventListener("alpine:init", () => {
     get busy() {
       return this._running || this.waiting;
     },
+    get delegationsBadge() {
+      if (!this.delegations) return { count: "", state: "", text: "", label: "" };
+      const count = window.TranscriptLabels.tn("delegations_total", this.delegations.total);
+      const { state, text } = delegationsSummary(this.delegations);
+      return { count, state, text, label: [count, text].filter(Boolean).join(" · ") };
+    },
     get status() {
       if (this._running) return { variant: "running", label: config.labels.running };
       if (this.waiting) return { variant: "queued", label: config.labels.queued };
@@ -105,14 +179,29 @@ document.addEventListener("alpine:init", () => {
       if (!data || data.latest_run === undefined) return;
       this.latest = data.latest_run;
       this.runCount = data.run_count ?? this.runCount;
-      // A response asked for before the last toggle answered read the watch from before it; one without `watch`
-      // has no merge request on record, so the page keeps its own.
+      // A response asked for before the last toggle answered read CI from before it.
       const stale = data.requestedAt <= this._watchAt;
-      if ("watch" in data && !stale) this.watch = data.watch ?? null;
+      if ("watch" in data && !stale) this._showCi(data);
+      if ("up_next" in data) this._applyUpNext(data.up_next ?? null, data.requestedAt ?? -Infinity);
+      if ("delegations" in data) this.delegations = data.delegations ?? null;
+      if (data.title && !this.editingTitle) this._showTitle(data.title);
     },
-    _setWatch(watch) {
-      this.watch = watch ?? null;
+    _showCi(data) {
+      this.ci = data?.ci ?? [];
+      this.watch = data?.watch ?? null;
+    },
+    _setCi(data) {
+      this._showCi(data);
       this._watchAt = performance.now();
+    },
+    // The run that last looked at a failure, whose summary says what it found.
+    ciExplanation(item) {
+      return item?.status === "failing" && item.explanation_run_id ? `#run-status-${item.explanation_run_id}` : "";
+    },
+    ciText(item) {
+      if (!item) return "";
+      const jobs = item.status === "failing" ? (item.failed_jobs ?? []) : [];
+      return [item.label, jobs.join(", ")].filter(Boolean).join(" · ");
     },
     async _send(url, method, body) {
       return fetch(url, {
@@ -155,16 +244,15 @@ document.addEventListener("alpine:init", () => {
       this.title = title;
       document.title = `${title} — ${config.titleSuffix}`;
     },
-    // A green, exhausted or unreadable watch is over: ticking the item again starts a new one.
+    // On while failures on the merge request wake the session; off, its CI results are only remembered.
     get ciWatchOn() {
       return Boolean(this.watch?.open);
     },
     get ciWatchHint() {
       if (this.ciWatchDisabled) return this.ciWatchDisabled;
       if (this.ciWatchError) return this.ciWatchError;
-      if (!this.watch) return config.labels.watchOff;
-      if (this.ciWatchOn) return config.labels.watching.replace("{state}", this.watch.label);
-      return this.watch.label;
+      if (!this.ciWatchOn) return config.labels.watchOff;
+      return config.labels.watching.replace("{state}", this.watch.label);
     },
     async toggleCiWatch(mergeRequestIid) {
       if (this.ciWatchBusy || this.ciWatchDisabled) return;
@@ -174,16 +262,16 @@ document.addEventListener("alpine:init", () => {
         const res = await this._send(config.ciWatchUrl, "POST", {
           on: !this.ciWatchOn,
           merge_request_iid: mergeRequestIid,
-          seen_state: this.watch?.state || "off",
         });
         const data = await res.json();
         if (res.status === 409 && data.reason) {
-          this._setWatch(data.watch);
+          this._setCi(data);
           if (data.reason === "disabled") this.ciWatchDisabled = data.detail;
+          else this.ciWatchError = data.detail;
           return;
         }
         if (!res.ok) throw new Error(`CI watch toggle failed: ${res.status}`);
-        this._setWatch(data);
+        this._setCi(data);
       } catch {
         this.ciWatchError = config.labels.watchFailed;
       } finally {

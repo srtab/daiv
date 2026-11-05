@@ -14,12 +14,12 @@ step sits where it does:
    instead. If the spec allows it (``fallback_ref_on_missing``) and the clone fell back to another ref than
    ``spec.ref``, the session's working branch is re-pinned to it at once, so the next turn doesn't ask for a
    branch that is gone; a failed re-pin is logged.
-   ``hooks.on_context_ready`` then learns the ref the clone landed on, and returns the id of any ``Run`` it creates;
-   the agent then runs bound to it (``bind_active_run``), as it does to ``spec.run_id``, and step 6 measures it.
+   ``hooks.on_context_ready`` then learns the ref the clone landed on; the agent runs bound to ``spec.run_id``
+   (``bind_active_run``), which step 6 measures.
 3. The run's agent settings are resolved once, from one site snapshot, the repository's ``.daiv.yml`` and
    ``spec.overrides()``, so a site-settings change applies from the next run. The model is recorded before the invoke,
-   so a run that fails mid-way still shows what it ran with: on the ``Run`` and its session for a spec with ``run_id``,
-   on the ``Run`` alone for one only ``on_context_ready`` started (chat reads the session's model as a pinned override).
+   so a run that fails mid-way still shows what it ran with, on the ``Run`` alone: chat and CI fix runs read the
+   session's model as a pinned override.
 4. A sandbox run acquires its container (``automation.agent.workspace.session.acquire_sandbox``), reusing the warm one
    the thread's last checkpoint names when it can, so building the agent can read the repository's subagents from it;
    a builtin slash command that does not read the repository acquires none, as it never reaches the agent loop
@@ -41,9 +41,10 @@ step sits where it does:
    is published from its checkpoint through that workspace, with the settings the run resolved, while the clone and
    sandbox are still open, and the checkpoint is read again for the failure hook. Setup errors skip this.
 5. On success, still inside the context: the checkpoint is read once, the session's working branch is synced
-   against the ref the clone landed on (``persist_ref``), the CI watch is armed (``arm_watch``) and the
-   ``AgentResult`` is built. A failed checkpoint read yields ``None`` and logs an error, a failed ref sync or watch
-   arm is logged; none of them fails a run the agent already finished.
+   against the ref the clone landed on (``persist_ref``), a run that published claims its merge request for the
+   session and has the branch's CI judged (``arm_watch``, ``sessions.inbox.ownership.Ownerships``), and the
+   ``AgentResult`` is built. A failed checkpoint read yields ``None`` and logs an error, a failed ref sync or claim is
+   logged; none of them fails a run the agent already finished.
 6. A session run that reached the agent has its thread archived (``sessions.archive.aarchive_thread``) however it
    ended, unless it lost its slot: the holder that took over archives its own end. A run that resets its thread closes
    the context it cleared. A failed archive, or one slower than ``run.ARCHIVE_TIMEOUT_S``, is logged. The sandbox
@@ -51,7 +52,7 @@ step sits where it does:
    removed for a one-shot run or a new container the checkpoint never came to name — even when the agent or its
    stream raised, was stopped or lost its reader. A stream that lost its slot leaves the container running while the
    checkpoint still names it, since the holder that took over reuses it.
-   A run with a ``Run`` row (``spec.run_id``, or the one ``on_context_ready`` created) then records on it how long its
+   A run with a ``Run`` row (``spec.run_id``) then records on it how long its
    clone took and how its container was acquired (``clone_seconds``, ``sandbox_acquisition``), even when a repeated stop
    cancelled the release; a failed write, or a missing row, is logged. Then the context and the checkpointer close.
 7. ``hooks.on_success(outcome)``; or, for any ``Exception`` since the lock step,

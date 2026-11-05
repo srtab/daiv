@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from django.utils.translation import gettext
+from django.utils.translation import gettext, ngettext, pgettext
 
 from core.templatetags.icon_tags import icon
-from sessions.models import PublishErrorKind
+from sessions.models import EventKind, PublishErrorKind
 
 TRANSCRIPT_ICONS = frozenset({
     "agent",
@@ -51,6 +51,7 @@ def transcript_labels() -> dict[str, str | list[str]]:
         "sum_mcp": gettext("used {name}"),
         "sum_artifact": [gettext("opened {count} artifact"), gettext("opened {count} artifacts")],
         "sum_jobs": [gettext("checked delegated jobs"), gettext("checked delegated jobs {count} times")],
+        "sum_cancel_jobs": [gettext("cancelled delegated jobs"), gettext("cancelled delegated jobs {count} times")],
         "sum_other": [gettext("used {count} tool"), gettext("used {count} tools")],
         "failed": gettext("({count} failed)"),
         "worked_for": gettext("Worked for {duration}"),
@@ -86,6 +87,7 @@ def transcript_labels() -> dict[str, str | list[str]]:
         "live_delegate": gettext("Delegating jobs"),
         "row_check_jobs": gettext("Checked delegated jobs"),
         "live_check_jobs": gettext("Checking delegated jobs"),
+        "delegated_count": [gettext("Delegated {count} job"), gettext("Delegated {count} jobs")],
         "row_cancel_jobs": gettext("Cancelled delegated jobs"),
         "live_cancel_jobs": gettext("Cancelling delegated jobs"),
         "row_question": gettext("Asked a question"),
@@ -141,10 +143,64 @@ def transcript_labels() -> dict[str, str | list[str]]:
         "jobs_batch": gettext("batch {id}"),
         "jobs_mr": gettext("merge request"),
         "show_reply": gettext("Show the whole reply"),
-        "stopping": gettext("stopping"),
+        "delegated_jobs": pgettext("delegated jobs card", "Delegated jobs"),
+        "delegated_failed": gettext("Couldn't delegate: {error}"),
+        "delegated_unfinished": gettext("The call didn't finish."),
+        "leg_queued": gettext("Queued"),
+        "leg_waits": gettext("Starts after this turn"),
+        "leg_running": gettext("Running"),
+        "leg_waiting_input": gettext("Waiting for an answer"),
+        "leg_stopping": gettext("Stopping"),
+        "leg_finished": gettext("Finished"),
+        "leg_failed": pgettext("delegated job state", "Failed"),
+        "leg_cancelled": gettext("Cancelled"),
+        "leg_lost": gettext("Lost"),
+        "delegations_total": [
+            ngettext("{count} delegated", "{count} delegated", 1),
+            ngettext("{count} delegated", "{count} delegated", 2),
+        ],
+        "delegations_running": [
+            ngettext("{count} running", "{count} running", 1),
+            ngettext("{count} running", "{count} running", 2),
+        ],
+        "delegations_queued": [
+            ngettext("{count} queued", "{count} queued", 1),
+            ngettext("{count} queued", "{count} queued", 2),
+        ],
+        "delegations_failed": [
+            ngettext("{count} failed", "{count} failed", 1),
+            ngettext("{count} failed", "{count} failed", 2),
+        ],
         "suggested_answer": gettext("Suggested answer"),
         "publish_committing": gettext("Committing changes"),
         "publish_creating": gettext("Creating merge request"),
         "publish_files": [gettext("{count} file"), gettext("{count} files")],
         **{f"publish_error_{kind.value}": str(kind.label) for kind in PublishErrorKind},
+        **{f"inbox_{kind.value}": str(kind.label) for kind in EventKind},
+        "inbox_not_handled": gettext("{kind} not handled"),
+        "up_next": gettext("Up next"),
+        "up_next_info": gettext(
+            "What happens next, in order. Updates under the next run are passed to it; they don't start a run on "
+            "their own."
+        ),
+        "up_next_you": pgettext("who a queued run is for", "you"),
+        "up_next_next": gettext("Next run · as {who}"),
+        "up_next_next_anyone": gettext("Next run"),
+        "up_next_then": gettext("Then · as {who}"),
+        "up_next_then_anyone": gettext("Then"),
+        "up_next_after_live": gettext("starts when this one ends"),
+        "up_next_starting": gettext("starting"),
+        "up_next_after_yours": gettext("after your run"),
+        "up_next_after_theirs": gettext("after {who}'s run"),
+        "up_next_told": gettext("The next run will be told:"),
+        "up_next_told_branch": gettext("The next run on {branch} will be told:"),
+        "bubble_chat": pgettext("kind of request", "Chat"),
+        "bubble_api_job": gettext("API job"),
+        "bubble_mcp_job": gettext("MCP job"),
+        "bubble_job": gettext("Job"),
+        "received": pgettext("a message DAIV received", "Received"),
+        "received_ci": gettext("CI · !{iid}"),
+        "received_ci_plain": gettext("CI"),
+        "show_request": gettext("Show request"),
+        "hide_request": gettext("Hide request"),
     }

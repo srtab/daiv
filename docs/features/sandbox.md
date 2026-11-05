@@ -1,3 +1,7 @@
+---
+description: "DAIV runs shell commands in an isolated Docker container powered by daiv-sandbox, to run tests, install dependencies, execute linters and inspect git history."
+---
+
 # Sandbox
 
 The sandbox gives DAIV's agent the ability to execute shell commands inside an isolated Docker container. This lets it run tests, install dependencies, execute linters, inspect git history, and perform other operations that require a real shell environment.

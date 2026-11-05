@@ -48,8 +48,8 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
 
     If ``thread_id`` is supplied, the new job continues an existing thread: exactly one
     repo must be provided and the session owning that thread must belong to the caller, who has not archived it.
-    If a prior run on the thread is still in flight, the new Run is created in ``QUEUED``
-    state and will be released FIFO when the prior run terminates.
+    If the session is busy, the job joins its next run for the job's branch (``QUEUED``), which
+    other jobs on that branch may share, and so their ``job_id``.
     """
     if payload.thread_id is not None:
         if len(payload.repos) != 1:
@@ -67,6 +67,8 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
             agent_model=payload.agent_model,
             agent_thinking_level=payload.agent_thinking_level,
             environment=payload.environment,
+            mcp_overrides=payload.mcp_overrides,
+            thread_id=str(payload.thread_id) if payload.thread_id is not None else None,
         )
         result = await asubmit_batch_runs(
             user=request.auth,
@@ -78,6 +80,7 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
             trigger_type=SessionOrigin.API_JOB,
             thread_id=str(payload.thread_id) if payload.thread_id is not None else None,
             references=payload.references,
+            mcp_overrides=admission.mcp_overrides,
         )
     except RepoAccessError as err:
         # Opaque 404: don't confirm the repo's existence to unauthorized callers.
@@ -91,7 +94,8 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
             repo_id=spec.repo_id,
             ref=spec.ref,
             thread_id=str(outcome.session_id),
-            status=cast("Literal['QUEUED', 'READY']", outcome.status),
+            # A follow-up's run may have started, or even ended, by the time it is returned.
+            status="QUEUED" if outcome.status == RunStatus.QUEUED else "READY",
         )
         for spec, outcome in zip(payload.repos, result.outcomes, strict=True)
         if not isinstance(outcome, BatchSubmitFailure)

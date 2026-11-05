@@ -5,11 +5,18 @@
 //
 //   toolBodyHTML(seg, ctx)
 //     -> an opened row's body: What went wrong, the tool's own sections, then Raw (debug mode only);
-//        ctx = { mcpServers, mcpRows, latestArtifactsById, mergeRequestUrl }
+//        ctx = { mcpRows, latestArtifactsById, mergeRequestUrl }
 //
 //   artifactItem(seg, latestById)
 //     -> one publish_artifact row for the Artifacts card: { state: "running" | "published" | "error", ... },
 //        showing the newest result `latestById` holds for its artifact id
+//
+//   delegatedItem(seg)
+//     -> one delegate_jobs call for the Delegated jobs card: { legs, goal, error }; `legs` are the server's
+//        `seg.legs` when present, else what the tool result says; `error` is set when the whole call failed
+//
+//   mergeRequestLabel(url)
+//     -> "!N" / "#N" for a merge or pull request URL, "merge request" for another web URL, else ""
 //
 //   parseArtifactResult(result)
 //     -> the parsed publish_artifact success result, or null
@@ -259,22 +266,57 @@
     return /^no relevant results found/i.test(text) ? [badge("no results", "warn")] : [];
   };
 
-  // Server runs the real shlex parse; whitespace split is enough for the row.
-  const summarizeSubcommand = (subcommand) => {
-    const tokens = String(subcommand ?? "").trim().split(/\s+/).filter(Boolean);
-    if (!tokens.length) return "";
-    const [resource, action, ...rest] = tokens;
-    const head = action ? `${resource} ${action}` : resource;
-    for (let i = 0; i < rest.length; i += 1) {
-      const tok = rest[i];
-      const eq = tok.indexOf("=");
-      const name = eq > -1 ? tok.slice(0, eq) : tok;
-      if (CLI_ID_FLAGS.has(name)) {
-        const value = eq > -1 ? tok.slice(eq + 1) : rest[i + 1] ?? "";
-        return value ? `${head} ${name} ${value}` : `${head} ${name}`;
+  // shlex.split's POSIX rules, as the tool parses the subcommand: inside "…" a backslash escapes only `"` and `\`.
+  const shellWords = (text) => {
+    const source = String(text ?? "");
+    const words = [];
+    let word = null;
+    let quote = "";
+    for (let i = 0; i < source.length; i += 1) {
+      const ch = source[i];
+      if (quote === "'") {
+        if (ch === "'") quote = "";
+        else word += ch;
+      } else if (quote === '"') {
+        if (ch === '"') quote = "";
+        else if (ch === "\\" && (source[i + 1] === '"' || source[i + 1] === "\\")) {
+          i += 1;
+          word += source[i];
+        } else word += ch;
+      } else if (/\s/.test(ch)) {
+        if (word != null) words.push(word);
+        word = null;
+      } else {
+        word ??= "";
+        if (ch === "'" || ch === '"') quote = ch;
+        else if (ch === "\\" && i + 1 < source.length) {
+          i += 1;
+          word += source[i];
+        } else word += ch;
       }
     }
-    return head;
+    if (word != null) words.push(word);
+    return words;
+  };
+
+  const flagValue = (words, names) => {
+    for (let i = 0; i < words.length; i += 1) {
+      for (const name of names) {
+        if (words[i] === name) return words[i + 1] ?? null;
+        if (words[i].startsWith(`${name}=`)) return words[i].slice(name.length + 1);
+      }
+    }
+    return null;
+  };
+
+  const summarizeSubcommand = (subcommand) => {
+    const [resource, action, ...rest] = shellWords(subcommand);
+    if (!resource) return "";
+    const head = action ? `${resource} ${action}` : resource;
+    const name = rest.map((word) => word.split("=", 1)[0]).find((word) => CLI_ID_FLAGS.has(word));
+    if (!name) return head;
+    const value = flagValue(rest, [name]);
+    return value ? `${head} ${name} ${value}` : `${head} ${name}`;
   };
 
   // publish_artifact returns JSON ({"status":"published"|"updated","url":...}) on success and an
@@ -359,11 +401,13 @@
   const COMMAND_CHARS = 80;
   const TASK_DETAIL_CHARS = 120;
 
+  const exitCode = (command) =>
+    command.exit_code != null && Number(command.exit_code) !== 0 ? Number(command.exit_code) : null;
+
   const bashExit = (result) => {
     const commands = parseBashSuccess(result)?.commands;
     if (!commands) return { known: false, code: null };
-    const bad = commands.find((c) => c.exit_code != null && Number(c.exit_code) !== 0);
-    return { known: true, code: bad ? Number(bad.exit_code) : null };
+    return { known: true, code: commands.map(exitCode).find((code) => code != null) ?? null };
   };
 
   // gitlab and gh rows: the brand names the row, and the subcommand is its detail.
@@ -381,11 +425,11 @@
     };
   };
 
-  const jobsRow = (key) => ({ args }) => ({
+  const jobsRow = (key, category) => ({ args }) => ({
     icon: "share",
     key,
     detail: String(pickKey(args, ["batch_id"]) ?? ""),
-    category: { key: "jobs" },
+    category: { key: category },
   });
 
   // Each builder returns { icon, key | phrase, vars?, detail?, diff?, badges?, failed?, category }.
@@ -529,15 +573,19 @@
         category: { key: "question" },
       };
     },
-    delegate_jobs: () => ({ icon: "share", key: "delegate", category: { key: "jobs" } }),
-    check_delegated_jobs: jobsRow("check_jobs"),
-    cancel_delegated_jobs: jobsRow("cancel_jobs"),
+    delegate_jobs: ({ result }) => {
+      const started = recordsOf(jobsResult(result)?.started).length;
+      const row = { icon: "share", key: "delegate", category: { key: "jobs" } };
+      return started ? { ...row, phrase: tn("delegated_count", started) } : row;
+    },
+    check_delegated_jobs: jobsRow("check_jobs", "jobs"),
+    cancel_delegated_jobs: jobsRow("cancel_jobs", "cancel_jobs"),
   };
 
-  const mcpServerOf = (name, servers) =>
-    servers.filter((s) => name.startsWith(`${s}_`)).sort((a, b) => b.length - a.length)[0];
-
-  const mcpRowOf = (server, ctx) => (ctx?.mcpRows ?? []).find((row) => row?.name === server) ?? null;
+  const mcpServerOf = (name, ctx) =>
+    (ctx?.mcpRows ?? [])
+      .filter((row) => row?.name && name.startsWith(`${row.name}_`))
+      .sort((a, b) => b.name.length - a.name.length)[0] ?? null;
 
   // The server already keeps only these; an `<img>` never runs script, so any https or image data URI is safe.
   const ICON_SRC_RE = /^(?:https:\/\/|data:image\/)/i;
@@ -554,18 +602,18 @@
     Object.entries(args).find(([, v]) => ["string", "number"].includes(typeof v) && String(v)) ?? null;
 
   const mcpRow = (name, { args }, ctx) => {
-    const server = mcpServerOf(name, ctx?.mcpServers ?? []);
+    const server = mcpServerOf(name, ctx);
     if (!server) {
       return { icon: "puzzle-piece", phrase: name, category: { key: "other" } };
     }
     const first = mcpDetailArg(args)?.[1];
     return {
       icon: "puzzle-piece",
-      iconSrc: iconSrcOf(mcpRowOf(server, ctx)),
+      iconSrc: iconSrcOf(server),
       key: "mcp",
-      vars: { server, tool: name.slice(server.length + 1).replaceAll("_", " ") },
+      vars: { server: server.name, tool: name.slice(server.name.length + 1).replaceAll("_", " ") },
       detail: first == null ? "" : truncate(String(first).replace(/\s+/g, " "), MCP_DETAIL_CHARS),
-      category: { key: "mcp", name: server },
+      category: { key: "mcp", name: server.name },
     };
   };
 
@@ -595,14 +643,7 @@
     return ERROR_PREFIX_RE.test(text) || Boolean(FAILURE_RE_BY_TOOL.get(name)?.test(text));
   };
 
-  const JOBS_STATUS_TOOLS = new Set(["check_delegated_jobs", "cancel_delegated_jobs"]);
-
-  const rowFailed = (name, seg, part) => {
-    if (seg.status === "error") return true;
-    if (name === "delegate_jobs") return delegateFailed(jobsResult(seg.result));
-    if (JOBS_STATUS_TOOLS.has(name) && jobsFailure(jobsResult(seg.result), seg.result)) return true;
-    return Boolean(part.failed) || failedResult(name, seg.result);
-  };
+  const rowFailed = (seg, part) => seg.status === "error" || Boolean(part.failed) || Boolean(wentWrong(seg));
 
   window.toolRow = (seg, ctx) => {
     if (seg.type === "thinking") return thinkingRow(seg);
@@ -622,7 +663,7 @@
       detail: part.detail ?? "",
       diff: part.diff ?? null,
       badges: part.badges ?? [],
-      failed: rowFailed(name, seg, part),
+      failed: rowFailed(seg, part),
       category: part.category,
     };
   };
@@ -656,17 +697,18 @@
     return source ? formatSize(countLines(source), byteLength(source)) : "";
   };
 
-  const sliceText = (text) => {
+  // `fromEnd` keeps the last lines instead of the first.
+  const sliceText = (text, { fromEnd = false } = {}) => {
     const all = String(text ?? "").replace(/\n$/, "").split("\n");
     const lines = [];
     let budget = CHAR_CAP;
-    for (const line of all) {
+    for (const line of fromEnd ? [...all].reverse() : all) {
       const kept = line.length > LINE_CHARS ? `${line.slice(0, LINE_CHARS)}…` : line;
       if (lines.length === LINE_CAP || kept.length > budget) break;
       lines.push(kept);
       budget -= kept.length + 1;
     }
-    return { lines, total: all.length };
+    return { lines: fromEnd ? lines.reverse() : lines, total: all.length };
   };
 
   const andMoreHTML = (count) =>
@@ -675,19 +717,21 @@
   const moreHTML = (count, html, summary = t("show_all", { count })) =>
     `<details class="body-more"><summary>${escapeHtml(summary)}</summary>${html}</details>`;
 
-  // `total` is the line count before the caller sliced `lines`: "Show all" counts the lines it holds,
-  // and the lines never kept are counted in the "and N more" note.
-  const clampLines = (lines, max = VISIBLE_LINES, { total = lines.length, cls = "" } = {}) => {
-    const kept = lines.slice(0, LINE_CAP);
-    const pre = (part) => `<pre class="body-pre${cls ? ` ${cls}` : ""}">${part.join("\n")}</pre>`;
-    const hidden = kept.slice(max);
-    const more = hidden.length ? moreHTML(kept.length, pre(hidden)) : "";
-    return pre(kept.slice(0, max)) + more + andMoreHTML(total - kept.length);
+  // `total` is the count before the caller sliced `items`: "Show all" counts the items it holds,
+  // and the items never kept are counted in the "and N more" note.
+  const clampItems = (items, wrap, total = items.length) => {
+    const kept = items.slice(0, LINE_CAP);
+    const hidden = kept.slice(VISIBLE_LINES);
+    const more = hidden.length ? moreHTML(kept.length, wrap(hidden)) : "";
+    return wrap(kept.slice(0, VISIBLE_LINES)) + more + andMoreHTML(total - kept.length);
   };
+
+  const clampLines = (lines, { total = lines.length, cls = "" } = {}) =>
+    clampItems(lines, (part) => `<pre class="body-pre${cls ? ` ${cls}` : ""}">${part.join("\n")}</pre>`, total);
 
   const textHTML = (text, cls = "") => {
     const { lines, total } = sliceText(text);
-    return clampLines(lines.map(escapeHtml), VISIBLE_LINES, { total, cls });
+    return clampLines(lines.map(escapeHtml), { total, cls });
   };
 
   const markdownBlock = (source) =>
@@ -743,6 +787,15 @@
     }
   };
 
+  const fieldsView = (record) => {
+    const entries = Object.entries(record);
+    const values = entries.slice(0, STRUCTURED_ROWS).map(([key, value]) => [key, wholeValueText(value)]);
+    const more = entries.length - values.length;
+    const whole = !more && values.every(([, value]) => fits(value));
+    const pairs = values.map(([key, value]) => [key, truncate(value, VALUE_CHARS)]);
+    return { kind: "fields", pairs, more, whole, data: record };
+  };
+
   // `whole` is false when the view leaves something out: a column, a row or pair past the fiftieth, a cut value.
   const structured = (text) => {
     const source = String(text ?? "");
@@ -759,14 +812,7 @@
         return { kind: "table", headers, rows, more, whole, data: parsed };
       }
     }
-    if (isRecord(parsed) && Object.keys(parsed).length) {
-      const entries = Object.entries(parsed);
-      const values = entries.slice(0, STRUCTURED_ROWS).map(([key, value]) => [key, wholeValueText(value)]);
-      const more = entries.length - values.length;
-      const whole = !more && values.every(([, value]) => fits(value));
-      const pairs = values.map(([key, value]) => [key, truncate(value, VALUE_CHARS)]);
-      return { kind: "fields", pairs, more, whole, data: parsed };
-    }
+    if (isRecord(parsed) && Object.keys(parsed).length) return fieldsView(parsed);
     return { kind: "markdown", text: source, whole: true };
   };
 
@@ -838,17 +884,20 @@
   };
 
   // Every builder shows its result through here, so an evicted result gets the offload notice whatever the tool.
-  const resultSection = (labelKey, text, render = structuredHTML, sizeHTML = null, tagHTML = "") => {
+  // `size` is HTML: null works it out from the text, "" shows none.
+  const resultSection = (labelKey, text, { render = structuredHTML, size = null, tag = "" } = {}) => {
     const source = String(text ?? "");
     if (!source.trim() || isError(source)) return "";
     const offload = parseOffload(source);
     const body = offload ? offloadHTML(offload) : render(source);
-    return section(labelKey, body, sizeHTML ?? escapeHtml(contextSize(source)), tagHTML);
+    return section(labelKey, body, size ?? escapeHtml(contextSize(source)), tag);
   };
 
-  const contextSection = (text, render, sizeHTML) => resultSection("body_context", text, render, sizeHTML);
+  const contextSection = (text, render, size) => resultSection("body_context", text, { render, size });
 
   const wentWrong = (seg) => {
+    const data = Object.hasOwn(JOBS_WRONG, seg.name) ? jobsResult(seg.result) : null;
+    if (data) return JOBS_WRONG[seg.name](data, seg.result);
     const result = seg.result == null ? "" : String(seg.result).trim();
     if (failedResult(seg.name, result)) return result.replace(/^error:\s*/i, "") || result;
     return seg.status === "error" && !result ? t("unanswered") : "";
@@ -866,16 +915,11 @@
     return `<details class="body-raw"><summary>${escapeHtml(t("body_raw"))}</summary>${args}${result}</details>`;
   };
 
-  // --- per-tool bodies (each returns its middle sections, or { wrong, html }) ---
+  // --- per-tool bodies (each returns its middle sections) ---
 
-  const clampItems = (items, wrap, total = items.length) => {
-    const kept = items.slice(0, LINE_CAP);
-    const hidden = kept.slice(VISIBLE_LINES);
-    const more = hidden.length ? moreHTML(kept.length, wrap(hidden)) : "";
-    return wrap(kept.slice(0, VISIBLE_LINES)) + more + andMoreHTML(total - kept.length);
-  };
+  const noteHTML = (text) => (text ? `<p class="body-note">${escapeHtml(text)}</p>` : "");
 
-  const notesHTML = (notes) => notes.map((note) => `<p class="body-note">${escapeHtml(note)}</p>`).join("");
+  const notesHTML = (notes) => notes.map(noteHTML).join("");
 
   const succeeded = (seg) => seg.status !== "error" && seg.result != null && !failedResult(seg.name, seg.result);
 
@@ -945,7 +989,7 @@
     const codes = rows.map((row) => row.code);
     const code = highlightLines(codes, languageOf(path)) ?? codes.map(escapeHtml);
     const html = rows.map((row, i) => (row.ln ? `<span class="ln">${escapeHtml(row.ln)}</span>` : "") + code[i]);
-    return notesHTML(notes) + clampLines(html, VISIBLE_LINES, { total: total - skipped, cls: "body-code" });
+    return notesHTML(notes) + clampLines(html, { total: total - skipped, cls: "body-code" });
   };
 
   const DIFF_CONTEXT = 2;
@@ -1138,11 +1182,8 @@
     const { lines, total } = sliceText(command);
     const html = lines.map(escapeHtml);
     html[0] = `<span class="body-prompt">$</span> ${html[0]}`;
-    return clampLines(html, VISIBLE_LINES, { total, cls: "body-term" });
+    return clampLines(html, { total, cls: "body-term" });
   };
-
-  const exitCode = (command) =>
-    command.exit_code != null && Number(command.exit_code) !== 0 ? Number(command.exit_code) : null;
 
   // One command: the row already shows it and its exit code. Several: each gets its `$ command` line.
   const terminalHTML = (commands) => {
@@ -1166,18 +1207,16 @@
 
   // Open in a new tab so we never replace the chat tab; rel=noopener for the
   // usual reverse-tabnabbing reasons.
-  const externalLink = (url, label, { local = false } = {}) => {
+  const externalLink = (url, label, { local = false, cls = "chat-tool__link" } = {}) => {
     const href = String(url ?? "");
     const text = escapeHtml(label != null ? String(label) : href);
     if (!linkable(href, local)) return text;
-    const attrs = `class="chat-tool__link" href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer"`;
+    const attrs = `class="${cls}" href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer"`;
     return `<a ${attrs}>${text}</a>`;
   };
 
   const openHTML = (url, label, { local = false } = {}) =>
     linkable(String(url ?? ""), local) ? `<p class="body-open">${externalLink(url, label, { local })}</p>` : "";
-
-  const noteHTML = (key) => `<p class="body-note">${escapeHtml(t(key))}</p>`;
 
   const webLink = (url) => externalLink(url, truncate(url, VALUE_CHARS));
 
@@ -1208,49 +1247,6 @@
     return clampItems(items, (part) => `<div class="chat-search">${part.join("")}</div>`, results.length);
   };
 
-  // shlex.split's POSIX rules, as the tool parses the subcommand: inside "…" a backslash escapes only `"` and `\`.
-  const shellWords = (text) => {
-    const source = String(text ?? "");
-    const words = [];
-    let word = null;
-    let quote = "";
-    for (let i = 0; i < source.length; i += 1) {
-      const ch = source[i];
-      if (quote === "'") {
-        if (ch === "'") quote = "";
-        else word += ch;
-      } else if (quote === '"') {
-        if (ch === '"') quote = "";
-        else if (ch === "\\" && (source[i + 1] === '"' || source[i + 1] === "\\")) {
-          i += 1;
-          word += source[i];
-        } else word += ch;
-      } else if (/\s/.test(ch)) {
-        if (word != null) words.push(word);
-        word = null;
-      } else {
-        word ??= "";
-        if (ch === "'" || ch === '"') quote = ch;
-        else if (ch === "\\" && i + 1 < source.length) {
-          i += 1;
-          word += source[i];
-        } else word += ch;
-      }
-    }
-    if (word != null) words.push(word);
-    return words;
-  };
-
-  const flagValue = (words, names) => {
-    for (let i = 0; i < words.length; i += 1) {
-      for (const name of names) {
-        if (words[i] === name) return words[i + 1] ?? null;
-        if (words[i].startsWith(`${name}=`)) return words[i].slice(name.length + 1);
-      }
-    }
-    return null;
-  };
-
   const platformCall = (args, argsStr) => {
     const words = shellWords(pickKeyOrPartial(args, ["subcommand"], argsStr) ?? "");
     return { resource: words[0] ?? "", action: words[1] ?? "", rest: words.slice(2) };
@@ -1264,20 +1260,6 @@
   // `error:` ends in a non-word character, so a closing \b would make it miss `error: x`.
   const LOG_ERROR_RE = /\b(?:FAILED|ERROR|Error)\b|\berror:/;
 
-  const sliceTail = (text) => {
-    const all = String(text ?? "").replace(/\n$/, "").split("\n");
-    const lines = [];
-    let budget = CHAR_CAP;
-    for (let i = all.length - 1; i >= 0; i -= 1) {
-      const line = all[i];
-      const kept = line.length > LINE_CHARS ? `${line.slice(0, LINE_CHARS)}…` : line;
-      if (lines.length === LINE_CAP || kept.length > budget) break;
-      lines.push(kept);
-      budget -= kept.length + 1;
-    }
-    return { lines: lines.reverse(), total: all.length };
-  };
-
   const errorAnchor = (seg) => {
     const id = String(seg.id ?? "").replace(/[^A-Za-z0-9_-]/g, "");
     return id ? `log-err-${id}` : "";
@@ -1285,7 +1267,7 @@
 
   // A log keeps its end; .body-log is a column-reverse scroller, so it opens scrolled to the last line.
   const logHTML = (anchor) => (text) => {
-    const { lines, total } = sliceTail(text);
+    const { lines, total } = sliceText(text, { fromEnd: true });
     let first = -1;
     const rows = lines.map((line, i) => {
       const error = LOG_ERROR_RE.test(line);
@@ -1293,10 +1275,10 @@
       const id = error && i === first && anchor ? ` id="${anchor}"` : "";
       return `<div class="lgl${error ? " err" : ""}"${id}>${escapeHtml(line)}</div>`;
     });
-    const jump =
-      first >= 0 && anchor ? `<a class="body-jump" href="#${anchor}">${escapeHtml(t("jump_to_error"))}</a>` : "";
+    const jumpLabel = escapeHtml(t("jump_to_error"));
+    const jump = first >= 0 && anchor ? `<a class="body-jump chat-tool__link" href="#${anchor}">${jumpLabel}</a>` : "";
     const earlier = total - lines.length;
-    const omitted = earlier > 0 ? `<p class="body-note">${escapeHtml(tn("log_earlier", earlier))}</p>` : "";
+    const omitted = earlier > 0 ? noteHTML(tn("log_earlier", earlier)) : "";
     return `${jump}${omitted}<div class="body-log"><div class="body-log-lines">${rows.join("")}</div></div>`;
   };
 
@@ -1429,16 +1411,19 @@
   // python-gitlab prints a created note with `id:` first and an updated one as sorted keys; nested ids are indented.
   const resultId = (result) => String(result ?? "").match(/^id: (\d+)[ \t]*$/m)?.[1];
 
+  const MR_URL_RE = /\/merge_requests\/(\d+)\/?(?:[?#]|$)/;
+  const PR_URL_RE = /\/pull\/(\d+)\/?(?:[?#]|$)/;
+
   // The posted note's anchor on the session's MR/PR page, only when this call wrote a note to that MR/PR.
   const postedUrl = (platform, { resource, action, rest }, mergeRequestUrl, result) => {
     const url = String(mergeRequestUrl ?? "");
     if (platform === "gitlab") {
-      const number = url.match(/\/merge_requests\/(\d+)\/?$/)?.[1];
+      const number = url.match(MR_URL_RE)?.[1];
       const id = resultId(result);
       const ours = number && GITLAB_NOTES.has(resource) && flagValue(rest, ["--mr-iid"]) === number;
       return ours && id ? `${url}#note_${id}` : "";
     }
-    const number = url.match(/\/pull\/(\d+)\/?$/)?.[1];
+    const number = url.match(PR_URL_RE)?.[1];
     const id = String(result ?? "").match(/#issuecomment-(\d+)\b/)?.[1] ?? resultId(result);
     const ours = number && resource === "pr" && action === "comment" && prNumber(rest) === number;
     return ours && id ? `${url}#issuecomment-${id}` : "";
@@ -1459,25 +1444,22 @@
 
   // --- MCP tools ---------------------------------------------------------
 
-  // `readOnly` is null when the server's tool data is unknown (removed from the page, or never synced).
+  // `readOnly` is null when the server's tool data is unknown (never synced).
   const mcpTool = (name, ctx) => {
-    const server = mcpServerOf(name, ctx.mcpServers ?? []);
+    const server = mcpServerOf(name, ctx);
     if (!server) return null;
-    const row = mcpRowOf(server, ctx);
-    const known = row != null && row.synced !== false && Array.isArray(row.read_only_tools);
-    return { readOnly: known ? row.read_only_tools.includes(name.slice(server.length + 1)) : null };
+    const known = server.synced !== false && Array.isArray(server.read_only_tools);
+    return { readOnly: known ? server.read_only_tools.includes(name.slice(server.name.length + 1)) : null };
   };
 
   const tagHTML = (key, modifier) => `<span class="body-tag body-tag--${modifier}">${escapeHtml(t(key))}</span>`;
 
   // A value the field list cuts is whole in the arguments as sent, under Show all.
   const argsHTML = (args, argsStr) => {
-    const entries = Object.entries(args);
-    if (!entries.length) return "";
-    const pairs = entries.slice(0, STRUCTURED_ROWS).map(([key, value]) => [key, valueText(value)]);
-    const list = fieldsHTML(pairs) + andMoreHTML(entries.length - pairs.length);
-    if (pairs.length === entries.length && pairs.every(([, text]) => text.length <= VALUE_CHARS)) return list;
-    return list + showAllTextHTML(prettyJSON(argsStr));
+    if (!Object.keys(args).length) return "";
+    const view = fieldsView(args);
+    const list = fieldsHTML(view.pairs) + andMoreHTML(view.more);
+    return view.whole ? list : list + showAllTextHTML(prettyJSON(argsStr));
   };
 
   const URL_RE = /https?:\/\/[^\s<>"'`\\)\]]+/gi;
@@ -1487,10 +1469,9 @@
     const urls = new Set();
     for (const match of text.slice(0, CHAR_CAP).matchAll(URL_RE)) urls.add(match[0].replace(/[.,;:!?]+$/, ""));
     const all = [...urls];
-    const buttons = all.slice(0, LINK_BUTTONS).map((url) => {
-      const attrs = `class="body-button" href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer"`;
-      return `<a ${attrs}>${escapeHtml(truncate(summarizeUrl(url), 80))} ↗</a>`;
-    });
+    const buttons = all
+      .slice(0, LINK_BUTTONS)
+      .map((url) => externalLink(url, `${truncate(summarizeUrl(url), 80)} ↗`, { cls: "body-button" }));
     if (!buttons.length) return "";
     return `<p class="body-buttons">${buttons.join("")}</p>${andMoreHTML(all.length - buttons.length)}`;
   };
@@ -1515,8 +1496,8 @@
     const tag = mcpTag(readOnly);
     const input = section("body_input", fields, "", tag);
     const resultTag = fields ? "" : tag;
-    if (readOnly !== false) return input + resultSection("body_context", result, undefined, null, resultTag);
-    return resultSection("body_changed", result, changedHTML, null, resultTag) + input;
+    if (readOnly !== false) return input + resultSection("body_context", result, { tag: resultTag });
+    return resultSection("body_changed", result, { render: changedHTML, tag: resultTag }) + input;
   };
 
   // --- tool_search -------------------------------------------------------
@@ -1619,7 +1600,7 @@
     if (!parsed) return structuredHTML(text);
     const status = escapeHtml(valueText(parsed.status));
     const line = [status, externalLink(parsed.url, null, { local: true })].filter(Boolean).join(" · ");
-    const warning = parsed.warning ? `<p class="body-note">${escapeHtml(valueText(parsed.warning))}</p>` : "";
+    const warning = parsed.warning ? noteHTML(valueText(parsed.warning)) : "";
     return `<p class="body-line">${line}</p>${warning}`;
   };
 
@@ -1650,41 +1631,122 @@
 
   const jobsError = (data, result) => valueText(data.error).trim() || String(result).trim();
 
-  const jobsFailure = (data, result) => (data?.error != null ? jobsError(data, result) : "");
-
-  // As delegateBody reads it: the call errored, or started no leg.
-  const delegateFailed = (data) => data != null && (data.error != null || !recordsOf(data.started).length);
+  const jobsFailure = (data, result) => (data.error != null ? jobsError(data, result) : "");
 
   const firstLine = (value) => valueText(value).trim().split("\n")[0];
 
   const branchText = (ref) => valueText(ref).trim() || t("jobs_default_branch");
 
+  const delegateWrong = (data, result) => {
+    if (data.error != null) return jobsError(data, result);
+    if (recordsOf(data.started).length) return "";
+    const reason = (leg) => `${valueText(leg.repo_id)} · ${branchText(leg.ref)}: ${valueText(leg.error)}`;
+    return recordsOf(data.failed).map(reason).join("\n") || t("jobs_none_started");
+  };
+
+  // What went wrong, as a jobs tool's JSON result tells it; "" when nothing did.
+  const JOBS_WRONG = {
+    delegate_jobs: delegateWrong,
+    check_delegated_jobs: jobsFailure,
+    cancel_delegated_jobs: jobsFailure,
+  };
+
   // The page's own session URL for a thread id; the absolute `session_url` carries the configured site's host.
-  const sessionLink = (leg) => {
+  const sessionHref = (leg) => {
     const threadId = valueText(leg.thread_id);
-    const sessionUrl = valueText(leg.session_url);
     const path = window.TranscriptLabels.sessionPath;
     const own = path && SLUG_RE.test(threadId) ? window.TranscriptLabels.fill(path, { thread_id: threadId }) : "";
-    const href = own || sessionUrl;
-    return linkable(href, true) ? externalLink(href, t("jobs_open_session"), { local: true }) : "";
+    const href = own || valueText(leg.session_url);
+    return linkable(href, true) ? href : "";
   };
 
-  const noteOf = (data) => {
-    const note = valueText(data.note).trim();
-    return note ? `<p class="body-note">${escapeHtml(note)}</p>` : "";
+  const sessionLink = (leg) => {
+    const href = sessionHref(leg);
+    return href ? externalLink(href, t("jobs_open_session"), { local: true }) : "";
   };
 
-  const legKey = (leg) => `${valueText(leg.repo_id).trim()}\n${valueText(leg.ref).trim()}`;
+  const wordLabel = (word) => {
+    const states = window.TranscriptLabels.legStates;
+    return Object.hasOwn(states, word) ? t(`leg_${states[word]}`) : word;
+  };
+
+  const legText = (leg, key) => valueText(leg[key]).trim();
+
+  const legKey = (leg) => `${legText(leg, "repo_id")}\n${legText(leg, "ref")}`;
+
+  const claimIndex = (list, used, same) => {
+    const index = list.findIndex((item, i) => !used.has(i) && same(item));
+    if (index >= 0) used.add(index);
+    return index;
+  };
+
+  const linkOf = (leg, key, local) => {
+    const href = legText(leg, key);
+    return linkable(href, local) ? href : "";
+  };
+
+  const cardLeg = (leg, state, error = "") => ({
+    repo_id: legText(leg, "repo_id"),
+    ref: legText(leg, "ref"),
+    state,
+    merge_request_url: linkOf(leg, "merge_request_url", false),
+    session_url: linkOf(leg, "session_url", true),
+    error,
+  });
+
+  const LOST_OR_FAILED = new Set(["failed", "lost"]);
+
+  const resultLegs = (data) => [
+    ...recordsOf(data?.started).map((leg) => ({
+      ...cardLeg(leg, leg.starts_after_this_turn === true ? "waits" : "queued"),
+      session_url: sessionHref(leg),
+    })),
+    ...recordsOf(data?.failed).map((leg) =>
+      cardLeg(leg, leg.still_runs === true ? "lost" : "failed", legText(leg, "error")),
+    ),
+  ];
+
+  // A leg that failed to start has a row only when DAIV made one; one that still runs may have moved on since.
+  const mergedLegs = (enriched, data) => {
+    const legs = enriched.filter(isRecord).map((leg) => cardLeg(leg, legText(leg, "state")));
+    const claimed = new Set();
+    for (const failed of recordsOf(data?.failed)) {
+      const error = legText(failed, "error");
+      const mine = (leg) => legKey(leg) === legKey(failed);
+      const index = claimIndex(legs, claimed, (leg) => mine(leg) && LOST_OR_FAILED.has(leg.state));
+      if (index >= 0) legs[index].error = error;
+      else if (failed.still_runs !== true || claimIndex(legs, claimed, mine) < 0) {
+        legs.push(cardLeg(failed, failed.still_runs === true ? "lost" : "failed", error));
+      }
+    }
+    return legs;
+  };
+
+  window.delegatedItem = (seg) => {
+    const goal = valueText(parseArgs(seg.args).goal).trim();
+    const text = seg.result == null ? "" : String(seg.result).trim();
+    const data = jobsResult(text);
+    let error = "";
+    if (data) {
+      const noBatch = data.batch_id == null && !recordsOf(data.started).length;
+      error = data.error != null || noBatch ? delegateWrong(data, text) : "";
+    } else if (text && text !== "null") {
+      error = text.replace(/^error:\s*/i, "") || text;
+    } else if (!text && seg.status === "error") {
+      error = t("delegated_unfinished");
+    }
+    if (error) return { legs: [], goal, error };
+    return { legs: Array.isArray(seg.legs) ? mergedLegs(seg.legs, data) : resultLegs(data), goal, error };
+  };
+
+  const noteOf = (data) => noteHTML(valueText(data.note).trim());
 
   // A leg takes the first target left with its repository and branch, else with its repository (`ref` may differ).
   const claimTarget = (targets, used, leg) => {
-    const free = (same) => targets.findIndex((target, i) => !used.has(i) && same(target));
-    const repo = valueText(leg.repo_id).trim();
-    let index = free((target) => legKey(target) === legKey(leg));
-    if (index < 0) index = free((target) => valueText(target.repo_id).trim() === repo);
-    if (index < 0) return { index: targets.length, target: {} };
-    used.add(index);
-    return { index, target: targets[index] };
+    const repo = legText(leg, "repo_id");
+    let index = claimIndex(targets, used, (target) => legKey(target) === legKey(leg));
+    if (index < 0) index = claimIndex(targets, used, (target) => legText(target, "repo_id") === repo);
+    return index < 0 ? { index: targets.length, target: {} } : { index, target: targets[index] };
   };
 
   const jobsHeaders = (...keys) => keys.map((key) => t(key));
@@ -1727,33 +1789,36 @@
     const targets = recordsOf(args.targets);
     const data = jobsResult(result);
     if (!data) return delegateInput(args, targets, true) + contextSection(result);
-    if (data.error != null) return { wrong: jobsError(data, result), html: delegateInput(args, targets, true) };
+    if (data.error != null) return delegateInput(args, targets, true);
     const started = recordsOf(data.started);
-    const failed = recordsOf(data.failed);
-    if (!started.length) {
-      const reason = (leg) => `${valueText(leg.repo_id)} · ${branchText(leg.ref)}: ${valueText(leg.error)}`;
-      const wrong = failed.map(reason).join("\n") || t("jobs_none_started");
-      return { wrong, html: delegateInput(args, targets, true) + contextSection(result, () => noteOf(data)) };
-    }
+    if (!started.length) return delegateInput(args, targets, true) + contextSection(result, () => noteOf(data));
     const batch = valueText(data.batch_id);
     const line = tn("jobs_started", started.length, { id: batch });
     const context = contextSection(result, () => `<p class="body-line">${escapeHtml(line)}</p>${noteOf(data)}`);
-    const changed = section("body_changed", delegatedTable(targets, started, failed));
+    const changed = section("body_changed", delegatedTable(targets, started, recordsOf(data.failed)));
     return changed + delegateInput(args, targets, false) + context;
   };
 
   const MR_NUMBER_RES = [
-    [/\/merge_requests\/(\d+)\/?(?:[?#]|$)/, "!"],
-    [/\/pull\/(\d+)\/?(?:[?#]|$)/, "#"],
+    [MR_URL_RE, "!"],
+    [PR_URL_RE, "#"],
   ];
 
-  const mergeRequestLink = (url) => {
-    if (!WEB_LINK_RE.test(url)) return "";
+  const mergeRequestLabel = (url) => {
+    const href = String(url ?? "");
+    if (!WEB_LINK_RE.test(href)) return "";
     for (const [re, mark] of MR_NUMBER_RES) {
-      const number = url.match(re)?.[1];
-      if (number) return externalLink(url, `${mark}${number}`);
+      const number = href.match(re)?.[1];
+      if (number) return `${mark}${number}`;
     }
-    return externalLink(url, t("jobs_mr"));
+    return t("jobs_mr");
+  };
+
+  window.mergeRequestLabel = mergeRequestLabel;
+
+  const mergeRequestLink = (url) => {
+    const label = mergeRequestLabel(url);
+    return label ? externalLink(url, label) : "";
   };
 
   const legResultHTML = (leg) => {
@@ -1769,7 +1834,7 @@
     const rows = legs.slice(0, STRUCTURED_ROWS).map((leg) => [
       escapeHtml(valueText(leg.repo_id)),
       escapeHtml(branchText(leg.ref)),
-      escapeHtml(valueText(leg.status)),
+      escapeHtml(wordLabel(legText(leg, "status"))),
       legResultHTML(leg),
       sessionLink(leg),
     ]);
@@ -1791,8 +1856,7 @@
   const checkJobsBody = ({ args, result }) => {
     const data = jobsResult(result);
     if (!data) return contextSection(result);
-    const wrong = jobsFailure(data, result);
-    if (wrong) return { wrong, html: "" };
+    if (data.error != null) return "";
     const asked = valueText(args.batch_id).trim();
     return contextSection(result, () => batchesHTML(recordsOf(data.batches), asked) + noteOf(data));
   };
@@ -1802,7 +1866,7 @@
     const legs = recordsOf(data.legs);
     const lines = ids.slice(0, STRUCTURED_ROWS).map((id) => {
       const leg = legs.find((one) => valueText(one.thread_id) === id) ?? { thread_id: id };
-      const status = valueText(leg.status).trim() || t("stopping");
+      const status = wordLabel(legText(leg, "status")) || t("leg_stopping");
       const name = leg.repo_id == null ? [id] : [valueText(leg.repo_id), branchText(leg.ref)];
       const parts = [...name, status].map((part) => escapeHtml(part));
       const link = sessionLink(leg);
@@ -1814,8 +1878,7 @@
   const cancelJobsBody = ({ result }) => {
     const data = jobsResult(result);
     if (!data) return contextSection(result);
-    const wrong = jobsFailure(data, result);
-    if (wrong) return { wrong, html: "" };
+    if (data.error != null) return "";
     return section("body_changed", cancelledHTML(data)) + contextSection(result, () => noteOf(data));
   };
 
@@ -1857,14 +1920,14 @@
     skill: ({ seg, args, result }) => {
       const name = pickKey(args, ["skill", "name"]) ?? "";
       const link = openHTML(seg.skill_url, t("open_in_skills", { name }), { local: true });
-      return contextSection(result, () => noteHTML("skill_whole") + link);
+      return contextSection(result, () => noteHTML(t("skill_whole")) + link);
     },
     task: ({ args, argsStr, result }) => {
       const description = String(pickKeyOrPartial(args, ["description"], argsStr) ?? "");
       const cut = description.includes("\n") || description.length > TASK_DETAIL_CHARS;
       const prompt = String(pickKey(args, ["prompt"]) ?? (cut ? description : "")).trim();
       const input = section("body_input", prompt ? markdownHTML(prompt, PROMPT_LINES, t("show_prompt")) : "");
-      return input + contextSection(result, markdownHTML) + noteHTML("subagent_hidden");
+      return input + contextSection(result, markdownHTML) + noteHTML(t("subagent_hidden"));
     },
     web_fetch: ({ args, argsStr, result }) => {
       const url = String(pickKeyOrPartial(args, ["url"], argsStr) ?? "");
@@ -1910,14 +1973,14 @@
     if (!seg) return "";
     const name = String(seg.name ?? "");
     const input = { seg, ctx: ctx ?? {}, args: parseArgs(seg.args), argsStr: seg.args, result: seg.result };
-    let body;
+    let html;
     try {
-      body = bodyFor(name, input.ctx)(input);
+      html = bodyFor(name, input.ctx)(input);
     } catch (err) {
       console.warn("chat-tool-renderers: body builder failed, falling back", err);
-      body = contextSection(seg.result, textHTML);
+      html = contextSection(seg.result, textHTML);
     }
-    const { wrong = wentWrong(seg), html = "" } = typeof body === "string" ? { html: body } : body ?? {};
+    const wrong = wentWrong(seg);
     return (wrong ? wrongHTML(wrong) : "") + html + rawHTML(seg);
   };
 })();

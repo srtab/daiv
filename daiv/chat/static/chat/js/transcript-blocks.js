@@ -3,7 +3,7 @@
     write_todos: null,
     ask_user_question: "question",
     publish_artifact: "publish",
-    delegate_jobs: "special",
+    delegate_jobs: "delegated",
   };
 
   const NO_PUBLISH = Object.freeze([]);
@@ -37,26 +37,28 @@
     };
   };
 
-  const rowFor = memoBySeg(["args", "result", "status", "startedAt", "endedAt"], (seg, servers) =>
-    window.toolRow(seg, servers),
+  const rowFor = memoBySeg(["args", "result", "status", "startedAt", "endedAt"], (seg, ctx) =>
+    window.toolRow(seg, ctx),
   );
 
   const artifactFor = memoBySeg(["args", "result", "status"], (seg, latest) => window.artifactItem(seg, latest));
 
-  let lastServers = null;
-  let lastServersKey = null;
-  let lastServersId = 0;
+  const delegatedFor = memoBySeg(["args", "result", "status", "legs"], (seg) => window.delegatedItem(seg));
 
-  // By value, as a caller may rebuild the lists on every derive; the same lists skip stringifying their icon URIs.
-  const serversIdOf = ({ mcpServers, mcpRows }) => {
-    if (lastServers?.mcpServers === mcpServers && lastServers.mcpRows === mcpRows) return lastServersId;
-    lastServers = { mcpServers, mcpRows };
-    const key = JSON.stringify([mcpServers, mcpRows.map((row) => [row?.name, row?.icon, row?.read_only_tools])]);
-    if (key !== lastServersKey) {
-      lastServersKey = key;
-      lastServersId += 1;
+  let lastRows = null;
+  let lastRowsKey = null;
+  let lastRowsId = 0;
+
+  // By value, as a caller may rebuild the list on every derive; the same list skips stringifying its icon URIs.
+  const rowsIdOf = (mcpRows) => {
+    if (mcpRows === lastRows) return lastRowsId;
+    lastRows = mcpRows;
+    const key = JSON.stringify(mcpRows.map((row) => [row?.name, row?.icon, row?.read_only_tools]));
+    if (key !== lastRowsKey) {
+      lastRowsKey = key;
+      lastRowsId += 1;
     }
-    return lastServersId;
+    return lastRowsId;
   };
 
   const sumKey = (key) => (`sum_${key}` in window.TranscriptLabels.defaults ? `sum_${key}` : "sum_other");
@@ -132,6 +134,8 @@
 
   const turnKey = (turn, ti) => turn.id || `@${ti}`;
 
+  const answered = (run) => run.turns.some(({ turn }) => turn.role === "assistant" && turn.segments?.length);
+
   const splitRuns = (turns) => {
     const runs = [];
     let run = null;
@@ -143,12 +147,23 @@
         runId: turn.run_id || null,
         turns: [],
         statuses: [],
+        event: null,
       };
       runs.push(run);
     };
     turns.forEach((turn, ti) => {
+      // Something the session remembered between runs is a block of its own, and the turn after it opens another.
+      if (turn.role === "inbox_event") {
+        open(turn, ti);
+        run.event = turn;
+        run = null;
+        return;
+      }
       // A run without a prompt starts at its first turn, which carries its run_id (a failed one's is its marker).
-      if (!run || turn.role === "user" || (turn.run_id && run.runId && turn.run_id !== run.runId)) open(turn, ti);
+      const opens = !run || turn.role === "user" || (turn.run_id && run.runId && turn.run_id !== run.runId);
+      // A stop its owner asked for leaves the answer where it stopped, with no marker under it.
+      if (turn.role === "run_status" && turn.silent && !opens && answered(run)) return;
+      if (opens) open(turn, ti);
       if (turn.role === "run_status") run.statuses.push(turn);
       else run.turns.push({ turn, ti });
     });
@@ -178,6 +193,15 @@
     return keys.every((k) => a[k] === b[k] || (Object.hasOwn(NESTED, k) && NESTED[k](a[k], b[k])));
   };
 
+  // A changed group keeps its unchanged steps' objects, so their open bodies are not rebuilt.
+  const reuseSteps = (prevSteps, steps) => {
+    const byKey = new Map(prevSteps.map((step) => [step.key, step]));
+    return steps.map((step) => {
+      const old = byKey.get(step.key);
+      return old && shallowSame(old, step) ? old : step;
+    });
+  };
+
   const reuseBlock = (prev, block) => {
     const prevItems = new Map(
       [...prev.items, ...prev.endingText, ...prev.cards, ...prev.endingTail].map((item) => [item.key, item]),
@@ -185,7 +209,9 @@
     const keep = (list, prevList) => {
       const next = list.map((item) => {
         const old = prevItems.get(item.key);
-        return old && sameItem(old, item) ? old : item;
+        if (!old) return item;
+        if (sameItem(old, item)) return old;
+        return old.steps && item.steps ? { ...item, steps: reuseSteps(old.steps, item.steps) } : item;
       });
       return sameList(next, prevList, identical) ? prevList : next;
     };
@@ -213,8 +239,8 @@
   };
 
   window.buildRunBlocks = (turns, opts = {}) => {
-    const servers = { mcpServers: opts.mcpServers ?? [], mcpRows: opts.mcpRows ?? [] };
-    const serversId = serversIdOf(servers);
+    const servers = { mcpRows: opts.mcpRows ?? [] };
+    const serversId = rowsIdOf(servers.mcpRows);
     const latest = opts.latestArtifactsById;
     const used = new Set();
     const claim = (base) => {
@@ -225,9 +251,12 @@
     };
 
     const runs = splitRuns(turns);
+    const lastRun = runs.findLastIndex((run) => !run.event);
 
     const blocks = runs.map((run, ri) => {
-      const key = claim(run.anchor?.id || run.anchor?.run_id || `head-${turnKey(run.first, run.firstIndex)}`);
+      const key = claim(
+        run.event?.id || run.anchor?.id || run.anchor?.run_id || `head-${turnKey(run.first, run.firstIndex)}`,
+      );
 
       const entries = [];
       const stepRows = [];
@@ -250,7 +279,7 @@
 
       const stats = { steps: stepRows.length, ...tally(stepRows) };
       const streaming = run.turns.some(({ turn }) => turn.streaming);
-      const live = streaming || (ri === runs.length - 1 && Boolean(opts.inFlight));
+      const live = streaming || (ri === lastRun && Boolean(opts.inFlight));
       const folded = !live && stats.steps > 0;
       const foldEnd = folded ? lastStep + 1 : entries.length;
 
@@ -260,7 +289,12 @@
           const row = rowFor(e.seg, servers, serversId);
           return { kind: "question", key: claim(`q-${e.ref}`), seg: e.seg, turnIndex: e.ti, row };
         }
+        if (e.kind === "delegated" && !folded) return delegatedCard(e);
         return { kind: "special", key: claim(`x-${e.ref}`), seg: e.seg, row: rowFor(e.seg, servers, serversId) };
+      };
+      const delegatedCard = (e) => {
+        const { legs, goal, error } = delegatedFor(e.seg);
+        return { kind: "delegated", key: claim(`d-${e.ref}`), seg: e.seg, legs, goal, error };
       };
 
       const items = [];
@@ -298,9 +332,13 @@
       const endingTail = [];
       const cards = [];
       if (folded) {
-        // A publish after the last step shows only in the run's cards.
-        for (const item of entries.slice(foldEnd).filter((e) => e.kind !== "publish").map(itemOf)) {
+        // A publish or a delegate call after the last step shows only in the run's cards.
+        const inTail = (e) => e.kind !== "publish" && e.kind !== "delegated";
+        for (const item of entries.slice(foldEnd).filter(inTail).map(itemOf)) {
           (item.kind === "text" ? endingText : endingTail).push(item);
+        }
+        for (const e of entries) {
+          if (e.kind === "delegated") cards.push(delegatedCard(e));
         }
         const published = [];
         const seen = new Set();
@@ -318,6 +356,7 @@
       return {
         key,
         anchor: run.anchor,
+        event: run.event,
         runId: run.runId,
         live,
         folded,

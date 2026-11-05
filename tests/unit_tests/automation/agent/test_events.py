@@ -7,8 +7,10 @@ from automation.agent.events import (
     PUBLISH_RESULT_EVENT,
     context_usage_payload,
     publish_result_payload,
+    published_outcome_payload,
     record_publish_result,
 )
+from automation.agent.publishers import PublishOutcome
 from automation.agent.usage_tracking import ResolvedWindow
 from codebase.base import MergeRequestDiffStats
 from tests.unit_tests.automation.agent.conftest import make_merge_request
@@ -79,10 +81,12 @@ def test_the_publish_result_payload_carries_the_merge_request_and_stats():
         status="opened",
         merge_request=make_merge_request(),
         diff_stats=MergeRequestDiffStats(files_changed=3, lines_added=10, lines_removed=2),
+        pushed_sha="e96f1f77",
     )
 
     assert payload == {
         "status": "opened",
+        "pushed_sha": "e96f1f77",
         "merge_request_iid": 42,
         "merge_request_web_url": "https://example.com/owner/repo/-/merge_requests/42",
         "files_changed": 3,
@@ -95,6 +99,7 @@ def test_the_publish_result_payload_carries_the_merge_request_and_stats():
 def test_the_publish_result_payload_defaults_absent_values_to_none():
     assert publish_result_payload(status="failed", error_kind="push_rejected") == {
         "status": "failed",
+        "pushed_sha": None,
         "merge_request_iid": None,
         "merge_request_web_url": None,
         "files_changed": None,
@@ -102,6 +107,18 @@ def test_the_publish_result_payload_defaults_absent_values_to_none():
         "lines_removed": None,
         "error_kind": "push_rejected",
     }
+
+
+@pytest.mark.parametrize("merge_request", [None, "opened"])
+def test_a_published_outcome_carries_the_sha_it_pushed(merge_request):
+    outcome = PublishOutcome(
+        merge_request=make_merge_request() if merge_request else None,
+        published=True,
+        created_merge_request=bool(merge_request),
+        pushed_sha="e96f1f77",
+    )
+
+    assert published_outcome_payload(outcome)["pushed_sha"] == "e96f1f77"
 
 
 async def _dispatch(*events: tuple[str, dict]) -> None:

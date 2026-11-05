@@ -15,6 +15,7 @@
     sum_mcp: "used {name}",
     sum_artifact: ["opened {count} artifact", "opened {count} artifacts"],
     sum_jobs: ["checked delegated jobs", "checked delegated jobs {count} times"],
+    sum_cancel_jobs: ["cancelled delegated jobs", "cancelled delegated jobs {count} times"],
     sum_other: ["used {count} tool", "used {count} tools"],
     failed: "({count} failed)",
     worked_for: "Worked for {duration}",
@@ -50,6 +51,7 @@
     live_delegate: "Delegating jobs",
     row_check_jobs: "Checked delegated jobs",
     live_check_jobs: "Checking delegated jobs",
+    delegated_count: ["Delegated {count} job", "Delegated {count} jobs"],
     row_cancel_jobs: "Cancelled delegated jobs",
     live_cancel_jobs: "Cancelling delegated jobs",
     row_question: "Asked a question",
@@ -108,7 +110,22 @@
     jobs_batch: "batch {id}",
     jobs_mr: "merge request",
     show_reply: "Show the whole reply",
-    stopping: "stopping",
+    delegated_jobs: "Delegated jobs",
+    delegated_failed: "Couldn't delegate: {error}",
+    delegated_unfinished: "The call didn't finish.",
+    leg_queued: "Queued",
+    leg_waits: "Starts after this turn",
+    leg_running: "Running",
+    leg_waiting_input: "Waiting for an answer",
+    leg_stopping: "Stopping",
+    leg_finished: "Finished",
+    leg_failed: "Failed",
+    leg_cancelled: "Cancelled",
+    leg_lost: "Lost",
+    delegations_total: ["{count} delegated", "{count} delegated"],
+    delegations_running: ["{count} running", "{count} running"],
+    delegations_queued: ["{count} queued", "{count} queued"],
+    delegations_failed: ["{count} failed", "{count} failed"],
     suggested_answer: "Suggested answer",
     publish_committing: "Committing changes",
     publish_creating: "Creating merge request",
@@ -118,6 +135,44 @@
     publish_error_push_rejected: "The push was rejected",
     publish_error_mr_failed: "The merge request couldn't be created",
     publish_error_unknown: "Couldn't publish the changes",
+    inbox_chat_message: "Chat message",
+    inbox_mention: "Mention",
+    inbox_follow_up_job: "Follow-up job",
+    inbox_delegation_finished: "Delegated jobs finished",
+    inbox_ci_failed: "CI failed",
+    inbox_ci_passed: "CI passed",
+    inbox_ci_stopped: "CI stopped",
+    inbox_branch_pushed: "Branch pushed",
+    inbox_foreign_publish: "Published by another session",
+    inbox_mr_merged: "Merge request merged",
+    inbox_mr_closed: "Merge request closed",
+    inbox_comment: "Comment",
+    inbox_delegated_ci_outcome: "Delegated session CI",
+    inbox_notice: "Notice",
+    inbox_not_handled: "{kind} not handled",
+    up_next: "Up next",
+    up_next_info:
+      "What happens next, in order. Updates under the next run are passed to it; they don't start a run on their own.",
+    up_next_you: "you",
+    up_next_next: "Next run · as {who}",
+    up_next_next_anyone: "Next run",
+    up_next_then: "Then · as {who}",
+    up_next_then_anyone: "Then",
+    up_next_after_live: "starts when this one ends",
+    up_next_starting: "starting",
+    up_next_after_yours: "after your run",
+    up_next_after_theirs: "after {who}'s run",
+    up_next_told: "The next run will be told:",
+    up_next_told_branch: "The next run on {branch} will be told:",
+    bubble_chat: "Chat",
+    bubble_api_job: "API job",
+    bubble_mcp_job: "MCP job",
+    bubble_job: "Job",
+    received: "Received",
+    received_ci: "CI · !{iid}",
+    received_ci_plain: "CI",
+    show_request: "Show request",
+    hide_request: "Hide request",
   };
 
   const loadPayload = () => {
@@ -136,6 +191,7 @@
 
   const showRaw = payload.show_raw === true;
   const sessionPath = typeof payload.session_path === "string" ? payload.session_path : "";
+  const legStates = payload.leg_states && typeof payload.leg_states === "object" ? payload.leg_states : {};
 
   const fill = (template, values) =>
     template.replace(/\{(\w+)\}/g, (match, key) => (key in values ? String(values[key]) : match));
@@ -163,5 +219,5 @@
     return `${Math.floor(min / 60)}h ${min % 60}m`;
   };
 
-  window.TranscriptLabels = { defaults: DEFAULTS, fill, t, tn, iconHTML, duration, showRaw, sessionPath };
+  window.TranscriptLabels = { defaults: DEFAULTS, fill, t, tn, iconHTML, duration, showRaw, sessionPath, legStates };
 })();

@@ -483,6 +483,22 @@ class TestGitMiddleware:
         lookup.assert_not_called()
         assert result["merge_request"] is state_mr
 
+    async def test_a_checkout_of_another_branch_finds_that_branchs_open_mr(self):
+        middleware = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        other_mr = _mr(branch="feature-y")
+        open_mr = MagicMock(source_branch="feature-x")
+
+        with (
+            patch.object(runtime.context.repo, "current_ref", "feature-x"),
+            patch(
+                "automation.agent.middlewares.git.GitMiddleware._alookup_open_mr", new=AsyncMock(return_value=open_mr)
+            ),
+        ):
+            result = await middleware.abefore_agent({"merge_request": other_mr}, runtime)
+
+        assert result["merge_request"] is open_mr
+
     async def test_abefore_agent_runtime_context_overrides_state_in_mr_scope(self):
         middleware = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
         runtime = _make_runtime(scope=Scope.MERGE_REQUEST)

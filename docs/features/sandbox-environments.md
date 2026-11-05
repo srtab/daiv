@@ -1,3 +1,7 @@
+---
+description: "Define named, reusable DAIV sandbox environments with a base image, CPU and memory limits, network egress policy, encrypted secrets and repository scope."
+---
+
 # Sandbox Environments
 
 A sandbox environment is a named, reusable [sandbox](sandbox.md) configuration — base image, CPU and memory limits, network access, encrypted environment variables, and the repositories it applies to. Define it once in the dashboard and DAIV reuses that runtime across every run, chat, scheduled job, and API/MCP call that lands in a matching repository, instead of reconfiguring the container each time.
@@ -114,7 +118,7 @@ The selected per-run environment is then **merged with the global default** to p
 !!! note "Issue and merge request webhooks"
     Runs triggered by an issue or merge request webhook (for example, [issue addressing](issue-addressing.md)) are not scoped to a DAIV user's environments, so step 2 (User bindings) is skipped — resolution starts at Global bindings and falls back to the global default.
 
-The run then starts from that recorded choice, so changing a binding afterwards doesn't move it. A [pipeline-watch](pipeline-watch.md) fix run uses the environment of the run that published the merge request, even if the repository has been bound to another one since, or a later run in the session used a different one. When that session has no environment recorded (the publishing run had none, it started before any existed, or its environment was deleted), its fix runs and chat turns run on the global default.
+The run then starts from that recorded choice, so changing a binding afterwards doesn't move it. A [pipeline-watch](pipeline-watch.md) CI run, like any run that session's inbox starts, uses the environment recorded on the session that published the merge request, even if the repository has been bound to another one since. The exception is a run for someone else, such as a reply to another person's mention: it never gets the owner's private environment, and resolves one for the person it runs for instead (their own, a repository binding, or the global default). When that session has no environment recorded (the publishing run had none, it started before any existed, or its environment was deleted), its CI runs and chat turns run on the global default.
 
 Editing an environment reaches an existing session on its next turn. DAIV replaces the session's container instead of reusing it when the turn's resolved environment (the session's environment merged over the global default) differs from the one the container was started from in base image, memory, CPUs, environment variables or network rules, so switching the session to another environment or editing the global default replaces it too. The new container starts from the repository: anything installed in the old one, or left uncommitted by a stopped turn, is gone. A new git token is not a change; it is updated on the running container.
 

@@ -12,13 +12,12 @@
  *
  *     <div x-data="..." x-init="$store.nav.start({ url, state, runningLabel })">
  *
- * `state` carries the server's own snapshot keys (`unread_count`, `running_runs`,
- * `latest_running_start`) rather than the store's field names, so the page seed and the SSE
- * frames are one shape read by one function — a key renamed on the Python side then breaks
- * both, not just the stream.
+ * `state` carries the server's own snapshot keys (`unread_count`, `running_runs`) rather than
+ * the store's field names, so the page seed and the SSE frames are one shape read by one
+ * function — a key renamed on the Python side then breaks both, not just the stream.
  *
- * `latestRunningStart` drives no badge: it moves whenever a run the viewer can see starts,
- * which the session page watches to pick up a run that started after it rendered.
+ * On a session page `url` carries `?session=<thread_id>`, and each `session` frame the stream
+ * then sends is re-announced to the page as a `daiv:session-changed` window event.
  *
  * `runningLabel` is the sidebar badge's translated sentence with `{count}` still in it:
  * a live number can't go through `blocktranslate`, and keeping the whole sentence as one
@@ -32,7 +31,6 @@ document.addEventListener("alpine:init", () => {
   Alpine.store("nav", {
     unread: 0,
     running: 0,
-    latestRunningStart: "",
     _url: "",
     _source: null,
     _ended: false,
@@ -69,6 +67,7 @@ document.addEventListener("alpine:init", () => {
       if (this._source || this._ended || !this._url) return;
       this._source = new EventSource(this._url);
       this._source.addEventListener("snapshot", (event) => this._apply(event.data));
+      this._source.addEventListener("session", (event) => this._announceSession(event.data));
       this._source.addEventListener("end", () => this.stop());
     },
 
@@ -88,12 +87,26 @@ document.addEventListener("alpine:init", () => {
       this._applyState(snapshot);
     },
 
+    _announceSession(data) {
+      let revision;
+      try {
+        revision = JSON.parse(data)?.revision;
+      } catch {
+        console.warn("nav: unreadable session frame");
+        return;
+      }
+      if (!Number.isInteger(revision)) {
+        console.warn("nav: session frame without an integer revision");
+        return;
+      }
+      window.dispatchEvent(new CustomEvent("daiv:session-changed", { detail: { revision } }));
+    },
+
     /** The only place the wire keys are read, so the seed and the stream can't drift. */
     _applyState(state) {
       if (!state) return;
       if (typeof state.unread_count === "number") this.unread = state.unread_count;
       if (typeof state.running_runs === "number") this.running = state.running_runs;
-      if (typeof state.latest_running_start === "string") this.latestRunningStart = state.latest_running_start;
     },
   });
 });

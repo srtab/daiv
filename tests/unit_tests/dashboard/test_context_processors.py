@@ -61,23 +61,6 @@ class TestNavContextProcessor:
 
         assert _nav_for(member_user)["nav_running_jobs"] == 1
 
-    def test_supplies_the_latest_running_start(self, member_user):
-        from django.utils import timezone
-
-        session = Session.objects.create(
-            thread_id="test-thread-latest", origin=SessionOrigin.MCP_JOB, repo_id="daiv/api", user=member_user
-        )
-        run = Run.objects.create(
-            session=session,
-            status=RunStatus.RUNNING,
-            trigger_type=SessionOrigin.MCP_JOB,
-            repo_id="daiv/api",
-            user=member_user,
-            started_at=timezone.now(),
-        )
-
-        assert _nav_for(member_user)["nav_latest_running_start"] == run.started_at.isoformat()
-
     def test_resolves_active_section_from_url_name(self, member_client):
         response = member_client.get(reverse("dashboard"))
         assert response.context["nav_active_section"] == "dashboard"
