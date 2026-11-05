@@ -137,13 +137,13 @@ async def aload_session_state(session: Session, user: User, *, always_look_up_me
 
 def _repositories(session: Session, runs: list[Run], merge_request: dict | None, thread_ref: str) -> dict | None:
     """SYNC ONLY: a multi-repository session's ``rows``, the main repository first, each with its branch and merge
-    request, and the ``publish_errors`` of its latest finished run; ``None`` for a single-repository session."""
+    request, and the ``publish_errors`` of its latest run once it finished; ``None`` for a single-repository session."""
     extra_repositories = list(SessionRepository.objects.filter(session=session))
     if not extra_repositories:
         return None
     main_mr = merge_request or {}
     run_url = next((r.merge_request_web_url for r in reversed(runs) if r.merge_request_web_url), "")
-    latest_finished = next((r for r in reversed(runs) if r.status in RunStatus.terminal()), None)
+    latest = runs[-1] if runs else None
     return {
         "rows": [
             {
@@ -157,7 +157,7 @@ def _repositories(session: Session, runs: list[Run], merge_request: dict | None,
                 for r in extra_repositories
             ),
         ],
-        "publish_errors": latest_finished.publish_errors if latest_finished else [],
+        "publish_errors": latest.publish_errors if latest and latest.status in RunStatus.terminal() else [],
     }
 
 
@@ -181,7 +181,7 @@ def turns_payload(state: SessionState, session: Session) -> dict[str, Any]:
 
     ``expired`` is the hydration's own flag; ``expired_banner`` is whether a render would show the expired banner,
     which a page that shows it reloads to leave. ``merge_request`` is left out while it is not known, so a page keeps
-    the one it has.
+    the one it has; so is the main repository's in ``repositories``.
     """
     activity, live = state.activity, state.live_run
     payload = {
@@ -203,4 +203,7 @@ def turns_payload(state: SessionState, session: Session) -> dict[str, Any]:
     }
     if state.merge_request_known:
         payload["merge_request"] = state.merge_request
+    elif repositories := payload["repositories"]:
+        main, *extras = repositories["rows"]
+        payload["repositories"] = {**repositories, "rows": [{"repo_id": main["repo_id"], "ref": main["ref"]}, *extras]}
     return payload

@@ -93,6 +93,13 @@ Object.assign(page, {
 });
 page.init();
 const flush = () => new Promise((resolve) => setImmediate(resolve));
+const ids = new WeakMap();
+let lastId = 0;
+const idOf = (value) => {
+  if (value == null) return null;
+  if (!ids.has(value)) ids.set(value, ++lastId);
+  return ids.get(value);
+};
 const seen = [];
 let sending = null;
 for (const [action, value] of steps) {
@@ -123,7 +130,7 @@ for (const [action, value] of steps) {
       ciTexts: page.ci.map((item) => page.ciText(item)),
       delegations: page.delegations, delegationsLabel: page.delegationsBadge.label,
       delegationsState: page.delegationsBadge.state, legs: (page.delegations?.legs ?? []).map((leg) => leg.repo_id),
-      repositories: page.repositories,
+      repositories: page.repositories, repositoriesId: idOf(page.repositories),
       timers: timers.map((timer) => timer.ms),
       intervals: intervals.filter((i) => !i.cleared).map((i) => i.ms),
     });
@@ -695,3 +702,29 @@ def test_a_failed_fetch_keeps_the_repositories_card():
     seen = _run([["poll", None], ["read", None]], repositories=repositories)["seen"][0]
 
     assert seen["repositories"] == repositories
+
+
+def test_a_fetch_that_could_not_look_up_the_main_merge_request_keeps_the_pages():
+    rendered = {"rows": [_repo("g/app", "daiv/fix", 7), _repo("g/mod", "main")], "publish_errors": []}
+    fetched = {"rows": [{"repo_id": "g/app", "ref": "daiv/fix"}, _repo("g/mod", "daiv/fix", 3)], "publish_errors": []}
+
+    seen = _run([["poll", {"latest_run": DONE, "repositories": fetched}], ["read", None]], repositories=rendered)
+
+    assert seen["seen"][0]["repositories"]["rows"] == [_repo("g/app", "daiv/fix", 7), _repo("g/mod", "daiv/fix", 3)]
+
+
+def test_an_unchanged_repositories_card_is_left_alone():
+    errors = [{"repo_id": "g/mod", "error": "x"}]
+    repositories = {"rows": [_repo("g/app", "main"), _repo("g/mod", "main")], "publish_errors": errors}
+    changed = {**repositories, "publish_errors": []}
+    steps = [
+        ["read", None],
+        ["poll", {"latest_run": DONE, "repositories": repositories}],
+        ["read", None],
+        ["poll", {"latest_run": DONE, "repositories": changed}],
+        ["read", None],
+    ]
+
+    ids = [s["repositoriesId"] for s in _run(steps, repositories=repositories)["seen"]]
+
+    assert ids[0] == ids[1] != ids[2]

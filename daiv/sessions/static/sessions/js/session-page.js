@@ -185,8 +185,18 @@ document.addEventListener("alpine:init", () => {
       if ("watch" in data && !stale) this._showCi(data);
       if ("up_next" in data) this._applyUpNext(data.up_next ?? null, data.requestedAt ?? -Infinity);
       if ("delegations" in data) this.delegations = data.delegations ?? null;
-      if ("repositories" in data) this.repositories = data.repositories ?? null;
+      if ("repositories" in data) this._applyRepositories(data.repositories ?? null);
       if (data.title && !this.editingTitle) this._showTitle(data.title);
+    },
+    // A main row without its merge request was fetched while it was not known; an unchanged card is left alone, as
+    // rewriting its errors would have them announced again.
+    _applyRepositories(next) {
+      const [main, ...extras] = next?.rows ?? [];
+      if (main && !("mr_url" in main)) {
+        const { mr_url = "", mr_iid = null } = this.repositories?.rows[0] ?? {};
+        next = { ...next, rows: [{ ...main, mr_url, mr_iid }, ...extras] };
+      }
+      if (JSON.stringify(next) !== JSON.stringify(this.repositories)) this.repositories = next;
     },
     _showCi(data) {
       this.ci = data?.ci ?? [];

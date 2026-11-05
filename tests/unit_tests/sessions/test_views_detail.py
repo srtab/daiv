@@ -7,6 +7,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import escapejs
@@ -211,6 +212,30 @@ def test_detail_shows_latest_publish_errors(member_client, member_user):
     resp = _get_detail(member_client, session)
 
     assert resp.context["header"]["repositories"]["publish_errors"] == [{"repo_id": "g/mod", "error": "push rejected"}]
+
+
+@pytest.mark.django_db
+def test_detail_hides_publish_errors_once_a_new_run_starts(member_client, member_user):
+    session = _multi_repo_session(member_user)
+    _create_run(session, publish_errors=[{"repo_id": "g/mod", "error": "push rejected"}])
+    _create_run(session, status=RunStatus.RUNNING)
+
+    resp = _get_detail(member_client, session)
+
+    assert resp.context["header"]["repositories"]["publish_errors"] == []
+
+
+@pytest.mark.django_db
+def test_the_card_binds_exactly_the_fields_its_rows_and_errors_carry(member_client, member_user):
+    session = _multi_repo_session(member_user)
+    _create_run(session, publish_errors=[{"repo_id": "g/mod", "error": "push rejected"}])
+    header = _get_detail(member_client, session).context["header"]
+
+    card = render_to_string("sessions/_session_repositories.html", {"header": header})
+
+    repositories = header["repositories"]
+    assert set(re.findall(r"(?<![\w/])repo\.(\w+)", card)) == set(repositories["rows"][0])
+    assert set(re.findall(r"(?<![\w/])item\.(\w+)", card)) == set(repositories["publish_errors"][0])
 
 
 @pytest.mark.django_db
