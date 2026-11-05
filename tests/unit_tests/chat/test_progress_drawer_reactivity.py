@@ -1,15 +1,15 @@
-"""Behavioral tests for the composer's progress-pill state under Alpine's reactivity.
+"""Behavioral tests for the composer's progress-drawer state under Alpine's reactivity.
 
-Around fifteen always-mounted bindings read ``latestTodos`` / ``filesTouched`` / the pill
-built from them — the pill's ``x-show``, its tone class, the live dot, the label, the
-crowded modifier on the action row, and the sheet's two lists and counts (the sheet is
-``x-show``-mounted, so they stay live while it is closed). Two failures live in how that
+Around fifteen always-mounted bindings read ``latestTodos`` / ``filesTouched`` / the drawer
+built from them — the drawer's ``x-show``, its tone class, the live dot, the step and its
+text, and the open list's todos and files (``x-show``-mounted, so they stay live while the
+drawer is closed). Two failures live in how that
 state is derived, and neither is visible to a source-string assertion:
 
 *Nothing updates.* A getter that caches its walk of the transcript across readers answers
 every binding after the first without touching ``turns``. Alpine tracks dependencies per
 effect, so those bindings subscribe to nothing and never run again — which is what kept
-the pill hidden until a reload when a turn's ``write_todos`` landed mid-run.
+the drawer hidden until a reload when a turn's ``write_todos`` landed mid-run.
 
 *Everything is derived fifteen times.* A getter that re-walks per read pays a full
 transcript pass per binding — twenty per streamed ``args`` delta, seconds of main thread
@@ -66,15 +66,15 @@ state.init();
 state.streaming = true;
 state.turns.push({ role: "assistant", streaming: true, segments: [] });
 
-// What the composer mounts on this state. Each pill reader records what it saw, so a
+// What the composer mounts on this state. Each drawer reader records what it saw, so a
 // binding that stopped re-running is visible in its own history rather than in a total.
 const seen = { first: [], second: [] };
-effect(() => { seen.first.push(state.progressPill?.label ?? null); });
-effect(() => { seen.second.push(state.progressPill?.label ?? null); });
-for (let i = 0; i < 5; i++) effect(() => { state.progressPill; });
+const read = () => { const d = state.progressDrawer; return d ? [d.step, d.files].filter(Boolean).join(" · ") : null; };
+effect(() => { seen.first.push(read()); });
+effect(() => { seen.second.push(read()); });
+for (let i = 0; i < 5; i++) effect(() => { state.progressDrawer; });
 for (let i = 0; i < 6; i++) effect(() => { state.filesTouched.length; });
-for (let i = 0; i < 3; i++) effect(() => { state.latestTodos.length; });
-effect(() => { state.todosProgress; });
+for (let i = 0; i < 4; i++) effect(() => { state.latestTodos.length; });
 
 // The agent calls write_todos mid-turn: the tool call is appended to the open turn, then
 // its args stream in — split, because a delta arrives per relay frame.
@@ -102,18 +102,18 @@ def _run() -> dict:
 
 
 def test_every_binding_sees_the_todos_that_land_mid_turn():
-    """The pill is suppressed on content, so the ``write_todos`` of a running turn is what
-    brings it on screen. Both readers have to see it: one subscribed binding is enough to
-    apply the crowded modifier to a row whose pill never renders.
+    """The drawer is suppressed on content, so the ``write_todos`` of a running turn is what
+    brings its step on screen. Both readers have to see it: one subscribed binding is enough
+    to leave the step text stale beside a live step number.
 
     The list arrives as deltas on ``args``, so this also pins the memo key: parses are
-    cached on the segment *and* the string parsed. Keyed on the segment alone, the pill
+    cached on the segment *and* the string parsed. Keyed on the segment alone, the drawer
     would keep reporting whatever the first delta held — here, an empty list.
     """
     seen = _run()["seen"]
 
-    assert seen["first"][0] == "1 file", "the history's write_file is all the pill has yet"
-    assert [seen["first"][-1], seen["second"][-1]] == ["1/2 · 1 file", "1/2 · 1 file"]
+    assert seen["first"][0] == "1 file", "the history's write_file is all the drawer has yet"
+    assert [seen["first"][-1], seen["second"][-1]] == ["2/2 · 1 file", "2/2 · 1 file"]
 
 
 def test_a_streamed_delta_walks_the_transcript_once():

@@ -874,13 +874,13 @@ html {
   }
   /* Status sits under the title on phones, beside it from sm: up. */
   .session-topbar__heading {
-    @apply flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-3;
+    @apply flex min-w-0 flex-col sm:flex-row sm:items-center sm:gap-3;
   }
   .session-topbar__title {
-    @apply min-w-0 truncate text-[14px] font-semibold text-text-strong;
+    @apply min-w-0 truncate text-[14px] leading-4.5 font-semibold text-text-strong;
   }
   .session-topbar__status {
-    @apply inline-flex shrink-0 items-center gap-1.5 text-[12px] text-text-muted;
+    @apply inline-flex shrink-0 items-center gap-1.5 text-[12px] leading-4 text-text-muted;
   }
   .session-topbar__actions {
     @apply ml-auto flex shrink-0 items-center gap-2;
@@ -1079,8 +1079,8 @@ html {
     @apply opacity-100;
   }
   .session-title__input {
-    @apply -ml-1.5 max-w-full min-w-24 rounded-md border-0 bg-surface-2 px-1.5 py-0.5 text-[14px] font-semibold
-      text-text-strong outline-2 -outline-offset-1 outline-accent outline-solid;
+    @apply -ml-1.5 max-w-full min-w-24 rounded-md border-0 bg-surface-2 px-1.5 py-0.5 text-[14px] leading-4.5
+      font-semibold text-text-strong outline-2 -outline-offset-1 outline-accent outline-solid;
   }
   .session-topbar__meta {
     @apply flex shrink-0 items-center gap-2;
@@ -1182,7 +1182,7 @@ html {
     flex-direction: column;
     gap: 12px;
     max-width: 34rem;
-    margin: 10vh auto 0;
+    margin: auto;
     padding: 2rem 1rem;
     animation: fade-up 0.6s ease-out backwards;
   }
@@ -1240,48 +1240,11 @@ html {
     pointer-events: none;
   }
 
-  /* Third child of the subtitle stack: the two subtitles share cell 1/1, so this
-     auto-places on the row below them. Quiet and dashed — it reports what the first
-     turn will run with, and is the way into the options sheet before a thread exists. */
-  .chat-hero__selection {
-    justify-self: start;
-    margin-top: 14px;
-    padding: 2px 1px;
-    font-size: 12.5px;
-    color: #64748b;
-    border-bottom: 1px dashed rgba(148, 163, 184, 0.35);
-    cursor: pointer;
-    transition: color 0.15s ease, border-color 0.15s ease;
-  }
-
-  .chat-hero__selection:hover {
-    color: #cbd5e1;
-    border-bottom-color: rgba(203, 213, 225, 0.6);
-  }
-
-  .chat-hero__selection:focus-visible {
-    outline: 2px solid rgba(180, 195, 230, 0.5);
-    outline-offset: 3px;
-  }
-
-  /* New-chat empty state: collapse the transcript so the composer docks right
-     under the hero picker instead of pinning to the viewport bottom. Keeps the
-     pick-repo → type-message flow visually sequential. */
+  /* New-chat empty state: the transcript holds only the hero, centred above the docked composer. */
   .chat-column--empty .chat-transcript {
-    flex: 0 0 auto;
-    padding-bottom: 0;
-  }
-
-  .chat-column--empty .chat-dock {
-    position: relative;
-    bottom: auto;
-    margin-top: 12px;
-    padding: 0;
-    background: transparent;
-  }
-
-  .chat-column--empty .chat-dock::before {
-    display: none;
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 1.5rem;
   }
 
   /* Repo chip — shared between the interactive picker (`_repo_picker.html`)
@@ -3065,12 +3028,33 @@ html {
     background: linear-gradient(180deg, transparent, var(--color-ground));
   }
 
+  /* New chat: the context row on the left, the disclaimer on the right, wrapping under it on a
+     phone. A session page has no context row, so the disclaimer centres alone. */
+  .chat-dock__foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+    padding: 8px 2px 0;
+  }
+
   .chat-dock__disclaimer {
-    margin-top: 6px;
-    text-align: center;
+    flex: 1 1 auto;
+    text-align: right;
     font-size: 11px;
     line-height: 1.4;
     color: #64748b;
+  }
+
+  .chat-dock__disclaimer:only-child {
+    text-align: center;
+  }
+
+  @media (width < 640px) {
+    .chat-dock__disclaimer {
+      flex-basis: 100%;
+      text-align: center;
+    }
   }
 
   .chat-archived {
@@ -3078,43 +3062,62 @@ html {
            bg-white/[0.04] px-3 py-1.5 text-[13px] text-gray-300;
   }
 
+  /* `+`, the text and the buttons share one row; they sit on its last line as the text grows. */
   .chat-composer {
+    --composer-font: 15px;
+    --composer-leading: 1.55;
+    /* One text line plus the textarea's 4px + 4px margin: the `+` and the buttons sit on it. */
+    --composer-line: calc(var(--composer-font) * var(--composer-leading) + 8px);
     position: relative;
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
     margin: 0;
-    padding: 12px 14px;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 8px 8px 8px 10px;
+    border: 1px solid var(--color-border);
     border-radius: 16px;
-    background: linear-gradient(180deg, rgba(20, 22, 40, 0.95), rgba(12, 14, 30, 0.95));
+    background: var(--color-surface-2);
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
   }
 
+  /* Mirrors the 16px every touch textarea is forced to, so the rows below measure the real line. */
+  @media (pointer: coarse) {
+    .chat-composer {
+      --composer-font: 16px;
+    }
+  }
+
   .chat-composer:focus-within {
-    border-color: rgba(167, 139, 250, 0.3);
-    box-shadow:
-      0 0 0 1px rgba(167, 139, 250, 0.14),
-      0 16px 48px -16px rgba(124, 58, 237, 0.35);
+    border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 18%, transparent);
   }
 
   /* In flight, the composer's settings read as inert — control by control, never as one fade on
      the form. An `opacity` there is a stacking context, and it holds the sheets opened from the
-     action row: below the scrim (`.sheet-backdrop`, z-index 55, a sibling of the form) and
+     composer: below the scrim (`.sheet-backdrop`, z-index 55, a sibling of the form) and
      faded with the rest of the subtree, panel background included. */
   .chat-composer--sending .composer-trigger,
   .chat-composer--sending .model-label {
     opacity: 0.72;
   }
 
+  /* Basis 0: `field-sizing` would otherwise size the width to the placeholder too. */
   .chat-composer__textarea {
-    width: 100%;
+    flex: 1 1 0;
+    min-width: 0;
+    align-self: center;
     background: transparent !important;
     border: none !important;
     outline: none;
     resize: none;
-    padding: 4px 2px !important;
+    /* Margin, not padding: WebKit sizes an empty `field-sizing` box to its placeholder alone,
+       leaving the box's own padding out, so vertical padding here clips the last line. */
+    margin: 4px 0;
+    padding: 0 2px !important;
     font-family: var(--font-sans);
-    font-size: 15px;
+    font-size: var(--composer-font);
     color: #fff;
-    line-height: 1.55;
+    line-height: var(--composer-leading);
     /* Sizes the box to what's in it, and the empty box to its *placeholder* — two lines
        where that wraps on a phone, one everywhere it fits, never a dead row. */
     field-sizing: content;
@@ -3125,7 +3128,7 @@ html {
      rest while it shows rather than clipping the wrapped half. */
   @supports not (field-sizing: content) {
     .chat-composer__textarea:placeholder-shown {
-      min-height: calc(2lh + 8px);
+      min-height: 2lh;
     }
   }
 
@@ -3139,19 +3142,11 @@ html {
     outline: none !important;
   }
 
-  .chat-composer__actions {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    margin-top: 2px;
-  }
-
   .chat-composer__tools {
     display: inline-flex;
+    flex: 0 0 auto;
     align-items: center;
-    gap: 6px;
-    min-width: 0;
+    height: var(--composer-line);
   }
 
   /* `min-width: 0` lets the model label be the part that gives when the row is
@@ -3161,7 +3156,7 @@ html {
     align-items: center;
     flex-shrink: 1;
     min-width: 0;
-    margin-left: auto;
+    height: var(--composer-line);
     gap: 8px;
   }
 
@@ -3174,24 +3169,19 @@ html {
     width: 30px;
     height: 30px;
     border-radius: 999px;
-    background: linear-gradient(180deg, #fff, #e2e8f0);
-    color: #030712;
+    background: var(--color-accent);
+    color: var(--color-accent-ink);
     transition: transform 0.15s ease, background 0.15s ease, opacity 0.15s ease;
   }
 
   .composer-send:hover:not(:disabled) {
     transform: translateY(-1px);
-    background: #fff;
+    background: var(--color-accent-bright);
   }
 
   .composer-send:disabled {
-    opacity: 0.4;
+    opacity: 0.35;
     cursor: not-allowed;
-  }
-
-  .composer-send:focus-visible {
-    outline: 2px solid rgba(180, 195, 230, 0.6);
-    outline-offset: 2px;
   }
 
   .composer-send--stop {
@@ -3221,7 +3211,7 @@ html {
     padding: 2px 2px;
     font-size: 12.5px;
     font-weight: 500;
-    color: #94a3b8;
+    color: var(--color-text);
     background: none;
     border: none;
   }
@@ -3237,7 +3227,13 @@ html {
   .model-label__effort {
     flex: 0 0 auto;
     font-size: 11.5px;
-    color: #64748b;
+    color: var(--color-text-faint);
+  }
+
+  .model-label__effort::before {
+    content: "·" / "";
+    margin-right: 5px;
+    color: #4b5563;
   }
 
   .model-label__lock {
@@ -3253,7 +3249,7 @@ html {
   }
 
   .model-label--button:hover {
-    color: #e2e8f0;
+    color: var(--color-text-strong);
   }
 
   .model-label--button:focus-visible {
@@ -3266,80 +3262,37 @@ html {
     color: #fcd34d;
   }
 
-  /* The effort word yields before the model name does, but only once the row is genuinely
-     tight: a progress pill sharing it on the narrowest phones. A 390px phone has room for
-     `glm-5.2 high` even beside a pill, and dropping it there would cost the reader the
-     effort for no gain. Past this the name is what truncates. */
-  @media (max-width: 380px) {
-    .chat-composer__actions--crowded .model-label__effort {
+  /* On a phone the text needs the width more than the effort level does. */
+  @media (width < 480px) {
+    .model-label__effort {
       display: none;
     }
 
-    .chat-composer__actions--crowded .model-label__name {
+    .model-label__name {
       max-width: 14ch;
     }
   }
 
-  /* Composer triggers: the options `+` and the progress pill. */
+  /* The options `+`. */
 
   .composer-trigger {
     position: relative;
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    height: 26px;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
     border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.04);
-    color: #cbd5e1;
-    font-size: 12px;
-    font-variant-numeric: tabular-nums;
-    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface-3);
+    color: var(--color-text-muted);
+    transition: border-color 0.15s ease, color 0.15s ease;
   }
 
   .composer-trigger:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: #fff;
-  }
-
-  .composer-trigger:focus-visible {
-    outline: 2px solid rgba(180, 195, 230, 0.5);
-    outline-offset: 2px;
-  }
-
-  .composer-trigger--icon {
-    width: 26px;
-    justify-content: center;
-    padding: 0;
-  }
-
-  .composer-trigger--pill {
-    padding: 0 10px;
-  }
-
-  .composer-trigger--warn {
-    border-color: rgba(251, 191, 36, 0.28);
-    background: rgba(251, 191, 36, 0.1);
-    color: #fcd34d;
-  }
-
-  .composer-trigger--live {
-    border-color: rgba(96, 165, 250, 0.28);
-    background: rgba(96, 165, 250, 0.1);
-    color: #bfdbfe;
-  }
-
-  .composer-trigger__live {
-    width: 6px;
-    height: 6px;
-    border-radius: 999px;
-    background: currentColor;
-    animation: composer-trigger-pulse 1.4s ease-in-out infinite;
-  }
-
-  @keyframes composer-trigger-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.25; }
+    border-color: color-mix(in srgb, var(--color-text-muted) 40%, var(--color-border));
+    color: var(--color-text-strong);
   }
 
   /* Selection differs from the defaults — currently only MCP servers can cause it,
@@ -3536,7 +3489,7 @@ html {
     animation: fade-up 0.3s ease-out backwards;
   }
 
-  /* Context row — repo · branch (+ MR). Lives in the dock, above the composer box, so it
+  /* Context row — repo · branch (+ MR). Lives in the dock, under the composer box, so it
      is sticky and cannot scroll away. It is the repo *picker* until a thread exists. */
 
   .chat-context {
@@ -3544,7 +3497,6 @@ html {
     align-items: center;
     flex-wrap: wrap;
     gap: 6px;
-    padding: 0 2px 8px;
     min-width: 0;
   }
 
@@ -3602,9 +3554,9 @@ html {
     gap: 6px;
     padding: 4px 10px;
     border-radius: 999px;
-    border: 1px solid rgba(167, 139, 250, 0.35);
-    background: rgba(167, 139, 250, 0.12);
-    color: #ddd6fe;
+    border: 1px solid color-mix(in srgb, var(--color-accent) 35%, transparent);
+    background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+    color: var(--color-accent-bright);
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
@@ -3612,8 +3564,8 @@ html {
   }
 
   .repo-context-trigger:hover {
-    background: rgba(167, 139, 250, 0.2);
-    border-color: rgba(167, 139, 250, 0.5);
+    background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+    border-color: color-mix(in srgb, var(--color-accent) 50%, transparent);
   }
 
   .repo-chip__caret {
@@ -3662,6 +3614,107 @@ html {
 
   .composer-autocomplete__icon {
     @apply h-3.5 w-3.5 mt-1 shrink-0 opacity-70;
+  }
+
+  /* Progress drawer. Tucked under the composer's top edge: the composer comes later in the dock,
+     so it paints over the drawer's lower 12px. Open, it grows upwards in place. */
+
+  .progress-drawer {
+    position: relative;
+    margin: 0 18px -12px;
+    padding: 0 10px 12px;
+    border: 1px solid var(--color-border);
+    border-bottom: 0;
+    border-radius: 9px 9px 0 0;
+    background: var(--color-surface-1);
+    font-size: 12px;
+  }
+
+  .progress-drawer__bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 2px 0;
+    line-height: 18px;
+    text-align: left;
+    color: var(--color-text);
+    cursor: pointer;
+  }
+
+  .progress-drawer__live {
+    flex: 0 0 auto;
+    width: 5px;
+    height: 5px;
+    border-radius: 999px;
+    background: var(--color-status-attn);
+    animation: pulse-dot 1.4s ease-in-out infinite;
+  }
+
+  .progress-drawer__step {
+    flex: 0 0 auto;
+    @apply font-mono;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-text-muted);
+  }
+
+  .progress-drawer__text {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .progress-drawer__meta {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 8px;
+    font-size: 11.5px;
+    color: var(--color-text-faint);
+  }
+
+  .progress-drawer__chevron {
+    width: 11px;
+    height: 11px;
+    transform: rotate(180deg);
+    transition: transform 0.2s ease;
+  }
+
+  .progress-drawer--open .progress-drawer__chevron {
+    transform: none;
+  }
+
+  .progress-drawer--idle .progress-drawer__text,
+  .progress-drawer--warn .progress-drawer__text {
+    color: var(--color-text-muted);
+  }
+
+  .progress-drawer--warn .progress-drawer__step {
+    color: var(--color-status-found);
+  }
+
+  .progress-drawer__body {
+    max-height: min(50vh, 260px);
+    overflow-y: auto;
+    padding: 12px 2px 10px;
+    border-bottom: 1px solid var(--color-border);
+    margin-bottom: 4px;
+  }
+
+  /* The shared `group + group` divider still matches a hidden Todos section before it. */
+  .progress-drawer__body .composer-sheet__group.progress-drawer__files--alone {
+    margin-top: 0;
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  @media (width < 480px) {
+    .progress-drawer__files {
+      display: none;
+    }
   }
 
   /* Sheets. Same markup at every width: a bottom sheet below 1100px, an anchored
@@ -3795,7 +3848,7 @@ html {
     color: #8592a8;
   }
 
-  .composer-sheet__file {
+  .progress-drawer__file {
     display: flex;
     align-items: baseline;
     gap: 6px;
@@ -3809,11 +3862,11 @@ html {
     cursor: pointer;
   }
 
-  .composer-sheet__file:hover {
+  .progress-drawer__file:hover {
     background: rgba(255, 255, 255, 0.04);
   }
 
-  .composer-sheet__file-op {
+  .progress-drawer__file-op {
     flex: 0 0 12px;
     text-align: center;
     font-weight: 600;
@@ -3831,7 +3884,7 @@ html {
   .diff-stat__plus { color: #34d399; }
   .diff-stat__minus { color: #fca5a5; }
 
-  .composer-sheet__file-path {
+  .progress-drawer__file-path {
     flex: 1 1 auto;
     min-width: 0;
     white-space: nowrap;
@@ -3839,22 +3892,22 @@ html {
     text-overflow: ellipsis;
   }
 
-  .composer-sheet__file--added .composer-sheet__file-op { color: #34d399; }
-  .composer-sheet__file--deleted .composer-sheet__file-op { color: #f87171; }
-  .composer-sheet__file--deleted .composer-sheet__file-path {
+  .progress-drawer__file--added .progress-drawer__file-op { color: #34d399; }
+  .progress-drawer__file--deleted .progress-drawer__file-op { color: #f87171; }
+  .progress-drawer__file--deleted .progress-drawer__file-path {
     color: #94a3b8;
     text-decoration: line-through;
   }
-  .composer-sheet__file--renamed .composer-sheet__file-op { color: #60a5fa; }
+  .progress-drawer__file--renamed .progress-drawer__file-op { color: #60a5fa; }
 
-  .composer-sheet__more {
+  .progress-drawer__more {
     padding: 6px 4px 0;
     font-size: 11.5px;
     color: #8592a8;
     cursor: pointer;
   }
 
-  .composer-sheet__more:hover {
+  .progress-drawer__more:hover {
     color: #cbd5e1;
   }
 
@@ -4379,11 +4432,13 @@ html {
     @apply inline-flex items-center rounded-md bg-white/[0.05] px-1.5 py-0.5 font-mono text-[11px] text-gray-300;
   }
 
-  /* Thin, dimly-tinted scrollbar for scrollable popover lists (repo/branch/env pickers).
-     Firefox uses `scrollbar-*`; WebKit needs the pseudo-elements. */
-  .scrollbar-thin {
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+  /* Thin, dimly-tinted scrollbar. Firefox uses `scrollbar-*`; WebKit and Chromium the pseudo-elements,
+     which Chromium ignores once `scrollbar-width` is set — hence the guard. */
+  @supports not selector(::-webkit-scrollbar) {
+    .scrollbar-thin {
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+    }
   }
   .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
   .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }

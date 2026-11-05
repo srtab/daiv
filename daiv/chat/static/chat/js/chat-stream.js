@@ -151,12 +151,14 @@
   const DEFAULT_LABELS = {
     file: "file",
     files: "files",
-    stopped: "stopped",
+    allDone: "All steps done",
+    stopped: "Stopped",
+    stoppedAt: "Stopped at: {step}",
+    filesChanged: "Files changed",
     tool: "tool",
     tools: "tools",
     filteredTo: "filtered to",
     notSynced: "not synced yet",
-    mcpServers: "MCP servers",
     // Context meter + spend. BRACE placeholders only, and no literal "%" in a msgid —
     // the sign travels inside a placeholder value ({percent} arrives as "42%").
     ariaContext: "Context: {percent} of {window} used",
@@ -282,8 +284,6 @@
     return [];
   };
 
-  const countDone = (todos) => todos.filter((t) => (t.status || "").toLowerCase() === "completed").length;
-
   // One walk for two outputs. `files`: every file the agent has written, most-recent first, as
   // { path, op, fromPath?, segmentId }. `artifacts`: the last publish result per artifact id, what its URL serves now.
   const collectOutputs = (turns) => {
@@ -322,6 +322,13 @@
   const FILE_FIELDS = ["path", "op", "fromPath", "segmentId"];
   const ARTIFACT_FIELDS = ["id", "status", "title", "filename", "kind", "size", "url", "download_url"];
 
+  const sameDrawer = (a, b) =>
+    a === b ||
+    (Boolean(a && b) &&
+      ["tone", "step", "text", "files"].every((f) => a[f] === b[f]) &&
+      a.diff?.added === b.diff?.added &&
+      a.diff?.removed === b.diff?.removed);
+
   const chat = (config) => {
   // What the transcript effect last published. Write-side only — never read by a binding —
   // so it is not the getter cache this replaced: it exists to keep the effect from reading
@@ -332,6 +339,7 @@
   let publishedArtifactsById = new Map();
   let publishedBlocks = [];
   let publishedGroupKey = null;
+  let publishedDrawer = null;
   return {
     endpoint: config.endpoint,
     streamEndpoint: config.streamEndpoint || "",
@@ -369,7 +377,7 @@
     _envAutoLabel: config.envAutoLabel || "Auto",
     turns: loadInitialTurns(),
     // Server-measured diff for the work published so far, refreshed by every
-    // STATE_SNAPSHOT that carries it. Drives the ``+x −y`` progress pill.
+    // STATE_SNAPSHOT that carries it. Drives the progress drawer's ``+x −y``.
     diffStats: loadInitialDiffStats(),
     // Context meter + spend. Plain props replaced whole (never getters over `turns`);
     // the getters below derive everything a binding renders from these two objects.
@@ -404,19 +412,21 @@
     _runAnchorWatch: null,
     _scrollListener: null,
     _deriveTranscript: null,
+    _deriveDrawer: null,
     // Wall-clock origin of the run in progress, 0 when idle. Read by the loader's
     // `elapsed` clock; set where a run actually starts, never inferred.
     runStartedAt: 0,
     // Derived from `turns` by the one effect `init()` arms, never by the bindings that read
-    // them: ~15 always-mounted bindings ask for these (the pill, its tone, the label, the
-    // crowded modifier, the sheet's two lists and counts), and a getter that walked the
-    // transcript per read cost 20 full passes per streamed `args` delta — seconds of main
-    // thread over a long run. Plain props keep every reader subscribed (reading a reactive
+    // them: ~15 always-mounted bindings ask for these (the drawer's bar and its todo and file
+    // lists), and a getter that walked the transcript per read cost 20 full passes per
+    // streamed `args` delta — seconds of main thread over a long run. Plain props keep every reader subscribed (reading a reactive
     // prop subscribes) at O(1) a read; what must never come back is a value *cached inside
     // a getter*, which serves every reader after the first without touching `turns` and
     // leaves those bindings subscribed to nothing.
     latestTodos: [],
     filesTouched: [],
+    // The drawer's bar, or ``null`` when it has nothing to show; derived by its own effect in `init()`.
+    progressDrawer: null,
     latestArtifactsById: new Map(),
     runBlocks: [],
     currentGroupKey: null,
@@ -428,8 +438,7 @@
     now: 0,
     _nowTimer: null,
     _announceOpen: null,
-    // Which composer sheet is open: "" | "options" | "progress". One at a time — the two
-    // are separate surfaces on purpose (what you configure vs. what the run produced).
+    // Which composer surface is open: "" | "options" | "context" | "progress" (the drawer). One at a time.
     sheet: "",
     // Translated fragments the JS composes counts out of; the server owns the wording.
     _labels: { ...DEFAULT_LABELS, ...(config.labels || {}) },
@@ -805,10 +814,13 @@
         if (groupKey !== publishedGroupKey) this.currentGroupKey = publishedGroupKey = groupKey;
       });
 
-      // A progress sheet whose trigger just disappeared (follow-up ask clears the todos
-      // and files) would otherwise stay "open" and pop back into view on the next turn.
-      this.$watch("!progressPill", (gone) => {
-        if (gone && this.sheet === "progress") this.sheet = "";
+      // Apart from the transcript effect: it also follows run state and `diffStats`.
+      this._deriveDrawer = window.Alpine.effect(() => {
+        const next = this._buildProgressDrawer();
+        if (sameDrawer(next, publishedDrawer)) return;
+        // Emptied by a follow-up ask, an open drawer would otherwise reopen on its own next turn.
+        if (!next && this.sheet === "progress") this.sheet = "";
+        this.progressDrawer = publishedDrawer = next;
       });
 
       // <main> is the actual scroll container — body is h-dvh, so the window
@@ -860,6 +872,7 @@
 
     destroy() {
       if (this._deriveTranscript) window.Alpine.release(this._deriveTranscript);
+      if (this._deriveDrawer) window.Alpine.release(this._deriveDrawer);
       if (this._scrollListener && this._scrollEl) {
         this._scrollEl.removeEventListener("scroll", this._scrollListener);
       }
@@ -1094,46 +1107,39 @@
       return { tone: "thinking", label: window.TranscriptLabels.t("thinking") };
     },
 
-    get todosProgress() {
-      const todos = this.latestTodos;
-      return `${countDone(todos)}/${todos.length}`;
-    },
-
     get showJumpToLatest() {
       return this.streaming && !this._autoFollow;
     },
 
-    // ---------- Progress trigger --------------------------------------
+    // ---------- Progress drawer ---------------------------------------
 
-    // The composer's progress pill, or ``null`` when there is nothing behind it. The
-    // decision is made on *content*, never on run state: no todos, no files and no diff
-    // means no button, because an empty sheet is worse than no way into one.
-    //
-    // Mid-turn the pill reports counts only — the work isn't committed yet, so line
-    // numbers would be a guess. A cancelled turn is the one state where work can sit
-    // uncommitted for good, so it keeps counts too.
-    get progressPill() {
+    // ``null`` when there is nothing to show: an empty drawer is worse than none. Line totals
+    // wait for a finished run, since mid-turn or after a stop they describe unpublished work.
+    _buildProgressDrawer() {
       const todos = this.latestTodos;
       const files = this.filesTouched;
-      const parts = [];
-      if (todos.length) parts.push(`${countDone(todos)}/${todos.length}`);
-      if (files.length) parts.push(this._filesLabel(files.length));
+      const live = this.streaming || this.resuming;
+      const stopped = !live && this._lastRunAborted();
+      const stats = !live && !stopped && !config.diffInDetails ? this.diffStats : null;
+      const diff = stats && (stats.added || stats.removed) ? stats : null;
+      if (!todos.length && !files.length && !diff) return null;
 
-      if (this.streaming || this.resuming) {
-        return parts.length ? { tone: "live", label: parts.join(" · ") } : null;
-      }
-      // A cancelled turn can leave work uncommitted for good, so counts stay the only
-      // truth there — a line total would describe something that was never published.
-      if (this._lastRunAborted()) {
-        return parts.length ? { tone: "warn", label: [this._labels.stopped, ...parts].join(" · ") } : null;
-      }
-      // ``diff`` rather than a joined label: added and removed are tinted separately,
-      // the way they are everywhere else a diff is reported. A session page shows it in its details panel instead.
-      const stats = this.diffStats;
-      if (!config.diffInDetails && stats && (stats.added || stats.removed)) {
-        return { tone: "idle", label: "", diff: stats };
-      }
-      return parts.length ? { tone: "idle", label: parts.join(" · ") } : null;
+      const status = (t) => (t.status || "").toLowerCase();
+      const running = todos.findIndex((t) => status(t) === "in_progress");
+      const at = running >= 0 ? running : todos.findIndex((t) => status(t) !== "completed");
+      const current = todos[at];
+      let text = this._labels.filesChanged;
+      if (current) text = stopped ? formatBraces(this._labels.stoppedAt, { step: current.content }) : current.content;
+      else if (stopped) text = this._labels.stopped;
+      else if (todos.length) text = this._labels.allDone;
+
+      return {
+        tone: live ? "live" : stopped ? "warn" : "idle",
+        step: todos.length ? `${current ? at + 1 : todos.length}/${todos.length}` : "",
+        text,
+        files: files.length ? this._filesLabel(files.length) : "",
+        diff,
+      };
     },
 
     // ---------- Context meter ------------------------------------------
@@ -1242,12 +1248,6 @@
       } catch (err) {
         console.warn("chat: spend refresh failed", err);
       }
-    },
-
-    // What the hero's selection line shows before a thread exists: the two things the
-    // first turn will run with that aren't already on screen.
-    get heroSelectionLabel() {
-      return `${this.lockedEnvLabel} · ${this.mcpSelected.length} ${this._labels.mcpServers}`;
     },
 
     _filesLabel(n) {
@@ -1497,7 +1497,7 @@
       });
     },
 
-    // Status-letter marks, as the progress sheet's rows are specified. ``+``/``−``/``~``
+    // Status-letter marks for the progress drawer's file rows. ``+``/``−``/``~``
     // would read as line counts in a list that also carries them.
     fileOpMark(op) {
       switch ((op || "modified").toLowerCase()) {

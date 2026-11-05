@@ -1562,7 +1562,7 @@ class TestPublishPipelineHeal:
 
 
 class TestPublishDiffStats:
-    """``+x −y`` for the composer's progress pill: counted from the snapshot the publish
+    """``+x −y`` for the composer's progress drawer: counted from the snapshot the publish
     already took, never fetched back from the platform."""
 
     async def test_counts_the_snapshot_diff(self, monkeypatch):

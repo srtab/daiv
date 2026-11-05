@@ -108,17 +108,8 @@ msgstr "Progresso da sessão"
 msgid "Progress"
 msgstr "Progresso"
 
-msgid "Todos"
-msgstr "Tarefas"
-
-msgid "Nothing planned yet."
-msgstr "Ainda não há nada planeado."
-
 msgid "Files changed"
 msgstr "Ficheiros alterados"
-
-msgid "No files touched yet."
-msgstr "Ainda não foi alterado nenhum ficheiro."
 
 msgid "Show all"
 msgstr "Mostrar tudo"
