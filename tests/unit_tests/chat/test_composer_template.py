@@ -117,6 +117,17 @@ def test_an_archived_session_hides_the_drawer_with_the_composer(member_client, m
 
 
 @pytest.mark.django_db
+def test_the_drawer_lists_files_changed_only_when_there_are_some(member_client, member_user):
+    html = render_thread(member_client, create_session(member_user))
+    drawer = html[html.index('class="progress-drawer"') :]
+    label = drawer.index("Files changed")
+    section = re.findall(r"<section[^>]*>", drawer[:label])[-1]
+
+    assert X_SHOW.search(section)[1] == "filesTouched.length"
+    assert "No files touched yet." not in html
+
+
+@pytest.mark.django_db
 def test_the_plus_and_the_buttons_flank_the_text(member_client, member_user):
     html = render_thread(member_client, create_session(member_user))
     composer = html[html.index('class="chat-composer"') :]

@@ -24,10 +24,10 @@ decides whether it shows and what the bar says; open is ``sheet === 'progress'``
       </div>
     </section>
 
-    <section class="composer-sheet__group">
+    <section class="composer-sheet__group" x-show="filesTouched.length">
       <h3 class="composer-sheet__label">
         {% translate "Files changed" %}
-        <span x-show="filesTouched.length" x-text="`· ${filesTouched.length}`"></span>
+        <span x-text="`· ${filesTouched.length}`"></span>
         {# Whole-run totals: the diff is measured once, not file by file. #}
         <template x-if="diffStats">
           <span class="diff-stat">·
@@ -36,7 +36,6 @@ decides whether it shows and what the bar says; open is ``sheet === 'progress'``
           </span>
         </template>
       </h3>
-      <p class="composer-sheet__empty" x-show="!filesTouched.length">{% translate "No files touched yet." %}</p>
       <template x-for="f in filesTouched.slice(0, filesTouchedLimit)" :key="f.path">
         <button type="button" class="progress-drawer__file"
                 :class="`progress-drawer__file--${f.op || 'modified'}`"

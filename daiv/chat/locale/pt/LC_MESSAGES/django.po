@@ -114,9 +114,6 @@ msgstr "Ainda não há nada planeado."
 msgid "Files changed"
 msgstr "Ficheiros alterados"
 
-msgid "No files touched yet."
-msgstr "Ainda não foi alterado nenhum ficheiro."
-
 msgid "Show all"
 msgstr "Mostrar tudo"
 
