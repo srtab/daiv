@@ -29,6 +29,11 @@ class StartSessionRequest(BaseModel):
 class RunCommandsRequest(BaseModel):
     commands: list[str] = Field(description="The commands to run in the session.")
     fail_fast: bool = Field(default=True, description="Whether to fail fast if any command fails.")
+    timeout: int | None = Field(
+        default=None,
+        ge=0,
+        description="Per-command timeout in seconds. None uses the sandbox default; 0 means no timeout.",
+    )
 
 
 class RunCommandResult(BaseModel):
@@ -46,6 +51,11 @@ class RunCommandResult(BaseModel):
         )
     )
     exit_code: int
+    timed_out: bool = Field(
+        default=False,
+        exclude=True,
+        description="True when the sandbox killed the command at its timeout; `output` then holds what it printed.",
+    )
 
 
 class RunCommandsResponse(BaseModel):

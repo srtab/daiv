@@ -28,6 +28,7 @@ def has_auto_label(label_names: Iterable[str]) -> bool:
 
 
 SANDBOX_DOWNLOAD_MAX_BYTES = 64 * 1024 * 1024
+SANDBOX_TIMEOUT_EXIT_CODE = 124
 
 # User-facing terminal messages for chat runs. Written by the chat streamer (as the
 # RUN_ERROR event message and persisted to Run.error_message), and rendered verbatim in

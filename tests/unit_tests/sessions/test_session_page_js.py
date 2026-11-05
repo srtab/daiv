@@ -21,14 +21,14 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
 const {
-  src, labelsSrc, initial, watch, delegations, wide, stored, storageBlocked, archived, steps,
+  src, labelsSrc, initial, watch, delegations, repositories, thread, wide, stored, storageBlocked, archived, steps,
 } = JSON.parse(readFileSync(0, "utf8"));
 const components = {};
 const fetches = [];
 const pending = [];
 const storage = new Map(stored == null ? [] : [["key", stored]]);
 let clock = 10;
-const json = { "session-header": { latest_run: initial, watch, run_count: 1, delegations } };
+const json = { "session-header": { latest_run: initial, watch, run_count: 1, delegations, repositories } };
 const watchers = {};
 const frames = [];
 const timers = [];
@@ -84,7 +84,7 @@ const page = components.sessionPage({
 });
 const focused = [];
 Object.assign(page, {
-  streaming: false, resuming: false, waiting: false, archived, csrfToken: "tok", $nextTick: (cb) => cb(),
+  streaming: false, resuming: false, waiting: false, archived, thread, csrfToken: "tok", $nextTick: (cb) => cb(),
   $watch: (expression, callback) => { watchers[expression] = callback; },
   $refs: {
     titleInput: { focus: () => focused.push("input"), select() {} },
@@ -93,6 +93,7 @@ Object.assign(page, {
 });
 page.init();
 const flush = () => new Promise((resolve) => setImmediate(resolve));
+let lastRepositories;
 const seen = [];
 let sending = null;
 for (const [action, value] of steps) {
@@ -123,9 +124,12 @@ for (const [action, value] of steps) {
       ciTexts: page.ci.map((item) => page.ciText(item)),
       delegations: page.delegations, delegationsLabel: page.delegationsBadge.label,
       delegationsState: page.delegationsBadge.state, legs: (page.delegations?.legs ?? []).map((leg) => leg.repo_id),
+      repositories: page.repositories, repositoryRows: page.repositoryRows,
+      repositoriesKept: page.repositories === lastRepositories,
       timers: timers.map((timer) => timer.ms),
       intervals: intervals.filter((i) => !i.cleared).map((i) => i.ms),
     });
+    lastRepositories = page.repositories;
   }
 }
 process.stdout.write(JSON.stringify({
@@ -145,7 +149,17 @@ def _ci(status="running", *, explanation=None, iid=7) -> dict:
 
 
 def _run(
-    steps, *, initial=DONE, watch=None, delegations=None, wide=True, stored=None, storage_blocked=False, archived=False
+    steps,
+    *,
+    initial=DONE,
+    watch=None,
+    delegations=None,
+    repositories=None,
+    thread=None,
+    wide=True,
+    stored=None,
+    storage_blocked=False,
+    archived=False,
 ) -> dict:
     payload = {
         "src": str(SESSION_PAGE_JS),
@@ -153,6 +167,8 @@ def _run(
         "initial": initial,
         "watch": watch,
         "delegations": delegations,
+        "repositories": repositories,
+        "thread": thread,
         "wide": wide,
         "stored": stored,
         "storageBlocked": storage_blocked,
@@ -654,3 +670,67 @@ def test_a_poll_without_delegations_keeps_the_ones_the_page_has():
     seen = _run([["poll", {"latest_run": FAILED}], ["read", None]], delegations=delegations)["seen"][0]
 
     assert (seen["delegations"], seen["delegationsLabel"]) == (delegations, "2 delegated · 1 running")
+
+
+def _repo(repo_id, ref, mr_iid=None) -> dict:
+    mr_url = f"https://gl/{repo_id}/-/merge_requests/{mr_iid}" if mr_iid else ""
+    return {"repo_id": repo_id, "ref": ref, "mr_url": mr_url, "mr_iid": mr_iid}
+
+
+def test_the_repositories_card_follows_each_turns_payload():
+    rendered = {"rows": [_repo("g/app", "daiv/fix", 7), _repo("g/mod", "main")], "publish_errors": []}
+    published = {
+        "rows": [_repo("g/app", "daiv/fix", 7), _repo("g/mod", "daiv/fix", 3)],
+        "publish_errors": [{"repo_id": "g/lib", "error": "push rejected"}],
+    }
+
+    steps = [["read", None], ["poll", {"latest_run": DONE, "repositories": published}], ["read", None]]
+    seen = _run(steps, repositories=rendered)["seen"]
+
+    assert [s["repositories"] for s in seen] == [rendered, published]
+
+
+def test_a_single_repository_session_has_no_repositories_card():
+    assert _read()["repositories"] is None
+
+
+def test_a_failed_fetch_keeps_the_repositories_card():
+    repositories = {"rows": [_repo("g/app", "main"), _repo("g/mod", "main")], "publish_errors": []}
+
+    seen = _run([["poll", None], ["read", None]], repositories=repositories)["seen"][0]
+
+    assert seen["repositories"] == repositories
+
+
+def test_the_main_row_takes_the_chats_branch_and_merge_request():
+    repositories = {"rows": [_repo("g/app", "main", 7), _repo("g/mod", "main")], "publish_errors": []}
+    thread = {"ref": "daiv/fix", "merge_request": {"url": "https://gl/g/app/-/merge_requests/9", "id": 9}}
+
+    seen = _read(repositories=repositories, thread=thread)
+
+    assert seen["repositoryRows"] == [_repo("g/app", "daiv/fix", 9), _repo("g/mod", "main")]
+
+
+def test_without_the_chats_merge_request_the_main_row_keeps_the_servers():
+    repositories = {"rows": [_repo("g/app", "main", 7), _repo("g/mod", "main")], "publish_errors": []}
+
+    seen = _read(repositories=repositories, thread={"ref": "main", "merge_request": None})
+
+    assert seen["repositoryRows"] == repositories["rows"]
+
+
+def test_an_unchanged_repositories_card_is_left_alone():
+    errors = [{"repo_id": "g/mod", "error": "x"}]
+    repositories = {"rows": [_repo("g/app", "main"), _repo("g/mod", "main")], "publish_errors": errors}
+    changed = {**repositories, "publish_errors": []}
+    steps = [
+        ["read", None],
+        ["poll", {"latest_run": DONE, "repositories": repositories}],
+        ["read", None],
+        ["poll", {"latest_run": DONE, "repositories": changed}],
+        ["read", None],
+    ]
+
+    kept = [s["repositoriesKept"] for s in _run(steps, repositories=repositories)["seen"]]
+
+    assert kept == [False, True, False]

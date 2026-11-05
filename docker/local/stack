@@ -42,7 +42,7 @@ port_in_use() {
 }
 
 claim_slot() {
-    local claimed n
+    local claimed n host
     if command -v flock >/dev/null; then
         exec 9>"$common_dir/daiv-stack-slot.lock"
         flock 9
@@ -50,6 +50,8 @@ claim_slot() {
     claimed=$(git worktree list --porcelain | sed -n 's/^worktree //p' | while read -r path; do
         sed -n 's/^WORKTREE_SLOT=//p' "$path/.env" 2>/dev/null || true
     done)
+    # A slot shares the main app's host, so its certificate and GitLab sign-in app serve the slot too.
+    host=$(app_env DAIV_EXTERNAL_URL "$main" 2>/dev/null | sed 's|^[^/]*//||; s|[:/].*||' || true)
     for n in $(seq 1 99); do
         if grep -qx "$n" <<<"$claimed" || port_in_use $((8000 + n)); then
             continue
@@ -59,6 +61,8 @@ COMPOSE_PROJECT_NAME=daiv-$n
 COMPOSE_FILE=docker-compose.yml:docker/compose.worktree.yml
 WORKTREE_SLOT=$n
 APP_HOST_PORT=$((8000 + n))
+APP_HOST=${host:-localhost}
+COMPOSE_PROFILES=gitlab,sandbox
 EOF
         return
     done
@@ -70,6 +74,11 @@ shared() {
     docker compose --project-directory "$main" "$@"
 }
 
+app_env() {
+    docker compose --project-directory "$2" config --format json app |
+        python3 -c 'import json, sys; print(json.load(sys.stdin)["services"]["app"]["environment"].get(sys.argv[1]) or "")' "$1"
+}
+
 [ -f .env ] || claim_slot
 
 slot=$(sed -n 's/^WORKTREE_SLOT=//p' .env)
@@ -78,10 +87,12 @@ if ! [[ $slot =~ ^[1-9][0-9]?$ ]]; then
     exit 1
 fi
 database=db_$slot
+port=$((8000 + slot))
+host=$(sed -n 's/^APP_HOST=//p' .env)
+url=https://${host:-localhost}:$port
 
-if [ ! -f .claude/launch.json ]; then
-    mkdir -p .claude
-    cat >.claude/launch.json <<EOF
+mkdir -p .claude
+cat >.claude/launch.json <<EOF
 {
   "version": "0.0.1",
   "configurations": [
@@ -89,20 +100,31 @@ if [ ! -f .claude/launch.json ]; then
       "name": "daiv",
       "runtimeExecutable": "docker/local/stack",
       "runtimeArgs": ["up"],
-      "port": $((8000 + slot)),
+      "port": $port,
+      "url": "$url",
       "autoPort": false
     }
   ]
 }
 EOF
-fi
 if [ "$command" = env ]; then
     exit
 fi
 
 [ -f "$secrets" ] || cp "$main/$secrets" "$secrets"
 
-shared up --detach --wait db mailpit
+# The slot's own project overrides these profiles away, so they start the main checkout's services.
+profiles=${COMPOSE_PROFILES-$(sed -n 's/^COMPOSE_PROFILES=//p' .env)}
+services=(db mailpit)
+gitlab=false
+if [[ ,$profiles, =~ ,(gitlab|full), ]]; then
+    services+=(gitlab gitlab_runner)
+    gitlab=true
+fi
+if [[ ,$profiles, =~ ,(sandbox|full), ]]; then
+    services+=(sandbox)
+fi
+shared up --detach --wait "${services[@]}"
 
 # The copy's comment names the worktree it was made for, so a slot's next worktree never inherits it.
 copied_for=$(shared exec -T db psql -U dbuser -d postgres -tAc "SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname = '$database'")
@@ -119,6 +141,19 @@ if [ "$command" = db-reset ] || [ "$copied_for" != "$PWD" ]; then
             pg_dump -U dbuser -d db --exclude-table-data='checkpoint*' | psql -U dbuser -d $database -q -v ON_ERROR_STOP=1 >/dev/null &&
                 psql -U dbuser -d $database -qc \"$drop_queued\"
         } || { dropdb -U dbuser $database; exit 1; }" sh "$PWD"
+fi
+
+# GitLab sends a sign-in back only to a registered redirect URI, so register this slot's on the app.
+if [ "$gitlab" = true ]; then
+    client_id=$(app_env ALLAUTH_CLIENT_ID "$PWD")
+    if [ -z "$client_id" ]; then
+        client_id=$(shared exec -T db psql -U dbuser -d "$database" -tAc "SELECT auth_client_id FROM core_siteconfiguration")
+    fi
+    shared exec -T gitlab gitlab-psql -qtA -v uid="$client_id" -v callback="$url/accounts/gitlab/login/callback/" <<'SQL'
+UPDATE oauth_applications SET redirect_uri = redirect_uri || E'\n' || :'callback'
+WHERE uid = :'uid' AND NOT :'callback' = ANY (regexp_split_to_array(redirect_uri, '\s+'))
+RETURNING 'Registered ' || :'callback' || ' on the GitLab application ' || name;
+SQL
 fi
 
 # Recreated on every run: the main checkout's stack may have recreated daiv_default under a new id.

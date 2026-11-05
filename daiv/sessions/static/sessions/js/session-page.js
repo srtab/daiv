@@ -65,6 +65,7 @@ document.addEventListener("alpine:init", () => {
     upNext: null,
     runCount: 0,
     delegations: null,
+    repositories: null,
     title: config.title || "",
     titleDraft: "",
     titleWidth: 0,
@@ -184,7 +185,20 @@ document.addEventListener("alpine:init", () => {
       if ("watch" in data && !stale) this._showCi(data);
       if ("up_next" in data) this._applyUpNext(data.up_next ?? null, data.requestedAt ?? -Infinity);
       if ("delegations" in data) this.delegations = data.delegations ?? null;
+      if ("repositories" in data) this._applyRepositories(data.repositories ?? null);
       if (data.title && !this.editingTitle) this._showTitle(data.title);
+    },
+    // An unchanged card is left alone, as rewriting its errors would have them announced again.
+    _applyRepositories(next) {
+      if (JSON.stringify(next) !== JSON.stringify(this.repositories)) this.repositories = next;
+    },
+    // The main repository's branch and merge request are the chat's, which the live stream keeps current.
+    get repositoryRows() {
+      const [main, ...extras] = this.repositories?.rows ?? [];
+      if (!main) return [];
+      const mr = this.thread?.merge_request;
+      const live = mr ? { mr_url: mr.url || "", mr_iid: mr.id ?? null } : {};
+      return [{ ...main, ref: this.thread?.ref || main.ref, ...live }, ...extras];
     },
     _showCi(data) {
       this.ci = data?.ci ?? [];

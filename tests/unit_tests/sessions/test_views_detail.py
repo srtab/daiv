@@ -7,6 +7,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import escapejs
@@ -178,33 +179,22 @@ def _multi_repo_session(user) -> Session:
 
 @pytest.mark.django_db
 def test_detail_lists_every_repository_and_its_mr(member_client, member_user):
-    session = _multi_repo_session(member_user)
-    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
-        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
-    html = resp.content.decode()
-    assert "g/app" in html and "g/mod" in html and "feat/mod" in html
-    assert "https://gl/g/mod/-/merge_requests/3" in html
-    assert "!7" in html
-    assert [row["repo_id"] for row in resp.context["repository_rows"]] == ["g/app", "g/mod"]
+    resp = _get_detail(member_client, _multi_repo_session(member_user))
+
+    assert resp.context["header"]["repositories"]["rows"] == [
+        {"repo_id": "g/app", "ref": "main", "mr_url": "", "mr_iid": 7},
+        {"repo_id": "g/mod", "ref": "feat/mod", "mr_url": "https://gl/g/mod/-/merge_requests/3", "mr_iid": 3},
+    ]
 
 
 @pytest.mark.django_db
 def test_detail_main_mr_links_to_the_run_url_without_a_payload(member_client, member_user):
     session = _multi_repo_session(member_user)
     _create_run(session, merge_request_web_url="https://gl/g/app/-/merge_requests/7")
-    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
-        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
-    assert resp.context["repository_rows"][0]["mr_url"] == "https://gl/g/app/-/merge_requests/7"
-    assert 'href="https://gl/g/app/-/merge_requests/7"' in resp.content.decode()
 
+    resp = _get_detail(member_client, session)
 
-@pytest.mark.django_db
-def test_detail_main_mr_falls_back_to_a_plain_iid_pill(member_client, member_user):
-    session = _multi_repo_session(member_user)
-    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
-        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
-    assert resp.context["repository_rows"][0]["mr_url"] == ""
-    assert "!7" in resp.content.decode()
+    assert resp.context["header"]["repositories"]["rows"][0]["mr_url"] == "https://gl/g/app/-/merge_requests/7"
 
 
 @pytest.mark.django_db
@@ -212,18 +202,41 @@ def test_detail_shows_latest_publish_errors(member_client, member_user):
     session = _multi_repo_session(member_user)
     _create_run(session, publish_errors=[{"repo_id": "g/old", "error": "stale"}])
     _create_run(session, publish_errors=[{"repo_id": "g/mod", "error": "push rejected"}])
-    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
-        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
-    assert resp.context["latest_publish_errors"] == [{"repo_id": "g/mod", "error": "push rejected"}]
-    assert "push rejected" in resp.content.decode()
+
+    resp = _get_detail(member_client, session)
+
+    assert resp.context["header"]["repositories"]["publish_errors"] == [{"repo_id": "g/mod", "error": "push rejected"}]
+
+
+@pytest.mark.django_db
+def test_detail_hides_publish_errors_once_a_new_run_starts(member_client, member_user):
+    session = _multi_repo_session(member_user)
+    _create_run(session, publish_errors=[{"repo_id": "g/mod", "error": "push rejected"}])
+    _create_run(session, status=RunStatus.RUNNING)
+
+    resp = _get_detail(member_client, session)
+
+    assert resp.context["header"]["repositories"]["publish_errors"] == []
+
+
+@pytest.mark.django_db
+def test_the_card_binds_exactly_the_fields_its_rows_and_errors_carry(member_client, member_user):
+    session = _multi_repo_session(member_user)
+    _create_run(session, publish_errors=[{"repo_id": "g/mod", "error": "push rejected"}])
+    header = _get_detail(member_client, session).context["header"]
+
+    card = render_to_string("sessions/_session_repositories.html", {"header": header})
+
+    repositories = header["repositories"]
+    assert set(re.findall(r"(?<![\w/])repo\.(\w+)", card)) == set(repositories["rows"][0])
+    assert set(re.findall(r"(?<![\w/])item\.(\w+)", card)) == set(repositories["publish_errors"][0])
 
 
 @pytest.mark.django_db
 def test_single_repo_detail_has_no_repositories_block(member_client, member_user):
-    session = _create_session(user=member_user)
-    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
-        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
-    assert resp.context["repository_rows"] == []
+    resp = _get_detail(member_client, _create_session(user=member_user))
+
+    assert resp.context["header"]["repositories"] is None
     assert "session-repositories" not in resp.content.decode()
 
 

@@ -450,7 +450,12 @@ class SiteConfiguration(models.Model):
 
     # -- Sandbox --
     sandbox_timeout = models.FloatField(
-        _("sandbox timeout"), blank=True, null=True, help_text=_("Timeout for sandbox requests, in seconds.")
+        _("sandbox timeout"),
+        blank=True,
+        null=True,
+        help_text=_(
+            "Timeout for sandbox requests, in seconds. Also the longest timeout the agent can give a bash command."
+        ),
     )
 
     # -- Authentication --
@@ -735,7 +740,14 @@ class SiteConfiguration(models.Model):
         manage automatically).
         """
         cached = cache.get(SITE_CONFIGURATION_CACHE_KEY)
-        if cached is not None:
+        if cached is not None and not cached.get_deferred_fields():
+            # The cache backend pickles the instance, so a field added by a later
+            # migration (e.g. ``model_request_timeout_seconds``) is absent from the
+            # pickled ``__dict__`` and therefore deferred after unpickling. Accessing
+            # such a field from the event loop would trigger a blocking
+            # ``refresh_from_db`` (SynchronousOnlyOperation). Only a fully-loaded
+            # cached instance is safe to return; a stale one falls through to the DB
+            # path below, which re-caches a fresh instance.
             return cached
 
         from django.db import close_old_connections
@@ -762,6 +774,13 @@ class SiteConfiguration(models.Model):
         from an async event loop, the entire lookup runs in a separate
         thread via a ``ThreadPoolExecutor`` to avoid
         ``SynchronousOnlyOperation``.
+
+        The returned instance is always fully loaded (no deferred fields), so
+        attribute access is safe from the event loop. ``_fetch_from_cache_or_db``
+        rejects a stale cached instance that carries deferred fields (left
+        behind when a migration adds a field after the instance was pickled)
+        and rebuilds it from the database; any fast path added here must
+        preserve that guarantee or route through ``_fetch_from_cache_or_db``.
 
         Returns ``None`` if the database is not yet available (e.g. during
         early startup or Django system checks).
