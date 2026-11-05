@@ -21,14 +21,14 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
 const {
-  src, labelsSrc, initial, watch, delegations, wide, stored, storageBlocked, archived, steps,
+  src, labelsSrc, initial, watch, delegations, repositories, wide, stored, storageBlocked, archived, steps,
 } = JSON.parse(readFileSync(0, "utf8"));
 const components = {};
 const fetches = [];
 const pending = [];
 const storage = new Map(stored == null ? [] : [["key", stored]]);
 let clock = 10;
-const json = { "session-header": { latest_run: initial, watch, run_count: 1, delegations } };
+const json = { "session-header": { latest_run: initial, watch, run_count: 1, delegations, repositories } };
 const watchers = {};
 const frames = [];
 const timers = [];
@@ -123,6 +123,7 @@ for (const [action, value] of steps) {
       ciTexts: page.ci.map((item) => page.ciText(item)),
       delegations: page.delegations, delegationsLabel: page.delegationsBadge.label,
       delegationsState: page.delegationsBadge.state, legs: (page.delegations?.legs ?? []).map((leg) => leg.repo_id),
+      repositories: page.repositories,
       timers: timers.map((timer) => timer.ms),
       intervals: intervals.filter((i) => !i.cleared).map((i) => i.ms),
     });
@@ -145,7 +146,16 @@ def _ci(status="running", *, explanation=None, iid=7) -> dict:
 
 
 def _run(
-    steps, *, initial=DONE, watch=None, delegations=None, wide=True, stored=None, storage_blocked=False, archived=False
+    steps,
+    *,
+    initial=DONE,
+    watch=None,
+    delegations=None,
+    repositories=None,
+    wide=True,
+    stored=None,
+    storage_blocked=False,
+    archived=False,
 ) -> dict:
     payload = {
         "src": str(SESSION_PAGE_JS),
@@ -153,6 +163,7 @@ def _run(
         "initial": initial,
         "watch": watch,
         "delegations": delegations,
+        "repositories": repositories,
         "wide": wide,
         "stored": stored,
         "storageBlocked": storage_blocked,
@@ -654,3 +665,33 @@ def test_a_poll_without_delegations_keeps_the_ones_the_page_has():
     seen = _run([["poll", {"latest_run": FAILED}], ["read", None]], delegations=delegations)["seen"][0]
 
     assert (seen["delegations"], seen["delegationsLabel"]) == (delegations, "2 delegated · 1 running")
+
+
+def _repo(repo_id, ref, mr_iid=None) -> dict:
+    mr_url = f"https://gl/{repo_id}/-/merge_requests/{mr_iid}" if mr_iid else ""
+    return {"repo_id": repo_id, "ref": ref, "mr_url": mr_url, "mr_iid": mr_iid}
+
+
+def test_the_repositories_card_follows_each_turns_payload():
+    rendered = {"rows": [_repo("g/app", "daiv/fix", 7), _repo("g/mod", "main")], "publish_errors": []}
+    published = {
+        "rows": [_repo("g/app", "daiv/fix", 7), _repo("g/mod", "daiv/fix", 3)],
+        "publish_errors": [{"repo_id": "g/lib", "error": "push rejected"}],
+    }
+
+    steps = [["read", None], ["poll", {"latest_run": DONE, "repositories": published}], ["read", None]]
+    seen = _run(steps, repositories=rendered)["seen"]
+
+    assert [s["repositories"] for s in seen] == [rendered, published]
+
+
+def test_a_single_repository_session_has_no_repositories_card():
+    assert _read()["repositories"] is None
+
+
+def test_a_failed_fetch_keeps_the_repositories_card():
+    repositories = {"rows": [_repo("g/app", "main"), _repo("g/mod", "main")], "publish_errors": []}
+
+    seen = _run([["poll", None], ["read", None]], repositories=repositories)["seen"][0]
+
+    assert seen["repositories"] == repositories

@@ -26,7 +26,7 @@ from sessions.executor.lock import background_in_flight, live_run_for, session_a
 from sessions.header import build_session_header, delegations_for, retry_for
 from sessions.hydration import ahydrate_thread
 from sessions.inbox.timeline import Timeline
-from sessions.models import Run
+from sessions.models import Run, RunStatus, SessionRepository
 from sessions.repo_state import aget_existing_mr_payload
 from sessions.templatetags.session_tags import session_title
 from sessions.transcript import (
@@ -49,7 +49,7 @@ logger = logging.getLogger("daiv.sessions")
 
 MERGE_REQUEST_CACHE_TIMEOUT = 60
 
-_HEADER_KEYS = ("latest_run", "run_count", "delegations", "ci", "watch", "up_next")
+_HEADER_KEYS = ("latest_run", "run_count", "delegations", "ci", "watch", "up_next", "repositories")
 _ROW_FIELDS = ["active_run_id", "last_active_at", "title", "ref"]
 
 
@@ -58,10 +58,10 @@ class SessionState:
     """A session as ``user`` sees it on its page.
 
     ``runs`` are oldest first. ``live_run`` is the slot holder as the viewer sees it (``live_run_for``). ``header`` is
-    :func:`~sessions.header.build_session_header` plus ``up_next``. ``expired_banner`` is whether the page says the
-    session expired: no checkpoint or archive, nothing in flight, and no failed run whose prompt or marker
-    ``annotate_transcript`` recovers. ``merge_request_known`` is false when the checkpoint has none and the platform
-    was not asked or did not answer, so a ``None`` ``merge_request`` says nothing.
+    :func:`~sessions.header.build_session_header` plus ``up_next`` and ``repositories``. ``expired_banner`` is whether
+    the page says the session expired: no checkpoint or archive, nothing in flight, and no failed run whose prompt or
+    marker ``annotate_transcript`` recovers. ``merge_request_known`` is false when the checkpoint has none and the
+    platform was not asked or did not answer, so a ``None`` ``merge_request`` says nothing.
     """
 
     revision: int
@@ -96,6 +96,9 @@ async def aload_session_state(session: Session, user: User, *, always_look_up_me
 
     annotated = annotate_transcript(build_turns(hydrated.messages, in_flight=activity.in_flight), runs, activity)
     expired_banner = hydrated.expired and not activity.in_flight and not annotated
+    # The pill is the working branch, as the live stream's ``_applyRepoState`` couples it to the merge request;
+    # ``Session.ref`` lags it on any run that never synced back.
+    thread_ref = (merge_request or {}).get("source_branch") or session.ref
 
     def finish() -> tuple[list[dict[str, Any]], dict[str, Any], bool, LiveRun | None]:
         turns = interleave_inbox_events(
@@ -112,6 +115,7 @@ async def aload_session_state(session: Session, user: User, *, always_look_up_me
             session, runs, retry=retry, user=user, delegations=delegations, merge_request=merge_request
         )
         header["up_next"] = up_next_payload(session, runs, user, activity)
+        header["repositories"] = _repositories(session, runs, merge_request, thread_ref)
         return turns, header, can_act, live_run_for(activity.live, session, user)
 
     turns, header, can_act, live_run = await sync_to_async(finish)()
@@ -123,14 +127,38 @@ async def aload_session_state(session: Session, user: User, *, always_look_up_me
         hydrated=hydrated,
         merge_request=merge_request,
         merge_request_known=merge_request_known,
-        # The pill is the working branch, as the live stream's ``_applyRepoState`` couples it to the merge request;
-        # ``Session.ref`` lags it on any run that never synced back.
-        thread_ref=(merge_request or {}).get("source_branch") or session.ref,
+        thread_ref=thread_ref,
         live_run=live_run,
         header=header,
         can_act=can_act,
         expired_banner=expired_banner,
     )
+
+
+def _repositories(session: Session, runs: list[Run], merge_request: dict | None, thread_ref: str) -> dict | None:
+    """SYNC ONLY: a multi-repository session's ``rows``, the main repository first, each with its branch and merge
+    request, and the ``publish_errors`` of its latest finished run; ``None`` for a single-repository session."""
+    extra_repositories = list(SessionRepository.objects.filter(session=session))
+    if not extra_repositories:
+        return None
+    main_mr = merge_request or {}
+    run_url = next((r.merge_request_web_url for r in reversed(runs) if r.merge_request_web_url), "")
+    latest_finished = next((r for r in reversed(runs) if r.status in RunStatus.terminal()), None)
+    return {
+        "rows": [
+            {
+                "repo_id": session.repo_id,
+                "ref": thread_ref,
+                "mr_url": main_mr.get("url") or run_url,
+                "mr_iid": main_mr.get("id") or session.merge_request_iid,
+            },
+            *(
+                {"repo_id": r.repo_id, "ref": r.ref, "mr_url": r.merge_request_web_url, "mr_iid": r.merge_request_iid}
+                for r in extra_repositories
+            ),
+        ],
+        "publish_errors": latest_finished.publish_errors if latest_finished else [],
+    }
 
 
 async def _alook_up_merge_request(session: Session, *, fresh: bool) -> tuple[dict | None, bool]:

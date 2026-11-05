@@ -65,6 +65,7 @@ document.addEventListener("alpine:init", () => {
     upNext: null,
     runCount: 0,
     delegations: null,
+    repositories: null,
     title: config.title || "",
     titleDraft: "",
     titleWidth: 0,
@@ -184,6 +185,7 @@ document.addEventListener("alpine:init", () => {
       if ("watch" in data && !stale) this._showCi(data);
       if ("up_next" in data) this._applyUpNext(data.up_next ?? null, data.requestedAt ?? -Infinity);
       if ("delegations" in data) this.delegations = data.delegations ?? null;
+      if ("repositories" in data) this.repositories = data.repositories ?? null;
       if (data.title && !this.editingTitle) this._showTitle(data.title);
     },
     _showCi(data) {
