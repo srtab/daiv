@@ -698,9 +698,6 @@ msgstr "a carregar ferramentas"
 msgid "calling {name}"
 msgstr "a chamar {name}"
 
-msgid "calling {name} {count} times"
-msgstr "a chamar {name} {count} vezes"
-
 msgid "using {name}"
 msgstr "a usar {name}"
 
@@ -713,20 +710,17 @@ msgstr "a abrir {count} artefactos"
 msgid "checking delegated jobs"
 msgstr "a consultar as tarefas delegadas"
 
-msgid "checking delegated jobs {count} times"
-msgstr "a consultar as tarefas delegadas {count} vezes"
-
 msgid "cancelling delegated jobs"
 msgstr "a cancelar as tarefas delegadas"
-
-msgid "cancelling delegated jobs {count} times"
-msgstr "a cancelar as tarefas delegadas {count} vezes"
 
 msgid "using {count} tool"
 msgstr "a usar {count} ferramenta"
 
 msgid "using {count} tools"
 msgstr "a usar {count} ferramentas"
+
+msgid "{first} · {second}"
+msgstr "{first} · {second}"
 
 msgid "({count} failed)"
 msgstr "({count} com falha)"

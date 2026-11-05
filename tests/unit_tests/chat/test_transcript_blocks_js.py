@@ -19,6 +19,7 @@ from tests.unit_tests.chat.transcript_fixtures import (
     refused_question,
     started_leg,
     status_turn,
+    subagent,
     text,
     thinking,
     tool_call,
@@ -210,9 +211,7 @@ def test_group_line_names_the_last_running_step():
     assert b["items"][0]["line"]["running"] == "Running pytest"
 
 
-def subagent(call_id, *, status="done"):
-    args = {"description": "Review", "subagent_type": "cr-correctness"}
-    return tool_call(call_id, "task", args, result="ok" if status == "done" else None, status=status)
+GITLAB_RUNNING = tool_call("g1", "gitlab", {"subcommand": "mr view"}, result=None, status="running")
 
 
 @pytest.mark.parametrize(
@@ -223,13 +222,15 @@ def subagent(call_id, *, status="done"):
             [subagent("t1"), subagent("t2", status="running"), subagent("t3", status="running")],
             "Ran 1 subagent · running 2 subagents",
         ),
-        ([read("c1"), bash("c2"), bash("c3", status="running")], "Read 1 file, ran 1 command · running 1 command"),
+        ([subagent("t1"), subagent("t2", status="running")], "Ran 1 subagent · running 1 subagent"),
+        ([read("c1"), bash("c2"), bash("c3", status="running")], "Read 1 file, ran 1 command · running pytest"),
+        ([read("c1", result=None, status="running"), bash("c2")], "Reading x · ran 1 command"),
+        ([GITLAB_RUNNING, {**GITLAB_RUNNING, "id": "g2"}], "Calling GitLab"),
         ([subagent("t1"), subagent("t2")], "Ran 2 subagents"),
     ],
 )
-def test_running_steps_read_in_the_present_after_the_finished_ones(segs, expected):
-    (group,) = _blocks([user("u1"), asst("a1", *segs, streaming=True)], in_flight=True)[0]["items"]
-    assert group["line"]["text"] == expected
+def test_running_steps_read_in_the_present_in_order_of_first_appearance(segs, expected):
+    assert _group_line(segs)["text"] == expected
 
 
 def test_a_second_build_reuses_rows_of_unchanged_segments():

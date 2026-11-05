@@ -85,6 +85,8 @@
     const line = { icon: steps[0]?.row.icon ?? "", text: "", ...tally(steps.map((s) => s.row)), running: null };
     const done = new Map();
     const live = new Map();
+    const liveRows = [];
+    let liveFirst = null;
     let thoughtSecs = 0;
     let timed = true;
     for (const { seg, row } of steps) {
@@ -96,6 +98,8 @@
         else thoughtSecs += row.thoughtSecs;
         continue;
       }
+      liveFirst ??= running;
+      if (running) liveRows.push(row);
       const clauses = running ? live : done;
       const id = `${key}\n${name ?? ""}`;
       const clause = clauses.get(id) ?? { key, name, count: 0 };
@@ -104,9 +108,17 @@
     }
     const phrases = (clauses, isLive) =>
       [...clauses.values()].map((c) => T.tn(sumKey(c.key, isLive), c.count, { name: c.name ?? "" })).join(", ");
-    const parts = [phrases(done, false), phrases(live, true)].filter(Boolean);
-    if (parts.length) {
-      line.text = sentenceCase(parts.join(" · "));
+    // A row without a live label has a tenseless phrase ("Subagent · explore"), so it is counted instead.
+    const [only] = liveRows;
+    const named = liveRows.length === 1 && only.livePhrase !== only.phrase;
+    const livePart = named
+      ? only.livePhrase.charAt(0).toLocaleLowerCase() + only.livePhrase.slice(1)
+      : phrases(live, true);
+    const parts = [phrases(done, false), livePart];
+    if (liveFirst) parts.reverse();
+    const [first, second] = parts.filter(Boolean);
+    if (first) {
+      line.text = sentenceCase(second ? T.t("sum_parts", { first, second }) : first);
     } else {
       line.text = timed ? T.t("thought_for", { duration: T.duration(thoughtSecs) }) : T.t("thought");
     }
