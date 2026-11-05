@@ -56,6 +56,25 @@ class TestTake:
         assert (await _state(elsewhere)).state == EventState.PENDING
 
 
+class TestLink:
+    async def test_it_links_the_superseded_events_of_the_subjects_it_took_in_their_own_repository_only(self):
+        session = await amake_session()
+        older = await amake_event(session, merge_request_iid=9, subject=kinds.Subject.ci(9))
+        await amake_event(session, EventKind.CI_PASSED, merge_request_iid=9, subject=kinds.Subject.ci(9))
+        sibling = await amake_event(
+            session, repo_id="group/lib", merge_request_iid=9, subject=kinds.Subject.ci(9), state=EventState.SUPERSEDED
+        )
+        claim = ChatClaim(session.thread_id, "chat-run")
+        await claim.atake()
+        run = await Run.objects.acreate(
+            session=session, trigger_type=SessionOrigin.CHAT, repo_id=session.repo_id, status=RunStatus.RUNNING
+        )
+
+        await claim.alink(run)
+
+        assert ((await _state(older)).run_id, (await _state(sibling)).run_id) == (run.pk, None)
+
+
 class TestRelease:
     async def test_the_events_a_turn_took_and_no_run_took_over_go_back_to_pending(self):
         session = await amake_session()

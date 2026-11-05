@@ -412,3 +412,20 @@ class TestSiblingRepository:
         )
 
         assert await _events(run.session_id) == []
+
+    async def test_a_late_push_an_earlier_run_of_the_session_recorded_as_its_own_is_not_remembered(self):
+        """A later run moved ``last_daiv_sha`` on before the earlier run's push reached DAIV."""
+        run = await _publishing_run(await _user("alice"))
+        await self._claim_sibling(run, sha="0a1b2c3d")
+        await Run.objects.filter(pk=run.pk).aupdate(sibling_pushed_shas=["0a1b2c3d"])
+        later = await Run.objects.acreate(
+            session_id=run.session_id, trigger_type=SessionOrigin.CHAT, repo_id=REPO, status=RunStatus.RUNNING
+        )
+        await self._claim_sibling(later, sha="9f8e7d6c")
+        await Run.objects.filter(pk=later.pk).aupdate(sibling_pushed_shas=["9f8e7d6c"])
+
+        await Ownerships(self.SIBLING).aclassify_push(
+            branch=MR["source_branch"], before="5f6e7d8c", after="0a1b2c3d", pusher_username="daiv", commit_count=1
+        )
+
+        assert await _events(run.session_id) == []

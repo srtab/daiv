@@ -12,11 +12,11 @@ from sessions.multi_repo import (
     MAX_REPOS_PER_SESSION,
     THREAD_NOT_FOUND,
     SharedSessionError,
+    _asubmit_shared_session_run,
     ais_multi_repo,
     aload_extra_repos,
     apersist_extra_repo_state,
     asubmit_jobs,
-    asubmit_shared_session_run,
     validate_shared_repos,
 )
 from sessions.services import RepoTarget
@@ -52,7 +52,7 @@ def envs(member_user):
 
 
 async def _submit(user, repos, **kwargs):
-    return await asubmit_shared_session_run(
+    return await _asubmit_shared_session_run(
         user=user, prompt="fix", repos=repos, trigger_type=SessionOrigin.API_JOB, **kwargs
     )
 
@@ -143,7 +143,7 @@ async def test_continuation_accepts_main_alone_or_identical_list(member_user, en
         [RepoTarget("g/other")],
     ],
 )
-async def test_continuation_rejects_other_lists_and_refs(member_user, enqueue, repos):
+async def test_continuation_rejects_other_repository_lists(member_user, enqueue, repos):
     thread_id = await _new_session(member_user)
 
     with pytest.raises(SharedSessionError):
@@ -183,7 +183,7 @@ async def test_a_shared_flag_on_a_single_repo_thread_continues_it_as_one(member_
     with (
         patch("sessions.multi_repo.aadmit", AsyncMock(return_value=admission)),
         patch("sessions.multi_repo.asubmit_batch_runs", AsyncMock()) as batch,
-        patch("sessions.multi_repo.asubmit_shared_session_run", AsyncMock()) as shared,
+        patch("sessions.multi_repo._asubmit_shared_session_run", AsyncMock()) as shared,
     ):
         await asubmit_jobs(
             user=member_user,

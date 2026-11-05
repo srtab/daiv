@@ -112,7 +112,7 @@ class WakePolicy:
         return None
 
     def _merge_request(self, event: InboxEvent) -> tuple[str, int | None]:
-        return event.repo_id or self.session.repo_id, event.merge_request_iid
+        return event.effective_repo_id(self.session.repo_id), event.merge_request_iid
 
     def _stopped_ci(self, events: list[InboxEvent]) -> set[tuple[str, int | None]]:
         """The ``(repo_id, merge_request_iid)`` of the CI failures among ``events`` whose merge request was closed, or

@@ -65,7 +65,10 @@ class ChatClaim:
         linked += await (
             InboxEvent.objects
             .filter(session_id=run.session_id, state=EventState.SUPERSEDED, run__isnull=True, claim_token="")
-            .filter(subject__in=InboxEvent.objects.filter(run=run).exclude(subject="").values("subject"))
+            .exclude(subject="")
+            .filter(
+                Exists(InboxEvent.objects.filter(run=run, repo_id=OuterRef("repo_id"), subject=OuterRef("subject")))
+            )
             .aupdate(run=run)
         )
         if linked:

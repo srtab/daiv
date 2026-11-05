@@ -89,10 +89,13 @@ async def session_ci_watch(request: HttpRequest, thread_id: str, payload: CIWatc
     if len(ownerships) != 1:
         refusal = {"detail": "This session doesn't own that merge request", "reason": "not_owned"}
         return 409, refusal | await _ci(session)
-    watch = PipelineWatch(ownerships[0].repo_id)
+    ownership = ownerships[0]
+    if ownership.repo_id != session.repo_id and not await sync_to_async(can_run)(request.auth, ownership.repo_id):
+        raise HttpError(403, "You need run access to this merge request's repository")
+    watch = PipelineWatch(ownership.repo_id)
     if not payload.on:
-        await watch.aturn_off(ownerships[0])
-    elif not await watch.aturn_on(ownerships[0]):
+        await watch.aturn_off(ownership)
+    elif not await watch.aturn_on(ownership):
         return 409, {"detail": "CI fixes are turned off for this repository", "reason": "disabled"} | await _ci(session)
     return await _ci(session)
 

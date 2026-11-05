@@ -31,8 +31,8 @@ class PendingEvents:
 
     def newest_of_each_subject(self) -> list[InboxEvent]:
         """The events less those a newer one of the same subject, about the same repository, replaces, oldest first."""
-        newest = {(event.repo_id, event.subject): event for event in self.events if event.subject}
-        return [event for event in self.events if not event.subject or newest[event.repo_id, event.subject] is event]
+        newest = {event.subject_key: event for event in self.events if event.subject}
+        return [event for event in self.events if not event.subject or newest[event.subject_key] is event]
 
     def supersede(self) -> list[InboxEvent]:
         """Mark all but the newest event per subject ``superseded``, and return the rest, oldest first."""

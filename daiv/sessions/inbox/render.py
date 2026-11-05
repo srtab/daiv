@@ -215,7 +215,7 @@ class RunInput:
         alone: list[list[InboxEvent]] = []
         for event in self.events:
             if event.subject:
-                by_subject.setdefault((event.repo_id, event.subject), []).append(event)
+                by_subject.setdefault(event.subject_key, []).append(event)
             else:
                 alone.append([event])
         return [*by_subject.values(), *alone]

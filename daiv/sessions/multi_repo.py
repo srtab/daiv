@@ -171,7 +171,7 @@ async def asubmit_jobs(
         mcp_overrides=mcp_overrides,
         thread_id=thread_id,
     )
-    submit = asubmit_shared_session_run if shared else asubmit_batch_runs
+    submit = _asubmit_shared_session_run if shared else asubmit_batch_runs
     return await submit(
         user=user,
         prompt=prompt,
@@ -186,7 +186,7 @@ async def asubmit_jobs(
     )
 
 
-async def asubmit_shared_session_run(
+async def _asubmit_shared_session_run(
     *,
     user: User,
     prompt: str,

@@ -371,7 +371,7 @@ def _shared_submit(captured: dict):
 @pytest.mark.django_db(transaction=True)
 async def test_shared_session_returns_one_job_on_the_main_repo(authenticated_client: TestAsyncClient):
     captured: dict = {}
-    with patch("sessions.multi_repo.asubmit_shared_session_run", side_effect=_shared_submit(captured)):
+    with patch("sessions.multi_repo._asubmit_shared_session_run", side_effect=_shared_submit(captured)):
         response = await authenticated_client.post("/jobs", json={**_SHARED_BODY, "shared_session": True})
 
     assert response.status_code == 202
@@ -384,7 +384,7 @@ async def test_shared_session_returns_one_job_on_the_main_repo(authenticated_cli
 async def test_shared_session_errors_are_400(authenticated_client: TestAsyncClient):
     from sessions.multi_repo import SharedSessionError
 
-    with patch("sessions.multi_repo.asubmit_shared_session_run", side_effect=SharedSessionError("too many")):
+    with patch("sessions.multi_repo._asubmit_shared_session_run", side_effect=SharedSessionError("too many")):
         response = await authenticated_client.post("/jobs", json={**_SHARED_BODY, "shared_session": True})
 
     assert response.status_code == 400
@@ -440,7 +440,7 @@ async def test_continuing_a_multi_repo_thread_needs_no_flag(authenticated_client
     captured: dict = {}
     with (
         patch("sessions.multi_repo.ais_multi_repo", new=AsyncMock(return_value=True)),
-        patch("sessions.multi_repo.asubmit_shared_session_run", side_effect=_shared_submit(captured)),
+        patch("sessions.multi_repo._asubmit_shared_session_run", side_effect=_shared_submit(captured)),
         patch("sessions.multi_repo.asubmit_batch_runs") as batch,
     ):
         response = await authenticated_client.post(
@@ -493,7 +493,7 @@ async def test_batch_path_unchanged_without_flag(authenticated_client: TestAsync
     captured: dict = {}
     with (
         patch("sessions.multi_repo.asubmit_batch_runs", side_effect=_fake_batch_two(captured)),
-        patch("sessions.multi_repo.asubmit_shared_session_run") as shared,
+        patch("sessions.multi_repo._asubmit_shared_session_run") as shared,
     ):
         response = await authenticated_client.post("/jobs", json=_SHARED_BODY)
 

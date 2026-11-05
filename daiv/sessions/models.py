@@ -425,7 +425,14 @@ class Run(models.Model):
     )
     merge_requests = models.JSONField(_("merge requests"), default=list, blank=True)
     publish_errors = models.JSONField(_("publish errors"), default=list, blank=True)
-    sibling_pushed_shas = models.JSONField(_("sibling pushed commits"), default=list, blank=True)
+    sibling_pushed_shas = models.JSONField(
+        _("sibling pushed commits"),
+        default=list,
+        blank=True,
+        help_text=_(
+            "The commits the run pushed to its session's other repositories, without which repository each went to."
+        ),
+    )
 
     # Denormalized result / error / usage — copied verbatim from Activity.
     result_summary = models.TextField(_("result summary"), blank=True, default="")
@@ -924,6 +931,15 @@ class InboxEvent(models.Model):
 
     def __str__(self) -> str:
         return f"{self.get_kind_display()} on session {self.session_id} ({self.state})"
+
+    @property
+    def subject_key(self) -> tuple[str, str]:
+        """What a newer event shares with this one to replace it: its ``subject``, about the same repository."""
+        return self.repo_id, self.subject
+
+    def effective_repo_id(self, own_repo_id: str) -> str:
+        """The repository the event is about: ``repo_id``, or ``own_repo_id``, its session's, when blank."""
+        return self.repo_id or own_repo_id
 
     @staticmethod
     def about_repo(repo_id: Any, *, prefix: str = "") -> models.Q:

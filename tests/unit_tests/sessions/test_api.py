@@ -878,6 +878,28 @@ async def test_session_ci_watch_names_the_repository_of_a_merge_request_sharing_
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_session_ci_watch_403_for_a_caller_who_cannot_run_on_the_merge_requests_repository(
+    client, authed, watch_world
+):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+    await MergeRequestOwnership.objects.acreate(
+        repo_id="group/lib", merge_request_iid=7, session=session, source_branch="daiv/lib", watch_enabled=False
+    )
+
+    with patch("sessions.api.views.can_run", side_effect=lambda _user, repo_id: repo_id == session.repo_id):
+        resp = await client.post(
+            f"/sessions/{session.thread_id}/ci-watch",
+            json=TURN_ON | {"repo_id": "group/lib"},
+            headers=_auth_headers(raw),
+        )
+
+    assert resp.status_code == 403
+    assert not await MergeRequestOwnership.objects.filter(watch_enabled=True).aexists()
+    assert watch_world.evaluations == []
+
+
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("body", [{"merge_request_iid": 7}, {"on": True, "merge_request_iid": 0}])
 async def test_session_ci_watch_validates_its_body(client, authed, watch_world, body):
     _key_obj, raw, user = authed

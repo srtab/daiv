@@ -496,14 +496,14 @@ async def test_run_job_task_forwards_ref_and_acting_user():
 @pytest.mark.django_db(transaction=True)
 async def test_a_multi_repo_continuation_joins_the_next_run_and_clones_main_where_the_session_moved(member_user):
     from sessions.inbox.pending import PendingEvents
-    from sessions.multi_repo import asubmit_shared_session_run
+    from sessions.multi_repo import _asubmit_shared_session_run
     from sessions.services import RepoTarget
 
     async def _enqueue(**_kwargs):
         return MagicMock(id=(await sync_to_async(make_task_result)(status="READY")).id)
 
     async def _submit(repos, thread_id=None):
-        result = await asubmit_shared_session_run(
+        result = await _asubmit_shared_session_run(
             user=member_user, prompt="fix", repos=repos, trigger_type=SessionOrigin.API_JOB, thread_id=thread_id
         )
         return result.runs[0]

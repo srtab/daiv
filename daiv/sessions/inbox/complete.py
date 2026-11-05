@@ -160,7 +160,7 @@ class RunEnd:
         if not Session.objects.filter(pk=run.session_id, user__isnull=True).exists() or not run.response_text:
             return
         MergeRequestReplies.comment_on_merge_requests(
-            {(event.repo_id or run.repo_id, event.merge_request_iid) for event in woken_by_ci},
+            {(event.effective_repo_id(run.repo_id), event.merge_request_iid) for event in woken_by_ci},
             lambda replies: replies.reply(run, asker=""),
         )
 
@@ -172,7 +172,9 @@ class RunEnd:
         run = self.run
         by_merge_request: dict[tuple[str, int], list[InboxEvent]] = {}
         for event in mentions:
-            by_merge_request.setdefault((event.repo_id or run.repo_id, event.merge_request_iid), []).append(event)
+            by_merge_request.setdefault((event.effective_repo_id(run.repo_id), event.merge_request_iid), []).append(
+                event
+            )
         for (repo_id, iid), events in by_merge_request.items():
             *earlier, latest = events
             try:
@@ -249,7 +251,7 @@ class FailedAttempt:
             if (session := sessions.get(event.session_id)) is None:
                 continue
             MergeRequestOwnership.objects.filter(
-                repo_id=event.repo_id or session.repo_id,
+                repo_id=event.effective_repo_id(session.repo_id),
                 merge_request_iid=event.merge_request_iid,
                 last_examined_sha=event.payload["sha"],
             ).update(last_examined_sha="")
@@ -259,7 +261,7 @@ class FailedAttempt:
         their session has no DAIV user."""
         MergeRequestReplies.comment_on_merge_requests(
             {
-                (event.repo_id or session.repo_id, event.merge_request_iid)
+                (event.effective_repo_id(session.repo_id), event.merge_request_iid)
                 for event in failures
                 if (session := sessions.get(event.session_id)) is not None and session.user_id is None
             },
@@ -285,7 +287,7 @@ class FailedAttempt:
             try:
                 replies = MergeRequestReplies(RepoClient.create_instance())
                 replies.reply_in_thread(
-                    event.repo_id or sessions[event.session_id].repo_id, event, replies.unable_note()
+                    event.effective_repo_id(sessions[event.session_id].repo_id), event, replies.unable_note()
                 )
             except Exception:
                 logger.exception("inbox: could not tell mention event=%s that it failed", event.pk)

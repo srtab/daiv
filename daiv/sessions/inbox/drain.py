@@ -269,7 +269,7 @@ class _Take:
 
     def _link_superseded(self, taken: list[InboxEvent], run: Run, branch: str) -> None:
         """Link to ``run`` the superseded events of the subjects it took, on its ``branch``, which it shows replaced."""
-        subjects = {(event.repo_id, event.subject) for event in taken if event.subject}
+        subjects = {event.subject_key for event in taken if event.subject}
         if not subjects:
             return
         InboxEvent.objects.filter(
@@ -307,7 +307,7 @@ class _Take:
         for event in taken:
             if event.kind != EventKind.CI_FAILED or not event.wake or event.merge_request_iid is None:
                 continue
-            sha, repo_id = event.payload["sha"], event.repo_id or self.session.repo_id
+            sha, repo_id = event.payload["sha"], event.effective_repo_id(self.session.repo_id)
             rows = MergeRequestOwnership.objects.filter(repo_id=repo_id, merge_request_iid=event.merge_request_iid)
             if rows.exclude(last_examined_sha=sha).update(last_examined_sha=sha, attempts=F("attempts") + 1):
                 charges.append(_Charge(repo_id, event.merge_request_iid, sha, event.pk))

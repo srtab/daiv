@@ -8,6 +8,14 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="run",
             name="sibling_pushed_shas",
-            field=models.JSONField(blank=True, default=list, verbose_name="sibling pushed commits"),
+            field=models.JSONField(
+                blank=True,
+                default=list,
+                help_text=(
+                    "The commits the run pushed to its session's other repositories, without which repository each "
+                    "went to."
+                ),
+                verbose_name="sibling pushed commits",
+            ),
         )
     ]

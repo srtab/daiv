@@ -206,7 +206,7 @@ class Inbox:
         (:meth:`post_delegated_ci_outcome`). SYNC ONLY."""
         cls.post_delegated_ci_outcome(
             child,
-            repo_id=ci_failure.repo_id or child.repo_id,
+            repo_id=ci_failure.effective_repo_id(child.repo_id),
             merge_request_iid=ci_failure.merge_request_iid,
             pipeline_id=ci_failure.payload["pipeline_id"],
             outcome="no_push",
