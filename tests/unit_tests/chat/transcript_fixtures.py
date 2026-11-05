@@ -61,6 +61,11 @@ def bash(call_id: str, *, command: str = "pytest", exit_code: int = 0, status: s
     return tool_call(call_id, "bash", {"command": command}, result=result, status=status)
 
 
+def gitlab(call_id: str, *, status: str = "done") -> dict[str, Any]:
+    result = "ok" if status == "done" else None
+    return tool_call(call_id, "gitlab", {"subcommand": "mr view"}, result=result, status=status)
+
+
 def subagent(call_id: str, *, status: str = "done") -> dict[str, Any]:
     args = {"description": "Review", "subagent_type": "cr-correctness"}
     return tool_call(call_id, "task", args, result="ok" if status == "done" else None, status=status)

@@ -12,6 +12,7 @@ from tests.unit_tests.chat.transcript_fixtures import (
     delegate,
     edit,
     enriched_leg,
+    gitlab,
     grep,
     publish,
     question,
@@ -194,8 +195,7 @@ def test_a_group_of_only_thinking_reads_thought(segs, expected):
 
 
 def test_clauses_split_by_platform_and_mcp_server_and_only_the_first_is_capitalised():
-    gitlab = tool_call("g1", "gitlab", {"subcommand": "mr view"}, result="ok")
-    segs = [gitlab, {**gitlab, "id": "g2"}, tool_call("m1", "sentry_find", {}, result="ok")]
+    segs = [gitlab("g1"), gitlab("g2"), tool_call("m1", "sentry_find", {}, result="ok")]
     segs.append(tool_call("m2", "linear_list", {}, result="ok"))
     line = _group_line(segs, servers=["sentry", "linear"])
     assert line["text"] == "Called GitLab 2 times, used sentry, used linear"
@@ -211,9 +211,6 @@ def test_group_line_names_the_last_running_step():
     assert b["items"][0]["line"]["running"] == "Running pytest"
 
 
-GITLAB_RUNNING = tool_call("g1", "gitlab", {"subcommand": "mr view"}, result=None, status="running")
-
-
 @pytest.mark.parametrize(
     "segs,expected",
     [
@@ -225,7 +222,7 @@ GITLAB_RUNNING = tool_call("g1", "gitlab", {"subcommand": "mr view"}, result=Non
         ([subagent("t1"), subagent("t2", status="running")], "Ran 1 subagent · running 1 subagent"),
         ([read("c1"), bash("c2"), bash("c3", status="running")], "Read 1 file, ran 1 command · running pytest"),
         ([read("c1", result=None, status="running"), bash("c2")], "Reading x · ran 1 command"),
-        ([GITLAB_RUNNING, {**GITLAB_RUNNING, "id": "g2"}], "Calling GitLab"),
+        ([gitlab("g1", status="running"), gitlab("g2", status="running")], "Calling GitLab"),
         ([subagent("t1"), subagent("t2")], "Ran 2 subagents"),
     ],
 )

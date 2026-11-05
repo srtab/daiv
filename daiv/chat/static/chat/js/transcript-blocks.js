@@ -63,10 +63,13 @@
 
   const sumKey = (key, live) => {
     const prefix = live ? "live_sum_" : "sum_";
-    return `${prefix}${key}` in window.TranscriptLabels.defaults ? `${prefix}${key}` : `${prefix}other`;
+    const labelKey = prefix + key;
+    return labelKey in window.TranscriptLabels.defaults ? labelKey : `${prefix}other`;
   };
 
   const sentenceCase = (s) => s.charAt(0).toLocaleUpperCase() + s.slice(1);
+
+  const lowerFirst = (s) => s.charAt(0).toLocaleLowerCase() + s.slice(1);
 
   const tally = (rows) => {
     const counts = { failed: 0, added: 0, removed: 0 };
@@ -83,10 +86,8 @@
   const summarize = (steps) => {
     const T = window.TranscriptLabels;
     const line = { icon: steps[0]?.row.icon ?? "", text: "", ...tally(steps.map((s) => s.row)), running: null };
-    const done = new Map();
-    const live = new Map();
-    const liveRows = [];
-    let liveFirst = null;
+    // Clauses by tense: insertion order puts the part holding the first step first.
+    const byTense = new Map();
     let thoughtSecs = 0;
     let timed = true;
     for (const { seg, row } of steps) {
@@ -98,25 +99,20 @@
         else thoughtSecs += row.thoughtSecs;
         continue;
       }
-      liveFirst ??= running;
-      if (running) liveRows.push(row);
-      const clauses = running ? live : done;
+      if (!byTense.has(running)) byTense.set(running, new Map());
+      const clauses = byTense.get(running);
       const id = `${key}\n${name ?? ""}`;
-      const clause = clauses.get(id) ?? { key, name, count: 0 };
+      const clause = clauses.get(id) ?? { key, name, row, count: 0 };
       clause.count++;
       clauses.set(id, clause);
     }
-    const phrases = (clauses, isLive) =>
-      [...clauses.values()].map((c) => T.tn(sumKey(c.key, isLive), c.count, { name: c.name ?? "" })).join(", ");
-    // A row without a live label has a tenseless phrase ("Subagent · explore"), so it is counted instead.
-    const [only] = liveRows;
-    const named = liveRows.length === 1 && only.livePhrase !== only.phrase;
-    const livePart = named
-      ? only.livePhrase.charAt(0).toLocaleLowerCase() + only.livePhrase.slice(1)
-      : phrases(live, true);
-    const parts = [phrases(done, false), livePart];
-    if (liveFirst) parts.reverse();
-    const [first, second] = parts.filter(Boolean);
+    const [first, second] = [...byTense].map(([live, clauses]) => {
+      const [only] = clauses.values();
+      if (live && clauses.size === 1 && only.count === 1 && only.row.hasLiveLabel) {
+        return lowerFirst(only.row.livePhrase);
+      }
+      return [...clauses.values()].map((c) => T.tn(sumKey(c.key, live), c.count, { name: c.name ?? "" })).join(", ");
+    });
     if (first) {
       line.text = sentenceCase(second ? T.t("sum_parts", { first, second }) : first);
     } else {
