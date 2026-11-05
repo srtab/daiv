@@ -86,6 +86,24 @@ def test_composer_rests_at_one_row(member_client, member_user):
     assert 'rows="1"' in html
 
 
+CSS_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
+TEXTAREA_RULE = re.compile(r"\.chat-composer__textarea\s*\{([^}]*)\}")
+VERTICAL_PADDING = re.compile(r"padding-(?:top|bottom|block)\b")
+PADDING = re.compile(r"\bpadding\s*:\s*([^;!]+)")
+
+
+def test_the_prompt_keeps_its_vertical_spacing_out_of_its_padding():
+    """WebKit sizes an empty `field-sizing: content` textarea to its placeholder without the
+    box's own padding, so vertical padding on the prompt cuts off its wrapped last line on iOS."""
+    rule = TEXTAREA_RULE.search(CSS_COMMENT.sub("", INPUT_CSS.read_text(encoding="utf-8")))
+    assert rule, "no .chat-composer__textarea rule — is this test still looking?"
+
+    padding = PADDING.search(rule.group(1))
+    assert padding, "the prompt's padding declaration moved — is this test still looking?"
+    assert padding.group(1).split()[0] in {"0", "0px"}
+    assert not VERTICAL_PADDING.search(rule.group(1))
+
+
 @pytest.mark.django_db
 def test_progress_lives_in_a_drawer_not_a_sheet(member_client, member_user):
     html = render_thread(member_client, create_session(member_user))

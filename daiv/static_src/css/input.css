@@ -874,13 +874,13 @@ html {
   }
   /* Status sits under the title on phones, beside it from sm: up. */
   .session-topbar__heading {
-    @apply flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-3;
+    @apply flex min-w-0 flex-col sm:flex-row sm:items-center sm:gap-3;
   }
   .session-topbar__title {
-    @apply min-w-0 truncate text-[14px] font-semibold text-text-strong;
+    @apply min-w-0 truncate text-[14px] leading-4.5 font-semibold text-text-strong;
   }
   .session-topbar__status {
-    @apply inline-flex shrink-0 items-center gap-1.5 text-[12px] text-text-muted;
+    @apply inline-flex shrink-0 items-center gap-1.5 text-[12px] leading-4 text-text-muted;
   }
   .session-topbar__actions {
     @apply ml-auto flex shrink-0 items-center gap-2;
@@ -1079,8 +1079,8 @@ html {
     @apply opacity-100;
   }
   .session-title__input {
-    @apply -ml-1.5 max-w-full min-w-24 rounded-md border-0 bg-surface-2 px-1.5 py-0.5 text-[14px] font-semibold
-      text-text-strong outline-2 -outline-offset-1 outline-accent outline-solid;
+    @apply -ml-1.5 max-w-full min-w-24 rounded-md border-0 bg-surface-2 px-1.5 py-0.5 text-[14px] leading-4.5
+      font-semibold text-text-strong outline-2 -outline-offset-1 outline-accent outline-solid;
   }
   .session-topbar__meta {
     @apply flex shrink-0 items-center gap-2;
@@ -3066,7 +3066,7 @@ html {
   .chat-composer {
     --composer-font: 15px;
     --composer-leading: 1.55;
-    /* One text line plus the textarea's 4px + 4px padding: the `+` and the buttons sit on it. */
+    /* One text line plus the textarea's 4px + 4px margin: the `+` and the buttons sit on it. */
     --composer-line: calc(var(--composer-font) * var(--composer-leading) + 8px);
     position: relative;
     display: flex;
@@ -3078,6 +3078,13 @@ html {
     border-radius: 16px;
     background: var(--color-surface-2);
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  /* Mirrors the 16px every touch textarea is forced to, so the rows below measure the real line. */
+  @media (pointer: coarse) {
+    .chat-composer {
+      --composer-font: 16px;
+    }
   }
 
   .chat-composer:focus-within {
@@ -3103,7 +3110,10 @@ html {
     border: none !important;
     outline: none;
     resize: none;
-    padding: 4px 2px !important;
+    /* Margin, not padding: WebKit sizes an empty `field-sizing` box to its placeholder alone,
+       leaving the box's own padding out, so vertical padding here clips the last line. */
+    margin: 4px 0;
+    padding: 0 2px !important;
     font-family: var(--font-sans);
     font-size: var(--composer-font);
     color: #fff;
@@ -3118,7 +3128,7 @@ html {
      rest while it shows rather than clipping the wrapped half. */
   @supports not (field-sizing: content) {
     .chat-composer__textarea:placeholder-shown {
-      min-height: calc(2lh + 8px);
+      min-height: 2lh;
     }
   }
 
