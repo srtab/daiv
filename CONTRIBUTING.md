@@ -106,12 +106,12 @@ Every git worktree can run its own app next to the main checkout's. A worktree c
 | | Main checkout | Worktree, slot n |
 |---|---|---|
 | Compose project | `daiv` | `daiv-<n>` |
-| App | `DAIV_EXTERNAL_URL`, `https://localhost:8000` by default | `https://<host>:<8000+n>`, on the host of the main checkout's `DAIV_EXTERNAL_URL` when the slot was claimed, kept as `APP_HOST` in `.env` |
+| App | `DAIV_EXTERNAL_URL`, `https://localhost:8000` by default | `https://<host>:<8000+n>`, on the host of the main checkout's `DAIV_EXTERNAL_URL`, kept as `APP_HOST` in `.env` the first time the slot starts without one |
 | Workers | `worker` ×2, `worker-interactive`, `scheduler` | `worker`, `worker-interactive`; `scheduler` only when `COMPOSE_PROFILES` in `.env` lists `scheduler`, and it then runs the copied schedules |
 | Postgres database | `db` | `db_<n>`, a copy of `db` made on the first `make up`, without the rows of the unused `checkpoint*` tables |
 | Redis | `daiv-redis` | its own, in the volume `daiv-<n>_redis-data` |
 | Postgres, mailpit | runs them | starts and uses the main checkout's |
-| GitLab and runner, sandbox | runs them with `--profile gitlab`, `--profile sandbox` | starts and uses the main checkout's when `COMPOSE_PROFILES` in `.env` lists `gitlab`, `sandbox` (or `full`); a new slot lists both |
+| GitLab and runner, sandbox | runs them with `--profile gitlab`, `--profile sandbox` | starts and uses the main checkout's when `COMPOSE_PROFILES` in `.env` lists `gitlab`, `sandbox` (or `full`); a `.env` without `COMPOSE_PROFILES` gets both |
 
 The app migrates its copy on start, so a branch's migrations never touch `db`.
 
