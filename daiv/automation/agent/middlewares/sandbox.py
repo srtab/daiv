@@ -21,6 +21,7 @@ from automation.agent.workspace.bash_policy.command_policy import (
     parse_rule,
 )
 from core.conf import settings
+from core.constants import SANDBOX_TIMEOUT_EXIT_CODE
 from core.sandbox.client import is_transient_sandbox_error
 from core.site_settings import site_settings
 
@@ -32,12 +33,16 @@ if TYPE_CHECKING:
     from automation.agent.workspace.base import Workspace
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
     from automation.agent.workspace.session import SandboxSession
-    from core.sandbox.schemas import RunCommandsResponse
+    from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
 
 
 logger = logging.getLogger("daiv.tools")
 
 BASH_TOOL_NAME = "bash"
+
+BASH_DEFAULT_TIMEOUT = 300
+# The sandbox may hold a request for up to 30s waiting on the session lock before the command starts.
+_SANDBOX_REQUEST_HEADROOM = 60
 
 BASH_TOOL_DESCRIPTION = """\
 Executes a bash command in a persistent shell session.
@@ -93,6 +98,42 @@ Safety boundaries:
 - No DB schema changes/migrations/seeds.
 - No Docker image/container build/push/run actions.
 """  # noqa: E501
+
+
+def _bash_timeout_limits() -> tuple[int, int]:
+    """The default and maximum per-command timeout, both short enough to finish within the sandbox request timeout."""
+    maximum = max(1, int(site_settings.sandbox_timeout) - _SANDBOX_REQUEST_HEADROOM)
+    return min(BASH_DEFAULT_TIMEOUT, maximum), maximum
+
+
+def _bash_tool_description(default_timeout: int, max_timeout: int) -> str:
+    return (
+        f"{BASH_TOOL_DESCRIPTION}\n"
+        "Timeouts:\n"
+        f"- A command times out after {default_timeout} seconds. Pass `timeout` (in seconds, at most {max_timeout}) "
+        "for a command you expect to take longer, such as a full test suite or a build.\n"
+        f"- A timed-out command returns exit code {SANDBOX_TIMEOUT_EXIT_CODE}.\n"
+    )
+
+
+def _explain_sandbox_timeout(result: RunCommandResult, timeout: int, max_timeout: int) -> RunCommandResult:
+    """Tell the agent what to do about a command the sandbox timed out.
+
+    Exit 124 from the command itself (``timeout 5 make``) is left untouched. daiv-sandbox 0.5.0 sets no
+    ``timed_out`` and leaves the command running, so its bare notice is recognised by its text.
+    """
+    if timeout < max_timeout:
+        next_step = f"If it needs longer, run it again with a larger `timeout` (at most {max_timeout} seconds)"
+    else:
+        next_step = f"{max_timeout} seconds is the maximum `timeout`, so narrow the command down"
+    advice = f"{next_step}; for a test suite, run a subset of the tests instead."
+    if result.timed_out:
+        return result.model_copy(update={"output": f"{result.output}\n{advice}"})
+    if result.exit_code == SANDBOX_TIMEOUT_EXIT_CODE and result.output == f"Command timed out after {timeout}s":
+        output = f"Command timed out after {timeout}s and may still be running in the sandbox. {advice}"
+        return result.model_copy(update={"output": output})
+    return result
+
 
 SANDBOX_SYSTEM_PROMPT = f"""\
 ## Bash tool
@@ -274,7 +315,9 @@ _BASH_PERMANENT_ERROR = (
 _BASH_FAILURE_MESSAGES = {BashFailure.TRANSIENT: _BASH_TRANSIENT_ERROR, BashFailure.PERMANENT: _BASH_PERMANENT_ERROR}
 
 
-async def _run_bash_commands(backend: SandboxFileBackend, commands: list[str]) -> RunCommandsResponse | BashFailure:
+async def _run_bash_commands(
+    backend: SandboxFileBackend, commands: list[str], *, timeout: int
+) -> RunCommandsResponse | BashFailure:
     """Run bash commands through the run's bound :class:`SandboxFileBackend`.
 
     On success returns the :class:`RunCommandsResponse`. Degrades only ``httpx`` transport/HTTP
@@ -286,7 +329,7 @@ async def _run_bash_commands(backend: SandboxFileBackend, commands: list[str]) -
     sandbox failure.
     """
     try:
-        return await backend.run_commands(commands, fail_fast=True)
+        return await backend.run_commands(commands, fail_fast=True, timeout=timeout)
     except httpx.RequestError:
         # No HTTP response at all (timeout, connection refused, network blip): the sandbox is
         # momentarily unreachable, so a retry may connect — transient.
@@ -352,22 +395,28 @@ class SandboxMiddleware(AgentMiddleware):
     def _build_bash_tool(self) -> BaseTool:
         """Build a bash tool that runs commands through the workspace's shell."""
 
-        @tool(BASH_TOOL_NAME, description=BASH_TOOL_DESCRIPTION)
+        default_timeout, max_timeout = _bash_timeout_limits()
+
+        @tool(BASH_TOOL_NAME, description=_bash_tool_description(default_timeout, max_timeout))
         async def bash_tool(
-            command: Annotated[str, "The command to execute."], runtime: ToolRuntime[RuntimeCtx]
+            command: Annotated[str, "The command to execute."],
+            runtime: ToolRuntime[RuntimeCtx],
+            timeout: Annotated[int | None, "Seconds to let the command run. Omit to use the default."] = None,
         ) -> str:
             """Run a Bash command in the persistent shell session of this run."""
             denial_error = _check_command_policy(command, runtime)
             if denial_error:
                 return denial_error
 
-            result = await _run_bash_commands(self._bash, [command])
+            limit = min(timeout, max_timeout) if timeout and timeout > 0 else default_timeout
+            result = await _run_bash_commands(self._bash, [command], timeout=limit)
             if isinstance(result, BashFailure):
                 return _BASH_FAILURE_MESSAGES[result]
 
             # The sandbox is authoritative: bash mutations already live in /workspace/repo,
             # so there is no local repo to keep in sync here.
-            return json.dumps({"commands": [r.model_dump(mode="json") for r in result.results]})
+            results = [_explain_sandbox_timeout(r, limit, max_timeout) for r in result.results]
+            return json.dumps({"commands": [r.model_dump(mode="json") for r in results]})
 
         return bash_tool
 

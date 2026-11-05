@@ -18,6 +18,7 @@ from codebase.clients.base import GitEgressCredential
 from core.conf import settings as core_settings
 from core.sandbox.egress import with_platform_credential
 from core.sandbox.schemas import EgressConfigRequest, RunCommandResult, RunCommandsResponse
+from core.site_settings import site_settings
 from tests.unit_tests.conftest import (
     FakeSandboxClient,
     FakeWorkspace,
@@ -121,6 +122,80 @@ class TestBashTool:
         assert output.startswith("error:")
         assert "unavailable for the rest of this conversation" in output.lower()
         assert "do not call" in output.lower()
+
+    async def _sent_timeout(self, sandbox_timeout: float = 600, **tool_args) -> int | None:
+        client = Mock()
+        client.run_commands = AsyncMock(return_value=RunCommandsResponse(results=[]))
+        with patch.object(site_settings, "sandbox_timeout", sandbox_timeout):
+            bash_tool = _bash_tool_with_fake_client(client)
+        await bash_tool.coroutine(command="pytest", runtime=_make_bash_runtime(Mock()), **tool_args)
+        return client.run_commands.await_args.args[1].timeout
+
+    async def test_a_command_without_a_timeout_gets_the_default(self):
+        assert await self._sent_timeout() == 300
+
+    async def test_a_command_gets_the_timeout_it_asks_for(self):
+        assert await self._sent_timeout(timeout=45) == 45
+
+    async def test_a_timeout_is_capped_below_the_sandbox_request_timeout(self):
+        """The command must end before the HTTP call to the sandbox gives up, or the agent gets a transport error."""
+        assert await self._sent_timeout(sandbox_timeout=600, timeout=3600) == 540
+
+    async def test_the_default_timeout_is_capped_too(self):
+        assert await self._sent_timeout(sandbox_timeout=200) == 140
+
+    def test_the_tool_description_states_the_default_and_the_maximum(self):
+        with patch.object(site_settings, "sandbox_timeout", 900):
+            bash_tool = _bash_tool_with_fake_client(Mock())
+        assert "300 seconds" in bash_tool.description
+        assert "840" in bash_tool.description
+
+    async def test_a_killed_command_keeps_its_output_and_says_what_to_do_next(self):
+        killed = RunCommandResult(
+            command="pytest",
+            output="collected 12 items\nCommand timed out after 300s and was killed.",
+            exit_code=124,
+            timed_out=True,
+        )
+        client = Mock()
+        client.run_commands = AsyncMock(return_value=RunCommandsResponse(results=[killed]))
+        bash_tool = _bash_tool_with_fake_client(client)
+
+        output = await bash_tool.coroutine(command="pytest", runtime=_make_bash_runtime(Mock()))
+
+        result = json.loads(output)["commands"][0]
+        assert result["output"].startswith("collected 12 items\nCommand timed out after 300s and was killed.")
+        assert "540" in result["output"]
+        assert "may still be running" not in result["output"]
+        assert set(result) == {"command", "output", "exit_code"}
+
+    async def test_an_older_sandboxs_timeout_says_the_command_may_still_be_running(self):
+        response = RunCommandsResponse(
+            results=[RunCommandResult(command="pytest", output="Command timed out after 300s", exit_code=124)]
+        )
+        client = Mock()
+        client.run_commands = AsyncMock(return_value=response)
+        bash_tool = _bash_tool_with_fake_client(client)
+
+        output = await bash_tool.coroutine(command="pytest", runtime=_make_bash_runtime(Mock()))
+
+        result = json.loads(output)["commands"][0]
+        assert result["exit_code"] == 124
+        assert "may still be running" in result["output"]
+        assert "540" in result["output"]
+
+    async def test_exit_124_from_the_command_itself_is_left_alone(self):
+        """``timeout 5 make`` exits 124 too; only the sandbox's own timeout gets the explanation."""
+        response = RunCommandsResponse(
+            results=[RunCommandResult(command="timeout 5 make", output="make: building", exit_code=124)]
+        )
+        client = Mock()
+        client.run_commands = AsyncMock(return_value=response)
+        bash_tool = _bash_tool_with_fake_client(client)
+
+        output = await bash_tool.coroutine(command="timeout 5 make", runtime=_make_bash_runtime(Mock()))
+
+        assert json.loads(output)["commands"][0]["output"] == "make: building"
 
     def test_a_workspace_without_a_shell_is_refused(self):
         """A disk workspace has no shell to back the tool, so the middleware refuses it when it is built rather than on
@@ -344,7 +419,7 @@ class TestRunBashCommands:
         backend = sandbox_backend_on(Mock(), "sess_1")
         backend.run_commands = AsyncMock(return_value=RunCommandsResponse(results=[]))
 
-        response = await _run_bash_commands(backend, ["echo ok"])
+        response = await _run_bash_commands(backend, ["echo ok"], timeout=300)
 
         assert response is not None
         backend.run_commands.assert_awaited_once()
@@ -354,7 +429,7 @@ class TestRunBashCommands:
     async def _run_with_error(self, error: Exception) -> object:
         backend = sandbox_backend_on(Mock(), "sess_1")
         backend.run_commands = AsyncMock(side_effect=error)
-        return await _run_bash_commands(backend, ["echo ok"])
+        return await _run_bash_commands(backend, ["echo ok"], timeout=300)
 
     async def test_transport_error_is_transient(self):
         """No HTTP response (timeout/connection blip) → transient: a retry may connect."""
