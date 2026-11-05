@@ -51,8 +51,7 @@ claim_slot() {
         sed -n 's/^WORKTREE_SLOT=//p' "$path/.env" 2>/dev/null || true
     done)
     # A slot shares the main app's host, so its certificate and GitLab sign-in app serve the slot too.
-    host=$(grep -h '^DAIV_EXTERNAL_URL=' "$main/docker/local/app/config.env" "$main/$secrets" 2>/dev/null |
-        tail -n1 | sed 's|^[^/]*//||; s|[:/"'"'"'].*||' || true)
+    host=$(app_env DAIV_EXTERNAL_URL "$main" 2>/dev/null | sed 's|^[^/]*//||; s|[:/].*||' || true)
     for n in $(seq 1 99); do
         if grep -qx "$n" <<<"$claimed" || port_in_use $((8000 + n)); then
             continue
@@ -73,6 +72,11 @@ EOF
 
 shared() {
     docker compose --project-directory "$main" "$@"
+}
+
+app_env() {
+    docker compose --project-directory "$2" config --format json app |
+        python3 -c 'import json, sys; print(json.load(sys.stdin)["services"]["app"]["environment"].get(sys.argv[1]) or "")' "$1"
 }
 
 [ -f .env ] || claim_slot
@@ -112,8 +116,10 @@ fi
 # The slot's own project overrides these profiles away, so they start the main checkout's services.
 profiles=${COMPOSE_PROFILES-$(sed -n 's/^COMPOSE_PROFILES=//p' .env)}
 services=(db mailpit)
+gitlab=false
 if [[ ,$profiles, =~ ,(gitlab|full), ]]; then
     services+=(gitlab gitlab_runner)
+    gitlab=true
 fi
 if [[ ,$profiles, =~ ,(sandbox|full), ]]; then
     services+=(sandbox)
@@ -138,8 +144,8 @@ if [ "$command" = db-reset ] || [ "$copied_for" != "$PWD" ]; then
 fi
 
 # GitLab sends a sign-in back only to a registered redirect URI, so register this slot's on the app.
-if [[ " ${services[*]} " = *" gitlab "* ]]; then
-    client_id=$(sed -n 's/^ALLAUTH_CLIENT_ID=//p' "$secrets")
+if [ "$gitlab" = true ]; then
+    client_id=$(app_env ALLAUTH_CLIENT_ID "$PWD")
     if [ -z "$client_id" ]; then
         client_id=$(shared exec -T db psql -U dbuser -d "$database" -tAc "SELECT auth_client_id FROM core_siteconfiguration")
     fi
