@@ -635,6 +635,93 @@ msgstr "usou {count} ferramenta"
 msgid "used {count} tools"
 msgstr "usou {count} ferramentas"
 
+msgid "reading {count} file"
+msgstr "a ler {count} ficheiro"
+
+msgid "reading {count} files"
+msgstr "a ler {count} ficheiros"
+
+msgid "editing {count} file"
+msgstr "a editar {count} ficheiro"
+
+msgid "editing {count} files"
+msgstr "a editar {count} ficheiros"
+
+msgid "creating {count} file"
+msgstr "a criar {count} ficheiro"
+
+msgid "creating {count} files"
+msgstr "a criar {count} ficheiros"
+
+msgid "running {count} command"
+msgstr "a executar {count} comando"
+
+msgid "running {count} commands"
+msgstr "a executar {count} comandos"
+
+msgid "searching for {count} pattern"
+msgstr "a pesquisar {count} padrão"
+
+msgid "searching for {count} patterns"
+msgstr "a pesquisar {count} padrões"
+
+msgid "listing {count} folder"
+msgstr "a listar {count} pasta"
+
+msgid "listing {count} folders"
+msgstr "a listar {count} pastas"
+
+msgid "running {count} subagent"
+msgstr "a executar {count} subagente"
+
+msgid "running {count} subagents"
+msgstr "a executar {count} subagentes"
+
+msgid "fetching {count} page"
+msgstr "a obter {count} página"
+
+msgid "fetching {count} pages"
+msgstr "a obter {count} páginas"
+
+msgid "searching the web"
+msgstr "a pesquisar na web"
+
+msgid "loading a skill"
+msgstr "a carregar uma competência"
+
+msgid "loading {count} skills"
+msgstr "a carregar {count} competências"
+
+msgid "loading tools"
+msgstr "a carregar ferramentas"
+
+msgid "calling {name}"
+msgstr "a chamar {name}"
+
+msgid "using {name}"
+msgstr "a usar {name}"
+
+msgid "opening {count} artifact"
+msgstr "a abrir {count} artefacto"
+
+msgid "opening {count} artifacts"
+msgstr "a abrir {count} artefactos"
+
+msgid "checking delegated jobs"
+msgstr "a consultar as tarefas delegadas"
+
+msgid "cancelling delegated jobs"
+msgstr "a cancelar as tarefas delegadas"
+
+msgid "using {count} tool"
+msgstr "a usar {count} ferramenta"
+
+msgid "using {count} tools"
+msgstr "a usar {count} ferramentas"
+
+msgid "{first} · {second}"
+msgstr "{first} · {second}"
+
 msgid "({count} failed)"
 msgstr "({count} com falha)"
 

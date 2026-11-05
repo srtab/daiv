@@ -12,6 +12,7 @@ from tests.unit_tests.chat.transcript_fixtures import (
     delegate,
     edit,
     enriched_leg,
+    gitlab,
     grep,
     publish,
     question,
@@ -19,6 +20,7 @@ from tests.unit_tests.chat.transcript_fixtures import (
     refused_question,
     started_leg,
     status_turn,
+    subagent,
     text,
     thinking,
     tool_call,
@@ -193,8 +195,7 @@ def test_a_group_of_only_thinking_reads_thought(segs, expected):
 
 
 def test_clauses_split_by_platform_and_mcp_server_and_only_the_first_is_capitalised():
-    gitlab = tool_call("g1", "gitlab", {"subcommand": "mr view"}, result="ok")
-    segs = [gitlab, {**gitlab, "id": "g2"}, tool_call("m1", "sentry_find", {}, result="ok")]
+    segs = [gitlab("g1"), gitlab("g2"), tool_call("m1", "sentry_find", {}, result="ok")]
     segs.append(tool_call("m2", "linear_list", {}, result="ok"))
     line = _group_line(segs, servers=["sentry", "linear"])
     assert line["text"] == "Called GitLab 2 times, used sentry, used linear"
@@ -208,6 +209,25 @@ def test_created_files_get_their_own_clause():
 def test_group_line_names_the_last_running_step():
     b = _blocks([user("u1"), asst("a1", read("c1"), bash("c2", status="running"), streaming=True)])[0]
     assert b["items"][0]["line"]["running"] == "Running pytest"
+
+
+@pytest.mark.parametrize(
+    "segs,expected",
+    [
+        ([subagent("t1", status="running"), subagent("t2", status="running")], "Running 2 subagents"),
+        (
+            [subagent("t1"), subagent("t2", status="running"), subagent("t3", status="running")],
+            "Ran 1 subagent · running 2 subagents",
+        ),
+        ([subagent("t1"), subagent("t2", status="running")], "Ran 1 subagent · running 1 subagent"),
+        ([read("c1"), bash("c2"), bash("c3", status="running")], "Read 1 file, ran 1 command · running pytest"),
+        ([read("c1", result=None, status="running"), bash("c2")], "Reading x · ran 1 command"),
+        ([gitlab("g1", status="running"), gitlab("g2", status="running")], "Calling GitLab"),
+        ([subagent("t1"), subagent("t2")], "Ran 2 subagents"),
+    ],
+)
+def test_running_steps_read_in_the_present_in_order_of_first_appearance(segs, expected):
+    assert _group_line(segs)["text"] == expected
 
 
 def test_a_second_build_reuses_rows_of_unchanged_segments():
