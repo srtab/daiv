@@ -13,7 +13,7 @@ x-worktree-app: &worktree_app
     DJANGO_REDIS_SESSION_URL: redis://worktree-redis:6379/1
     DJANGO_REDIS_CHECKPOINT_URL: redis://worktree-redis:6379/0
     DJANGO_SESSION_COOKIE_NAME: __Secure-sessionid-${WORKTREE_SLOT}
-    DAIV_EXTERNAL_URL: https://daiv.dipcode.test:${APP_HOST_PORT}
+    DAIV_EXTERNAL_URL: https://${APP_HOST:-localhost}:${APP_HOST_PORT}
 
 services:
   db:

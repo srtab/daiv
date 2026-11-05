@@ -42,7 +42,7 @@ port_in_use() {
 }
 
 claim_slot() {
-    local claimed n
+    local claimed n host
     if command -v flock >/dev/null; then
         exec 9>"$common_dir/daiv-stack-slot.lock"
         flock 9
@@ -50,6 +50,9 @@ claim_slot() {
     claimed=$(git worktree list --porcelain | sed -n 's/^worktree //p' | while read -r path; do
         sed -n 's/^WORKTREE_SLOT=//p' "$path/.env" 2>/dev/null || true
     done)
+    # A slot shares the main app's host, so its certificate and GitLab sign-in app serve the slot too.
+    host=$(grep -h '^DAIV_EXTERNAL_URL=' "$main/docker/local/app/config.env" "$main/$secrets" 2>/dev/null |
+        tail -n1 | sed 's|^[^/]*//||; s|[:/"'"'"'].*||' || true)
     for n in $(seq 1 99); do
         if grep -qx "$n" <<<"$claimed" || port_in_use $((8000 + n)); then
             continue
@@ -59,6 +62,7 @@ COMPOSE_PROJECT_NAME=daiv-$n
 COMPOSE_FILE=docker-compose.yml:docker/compose.worktree.yml
 WORKTREE_SLOT=$n
 APP_HOST_PORT=$((8000 + n))
+APP_HOST=${host:-localhost}
 COMPOSE_PROFILES=gitlab,sandbox
 EOF
         return
@@ -80,7 +84,8 @@ if ! [[ $slot =~ ^[1-9][0-9]?$ ]]; then
 fi
 database=db_$slot
 port=$((8000 + slot))
-url=https://daiv.dipcode.test:$port
+host=$(sed -n 's/^APP_HOST=//p' .env)
+url=https://${host:-localhost}:$port
 
 mkdir -p .claude
 cat >.claude/launch.json <<EOF

@@ -106,7 +106,7 @@ Every git worktree can run its own app next to the main checkout's. A worktree c
 | | Main checkout | Worktree, slot n |
 |---|---|---|
 | Compose project | `daiv` | `daiv-<n>` |
-| App | `https://daiv.dipcode.test:8000` | `https://daiv.dipcode.test:<8000+n>` |
+| App | `DAIV_EXTERNAL_URL`, `https://localhost:8000` by default | `https://<host>:<8000+n>`, on the host of the main checkout's `DAIV_EXTERNAL_URL` when the slot was claimed, kept as `APP_HOST` in `.env` |
 | Workers | `worker` ×2, `worker-interactive`, `scheduler` | `worker`, `worker-interactive`; `scheduler` only when `COMPOSE_PROFILES` in `.env` lists `scheduler`, and it then runs the copied schedules |
 | Postgres database | `db` | `db_<n>`, a copy of `db` made on the first `make up`, without the rows of the unused `checkpoint*` tables |
 | Redis | `daiv-redis` | its own, in the volume `daiv-<n>_redis-data` |
@@ -115,7 +115,7 @@ Every git worktree can run its own app next to the main checkout's. A worktree c
 
 The app migrates its copy on start, so a branch's migrations never touch `db`.
 
-`daiv.dipcode.test` must resolve to `127.0.0.1` (an `/etc/hosts` line), and `data/certs/cert.crt` must be a certificate for it that your browser trusts: the self-signed `localhost` one `start-app` generates is refused by Claude Code's browser pane.
+Claude Code's browser pane refuses the self-signed `localhost` certificate that `start-app` generates. To preview a slot there, point a host name at `127.0.0.1` in `/etc/hosts`, put a certificate for it that your browser trusts in `data/certs/cert.crt` and `cert.key`, and set `DAIV_EXTERNAL_URL=https://<that host>:8000` in `docker/local/app/config.secrets.env`.
 
 ```bash
 make up            # start this checkout's stack
