@@ -106,13 +106,16 @@ Every git worktree can run its own app next to the main checkout's. A worktree c
 | | Main checkout | Worktree, slot n |
 |---|---|---|
 | Compose project | `daiv` | `daiv-<n>` |
-| App | `https://localhost:8000` | `http://localhost:<8000+n>`: plain HTTP, since Claude Code's browser pane refuses the self-signed certificate |
-| Workers | `worker` ×2, `worker-interactive`, `scheduler` | `worker`, `worker-interactive`; `scheduler` only with `COMPOSE_PROFILES=scheduler` in `.env`, and it then runs the copied schedules |
+| App | `DAIV_EXTERNAL_URL`, `https://localhost:8000` by default | `https://<host>:<8000+n>`, on the host of the main checkout's `DAIV_EXTERNAL_URL` when the slot was claimed, kept as `APP_HOST` in `.env` |
+| Workers | `worker` ×2, `worker-interactive`, `scheduler` | `worker`, `worker-interactive`; `scheduler` only when `COMPOSE_PROFILES` in `.env` lists `scheduler`, and it then runs the copied schedules |
 | Postgres database | `db` | `db_<n>`, a copy of `db` made on the first `make up`, without the rows of the unused `checkpoint*` tables |
 | Redis | `daiv-redis` | its own, in the volume `daiv-<n>_redis-data` |
-| Postgres, mailpit, GitLab, sandbox | runs them | uses the main checkout's |
+| Postgres, mailpit | runs them | starts and uses the main checkout's |
+| GitLab and runner, sandbox | runs them with `--profile gitlab`, `--profile sandbox` | starts and uses the main checkout's when `COMPOSE_PROFILES` in `.env` lists `gitlab`, `sandbox` (or `full`); a new slot lists both |
 
 The app migrates its copy on start, so a branch's migrations never touch `db`.
+
+Claude Code's browser pane refuses the self-signed `localhost` certificate that `start-app` generates. To preview a slot there, point a host name at `127.0.0.1` in `/etc/hosts`, put a certificate for it that your browser trusts in `data/certs/cert.crt` and `cert.key`, and set `DAIV_EXTERNAL_URL=https://<that host>:8000` in `docker/local/app/config.secrets.env`.
 
 ```bash
 make up            # start this checkout's stack
@@ -126,7 +129,8 @@ In a Claude Code session, a `SessionStart` hook claims the slot and writes `.cla
 
 Limits:
 
-- Each slot has its own session cookie (`__Secure-sessionid-<n>`), so signing in on one slot leaves the others alone. GitLab sign-in only redirects to the main checkout, so sign in by email code: the mail lands in the shared mailpit at <http://localhost:8025>.
+- Each slot has its own session cookie (`__Secure-sessionid-<n>`), so signing in on one slot leaves the others alone.
+- With `gitlab` in its profiles, `make up` adds the slot's callback URL to the redirect URIs of the local GitLab's OAuth application, so GitLab sign-in works in every slot. Without it, sign in by email code: the mail lands in the shared mailpit at <http://localhost:8025>.
 - GitLab webhooks reach only the main checkout. In a slot, start work from the chat or the jobs API.
 - A chat session copied from `db` shows its transcript only if it was archived to the database; the rest open as expired, since their checkpoints live in the main checkout's Redis.
 - Removing a worktree leaves its `db_<n>` database behind. The next worktree to claim slot n replaces it with a fresh copy.
