@@ -117,13 +117,17 @@ def test_an_archived_session_hides_the_drawer_with_the_composer(member_client, m
 
 
 @pytest.mark.django_db
-def test_the_drawer_lists_files_changed_only_when_there_are_some(member_client, member_user):
+@pytest.mark.parametrize(
+    ("label", "shown_when"), [("Progress", "latestTodos.length"), ("Files changed", "filesTouched.length")]
+)
+def test_the_open_drawer_lists_only_what_the_run_has(member_client, member_user, label, shown_when):
     html = render_thread(member_client, create_session(member_user))
     drawer = html[html.index('class="progress-drawer"') :]
-    label = drawer.index("Files changed")
-    section = re.findall(r"<section[^>]*>", drawer[:label])[-1]
+    heading = re.search(rf'composer-sheet__label">\s*{label}', drawer).start()
+    section = re.findall(r"<section[^>]*>", drawer[:heading])[-1]
 
-    assert X_SHOW.search(section)[1] == "filesTouched.length"
+    assert X_SHOW.search(section)[1] == shown_when
+    assert "Nothing planned yet." not in html
     assert "No files touched yet." not in html
 
 

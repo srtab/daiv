@@ -105,11 +105,8 @@ msgstr "Nenhum servidor corresponde"
 msgid "Session progress"
 msgstr "Progresso da sessão"
 
-msgid "Todos"
-msgstr "Tarefas"
-
-msgid "Nothing planned yet."
-msgstr "Ainda não há nada planeado."
+msgid "Progress"
+msgstr "Progresso"
 
 msgid "Files changed"
 msgstr "Ficheiros alterados"

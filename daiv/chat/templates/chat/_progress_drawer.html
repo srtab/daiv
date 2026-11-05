@@ -1,7 +1,7 @@
 {% load i18n icon_tags %}
 {% comment %}
 Progress drawer: a strip tucked behind the composer's top edge naming the step the run is on,
-opening upwards in place into the todos and files changed. ``progressDrawer`` (chat-stream.js)
+opening upwards in place into the run's progress (its todos) and files changed. ``progressDrawer`` (chat-stream.js)
 decides whether it shows and what the bar says; open is ``sheet === 'progress'``.
 {% endcomment %}
 <div class="progress-drawer"
@@ -10,9 +10,8 @@ decides whether it shows and what the bar says; open is ``sheet === 'progress'``
      :class="{ ['progress-drawer--' + progressDrawer?.tone]: progressDrawer, 'progress-drawer--open': sheet === 'progress' }"
      @click.outside="if (sheet === 'progress') closeSheet()">
   <div id="progress-drawer-body" class="progress-drawer__body scrollbar-thin" x-show="sheet === 'progress'" x-cloak>
-    <section class="composer-sheet__group">
-      <h3 class="composer-sheet__label">{% translate "Todos" %}</h3>
-      <p class="composer-sheet__empty" x-show="!latestTodos.length">{% translate "Nothing planned yet." %}</p>
+    <section class="composer-sheet__group" x-show="latestTodos.length">
+      <h3 class="composer-sheet__label">{% translate "Progress" %}</h3>
       {# Not redundant nesting: `.chat-todo` has no type of its own, `.chat-todos` supplies it. #}
       <div class="chat-todos">
         <template x-for="t in latestTodos" :key="t.content">
@@ -24,7 +23,9 @@ decides whether it shows and what the bar says; open is ``sheet === 'progress'``
       </div>
     </section>
 
-    <section class="composer-sheet__group" x-show="filesTouched.length">
+    <section class="composer-sheet__group"
+             x-show="filesTouched.length"
+             :class="{ 'progress-drawer__files--alone': !latestTodos.length }">
       <h3 class="composer-sheet__label">
         {% translate "Files changed" %}
         <span x-text="`· ${filesTouched.length}`"></span>

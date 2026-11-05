@@ -3694,6 +3694,13 @@ html {
     margin-bottom: 4px;
   }
 
+  /* The shared `group + group` divider still matches a hidden Todos section before it. */
+  .progress-drawer__body .composer-sheet__group.progress-drawer__files--alone {
+    margin-top: 0;
+    border-top: 0;
+    padding-top: 0;
+  }
+
   @media (width < 480px) {
     .progress-drawer__files {
       display: none;
