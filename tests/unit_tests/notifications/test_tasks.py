@@ -20,11 +20,12 @@ from notifications.tasks import (
     reclassify_missing_envelopes_cron_task,
     redrive_missing_notifications_cron_task,
 )
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import EventKind, EventState, Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
 from schedules.models import Frequency, Intent, ScheduledJob
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD
+from tests.unit_tests.sessions.inbox.conftest import amake_event, make_event
 
 
 @pytest.mark.django_db
@@ -333,6 +334,26 @@ def test_redrive_delivers_a_missing_prompt_driven_question(member_user, email_bi
 
 
 @pytest.mark.django_db
+def test_redrive_delivers_a_missing_all_clear_of_a_run_a_ci_failure_woke(member_user, email_binding):
+    run = _classified_finished_run(member_user, status=EnvelopeStatus.ALL_CLEAR, origin=SessionOrigin.PIPELINE_WEBHOOK)
+    make_event(run.session, EventKind.CI_FAILED, run=run, state=EventState.HANDLED, wake=True)
+
+    redrive_missing_notifications_cron_task.func()
+
+    assert Notification.objects.filter(source_type="sessions.Run", source_id=str(run.pk)).count() == 1
+
+
+@pytest.mark.django_db
+def test_redrive_delivers_a_missing_all_clear_of_a_chat_run_a_ci_failure_also_woke(member_user, email_binding):
+    run = _classified_finished_run(member_user, status=EnvelopeStatus.ALL_CLEAR, origin=SessionOrigin.CHAT)
+    make_event(run.session, EventKind.CI_FAILED, run=run, state=EventState.HANDLED, wake=True)
+
+    redrive_missing_notifications_cron_task.func()
+
+    assert Notification.objects.filter(source_type="sessions.Run", source_id=str(run.pk)).count() == 1
+
+
+@pytest.mark.django_db
 def test_redrive_leaves_webhook_question_runs_alone(member_user, email_binding, caplog):
     """Re-emitting would be skipped by the emit and then logged as a stuck delivery every tick."""
     _classified_finished_run(member_user, status=EnvelopeStatus.NEEDS_INPUT, origin=SessionOrigin.ISSUE_WEBHOOK)
@@ -387,6 +408,15 @@ def test_reclassify_reenqueues_stranded_terminal_runs_across_origins():
         reclassify_missing_envelopes_cron_task.func()
     enqueued = {call.args[0] for call in task.enqueue.call_args_list}
     assert enqueued == {str(r.pk) for r in stranded}
+
+
+@pytest.mark.django_db
+def test_reclassify_reenqueues_a_stranded_chat_run_a_ci_failure_also_woke():
+    run = _stranded_run(trigger_type=SessionOrigin.CHAT)
+    make_event(run.session, EventKind.CI_FAILED, run=run, state=EventState.HANDLED, wake=True)
+    with patch("notifications.tasks.classify_run_task") as task:
+        reclassify_missing_envelopes_cron_task.func()
+    task.enqueue.assert_called_once_with(str(run.pk))
 
 
 @pytest.mark.django_db
@@ -450,6 +480,7 @@ async def _make_scheduled_run(
     response_text: str = "The run finished.",
     error_message: str = "",
     with_schedule: bool = True,
+    prompt: str = "",
 ) -> Run:
     """Build a ``ScheduledJob(intent=…) -> Session(scheduled_job=…) -> Run(session=…)`` chain.
 
@@ -477,6 +508,7 @@ async def _make_scheduled_run(
         status=status,
         result_summary=response_text,
         error_message=error_message,
+        prompt=prompt,
     )
 
 
@@ -544,7 +576,7 @@ async def test_ac3_report_intent_passes_all_clear_through_with_no_findings():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_ac4_found_issues_with_empty_list_coerced_to_all_clear():
+async def test_ac4_found_issues_with_empty_list_coerced_to_needs_attention():
     run = await _make_scheduled_run(intent=Intent.WATCH_FIND)
     classification = RunClassification(status="found-issues", summary="Odd but empty.", actionable=[])
 
@@ -552,7 +584,7 @@ async def test_ac4_found_issues_with_empty_list_coerced_to_all_clear():
         await classify_run_task.func(str(run.pk))
 
     envelope = await RunEnvelope.objects.aget(run=run)
-    assert envelope.status == EnvelopeStatus.ALL_CLEAR
+    assert envelope.status == EnvelopeStatus.NEEDS_ATTENTION
     assert envelope.actionable == []
     assert envelope.count == 0
 
@@ -721,10 +753,12 @@ async def test_successful_run_with_empty_prose_is_all_clear_without_llm_call():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_forwards_run_prose_and_model_names_to_method(site_settings_override):
-    # Seam assertion: the run's prose and the primary-before-fallback model tuple (empties filtered)
-    # actually reach the classification method — not just that the output happens to be right.
-    run = await _make_scheduled_run(intent=Intent.WATCH_FIND, response_text="classify this exact prose")
+async def test_forwards_run_prose_prompt_and_model_names_to_method(site_settings_override):
+    # Seam assertion: the run's prose, its prompt and the primary-before-fallback model tuple (empties
+    # filtered) actually reach the classification method — not just that the output happens to be right.
+    run = await _make_scheduled_run(
+        intent=Intent.WATCH_FIND, response_text="classify this exact prose", prompt="/sentry-triage project=x"
+    )
     llm = _llm_returning(RunClassification(status="all-clear", summary="ok", actionable=[]))
     site_settings_override(run_classifier_model_name="primary", run_classifier_fallback_model_name="fallback")
 
@@ -733,7 +767,9 @@ async def test_forwards_run_prose_and_model_names_to_method(site_settings_overri
 
     build.assert_called_once_with(RunClassification, ("primary", "fallback"))
     messages = llm.with_config.return_value.ainvoke.call_args.args[0]
-    assert messages[1].content == "classify this exact prose"
+    assert messages[1].content == (
+        "<task>\n/sentry-triage project=x\n</task>\n\n<report>\nclassify this exact prose\n</report>"
+    )
 
 
 @pytest.mark.django_db(transaction=True)
@@ -911,3 +947,22 @@ async def test_waiting_input_run_without_a_stored_question_still_gets_an_envelop
     assert envelope.status == EnvelopeStatus.NEEDS_INPUT
     assert envelope.summary == "Waiting for your answer."
     assert "has no question to show" in caplog.text
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_ci_woken_run_with_empty_prose_is_all_clear_and_still_notifies_its_owner(member_user, email_binding):
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="x/y", user=member_user
+    )
+    run = await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id="x/y", status=RunStatus.SUCCESSFUL,
+        user=member_user, finished_at=timezone.now(),
+    )  # fmt: skip
+    await amake_event(session, EventKind.CI_FAILED, run=run, state=EventState.HANDLED, wake=True)
+
+    with patch("notifications.classification.llm._build_structured_llm") as build:
+        await classify_run_task.func(str(run.pk))
+
+    build.assert_not_called()
+    assert (await RunEnvelope.objects.aget(run=run)).status == EnvelopeStatus.ALL_CLEAR
+    assert await Notification.objects.filter(recipient=member_user, source_id=str(run.pk)).acount() == 1

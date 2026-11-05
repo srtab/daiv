@@ -60,6 +60,9 @@ def is_transient_sandbox_error(exc: httpx.HTTPError) -> bool:
 # regardless of run length while leaving headroom for the legitimate concurrent calls above.
 SANDBOX_CONNECTION_LIMITS = httpx.Limits(max_connections=32, max_keepalive_connections=16)
 
+# Covers the sandbox's wait for the session lock (30s) and its kill of a timed-out command (under 10s).
+_COMMAND_TIMEOUT_HEADROOM = 60
+
 
 class DAIVSandboxClient:
     """
@@ -171,24 +174,27 @@ class DAIVSandboxClient:
         response.raise_for_status()
         return FsEditResponse.model_validate(response.json())
 
-    async def run_commands(
-        self, session_id: str, request: RunCommandsRequest, *, http_timeout: float | None = None
-    ) -> RunCommandsResponse:
+    async def run_commands(self, session_id: str, request: RunCommandsRequest) -> RunCommandsResponse:
         """
         Run commands in the sandbox.
+
+        A request with a per-command ``timeout`` waits as long as its commands may run, not the client-wide
+        ``sandbox_timeout``, so a command is never cut off by the HTTP call before the sandbox times it out.
 
         Args:
             session_id (str): The session ID.
             request (RunCommandsRequest): The request to run the commands.
-            http_timeout (float | None): Seconds to wait for this request; ``None`` uses the client's timeout.
 
         Returns:
             RunCommandResponse: The response from running the commands.
         """
+        timeout = (
+            request.timeout * len(request.commands) + _COMMAND_TIMEOUT_HEADROOM
+            if request.timeout
+            else httpx.USE_CLIENT_DEFAULT
+        )
         response = await self._client.post(
-            f"session/{session_id}/",
-            json=request.model_dump(mode="json"),
-            timeout=httpx.USE_CLIENT_DEFAULT if http_timeout is None else http_timeout,
+            f"session/{session_id}/", json=request.model_dump(mode="json"), timeout=timeout
         )
         response.raise_for_status()
         return RunCommandsResponse.model_validate(response.json())

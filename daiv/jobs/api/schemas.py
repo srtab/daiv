@@ -2,6 +2,7 @@ from datetime import datetime  # noqa: TC003 - required at runtime by Pydantic
 from typing import Any, Literal
 from uuid import UUID  # noqa: TC003 - required at runtime by Pydantic
 
+from mcp_connectors.selection import McpServerSwitches  # noqa: TC002 - required at runtime by Ninja
 from ninja import Field, Schema
 from pydantic import ConfigDict
 from sessions.artifacts import ArtifactPayload  # noqa: TC002 - required at runtime by Ninja
@@ -37,6 +38,14 @@ class JobSubmitRequest(Schema):
         default_factory=list,
         max_length=MAX_REFS_PER_SUBMISSION,
         description="External work-item references to link into the MR/PR.",
+    )
+    mcp_overrides: McpServerSwitches | None = Field(
+        default=None,
+        description=(
+            "MCP servers to switch on or off for these jobs, relative to the default set: true adds an on-demand "
+            "server, false drops an active one. On a continued thread they apply on top of the thread's own, and "
+            "can't change them while another run on the thread is unfinished."
+        ),
     )
 
 

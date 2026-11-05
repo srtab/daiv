@@ -83,12 +83,17 @@ class Job(BaseModel):
 
 
 class Pipeline(BaseModel):
+    """A CI run on a commit. ``workflow_id`` and ``workflow_name`` name the GitHub Actions workflow it is a run of, one
+    of several on a commit; a GitLab pipeline covers the whole commit and names none."""
+
     id: int
     iid: int | None = None
     sha: str
     status: str
     web_url: str
     jobs: list[Job] = Field(default_factory=list)
+    workflow_id: int | None = None
+    workflow_name: str = ""
 
 
 class TriggeredPipeline(BaseModel):

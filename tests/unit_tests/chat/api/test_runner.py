@@ -14,8 +14,8 @@ from sessions.live import relay
 from chat.api import runner
 
 
-def _stub_streamer(events_gen):
-    return SimpleNamespace(thread_id="t-1", run_id="r-1", events=events_gen)
+def _stub_streamer(events_gen, *, withdrawn=False):
+    return SimpleNamespace(thread_id="t-1", run_id="r-1", events=events_gen, withdrawn=withdrawn)
 
 
 async def test_run_to_relay_publishes_each_event_then_sentinel(fake_redis):
@@ -111,6 +111,24 @@ async def test_cancel_local_cancels_running_task_and_reports_miss(fake_redis):
     assert fake_redis.streams[relay.RunRelay("t-1", "r-1").events_key][-1][1] == {"end": "1"}
 
 
+async def test_a_run_stopped_as_soon_as_it_is_spawned_still_ends_its_turn(fake_redis):
+    ended = []
+
+    async def _turn():
+        try:
+            await asyncio.Event().wait()
+            yield  # pragma: no cover
+        finally:
+            ended.append(True)
+
+    task = runner.supervisor.spawn(_stub_streamer(_turn))
+    runner.supervisor.cancel_local("r-1")
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+
+    assert ended == [True]
+
+
 async def test_run_to_relay_swallows_publish_end_failure(fake_redis):
     """If even the terminal sentinel can't be published (Redis down in the finally),
     ``run_to_relay`` still must not raise — a background task's exception has no
@@ -184,11 +202,12 @@ async def test_run_to_relay_establishes_own_thread_sensitive_context(fake_redis)
     assert seen and seen[0] is not None
 
 
-async def test_run_to_relay_publishes_run_cancelled_on_user_stop(fake_redis):
+@pytest.mark.parametrize(("withdrawn", "code"), [(False, "run_cancelled"), (True, "run_withdrawn")])
+async def test_run_to_relay_publishes_run_cancelled_on_user_stop(fake_redis, withdrawn, code):
     """A user Stop cancels the run task. The cancelled streamer can't yield its own
     RUN_ERROR(run_cancelled), so ``run_to_relay`` synthesizes it (gated on the cancel
     flag) before the end sentinel — otherwise the live client renders the stopped turn
-    as a clean finish."""
+    as a clean finish. A turn stopped before DAIV answered was withdrawn, and says so."""
     started = asyncio.Event()
 
     async def _hang():
@@ -199,14 +218,14 @@ async def test_run_to_relay_publishes_run_cancelled_on_user_stop(fake_redis):
     run_relay = relay.RunRelay("t-1", "r-1")
     await run_relay.request_cancel()  # the cancel endpoint set the flag
 
-    task = asyncio.get_running_loop().create_task(runner.run_to_relay(_stub_streamer(_hang)))
+    task = asyncio.get_running_loop().create_task(runner.run_to_relay(_stub_streamer(_hang, withdrawn=withdrawn)))
     await started.wait()
     task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await task
 
     payloads = [fields for _id, fields in fake_redis.streams[run_relay.events_key]]
-    assert json.loads(payloads[0]["data"])["code"] == "run_cancelled"
+    assert json.loads(payloads[0]["data"])["code"] == code
     assert "timestamp" in json.loads(payloads[0]["data"])
     assert payloads[-1] == {"end": "1"}
 

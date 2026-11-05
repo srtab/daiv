@@ -1,3 +1,7 @@
+---
+description: "Run DAIV agents on a cron schedule across one or more repositories for recurring work such as dependency audits and nightly code-quality scans."
+---
+
 # Scheduled Jobs
 
 Scheduled Jobs let you run DAIV agents on a recurring basis — no CI pipeline or cron script required. Define a prompt, pick one or more repositories and a frequency, and DAIV handles the rest.

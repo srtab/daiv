@@ -33,16 +33,26 @@
     };
   };
 
-  // Structured-response tool names emitted by the diff_to_metadata subagents.
-  // We render their TOOL_CALL_* lifecycle as compact phase chips ("Creating
-  // merge request…" / "Committing changes…") instead of letting the raw JSON
-  // structured response surface as a tool card. Subagent text + reasoning are
-  // already silenced server-side via `emit-messages: false`, so this is the
-  // only signal the chat sees from the publish pipeline before the post-publish
-  // STATE_SNAPSHOT carrying the new ``merge_request`` lands.
+  const PUBLISH_RESULT_EVENT = "daiv_publish_result";
+
+  // Structured-response tools of the diff_to_metadata subagents: their lifecycle only names the
+  // working line's phase; the raw JSON never surfaces as a tool card.
   const PUBLISH_PHASE_TOOLS = {
-    PullRequestMetadata: { label: "Creating merge request" },
-    CommitMetadata: { label: "Committing changes" },
+    PullRequestMetadata: "publish_creating",
+    CommitMetadata: "publish_committing",
+  };
+
+  const publishEntry = (value, labels) => {
+    const v = value || {};
+    return {
+      status: v.status,
+      merge_request_iid: v.merge_request_iid ?? null,
+      merge_request_web_url: v.merge_request_web_url ?? "",
+      files_changed: v.files_changed ?? null,
+      lines_added: v.lines_added ?? null,
+      lines_removed: v.lines_removed ?? null,
+      error: v.error_kind ? labels.t(`publish_error_${v.error_kind}`) : "",
+    };
   };
 
   // Reads a Django ``json_script`` payload. Returns `fallback` when the element is
@@ -141,12 +151,14 @@
   const DEFAULT_LABELS = {
     file: "file",
     files: "files",
-    stopped: "stopped",
+    allDone: "All steps done",
+    stopped: "Stopped",
+    stoppedAt: "Stopped at: {step}",
+    filesChanged: "Files changed",
     tool: "tool",
     tools: "tools",
     filteredTo: "filtered to",
     notSynced: "not synced yet",
-    mcpServers: "MCP servers",
     // Context meter + spend. BRACE placeholders only, and no literal "%" in a msgid —
     // the sign travels inside a placeholder value ({percent} arrives as "42%").
     ariaContext: "Context: {percent} of {window} used",
@@ -162,8 +174,7 @@
     waiting: "Waiting in queue",
   };
 
-  const formatBraces = (template, values) =>
-    template.replace(/\{(\w+)\}/g, (match, key) => (key in values ? String(values[key]) : match));
+  const formatBraces = (template, values) => window.TranscriptLabels.fill(template, values);
 
   const PAGE_LANG = (typeof document !== "undefined" && document.documentElement?.lang) || undefined;
   const COMPACT_FORMAT = new Intl.NumberFormat(PAGE_LANG, { notation: "compact", maximumFractionDigits: 1 });
@@ -197,24 +208,6 @@
 
   const normalizeSpend = (raw) => (raw && typeof raw === "object" && Number(raw.turns) > 0 ? raw : null);
   const loadInitialSpend = () => normalizeSpend(loadJSONScript("chat-session-spend", null));
-
-  const THINKING_LABELS = [
-    "Thinking…",
-    "Reading files…",
-    "Exploring the codebase…",
-    "Understanding context…",
-    "Planning the change…",
-    "Running tools…",
-  ];
-
-  // Tiers mirror the ``duration`` template filter (sessions/templatetags/session_tags.py)
-  // so a run reads the same live as it does once it lands in the sessions list.
-  const formatElapsed = (sec) => {
-    if (sec < 60) return `${sec}s`;
-    const min = Math.floor(sec / 60);
-    if (min < 60) return `${min}m ${sec % 60}s`;
-    return `${Math.floor(min / 60)}h ${min % 60}m`;
-  };
 
   // The transcript getters below re-derive from `turns` on every read, and parsing the
   // JSON payloads off each segment is what made that expensive. Memoized per segment, on
@@ -282,15 +275,14 @@
       const turn = turns[i];
       if (turn.role === "run_status") continue;
       if (turn.role === "user") return [];
-      for (let j = turn.segments.length - 1; j >= 0; j--) {
-        const s = turn.segments[j];
+      const segments = turn.segments ?? [];
+      for (let j = segments.length - 1; j >= 0; j--) {
+        const s = segments[j];
         if (s.type === "tool_call" && s.name === "write_todos") return parseTodos(s);
       }
     }
     return [];
   };
-
-  const countDone = (todos) => todos.filter((t) => (t.status || "").toLowerCase() === "completed").length;
 
   // One walk for two outputs. `files`: every file the agent has written, most-recent first, as
   // { path, op, fromPath?, segmentId }. `artifacts`: the last publish result per artifact id, what its URL serves now.
@@ -303,7 +295,7 @@
     };
     for (const t of turns) {
       if (t.role === "run_status") continue;
-      for (const seg of t.segments) {
+      for (const seg of t.segments ?? []) {
         if (seg.type !== "tool_call") continue;
         if (seg.name === "publish_artifact") {
           const payload = artifactPayload(seg);
@@ -330,6 +322,13 @@
   const FILE_FIELDS = ["path", "op", "fromPath", "segmentId"];
   const ARTIFACT_FIELDS = ["id", "status", "title", "filename", "kind", "size", "url", "download_url"];
 
+  const sameDrawer = (a, b) =>
+    a === b ||
+    (Boolean(a && b) &&
+      ["tone", "step", "text", "files"].every((f) => a[f] === b[f]) &&
+      a.diff?.added === b.diff?.added &&
+      a.diff?.removed === b.diff?.removed);
+
   const chat = (config) => {
   // What the transcript effect last published. Write-side only — never read by a binding —
   // so it is not the getter cache this replaced: it exists to keep the effect from reading
@@ -337,6 +336,10 @@
   let publishedTodos = [];
   let publishedFiles = [];
   let publishedArtifacts = [];
+  let publishedArtifactsById = new Map();
+  let publishedBlocks = [];
+  let publishedGroupKey = null;
+  let publishedDrawer = null;
   return {
     endpoint: config.endpoint,
     streamEndpoint: config.streamEndpoint || "",
@@ -374,7 +377,7 @@
     _envAutoLabel: config.envAutoLabel || "Auto",
     turns: loadInitialTurns(),
     // Server-measured diff for the work published so far, refreshed by every
-    // STATE_SNAPSHOT that carries it. Drives the ``+x −y`` progress pill.
+    // STATE_SNAPSHOT that carries it. Drives the progress drawer's ``+x −y``.
     diffStats: loadInitialDiffStats(),
     // Context meter + spend. Plain props replaced whole (never getters over `turns`);
     // the getters below derive everything a binding renders from these two objects.
@@ -385,8 +388,15 @@
     draftRef: "",
     streaming: false,
     resuming: !!config.activeRunId,
+    // Whether the session has a run in flight, streamed here or not; turns fetches and own runs keep it current.
+    sessionLive: !!config.sessionLive,
+    // The next run a message sent while the session was busy waits for.
+    queuedRunId: "",
+    queueing: false,
     waitingSince: config.waitingSince || "",
     runStoppable: config.liveRunStoppable ?? true,
+    publishPhase: "",
+    _phaseCalls: new Set(),
     _source: null,
     _activeRun: null,
     _replayDedup: null,
@@ -400,32 +410,35 @@
     // The `run-<id>` element the URL's hash names, until it has rendered and been scrolled to.
     _pendingRunAnchor: "",
     _runAnchorWatch: null,
-    _thinkingTimer: null,
     _scrollListener: null,
-    _thinkingPhrase: THINKING_LABELS[0],
     _deriveTranscript: null,
+    _deriveDrawer: null,
     // Wall-clock origin of the run in progress, 0 when idle. Read by the loader's
     // `elapsed` clock; set where a run actually starts, never inferred.
     runStartedAt: 0,
     // Derived from `turns` by the one effect `init()` arms, never by the bindings that read
-    // them: ~15 always-mounted bindings ask for these (the pill, its tone, the label, the
-    // crowded modifier, the sheet's two lists and counts), and a getter that walked the
-    // transcript per read cost 20 full passes per streamed `args` delta — seconds of main
-    // thread over a long run. Plain props keep every reader subscribed (reading a reactive
+    // them: ~15 always-mounted bindings ask for these (the drawer's bar and its todo and file
+    // lists), and a getter that walked the transcript per read cost 20 full passes per
+    // streamed `args` delta — seconds of main thread over a long run. Plain props keep every reader subscribed (reading a reactive
     // prop subscribes) at O(1) a read; what must never come back is a value *cached inside
     // a getter*, which serves every reader after the first without touching `turns` and
     // leaves those bindings subscribed to nothing.
     latestTodos: [],
     filesTouched: [],
+    // The drawer's bar, or ``null`` when it has nothing to show; derived by its own effect in `init()`.
+    progressDrawer: null,
     latestArtifactsById: new Map(),
+    runBlocks: [],
+    currentGroupKey: null,
+    // User-toggled open state by block/group/step key, kept outside `runBlocks` so a re-derive never resets it.
+    openKeys: {},
     filesTouchedLimit: 20,
     // Reactive clock backing relative timestamps: a single interval bumps it
     // (init/destroy) so every `relativeTime()` label recomputes instead of freezing.
     now: 0,
     _nowTimer: null,
     _announceOpen: null,
-    // Which composer sheet is open: "" | "options" | "progress". One at a time — the two
-    // are separate surfaces on purpose (what you configure vs. what the run produced).
+    // Which composer surface is open: "" | "options" | "context" | "progress" (the drawer). One at a time.
     sheet: "",
     // Translated fragments the JS composes counts out of; the server owns the wording.
     _labels: { ...DEFAULT_LABELS, ...(config.labels || {}) },
@@ -611,13 +624,33 @@
       this.slashIndex = 0;
     },
 
-    // One handler instead of per-key `@keydown.*.prevent` bindings: Alpine's modifiers
-    // preventDefault unconditionally, and plain Enter must keep inserting newlines
-    // whenever the menu is closed.
+    // One handler, since Alpine's key modifiers preventDefault unconditionally. A touch keyboard
+    // has no Ctrl, so there Enter keeps its line break and the Send button sends.
     onPromptKeydown(e) {
       // Enter commits an IME candidate; stealing it would cancel the composition.
       if (e.isComposing || e.keyCode === 229) return;
-      if (!this.slashMenuOpen) return;
+      if (this.slashMenuOpen && this._onSlashMenuKeydown(e)) return;
+      if (e.key !== "Enter" || e.shiftKey || e.altKey) return;
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        this._breakLine(e.target);
+      } else if (!window.matchMedia?.("(pointer: coarse)").matches) {
+        e.preventDefault();
+        this.submit();
+      }
+    },
+
+    _breakLine(prompt) {
+      // ``insertText`` keeps the line break in the browser's undo history.
+      if (!document.execCommand?.("insertText", false, "\n")) {
+        prompt.setRangeText("\n", prompt.selectionStart, prompt.selectionEnd, "end");
+      }
+      this.draftMessage = prompt.value;
+      this.autosize();
+    },
+
+    // Whether the open command menu took the key.
+    _onSlashMenuKeydown(e) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
         this.moveSlashHighlight(1);
@@ -633,7 +666,10 @@
         // closeSheet() listener also fire.
         e.stopPropagation();
         this.slashDismissed = true;
+      } else {
+        return false;
       }
+      return true;
     },
 
     moveSlashHighlight(delta) {
@@ -660,20 +696,14 @@
       });
     },
 
-    applyPolledTurns(turns, waitingSince) {
+    applyPolledTurns(turns, waitingSince, active) {
       this.waitingSince = waitingSince || "";
+      if (active !== undefined) this.sessionLive = Boolean(active);
       // While a stream is attached it owns ``turns``; swapping the array would detach
       // the streaming placeholder and hide live output.
       if (this.streaming || this.resuming) return;
-      // The poller re-emits the WHOLE transcript every few seconds. Reassigning ``turns``
-      // re-runs every x-html/x-text binding (re-rendered markdown, re-highlighted code,
-      // repaint) even when nothing changed — the visible every-poll flicker. Skip
-      // the swap when the transcript is byte-identical to what we already show, so
-      // steady-state polls during a long-running tool are free; only a genuine
-      // change repaints. Both sides come from the same server serializer
-      // (annotate_transcript(build_turns(...))), so key order is stable and the
-      // JSON compare is reliable. Alpine's keyed x-for reuses each turn's DOM node
-      // on reassignment, so open tool <details> survive a real change too.
+      // Each fetch carries the WHOLE transcript and reassigning ``turns`` re-renders every turn, so an unchanged one is
+      // skipped; both sides come from one server serializer, so their key order, and this compare, is stable.
       if (JSON.stringify(turns) === JSON.stringify(this.turns)) return;
       this.turns = turns;
       // Mirror the live-stream path (dispatch() scrolls after every event): follow
@@ -682,6 +712,27 @@
       this.$nextTick(() => {
         if (!this.revealRunAnchor()) this.scrollToBottom();
       });
+    },
+
+    // A streamed call lacks what the server adds to it: a skill's Skills link, a delegate call's legs from the
+    // database, which win over its tool result. The turns fetched after its run carry both.
+    applyServerSegments(turns) {
+      if (this.streaming || this.resuming || !Array.isArray(turns)) return;
+      const served = new Map();
+      for (const turn of turns) {
+        for (const seg of turn?.segments ?? []) {
+          if (seg?.skill_url || Array.isArray(seg?.legs)) served.set(seg.id, seg);
+        }
+      }
+      if (!served.size) return;
+      for (const turn of this.turns) {
+        for (const seg of turn.segments ?? []) {
+          const fresh = served.get(seg.id);
+          if (!fresh) continue;
+          if (fresh.skill_url && !seg.skill_url) seg.skill_url = fresh.skill_url;
+          if (Array.isArray(fresh.legs) && JSON.stringify(fresh.legs) !== JSON.stringify(seg.legs)) seg.legs = fresh.legs;
+        }
+      }
     },
 
     applySandboxEnvSelection(detail) {
@@ -730,11 +781,12 @@
         : this._defaultMcpNames();
       this._freezeMcpOrder();
 
-      // The one walk of the transcript. It subscribes to everything `latestTodos`, `filesTouched`
-      // and `latestArtifactsById` read — every segment's type, name and payload — so a pushed turn, a
-      // streamed `args` delta and a landed result all re-derive with no bookkeeping at the
+      // The one derivation of the transcript. It subscribes to everything `latestTodos`, `filesTouched`,
+      // `latestArtifactsById` and `runBlocks` read — every segment's type, name and payload — so a pushed
+      // turn, a streamed `args` delta and a landed result all re-derive with no bookkeeping at the
       // mutation sites. `Alpine.effect`, not `$watch`: `$watch` compares the expression's
       // value, and a mutation inside `turns` leaves its identity alone.
+      const mcpRows = this.mcpCatalog;
       this._deriveTranscript = window.Alpine.effect(() => {
         const todos = findLatestTodos(this.turns);
         const { files, artifacts } = collectOutputs(this.turns);
@@ -742,14 +794,33 @@
         if (!sameList(files, publishedFiles, FILE_FIELDS)) this.filesTouched = publishedFiles = files;
         if (!sameList(artifacts, publishedArtifacts, ARTIFACT_FIELDS)) {
           publishedArtifacts = artifacts;
-          this.latestArtifactsById = new Map(artifacts.map((a) => [a.id, a]));
+          publishedArtifactsById = new Map(artifacts.map((a) => [a.id, a]));
+          this.latestArtifactsById = publishedArtifactsById;
         }
+        try {
+          publishedBlocks = window.buildRunBlocks(this.turns, {
+            inFlight: this.streaming || this.resuming || this.sessionLive,
+            latestArtifactsById: publishedArtifactsById,
+            mcpRows,
+            previous: publishedBlocks,
+          });
+        } catch (err) {
+          console.error("chat: failed to derive the run blocks; keeping the last ones", err);
+        }
+        this.runBlocks = publishedBlocks;
+        const live = publishedBlocks[publishedBlocks.length - 1];
+        const last = live?.live ? live.items[live.items.length - 1] : null;
+        const groupKey = last?.kind === "group" ? last.key : null;
+        if (groupKey !== publishedGroupKey) this.currentGroupKey = publishedGroupKey = groupKey;
       });
 
-      // A progress sheet whose trigger just disappeared (follow-up ask clears the todos
-      // and files) would otherwise stay "open" and pop back into view on the next turn.
-      this.$watch("!progressPill", (gone) => {
-        if (gone && this.sheet === "progress") this.sheet = "";
+      // Apart from the transcript effect: it also follows run state and `diffStats`.
+      this._deriveDrawer = window.Alpine.effect(() => {
+        const next = this._buildProgressDrawer();
+        if (sameDrawer(next, publishedDrawer)) return;
+        // Emptied by a follow-up ask, an open drawer would otherwise reopen on its own next turn.
+        if (!next && this.sheet === "progress") this.sheet = "";
+        this.progressDrawer = publishedDrawer = next;
       });
 
       // <main> is the actual scroll container — body is h-dvh, so the window
@@ -767,22 +838,11 @@
       }
 
       this.$watch("streaming", (on) => {
-        if (on || this.resuming) {
-          let i = 0;
-          this._thinkingPhrase = THINKING_LABELS[0];
-          this._thinkingTimer = setInterval(() => {
-            i = (i + 1) % THINKING_LABELS.length;
-            this._thinkingPhrase = THINKING_LABELS[i];
-          }, 1800);
-        } else {
-          clearInterval(this._thinkingTimer);
-          this._thinkingTimer = null;
-          this.runStartedAt = 0;
-        }
+        if (!on && !this.resuming) this.runStartedAt = 0;
       });
 
       if (this.resuming && this.thread && config.activeRunId) {
-        this.followLiveRun({
+        this._followRun({
           id: config.activeRunId,
           stoppable: this.runStoppable,
           started_at: config.activeRunStartedAt,
@@ -812,10 +872,10 @@
 
     destroy() {
       if (this._deriveTranscript) window.Alpine.release(this._deriveTranscript);
+      if (this._deriveDrawer) window.Alpine.release(this._deriveDrawer);
       if (this._scrollListener && this._scrollEl) {
         this._scrollEl.removeEventListener("scroll", this._scrollListener);
       }
-      if (this._thinkingTimer) clearInterval(this._thinkingTimer);
       if (this._nowTimer) clearInterval(this._nowTimer);
       if (this._source) this._source.close();
       this._settleRunAnchor();
@@ -823,20 +883,34 @@
 
     // ---------- Run stream (EventSource against the relay) -------------
 
+    followLiveRun(run) {
+      if (this.streaming || this.resuming) return;
+      this._followRun(run);
+    },
+
     // Rejoin a run executing server-side with a full replay; the clock counts from the
     // server-reported start so a rejoined run doesn't restart at 0.
-    followLiveRun({ id, stoppable, started_at }) {
-      if (this.streaming) return;
+    _followRun({ id, stoppable, started_at }) {
       this.waitingSince = "";
+      this.queuedRunId = "";
       this.runStoppable = stoppable;
+      this.sessionLive = true;
       this.resuming = true;
       this.runStartedAt = Date.parse(started_at || "") || Date.now();
       this._resumeRun(id);
     },
 
-    // A reload once the session settles would drop an unsent draft or race a send that just started.
-    holdReload(event) {
-      if (this.streaming || this.resuming || this.draftMessage.trim()) event.preventDefault();
+    // An attached stream owns this state while it runs.
+    applySessionState(data) {
+      if (this.streaming || this.resuming) return;
+      if ("active" in data) this.sessionLive = Boolean(data.active);
+      if ("merge_request" in data) {
+        this._applyRepoState({ merge_request: data.merge_request, ref: data.thread_ref || undefined });
+      }
+      if ("diff_stats" in data) this.diffStats = normalizeDiffStats(data.diff_stats);
+      const usage = normalizeContextUsage(data.context_usage);
+      if (usage) this.contextUsage = usage;
+      if ("waiting_since" in data) this.waitingSince = data.waiting_since || "";
     },
 
     async _resumeRun(runId) {
@@ -849,7 +923,7 @@
       for (const t of this.turns) {
         if (t.role === "run_status") continue;
         if (t.id) messages.add(t.id);
-        for (const s of t.segments) {
+        for (const s of t.segments ?? []) {
           if (s.type === "tool_call" && s.id) tools.add(s.id);
         }
       }
@@ -859,7 +933,7 @@
       const turn = this.turns[this.turns.length - 1];
       this._toolIndex.clear();
       this._reasoningIndex.clear();
-      this._activeRun = { threadId: this.thread.thread_id, runId };
+      this._activeRun = { threadId: this.thread.thread_id, runId, own: false };
       this.resuming = false;
       this.streaming = true;
       this.$nextTick(() => this.scrollToBottom({ force: true }));
@@ -955,9 +1029,17 @@
     },
 
     _finishTurn(turn, reason) {
+      const anchor = this.runBlocks[this.runBlocks.length - 1]?.anchor;
+      if (anchor && !anchor.started_at && this.runStartedAt) {
+        anchor.started_at = new Date(this.runStartedAt).toISOString();
+      }
+      if (!turn.received_at) turn.received_at = new Date().toISOString();
+      this.sessionLive = false;
       turn.streaming = false;
       // A call still running when the run ends never returned, unless the run finished cleanly.
       // Checkpointed turns count too: they hold the calls the rejoin found unanswered.
+      this.publishPhase = "";
+      this._phaseCalls.clear();
       const hasMarker = this._hasRunStatusMarker();
       const unanswered = reason === "finished" && !hasMarker ? "done" : "error";
       for (const t of this.turns) {
@@ -984,7 +1066,7 @@
         this._pushRunStatus("failed", REASON_ERRORS[reason]);
       }
       this.streaming = false;
-      const runId = this._activeRun?.runId;
+      const run = this._activeRun;
       this._activeRun = null;
       this._replayDedup = null;
       this._lastFrameAt = 0;
@@ -992,7 +1074,13 @@
       // sentinel, so refreshing here (never on RUN_FINISHED) reads this turn's totals.
       this._refreshSpend();
       this.scrollToBottom();
-      window.dispatchEvent(new CustomEvent("daiv:live-run-ended", { detail: { runId } }));
+      this._announceRunEnded(run, reason);
+    },
+
+    _announceRunEnded(run, reason) {
+      window.dispatchEvent(
+        new CustomEvent("daiv:live-run-ended", { detail: { runId: run?.runId, reason, own: Boolean(run?.own) } }),
+      );
     },
 
     // ---------- Derived getters (right rail) ---------------------------
@@ -1013,60 +1101,45 @@
         return { tone: "thinking", label: "catching up on the running session…" };
       }
       if (!this.streaming) return { tone: "idle", label: "idle" };
-      // Publish-phase chips win over generic tool calls in the status bar:
-      // when GitMiddleware is committing/creating an MR, that's the most
-      // informative thing to surface.
-      const activePhase = last?.segments.slice().reverse().find(
-        (s) => s.type === "publish_phase" && s.status === "running",
-      );
-      if (activePhase) return { tone: "running", label: `${activePhase.label}…` };
-      const activeTool = last?.segments.slice().reverse().find(
-        (s) => s.type === "tool_call" && s.status === "running",
-      );
-      if (activeTool) return { tone: "running", label: `running ${activeTool.name}…` };
-      return { tone: "thinking", label: this._thinkingPhrase };
-    },
-
-    get todosProgress() {
-      const todos = this.latestTodos;
-      return `${countDone(todos)}/${todos.length}`;
+      if (this.publishPhase) return { tone: "running", label: `${this.publishPhase}…` };
+      const activity = this.runBlocks[this.runBlocks.length - 1]?.activity;
+      if (activity) return { tone: "running", label: activity };
+      return { tone: "thinking", label: window.TranscriptLabels.t("thinking") };
     },
 
     get showJumpToLatest() {
       return this.streaming && !this._autoFollow;
     },
 
-    // ---------- Progress trigger --------------------------------------
+    // ---------- Progress drawer ---------------------------------------
 
-    // The composer's progress pill, or ``null`` when there is nothing behind it. The
-    // decision is made on *content*, never on run state: no todos, no files and no diff
-    // means no button, because an empty sheet is worse than no way into one.
-    //
-    // Mid-turn the pill reports counts only — the work isn't committed yet, so line
-    // numbers would be a guess. A cancelled turn is the one state where work can sit
-    // uncommitted for good, so it keeps counts too.
-    get progressPill() {
+    // ``null`` when there is nothing to show: an empty drawer is worse than none. Line totals
+    // wait for a finished run, since mid-turn or after a stop they describe unpublished work.
+    _buildProgressDrawer() {
       const todos = this.latestTodos;
       const files = this.filesTouched;
-      const parts = [];
-      if (todos.length) parts.push(`${countDone(todos)}/${todos.length}`);
-      if (files.length) parts.push(this._filesLabel(files.length));
+      const live = this.streaming || this.resuming;
+      const stopped = !live && this._lastRunAborted();
+      const stats = !live && !stopped && !config.diffInDetails ? this.diffStats : null;
+      const diff = stats && (stats.added || stats.removed) ? stats : null;
+      if (!todos.length && !files.length && !diff) return null;
 
-      if (this.streaming || this.resuming) {
-        return parts.length ? { tone: "live", label: parts.join(" · ") } : null;
-      }
-      // A cancelled turn can leave work uncommitted for good, so counts stay the only
-      // truth there — a line total would describe something that was never published.
-      if (this._lastRunAborted()) {
-        return parts.length ? { tone: "warn", label: [this._labels.stopped, ...parts].join(" · ") } : null;
-      }
-      // ``diff`` rather than a joined label: added and removed are tinted separately,
-      // the way they are everywhere else a diff is reported. A session page shows it in its details panel instead.
-      const stats = this.diffStats;
-      if (!config.diffInDetails && stats && (stats.added || stats.removed)) {
-        return { tone: "idle", label: "", diff: stats };
-      }
-      return parts.length ? { tone: "idle", label: parts.join(" · ") } : null;
+      const status = (t) => (t.status || "").toLowerCase();
+      const running = todos.findIndex((t) => status(t) === "in_progress");
+      const at = running >= 0 ? running : todos.findIndex((t) => status(t) !== "completed");
+      const current = todos[at];
+      let text = this._labels.filesChanged;
+      if (current) text = stopped ? formatBraces(this._labels.stoppedAt, { step: current.content }) : current.content;
+      else if (stopped) text = this._labels.stopped;
+      else if (todos.length) text = this._labels.allDone;
+
+      return {
+        tone: live ? "live" : stopped ? "warn" : "idle",
+        step: todos.length ? `${current ? at + 1 : todos.length}/${todos.length}` : "",
+        text,
+        files: files.length ? this._filesLabel(files.length) : "",
+        diff,
+      };
     },
 
     // ---------- Context meter ------------------------------------------
@@ -1177,12 +1250,6 @@
       }
     },
 
-    // What the hero's selection line shows before a thread exists: the two things the
-    // first turn will run with that aren't already on screen.
-    get heroSelectionLabel() {
-      return `${this.lockedEnvLabel} · ${this.mcpSelected.length} ${this._labels.mcpServers}`;
-    },
-
     _filesLabel(n) {
       return `${n} ${n === 1 ? this._labels.file : this._labels.files}`;
     },
@@ -1198,23 +1265,32 @@
       return window.renderMarkdown ? window.renderMarkdown(raw) : "";
     },
 
-    // Recomputed on every render (no memoization), so a publish streaming mid-group
-    // joins the existing card as its args/result grow.
-    visibleSegments(turn) {
-      const out = [];
-      for (const s of turn.segments) {
-        if (s.type === "tool_call" && s.name === "write_todos") continue;
-        if (s.type === "text" && !String(s.content ?? "").trim()) continue;
-        if (s.type === "tool_call" && s.name === "publish_artifact") {
-          const last = out[out.length - 1];
-          const item = window.artifactItem(s, this.latestArtifactsById);
-          if (last?.type !== "artifact_group") out.push({ type: "artifact_group", items: [item] });
-          else if (!item.id || !last.items.some((it) => it.id === item.id)) last.items.push(item);
-        } else {
-          out.push(s);
-        }
-      }
-      return out;
+    // ---------- Run blocks ---------------------------------------------
+
+    isOpen(key, autoOpen = false) {
+      const open = this.openKeys[key];
+      return typeof open === "boolean" ? open : autoOpen;
+    },
+
+    // A <details> fires `toggle` when `:open` applies an auto-open too; recording that would pin it open.
+    setOpen(key, open, autoOpen = false) {
+      if (open === this.isOpen(key, autoOpen)) return;
+      this.openKeys[key] = open;
+    },
+
+    // A group draws its rows inside its fold, and a question card draws itself.
+    stepRowsOf(item) {
+      return item.row && !(item.kind === "question" && this.isQuestionCard(item.seg)) ? [item] : [];
+    },
+
+    workedForLabel(block) {
+      const T = window.TranscriptLabels;
+      const steps = T.tn("steps", block.stats.steps);
+      const started = Date.parse(block.startedAt ?? "");
+      const ended = Date.parse(block.endedAt ?? "");
+      if (!Number.isFinite(started) || !Number.isFinite(ended) || ended < started) return steps;
+      const seconds = Math.max(1, Math.round((ended - started) / 1000));
+      return `${T.t("worked_for", { duration: T.duration(seconds) })} · ${steps}`;
     },
 
     // ---------- ask_user_question card ---------------------------------
@@ -1227,19 +1303,46 @@
       return parseQuestions(seg);
     },
 
-    // Open only in the transcript's last message turn, with no run in flight; anything later means answered.
+    // Open with no run in flight until the owner replies; a run something else started (CI, a delegated batch, a
+    // follow-up job, a mention) passes it by.
     isQuestionOpen(ti) {
       if (this.archived || this.streaming || this.resuming) return false;
+      return !this._repliedAfter(ti);
+    },
+
+    _repliedAfter(ti) {
+      let passing = false;
       for (let i = ti + 1; i < this.turns.length; i++) {
-        const role = this.turns[i].role;
-        if (role === "user" || role === "assistant") return false;
+        const turn = this.turns[i];
+        if (turn.role === "user") passing = this._startedByOthers(turn);
+        if ((turn.role === "user" || turn.role === "assistant") && !passing) return true;
       }
-      return true;
+      return false;
+    },
+
+    // A run's first turn that DAIV wrote, or that inbox events opened without the owner's own chat message.
+    _startedByOthers(turn) {
+      if (turn.author === "daiv") return true;
+      return Array.isArray(turn.opening) && !turn.opening.some((bubble) => bubble.kind === "chat_message");
     },
 
     _questionDraft(seg) {
       if (!this.questionDrafts[seg.id]) this.questionDrafts[seg.id] = { selected: {}, text: {} };
       return this.questionDrafts[seg.id];
+    },
+
+    // Archiving closes a card without answering it, so it stays a card rather than an answered summary.
+    isQuestionAnswered(item) {
+      if (!this.isQuestionCard(item.seg)) return false;
+      return this.streaming || this.resuming || this._repliedAfter(item.turnIndex);
+    },
+
+    answeredSummary(seg, ti) {
+      return parseQuestions(seg)
+        .map((question, qi) =>
+          [question.header, this._answeredLabels(seg, qi, ti).join(MULTI_ANSWER_SEP)].filter(Boolean).join(" · "),
+        )
+        .join(" · ");
     },
 
     isOptionSelected(seg, qi, label, ti) {
@@ -1253,7 +1356,8 @@
       if (!question) return [];
       let reply;
       for (let i = ti + 1; i < this.turns.length && !reply; i++) {
-        if (this.turns[i].role === "user") reply = this.turns[i];
+        const turn = this.turns[i];
+        if (turn.role === "user" && !this._startedByOthers(turn)) reply = turn;
       }
       const text = reply?.segments.find((s) => s.type === "text")?.content || "";
       const prefix = answerPrefix(question);
@@ -1275,6 +1379,13 @@
       } else {
         draft.selected[qi] = current.includes(label) ? [] : [label];
       }
+    },
+
+    // Clicking the checked radio fires no change event, so its click clears the pick.
+    unpickQuestionOption(seg, qi, label) {
+      const question = parseQuestions(seg)[qi];
+      const draft = this.questionDrafts[seg.id];
+      if (question && !question.multi_select && draft?.selected[qi]?.includes(label)) draft.selected[qi] = [];
     },
 
     questionText(seg, qi) {
@@ -1310,13 +1421,6 @@
       await this.submit(SKIP_ANSWER);
     },
 
-    isTurnVisible(turn, isLast) {
-      if (turn.role === "run_status") return true;
-      if (this.visibleSegments(turn).length) return true;
-      // Keep an empty assistant turn only while it is streaming (thinking indicator).
-      return turn.role === "assistant" && isLast && turn.streaming;
-    },
-
     // ---------- Per-turn action row (copy + timestamps) ---------------
 
     // The copy payload and the gate for whether the copy button renders: the raw
@@ -1329,22 +1433,10 @@
       return null;
     },
 
-    // Only a run's closing text turn is copyable; earlier ones are narration. Runs are serial
-    // and run_status markers terminal, so the next non-assistant turn is always the boundary.
-    isClosingTextTurn(ti) {
-      for (let i = ti + 1; i < this.turns.length; i++) {
-        const later = this.turns[i];
-        if (later.role !== "assistant") return true;
-        if (later.streaming || this.finalTextSegment(later)) return false;
-      }
-      return true;
-    },
-
     // On a user turn this copies the whole message, including the part the
     // "Show more" clamp is hiding.
-    canCopyTurn(turn, ti) {
-      if (turn.role === "run_status" || turn.streaming || !this.finalTextSegment(turn)) return false;
-      return turn.role === "user" || this.isClosingTextTurn(ti);
+    canCopyTurn(turn) {
+      return turn.role !== "run_status" && !turn.streaming && Boolean(this.finalTextSegment(turn));
     },
 
     // Resolves true only once the write actually lands. The clipboard API is
@@ -1364,9 +1456,13 @@
     },
 
     // Timestamps first: they short-circuit finalTextSegment's segment scan on historical turns.
-    turnHasActions(turn, ti) {
+    turnHasActions(turn) {
       if (turn.role === "run_status") return false;
-      return !!turn.sent_at || !!turn.received_at || this.canCopyTurn(turn, ti);
+      return !!turn.sent_at || !!turn.received_at || this.canCopyTurn(turn);
+    },
+
+    runHasActions(block) {
+      return Boolean(block.copyTurn || block.lastTurn?.received_at);
     },
 
     // Reads `this.now` so the ticker's bumps recompute it; absolute date past a month.
@@ -1392,24 +1488,16 @@
       return Number.isFinite(d.getTime()) ? d.toLocaleString() : "";
     },
 
-    toolSignature(seg) {
-      if (!window.toolSignature) return { label: seg.name, path: "", badges: [] };
-      return window.toolSignature(seg.name, seg.args, seg.result, seg.status);
-    },
-
     toolBodyHTML(seg) {
       if (!window.toolBodyHTML) return "";
-      return window.toolBodyHTML(seg.name, seg.args, seg.result, seg.status);
+      return window.toolBodyHTML(seg, {
+        mcpRows: this.mcpCatalog,
+        latestArtifactsById: this.latestArtifactsById,
+        mergeRequestUrl: this.thread?.merge_request?.url ?? null,
+      });
     },
 
-    thinkingLabel(seg) {
-      if (seg.status === "running") return "Thinking…";
-      if (!seg.startedAt || !seg.endedAt) return "Reasoning";
-      const s = Math.max(1, Math.round((seg.endedAt - seg.startedAt) / 1000));
-      return `Thought for ${formatElapsed(s)}`;
-    },
-
-    // Status-letter marks, as the progress sheet's rows are specified. ``+``/``−``/``~``
+    // Status-letter marks for the progress drawer's file rows. ``+``/``−``/``~``
     // would read as line counts in a list that also carries them.
     fileOpMark(op) {
       switch ((op || "modified").toLowerCase()) {
@@ -1430,7 +1518,7 @@
     // ---------- User actions ------------------------------------------
 
     canSend(text = this.draftMessage) {
-      if (!text.trim() || this.waiting || this.archived) return false;
+      if (!text.trim() || this.archived || this.queueing) return false;
       if (this.thread) return true;
       return !!(this.draftRepoId && this.draftRef);
     },
@@ -1444,7 +1532,8 @@
 
     async submit(text = null) {
       const message = text ?? this.draftMessage;
-      if (!this.canSend(message) || this.streaming || this.resuming) return;
+      if (!this.canSend(message)) return;
+      if (this.streaming || this.resuming || this.waiting) return this._sendToNextRun(message, text === null);
 
       // Read the picker's selection before creating the thread: the live picker is
       // ``x-if``'d on ``!thread``, so assigning ``thread`` first schedules its removal
@@ -1484,74 +1573,42 @@
       this._autoFollow = true;
       this.$nextTick(() => this.scrollToBottom({ force: true }));
 
-      // Send only user turns. Streamed assistant turns carry a client-minted
-      // UUID (set when we pushed the placeholder), but the server stored the
-      // AIMessage under its own LangChain-generated id — echoing the assistant
-      // turn back would slip past ag_ui_langgraph's id-based dedupe and append
-      // a duplicate AIMessage to the checkpoint. The agent reads prior history
-      // from the checkpointer; it doesn't need the client to replay it.
-      const priorMessages = this.turns
-        .slice(0, -1)
-        .filter((t) => t.role === "user")
-        .map((t) => ({
-          id: t.id,
-          role: t.role,
-          content: t.segments
-            .filter((s) => s.type === "text")
-            .map((s) => s.content)
-            .join("\n\n"),
-        }))
-        .filter((m) => m.content);
+      const priorMessages = this._userMessages(this.turns.slice(0, -1));
 
       // The server pins these to ``Session.agent_model`` / ``agent_thinking_level`` on
       // first sight of the thread and rejects a divergent value afterwards.
       const forwardedProps = {};
       if (agentModel) forwardedProps.agent_model = agentModel;
       if (agentThinkingLevel) forwardedProps.agent_thinking_level = agentThinkingLevel;
-      // Only sent once the user has actually touched the Tools sheet: an absent key tells
-      // the server to keep the thread's stored overrides. Sending an untouched selection
-      // would be harmless but would re-diff it against a pool the admin may have changed.
-      if (this._mcpTouched) forwardedProps.mcp_servers = [...this.mcpSelected];
 
-      const body = {
-        threadId: this.thread.thread_id,
-        runId: uuid(),
-        state: {},
-        messages: priorMessages,
-        tools: [],
-        context: [],
-        forwardedProps,
-      };
+      const runId = uuid();
 
       if (text === null) this.draftMessage = "";
       this.$nextTick(() => this.autosize());
       this.streaming = true;
       this.runStoppable = true;
       this.runStartedAt = Date.now();
-      this._activeRun = { threadId: this.thread.thread_id, runId: body.runId };
+      this._activeRun = { threadId: this.thread.thread_id, runId, own: true };
 
-      // Forward the picker's selection so the API resolves the requested env per-request;
-      // missing or empty falls through to the GLOBAL default on the server.
-      const envHeaders = this.selectedSandboxEnvId ? { "X-Sandbox-Env": this.selectedSandboxEnvId } : {};
-
-      let reason = "finished";
+      let reason = "not_started";
       try {
-        const resp = await fetch(this.endpoint, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "X-Repo-ID": this.thread.repo_id,
-            "X-Ref": this.thread.ref,
-            "X-CSRFToken": this.csrfToken,
-            ...envHeaders,
-          },
-          body: JSON.stringify(body),
-          credentials: "include",
-        });
+        const resp = await this._postRun({ runId, messages: priorMessages, forwardedProps });
 
         if (!resp.ok) {
           this._pushRunStatus("failed", await formatHttpError(resp));
+          return;
+        }
+        // This page has no session top bar, details or Up next; the session page, already at this address, has them
+        // and rejoins the run the server recorded or lists the message it queued.
+        if (!config.thread) {
+          reason = "handed-over";
+          window.location.reload();
+          return;
+        }
+        const handle = await resp.json().catch(() => ({}));
+        if (handle?.queued) {
+          reason = "queued";
+          this._queueTurn(assistantTurn, handle.queued);
           return;
         }
 
@@ -1562,8 +1619,170 @@
         console.error("chat: failed to start run", err);
         this._pushRunStatus("failed", "Connection lost — please retry.");
       } finally {
-        this._finishTurn(assistantTurn, reason);
+        if (reason !== "queued" && reason !== "handed-over") this._finishTurn(assistantTurn, reason);
       }
+    },
+
+    // Only user turns: a streamed assistant turn's client-minted id slips past ag_ui_langgraph's id dedupe, so
+    // echoing it would append a duplicate AIMessage to the checkpoint.
+    _userMessages(turns) {
+      return turns
+        .filter((t) => t.role === "user")
+        .map((t) => ({
+          id: t.id,
+          role: t.role,
+          content: t.segments
+            .filter((s) => s.type === "text")
+            .map((s) => s.content)
+            .join("\n\n"),
+        }))
+        .filter((m) => m.content);
+    },
+
+    _postRun({ runId = uuid(), messages, forwardedProps }) {
+      // Only sent once the user has actually touched the Tools sheet: an absent key tells
+      // the server to keep the thread's stored overrides. Sending an untouched selection
+      // would be harmless but would re-diff it against a pool the admin may have changed.
+      if (this._mcpTouched) forwardedProps = { ...forwardedProps, mcp_servers: [...this.mcpSelected] };
+      const body = {
+        threadId: this.thread.thread_id,
+        runId,
+        state: {},
+        messages,
+        tools: [],
+        context: [],
+        forwardedProps,
+      };
+      // Forward the picker's selection so the API resolves the requested env per-request;
+      // missing or empty falls through to the GLOBAL default on the server.
+      const envHeaders = this.selectedSandboxEnvId ? { "X-Sandbox-Env": this.selectedSandboxEnvId } : {};
+      return fetch(this.endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "X-Repo-ID": this.thread.repo_id,
+          "X-Ref": this.thread.ref,
+          "X-CSRFToken": this.csrfToken,
+          ...envHeaders,
+        },
+        body: JSON.stringify(body),
+        credentials: "include",
+      });
+    },
+
+    // While the session is busy a message waits for its next run, shown in Up next; the run on screen keeps its
+    // stream. ``queue`` keeps it waiting even if that run ended before it arrived, so this page never misses a run.
+    async _sendToNextRun(message, fromDraft) {
+      if (fromDraft) {
+        this.draftMessage = "";
+        this.$nextTick(() => this.autosize());
+      }
+      this.queueing = true;
+      let failure = "";
+      try {
+        const resp = await this._postRun({
+          messages: [{ id: uuid(), role: "user", content: message }],
+          forwardedProps: { queue: true },
+        });
+        if (resp.ok) {
+          this._announceQueued((await resp.json()).queued, message);
+        } else {
+          failure = await formatHttpError(resp);
+        }
+      } catch (err) {
+        console.error("chat: failed to queue a message", err);
+        failure = "Connection lost — please retry.";
+      } finally {
+        this.queueing = false;
+      }
+      if (!failure) return;
+      if (fromDraft && !this.draftMessage.trim()) this.draftMessage = message;
+      window.showToast?.(failure, "error");
+    },
+
+    // What a remembered inbox event is, for its row in the timeline.
+    inboxEventLabel(kind) {
+      return window.TranscriptLabels.t(`inbox_${kind}`);
+    },
+
+    inboxEventKind(event) {
+      const kind = this.inboxEventLabel(event.kind);
+      return event.failure_label ? window.TranscriptLabels.t("inbox_not_handled", { kind }) : kind;
+    },
+
+    // The bubbles a run opens with: the requests it took, or, for a run DAIV started with no inbox event, what
+    // its trigger received; ``null`` for a run that opens with its prompt.
+    anchorBubbles(anchor) {
+      if (anchor.opening) return anchor.opening;
+      if (anchor.author !== "daiv") return null;
+      const ci = anchor.origin === "pipeline_webhook";
+      return [
+        {
+          id: `${anchor.id}-received`,
+          kind: ci ? "ci_failed" : "delegation_finished",
+          received: true,
+          failed: ci,
+          text: "",
+          source_iid: null,
+          created_at: anchor.sent_at,
+        },
+      ];
+    },
+
+    bubbleKindLabel(bubble) {
+      const T = window.TranscriptLabels;
+      if (bubble.kind === "chat_message") return T.t("bubble_chat");
+      if (bubble.kind === "mention") return T.t("inbox_mention");
+      if (bubble.kind !== "follow_up_job" && bubble.kind !== "job") return "";
+      return T.t({ api_job: "bubble_api_job", mcp_job: "bubble_mcp_job" }[bubble.trigger_type] ?? "bubble_job");
+    },
+
+    receivedSource(bubble) {
+      const T = window.TranscriptLabels;
+      if (bubble.kind !== "ci_failed") return T.t("delegated_jobs");
+      return bubble.source_iid ? T.t("received_ci", { iid: bubble.source_iid }) : T.t("received_ci_plain");
+    },
+
+    // Take ``assistantTurn`` and the user turn that opened it out of the conversation; returns that turn's text.
+    _detachTurn(assistantTurn) {
+      const at = this.turns.indexOf(assistantTurn);
+      const sent = at > 0 && this.turns[at - 1].role === "user" ? at - 1 : at;
+      const text = sent < at ? this.turns[sent].segments.map((segment) => segment.content ?? "").join("") : "";
+      if (at >= 0) this.turns.splice(sent, at - sent + 1);
+      return text;
+    },
+
+    // Stopped before DAIV answered: the server took the turn back, so its message returns to the composer of the
+    // page whose Stop did it.
+    _withdrawTurn(assistantTurn) {
+      const text = this._detachTurn(assistantTurn);
+      if (!text || !this._activeRun?.stopped) return;
+      this.draftMessage = this.draftMessage.trim() ? `${text}\n\n${this.draftMessage}` : text;
+      this.$nextTick(() => this.autosize());
+    },
+
+    // The session was busy, so the message waits for its next run (the ``daiv.queued`` answer). It leaves the
+    // conversation for Up next until that run opens with it; ``followLiveRun`` tails the run once it starts.
+    _queueTurn(assistantTurn, queued) {
+      this._announceQueued(queued, this._detachTurn(assistantTurn));
+      const run = this._activeRun;
+      this.streaming = false;
+      this.runStartedAt = null;
+      this._activeRun = null;
+      this.sessionLive = true;
+      this.scrollToBottom();
+      this._announceRunEnded(run, "queued");
+    },
+
+    // Up next shows a queued message.
+    _announceQueued(queued, text) {
+      this.queuedRunId = queued.run_id || "";
+      window.dispatchEvent(
+        new CustomEvent("daiv:up-next-provisional", {
+          detail: { event_id: queued.event_id, run_id: this.queuedRunId, text },
+        }),
+      );
     },
 
     async stop() {
@@ -1571,6 +1790,7 @@
       // stream stays open so the server's RUN_ERROR(run_cancelled) event and
       // end frame settle the turn state.
       if (!this._activeRun || !this.cancelEndpoint) return;
+      this._activeRun.stopped = true;
       try {
         const resp = await fetch(this.cancelEndpoint, {
           method: "POST",
@@ -1593,14 +1813,31 @@
       }
     },
 
+    // A step renders only once its fold and group are open, so open them before looking for it.
     jumpToTool(segmentId) {
-      const el = document.getElementById(segmentId);
-      if (!el) return;
-      if (el.tagName.toLowerCase() === "details") el.open = true;
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      el.classList.remove("chat-tool__highlight");
-      void el.offsetWidth; // restart animation
-      el.classList.add("chat-tool__highlight");
+      this._openPathTo(segmentId.replace(/^tool-/, ""));
+      this.$nextTick(() => {
+        const el = document.getElementById(segmentId);
+        if (!el) return;
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.classList.remove("chat-tool__highlight");
+        void el.offsetWidth; // restart animation
+        el.classList.add("chat-tool__highlight");
+      });
+    },
+
+    _openPathTo(segId) {
+      for (const block of this.runBlocks) {
+        for (const item of block.items) {
+          const steps = item.kind === "group" ? item.steps : item.row ? [item] : [];
+          const step = steps.find((s) => s.seg.id === segId);
+          if (!step) continue;
+          if (block.folded) this.setOpen(block.key, true);
+          if (item.kind === "group") this.setOpen(item.key, true, item.key === this.currentGroupKey);
+          this.setOpen(step.key, true);
+          return;
+        }
+      }
     },
 
     dispatch(evt, turn, at) {
@@ -1652,77 +1889,61 @@
         }
         const phase = PUBLISH_PHASE_TOOLS[evt.toolCallName];
         if (phase) {
-          // Structured-response tool from the publish pipeline: drop the args/
-          // result rendering entirely and surface a phase chip. The chip stays
-          // on the running turn until TOOL_CALL_RESULT (or RUN_FINISHED) flips
-          // it to done.
-          turn.segments.push({
-            type: "publish_phase",
-            id: evt.toolCallId,
-            name: evt.toolCallName,
-            label: phase.label,
-            status: "running",
-          });
-        } else {
-          turn.segments.push({
-            type: "tool_call",
-            id: evt.toolCallId,
-            name: evt.toolCallName,
-            args: "",
-            result: null,
-            status: "running",
-          });
+          if (!this._phaseCalls.has(evt.toolCallId)) {
+            this._phaseCalls.add(evt.toolCallId);
+            if (!this.publishPhase || phase === "publish_creating") {
+              this.publishPhase = window.TranscriptLabels.t(phase);
+            }
+          }
+          return;
         }
+        turn.segments.push({
+          type: "tool_call",
+          id: evt.toolCallId,
+          name: evt.toolCallName,
+          args: "",
+          result: null,
+          status: "running",
+        });
         this._toolIndex.set(evt.toolCallId, turn.segments.length - 1);
       } else if (type === AGUI.TOOL_CALL_ARGS) {
+        if (this._phaseCalls.has(evt.toolCallId)) return;
         const idx = this._toolIndex.get(evt.toolCallId);
         const seg = idx != null ? turn.segments[idx] : null;
         if (!seg) {
           console.warn("chat: TOOL_CALL_ARGS for unknown tool_call_id", evt.toolCallId);
         } else if (seg.type === "tool_call" && !seg.sealed) {
-          // Phase chips intentionally ignore args (the structured-response JSON
-          // is not user-facing).
           seg.args += evt.delta || "";
         }
       } else if (type === AGUI.TOOL_CALL_END) {
-        // Structured-response tool calls don't always trigger a TOOL_CALL_RESULT
-        // (the agent extracts the structured payload and stops without
-        // executing a tool), so use the END signal — which always fires once
-        // args streaming finishes — to flip the phase chip to done.
-        const idx = this._toolIndex.get(evt.toolCallId);
-        const seg = idx != null ? turn.segments[idx] : null;
-        if (!seg) {
-          console.warn("chat: TOOL_CALL_END for unknown tool_call_id", evt.toolCallId);
-        } else if (seg.type === "publish_phase") {
-          seg.status = "done";
-        }
+        // The phase outlasts its call: the metadata calls run in parallel, and commit, push and the
+        // merge request follow them; the publish result or the turn's end clears it.
       } else if (type === AGUI.TOOL_CALL_RESULT) {
+        if (this._phaseCalls.has(evt.toolCallId)) return;
         const idx = this._toolIndex.get(evt.toolCallId);
         const seg = idx != null ? turn.segments[idx] : null;
         if (!seg) {
           console.warn("chat: TOOL_CALL_RESULT for unknown tool_call_id", evt.toolCallId);
           return;
         }
-        if (seg.type === "publish_phase") {
-          seg.status = "done";
-        } else {
-          seg.result = evt.content;
-          seg.status = "done";
-        }
+        seg.result = evt.content;
+        seg.status = "done";
       } else if (type === AGUI.RUN_ERROR) {
         turn.segments.forEach((s) => {
-          if ((s.type === "tool_call" || s.type === "publish_phase") && s.status === "running") {
+          if (s.type === "tool_call" && s.status === "running") {
             s.status = "error";
           }
         });
         // Cancel and interrupt (stale takeover / shutdown) are neutral, non-failure
         // terminations → the grey "aborted" marker. Messages mirror the server constants
         // (core.constants) so the live marker matches what reload renders.
-        if (evt.code === "run_cancelled") {
-          this._pushRunStatus("aborted", "Stopped by user.");
+        if (evt.code === "run_withdrawn") {
+          this._withdrawTurn(turn);
+        } else if (evt.code === "run_cancelled") {
+          this._pushRunStatus("aborted", "Stopped by user.", { silent: true });
         } else if (evt.code === "run_interrupted") {
           this._pushRunStatus("aborted", evt.message || "Run was interrupted before completing.");
-        } else {
+        } else if (!this._hasFailedPublish()) {
           this._pushRunStatus("failed", evt.message || "Run failed.");
         }
       } else if (type === AGUI.CUSTOM && evt.name === "ref_fallback") {
@@ -1743,6 +1964,11 @@
         } else if (this.selectedSandboxEnvId) {
           console.debug("chat: ignored resolved_env (user picked %o)", this.selectedSandboxEnvId, v);
         }
+      } else if (type === AGUI.CUSTOM && evt.name === PUBLISH_RESULT_EVENT) {
+        this.publishPhase = "";
+        const entry = publishEntry(evt.value, window.TranscriptLabels);
+        if (entry.status === "failed") entry.id = this._runStatusId();
+        turn.publish = [...(turn.publish || []), entry];
       } else if (type === AGUI.CUSTOM && evt.name === "daiv_context_usage") {
         // Last main-model call's usage (ContextUsageMiddleware). Whole-payload replace.
         const usage = normalizeContextUsage(evt.value);
@@ -1750,7 +1976,7 @@
       } else if (type === AGUI.STATE_SNAPSHOT) {
         // Snapshots fire on every node exit and almost always carry an
         // unchanged merge_request. Dedupe on identity so we don't churn
-        // Alpine reactivity (and the publish-phase chip sweep) per node.
+        // Alpine reactivity per node.
         const snap = evt.snapshot || {};
         if ("diff_stats" in snap) {
           const stats = normalizeDiffStats(snap.diff_stats);
@@ -1785,17 +2011,6 @@
         if ("merge_request" in value) next.merge_request = value.merge_request;
         this.thread = next;
       }
-      // Belt-and-braces: once a snapshot carrying the published MR lands, the
-      // publish pipeline is done. Any phase chip still marked running is stale
-      // (likely a missed TOOL_CALL_END for a fast-finishing structured tool).
-      if (value.merge_request) {
-        for (const t of this.turns) {
-          if (t.role === "run_status") continue;
-          for (const s of t.segments) {
-            if (s.type === "publish_phase" && s.status === "running") s.status = "done";
-          }
-        }
-      }
     },
 
     // Keyed by the Run row once the server names it, so the marker matches the one a reload renders.
@@ -1804,22 +2019,31 @@
       return `run-status-${run ? run.recordId || run.runId : uuid()}`;
     },
 
-    _pushRunStatus(status, message) {
+    _pushRunStatus(status, message, { silent = false } = {}) {
       const id = this._runStatusId();
       const existing = this.turns.find((t) => t.id === id);
       if (existing) {
-        existing.status = status;
-        existing.message = message;
+        Object.assign(existing, { status, message, silent });
       } else {
-        this.turns.push({ id, role: "run_status", status, message });
+        this.turns.push({ id, role: "run_status", status, message, silent });
       }
       this.scrollToBottom();
+    },
+
+    publishFailed(entry) {
+      return entry.status === "failed" || entry.status === "not_published";
+    },
+
+    _hasFailedPublish() {
+      if (!this._activeRun) return false;
+      const id = this._runStatusId();
+      return this.turns.some((t) => (t.publish || []).some((p) => p.id === id));
     },
 
     _hasRunStatusMarker() {
       if (!this._activeRun) return false;
       const id = this._runStatusId();
-      return this.turns.some((t) => t.id === id);
+      return this.turns.some((t) => t.id === id) || this._hasFailedPublish();
     },
 
     _appendTextSegment(turn, content) {
@@ -1829,7 +2053,7 @@
 
     // Where the viewport lands on page load. A live session belongs at the
     // bottom, so streamed output arrives in view. A finished one opens at the
-    // *top of the last assistant message* instead: that final answer is what
+    // *top of the last run's ending* instead: that final answer is what
     // the reader came for, and anchoring to the bottom buries its opening
     // lines above the fold whenever it is taller than the viewport.
     // A `#run-<id>` hash outranks both, once that run's turn has rendered.
@@ -1853,12 +2077,7 @@
         }
         const el = this._scrollEl;
         if (!el) return;
-        // Last rendered assistant turn — querying the DOM rather than `turns`
-        // keeps this in step with isTurnVisible(), which drops empty turns.
-        // `data-role` is the handle, not the `chat-turn--${role}` class: that
-        // one is composed at render time and no stylesheet declares the
-        // assistant variant, so keying on it would break silently.
-        const rendered = el.querySelectorAll('.chat-turn[data-role="assistant"]');
+        const rendered = el.querySelectorAll("[data-run-ending]");
         const target = rendered[rendered.length - 1];
         if (!target) {
           // A run that failed before answering: the tail is still the most
@@ -1866,14 +2085,13 @@
           el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
           return;
         }
-        // Breathing room above it comes from .chat-turn's scroll-margin-top,
-        // and the browser clamps at the end of the scroll range — so a short
-        // final answer degrades to the old bottom-anchored position for free.
+        // [data-run-ending]'s scroll-margin-top leaves room above it, and the browser clamps at the
+        // end of the scroll range, so a short final answer still lands bottom-anchored.
         target.scrollIntoView({ block: "start", behavior: "auto" });
       }));
     },
 
-    // A run the hash names may render only on a later poll, so each poll retries until it lands.
+    // A run the hash names may render only on a later turns fetch, so each fetch retries until it lands.
     revealRunAnchor() {
       if (!this._pendingRunAnchor) return false;
       const target = document.getElementById(this._pendingRunAnchor);
@@ -1913,15 +2131,8 @@
   };
   };
 
-  // Collapse tall user-message bubbles. Measures the rendered height once on
-  // init: user text is immutable after creation, and Alpine's keyed x-for reuses
-  // the DOM node across the wholesale `turns` reassignment that polling performs,
-  // so a single measurement is stable. Both inputs to the overflow test are read
-  // from CSS so the JS decision can't drift from the visible clamp: the line
-  // budget from the --chat-user-clamp-lines custom property, and the per-line
-  // height from the element's computed line-height (CSS clamps to the same
-  // budget * line-height, see .chat-text--clamped). `id` is the shared id the
-  // text region exposes and the toggle points its aria-controls at.
+  // Measured once: user text never changes and the keyed x-for keeps each node across a fetch's `turns` swap. Both the
+  // line budget and the line height are read from CSS, so the overflow test cannot drift from .chat-text--clamped.
   const userClamp = (id) => ({
     id,
     collapsed: false,
@@ -1959,7 +2170,7 @@
     return {
       seconds: 0,
       get label() {
-        return formatElapsed(this.seconds);
+        return window.TranscriptLabels.duration(this.seconds);
       },
       track(next) {
         const parsed = typeof next === "string" ? Date.parse(next) : next;

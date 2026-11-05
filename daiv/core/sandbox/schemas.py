@@ -32,7 +32,7 @@ class RunCommandsRequest(BaseModel):
     timeout: int | None = Field(
         default=None,
         ge=0,
-        description="Maximum execution time in seconds for each command; None uses the server default.",
+        description="Per-command timeout in seconds. None uses the sandbox default; 0 means no timeout.",
     )
 
 
@@ -51,6 +51,11 @@ class RunCommandResult(BaseModel):
         )
     )
     exit_code: int
+    timed_out: bool = Field(
+        default=False,
+        exclude=True,
+        description="True when the sandbox killed the command at its timeout; `output` then holds what it printed.",
+    )
 
 
 class RunCommandsResponse(BaseModel):

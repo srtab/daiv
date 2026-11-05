@@ -1,11 +1,21 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING, Any
 
-from ag_ui.core.events import BaseEvent, EventType, TextMessageContentEvent, TextMessageEndEvent, TextMessageStartEvent
+from ag_ui.core.events import (
+    BaseEvent,
+    EventType,
+    TextMessageContentEvent,
+    TextMessageEndEvent,
+    TextMessageStartEvent,
+    ToolCallResultEvent,
+)
+from ag_ui_langgraph.utils import normalize_tool_content
 from copilotkit import LangGraphAGUIAgent
+from langchain_core.messages import ToolMessage
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT, parse_assistant_message
 
@@ -25,6 +35,8 @@ logger = logging.getLogger("daiv.sessions")
 STREAMED_STATE_KEYS = ("merge_request", "diff_stats")
 
 _FILTERED_DATA = {"on_chat_model_stream": "chunk", "on_chat_model_end": "output"}
+
+_ERROR_PREFIX = re.compile(r"\s*error\b", re.IGNORECASE)
 
 
 def _filter_view(event: Any) -> Any:
@@ -57,6 +69,7 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
         self._runtime_context = runtime_context
         self._graph_input = graph_input
         self.graph_stream: AsyncGenerator[Any] | None = None
+        self._answered_tool_calls: set[str] = set()
 
     async def prepare_stream(self, input: RunAgentInput, agent_state: Any, config: RunnableConfig) -> PreparedStream:  # noqa: A002
         if self._graph_input is not None:
@@ -130,10 +143,49 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
             # with the inherited signature instead.
             if provenance and isinstance(agui_event, BaseEvent) and agui_event.raw_event is None:
                 agui_event.raw_event = {"metadata": provenance}
+            if isinstance(agui_event, ToolCallResultEvent):
+                if agui_event.tool_call_id in self._answered_tool_calls:
+                    continue
+                self._answered_tool_calls.add(agui_event.tool_call_id)
             yield agui_event
 
         for text_event in self._assistant_message_frames(event, provenance):
             yield text_event
+        for result_event in self._unanswered_tool_results(event, provenance):
+            yield result_event
+
+    def _unanswered_tool_results(self, event: Any, provenance: dict) -> list[BaseEvent]:
+        """TOOL_CALL_RESULT for each ToolMessage the tools node returned that upstream never sent one for.
+
+        Upstream emits RESULT only from ``on_tool_end``, which never fires for a call a middleware answers without
+        running the tool (deepagents' parallel same-file edit guard), so the chat row would spin until the run ends.
+        ``on_tool_end`` always precedes the node's ``on_chain_end``, whose output holds only that step's messages.
+        Stamped like ``_assistant_message_frames``, so the filter drops a subagent's.
+        """
+        if not isinstance(event, dict) or event.get("event") != "on_chain_end" or event.get("name") != "tools":
+            return []
+        output = (event.get("data") or {}).get("output")
+        messages = output.get("messages") if isinstance(output, dict) else None
+        results: list[BaseEvent] = []
+        for message in messages if isinstance(messages, list) else []:
+            if not isinstance(message, ToolMessage) or message.tool_call_id in self._answered_tool_calls:
+                continue
+            self._answered_tool_calls.add(message.tool_call_id)
+            content = normalize_tool_content(message.content)
+            # The event has no status: the chat UI marks a row failed only by this prefix (``ERROR_PREFIX_RE``).
+            if message.status == "error" and not _ERROR_PREFIX.match(content):
+                content = f"Error: {content}"
+            results.append(
+                ToolCallResultEvent(
+                    type=EventType.TOOL_CALL_RESULT,
+                    tool_call_id=message.tool_call_id,
+                    message_id=str(message.id or message.tool_call_id),
+                    content=content,
+                    role="tool",
+                    raw_event={"metadata": provenance},
+                )
+            )
+        return results
 
     @staticmethod
     def _assistant_message_frames(event: Any, provenance: dict) -> list[BaseEvent]:

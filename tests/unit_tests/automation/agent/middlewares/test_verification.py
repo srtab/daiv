@@ -97,7 +97,7 @@ class FakeRepo:
         elif self.saved is not None:
             self.diff, self.saved = self.saved, None
 
-    async def run_commands(self, commands, *, fail_fast, timeout=None, http_timeout=None) -> RunCommandsResponse:
+    async def run_commands(self, commands, *, fail_fast, timeout=None) -> RunCommandsResponse:
         if self.error is not None:
             raise self.error
         declared = [command.removeprefix(f"cd {REPO_PATH} && ") for command in commands]

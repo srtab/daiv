@@ -6,11 +6,14 @@ from typing import TYPE_CHECKING, Annotated, Any, NotRequired, cast
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import PrivateStateAttr
+from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langsmith import get_current_run_tree
 
 from automation.agent.context import RuntimeCtx  # noqa: TC001
+from automation.agent.events import PUBLISH_RESULT_EVENT, publish_result_payload, published_outcome_payload
 from automation.agent.git_state import checkpointed_merge_request, effective_merge_request
+from automation.agent.publish_errors import publish_error_kind
 from automation.agent.publishers import GitChangePublisher, UnresolvedMergeConflictsError
 from automation.agent.utils import final_assistant_text, streamed_assistant_message
 from automation.agent.workspace.git_manager import GIT_ERRORS
@@ -220,13 +223,15 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             # In this case, ignore the branch name and merge request ID from the state,
             # and use the source branch and merge request ID from the merge request.
             merge_request = runtime.context.merge_request
-        elif merge_request is None and not self.fork_branch:
+        elif not self.fork_branch and (
+            merge_request is None or merge_request.source_branch != runtime.context.repo.current_ref
+        ):
             # Surface any pre-existing open MR on the current branch so the chat composer pill
             # reflects reality from the very first turn. A *first* issue-scope turn starts on the
             # default branch, where this lookup short-circuits; a follow-up turn starts on the
             # branch the previous turn published to (``Session.ref``, resolved in
             # ``address_issue_task``), so a cleared checkpoint re-discovers that MR here.
-            merge_request = await self._alookup_open_mr(runtime.context)
+            merge_request = await self._alookup_open_mr(runtime.context) or merge_request
 
         update: dict[str, Any] = {
             "merge_request": merge_request,
@@ -361,6 +366,13 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         if runtime.context.scope == Scope.ISSUE and (rt := get_current_run_tree()):
             rt.metadata["merge_request_id"] = merge_request.merge_request_id
 
+    @staticmethod
+    async def _emit_publish_result(payload: dict[str, Any]) -> None:
+        try:
+            await adispatch_custom_event(PUBLISH_RESULT_EVENT, payload)
+        except Exception:
+            logger.warning("Could not dispatch the publish result; the run will not show it", exc_info=True)
+
     async def aafter_agent(self, state: GitState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """
         After the agent finishes, optionally capture the run's patch, then publish any new changes.
@@ -434,7 +446,11 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 f"{'has' if len(exc.paths) == 1 else 'have'} conflict markers, so nothing was committed or pushed. "
                 "Ask me to finish resolving them."
             )
+            await self._emit_publish_result(publish_result_payload(status="not_published", error_kind="conflicts"))
             return {**update, "messages": [await streamed_assistant_message(notice)]}
+        except Exception as exc:
+            await self._emit_publish_result(publish_result_payload(status="failed", error_kind=publish_error_kind(exc)))
+            raise
 
         if verification is not None and outcome.published:
             update["verification"] = {**verification, "reported": outcome.created_merge_request}
@@ -444,6 +460,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             # Only ever set true here; ``abefore_agent`` clears it, so a no-op turn cannot
             # inherit the previous turn's push.
             update["published"] = True
+            await self._emit_publish_result(published_outcome_payload(outcome))
 
         if outcome.merge_request is None:
             # published + no MR is the branch-visibility degrade (branch pushed, MR pending): record

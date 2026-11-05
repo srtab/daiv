@@ -10,9 +10,14 @@ from django.dispatch import Signal
 run_finished = Signal()
 
 # Emitted by ``RunManager.finish``/``afinish`` for every Run that reaches a terminal status, chat included, before
-# ``run_finished``. Arguments: run (Run).
+# ``run_finished``. Arguments: run (Run) and ``run_finished``'s flags.
 run_ended = Signal()
 
-# Emitted when the CI watch runs out of fix attempts with CI still failing; at most once per armed watch.
-# Arguments: session (Session), failing_jobs (list[str]), pipeline_url (str), pipeline_id (int).
+# Emitted when CI fails on a commit DAIV pushed and the merge request's CI attempts are spent; once per commit.
+# Arguments: ownership (MergeRequestOwnership), session (Session, the owning one), failing_jobs (list[str]),
+# pipeline_url (str), sha (str).
 watch_exhausted = Signal()
+
+# Emitted when the consecutive-run limit turns a CI or delegation wake into a remembered event. Arguments: session
+# (Session), first_blocked_event_id (str, the first event the current streak blocked), runs_in_a_row (int).
+inbox_paused = Signal()

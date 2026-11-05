@@ -2,8 +2,9 @@ import logging
 from functools import cached_property
 from typing import Literal
 
+from pydantic import Field
+from sessions.inbox.ownership import Ownerships
 from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
-from sessions.pipeline_watch.policy import WatchPolicy
 from sessions.pipeline_watch.service import PipelineWatch
 
 from codebase.base import GitPlatform
@@ -14,15 +15,29 @@ from codebase.repo_config import RepositoryConfig
 from codebase.utils import note_mentions_daiv
 from core.constants import has_bot_label, has_max_label
 from webhooks.callbacks import BaseCallback
-from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment_run
-
-from .models import Comment, Issue, Label, PullRequest, Repository, User, WorkflowRun  # noqa: TC001
+from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment, dispatch_mr_comment_run
+from webhooks.github.models import (  # noqa: TC001
+    Comment,
+    Issue,
+    Label,
+    PullRequest,
+    Pusher,
+    Repository,
+    ReviewComment,
+    User,
+    WorkflowRun,
+)
 
 logger = logging.getLogger("daiv.webhooks")
 
 
 def _author(user: User) -> Author:
     return Author(provider=GitPlatform.GITHUB, uid=user.id, username=user.username)
+
+
+def _edited_by_another(action: str, sender: User | None, author: User) -> bool:
+    """An ``edited`` comment someone other than its author edited: the run would act as the author on others' words."""
+    return action == "edited" and (sender is None or sender.id != author.id)
 
 
 class GitHubCallback(BaseCallback):
@@ -114,33 +129,36 @@ class IssueCommentCallback(GitHubCallback):
     action: Literal["created", "edited", "deleted"]
     issue: Issue
     comment: Comment
+    sender: User | None = None
 
     def accept_callback(self) -> bool:
         """
-        Check if the webhook is accepted.
+        Check if the webhook is accepted. The allowed usernames gate only a comment that mentions DAIV: any other
+        comment on a pull request is accepted from anyone but DAIV, for the session that owns it to remember.
         """
         if (
             self.action not in ["created", "edited"]
             or self.issue.state != "open"
             or self.comment.user.id == self._client.current_user.id
+            or _edited_by_another(self.action, self.sender, self.comment.user)
         ):
             return False
 
-        # Check if user is allowed to interact with DAIV
-        if not self._repo_config.is_user_allowed(self.comment.user.username):
+        if self._mentions_daiv and not self._repo_config.is_user_allowed(self.comment.user.username):
             logger.info(
-                "Rejecting comment on %s#%s: user '%s' is not in the allowed usernames list",
+                "Rejecting mention on %s#%s: user '%s' is not in the allowed usernames list",
                 self.repository.full_name,
                 self.issue.number,
                 self.comment.user.username,
             )
             return False
 
-        return bool(self._is_issue_comment or self._is_merge_request_review)
+        return bool(self._is_issue_comment or self._is_merge_request_comment)
 
     async def process_callback(self):
         """
-        Trigger the task to address the review feedback or issue comment like the plan approval use case.
+        Trigger the task to address the review feedback or issue comment like the plan approval use case, or remember
+        a comment on a pull request a session owns.
         """
         mention = Mention(note_id=self.comment.id, comment_id=str(self.comment.id))
         if self._is_issue_comment:
@@ -153,7 +171,23 @@ class IssueCommentCallback(GitHubCallback):
                 author=_author(self.comment.user),
                 mention=mention,
             )
-        elif self._is_merge_request_review:
+        elif self._is_merge_request_comment:
+            comment = Mention(
+                note_id=self.comment.id,
+                comment_id=str(self.comment.id),
+                body=self.comment.body,
+                web_url=self.comment.html_url,
+            )
+            if not self._mentions_daiv:
+                await dispatch_mr_comment(
+                    client=self._client,
+                    repo_id=self.repository.full_name,
+                    merge_request_iid=self.issue.number,
+                    title=self.issue.title,
+                    author=_author(self.comment.user),
+                    comment=comment,
+                )
+                return
             await dispatch_mr_comment_run(
                 client=self._client,
                 repo_id=self.repository.full_name,
@@ -162,21 +196,23 @@ class IssueCommentCallback(GitHubCallback):
                 title=self.issue.title,
                 use_max=has_max_label(self.issue.label_names),
                 author=_author(self.comment.user),
-                mention=mention,
+                mention=comment,
             )
 
+    @cached_property
+    def _mentions_daiv(self) -> bool:
+        return note_mentions_daiv(self.comment.body, self._client.current_user)
+
     @property
-    def _is_merge_request_review(self) -> bool:
+    def _is_merge_request_comment(self) -> bool:
         """
-        Accept the webhook if the note is a merge request comment that mentions DAIV.
+        Accept any comment on an open pull request; dispatch decides what one without a mention concerns.
         """
         return bool(
             self._repo_config.pull_request_assistant.enabled
             and self.issue.is_pull_request()
             and self.issue.state == "open"
-            # and not self.issue.draft
             and self.action in ["created", "edited"]
-            and note_mentions_daiv(self.comment.body, self._client.current_user)
         )
 
     @cached_property
@@ -189,32 +225,124 @@ class IssueCommentCallback(GitHubCallback):
             and self.issue.is_issue()
             and self.issue.state == "open"
             and self.action in ["created", "edited"]
-            and note_mentions_daiv(self.comment.body, self._client.current_user)
+            and self._mentions_daiv
+        )
+
+
+class PullRequestReviewCommentCallback(GitHubCallback):
+    """
+    GitHub Pull Request Review Comment Webhook: a comment on a diff line, which reaches only a session owning the pull
+    request, as a mention or a remembered comment. The allowed usernames gate only a mention; a comment without one is
+    remembered from anyone but DAIV.
+    """
+
+    action: Literal["created", "edited", "deleted"]
+    pull_request: PullRequest
+    comment: ReviewComment
+    sender: User | None = None
+
+    def accept_callback(self) -> bool:
+        if (
+            self.action not in ("created", "edited")
+            or self.pull_request.state != "open"
+            or not self._repo_config.pull_request_assistant.enabled
+            or self.comment.user.id == self._client.current_user.id
+            or _edited_by_another(self.action, self.sender, self.comment.user)
+        ):
+            return False
+        if self._mentions_daiv and not self._repo_config.is_user_allowed(self.comment.user.username):
+            logger.info(
+                "Rejecting review comment mention on %s#%s: user '%s' is not in the allowed usernames list",
+                self.repository.full_name,
+                self.pull_request.number,
+                self.comment.user.username,
+            )
+            return False
+        return True
+
+    @cached_property
+    def _mentions_daiv(self) -> bool:
+        return note_mentions_daiv(self.comment.body, self._client.current_user)
+
+    async def process_callback(self):
+        comment = Mention(
+            note_id=self.comment.id,
+            comment_id=str(self.comment.in_reply_to_id or self.comment.id),
+            body=self.comment.body,
+            web_url=self.comment.html_url,
+            on_diff=True,
+        )
+        if not self._mentions_daiv:
+            await dispatch_mr_comment(
+                client=self._client,
+                repo_id=self.repository.full_name,
+                merge_request_iid=self.pull_request.number,
+                title=self.pull_request.title,
+                author=_author(self.comment.user),
+                comment=comment,
+            )
+            return
+        await dispatch_mr_comment_run(
+            client=self._client,
+            repo_id=self.repository.full_name,
+            merge_request_iid=self.pull_request.number,
+            ref=self.pull_request.head.ref,
+            title=self.pull_request.title,
+            use_max=has_max_label([label.name for label in self.pull_request.labels]),
+            author=_author(self.comment.user),
+            mention=comment,
         )
 
 
 class PullRequestCallback(GitHubCallback):
     """
-    GitHub Pull Request Webhook for tracking merge metrics.
+    GitHub Pull Request Webhook: merge metrics for merges into the default branch, and the merge, close and reopen of
+    a pull request a session owns.
     """
 
     action: str
     pull_request: PullRequest
+    sender: User | None = None
+    comment: None = None
+    """A ``pull_request_review_comment`` payload has a ``comment``; requiring none keeps it from parsing as this."""
 
     def accept_callback(self) -> bool:
         """
-        Accept the webhook only when a pull request is merged into the default branch.
+        Accept a close (merged or not) or a reopen; ``process_callback`` decides what each one concerns.
         """
+        return self.action in ("closed", "reopened")
+
+    async def process_callback(self):
+        """
+        Record merge metrics for a merge into the default branch, then tell the session owning the pull request.
+        """
+        if (
+            self.action == "closed"
+            and self.pull_request.merged
+            and self.pull_request.base.ref == self.repository.default_branch
+        ):
+            await self._record_merge_metrics()
+        repo_id, number = self.repository.full_name, self.pull_request.number
+        by_username = self.sender.username if self.sender is not None else ""
+        if self.action == "reopened":
+            await Ownerships(repo_id).areopen(number, by_username=by_username)
+        else:
+            await Ownerships(repo_id).aclose(
+                number,
+                merged=self.pull_request.merged,
+                by_username=by_username,
+                target_branch=self.pull_request.base.ref,
+            )
+
+    @property
+    def _merged_into_default_branch(self) -> bool:
         return (
             self.action == "closed"
             and self.pull_request.merged
             and self.pull_request.base.ref == self.repository.default_branch
         )
 
-    async def process_callback(self):
-        """
-        Enqueue a task to record merge metrics.
-        """
+    async def _record_merge_metrics(self):
         from codebase.tasks import record_merge_metrics_task
 
         await record_merge_metrics_task.aenqueue(
@@ -230,24 +358,35 @@ class PullRequestCallback(GitHubCallback):
 
 class PushCallback(GitHubCallback):
     """
-    GitHub Push Webhook for invalidating repository configuration cache.
+    GitHub Push Webhook: a push to the default branch invalidates the repository configuration cache, and a push to
+    the branch of a pull request a session owns is weighed for that session.
     """
 
     ref: str
+    before: str = ""
+    after: str = ""
+    deleted: bool = False
+    pusher: Pusher | None = None
+    commits: list[dict] = Field(default_factory=list)
 
     def accept_callback(self) -> bool:
         """
-        Accept the webhook if the push is to the default branch.
+        Accept a push to a branch; a tag push concerns neither the configuration nor a pull request.
         """
-        return self.ref.endswith(self.repository.default_branch)
+        return self.ref.startswith("refs/heads/")
 
     async def process_callback(self):
-        """
-        Process the push webhook to invalidate the cache for the repository configurations.
-        """
-        if self.repository.default_branch and self.ref.endswith(self.repository.default_branch):
-            # Invalidate the cache for the repository configurations, they could have changed.
+        branch = self.ref.removeprefix("refs/heads/")
+        if branch == self.repository.default_branch:
             RepositoryConfig.invalidate_cache(self.repository.full_name)
+        elif not self.deleted and self.after:
+            await Ownerships(self.repository.full_name).aschedule_push_classification(
+                branch=branch,
+                before=self.before,
+                after=self.after,
+                pusher_username=self.pusher.name if self.pusher is not None else "",
+                commit_count=len(self.commits),
+            )
 
 
 class WorkflowRunCallback(GitHubCallback):
@@ -259,16 +398,15 @@ class WorkflowRunCallback(GitHubCallback):
     workflow_run: WorkflowRun
 
     def accept_callback(self) -> bool:
-        """Accept finished workflow runs on repos with the watch enabled.
+        """Accept finished workflow runs, whatever the watch switches say: with the watch off a result is still
+        remembered, and the evaluation reads the switches to keep it from waking anyone.
 
         Deliberately does not reject runs DAIV's own push triggered — that is the normal case.
-        Translating the conclusion puts both platforms on the judge's one vocabulary; the
-        config read comes last because it blocks the event loop on a cache round-trip.
+        Translating the conclusion puts both platforms on the judge's one vocabulary.
         """
         return (
             self.action == "completed"
             and github_conclusion_to_status(self.workflow_run.conclusion) in JUDGEABLE_PIPELINE_STATUSES
-            and WatchPolicy.enabled_for(self._repo_config)
         )
 
     async def process_callback(self):

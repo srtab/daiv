@@ -1,0 +1,128 @@
+"""Behavioral tests for the composer's progress-drawer state under Alpine's reactivity.
+
+Around fifteen always-mounted bindings read ``latestTodos`` / ``filesTouched`` / the drawer
+built from them — the drawer's ``x-show``, its tone class, the live dot, the step and its
+text, and the open list's todos and files (``x-show``-mounted, so they stay live while the
+drawer is closed). Two failures live in how that
+state is derived, and neither is visible to a source-string assertion:
+
+*Nothing updates.* A getter that caches its walk of the transcript across readers answers
+every binding after the first without touching ``turns``. Alpine tracks dependencies per
+effect, so those bindings subscribe to nothing and never run again — which is what kept
+the drawer hidden until a reload when a turn's ``write_todos`` landed mid-run.
+
+*Everything is derived fifteen times.* A getter that re-walks per read pays a full
+transcript pass per binding — twenty per streamed ``args`` delta, seconds of main thread
+over a long run.
+
+One effect armed in ``init()`` is what satisfies both, so these drive the real module
+against a stand-in for the reactivity, and run the real ``init()`` to arm it.
+"""
+
+from __future__ import annotations
+
+from tests.unit_tests.chat.chat_stream_driver import REACTIVITY, run_chat_stream
+from tests.unit_tests.jsdriver import requires_node
+
+pytestmark = requires_node
+
+TODOS = [
+    {"content": "Define audit sub-areas from repo layout", "status": "completed"},
+    {"content": "Launch parallel audit subagents per sub-area", "status": "in_progress"},
+]
+
+PRELUDE = (
+    REACTIVITY
+    + """
+/* Counts passes over the whole transcript: `probe` is one segment of an *earlier* turn, whose
+   `type` only a derivation walking every turn reads. Reads within one effect run are one pass. */
+let probe = null;
+let walks = 0;
+let walkedIn = -1;
+onTrack = (target, key) => {
+  if (target !== probe || key !== "type" || walkedIn === activeRun) return;
+  walkedIn = activeRun;
+  walks++;
+};
+"""
+)
+
+BODY = """
+const state = reactive(registry.chat({ endpoint: "/api/chat" }));
+state.$watch = watchOn(state);
+// `init()`'s only `$nextTick` parks the viewport, which nothing here has.
+state.$nextTick = () => {};
+
+// History behind the open turn, the way a long run has it. The probe sits in that history,
+// so a read of it counts one walk of the whole transcript.
+const history = { role: "assistant", streaming: false, segments: [
+  { id: "w-1", type: "tool_call", name: "write_file", status: "done",
+    args: JSON.stringify({ path: "daiv/settings.py" }), result: "ok" },
+] };
+probe = history.segments[0];
+state.turns = [{ role: "user", segments: [{ type: "text", content: "audit this" }] }, history];
+state.init();
+
+state.streaming = true;
+state.turns.push({ role: "assistant", streaming: true, segments: [] });
+
+// What the composer mounts on this state. Each drawer reader records what it saw, so a
+// binding that stopped re-running is visible in its own history rather than in a total.
+const seen = { first: [], second: [] };
+const read = () => { const d = state.progressDrawer; return d ? [d.step, d.files].filter(Boolean).join(" · ") : null; };
+effect(() => { seen.first.push(read()); });
+effect(() => { seen.second.push(read()); });
+for (let i = 0; i < 5; i++) effect(() => { state.progressDrawer; });
+for (let i = 0; i < 6; i++) effect(() => { state.filesTouched.length; });
+for (let i = 0; i < 4; i++) effect(() => { state.latestTodos.length; });
+
+// The agent calls write_todos mid-turn: the tool call is appended to the open turn, then
+// its args stream in — split, because a delta arrives per relay frame.
+const turn = state.turns[state.turns.length - 1];
+turn.segments.push({ id: "tc-1", type: "tool_call", name: "write_todos", args: "", status: "running" });
+const live = turn.segments[0];
+const args = JSON.stringify({ todos: payload.todos });
+
+walks = 0;
+live.args += args.slice(0, 12);
+const perDelta = walks;
+live.args += args.slice(12);
+
+const result = { seen, perDelta, total: walks };
+state.destroy();
+process.stdout.write(JSON.stringify(result));
+"""
+
+
+def _run() -> dict:
+    """Stream a mid-turn ``write_todos`` into a mounted composer; report what it cost."""
+    return run_chat_stream(
+        BODY, {"todos": TODOS}, prelude=PRELUDE, extra_globals="surfaceGroup: { join: () => () => {} },"
+    )
+
+
+def test_every_binding_sees_the_todos_that_land_mid_turn():
+    """The drawer is suppressed on content, so the ``write_todos`` of a running turn is what
+    brings its step on screen. Both readers have to see it: one subscribed binding is enough
+    to leave the step text stale beside a live step number.
+
+    The list arrives as deltas on ``args``, so this also pins the memo key: parses are
+    cached on the segment *and* the string parsed. Keyed on the segment alone, the drawer
+    would keep reporting whatever the first delta held — here, an empty list.
+    """
+    seen = _run()["seen"]
+
+    assert seen["first"][0] == "1 file", "the history's write_file is all the drawer has yet"
+    assert [seen["first"][-1], seen["second"][-1]] == ["2/2 · 1 file", "2/2 · 1 file"]
+
+
+def test_a_streamed_delta_walks_the_transcript_once():
+    """The cost half. Every binding above reads state derived by the one effect ``init()``
+    arms, so a delta walks the transcript once no matter how many bindings are mounted —
+    derive per read instead and this is one full pass per reader, twenty here, on every
+    frame of a run whose transcript only grows.
+    """
+    walks = _run()
+
+    assert walks["perDelta"] == 1, f"a single delta walked the transcript {walks['perDelta']} times"
+    assert walks["total"] == 2, f"two deltas, two walks — got {walks['total']}"

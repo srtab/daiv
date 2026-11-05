@@ -119,6 +119,7 @@ class MCPServer(TimeStampedModel):
     tool_filter_items = models.JSONField(_("tool filter items"), default=list, blank=True)
     status = models.CharField(_("status"), max_length=10, choices=Status.choices, default=Status.ACTIVE)
     discovered_tools = models.JSONField(_("discovered tools"), default=list, blank=True, editable=False)
+    icon = models.TextField(_("icon"), blank=True, default="", editable=False)
     tools_synced_at = models.DateTimeField(_("tools synced at"), null=True, blank=True, editable=False)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="mcp_servers"

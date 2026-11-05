@@ -1,5 +1,8 @@
 import re
 
+#: The ``source`` of a child pipeline, which runs on its parent's ref and commit.
+CHILD_PIPELINE_SOURCE = "parent_pipeline"
+
 
 def replace_section_start_and_end_markers(log: str) -> str:
     """

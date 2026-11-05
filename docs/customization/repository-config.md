@@ -1,3 +1,7 @@
+---
+description: "Configure DAIV per repository with a .daiv.yml file: access control, file access, feature toggles, branch naming, commit messages and model overrides."
+---
+
 # Repository Config
 
 Customize DAIV's behavior per repository using a `.daiv.yml` file in the root of the default branch.
@@ -88,6 +92,9 @@ When the list is empty or omitted, **all users** can interact with DAIV (default
 !!! tip
     Push events (e.g., configuration cache invalidation) are not affected by the allowlist — they are system-level operations tied to the webhook, not to individual users.
 
+!!! warning
+    The allowlist decides who can **trigger** DAIV, not who it reads. On a merge request a DAIV session owns, a comment that doesn't mention DAIV is remembered from anyone and shown to that session's next run as context (see [Pull request assistant](../features/pull-request-assistant.md#a-merge-request-daiv-published)). On a public repository, treat those comments as untrusted input.
+
 ## File access
 
 Control which files DAIV can read.
@@ -146,7 +153,7 @@ DAIV publishes the run with a **Verification** section that lists each command's
 
 - A new merge request opens as a draft.
 - On an existing merge request, the merge request's draft status is not changed, and the section goes in DAIV's reply: the comment it posts on the issue or merge request, or the result of a job, MCP call or scheduled job. Chat replies don't show it yet. When DAIV opened the merge request, the section in its description is replaced with the new one, so it always shows the latest checks.
-- The [pipeline watch](../features/pipeline-watch.md) CI fix loop stays off for the merge request, and a watch already running on it stops, so DAIV doesn't keep trying after the checks gave up.
+- The [pipeline watch](../features/pipeline-watch.md) counts the commit DAIV published as already examined, so CI failing on it doesn't wake the session for a fix after the checks gave up. The session still shows the pipeline's result, and the next commit DAIV pushes is watched as usual.
 
 If the agent gets stuck in a loop and DAIV stops it, the checks still run and are reported, but no fix round is spent. If the checks can't run at all, for example when the sandbox fails, DAIV publishes normally and says in the report that the run was not verified, and why. The CI fix loop works as usual in that case.
 

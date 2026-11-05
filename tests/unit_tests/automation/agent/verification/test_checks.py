@@ -21,13 +21,13 @@ class FakeBash:
     """``exit_codes`` are handed out one per command, in order; a command past their end exits 0."""
 
     def __init__(self) -> None:
-        self.calls: list[tuple[list[str], int | None, float | None]] = []
+        self.calls: list[tuple[list[str], int | None]] = []
         self.exit_codes: list[int] = []
         self.results: list[RunCommandResult] | None = None
         self.error: Exception | None = None
 
-    async def run_commands(self, commands, *, fail_fast, timeout=None, http_timeout=None):
-        self.calls.append((list(commands), timeout, http_timeout))
+    async def run_commands(self, commands, *, fail_fast, timeout=None):
+        self.calls.append((list(commands), timeout))
         if self.error:
             raise self.error
         if self.results is not None:
@@ -97,10 +97,7 @@ def fake_git() -> FakeGit:
 
 async def test_run_checks_sends_each_command_alone_from_the_repo_dir(fake_bash):
     await run_checks(fake_bash, ["make lint", "make test"])
-    assert fake_bash.calls == [
-        (["cd /workspace/repo && make lint"], 600, 660),
-        (["cd /workspace/repo && make test"], 600, 660),
-    ]
+    assert fake_bash.calls == [(["cd /workspace/repo && make lint"], 600), (["cd /workspace/repo && make test"], 600)]
 
 
 async def test_run_checks_runs_the_next_command_after_one_times_out(fake_bash):

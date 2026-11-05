@@ -33,6 +33,7 @@ from codebase.base import (
 )
 from codebase.clients import RepoClient
 from codebase.clients.gitlab.clone_tokens import get_ephemeral_clone_token, invalidate_clone_token
+from codebase.clients.gitlab.utils import CHILD_PIPELINE_SOURCE
 from codebase.exceptions import CloneRefNotFoundError, MergeRequestBranchNotVisibleError
 from codebase.utils import is_git_auth_error_text, is_git_ref_not_found_text
 from core.constants import BOT_NAME
@@ -50,7 +51,7 @@ if TYPE_CHECKING:
         ProjectMergeRequestNote,
     )
 
-    from codebase.clients.base import Emoji, WebhookSetupResult
+    from codebase.clients.base import CommentThread, Emoji, WebhookSetupResult
 
     AwardEmojiTarget = ProjectIssue | ProjectIssueNote | ProjectMergeRequestNote
 
@@ -880,7 +881,7 @@ class GitLabClient(RepoClient):
         return self._serialize_merge_request(repo_id, merge_request)
 
     def create_merge_request_comment(
-        self, repo_id: str, merge_request_id: int, body: str, reply_to_id: str | None = None
+        self, repo_id: str, merge_request_id: int, body: str, reply_to: CommentThread | None = None
     ) -> str | None:
         """
         Comment on a merge request.
@@ -889,11 +890,12 @@ class GitLabClient(RepoClient):
             repo_id: The repository ID.
             merge_request_id: The merge request ID.
             body: The comment body.
+            reply_to: The discussion to reply in.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
-        if reply_to_id:
-            discussion = merge_request.discussions.get(reply_to_id, lazy=True)
+        if reply_to:
+            discussion = merge_request.discussions.get(reply_to.id, lazy=True)
             return discussion.notes.create({"body": body}).id
         return merge_request.notes.create({"body": body}).id
 
@@ -967,7 +969,8 @@ class GitLabClient(RepoClient):
         )
         return False
 
-    def _to_pipeline(self, pipeline) -> Pipeline:
+    def _to_pipeline(self, pipeline, *, with_jobs: bool = True) -> Pipeline:
+        jobs = pipeline.jobs.list(all=True, per_page=100) if with_jobs else []
         return Pipeline(
             id=pipeline.id,
             iid=getattr(pipeline, "iid", None),
@@ -983,7 +986,7 @@ class GitLabClient(RepoClient):
                     allow_failure=job.allow_failure,
                     failure_reason=getattr(job, "failure_reason", None),
                 )
-                for job in pipeline.jobs.list(all=True, per_page=100)
+                for job in jobs
             ],
         )
 
@@ -999,12 +1002,22 @@ class GitLabClient(RepoClient):
             raise
 
     def get_latest_pipeline_for_ref(self, repo_id: str, ref: str) -> Pipeline | None:
-        project = self.client.projects.get(repo_id, lazy=True)
-        pipelines = project.pipelines.list(ref=ref, order_by="id", sort="desc", per_page=1, page=1)
-        if not pipelines:
-            return None
+        """The newest pipeline on ``ref`` that is not a child pipeline: a child runs on its parent's ref and commit,
+        and the merge request's result is its parent's."""
+        latest = self._latest_parent_pipeline(repo_id, ref)
         # The list entry already carries every field _to_pipeline reads, plus the jobs manager.
-        return self._to_pipeline(pipelines[0])
+        return self._to_pipeline(latest) if latest is not None else None
+
+    def get_latest_pipelines_for_ref(self, repo_id: str, ref: str) -> list[Pipeline]:
+        """A pipeline covers the whole commit, so the branch's latest pipeline is its only CI subject's; without its
+        jobs."""
+        latest = self._latest_parent_pipeline(repo_id, ref)
+        return [self._to_pipeline(latest, with_jobs=False)] if latest is not None else []
+
+    def _latest_parent_pipeline(self, repo_id: str, ref: str):
+        project = self.client.projects.get(repo_id, lazy=True)
+        pipelines = project.pipelines.list(ref=ref, order_by="id", sort="desc", per_page=20, iterator=True)
+        return next((p for p in pipelines if getattr(p, "source", None) != CHILD_PIPELINE_SOURCE), None)
 
     def get_merge_request_diff_stats(self, repo_id: str, merge_request_id: int) -> MergeRequestDiffStats:
         """
@@ -1115,7 +1128,9 @@ class GitLabClient(RepoClient):
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
         return Note.model_validate(merge_request.notes.get(note_id).attributes)
 
-    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
+    def create_merge_request_note_emoji(
+        self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int, *, on_diff: bool = False
+    ):
         """
         Create an emoji in a note of a merge request.
 

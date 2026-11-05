@@ -7,9 +7,12 @@ from unittest.mock import AsyncMock, patch
 from django.utils import timezone
 
 import pytest
+from asgiref.sync import sync_to_async
+from mcp_connectors.models import MCPServer
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
+from tests.unit_tests.mcp_connectors.helpers import only_servers
 
 
 async def _user(username):
@@ -22,7 +25,7 @@ async def _session(user, *, repo_id="a/b", thread_id=None):
     )
 
 
-async def _run(session, *, status=RunStatus.QUEUED, **kwargs):
+async def _run(session, *, status=RunStatus.SUCCESSFUL, **kwargs):
     return await Run.objects.acreate(
         session=session,
         user=session.user,
@@ -335,6 +338,27 @@ async def test_submit_job_gives_a_repository_its_own_prompt(_default_mcp_user):
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_two_follow_ups_to_a_busy_session_share_its_next_run(_default_mcp_user):
+    from mcp_api.server import submit_job
+
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.MCP_JOB, user=_default_mcp_user, repo_id="a/b",
+        ref="main", active_run_id="chat-run", last_active_at=timezone.now(),
+    )  # fmt: skip
+
+    with patch("mcp_api.server._allow_job_submission", return_value=True), patch("sessions.queue.run_job_task"):
+        first, second = [
+            json.loads(await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt=p, thread_id=session.thread_id))
+            for p in ("Bump it", "Also the lockfile")
+        ]
+
+    assert first["jobs"][0]["job_id"] == second["jobs"][0]["job_id"]
+    assert first["jobs"][0]["status"] == "QUEUED"
+    run = await Run.objects.aget(session=session)
+    assert (run.trigger_type, run.status) == (SessionOrigin.MCP_JOB, RunStatus.QUEUED)
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_submit_job_rejects_malformed_references():
     from mcp_api.server import submit_job
 
@@ -370,3 +394,23 @@ def test_the_submit_job_description_advertises_every_special_provider():
     for provider in RefProvider:
         if provider is not RefProvider.GENERIC:
             assert provider.value in description, f"{provider.value} is not advertised to the model"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_forwards_resolved_mcp_overrides(_default_mcp_user):
+    from mcp_api.server import submit_job
+    from sessions.services import BatchSubmitResult
+
+    await sync_to_async(only_servers)(("grafana", MCPServer.Status.ON_DEMAND))
+    run = await _run(await _session(user=_default_mcp_user, repo_id="a/b"))
+
+    with (
+        patch("mcp_api.server._allow_job_submission", return_value=True),
+        patch(
+            "mcp_api.server.asubmit_batch_runs",
+            new=AsyncMock(return_value=BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[run])),
+        ) as submit,
+    ):
+        await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x", mcp_overrides={"grafana": True})
+
+    assert submit.call_args.kwargs["mcp_overrides"] == {"grafana": "on"}

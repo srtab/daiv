@@ -5,6 +5,7 @@ most: the turn-end publish has already failed, and this is the last attempt. It 
 ``GitMiddleware`` does — see ``automation.agent.git_state.effective_merge_request``.
 """
 
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock, patch
 
 from sessions.executor.recovery import recover_draft
@@ -14,6 +15,9 @@ from automation.agent.workspace.session import SandboxSession
 from codebase.base import MergeRequest, User
 from tests.unit_tests.conftest import FakeSandboxClient, FakeWorkspace, acquired_session, agent_settings, sandbox_spec
 from tests.unit_tests.sessions.executor.conftest import publisher_through_workspace
+
+if TYPE_CHECKING:
+    from automation.agent.publishers import PublishOutcome
 
 SETTINGS = agent_settings()
 
@@ -130,7 +134,7 @@ class TestPublishTarget:
 
 class TestSandboxMode:
     @staticmethod
-    async def _recover(session: SandboxSession, *, publisher) -> tuple[bool, Mock]:
+    async def _recover(session: SandboxSession, *, publisher) -> tuple[PublishOutcome | None, Mock]:
         agent = _agent({"merge_request": None, "session_id": session.session_id})
         with patch("automation.agent.publishers.GitChangePublisher", publisher):
             published = await recover_draft(
@@ -154,7 +158,7 @@ class TestSandboxMode:
             acquired_session(client, session_id), publisher=publisher_through_workspace(created, publishes=_DRAFT_MR)
         )
 
-        assert published is True
+        assert published is not None and published.merge_request == _DRAFT_MR
         assert created[0].target == (None, True)
         assert client.calls_to("run_commands") == [(session_id, ("git push origin HEAD",))]
         assert client.method_names() == ["run_commands"]
@@ -170,7 +174,7 @@ class TestSandboxMode:
         with caplog.at_level("ERROR", logger="daiv.sessions"):
             published, agent = await self._recover(acquired_session(client, session_id), publisher=publisher)
 
-        assert published is False
+        assert published is None
         agent.aupdate_state.assert_not_awaited()
         assert "draft recovery failed after an agent error for thread_id=t-1" in caplog.text
 
@@ -191,7 +195,7 @@ class TestSandboxMode:
                 session_links=None,
             )
 
-        assert published is False
+        assert published is None
         agent.aget_state.assert_not_awaited()
         publisher.assert_not_called()
         assert client.calls == []

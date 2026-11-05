@@ -8,6 +8,7 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.contrib import messages as messages_module
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, SuspiciousOperation
@@ -30,13 +31,14 @@ from sandbox_envs.selection import resolve_repo_envs
 from sandbox_envs.services import env_picker_context
 
 from automation.picker.context import agent_picker_context
-from codebase.authorization import can_run
 from core.mixins import Breadcrumb, BreadcrumbMixin
 from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
+from core.ui_events import redis_connections
 from core.utils import is_htmx
 from sessions.admission import RepoAccessError
 from sessions.artifacts import ArtifactKind, open_artifact_file
-from sessions.executor.lock import live_run_for, session_activity
+from sessions.conf import settings as sessions_settings
+from sessions.delegation import outcome_states
 from sessions.filters import (
     RANGE_CHOICES,
     SCOPE_CHOICES,
@@ -47,15 +49,12 @@ from sessions.filters import (
     resolve_scope,
 )
 from sessions.forms import AgentRunCreateForm
-from sessions.header import build_session_header, retry_for
-from sessions.hydration import ahydrate_thread
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
-from sessions.repo_state import aget_existing_mr_payload
+from sessions.page_state import aload_session_state
 from sessions.services import RepoTarget, submit_batch_runs
 from sessions.spend import build_session_spend
 from sessions.titling import MAX_TITLE_LENGTH
-from sessions.transcript import annotate_transcript, expired_run_turns
-from sessions.turns import build_turns
+from sessions.transcript_labels import transcript_icons, transcript_labels
 from slash_commands.composer import composer_command_rows
 
 logger = logging.getLogger("daiv.sessions")
@@ -286,6 +285,8 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         ctx = super().get_context_data(**kwargs)
         session = ctx.setdefault("session", None)
+        if session is not None:
+            ctx["nav_session_thread_id"] = session.thread_id
 
         # Populate sandbox envs both for the empty hero state and a live session.
         ctx["sandbox_envs"] = list(SandboxEnvironment.objects.visible_to(self.request.user))
@@ -306,6 +307,14 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx.update(composer_mcp_context(self.request.user, session.mcp_overrides if session is not None else {}))
 
         ctx["slash_command_rows"] = composer_command_rows()
+        show_raw = sessions_settings.SHOW_RAW_TOOL_DATA
+        ctx["transcript_labels_payload"] = {
+            "labels": transcript_labels(),
+            "icons": transcript_icons(),
+            "show_raw": settings.DEBUG if show_raw is None else show_raw,
+            "session_path": reverse("session_detail", args=["THREAD-ID"]).replace("THREAD-ID", "{thread_id}"),
+            "leg_states": outcome_states(),
+        }
 
         if session is None:
             ctx.update({
@@ -328,49 +337,30 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
             })
             return ctx
 
-        hydrated = async_to_sync(ahydrate_thread)(session.thread_id)
-        merge_request = hydrated.merge_request_payload
-        if merge_request is None and session.repo_id and session.ref:
-            merge_request = async_to_sync(aget_existing_mr_payload)(session.repo_id, session.ref)
-
-        # The pill is the working branch, mirroring the live stream's ref/MR coupling
-        # (``_applyRepoState``); ``Session.ref`` lags it on any run that never synced back.
-        ctx["thread_ref"] = (merge_request or {}).get("source_branch") or session.ref
-
-        runs = list(session.runs.order_by("created_at"))
-        non_terminal = [r for r in runs if r.status not in RunStatus.terminal()]
-        # A dead holder falls through to "not in flight", so the expired banner shows instead of a permanent
-        # "working" state.
-        activity = session_activity(session, runs)
-        is_in_flight = activity.in_flight
-
-        # A freshly submitted run has not checkpointed yet, so "no checkpoint or archive" only means
-        # the session is really over once nothing is (freshly) in flight; while in flight the
-        # "working" state and transcript poller render the same view a chat session gets.
-        no_state = hydrated.expired and not is_in_flight
-
-        turns = annotate_transcript(build_turns(hydrated.messages, in_flight=is_in_flight), runs, activity)
-        # Expired banner only when there is genuinely nothing to show: no checkpoint or archive
-        # AND no failed run whose prompt/marker annotate_transcript could recover.
-        ctx["expired"] = no_state and not turns
+        state = async_to_sync(aload_session_state)(session, self.request.user, always_look_up_merge_request=True)
+        runs, is_in_flight, live = state.runs, state.activity.in_flight, state.live_run
+        waiting_since = state.activity.waiting_since
+        ctx["session_revision"] = state.revision
+        ctx["session_polls"] = not redis_connections.configured
+        ctx["thread_ref"] = state.thread_ref
+        ctx["expired"] = state.expired_banner
         ctx["watch_only"] = ctx["expired"] and not runs and session.origin == SessionOrigin.PIPELINE_WEBHOOK
-        ctx["waiting_since"] = activity.waiting_since.isoformat() if activity.waiting_since else ""
-        ctx["turns"] = turns if hydrated.messages else turns + expired_run_turns(runs, turns)
-        ctx["can_act"] = can_run(self.request.user, session.repo_id)
-        retry = retry_for(session, runs, ctx["turns"], self.request.user, can_act=ctx["can_act"])
-        ctx["header"] = build_session_header(session, runs, retry=retry, merge_request=merge_request)
+        ctx["waiting_since"] = waiting_since.isoformat() if waiting_since else ""
+        ctx["turns"] = state.turns
+        ctx["can_act"] = state.can_act
+        ctx["header"] = state.header
         ctx["archived"] = session.hidden_by.filter(user=self.request.user).exists()
         ctx["max_title_length"] = MAX_TITLE_LENGTH
         ctx["active_run_id"] = session.active_run_id or ""
-        ctx["merge_request"] = merge_request
-        ctx["diff_stats"] = hydrated.diff_stats
-        ctx["context_usage"] = hydrated.context_usage
+        ctx["merge_request"] = state.merge_request
+        ctx["diff_stats"] = state.hydrated.diff_stats
+        ctx["context_usage"] = state.hydrated.context_usage
         ctx["session_spend"] = build_session_spend(runs)
         ctx["is_in_flight"] = is_in_flight
-        live = live_run_for(activity.live, session, self.request.user)
         ctx["live_run_id"] = live.id if live else ""
         ctx["live_run_started_at"] = live.started_at.isoformat() if live else ""
         ctx["live_run_stoppable"] = bool(live and live.stoppable)
+        non_terminal = [r for r in runs if r.status not in RunStatus.terminal()]
         ctx["in_flight_ids"] = ",".join(str(r.id) for r in non_terminal) if is_in_flight else ""
 
         return ctx

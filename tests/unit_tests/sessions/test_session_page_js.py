@@ -14,19 +14,25 @@ from tests.unit_tests.test_template_comments import DAIV_DIR
 pytestmark = requires_node
 
 SESSION_PAGE_JS = DAIV_DIR / "sessions/static/sessions/js/session-page.js"
+TRANSCRIPT_LABELS_JS = DAIV_DIR / "chat/static/chat/js/transcript-labels.js"
 
 HARNESS = """
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
-const { src, initial, watch, wide, stored, storageBlocked, archived, steps } = JSON.parse(readFileSync(0, "utf8"));
+const {
+  src, labelsSrc, initial, watch, delegations, wide, stored, storageBlocked, archived, steps,
+} = JSON.parse(readFileSync(0, "utf8"));
 const components = {};
 const fetches = [];
 const pending = [];
 const storage = new Map(stored == null ? [] : [["key", stored]]);
 let clock = 10;
-const json = { "session-header": { latest_run: initial, watch, run_count: 1 } };
+const json = { "session-header": { latest_run: initial, watch, run_count: 1, delegations } };
+const watchers = {};
 const frames = [];
+const timers = [];
+const intervals = [];
 const scrolled = [];
 const section = {
   shown: false,
@@ -43,6 +49,10 @@ const sandbox = {
     },
   },
   requestAnimationFrame: (cb) => frames.push(cb),
+  setTimeout: (cb, ms) => timers.push({ cb, ms }),
+  clearTimeout: () => {},
+  setInterval: (cb, ms) => intervals.push({ cb, ms, cleared: false }),
+  clearInterval: (id) => { if (intervals[id - 1]) intervals[id - 1].cleared = true; },
   localStorage: {
     getItem: (k) => { if (storageBlocked) throw new Error("blocked"); return storage.get(k) ?? null; },
     setItem: (k, v) => { if (storageBlocked) throw new Error("blocked"); storage.set(k, v); },
@@ -56,9 +66,12 @@ const sandbox = {
   },
 };
 sandbox.document.title = "Old — DAIV Sessions";
-sandbox.window = { matchMedia: () => ({ matches: wide, addEventListener() {}, removeEventListener() {} }) };
+sandbox.window = {
+  matchMedia: () => ({ matches: wide, addEventListener() {}, removeEventListener() {} }),
+};
 sandbox.Alpine = { data: (name, factory) => { components[name] = factory; } };
 vm.createContext(sandbox);
+vm.runInContext(readFileSync(labelsSrc, "utf8"), sandbox);
 vm.runInContext(readFileSync(src, "utf8"), sandbox);
 
 const labels = {
@@ -66,12 +79,13 @@ const labels = {
   watchFailed: "Couldn't change it",
 };
 const page = components.sessionPage({
-  sessionUrl: "/session", ciWatchUrl: "/ci-watch", archiveUrl: "/archive", storageKey: "key",
-  title: "Old", titleSuffix: "DAIV Sessions", labels,
+  sessionUrl: "/session", ciWatchUrl: "/ci-watch", archiveUrl: "/archive", storageKey: "key", title: "Old",
+  titleSuffix: "DAIV Sessions", labels,
 });
 const focused = [];
 Object.assign(page, {
   streaming: false, resuming: false, waiting: false, archived, csrfToken: "tok", $nextTick: (cb) => cb(),
+  $watch: (expression, callback) => { watchers[expression] = callback; },
   $refs: {
     titleInput: { focus: () => focused.push("input"), select() {} },
     titleButton: { focus: () => focused.push("button"), getBoundingClientRect: () => ({ width: 312 }) },
@@ -85,6 +99,9 @@ for (const [action, value] of steps) {
   if (action === "set") Object.assign(page, value);
   else if (action === "poll") page.applyHeader(value);
   else if (action === "run-ended") page.settle();
+  else if (action === "stream") { page.streaming = value; watchers.streaming?.(value); }
+  else if (action === "provisional") sending = page.addProvisional(value);
+  else if (action === "headings") seen.push((page.upNext?.groups ?? []).map((g, i) => page.upNextHeading(g, i)));
   else if (action === "reply") { pending.shift()(value.body, value.status); await sending; await flush(); }
   else if (action === "rename") page.startRename();
   else if (action === "draft") page.titleDraft = value;
@@ -101,7 +118,13 @@ for (const [action, value] of steps) {
       status: page.status, watch: page.watch, open: page.detailsOpen, runs: page.runCount,
       scrolled: scrolled.length, title: page.title, editing: page.editingTitle, titleWidth: page.titleWidth,
       docTitle: sandbox.document.title, archived: page.archived, hint: page.ciWatchHint,
-      ciDisabled: Boolean(page.ciWatchDisabled), checked: page.ciWatchOn,
+      ciDisabled: Boolean(page.ciWatchDisabled), checked: page.ciWatchOn, ci: page.ci,
+      explanations: page.ci.map((item) => page.ciExplanation(item)), upNext: page.upNext,
+      ciTexts: page.ci.map((item) => page.ciText(item)),
+      delegations: page.delegations, delegationsLabel: page.delegationsBadge.label,
+      delegationsState: page.delegationsBadge.state, legs: (page.delegations?.legs ?? []).map((leg) => leg.repo_id),
+      timers: timers.map((timer) => timer.ms),
+      intervals: intervals.filter((i) => !i.cleared).map((i) => i.ms),
     });
   }
 }
@@ -113,14 +136,23 @@ process.stdout.write(JSON.stringify({
 DONE = {"label": "Done", "variant": "success"}
 FAILED = {"label": "Failed", "variant": "failed"}
 RUNNING = {"variant": "running", "label": "Running"}
-WATCHING = {"state": "watching", "label": "Waiting for CI", "tone": "attn", "open": True}
+WATCHING = {"state": "running", "label": "Waiting for CI", "tone": "attn", "open": True}
+WATCH_OFF = {"state": "failing", "label": "Failing", "tone": "fail", "open": False}
 
 
-def _run(steps, *, initial=DONE, watch=None, wide=True, stored=None, storage_blocked=False, archived=False) -> dict:
+def _ci(status="running", *, explanation=None, iid=7) -> dict:
+    return {"merge_request_iid": iid, "status": status, "watch_enabled": True, "explanation_run_id": explanation}
+
+
+def _run(
+    steps, *, initial=DONE, watch=None, delegations=None, wide=True, stored=None, storage_blocked=False, archived=False
+) -> dict:
     payload = {
         "src": str(SESSION_PAGE_JS),
+        "labelsSrc": str(TRANSCRIPT_LABELS_JS),
         "initial": initial,
         "watch": watch,
+        "delegations": delegations,
         "wide": wide,
         "stored": stored,
         "storageBlocked": storage_blocked,
@@ -213,6 +245,12 @@ def test_polls_and_a_settled_run_update_the_run_count():
     assert [s["runs"] for s in result["seen"]] == [2, 3]
 
 
+def test_the_page_creates_no_timers():
+    seen = _run([["stream", True], ["stream", False], ["stream", True], ["read", None]])["seen"][0]
+
+    assert (seen["intervals"], seen["timers"]) == ([], [])
+
+
 def test_opening_a_section_scrolls_once_the_panel_is_shown():
     steps = [["open-details", None], ["read", None], ["frame", False], ["read", None], ["frame", True], ["read", None]]
     seen = _run(steps, wide=False)["seen"]
@@ -275,6 +313,20 @@ def test_a_refused_rename_puts_the_old_title_back():
     assert (result["seen"][0]["title"], result["seen"][0]["docTitle"]) == ("Old", "Old — DAIV Sessions")
 
 
+def test_a_served_title_updates_the_page():
+    seen = _run([["poll", {"latest_run": DONE, "title": "Fix the lint"}], ["read", None]])["seen"][0]
+
+    assert (seen["title"], seen["docTitle"]) == ("Fix the lint", "Fix the lint — DAIV Sessions")
+
+
+def test_a_served_title_does_not_overwrite_a_rename_in_progress():
+    steps = [["rename", None], ["draft", "Mine"], ["poll", {"latest_run": DONE, "title": "Fix the lint"}]]
+
+    seen = _run([*steps, ["read", None]])["seen"][0]
+
+    assert (seen["title"], seen["docTitle"], seen["editing"]) == ("Old", "Old — DAIV Sessions", True)
+
+
 # ---------------------------------------------------------------------------
 # Fix CI failures
 # ---------------------------------------------------------------------------
@@ -282,52 +334,39 @@ def test_a_refused_rename_puts_the_old_title_back():
 
 def test_the_ci_item_describes_the_watch():
     assert _read(watch=WATCHING)["hint"] == "Watching: Waiting for CI"
-    assert _read(watch={"state": "green", "label": "Green", "tone": "clear", "open": False})["hint"] == "Green"
+    assert _read(watch=WATCH_OFF)["hint"] == "Off for this merge request"
     assert _read(watch=None)["hint"] == "Off for this merge request"
 
 
-def test_unticking_turns_off_the_watch_the_page_showed_and_takes_the_response():
-    result = _run([["ci-toggle", 7], ["reply", {"body": None}], ["read", None]], watch=WATCHING)
+def test_unticking_turns_off_the_watch_on_the_merge_request_and_takes_the_response():
+    reply = {"ci": [_ci("failing")], "watch": WATCH_OFF}
+    result = _run([["ci-toggle", 7], ["reply", {"body": reply}], ["read", None]], watch=WATCHING)
 
-    body = {"on": False, "merge_request_iid": 7, "seen_state": "watching"}
+    body = {"on": False, "merge_request_iid": 7}
     assert result["requests"][0] == {"url": "/ci-watch", "method": "POST", "body": body, "csrf": "tok"}
-    assert (result["seen"][0]["watch"], result["seen"][0]["checked"]) == (None, False)
+    seen = result["seen"][0]
+    assert (seen["watch"], seen["checked"], seen["ci"]) == (WATCH_OFF, False, reply["ci"])
 
 
-def test_ticking_turns_the_watch_on():
-    result = _run([["read", None], ["ci-toggle", 5], ["reply", {"body": WATCHING}], ["read", None]], watch=None)
+def test_ticking_turns_the_watch_back_on():
+    reply = {"ci": [_ci()], "watch": WATCHING}
+    result = _run([["read", None], ["ci-toggle", 5], ["reply", {"body": reply}], ["read", None]], watch=WATCH_OFF)
 
-    assert result["requests"][0]["body"] == {"on": True, "merge_request_iid": 5, "seen_state": "off"}
+    assert result["requests"][0]["body"] == {"on": True, "merge_request_iid": 5}
     before, after = result["seen"]
     assert (before["checked"], after["checked"], after["hint"]) == (False, True, "Watching: Waiting for CI")
 
 
-@pytest.mark.parametrize("state", ["green", "exhausted", "unclear"])
-def test_a_watch_that_is_over_shows_unticked_and_ticking_starts_a_new_one(state):
-    ended = {"state": state, "label": state.title(), "tone": "fail", "open": False}
-    result = _run([["read", None], ["ci-toggle", 7], ["reply", {"body": WATCHING}], ["read", None]], watch=ended)
+def test_a_merge_request_the_session_does_not_own_says_so():
+    refused = {"detail": "This session doesn't own that merge request", "reason": "not_owned", "ci": [], "watch": None}
+    result = _run([["ci-toggle", None], ["reply", {"status": 409, "body": refused}], ["read", None]], watch=WATCHING)
 
-    assert result["seen"][0]["checked"] is False
-    assert result["requests"][0]["body"] == {"on": True, "merge_request_iid": 7, "seen_state": state}
-    assert result["seen"][1]["watch"] == WATCHING
-
-
-def test_a_lost_race_shows_the_watch_as_it_now_is():
-    fixing = {"state": "fixing", "label": "Fixing", "tone": "attn", "open": True}
-    result = _run(
-        [
-            ["ci-toggle", None],
-            ["reply", {"status": 409, "body": {"reason": "changed", "watch": fixing}}],
-            ["read", None],
-        ],
-        watch=WATCHING,
-    )
-
-    assert (result["seen"][0]["watch"], result["seen"][0]["ciDisabled"]) == (fixing, False)
+    seen = result["seen"][0]
+    assert (seen["watch"], seen["ciDisabled"], seen["hint"]) == (None, False, refused["detail"])
 
 
 def test_a_repository_with_the_watch_off_disables_the_item_with_the_reason():
-    refused = {"detail": "CI fixes are turned off for this repository", "reason": "disabled", "watch": None}
+    refused = {"detail": "CI fixes are turned off for this repository", "reason": "disabled", "ci": [], "watch": None}
     result = _run([
         ["ci-toggle", None],
         ["reply", {"status": 409, "body": refused}],
@@ -338,6 +377,24 @@ def test_a_repository_with_the_watch_off_disables_the_item_with_the_reason():
     seen = result["seen"][0]
     assert (seen["watch"], seen["ciDisabled"], seen["hint"]) == (None, True, refused["detail"])
     assert result["fetches"] == 1
+
+
+def test_a_failure_links_the_run_that_looked_at_it():
+    ci = [_ci("failing", explanation="r-1"), _ci("failing", iid=8), _ci("passing", explanation="r-2", iid=9)]
+    result = _run([["poll", {"latest_run": DONE, "ci": ci, "watch": WATCH_OFF}], ["read", None]])
+
+    assert result["seen"][0]["explanations"] == ["#run-status-r-1", "", ""]
+
+
+def test_a_failure_names_its_failing_jobs_after_its_label():
+    ci = [
+        _ci("failing") | {"label": "Stopped after 3 attempts", "failed_jobs": ["tests", "lint"]},
+        _ci("failing", iid=8) | {"label": "Failing"},
+        _ci("passing", iid=9) | {"label": "Passing", "failed_jobs": []},
+    ]
+    result = _run([["poll", {"latest_run": DONE, "ci": ci, "watch": WATCH_OFF}], ["read", None]])
+
+    assert result["seen"][0]["ciTexts"] == ["Stopped after 3 attempts · tests, lint", "Failing", "Passing"]
 
 
 @pytest.mark.parametrize(("status", "body"), [(502, {}), (409, {"detail": "Something else"}), (422, {"detail": []})])
@@ -358,7 +415,7 @@ def test_a_poll_asked_for_before_the_toggle_answered_does_not_undo_it():
     result = _run(
         [
             ["ci-toggle", None],
-            ["reply", {"body": WATCHING}],
+            ["reply", {"body": {"ci": [_ci()], "watch": WATCHING}}],
             ["poll", {"latest_run": FAILED, "watch": None, "requestedAt": 9}],
             ["read", None],
             ["poll", {"latest_run": FAILED, "watch": None, "requestedAt": 11}],
@@ -368,6 +425,128 @@ def test_a_poll_asked_for_before_the_toggle_answered_does_not_undo_it():
     )
 
     assert [(s["status"], s["watch"]) for s in result["seen"]] == [(FAILED, WATCHING), (FAILED, None)]
+
+
+# ---------------------------------------------------------------------------
+# inbox: Up next
+# ---------------------------------------------------------------------------
+
+
+UP_NEXT = {
+    "groups": [
+        {
+            "run_id": "r-2",
+            "who": "",
+            "is_viewer": True,
+            "starting": False,
+            "bubbles": [{"id": "inbox-e0", "kind": "chat_message", "text": "Fix the lint"}],
+            "told": [],
+        }
+    ],
+    "told": [],
+}
+
+
+def test_up_next_follows_the_header():
+    result = _run([
+        ["poll", {"latest_run": DONE, "up_next": UP_NEXT}],
+        ["read", None],
+        ["poll", {"latest_run": DONE, "up_next": None}],
+        ["read", None],
+    ])
+
+    assert [seen["upNext"] for seen in result["seen"]] == [UP_NEXT, None]
+
+
+def _groups(*groups) -> dict:
+    return {
+        "groups": [
+            {"run_id": f"r-{i}", "bubbles": [], "told": [], "starting": False, **g} for i, g in enumerate(groups)
+        ]
+    }
+
+
+def test_up_next_headings_say_whose_run_and_when():
+    groups = _groups(
+        {"is_viewer": True, "who": "Olga"}, {"is_viewer": False, "who": "Bruno"}, {"is_viewer": False, "who": ""}
+    )
+    result = _run([["poll", {"latest_run": DONE, "up_next": groups}], ["set", {"streaming": True}], ["headings", None]])
+
+    assert result["seen"][0] == [
+        "Next run · as you · starts when this one ends",
+        "Then · as Bruno · after your run",
+        "Then · after Bruno's run",
+    ]
+
+
+def test_a_promoted_run_reads_as_starting_and_an_idle_one_as_next():
+    result = _run([
+        ["poll", {"latest_run": DONE, "up_next": _groups({"is_viewer": False, "who": "Bruno", "starting": True})}],
+        ["headings", None],
+        ["poll", {"latest_run": DONE, "up_next": _groups({"is_viewer": False, "who": ""})}],
+        ["headings", None],
+    ])
+
+    assert result["seen"] == [["Next run · as Bruno · starting"], ["Next run"]]
+
+
+def _bubble_ids(up_next) -> list[list[str]]:
+    return [[bubble["id"] for bubble in group["bubbles"]] for group in up_next["groups"]]
+
+
+def test_a_provisional_message_joins_the_group_of_its_run():
+    provisional = {"event_id": "e1", "run_id": "r-2", "text": "Also add a test"}
+    result = _run([["poll", {"latest_run": DONE, "up_next": UP_NEXT}], ["provisional", provisional], ["read", None]])
+
+    assert _bubble_ids(result["seen"][0]["upNext"]) == [["inbox-e0", "inbox-e1"]]
+    assert result["fetches"] == 0
+
+
+def test_a_provisional_message_with_no_run_waits_after_the_inbox_runs_before_the_jobs():
+    up_next = {
+        "groups": [
+            {"run_id": "", "who": "Bruno", "is_viewer": False, "starting": False, "told": [],
+             "bubbles": [{"id": "inbox-e0", "kind": "mention", "text": "@daiv look"}]},
+            {"run_id": "r-9", "who": "", "is_viewer": False, "starting": False, "told": [],
+             "bubbles": [{"id": "run-r-9", "kind": "job", "text": "Upgrade Django"}]},
+        ],
+        "told": [],
+    }  # fmt: skip
+    provisional = {"event_id": "e1", "run_id": "", "text": "Also add a test"}
+    result = _run([["poll", {"latest_run": DONE, "up_next": up_next}], ["provisional", provisional], ["read", None]])
+
+    assert _bubble_ids(result["seen"][0]["upNext"]) == [["inbox-e0"], ["inbox-e1"], ["run-r-9"]]
+
+
+def test_a_provisional_message_shows_until_the_server_has_it():
+    provisional = {"event_id": "e1", "run_id": "r-2", "text": "Also add a test"}
+    with_it = {**UP_NEXT, "groups": [{**UP_NEXT["groups"][0], "bubbles": [{"id": "inbox-e1", "text": "x"}]}]}
+    result = _run([
+        ["provisional", provisional],
+        ["read", None],
+        ["poll", {"latest_run": DONE, "up_next": with_it, "requestedAt": 10}],
+        ["read", None],
+    ])
+
+    first, then = (seen["upNext"] for seen in result["seen"])
+    assert _bubble_ids(first) == [["inbox-e1"]]
+    assert (first["groups"][0]["run_id"], first["groups"][0]["is_viewer"]) == ("r-2", True)
+    assert _bubble_ids(then) == [["inbox-e1"]]
+
+
+def test_a_reply_asked_for_before_the_message_was_sent_keeps_it():
+    provisional = {"event_id": "e1", "run_id": "r-2", "text": "Also add a test"}
+    result = _run([
+        ["provisional", provisional],
+        ["poll", {"latest_run": DONE, "up_next": None, "requestedAt": 5}],
+        ["read", None],
+        ["poll", {"latest_run": DONE, "up_next": None, "requestedAt": 11}],
+        ["read", None],
+    ])
+
+    first, then = (seen["upNext"] for seen in result["seen"])
+    assert _bubble_ids(first) == [["inbox-e1"]]
+    assert then is None
 
 
 # ---------------------------------------------------------------------------
@@ -414,3 +593,64 @@ def test_no_retry_when_the_server_offers_none():
 )
 def test_no_retry_while_a_run_is_busy_or_settling_or_the_session_is_archived(step):
     assert _run([step, ["offers-retry", [_marker("run-status-r2")]]], initial=RETRYABLE)["seen"] == [[False]]
+
+
+# ---------------------------------------------------------------------------
+# delegated jobs
+# ---------------------------------------------------------------------------
+
+
+def _leg(repo_id: str, state: str) -> dict:
+    return {"repo_id": repo_id, "ref": "", "state": state, "merge_request_url": "", "session_url": ""}
+
+
+def _delegations(*, total=2, running=0, waiting=0, failed=0, legs=None) -> dict:
+    counts = {"total": total, "running": running, "waiting": waiting, "failed": failed}
+    return {**counts, "batches": [], "legs": legs or []}
+
+
+@pytest.mark.parametrize(
+    ("counts", "label", "state"),
+    [
+        ({"running": 2, "waiting": 1, "failed": 1}, "2 delegated · 2 running", "running"),
+        ({"waiting": 2, "failed": 1}, "2 delegated · 2 queued", "queued"),
+        ({"failed": 1}, "2 delegated · 1 failed", "failed"),
+        ({"total": 1}, "1 delegated", ""),
+    ],
+)
+def test_the_top_bar_sums_up_the_delegated_jobs(counts, label, state):
+    seen = _read(delegations=_delegations(**counts))
+
+    assert (seen["delegationsLabel"], seen["delegationsState"]) == (label, state)
+
+
+def test_a_session_that_delegated_nothing_has_no_delegations():
+    seen = _read()
+
+    assert (seen["delegations"], seen["delegationsLabel"], seen["delegationsState"], seen["legs"]) == (None, "", "", [])
+
+
+def test_the_popover_lists_the_legs_in_the_servers_order():
+    legs = [_leg("a/two", "failed"), _leg("a/one", "running"), _leg("a/three", "finished")]
+
+    seen = _read(delegations=_delegations(total=3, running=1, failed=1, legs=legs))
+
+    assert seen["legs"] == ["a/two", "a/one", "a/three"]
+
+
+def test_each_poll_replaces_the_delegations():
+    polled = _delegations(failed=2)
+    steps = [["poll", {"latest_run": DONE, "delegations": polled}], ["read", None]]
+
+    seen = _run(steps, delegations=_delegations(running=2))["seen"][0]
+
+    assert seen["delegations"] == polled
+    assert (seen["delegationsLabel"], seen["delegationsState"]) == ("2 delegated · 2 failed", "failed")
+
+
+def test_a_poll_without_delegations_keeps_the_ones_the_page_has():
+    delegations = _delegations(running=1)
+
+    seen = _run([["poll", {"latest_run": FAILED}], ["read", None]], delegations=delegations)["seen"][0]
+
+    assert (seen["delegations"], seen["delegationsLabel"]) == (delegations, "2 delegated · 1 running")

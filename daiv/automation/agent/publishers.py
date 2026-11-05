@@ -10,8 +10,10 @@ from urllib.parse import quote, urlencode
 from django.template.loader import render_to_string
 
 from asgiref.sync import sync_to_async
+from git import GitCommandError
 
 from accounts.utils import PlatformIdentity, aget_platform_identity
+from automation.agent.publish_errors import PushRejectedError
 from automation.agent.references import render_agent_context, render_commit_trailers, render_references_block
 from automation.agent.utils import build_langsmith_config, repo_relative_text
 from automation.agent.verification.outcome import render_report, replace_report_section, report_section
@@ -91,7 +93,11 @@ class PublishOutcome:
 
     merge_request: MergeRequest | None
     published: bool
+    created_merge_request: bool = False
     protected_branch_fallback_source: str | None = None
+    pushed_sha: str = ""
+    """The commit this publish pushed, read after the push; empty when nothing was pushed or HEAD could not be read.
+    The CI watch tells DAIV's own commits from everyone else's by it."""
     diff_stats: MergeRequestDiffStats | None = None
     """Lines added/removed and files touched by the run's work, for the composer's ``+x −y``
     pill. ``None`` only when no publish was attempted; a publish that found nothing reports
@@ -103,7 +109,6 @@ class PublishOutcome:
     counts: GitLab has no aggregate endpoint and downloads the whole MR diff to add it up
     (truncating it past a size cap), and a freshly-created MR whose diff is still being
     prepared answers zero."""
-    created_merge_request: bool = False
 
 
 class GitChangePublisher:
@@ -187,7 +192,6 @@ class GitChangePublisher:
             logger.info("Changes already on MR !%s; nothing new.", merge_request.merge_request_id)
             return PublishOutcome(merge_request=merge_request, published=False, diff_stats=diff_stats)
 
-        created_merge_request = False
         fallback_from_mr: MergeRequest | None = None
         if merge_request is not None and await sync_to_async(self.client.is_branch_protected)(
             self.ctx.repository.slug, merge_request.source_branch
@@ -243,29 +247,28 @@ class GitChangePublisher:
         suppress_bot_pipeline = not skip_ci and await sync_to_async(self.client.push_uses_ephemeral_token)(
             self.ctx.repository
         )
-        # Opening an MR triggers a pipeline of its own, as its author, so only a push to an
-        # already-open MR needs the heal — and only it needs the pushed sha.
-        will_heal = suppress_bot_pipeline and merge_request is not None
-
         # Only an existing MR's source branch may have advanced under the run (a dependabot
         # force-push, or a concurrent push) — integrate + retry there so the work isn't lost.
         # A fresh, unique branch can't, so leave integration off for new MRs.
-        await git_manager.push_head_to(
-            branch_name, integrate_on_reject=merge_request is not None, skip_ci=suppress_bot_pipeline
-        )
-        # Read after the push: an integrate-on-reject rebase or merge moves HEAD, and the heal below
-        # needs the sha that actually landed on the remote.
-        pushed_sha = None
-        if will_heal:
-            try:
-                pushed_sha = await git_manager.head_sha()
-            except Exception:
-                # The branch is already pushed (skip-ci'd): raising here would orphan it and
-                # discard the agent's reply over a sha the heal can degrade without.
-                logger.exception("Could not read HEAD after pushing '%s'; the CI heal cannot verify it", branch_name)
+        try:
+            await git_manager.push_head_to(
+                branch_name, integrate_on_reject=merge_request is not None, skip_ci=suppress_bot_pipeline
+            )
+        except GitCommandError as exc:
+            raise PushRejectedError(str(exc)) from exc
+        # Read after the push: an integrate-on-reject rebase or merge moves HEAD, and both the heal below and the CI
+        # watch need the sha that actually landed on the remote.
+        pushed_sha = ""
+        try:
+            pushed_sha = await git_manager.head_sha()
+        except Exception:
+            # The branch is already pushed: raising here would orphan it and discard the agent's reply over a sha the
+            # heal and the watch can degrade without.
+            logger.exception("Could not read HEAD after pushing '%s'; the CI heal and watch can't use it", branch_name)
 
         logger.info("Published changes to branch: '%s' [skip_ci: %s]", branch_name, skip_ci)
 
+        created_merge_request = False
         if merge_request is None:
             try:
                 merge_request = await self._create_merge_request(
@@ -298,15 +301,16 @@ class GitChangePublisher:
                     merge_request=None,
                     published=True,
                     protected_branch_fallback_source=protected_branch_fallback_source,
+                    pushed_sha=pushed_sha,
                     diff_stats=diff_stats,
                 )
+            created_merge_request = True
             logger.info(
                 "Created merge request: %s [merge_request_id: %s, draft: %r]",
                 merge_request.web_url,
                 merge_request.merge_request_id,
                 merge_request.draft,
             )
-            created_merge_request = True
             await self._suggest_context_file(merge_request)
         else:
             if merge_request.draft and as_draft is False:
@@ -320,16 +324,17 @@ class GitChangePublisher:
                     merge_request.draft,
                 )
             if suppress_bot_pipeline:
-                await self._trigger_service_account_pipeline(merge_request, pushed_sha)
+                await self._trigger_service_account_pipeline(merge_request, pushed_sha or None)
             if verification is not None:
                 await self._refresh_verification_report(merge_request, verification)
 
         return PublishOutcome(
             merge_request=merge_request,
             published=True,
-            protected_branch_fallback_source=protected_branch_fallback_source,
-            diff_stats=diff_stats,
             created_merge_request=created_merge_request,
+            protected_branch_fallback_source=protected_branch_fallback_source,
+            pushed_sha=pushed_sha,
+            diff_stats=diff_stats,
         )
 
     def _merge_commit_message(self, merge: PendingMerge) -> str:

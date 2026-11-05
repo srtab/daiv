@@ -10,7 +10,7 @@ import httpx
 
 from automation.agent.constants import REPO_PATH
 from automation.agent.workspace.git_manager import GIT_ERRORS
-from automation.agent.workspace.sandbox_backend import SANDBOX_TIMEOUT_EXIT
+from core.constants import SANDBOX_TIMEOUT_EXIT_CODE
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -25,8 +25,6 @@ CHECK_TIMEOUT_SECONDS = 600
 OUTPUT_TAIL_CHARS = 4_000
 UNREADABLE = "the repository could not be read to run the checks"
 _STASH_MESSAGE = "daiv: pre-publish verification"
-# Past the sandbox's own limit, so a check that runs out of time comes back as exit 124, not as a client timeout.
-_RESPONSE_GRACE_SECONDS = 60
 _REDACTED = "******"
 # Shorter values (``true``, ``8000``, ``python``) would mask ordinary words all over the output.
 _MIN_REDACTED_LENGTH = 8
@@ -50,7 +48,7 @@ class CheckResult:
 
     @property
     def timed_out(self) -> bool:
-        return self.exit_code == SANDBOX_TIMEOUT_EXIT
+        return self.exit_code == SANDBOX_TIMEOUT_EXIT_CODE
 
 
 @dataclass(frozen=True)
@@ -93,10 +91,7 @@ async def run_checks(
 async def _run_check(bash: SandboxFileBackend, command: str, redact: Sequence[str]) -> CheckResult:
     try:
         response = await bash.run_commands(
-            [f"cd {REPO_PATH} && {command}"],
-            fail_fast=False,
-            timeout=CHECK_TIMEOUT_SECONDS,
-            http_timeout=CHECK_TIMEOUT_SECONDS + _RESPONSE_GRACE_SECONDS,
+            [f"cd {REPO_PATH} && {command}"], fail_fast=False, timeout=CHECK_TIMEOUT_SECONDS
         )
     except httpx.HTTPError as exc:
         raise ChecksUnavailableError("the sandbox could not be reached to run the checks") from exc

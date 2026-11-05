@@ -1,14 +1,33 @@
-"""Behavioral tests for ``chat-stream.js`` under node: the ``#run-<id>`` link target, the progress pill's diff, and the
-id a live run-status marker takes."""
+"""Behavioral tests for ``chat-stream.js`` under node: the ``#run-<id>`` link target, the progress drawer, the
+run blocks the transcript renders, the id a live run-status marker takes and the context a tool body gets."""
 
 from __future__ import annotations
 
+import functools
+import json
 from types import SimpleNamespace
 
+import pytest
 from sessions.models import RunStatus, SessionOrigin
 from sessions.transcript import annotate_transcript
 
-from tests.unit_tests.chat.chat_stream_driver import run_chat_stream
+from automation.agent.events import PUBLISH_RESULT_EVENT, publish_result_payload
+from automation.agent.questions import QUESTION_DELIVERED
+from tests.unit_tests.chat.chat_stream_driver import REACTIVITY, run_chat_stream
+from tests.unit_tests.chat.transcript_fixtures import (
+    asst,
+    bash,
+    delegate,
+    enriched_leg,
+    question,
+    read,
+    refused_question,
+    status_turn,
+    text,
+    thinking,
+    tool_call,
+    user,
+)
 from tests.unit_tests.jsdriver import requires_node
 
 pytestmark = requires_node
@@ -62,8 +81,10 @@ def test_server_turns_render_their_run_anchor():
         prompt="",
         trigger_type=SessionOrigin.UI_JOB,
         created_at=None,
+        started_at=None,
         finished_at=None,
         is_cancelled=False,
+        publish_status="",
     )
     turns = annotate_transcript([_turn("h1"), {"id": "a1", "role": "assistant", "segments": []}], [run])
 
@@ -140,27 +161,486 @@ def test_revealing_a_run_cancels_a_scroll_to_bottom_already_queued():
     assert result == {"scrolls": ["run-r1"], "autoFollow": False}
 
 
-PILL_BODY = """
-const chat = registry.chat({ endpoint: "/api/chat", diffInDetails: payload.diffInDetails });
-chat.diffStats = { added: 48, removed: 12 };
-chat.filesTouched = payload.files;
-process.stdout.write(JSON.stringify(chat.progressPill));
+DRAWER_BODY = """
+const drive = (c) => {
+  const chat = reactive(registry.chat({ endpoint: "/api/chat", diffInDetails: c.diffInDetails }));
+  chat.$watch = watchOn(chat);
+  chat.$nextTick = () => {};
+  chat.turns = c.turns;
+  chat.init();
+  chat.diffStats = { added: 48, removed: 12 };
+  chat.streaming = c.streaming;
+  chat.latestTodos = c.todos;
+  chat.filesTouched = c.files;
+  return chat;
+};
+const results = {};
+for (const [name, c] of Object.entries(payload.cases)) {
+  const chat = drive(c);
+  const before = chat.progressDrawer;
+  results[name] = before;
+  if (c.then === "refile") {
+    chat.filesTouched = c.files.map((f) => ({ ...f, segmentId: "tool-later" }));
+    results[name] = { kept: chat.progressDrawer === before };
+  } else if (c.then === "empty") {
+    chat.sheet = "progress";
+    chat.latestTodos = [];
+    chat.filesTouched = [];
+    results[name] = { drawer: chat.progressDrawer, sheet: chat.sheet };
+  }
+  chat.destroy();
+}
+process.stdout.write(JSON.stringify(results));
+"""
+
+STOPPED = [status_turn("aborted")]
+
+
+def _todos(*statuses: str) -> list[dict]:
+    return [{"content": f"step {i}", "status": status} for i, status in enumerate(statuses, 1)]
+
+
+def _case(*, todos=(), files=(), streaming=False, turns=(), diff_in_details=True, then=""):
+    return {
+        "diffInDetails": diff_in_details,
+        "todos": list(todos),
+        "files": [{"path": p, "op": "modified", "segmentId": f"tool-{p}"} for p in files],
+        "streaming": streaming,
+        "turns": list(turns),
+        "then": then,
+    }
+
+
+DRAWER_CASES = {
+    "running": _case(todos=_todos("completed", "in_progress", "pending"), files=["a.py"], streaming=True),
+    "pending": _case(todos=_todos("completed", "pending", "pending"), streaming=True),
+    "all-done": _case(todos=_todos("completed", "completed")),
+    "stopped": _case(todos=_todos("completed", "in_progress", "pending"), turns=STOPPED),
+    "stopped-no-todos": _case(files=["a.py"], turns=STOPPED),
+    "stopped-all-done": _case(todos=_todos("completed", "completed"), files=["a.py"], turns=STOPPED),
+    "files-only": _case(files=["a.py", "b.py"], streaming=True),
+    "diff": _case(diff_in_details=False),
+    "diff-live": _case(diff_in_details=False, streaming=True),
+    "diff-stopped": _case(diff_in_details=False, turns=STOPPED),
+    "empty": _case(),
+    "refile": _case(files=["a.py"], streaming=True, then="refile"),
+    "emptied": _case(files=["a.py"], streaming=True, then="empty"),
+}
+
+
+@functools.cache
+def _drawers() -> dict:
+    """One node run for every case: each is a fresh component driven through ``init()``."""
+    return run_chat_stream(DRAWER_BODY, {"cases": DRAWER_CASES}, prelude=REACTIVITY, extra_globals=GLOBALS)
+
+
+def test_a_running_drawer_names_the_step_in_progress_and_its_position():
+    assert _drawers()["running"] == {"tone": "live", "step": "2/3", "text": "step 2", "files": "1 file", "diff": None}
+
+
+def test_before_a_step_starts_the_drawer_names_the_next_pending_one():
+    drawer = _drawers()["pending"]
+
+    assert (drawer["step"], drawer["text"]) == ("2/3", "step 2")
+
+
+def test_a_drawer_whose_steps_are_all_done_says_so():
+    drawer = _drawers()["all-done"]
+
+    assert drawer == {"tone": "idle", "step": "2/2", "text": "All steps done", "files": "", "diff": None}
+
+
+def test_a_stopped_run_names_the_step_it_stopped_at():
+    drawer = _drawers()["stopped"]
+
+    assert (drawer["tone"], drawer["step"], drawer["text"]) == ("warn", "2/3", "Stopped at: step 2")
+
+
+@pytest.mark.parametrize("case", ["stopped-no-todos", "stopped-all-done"])
+def test_a_stopped_run_without_an_open_step_still_says_it_stopped(case):
+    drawer = _drawers()[case]
+
+    assert (drawer["tone"], drawer["text"]) == ("warn", "Stopped")
+
+
+def test_a_run_without_todos_reports_its_files():
+    assert _drawers()["files-only"] == {
+        "tone": "live",
+        "step": "",
+        "text": "Files changed",
+        "files": "2 files",
+        "diff": None,
+    }
+
+
+def test_a_finished_run_shows_the_diff_where_no_details_panel_does():
+    assert _drawers()["diff"] == {
+        "tone": "idle",
+        "step": "",
+        "text": "Files changed",
+        "files": "",
+        "diff": {"added": 48, "removed": 12},
+    }
+
+
+def test_the_diff_waits_for_the_run_to_finish():
+    assert _drawers()["diff-live"] is None
+    assert _drawers()["diff-stopped"] is None
+
+
+def test_no_todos_and_no_files_means_no_drawer():
+    assert _drawers()["empty"] is None
+
+
+def test_an_unchanged_drawer_keeps_its_object():
+    """Re-editing a file already listed replaces ``filesTouched`` without changing what the
+    bar says; a fresh object would still re-run every binding the drawer mounts."""
+    assert _drawers()["refile"] == {"kept": True}
+
+
+def test_an_emptied_drawer_closes_itself():
+    """A follow-up ask clears the todos and files; left open, the drawer would reopen on its own next turn."""
+    assert _drawers()["emptied"] == {"drawer": None, "sheet": ""}
+
+
+DRIVE_BODY = """
+const { turns, script, countBuilds, config } = payload;
+let builds = 0;
+let broken = Boolean(payload.broken);
+const errors = [];
+sandbox.console.error = (...args) => errors.push(args.map(String).join(" "));
+const build = sandbox.window.buildRunBlocks;
+sandbox.window.buildRunBlocks = (...args) => {
+  builds++;
+  if (broken) throw new Error("a renderer choked");
+  return build(...args);
+};
+const chat = reactive(registry.chat({ endpoint: "/api/chat", ...config }));
+const watched = [];
+chat.$watch = (expr, cb) => { watched.push(expr); return watchOn(chat)(expr, cb); };
+chat.$nextTick = () => {};
+chat.scrollToBottom = () => {};
+chat.turns = turns;
+chat.streaming = turns.some((t) => t.streaming);
+chat.init();
+const live = () => chat.turns.findLast((t) => t.streaming) ?? chat.turns[chat.turns.length - 1];
+const segment = (id) => chat.turns.flatMap((t) => t.segments || []).find((s) => s.id === id);
+const stepsOf = (item) => (item.kind === "group" ? item.steps : item.kind === "step" ? [item] : []);
+const running = (block) => {
+  for (const item of block.items) {
+    const step = stepsOf(item).find((s) => s.seg.status === "running");
+    if (step) return step.row.livePhrase;
+  }
+  return null;
+};
+const stepFor = (id) => {
+  for (const block of chat.runBlocks) {
+    for (const item of block.items) {
+      const step = stepsOf(item).find((s) => s.seg.id === id);
+      if (step) return { kind: item.kind, key: step.key };
+    }
+  }
+  return null;
+};
+const itemsOf = (block) => [...block.items, ...block.endingText, ...block.cards, ...block.endingTail];
+let snapshot = [];
+const out = [];
+for (const entry of script) {
+  const [op, arg, value] = entry.split(":");
+  if (op === "block0" || op === "block") {
+    const block = chat.runBlocks[op === "block" ? Number(arg) : 0];
+    const workedFor = chat.workedForLabel(block);
+    out.push({ stats: block.stats, running: running(block), folded: block.folded, workedFor });
+  }
+  if (op === "landResult") Object.assign(segment(arg), { result: "1  x", status: "done" });
+  if (op === "argsDelta") segment(arg).args = JSON.stringify({ file_path: "/workspace/repo/y" });
+  if (op === "pushText") live().segments.push({ type: "text", content: "Found it." });
+  if (op === "token") live().segments.findLast((s) => s.type === "text").content += " more";
+  if (op === "startedAgo") chat.runStartedAt = Date.now() - Number(arg) * 1000;
+  if (op === "finish") chat._finishTurn(live(), arg);
+  if (op === "poll") chat.applyPolledTurns(JSON.parse(JSON.stringify(chat.turns)), "", arg === "true");
+  if (op === "dropReplayedThinking") {
+    chat._reasoningIndex.set("replayed", 0);
+    chat._dropReplayedThinking(live());
+  }
+  if (op === "fillReplayedResult") chat._fillReplayedResult({ toolCallId: arg, content: "1  x" });
+  if (op === "openStep") chat.setOpen(stepFor(arg).key, true);
+  if (op === "jump") chat.jumpToTool(`tool-${arg}`);
+  if (op === "stepRows") {
+    const block = chat.runBlocks[0];
+    const rows = (item) => [item.kind, chat.stepRowsOf(item).map((s) => s.key)];
+    out.push([...block.items, ...block.endingText, ...block.endingTail].map(rows));
+  }
+  if (op === "stepOpen") {
+    const step = stepFor(arg);
+    out.push({ kind: step.kind, open: chat.isOpen(step.key) });
+  }
+  if (op === "toggle") chat.setOpen(arg, value === "true", arg === chat.currentGroupKey);
+  if (op === "shown") out.push(chat.isOpen(arg, arg === chat.currentGroupKey));
+  if (op === "recorded") out.push(chat.openKeys[arg] ?? null);
+  if (op === "currentGroupKey") out.push(chat.currentGroupKey);
+  if (op === "runStatus") out.push(chat.runStatus.label);
+  if (op === "runActions") out.push(chat.runBlocks.map((block) => chat.runHasActions(block)));
+  if (op === "readBlocks") chat.runBlocks.length;
+  if (op === "blockCount") out.push(chat.runBlocks.length);
+  if (op === "snapshot") snapshot = chat.runBlocks.map((block) => ({ block, items: itemsOf(block) }));
+  if (op === "kept") {
+    out.push(chat.runBlocks.map((block, i) =>
+      block === snapshot[i].block && itemsOf(block).every((item, j) => item === snapshot[i].items[j])));
+  }
+  if (op === "liveText") {
+    const last = chat.runBlocks[chat.runBlocks.length - 1];
+    out.push(last.items.filter((item) => item.kind === "text").map((item) => item.seg.content));
+  }
+  if (op === "activeRun") chat._activeRun = { threadId: "t1", runId: "client-run", recordId: arg || undefined };
+  if (op === "toolStart") {
+    chat.dispatch({ type: "TOOL_CALL_START", toolCallId: `t-${arg}`, toolCallName: arg }, live(), 0);
+  }
+  if (op === "toolEnd") chat.dispatch({ type: "TOOL_CALL_END", toolCallId: `t-${arg}` }, live(), 0);
+  if (op === "toolResult") {
+    chat.dispatch({ type: "TOOL_CALL_RESULT", toolCallId: `t-${arg}`, content: "{}" }, live(), 0);
+  }
+  if (op === "publishPhase") out.push(chat.publishPhase);
+  if (op === "custom") {
+    const value = JSON.parse(entry.slice(op.length + arg.length + 2));
+    chat.dispatch({ type: "CUSTOM", name: arg, value }, live(), 0);
+  }
+  if (op === "runError") chat.dispatch({ type: "RUN_ERROR", code: arg, message: "boom" }, live(), 0);
+  if (op === "turnRoles") out.push(chat.turns.map((t) => t.role));
+  if (op === "markers") out.push(chat.turns.filter((t) => t.role === "run_status").map((t) => t.status));
+  if (op === "segmentTypes") out.push(live().segments.map((s) => s.type));
+  if (op === "segmentStatuses") out.push(live().segments.map((s) => s.status));
+  if (op === "block0.publish") out.push(chat.runBlocks[0].publish);
+  if (op === "break") broken = true;
+  if (op === "errors") out.push(errors.length);
+  if (op === "watched") out.push(watched);
+}
+process.stdout.write(JSON.stringify(countBuilds ? builds : out));
+chat.destroy();
 """
 
 
-def _pill(*, diff_in_details: bool, files=()):
-    return run_chat_stream(
-        PILL_BODY, {"diffInDetails": diff_in_details, "files": [{"path": p} for p in files]}, extra_globals=GLOBALS
+def _drive(turns, *, script, count_builds=False, config=None, broken=False):
+    payload = {"turns": turns, "script": script, "countBuilds": count_builds, "config": config or {}, "broken": broken}
+    return run_chat_stream(DRIVE_BODY, payload, prelude=REACTIVITY, extra_globals=GLOBALS)
+
+
+LIVE = [user("u1"), asst("a1", read("c1", result=None, status="running"), streaming=True)]
+
+
+def test_run_blocks_rederive_when_a_result_lands():
+    out = _drive(LIVE, script=["block0", "landResult:c1", "block0"])
+    assert out[0]["stats"]["steps"] == out[1]["stats"]["steps"] == 1
+    assert out[0]["running"] == "Reading x" and out[1]["running"] is None
+
+
+def test_opened_step_stays_open_after_replay_mutates_segments():
+    turns = [user("u1"), asst("a1", thinking(), read("c1", result=None, status="running"), streaming=True)]
+    script = ["openStep:c1", "stepOpen:c1", "dropReplayedThinking", "fillReplayedResult:c1", "stepOpen:c1"]
+    assert _drive(turns, script=script) == [{"kind": "group", "open": True}, {"kind": "step", "open": True}]
+
+
+def test_finishing_a_turn_folds_the_run_with_a_duration():
+    out = _drive(LIVE, script=["landResult:c1", "finish:finished", "block0"])
+    assert out[-1]["folded"] is True and out[-1]["workedFor"].startswith("Worked for ")
+
+
+def test_finishing_a_turn_stamps_the_run_the_stream_left_untimed():
+    turns = [
+        user("u1", started_at=None),
+        asst("a1", read("c1", result=None, status="running"), streaming=True, received_at=None),
+    ]
+    out = _drive(turns, script=["startedAgo:5", "landResult:c1", "finish:finished", "block0"])
+    assert out[-1]["workedFor"] == "Worked for 5s · 1 step"
+
+
+def test_a_run_without_timestamps_folds_behind_its_step_count():
+    turns = [user("u1", started_at=None), asst("a1", read("c1"), read("c2"), text("Done."))]
+    assert _drive(turns, script=["block0"])[0]["workedFor"] == "2 steps"
+
+
+def test_a_run_that_ends_before_it_starts_folds_behind_its_step_count():
+    turns = [user("u1", started_at="2026-10-29T10:05:00+00:00"), asst("a1", read("c1"), read("c2"), text("Done."))]
+    assert _drive(turns, script=["block0"])[0]["workedFor"] == "2 steps"
+
+
+def test_working_line_names_the_running_step():
+    turns = [user("u1"), asst("a1", bash("c1", status="running"), streaming=True)]
+    assert _drive(turns, script=["runStatus"])[-1] == "Running pytest…"
+
+
+@pytest.mark.parametrize(("segment", "label"), [(read("c1"), "Thinking…"), (thinking(status="running"), "Thinking…")])
+def test_working_line_between_steps(segment, label):
+    turns = [user("u1"), asst("a1", text("Done."), segment, streaming=True)]
+    assert _drive(turns, script=["runStatus"])[-1] == label
+
+
+@pytest.mark.parametrize(
+    ("name", "label"),
+    [
+        ("publish_artifact", "Publishing…"),
+        ("delegate_jobs", "Delegating jobs…"),
+        ("ask_user_question", "Asking a question…"),
+    ],
+)
+def test_working_line_names_a_running_call_that_is_not_a_step(name, label):
+    running = tool_call("x1", name, {}, result=None, status="running")
+    turns = [user("u1"), asst("a1", text("Done."), running, streaming=True)]
+    assert _drive(turns, script=["runStatus"])[-1] == label
+
+
+def test_a_run_whose_answer_precedes_a_tool_only_turn_still_offers_its_copy_button():
+    turns = [
+        user("u1"),
+        asst("a1", text("Final answer"), bash("c1"), received_at=None),
+        asst("a2", read("c2"), received_at=None),
+    ]
+    assert _drive(turns, script=["runActions"]) == [[True]]
+
+
+def test_blocks_are_built_once_per_change_not_per_read():
+    turns = [user("u1"), asst("a1", *[read(f"c{i}") for i in range(500)])]
+    script = ["readBlocks", "readBlocks", "readBlocks", "pushText", "readBlocks", "readBlocks"]
+    calls = _drive(turns, script=script, count_builds=True)
+    assert calls == 2
+
+
+LIVE_GROUP = [user("u1"), asst("a1", read("c1"), read("c2"), streaming=True)]
+
+
+def test_the_live_group_stays_current_until_text_arrives():
+    assert _drive(LIVE_GROUP, script=["currentGroupKey", "pushText", "currentGroupKey"]) == ["g-s-c1", None]
+
+
+def test_an_auto_opened_group_records_only_what_the_user_changed():
+    opened = _drive(LIVE_GROUP, script=["toggle:g-s-c1:true", "recorded:g-s-c1", "pushText", "shown:g-s-c1"])
+    closed = _drive(LIVE_GROUP, script=["toggle:g-s-c1:false", "recorded:g-s-c1", "pushText", "shown:g-s-c1"])
+    assert opened == [None, False]
+    assert closed == [False, False]
+
+
+TWO_RUNS = [
+    user("u1"),
+    asst("a1", read("c1"), read("c2"), text("Done.")),
+    user("u2"),
+    asst("a2", text("Looking"), read("c3", result=None, status="running"), streaming=True),
+]
+
+
+def test_streamed_tokens_and_args_leave_a_finished_run_untouched():
+    script = ["snapshot", "token", "token", "token", "kept", "liveText", "argsDelta:c3", "kept", "block:1"]
+    kept_after_tokens, live_text, kept_after_args, live = _drive(TWO_RUNS, script=script)
+    assert kept_after_tokens == [True, True]
+    assert live_text == ["Looking more more more"]
+    assert kept_after_args == [True, False]
+    assert live["running"] == "Reading y"
+
+
+def test_the_poll_keeps_the_last_run_live_while_the_session_runs():
+    turns = [user("u1"), asst("a1", read("c1"), text("Done."))]
+    out = _drive(turns, script=["poll:true", "block0", "poll:false", "block0"])
+    assert [out[0]["folded"], out[1]["folded"]] == [False, True]
+
+
+def test_a_derive_that_throws_keeps_the_last_blocks():
+    assert _drive(LIVE, script=["snapshot", "break", "argsDelta:c1", "kept", "errors"]) == [[True], 1]
+
+
+def test_a_first_derive_that_throws_does_not_abort_init():
+    blocks, errors, watched = _drive(LIVE, script=["blockCount", "errors", "watched"], broken=True)
+    assert (blocks, errors) == (0, 1)
+    assert "streaming" in watched
+
+
+EVENT_SOURCE = """
+let opened = null;
+class FakeEventSource {
+  static CLOSED = 2;
+  constructor() { this.readyState = 1; this.listeners = {}; opened = this; }
+  addEventListener(name, cb) { this.listeners[name] = cb; }
+  close() { this.readyState = 2; }
+}
+"""
+
+RUN_FRAMES = [
+    {"type": "TOOL_CALL_START", "toolCallId": "c1", "toolCallName": "read_file"},
+    {"type": "TOOL_CALL_ARGS", "toolCallId": "c1", "delta": '{"file_path": "/workspace/repo/x"}'},
+    {"type": "TOOL_CALL_END", "toolCallId": "c1"},
+    {"type": "TOOL_CALL_RESULT", "toolCallId": "c1", "content": "1  x"},
+    {"type": "TEXT_MESSAGE_START", "messageId": "m1"},
+    {"type": "TEXT_MESSAGE_CONTENT", "messageId": "m1", "delta": "Done."},
+]
+
+LIVE_PAGE_BODY = """
+const chat = reactive(registry.chat({
+  endpoint: "/api/chat",
+  streamEndpoint: "/api/chat/stream",
+  sessionLive: true,
+  activeRunId: "r1",
+  activeRunStartedAt: new Date(Date.now() - 5000).toISOString(),
+  thread: { thread_id: "t1", repo_id: "r", ref: "main" },
+}));
+chat.$watch = watchOn(chat);
+chat.$nextTick = () => {};
+chat.scrollToBottom = () => {};
+chat.autosize = () => {};
+chat.turns = payload.turns;
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const play = () => {
+  for (const evt of payload.frames) opened.onmessage({ data: JSON.stringify(evt) });
+  opened.listeners.end({ data: JSON.stringify({ reason: "finished" }) });
+};
+const fold = (block) => ({ folded: block.folded, workedFor: chat.workedForLabel(block) });
+
+chat.init();
+play();
+await tick();
+const rejoined = fold(chat.runBlocks[0]);
+
+chat.draftMessage = "again";
+const sent = chat.submit();
+await tick();
+play();
+await sent;
+process.stdout.write(JSON.stringify({ rejoined, later: fold(chat.runBlocks[1]) }));
+chat.destroy();
+"""
+
+
+def test_a_page_loaded_live_folds_each_run_as_its_stream_finishes():
+    out = run_chat_stream(
+        LIVE_PAGE_BODY,
+        {"turns": [user("u1", started_at=None)], "frames": RUN_FRAMES},
+        prelude=REACTIVITY + EVENT_SOURCE,
+        extra_globals=GLOBALS
+        + " EventSource: FakeEventSource, setTimeout, fetch: async () => ({ ok: true, json: async () => ({}) }),",
     )
+    assert out["rejoined"] == {"folded": True, "workedFor": "Worked for 5s · 1 step"}
+    assert out["later"]["folded"] is True
+    assert out["later"]["workedFor"].startswith("Worked for ")
 
 
-def test_the_progress_pill_shows_the_diff_where_no_header_does():
-    assert _pill(diff_in_details=False) == {"tone": "idle", "label": "", "diff": {"added": 48, "removed": 12}}
+def test_a_lone_step_and_a_refused_question_render_as_step_rows_and_a_delegated_card_does_not():
+    segs = [read("c1"), text("x"), read("c2"), read("c3"), delegate("d1"), refused_question("q1")]
+    segs.append(question("q2"))
+    rows = _drive([user("u1"), asst("a1", *segs, streaming=True)], script=["stepRows"])[0]
+    assert rows == [
+        ["step", ["s-c1"]],
+        ["text", []],
+        ["group", []],
+        ["delegated", []],
+        ["question", ["q-q1"]],
+        ["question", []],
+    ]
 
 
-def test_a_session_page_takes_the_diff_and_leaves_the_pill_its_counts():
-    assert _pill(diff_in_details=True, files=["a.py", "b.py"]) == {"tone": "idle", "label": "2 files"}
-    assert _pill(diff_in_details=True) is None
+def test_jumping_to_a_folded_step_opens_its_fold_group_and_row():
+    turns = [user("u1"), asst("a1", read("c1"), read("c2"), text("Done."))]
+    assert _drive(turns, script=["jump:c2", "shown:u1", "shown:g-s-c1", "stepOpen:c2"]) == [
+        True,
+        True,
+        {"kind": "group", "open": True},
+    ]
 
 
 MARKER_BODY = """
@@ -183,3 +663,836 @@ def test_a_live_failure_marker_takes_the_run_rows_id_once_the_server_names_it():
 
 def test_a_failure_before_the_run_row_exists_keeps_the_pages_run_id():
     assert run_chat_stream(MARKER_BODY, {"events": [RUN_FAILED]}) == ["run-status-client-run"]
+
+
+SKILL_LINKS_BODY = """
+const chat = registry.chat({ endpoint: "/api/chat" });
+chat.turns = payload.turns;
+chat.applyServerSegments(payload.server);
+process.stdout.write(JSON.stringify(chat.turns[1].segments.map((seg) => seg.skill_url ?? null)));
+"""
+
+
+def test_a_streamed_skill_call_takes_its_link_from_the_turns_fetched_after_the_run():
+    skill = tool_call("s1", "skill", {"skill": "plan"}, result="body")
+    other = tool_call("s2", "skill", {"skill": "mine"}, result="body")
+    server = [user("u1"), asst("a1", {**skill, "skill_url": "/dashboard/skills/plan/"}, other)]
+    payload = {"turns": [user("u1"), asst("a1", skill, other)], "server": server}
+    assert run_chat_stream(SKILL_LINKS_BODY, payload, extra_globals=GLOBALS) == ["/dashboard/skills/plan/", None]
+
+
+SERVER_LEGS_BODY = """
+const chat = reactive(registry.chat({ endpoint: "/api/chat" }));
+chat.$watch = (expr, cb) => watchOn(chat)(expr, cb);
+chat.$nextTick = () => {};
+chat.scrollToBottom = () => {};
+chat.turns = payload.turns;
+chat.init();
+const states = () =>
+  chat.runBlocks.flatMap((block) => [...block.items, ...block.cards])
+    .filter((card) => card.kind === "delegated")
+    .map((card) => card.legs.map((leg) => leg.state));
+const before = states();
+chat.applyServerSegments(payload.server);
+process.stdout.write(JSON.stringify([before, states()]));
+chat.destroy();
+"""
+
+
+def test_the_turns_fetched_after_a_run_bring_its_delegated_jobs_current_states():
+    streamed, stale, unknown = delegate("d1"), delegate("d2", legs=[enriched_leg(state="queued")]), delegate("d3")
+    server = [
+        user("u1"),
+        asst(
+            "a1",
+            {**streamed, "legs": [enriched_leg(state="waiting_input")]},
+            {**stale, "legs": [enriched_leg(state="finished")]},
+            unknown,
+        ),
+    ]
+    payload = {"turns": [user("u1"), asst("a1", streamed, stale, unknown)], "server": server}
+
+    before, after = run_chat_stream(SERVER_LEGS_BODY, payload, prelude=REACTIVITY, extra_globals=GLOBALS)
+
+    assert before == [["queued"], ["queued"], ["queued"]]
+    assert after == [["waiting_input"], ["finished"], ["queued"]]
+
+
+CTX_BODY = """
+const chat = registry.chat({ endpoint: "/api/chat" });
+chat.mcpCatalog = payload.catalog;
+chat.thread = { merge_request: payload.mr };
+let seen = null;
+sandbox.window.toolBodyHTML = (seg, ctx) => {
+  seen = { ...ctx, seg: seg.id, latestArtifactsById: ctx.latestArtifactsById === chat.latestArtifactsById };
+  return "";
+};
+chat.toolBodyHTML({ id: "c1" });
+process.stdout.write(JSON.stringify(seen));
+"""
+
+
+MR_URL = "https://g/x/-/merge_requests/1"
+
+
+@pytest.mark.parametrize("mr,url", [({"url": MR_URL}, MR_URL), (None, None)])
+def test_a_tool_body_gets_the_servers_the_artifacts_and_the_merge_request(mr, url):
+    catalog = [{"name": "sentry", "read_only_tools": ["search_issues"], "icon": ""}]
+    seen = run_chat_stream(CTX_BODY, {"catalog": catalog, "mr": mr}, extra_globals=GLOBALS)
+    assert seen == {"seg": "c1", "mcpRows": catalog, "latestArtifactsById": True, "mergeRequestUrl": url}
+
+
+ROWS_BODY = """
+const seen = [];
+const build = sandbox.window.buildRunBlocks;
+sandbox.window.buildRunBlocks = (turns, opts) => {
+  seen.push(opts.mcpRows);
+  return build(turns, opts);
+};
+const chat = reactive(registry.chat({ endpoint: "/api/chat" }));
+chat.mcpCatalog = payload.catalog;
+chat.$watch = (expr, cb) => watchOn(chat)(expr, cb);
+chat.$nextTick = () => {};
+chat.scrollToBottom = () => {};
+chat.turns = payload.turns;
+chat.init();
+process.stdout.write(JSON.stringify(seen[seen.length - 1]));
+chat.destroy();
+"""
+
+
+def test_the_run_blocks_get_the_mcp_server_rows():
+    catalog = [{"name": "sentry", "read_only_tools": ["search_issues"], "icon": "https://x.test/a.png"}]
+    payload = {"catalog": catalog, "turns": [user("u1"), asst("a1", read("c1"))]}
+    seen = run_chat_stream(ROWS_BODY, payload, prelude=REACTIVITY, extra_globals=GLOBALS)
+    assert seen == catalog
+
+
+MR = SimpleNamespace(merge_request_id=7, web_url="https://git.example/mr/7")
+STATS = SimpleNamespace(files_changed=3, lines_added=48, lines_removed=12)
+PUBLISHING = [user("u1"), asst("a1", text("Done."), streaming=True)]
+
+
+def _publish_custom(**kwargs) -> str:
+    return f"custom:{PUBLISH_RESULT_EVENT}:{json.dumps(publish_result_payload(**kwargs))}"
+
+
+def test_publish_phase_names_the_working_line_and_never_renders_a_segment():
+    out = _drive(PUBLISHING, script=["toolStart:PullRequestMetadata", "runStatus", "segmentTypes"])
+    assert out[0] == "Creating merge request…" and "publish_phase" not in out[1]
+
+
+def test_committing_phase_names_the_working_line():
+    assert _drive(PUBLISHING, script=["toolStart:CommitMetadata", "runStatus"]) == ["Committing changes…"]
+
+
+def test_phase_outlasts_its_call_until_the_result_lands():
+    script = ["toolStart:CommitMetadata", "toolEnd:CommitMetadata", "toolResult:CommitMetadata", "runStatus"]
+    out = _drive(PUBLISHING, script=[*script, _publish_custom(status="pushed"), "runStatus"])
+    assert out == ["Committing changes…", "Thinking…"]
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [("PullRequestMetadata", "CommitMetadata"), ("CommitMetadata", "PullRequestMetadata")],
+    ids=["mr-first", "commit-first"],
+)
+def test_parallel_metadata_calls_name_the_merge_request_step_until_the_result_lands(first, second):
+    script = [f"toolStart:{first}", f"toolStart:{second}", f"toolEnd:{first}", "runStatus"]
+    script += [f"toolEnd:{second}", "runStatus", _publish_custom(status="opened"), "runStatus"]
+    out = _drive(PUBLISHING, script=script)
+    assert out == ["Creating merge request…", "Creating merge request…", "Thinking…"]
+
+
+def test_phase_clears_when_the_turn_finishes_without_an_event():
+    script = ["activeRun", "toolStart:CommitMetadata", "publishPhase", "finish:finished", "publishPhase"]
+    assert _drive(PUBLISHING, script=script) == ["Committing changes", ""]
+
+
+def test_publish_event_adds_the_result_to_the_run():
+    kwargs = {"status": "opened", "merge_request": MR, "diff_stats": STATS}
+    out = _drive(PUBLISHING, script=[_publish_custom(**kwargs), "finish:finished", "block0.publish"])
+    assert out[-1] == [
+        {
+            "status": "opened",
+            "merge_request_iid": 7,
+            "merge_request_web_url": "https://git.example/mr/7",
+            "files_changed": 3,
+            "lines_added": 48,
+            "lines_removed": 12,
+            "error": "",
+        }
+    ]
+
+
+def test_failed_publish_carries_the_kinds_fixed_message_and_the_retry_anchor():
+    script = ["activeRun:pk-1", _publish_custom(status="failed", error_kind="push_rejected"), "block0.publish"]
+    (entry,) = _drive(PUBLISHING, script=script)[-1]
+    assert entry["id"] == "run-status-pk-1"
+    assert (entry["status"], entry["error"]) == ("failed", "The push was rejected")
+
+
+def test_the_live_failed_entry_takes_the_page_run_id_before_the_server_names_the_row():
+    script = ["activeRun", _publish_custom(status="failed", error_kind="unknown"), "block0.publish"]
+    assert _drive(PUBLISHING, script=script)[-1][0]["id"] == "run-status-client-run"
+
+
+@pytest.mark.parametrize(
+    ("status", "kind", "message"),
+    [
+        ("not_published", "conflicts", "Merge conflicts are left in the changed files"),
+        ("pushed", "mr_pending", "The merge request isn't created yet"),
+    ],
+)
+def test_live_entry_shows_the_kinds_label_as_a_reload_does(status, kind, message):
+    script = [_publish_custom(status=status, error_kind=kind), "block0.publish"]
+    assert _drive(PUBLISHING, script=script)[-1][0]["error"] == message
+
+
+def test_failed_publish_suppresses_the_generic_failure_marker():
+    script = [
+        "activeRun",
+        _publish_custom(status="failed", error_kind="push_rejected"),
+        "runError:run_failed",
+        "finish:finished",
+        "turnRoles",
+    ]
+    assert "run_status" not in _drive(PUBLISHING, script=script)[-1]
+
+
+@pytest.mark.parametrize("code", ["run_cancelled", "run_interrupted"])
+def test_an_aborted_run_keeps_its_marker_despite_a_failed_publish(code):
+    script = ["activeRun", _publish_custom(status="failed", error_kind="unknown"), f"runError:{code}", "markers"]
+    assert _drive(PUBLISHING, script=script)[-1] == ["aborted"]
+
+
+def test_a_run_error_without_a_failed_publish_still_pushes_its_marker():
+    assert _drive(PUBLISHING, script=["activeRun", "runError:run_failed", "markers"])[-1] == ["failed"]
+
+
+def test_a_fallback_ending_does_not_stack_a_marker_on_the_red_line():
+    running = tool_call("x1", "bash", {}, result=None, status="running")
+    turns = [user("u1"), asst("a1", running, streaming=True)]
+    script = [
+        "activeRun",
+        _publish_custom(status="failed", error_kind="unknown"),
+        "finish:connection_lost",
+        "markers",
+        "segmentStatuses",
+    ]
+    out = _drive(turns, script=script)
+    assert out[-2] == [] and out[-1] == ["error"]
+
+
+QUEUED_MESSAGE_BODY = """
+const chat = reactive(registry.chat({
+  endpoint: "/api/chat",
+  streamEndpoint: "/api/chat/stream",
+  thread: { thread_id: "t1", repo_id: "r", ref: "main" },
+}));
+chat.$watch = watchOn(chat);
+chat.$nextTick = (cb) => cb && cb();
+chat.scrollToBottom = () => {};
+chat.autosize = () => {};
+chat.init();
+chat.draftMessage = "Also add a test";
+await chat.submit();
+const queued = {
+  turns: chat.turns.map((t) => ({ role: t.role, pending: Boolean(t.pending) })),
+  streaming: chat.streaming,
+  live: chat.sessionLive,
+  queuedRunId: chat.queuedRunId,
+  provisional: dispatched.filter((e) => e.type === "daiv:up-next-provisional").map((e) => e.detail),
+  opened: opened !== null,
+};
+const ended = dispatched.filter((e) => e.type === "daiv:live-run-ended").map((e) => e.detail);
+chat.followLiveRun({ id: "next-run", stoppable: true, started_at: new Date().toISOString() });
+const following = { streaming: chat.streaming, run: chat._activeRun?.runId, queuedRunId: chat.queuedRunId };
+process.stdout.write(JSON.stringify({ queued, ended, following }));
+chat.destroy();
+"""
+
+
+def _send_while_busy() -> dict:
+    reply = {"run_id": "r1", "thread_id": "t1", "queued": {"event_id": "e1", "run_id": "next-run", "position": "next"}}
+    fetch = f"fetch: async () => ({{ ok: true, json: async () => ({json.dumps(reply)}) }}),"
+    return run_chat_stream(
+        QUEUED_MESSAGE_BODY,
+        {},
+        prelude=REACTIVITY + EVENT_SOURCE,
+        extra_globals=GLOBALS + " EventSource: FakeEventSource, setTimeout, " + fetch,
+    )
+
+
+def test_a_message_sent_while_the_session_is_busy_moves_to_up_next():
+    out = _send_while_busy()
+
+    assert out["queued"] == {
+        "turns": [],
+        "streaming": False,
+        "live": True,
+        "queuedRunId": "next-run",
+        "provisional": [{"event_id": "e1", "run_id": "next-run", "text": "Also add a test"}],
+        "opened": False,
+    }
+    assert out["following"] == {"streaming": True, "run": "next-run", "queuedRunId": ""}
+
+
+def test_a_queued_send_announces_its_end_as_queued():
+    """The page may have named a live run while this send was in flight; the end lets it hand that run over."""
+    (detail,) = _send_while_busy()["ended"]
+
+    assert detail["runId"]
+    assert (detail["reason"], detail["own"]) == ("queued", True)
+
+
+MID_RUN_BODY = """
+sandbox.window.showToast = (message, level) => toasts.push([message, level]);
+let reloads = 0;
+sandbox.window.location.reload = () => { reloads += 1; };
+const thread = { thread_id: "t1", repo_id: "r", ref: "main" };
+const chat = reactive(registry.chat({
+  endpoint: "/api/chat",
+  streamEndpoint: "/api/chat/stream",
+  thread,
+}));
+chat.$watch = watchOn(chat);
+chat.$nextTick = (cb) => cb && cb();
+chat.scrollToBottom = () => {};
+chat.autosize = () => {};
+chat.init();
+chat.thread = thread;
+chat.turns = [
+  { id: "u1", role: "user", segments: [{ type: "text", content: "Fix the bug" }] },
+  { id: "a1", role: "assistant", segments: [{ type: "text", content: "Looking" }], streaming: true },
+];
+Object.assign(chat, payload.state, { _activeRun: { threadId: "t1", runId: "live" } });
+chat.draftMessage = payload.draft;
+const canSend = chat.canSend();
+await chat.submit();
+process.stdout.write(JSON.stringify({
+  canSend,
+  sent: sent.map((request) => request.body),
+  turns: chat.turns.map((t) => [t.id, Boolean(t.streaming)]),
+  streaming: chat.streaming,
+  resuming: chat.resuming,
+  run: chat._activeRun?.runId,
+  draft: chat.draftMessage,
+  queuedRunId: chat.queuedRunId,
+  provisional: dispatched.filter((e) => e.type === "daiv:up-next-provisional").map((e) => e.detail),
+  toasts,
+  reloads,
+}));
+chat.destroy();
+"""
+
+MID_RUN_PRELUDE = """
+const sent = [];
+const toasts = [];
+"""
+
+
+QUEUED_REPLY = {
+    "run_id": "r2",
+    "thread_id": "t1",
+    "queued": {"event_id": "e1", "run_id": "next-run", "position": "next"},
+}
+
+
+def _send_mid_run(
+    state: dict, reply: dict = QUEUED_REPLY, *, status: int = 200, draft: str = "Also add a test"
+) -> dict:
+    fetch = (
+        "fetch: async (url, init) => { sent.push({ url, body: JSON.parse(init.body) }); "
+        f"return {{ ok: {str(status < 400).lower()}, status: {status}, statusText: '', "
+        f"json: async () => ({json.dumps(reply)}), text: async () => '' }}; }},"
+    )
+    return run_chat_stream(
+        MID_RUN_BODY,
+        {"state": state, "draft": draft},
+        prelude=REACTIVITY + EVENT_SOURCE + MID_RUN_PRELUDE,
+        extra_globals=GLOBALS + " EventSource: FakeEventSource, setTimeout, " + fetch,
+    )
+
+
+@pytest.mark.parametrize(
+    "state",
+    [{"streaming": True}, {"resuming": True}, {"waitingSince": "2026-11-02T10:00:00Z"}],
+    ids=["streaming", "resuming", "waiting"],
+)
+def test_a_message_sent_mid_run_waits_for_the_next_run_and_leaves_the_live_one_alone(state):
+    out = _send_mid_run(state)
+
+    assert out["canSend"] is True
+    (body,) = out["sent"]
+    assert body["forwardedProps"] == {"queue": True}
+    assert [(message["role"], message["content"]) for message in body["messages"]] == [("user", "Also add a test")]
+    assert out["turns"] == [["u1", False], ["a1", True]]
+    assert (out["streaming"], out["resuming"], out["run"]) == (
+        state.get("streaming", False),
+        state.get("resuming", False),
+        "live",
+    )
+    assert (out["draft"], out["queuedRunId"]) == ("", "next-run")
+    assert out["provisional"] == [{"event_id": "e1", "run_id": "next-run", "text": "Also add a test"}]
+    assert out["reloads"] == 0
+
+
+@pytest.mark.parametrize("draft", ["/clear", "  /plan the migration", "/unknown is not a command"])
+def test_a_slash_command_typed_mid_run_is_queued_like_any_message(draft):
+    out = _send_mid_run({"streaming": True}, draft=draft)
+
+    assert [body["messages"][-1]["content"] for body in out["sent"]] == [draft]
+    assert (out["draft"], out["toasts"]) == ("", [])
+
+
+@pytest.mark.parametrize(
+    ("touched", "expected"), [(True, {"queue": True, "mcp_servers": ["grafana"]}), (False, {"queue": True})]
+)
+def test_a_message_queued_mid_run_carries_the_tools_selection_once_touched(touched, expected):
+    out = _send_mid_run({"streaming": True, "_mcpTouched": touched, "mcpSelected": ["grafana"]})
+
+    assert [body["forwardedProps"] for body in out["sent"]] == [expected]
+
+
+def test_a_refused_mid_run_message_comes_back_to_the_draft():
+    out = _send_mid_run({"streaming": True}, {"detail": "Thread not found"}, status=403)
+
+    assert (out["draft"], out["provisional"], out["streaming"], out["reloads"]) == ("Also add a test", [], True, 0)
+    assert [level for _message, level in out["toasts"]] == ["error"]
+
+
+WITHDRAWN_BODY = """
+const chat = registry.chat({
+  endpoint: "/api/chat",
+  cancelEndpoint: "/api/chat/cancel",
+  thread: { thread_id: "t1", repo_id: "r", ref: "main" },
+});
+chat.$nextTick = (cb) => cb && cb();
+chat.scrollToBottom = () => {};
+chat.autosize = () => {};
+chat.draftMessage = payload.draft;
+const live = { id: "a2", role: "assistant", segments: [], streaming: true };
+chat.turns = [
+  { id: "h1", role: "user", segments: [{ type: "text", content: "hi" }] },
+  { id: "a1", role: "assistant", segments: [{ type: "text", content: "hey" }] },
+  { id: "h2", role: "user", segments: [{ type: "text", content: "do it" }] },
+  live,
+];
+chat._activeRun = { threadId: "t1", runId: "r2" };
+if (payload.stoppedHere ?? true) await chat.stop();
+chat.dispatch({ type: "RUN_ERROR", code: payload.code, message: "Stopped by user." }, live, Date.now());
+process.stdout.write(JSON.stringify({
+  turns: chat.turns.map((t) => (t.role === "run_status" ? `status:${t.status}${t.silent ? ":silent" : ""}` : t.id)),
+  draft: chat.draftMessage,
+  status: chat.runStatus.label,
+}));
+"""
+
+
+WITHDRAWN_GLOBALS = "fetch: async () => ({ ok: true, status: 200 }),"
+
+
+def _stop_live_turn(code: str, *, draft: str = "", stopped_here: bool = True) -> dict:
+    payload = {"code": code, "draft": draft, "stoppedHere": stopped_here}
+    return run_chat_stream(WITHDRAWN_BODY, payload, extra_globals=WITHDRAWN_GLOBALS)
+
+
+@pytest.mark.parametrize(("draft", "restored"), [("", "do it"), ("also this", "do it\n\nalso this")])
+def test_a_turn_withdrawn_before_daiv_answered_goes_back_to_the_composer(draft, restored):
+    out = _stop_live_turn("run_withdrawn", draft=draft)
+
+    assert out == {"turns": ["h1", "a1"], "draft": restored, "status": "idle"}
+
+
+def test_a_withdrawn_turn_leaves_the_composer_of_a_page_that_did_not_stop_it_alone():
+    out = _stop_live_turn("run_withdrawn", draft="my own note", stopped_here=False)
+
+    assert out == {"turns": ["h1", "a1"], "draft": "my own note", "status": "idle"}
+
+
+def test_a_turn_stopped_after_daiv_answered_keeps_its_message_under_a_silent_marker():
+    out = _stop_live_turn("run_cancelled")
+
+    assert out == {"turns": ["h1", "a1", "h2", "a2", "status:aborted:silent"], "draft": "", "status": "stopped"}
+
+
+KEYDOWN_BODY = """
+if (payload.coarse) sandbox.window.matchMedia = (query) => ({ matches: query === "(pointer: coarse)" });
+const chat = registry.chat({ endpoint: "/api/chat", thread: { thread_id: "t1", repo_id: "r", ref: "main" } });
+const submitted = [];
+chat.submit = () => submitted.push(chat.draftMessage);
+chat.autosize = () => {};
+chat.$nextTick = (cb) => cb && cb();
+chat.$refs = {};
+chat.draftMessage = payload.draft;
+const at = payload.caret ?? payload.draft.length;
+const prompt = {
+  value: payload.draft, selectionStart: at, selectionEnd: at,
+  setRangeText(text, start, end) {
+    this.value = this.value.slice(0, start) + text + this.value.slice(end);
+    this.selectionStart = this.selectionEnd = start + text.length;
+  },
+};
+let prevented = false;
+const event = { key: "Enter", target: prompt, preventDefault: () => { prevented = true; }, stopPropagation() {} };
+chat.onPromptKeydown({ ...event, ...payload.keys });
+process.stdout.write(JSON.stringify({ prevented, submitted, draft: chat.draftMessage }));
+"""
+
+
+def _press_enter(keys: dict, *, draft: str = "fix it", caret: int | None = None, coarse: bool = False) -> dict:
+    return run_chat_stream(KEYDOWN_BODY, {"keys": keys, "draft": draft, "caret": caret, "coarse": coarse})
+
+
+def test_enter_sends_the_message():
+    assert _press_enter({}) == {"prevented": True, "submitted": ["fix it"], "draft": "fix it"}
+
+
+@pytest.mark.parametrize("modifier", ["ctrlKey", "metaKey"])
+def test_ctrl_or_cmd_enter_breaks_the_line_at_the_caret(modifier):
+    out = _press_enter({modifier: True}, draft="first second", caret=5)
+
+    assert out == {"prevented": True, "submitted": [], "draft": "first\n second"}
+
+
+def test_shift_enter_leaves_the_line_break_to_the_browser():
+    assert _press_enter({"shiftKey": True}) == {"prevented": False, "submitted": [], "draft": "fix it"}
+
+
+def test_enter_on_a_touch_keyboard_breaks_the_line_instead_of_sending():
+    assert _press_enter({}, coarse=True) == {"prevented": False, "submitted": [], "draft": "fix it"}
+
+
+def test_enter_that_commits_an_ime_candidate_sends_nothing():
+    assert _press_enter({"isComposing": True}) == {"prevented": False, "submitted": [], "draft": "fix it"}
+
+
+INBOX_BODY = """
+const chat = reactive(registry.chat({ endpoint: "/api/chat" }));
+chat.$watch = watchOn(chat);
+chat.$nextTick = () => {};
+chat.scrollToBottom = () => {};
+chat.turns = payload.turns;
+chat.thread = { thread_id: "t1" };
+chat.init();
+const blocks = chat.runBlocks.length;
+chat._streamRun = async () => "done";
+chat._finishTurn = () => {};
+chat.resuming = true;
+await chat._resumeRun("r1");
+process.stdout.write(JSON.stringify({ blocks, resuming: chat.resuming }));
+chat.destroy();
+"""
+
+
+def _inbox_event(eid: str) -> dict:
+    return {
+        "id": eid,
+        "role": "inbox_event",
+        "kind": "ci_passed",
+        "summary": "CI passed",
+        "reason": "",
+        "web_url": "",
+        "created_at": "2026-10-31T00:00:00+00:00",
+    }
+
+
+@pytest.mark.parametrize(
+    ("turns", "blocks"),
+    [
+        ([user("u1"), asst("a1", text("Done.")), _inbox_event("e1")], 2),
+        ([user("u1"), _inbox_event("e1"), asst("a1", text("Done."))], 3),
+    ],
+    ids=["event-last", "event-between"],
+)
+def test_a_remembered_inbox_event_in_the_turns_leaves_the_transcript_and_the_resume_working(turns, blocks):
+    out = run_chat_stream(INBOX_BODY, {"turns": turns}, prelude=REACTIVITY, extra_globals=GLOBALS)
+    assert out == {"blocks": blocks, "resuming": False}
+
+
+BUBBLE_BODY = """
+const chat = registry.chat({});
+process.stdout.write(JSON.stringify({
+  kinds: (payload.bubbles ?? []).map((bubble) => chat.bubbleKindLabel(bubble)),
+  sources: (payload.bubbles ?? []).map((bubble) => chat.receivedSource(bubble)),
+  openings: (payload.anchors ?? []).map((anchor) => chat.anchorBubbles(anchor)),
+  rows: (payload.events ?? []).map((event) => chat.inboxEventKind(event)),
+}));
+"""
+
+
+def _bubbles(**payload):
+    return run_chat_stream(BUBBLE_BODY, payload, extra_globals=GLOBALS)
+
+
+def test_a_bubble_names_the_kind_of_request():
+    bubbles = [
+        {"kind": "chat_message", "trigger_type": ""},
+        {"kind": "mention", "trigger_type": ""},
+        {"kind": "follow_up_job", "trigger_type": "api_job"},
+        {"kind": "job", "trigger_type": "mcp_job"},
+        {"kind": "job", "trigger_type": "ui_job"},
+        {"kind": "ci_failed", "trigger_type": "", "received": True},
+    ]
+
+    assert _bubbles(bubbles=bubbles)["kinds"] == ["Chat", "Mention", "API job", "MCP job", "Job", ""]
+
+
+def test_a_received_bubble_names_its_source():
+    bubbles = [
+        {"kind": "ci_failed", "received": True, "source_iid": 101},
+        {"kind": "ci_failed", "received": True, "source_iid": None},
+        {"kind": "delegation_finished", "received": True, "source_iid": None},
+    ]
+
+    assert _bubbles(bubbles=bubbles)["sources"] == ["CI · !101", "CI", "Delegated jobs"]
+
+
+def test_a_run_opens_with_its_events_or_what_started_it():
+    opening = [{"id": "inbox-e1", "kind": "chat_message", "received": False, "text": "Fix it"}]
+    anchors = [
+        {"id": "u1", "author": "sfr", "opening": opening},
+        {"id": "u2", "author": "daiv", "origin": "pipeline_webhook", "sent_at": "2026-11-01T10:00:00Z"},
+        {"id": "u3", "author": "daiv", "origin": "delegation_resume", "sent_at": "2026-11-01T10:00:00Z"},
+        {"id": "u4", "author": "sfr"},
+    ]
+
+    first, ci, delegation, plain = _bubbles(anchors=anchors)["openings"]
+
+    assert first == opening
+    assert ci == [
+        {
+            "id": "u2-received",
+            "kind": "ci_failed",
+            "received": True,
+            "failed": True,
+            "text": "",
+            "source_iid": None,
+            "created_at": "2026-11-01T10:00:00Z",
+        }
+    ]
+    assert (delegation[0]["kind"], delegation[0]["failed"]) == ("delegation_finished", False)
+    assert plain is None
+
+
+def test_an_event_daiv_could_not_handle_reads_not_handled():
+    events = [{"kind": "mention", "failure_label": "The runs that took it kept failing"}, {"kind": "comment"}]
+
+    assert _bubbles(events=events)["rows"] == ["Mention not handled", "Comment"]
+
+
+QUESTION_BODY = """
+const chat = registry.chat({ endpoint: "/api/chat" });
+chat.turns = payload.turns;
+const seg = chat.turns[1].segments[0];
+process.stdout.write(JSON.stringify({ open: chat.isQuestionOpen(1), summary: chat.answeredSummary(seg, 1) }));
+"""
+
+
+def _opened_by(kind: str) -> dict:
+    return {**user("u2"), "opening": [{"id": f"inbox-{kind}", "kind": kind, "received": kind != "chat_message"}]}
+
+
+def _after_question(*turns: dict) -> dict:
+    args = {"questions": [{"header": "Approach", "question": "Which fix?", "options": [{"label": "Retry"}]}]}
+    asked = asst("a1", tool_call("q1", "ask_user_question", args, result=QUESTION_DELIVERED))
+    return run_chat_stream(QUESTION_BODY, {"turns": [user("u1"), asked, *turns]}, extra_globals=GLOBALS)
+
+
+@pytest.mark.parametrize(
+    "started",
+    [
+        _opened_by("ci_failed"),
+        _opened_by("delegation_finished"),
+        _opened_by("follow_up_job"),
+        _opened_by("mention"),
+        {**user("u2"), "author": "daiv", "origin": "pipeline_webhook"},
+    ],
+    ids=["ci-fix", "delegation", "follow-up-job", "mention", "daiv-authored"],
+)
+def test_a_turn_the_owner_did_not_send_leaves_the_question_open(started):
+    assert _after_question(started, asst("a2", text("Fixed CI.")))["open"] is True
+
+
+@pytest.mark.parametrize("reply", [user("u2"), _opened_by("chat_message")], ids=["inline", "from-the-inbox"])
+def test_the_owners_chat_message_answers_the_question(reply):
+    assert _after_question(reply, asst("a2", text("On it.")))["open"] is False
+
+
+def test_the_answer_is_read_from_the_owners_reply_past_a_system_turn():
+    reply = {**user("u3"), "segments": [text("**Approach** — Retry")]}
+
+    out = _after_question(_opened_by("ci_failed"), asst("a2", text("Fixed CI.")), reply)
+
+    assert out == {"open": False, "summary": "Approach · Retry"}
+
+
+SEND_PRELUDE = """
+let constructed = 0;
+let releasePost;
+const post = new Promise((resolve) => (releasePost = resolve));
+"""
+
+SEND_BODY = """
+const thread = { thread_id: "t1", repo_id: "r", ref: "main" };
+const chat = registry.chat({ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream", thread });
+chat.draftMessage = "hello";
+chat.$nextTick = (cb) => cb && cb();
+chat.scrollToBottom = () => {};
+chat.autosize = () => {};
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+__SCENARIO__
+"""
+
+SEND_GLOBALS = (
+    "EventSource: FakeEventSource, setTimeout, "
+    "fetch: async () => { await post; return { ok: true, json: async () => ({ run_id: 'r1' }) }; },"
+)
+SEND_EVENT_SOURCE = EVENT_SOURCE.replace("constructor() {", "constructor() { constructed += 1;")
+
+
+def _send(scenario: str, *, extra_globals: str = SEND_GLOBALS) -> dict:
+    return run_chat_stream(
+        SEND_BODY.replace("__SCENARIO__", scenario),
+        {},
+        prelude=SEND_PRELUDE + SEND_EVENT_SOURCE,
+        extra_globals=extra_globals,
+    )
+
+
+def test_a_sent_turn_announces_its_end_as_its_own():
+    out = _send("""
+releasePost();
+const done = chat.submit();
+await tick();
+opened.onmessage({ data: JSON.stringify({ type: "RUN_STARTED" }) });
+opened.listeners.end({ data: JSON.stringify({ reason: "finished" }) });
+await done;
+const ended = dispatched.filter((e) => e.type === "daiv:live-run-ended").map((e) => e.detail);
+process.stdout.write(JSON.stringify({ ended }));
+""")
+
+    (detail,) = out["ended"]
+    assert (detail["reason"], detail["own"]) == ("finished", True)
+    assert detail["runId"]
+
+
+UNSTARTED_SCENARIO = """
+await chat.submit();
+const ended = dispatched.filter((e) => e.type === "daiv:live-run-ended").map((e) => e.detail);
+const failed = chat.turns.filter((t) => t.role === "run_status" && t.status === "failed").length;
+process.stdout.write(JSON.stringify({ ended, failed, constructed }));
+"""
+
+
+@pytest.mark.parametrize(
+    "fetch",
+    [
+        "fetch: async () => ({ ok: false, status: 500, json: async () => ({}), text: async () => '' }),",
+        "fetch: async () => { throw new Error('offline'); },",
+    ],
+    ids=["post-not-ok", "post-throws"],
+)
+def test_a_send_that_never_streamed_announces_not_started(fetch):
+    out = _send(UNSTARTED_SCENARIO, extra_globals="EventSource: FakeEventSource, setTimeout, " + fetch)
+
+    (detail,) = out["ended"]
+    assert detail["runId"]
+    assert (detail["reason"], detail["own"]) == ("not_started", True)
+    assert (out["failed"], out["constructed"]) == (1, 0)
+
+
+def test_a_live_run_named_while_sending_is_not_followed():
+    out = _send("""
+const done = chat.submit();
+await tick();
+const runId = chat._activeRun.runId;
+chat.followLiveRun({ id: runId, stoppable: true, started_at: new Date().toISOString() });
+const whilePosting = constructed;
+releasePost();
+await tick();
+const afterPost = constructed;
+opened.listeners.end({ data: JSON.stringify({ reason: "finished" }) });
+await done;
+process.stdout.write(JSON.stringify({ whilePosting, afterPost }));
+""")
+
+    assert out == {"whilePosting": 0, "afterPost": 1}
+
+
+SERVED_STATE = {
+    "merge_request": {"id": 7, "url": "https://git/x/-/merge_requests/7", "title": "Fix", "source_branch": "fix"},
+    "thread_ref": "fix",
+    "diff_stats": {"lines_added": 12, "lines_removed": 3, "files_changed": 2},
+    "context_usage": {"used_tokens": 5000, "output_tokens": 40, "cached_tokens": 100, "window_tokens": 200000},
+    "waiting_since": None,
+}
+
+SERVED_STATE_BODY = """
+const chat = registry.chat({
+  endpoint: "/api/chat",
+  streamEndpoint: "/api/chat/stream",
+  thread: { thread_id: "t1", repo_id: "r", ref: "main", merge_request: null },
+  waitingSince: "2026-11-02T10:00:00Z",
+});
+Object.assign(chat, payload.state);
+chat.applySessionState(payload.served);
+process.stdout.write(JSON.stringify({
+  thread: chat.thread,
+  diffStats: chat.diffStats,
+  contextUsage: chat.contextUsage,
+  waitingSince: chat.waitingSince,
+  sessionLive: chat.sessionLive,
+}));
+"""
+
+
+def _apply_served_state(served: dict, state: dict | None = None) -> dict:
+    return run_chat_stream(SERVED_STATE_BODY, {"served": served, "state": state or {}})
+
+
+def test_served_state_updates_the_merge_request_diff_and_context_when_idle():
+    out = _apply_served_state(SERVED_STATE)
+
+    assert out == {
+        "thread": {"thread_id": "t1", "repo_id": "r", "ref": "fix", "merge_request": SERVED_STATE["merge_request"]},
+        "diffStats": {"added": 12, "removed": 3},
+        "contextUsage": {"usedTokens": 5000, "outputTokens": 40, "cachedTokens": 100, "windowTokens": 200000},
+        "waitingSince": "",
+        "sessionLive": False,
+    }
+
+
+@pytest.mark.parametrize("active", [True, False])
+def test_served_state_says_whether_the_session_is_in_flight(active):
+    """A fetch that keeps the streamed transcript still moves the page's in-flight state."""
+    out = _apply_served_state({"active": active}, {"sessionLive": not active})
+
+    assert out["sessionLive"] is active
+
+
+def test_served_state_keeps_what_it_does_not_carry():
+    out = _apply_served_state({"thread_ref": "fix", "context_usage": None})
+
+    assert out["thread"] == {"thread_id": "t1", "repo_id": "r", "ref": "main", "merge_request": None}
+    assert (out["diffStats"], out["contextUsage"], out["waitingSince"]) == (None, None, "2026-11-02T10:00:00Z")
+
+
+def test_an_empty_served_state_leaves_what_the_page_shows():
+    """A failed fetch dispatches the header with no state, which the page applies too."""
+    shown = {"diffStats": {"added": 1, "removed": 2}, "contextUsage": {"usedTokens": 9, "windowTokens": 100}}
+
+    out = _apply_served_state({}, shown)
+
+    assert out["thread"] == {"thread_id": "t1", "repo_id": "r", "ref": "main", "merge_request": None}
+    assert (out["diffStats"], out["contextUsage"]) == (shown["diffStats"], shown["contextUsage"])
+    assert out["waitingSince"] == "2026-11-02T10:00:00Z"
+
+
+@pytest.mark.parametrize("state", [{"streaming": True}, {"resuming": True}])
+def test_served_state_is_ignored_while_streaming(state):
+    out = _apply_served_state(SERVED_STATE, state)
+
+    assert out["thread"]["merge_request"] is None
+    assert (out["diffStats"], out["contextUsage"], out["waitingSince"]) == (None, None, "2026-11-02T10:00:00Z")

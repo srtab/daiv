@@ -18,9 +18,9 @@ class FakeClient:
         self.calls.append(("get_pipeline", repo_id, pipeline_id))
         return make_pipeline(pipeline_id=pipeline_id)
 
-    def get_latest_pipeline_for_ref(self, repo_id, ref):
-        self.calls.append(("get_latest_pipeline_for_ref", repo_id, ref))
-        return make_pipeline(pipeline_id=999)
+    def get_latest_pipelines_for_ref(self, repo_id, ref):
+        self.calls.append(("get_latest_pipelines_for_ref", repo_id, ref))
+        return [make_pipeline(pipeline_id=998), make_pipeline(pipeline_id=999)]
 
     def get_merge_request(self, repo_id, merge_request_id):
         self.calls.append(("get_merge_request", repo_id, merge_request_id))
@@ -32,18 +32,18 @@ class FakeClient:
 
 async def test_an_event_reads_the_pipeline_it_names():
     client = FakeClient()
-    pipeline = await WatchPlatform("group/repo", client).aread_pipeline(ref="daiv/branch", pipeline_id=42)
+    pipeline = await WatchPlatform("group/repo", client).aread_pipeline(pipeline_id=42)
 
     assert client.calls == [("get_pipeline", "group/repo", 42)]
     assert pipeline.id == 42
 
 
-async def test_a_poll_reads_the_latest_pipeline_for_the_ref():
+async def test_a_sweep_reads_the_latest_pipeline_of_each_ci_subject():
     client = FakeClient()
-    pipeline = await WatchPlatform("group/repo", client).aread_pipeline(ref="daiv/branch", pipeline_id=None)
+    pipelines = await WatchPlatform("group/repo", client).aread_latest_pipelines(ref="daiv/branch")
 
-    assert client.calls == [("get_latest_pipeline_for_ref", "group/repo", "daiv/branch")]
-    assert pipeline.id == 999
+    assert client.calls == [("get_latest_pipelines_for_ref", "group/repo", "daiv/branch")]
+    assert [pipeline.id for pipeline in pipelines] == [998, 999]
 
 
 async def test_a_read_failure_propagates():
@@ -54,7 +54,7 @@ async def test_a_read_failure_propagates():
             raise RuntimeError("platform down")
 
     with pytest.raises(RuntimeError):
-        await WatchPlatform("group/repo", BrokenClient()).aread_pipeline(ref="daiv/branch", pipeline_id=42)
+        await WatchPlatform("group/repo", BrokenClient()).aread_pipeline(pipeline_id=42)
 
 
 async def test_a_merge_request_read_returns_the_merge_request():
@@ -161,7 +161,7 @@ async def test_one_injected_client_serves_a_read_a_correlation_and_a_note():
     client = FakeClient()
     platform = WatchPlatform("group/repo", client)
 
-    pipeline = await platform.aread_pipeline(ref="daiv/branch", pipeline_id=42)
+    pipeline = await platform.aread_pipeline(pipeline_id=42)
     await platform.ais_head_pipeline(merge_request_iid=7, report=PipelineReport(pipeline))
     await platform.apost_note(merge_request_iid=7, body="hi")
 

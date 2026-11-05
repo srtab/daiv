@@ -52,7 +52,8 @@ Examples:
 WEB_SEARCH_SYSTEM_PROMPT = f"""\
 ## Web Search tool
 
-You have access to a `{WEB_SEARCH_NAME}` tool to allow you to search the web and use the results to inform your responses.
+Use the `{WEB_SEARCH_NAME}` tool (load it via `tool_search` if it is not loaded) to search the web and use the results \
+to inform your responses.
 
 Use this tool to:
  - Access up-to-date information for current events and recent data
