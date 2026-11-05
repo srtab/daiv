@@ -70,6 +70,7 @@
   {% translate "file" as file_word %}
   {% translate "files" as files_word %}
   {% translate "All steps done" as all_done_label %}
+  {% translate "Stopped" as stopped_label %}
   {% translate "Stopped at: {step}" as stopped_at_label %}
   {% translate "Files changed" as files_changed_label %}
   {% translate "tool" as tool_word %}
@@ -121,6 +122,7 @@
            file: "{{ file_word|escapejs }}",
            files: "{{ files_word|escapejs }}",
            allDone: "{{ all_done_label|escapejs }}",
+           stopped: "{{ stopped_label|escapejs }}",
            stoppedAt: "{{ stopped_at_label|escapejs }}",
            filesChanged: "{{ files_changed_label|escapejs }}",
            tool: "{{ tool_word|escapejs }}",

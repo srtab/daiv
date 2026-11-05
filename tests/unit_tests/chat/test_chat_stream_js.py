@@ -211,6 +211,15 @@ def test_a_stopped_run_names_the_step_it_stopped_at():
     assert (drawer["tone"], drawer["step"], drawer["text"]) == ("warn", "2/3", "Stopped at: step 2")
 
 
+@pytest.mark.parametrize(
+    "todos", [pytest.param((), id="no-todos"), pytest.param(_todos("completed", "completed"), id="all-done")]
+)
+def test_a_stopped_run_without_an_open_step_still_says_it_stopped(todos):
+    drawer = _drawer(todos=todos, files=["a.py"], turns=STOPPED)
+
+    assert (drawer["tone"], drawer["text"]) == ("warn", "Stopped")
+
+
 def test_a_run_without_todos_reports_its_files():
     drawer = _drawer(files=["a.py", "b.py"], streaming=True)
 

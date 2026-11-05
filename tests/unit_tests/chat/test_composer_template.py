@@ -107,6 +107,25 @@ def test_the_drawer_tucks_behind_the_composer_and_outside_its_form(member_client
 
 
 @pytest.mark.django_db
+def test_an_archived_session_hides_the_drawer_with_the_composer(member_client, member_user):
+    html = render_thread(member_client, create_session(member_user))
+    drawer = re.search(r'<div class="progress-drawer"[^>]*>', html)[0]
+
+    assert "!archived" in X_SHOW.search(drawer)[1]
+
+
+DRAWER_PARTIAL = DAIV_DIR / "chat" / "templates" / "chat" / "_progress_drawer.html"
+
+
+def test_the_drawer_derives_its_state_once_per_change():
+    """``progressDrawer`` is a getter that rebuilds on every read; each binding reading it
+    directly would rebuild it once per binding per streamed delta."""
+    bindings = re.findall(r'="[^"]*progressDrawer', DRAWER_PARTIAL.read_text(encoding="utf-8"))
+
+    assert len(bindings) == 1, bindings
+
+
+@pytest.mark.django_db
 def test_the_plus_and_the_buttons_flank_the_text(member_client, member_user):
     html = render_thread(member_client, create_session(member_user))
     composer = html[html.index('class="chat-composer"') :]

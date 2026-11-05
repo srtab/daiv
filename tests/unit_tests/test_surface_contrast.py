@@ -37,9 +37,8 @@ THEME_TOKEN = re.compile(r"(--color-[\w-]+):\s*(#[0-9a-fA-F]{3,6}|var\(--color-[
 # dropdown on its own darker background, with no shared rows to measure.
 SURFACES = frozenset({".composer-sheet", ".composer-autocomplete", ".picker-popover", ".filter-menu"})
 
-# BEM families rendering inside those surfaces, including the ones whose names say nothing
-# about where they mount: `.sheet-row` is the options sheet *and* the env picker. The progress
-# drawer (and its `.chat-todo` rows) sits on surface-1, darker than the sheets, so theirs is the stricter bar.
+# BEM families rendering on those surfaces, even when unnamed (`.sheet-row` is the options sheet and env picker).
+# The progress drawer and its `.chat-todo` rows sit on darker surface-1, so the sheets' background is the stricter bar.
 FAMILIES = re.compile(
     r"\.(composer-sheet|composer-autocomplete|picker-popover|env-popover|sheet-row|sheet-disclosure|filter-menu|chat-todo|progress-drawer)"
 )

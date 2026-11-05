@@ -152,6 +152,7 @@
     file: "file",
     files: "files",
     allDone: "All steps done",
+    stopped: "Stopped",
     stoppedAt: "Stopped at: {step}",
     filesChanged: "Files changed",
     tool: "tool",
@@ -368,7 +369,7 @@
     _envAutoLabel: config.envAutoLabel || "Auto",
     turns: loadInitialTurns(),
     // Server-measured diff for the work published so far, refreshed by every
-    // STATE_SNAPSHOT that carries it. Drives the ``+x −y`` progress pill.
+    // STATE_SNAPSHOT that carries it. Drives the progress drawer's ``+x −y``.
     diffStats: loadInitialDiffStats(),
     // Context meter + spend. Plain props replaced whole (never getters over `turns`);
     // the getters below derive everything a binding renders from these two objects.
@@ -407,10 +408,9 @@
     // `elapsed` clock; set where a run actually starts, never inferred.
     runStartedAt: 0,
     // Derived from `turns` by the one effect `init()` arms, never by the bindings that read
-    // them: ~15 always-mounted bindings ask for these (the pill, its tone, the label, the
-    // crowded modifier, the sheet's two lists and counts), and a getter that walked the
-    // transcript per read cost 20 full passes per streamed `args` delta — seconds of main
-    // thread over a long run. Plain props keep every reader subscribed (reading a reactive
+    // them: ~15 always-mounted bindings ask for these (the drawer's bar and its todo and file
+    // lists), and a getter that walked the transcript per read cost 20 full passes per
+    // streamed `args` delta — seconds of main thread over a long run. Plain props keep every reader subscribed (reading a reactive
     // prop subscribes) at O(1) a read; what must never come back is a value *cached inside
     // a getter*, which serves every reader after the first without touching `turns` and
     // leaves those bindings subscribed to nothing.
@@ -1114,8 +1114,9 @@
       const at = running >= 0 ? running : todos.findIndex((t) => status(t) !== "completed");
       const current = todos[at];
       let text = this._labels.filesChanged;
-      if (todos.length && !current) text = this._labels.allDone;
-      else if (current) text = stopped ? formatBraces(this._labels.stoppedAt, { step: current.content }) : current.content;
+      if (current) text = stopped ? formatBraces(this._labels.stoppedAt, { step: current.content }) : current.content;
+      else if (stopped) text = this._labels.stopped;
+      else if (todos.length) text = this._labels.allDone;
 
       return {
         tone: live ? "live" : stopped ? "warn" : "idle",
@@ -1234,8 +1235,6 @@
       }
     },
 
-    // What the hero's selection line shows before a thread exists: the two things the
-    // first turn will run with that aren't already on screen.
     _filesLabel(n) {
       return `${n} ${n === 1 ? this._labels.file : this._labels.files}`;
     },
@@ -1483,7 +1482,7 @@
       });
     },
 
-    // Status-letter marks, as the progress sheet's rows are specified. ``+``/``−``/``~``
+    // Status-letter marks for the progress drawer's file rows. ``+``/``−``/``~``
     // would read as line counts in a list that also carries them.
     fileOpMark(op) {
       switch ((op || "modified").toLowerCase()) {
