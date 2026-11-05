@@ -445,6 +445,7 @@ class TestRunBashCommands:
         backend.run_commands.assert_awaited_once()
         assert backend.run_commands.await_args.args[0] == ["echo ok"]
         assert backend.run_commands.await_args.kwargs["fail_fast"] is True
+        assert backend.run_commands.await_args.kwargs["timeout"] == 300
 
     async def _run_with_error(self, error: Exception) -> object:
         backend = sandbox_backend_on(Mock(), "sess_1")
