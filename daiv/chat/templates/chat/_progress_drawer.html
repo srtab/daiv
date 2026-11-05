@@ -2,15 +2,12 @@
 {% comment %}
 Progress drawer: a strip tucked behind the composer's top edge naming the step the run is on,
 opening upwards in place into the todos and files changed. ``progressDrawer`` (chat-stream.js)
-decides whether it shows and what the bar says, read once per change into ``drawer``; open is
-``sheet === 'progress'``.
+decides whether it shows and what the bar says; open is ``sheet === 'progress'``.
 {% endcomment %}
 <div class="progress-drawer"
-     x-data="{ drawer: null }"
-     x-effect="drawer = progressDrawer"
-     x-show="drawer && !archived"
+     x-show="progressDrawer"
      x-cloak
-     :class="{ ['progress-drawer--' + drawer?.tone]: drawer, 'progress-drawer--open': sheet === 'progress' }"
+     :class="{ ['progress-drawer--' + progressDrawer?.tone]: progressDrawer, 'progress-drawer--open': sheet === 'progress' }"
      @click.outside="if (sheet === 'progress') closeSheet()">
   <div id="progress-drawer-body" class="progress-drawer__body scrollbar-thin" x-show="sheet === 'progress'" x-cloak>
     <section class="composer-sheet__group">
@@ -63,17 +60,17 @@ decides whether it shows and what the bar says, read once per change into ``draw
           :aria-expanded="sheet === 'progress'"
           aria-controls="progress-drawer-body"
           title="{% translate 'Session progress' %}">
-    <span class="progress-drawer__live" x-show="drawer?.tone === 'live'" x-cloak aria-hidden="true"></span>
-    <span class="progress-drawer__step" x-show="drawer?.step" x-text="drawer?.step"></span>
-    <span class="progress-drawer__text" x-text="drawer?.text"></span>
+    <span class="progress-drawer__live" x-show="progressDrawer?.tone === 'live'" x-cloak aria-hidden="true"></span>
+    <span class="progress-drawer__step" x-show="progressDrawer?.step" x-text="progressDrawer?.step"></span>
+    <span class="progress-drawer__text" x-text="progressDrawer?.text"></span>
     <span class="progress-drawer__meta">
-      <template x-if="drawer?.diff">
+      <template x-if="progressDrawer?.diff">
         <span class="diff-stat">
-          <span class="diff-stat__plus" x-text="`+${drawer.diff.added}`"></span>
-          <span class="diff-stat__minus" x-text="`−${drawer.diff.removed}`"></span>
+          <span class="diff-stat__plus" x-text="`+${progressDrawer.diff.added}`"></span>
+          <span class="diff-stat__minus" x-text="`−${progressDrawer.diff.removed}`"></span>
         </span>
       </template>
-      <span class="progress-drawer__files" x-show="!drawer?.diff" x-text="drawer?.files"></span>
+      <span class="progress-drawer__files" x-show="!progressDrawer?.diff" x-text="progressDrawer?.files"></span>
       {% icon "chevron-down" "progress-drawer__chevron" %}
     </span>
   </button>

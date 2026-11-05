@@ -105,9 +105,6 @@ msgstr "Nenhum servidor corresponde"
 msgid "Session progress"
 msgstr "Progresso da sessão"
 
-msgid "Progress"
-msgstr "Progresso"
-
 msgid "Todos"
 msgstr "Tarefas"
 

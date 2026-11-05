@@ -322,6 +322,13 @@
   const FILE_FIELDS = ["path", "op", "fromPath", "segmentId"];
   const ARTIFACT_FIELDS = ["id", "status", "title", "filename", "kind", "size", "url", "download_url"];
 
+  const sameDrawer = (a, b) =>
+    a === b ||
+    (Boolean(a && b) &&
+      ["tone", "step", "text", "files"].every((f) => a[f] === b[f]) &&
+      a.diff?.added === b.diff?.added &&
+      a.diff?.removed === b.diff?.removed);
+
   const chat = (config) => {
   // What the transcript effect last published. Write-side only — never read by a binding —
   // so it is not the getter cache this replaced: it exists to keep the effect from reading
@@ -332,6 +339,7 @@
   let publishedArtifactsById = new Map();
   let publishedBlocks = [];
   let publishedGroupKey = null;
+  let publishedDrawer = null;
   return {
     endpoint: config.endpoint,
     streamEndpoint: config.streamEndpoint || "",
@@ -404,6 +412,7 @@
     _runAnchorWatch: null,
     _scrollListener: null,
     _deriveTranscript: null,
+    _deriveDrawer: null,
     // Wall-clock origin of the run in progress, 0 when idle. Read by the loader's
     // `elapsed` clock; set where a run actually starts, never inferred.
     runStartedAt: 0,
@@ -416,6 +425,8 @@
     // leaves those bindings subscribed to nothing.
     latestTodos: [],
     filesTouched: [],
+    // The drawer's bar, or ``null`` when it has nothing to show; derived by its own effect in `init()`.
+    progressDrawer: null,
     latestArtifactsById: new Map(),
     runBlocks: [],
     currentGroupKey: null,
@@ -427,8 +438,7 @@
     now: 0,
     _nowTimer: null,
     _announceOpen: null,
-    // Which composer sheet is open: "" | "options" | "progress". One at a time — the two
-    // are separate surfaces on purpose (what you configure vs. what the run produced).
+    // Which composer surface is open: "" | "options" | "context" | "progress" (the drawer). One at a time.
     sheet: "",
     // Translated fragments the JS composes counts out of; the server owns the wording.
     _labels: { ...DEFAULT_LABELS, ...(config.labels || {}) },
@@ -804,9 +814,13 @@
         if (groupKey !== publishedGroupKey) this.currentGroupKey = publishedGroupKey = groupKey;
       });
 
-      // A drawer emptied by a follow-up ask would otherwise reopen on its own next turn.
-      this.$watch("!progressDrawer", (gone) => {
-        if (gone && this.sheet === "progress") this.sheet = "";
+      // Apart from the transcript effect: it also follows run state and `diffStats`.
+      this._deriveDrawer = window.Alpine.effect(() => {
+        const next = this._buildProgressDrawer();
+        if (sameDrawer(next, publishedDrawer)) return;
+        // Emptied by a follow-up ask, an open drawer would otherwise reopen on its own next turn.
+        if (!next && this.sheet === "progress") this.sheet = "";
+        this.progressDrawer = publishedDrawer = next;
       });
 
       // <main> is the actual scroll container — body is h-dvh, so the window
@@ -858,6 +872,7 @@
 
     destroy() {
       if (this._deriveTranscript) window.Alpine.release(this._deriveTranscript);
+      if (this._deriveDrawer) window.Alpine.release(this._deriveDrawer);
       if (this._scrollListener && this._scrollEl) {
         this._scrollEl.removeEventListener("scroll", this._scrollListener);
       }
@@ -1100,13 +1115,13 @@
 
     // ``null`` when there is nothing to show: an empty drawer is worse than none. Line totals
     // wait for a finished run, since mid-turn or after a stop they describe unpublished work.
-    get progressDrawer() {
+    _buildProgressDrawer() {
       const todos = this.latestTodos;
       const files = this.filesTouched;
       const live = this.streaming || this.resuming;
       const stopped = !live && this._lastRunAborted();
-      const stats = this.diffStats;
-      const diff = !live && !stopped && !config.diffInDetails && stats && (stats.added || stats.removed) ? stats : null;
+      const stats = !live && !stopped && !config.diffInDetails ? this.diffStats : null;
+      const diff = stats && (stats.added || stats.removed) ? stats : null;
       if (!todos.length && !files.length && !diff) return null;
 
       const status = (t) => (t.status || "").toLowerCase();

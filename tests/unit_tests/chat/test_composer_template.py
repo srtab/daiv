@@ -91,7 +91,7 @@ def test_progress_lives_in_a_drawer_not_a_sheet(member_client, member_user):
     html = render_thread(member_client, create_session(member_user))
 
     assert "composer-sheet--options" in html
-    assert "composer-trigger--icon" in html
+    assert 'class="composer-trigger"' in html
     assert 'class="progress-drawer"' in html
     assert "composer-sheet--progress" not in html
     assert "composer-trigger--pill" not in html
@@ -108,21 +108,12 @@ def test_the_drawer_tucks_behind_the_composer_and_outside_its_form(member_client
 
 @pytest.mark.django_db
 def test_an_archived_session_hides_the_drawer_with_the_composer(member_client, member_user):
+    """One wrapper hides both, so nothing tucked against the composer outlives it."""
     html = render_thread(member_client, create_session(member_user))
-    drawer = re.search(r'<div class="progress-drawer"[^>]*>', html)[0]
+    wrapper = html.rindex('x-show="!archived"', 0, html.index('class="progress-drawer"'))
 
-    assert "!archived" in X_SHOW.search(drawer)[1]
-
-
-DRAWER_PARTIAL = DAIV_DIR / "chat" / "templates" / "chat" / "_progress_drawer.html"
-
-
-def test_the_drawer_derives_its_state_once_per_change():
-    """``progressDrawer`` is a getter that rebuilds on every read; each binding reading it
-    directly would rebuild it once per binding per streamed delta."""
-    bindings = re.findall(r'="[^"]*progressDrawer', DRAWER_PARTIAL.read_text(encoding="utf-8"))
-
-    assert len(bindings) == 1, bindings
+    assert wrapper < html.index('class="chat-composer"')
+    assert html.count('x-show="!archived"') == 1
 
 
 @pytest.mark.django_db
@@ -130,7 +121,7 @@ def test_the_plus_and_the_buttons_flank_the_text(member_client, member_user):
     html = render_thread(member_client, create_session(member_user))
     composer = html[html.index('class="chat-composer"') :]
 
-    plus = composer.index("composer-trigger--icon")
+    plus = composer.index('class="composer-trigger"')
     text = composer.index('id="chat_prompt"')
     assert plus < text < composer.index('class="chat-composer__buttons"')
 

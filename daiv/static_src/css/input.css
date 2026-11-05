@@ -3034,7 +3034,6 @@ html {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    justify-content: space-between;
     gap: 6px 12px;
     padding: 8px 2px 0;
   }
@@ -3065,6 +3064,10 @@ html {
 
   /* `+`, the text and the buttons share one row; they sit on its last line as the text grows. */
   .chat-composer {
+    --composer-font: 15px;
+    --composer-leading: 1.55;
+    /* One text line plus the textarea's 4px + 4px padding: the `+` and the buttons sit on it. */
+    --composer-line: calc(var(--composer-font) * var(--composer-leading) + 8px);
     position: relative;
     display: flex;
     align-items: flex-end;
@@ -3084,7 +3087,7 @@ html {
 
   /* In flight, the composer's settings read as inert — control by control, never as one fade on
      the form. An `opacity` there is a stacking context, and it holds the sheets opened from the
-     action row: below the scrim (`.sheet-backdrop`, z-index 55, a sibling of the form) and
+     composer: below the scrim (`.sheet-backdrop`, z-index 55, a sibling of the form) and
      faded with the rest of the subtree, panel background included. */
   .chat-composer--sending .composer-trigger,
   .chat-composer--sending .model-label {
@@ -3102,9 +3105,9 @@ html {
     resize: none;
     padding: 4px 2px !important;
     font-family: var(--font-sans);
-    font-size: 15px;
+    font-size: var(--composer-font);
     color: #fff;
-    line-height: 1.55;
+    line-height: var(--composer-leading);
     /* Sizes the box to what's in it, and the empty box to its *placeholder* — two lines
        where that wraps on a phone, one everywhere it fits, never a dead row. */
     field-sizing: content;
@@ -3116,15 +3119,6 @@ html {
   @supports not (field-sizing: content) {
     .chat-composer__textarea:placeholder-shown {
       min-height: calc(2lh + 8px);
-    }
-  }
-
-  /* Chromium drops the 6px `::-webkit-scrollbar` of `.scrollbar-thin` for its own arrowed bar
-     whenever `scrollbar-width` is set; Firefox has no such selector and keeps `thin`. */
-  @supports selector(::-webkit-scrollbar) {
-    .chat-composer__textarea.scrollbar-thin {
-      scrollbar-width: auto;
-      scrollbar-color: auto;
     }
   }
 
@@ -3142,7 +3136,7 @@ html {
     display: inline-flex;
     flex: 0 0 auto;
     align-items: center;
-    height: 31px;
+    height: var(--composer-line);
   }
 
   /* `min-width: 0` lets the model label be the part that gives when the row is
@@ -3152,7 +3146,7 @@ html {
     align-items: center;
     flex-shrink: 1;
     min-width: 0;
-    height: 31px;
+    height: var(--composer-line);
     gap: 8px;
   }
 
@@ -3275,25 +3269,20 @@ html {
     position: relative;
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    justify-content: center;
+    width: 28px;
     height: 28px;
+    padding: 0;
     border-radius: 999px;
     border: 1px solid var(--color-border);
     background: var(--color-surface-3);
     color: var(--color-text-muted);
-    font-size: 12px;
-    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    transition: border-color 0.15s ease, color 0.15s ease;
   }
 
   .composer-trigger:hover {
     border-color: color-mix(in srgb, var(--color-text-muted) 40%, var(--color-border));
     color: var(--color-text-strong);
-  }
-
-  .composer-trigger--icon {
-    width: 28px;
-    justify-content: center;
-    padding: 0;
   }
 
   /* Selection differs from the defaults — currently only MCP servers can cause it,
@@ -3475,7 +3464,6 @@ html {
 
   .chat-jump {
     position: absolute;
-    z-index: 1;
     left: 50%;
     bottom: calc(100% + 12px);
     transform: translateX(-50%);
@@ -3637,7 +3625,6 @@ html {
     align-items: center;
     gap: 6px;
     width: 100%;
-    min-width: 0;
     padding: 2px 0;
     line-height: 18px;
     text-align: left;
@@ -3651,12 +3638,7 @@ html {
     height: 5px;
     border-radius: 999px;
     background: var(--color-status-attn);
-    animation: progress-drawer-pulse 1.4s ease-in-out infinite;
-  }
-
-  @keyframes progress-drawer-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.25; }
+    animation: pulse-dot 1.4s ease-in-out infinite;
   }
 
   .progress-drawer__step {
@@ -4433,11 +4415,13 @@ html {
     @apply inline-flex items-center rounded-md bg-white/[0.05] px-1.5 py-0.5 font-mono text-[11px] text-gray-300;
   }
 
-  /* Thin, dimly-tinted scrollbar for scrollable popover lists (repo/branch/env pickers).
-     Firefox uses `scrollbar-*`; WebKit needs the pseudo-elements. */
-  .scrollbar-thin {
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+  /* Thin, dimly-tinted scrollbar. Firefox uses `scrollbar-*`; WebKit and Chromium the pseudo-elements,
+     which Chromium ignores once `scrollbar-width` is set — hence the guard. */
+  @supports not selector(::-webkit-scrollbar) {
+    .scrollbar-thin {
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+    }
   }
   .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
   .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
