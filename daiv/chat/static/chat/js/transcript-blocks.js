@@ -61,9 +61,15 @@
     return lastRowsId;
   };
 
-  const sumKey = (key) => (`sum_${key}` in window.TranscriptLabels.defaults ? `sum_${key}` : "sum_other");
+  const sumKey = (key, live) => {
+    const prefix = live ? "live_sum_" : "sum_";
+    const labelKey = prefix + key;
+    return labelKey in window.TranscriptLabels.defaults ? labelKey : `${prefix}other`;
+  };
 
   const sentenceCase = (s) => s.charAt(0).toLocaleUpperCase() + s.slice(1);
+
+  const lowerFirst = (s) => s.charAt(0).toLocaleLowerCase() + s.slice(1);
 
   const tally = (rows) => {
     const counts = { failed: 0, added: 0, removed: 0 };
@@ -80,29 +86,35 @@
   const summarize = (steps) => {
     const T = window.TranscriptLabels;
     const line = { icon: steps[0]?.row.icon ?? "", text: "", ...tally(steps.map((s) => s.row)), running: null };
-    const clauses = new Map();
+    // Clauses by tense: insertion order puts the part holding the first step first.
+    const byTense = new Map();
     let thoughtSecs = 0;
     let timed = true;
     for (const { seg, row } of steps) {
-      if (seg.status === "running") line.running = row.livePhrase;
+      const running = seg.status === "running";
+      if (running) line.running = row.livePhrase;
       const { key, name } = row.category;
       if (key === "thinking") {
         if (row.thoughtSecs == null) timed = false;
         else thoughtSecs += row.thoughtSecs;
         continue;
       }
+      if (!byTense.has(running)) byTense.set(running, new Map());
+      const clauses = byTense.get(running);
       const id = `${key}\n${name ?? ""}`;
-      const clause = clauses.get(id) ?? { key, name, count: 0 };
+      const clause = clauses.get(id) ?? { key, name, row, count: 0 };
       clause.count++;
       clauses.set(id, clause);
     }
-    if (clauses.size) {
-      line.text = [...clauses.values()]
-        .map((c, i) => {
-          const phrase = T.tn(sumKey(c.key), c.count, { name: c.name ?? "" });
-          return i === 0 ? sentenceCase(phrase) : phrase;
-        })
-        .join(", ");
+    const [first, second] = [...byTense].map(([live, clauses]) => {
+      const [only] = clauses.values();
+      if (live && clauses.size === 1 && only.count === 1 && only.row.hasLiveLabel) {
+        return lowerFirst(only.row.livePhrase);
+      }
+      return [...clauses.values()].map((c) => T.tn(sumKey(c.key, live), c.count, { name: c.name ?? "" })).join(", ");
+    });
+    if (first) {
+      line.text = sentenceCase(second ? T.t("sum_parts", { first, second }) : first);
     } else {
       line.text = timed ? T.t("thought_for", { duration: T.duration(thoughtSecs) }) : T.t("thought");
     }

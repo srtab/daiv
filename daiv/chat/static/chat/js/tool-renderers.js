@@ -654,12 +654,14 @@
     const part = build ? build(input) : mcpRow(name, input, ctx);
     const phrase = part.phrase ?? T.t(`row_${part.key}`, part.vars);
     const liveKey = `live_${part.key}`;
-    const livePhrase = part.phrase ?? (liveKey in T.defaults ? T.t(liveKey, part.vars) : phrase);
+    const hasLiveLabel = part.phrase == null && liveKey in T.defaults;
+    const livePhrase = hasLiveLabel ? T.t(liveKey, part.vars) : phrase;
     return {
       icon: part.icon,
       iconSrc: part.iconSrc ?? "",
       phrase,
       livePhrase,
+      hasLiveLabel,
       detail: part.detail ?? "",
       diff: part.diff ?? null,
       badges: part.badges ?? [],
