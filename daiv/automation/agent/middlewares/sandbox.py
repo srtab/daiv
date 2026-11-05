@@ -41,8 +41,6 @@ logger = logging.getLogger("daiv.tools")
 BASH_TOOL_NAME = "bash"
 
 BASH_DEFAULT_TIMEOUT = 300
-# The sandbox may hold a request for up to 30s waiting on the session lock before the command starts.
-_SANDBOX_REQUEST_HEADROOM = 60
 
 BASH_TOOL_DESCRIPTION = """\
 Executes a bash command in a persistent shell session.
@@ -101,9 +99,16 @@ Safety boundaries:
 
 
 def _bash_timeout_limits() -> tuple[int, int]:
-    """The default and maximum per-command timeout, both short enough to finish within the sandbox request timeout."""
-    maximum = max(1, int(site_settings.sandbox_timeout) - _SANDBOX_REQUEST_HEADROOM)
+    """The default and maximum per-command timeout; the maximum is the site's ``sandbox_timeout``."""
+    maximum = max(1, int(site_settings.sandbox_timeout))
     return min(BASH_DEFAULT_TIMEOUT, maximum), maximum
+
+
+def _command_timeout(requested: int | None, default: int, maximum: int) -> int:
+    """The timeout to run a command with: 0 or less asks for no limit, so it gets the maximum."""
+    if requested is None:
+        return default
+    return min(requested, maximum) if requested > 0 else maximum
 
 
 def _bash_tool_description(default_timeout: int, max_timeout: int) -> str:
@@ -111,7 +116,8 @@ def _bash_tool_description(default_timeout: int, max_timeout: int) -> str:
         f"{BASH_TOOL_DESCRIPTION}\n"
         "Timeouts:\n"
         f"- A command times out after {default_timeout} seconds. Pass `timeout` (in seconds, at most {max_timeout}) "
-        "for a command you expect to take longer, such as a full test suite or a build.\n"
+        "for a command you expect to take longer, such as a full test suite or a build. A larger `timeout`, or 0, "
+        "gets the maximum.\n"
         f"- A timed-out command returns exit code {SANDBOX_TIMEOUT_EXIT_CODE}.\n"
     )
 
@@ -130,7 +136,10 @@ def _explain_sandbox_timeout(result: RunCommandResult, timeout: int, max_timeout
     if result.timed_out:
         return result.model_copy(update={"output": f"{result.output}\n{advice}"})
     if result.exit_code == SANDBOX_TIMEOUT_EXIT_CODE and result.output == f"Command timed out after {timeout}s":
-        output = f"Command timed out after {timeout}s and may still be running in the sandbox. {advice}"
+        output = (
+            f"Command timed out after {timeout}s and may still be running in the sandbox. Stop it (for example "
+            f"with `pkill -f`) before you run it again, or the two runs overlap. {advice}"
+        )
         return result.model_copy(update={"output": output})
     return result
 
@@ -401,14 +410,16 @@ class SandboxMiddleware(AgentMiddleware):
         async def bash_tool(
             command: Annotated[str, "The command to execute."],
             runtime: ToolRuntime[RuntimeCtx],
-            timeout: Annotated[int | None, "Seconds to let the command run. Omit to use the default."] = None,
+            timeout: Annotated[
+                int | None, "Seconds to let the command run; 0 means the maximum. Omit to use the default."
+            ] = None,
         ) -> str:
             """Run a Bash command in the persistent shell session of this run."""
             denial_error = _check_command_policy(command, runtime)
             if denial_error:
                 return denial_error
 
-            limit = min(timeout, max_timeout) if timeout and timeout > 0 else default_timeout
+            limit = _command_timeout(timeout, default_timeout, max_timeout)
             result = await _run_bash_commands(self._bash, [command], timeout=limit)
             if isinstance(result, BashFailure):
                 return _BASH_FAILURE_MESSAGES[result]

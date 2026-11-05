@@ -26,7 +26,7 @@ With the sandbox enabled, DAIV can:
 
 Each sandbox session works on the repository's codebase and persists state across invocations within the same task, so the agent can install a dependency in one step and use it in the next. When a run ends — finished, failed or stopped — DAIV stops its container, and the session's next turn restarts and reuses it, so what the agent installed is still there. The turn starts from a fresh container instead when the session's [environment changed](sandbox-environments.md) or the sandbox has since reclaimed the old one.
 
-Each command times out after 5 minutes. The agent can give a command it expects to run longer, such as a full test suite or a build, up to 60 seconds less than `DAIV_SANDBOX_TIMEOUT` (9 minutes at the default of 600). A timed-out command ends with exit code `124`. Releases of daiv-sandbox after 0.5.0 stop it, along with every process it started, and the agent sees what it printed before the timeout. daiv-sandbox 0.5.0 leaves it running in the container, and the agent is told so.
+Each command times out after 5 minutes. The agent can give a command it expects to run longer, such as a full test suite or a build, a timeout of up to the **sandbox timeout** (set in the site configuration or with `DAIV_SANDBOX_TIMEOUT`, 10 minutes by default); a sandbox timeout below 5 minutes lowers the default too. A timed-out command ends with exit code `124`. Releases of daiv-sandbox after 0.5.0 stop it, along with every process it started, and the agent sees what it printed before the timeout. daiv-sandbox 0.5.0 leaves it running in the container, so the agent is told to stop it before running it again; upgrade the sandbox to have it stopped for you.
 
 ## Command policy
 

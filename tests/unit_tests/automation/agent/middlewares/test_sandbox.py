@@ -137,18 +137,23 @@ class TestBashTool:
     async def test_a_command_gets_the_timeout_it_asks_for(self):
         assert await self._sent_timeout(timeout=45) == 45
 
-    async def test_a_timeout_is_capped_below_the_sandbox_request_timeout(self):
-        """The command must end before the HTTP call to the sandbox gives up, or the agent gets a transport error."""
-        assert await self._sent_timeout(sandbox_timeout=600, timeout=3600) == 540
+    async def test_a_timeout_is_capped_at_the_sandbox_timeout(self):
+        assert await self._sent_timeout(sandbox_timeout=600, timeout=3600) == 600
+
+    async def test_a_timeout_of_zero_gets_the_maximum(self):
+        assert await self._sent_timeout(sandbox_timeout=600, timeout=0) == 600
 
     async def test_the_default_timeout_is_capped_too(self):
-        assert await self._sent_timeout(sandbox_timeout=200) == 140
+        assert await self._sent_timeout(sandbox_timeout=200) == 200
+
+    async def test_a_short_sandbox_timeout_is_still_the_maximum(self):
+        assert await self._sent_timeout(sandbox_timeout=30, timeout=120) == 30
 
     def test_the_tool_description_states_the_default_and_the_maximum(self):
         with patch.object(site_settings, "sandbox_timeout", 900):
             bash_tool = _bash_tool_with_fake_client(Mock())
         assert "300 seconds" in bash_tool.description
-        assert "840" in bash_tool.description
+        assert "900" in bash_tool.description
 
     async def test_a_killed_command_keeps_its_output_and_says_what_to_do_next(self):
         killed = RunCommandResult(
@@ -165,7 +170,7 @@ class TestBashTool:
 
         result = json.loads(output)["commands"][0]
         assert result["output"].startswith("collected 12 items\nCommand timed out after 300s and was killed.")
-        assert "540" in result["output"]
+        assert "at most 600 seconds" in result["output"]
         assert "may still be running" not in result["output"]
         assert set(result) == {"command", "output", "exit_code"}
 
@@ -182,7 +187,22 @@ class TestBashTool:
         result = json.loads(output)["commands"][0]
         assert result["exit_code"] == 124
         assert "may still be running" in result["output"]
-        assert "540" in result["output"]
+        assert "Stop it" in result["output"]
+        assert "at most 600 seconds" in result["output"]
+
+    async def test_a_command_timed_out_at_the_maximum_is_told_to_narrow_down(self):
+        killed = RunCommandResult(
+            command="pytest", output="Command timed out after 600s and was killed.", exit_code=124, timed_out=True
+        )
+        client = Mock()
+        client.run_commands = AsyncMock(return_value=RunCommandsResponse(results=[killed]))
+        bash_tool = _bash_tool_with_fake_client(client)
+
+        output = await bash_tool.coroutine(command="pytest", runtime=_make_bash_runtime(Mock()), timeout=600)
+
+        result = json.loads(output)["commands"][0]
+        assert "600 seconds is the maximum" in result["output"]
+        assert "larger `timeout`" not in result["output"]
 
     async def test_exit_124_from_the_command_itself_is_left_alone(self):
         """``timeout 5 make`` exits 124 too; only the sandbox's own timeout gets the explanation."""
