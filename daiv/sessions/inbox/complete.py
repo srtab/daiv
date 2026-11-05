@@ -189,7 +189,7 @@ class RunEnd:
         """Remind the parent of a delegated session of each CI failure that woke the run, when the run pushed
         nothing."""
         run = self.run
-        if Run.objects.filter(pk=run.pk).exclude(pushed_sha="").exists():
+        if Run.objects.filter(pk=run.pk).exclude(pushed_sha="", sibling_pushed_shas=[]).exists():
             return
         session = Session.objects.only("thread_id", "parent_id", "repo_id").get(pk=run.session_id)
         for event in woken_by_ci:
@@ -275,7 +275,7 @@ class FailedAttempt:
             if session is None or session.parent_id is None:
                 continue
             tried = {*event.payload.get("tried_runs", []), *([str(event.run_id)] if event.run_id else [])}
-            if not Run.objects.filter(pk__in=tried).exclude(pushed_sha="").exists():
+            if not Run.objects.filter(pk__in=tried).exclude(pushed_sha="", sibling_pushed_shas=[]).exists():
                 Inbox.post_no_push(session, event)
 
     def _tell_mentions_they_failed(self, mentions: list[InboxEvent]) -> None:

@@ -383,7 +383,7 @@ _SHARED_REPOS = [{"repo_id": "g/app", "ref": None}, {"repo_id": "g/mod", "ref": 
 def _shared_result(run):
     from sessions.services import BatchSubmitResult
 
-    return BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[run])
+    return BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[run], shared=True)
 
 
 @pytest.mark.django_db(transaction=True)

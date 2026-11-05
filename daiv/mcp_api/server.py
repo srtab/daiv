@@ -318,8 +318,7 @@ async def submit_job(
     except AdmissionError as err:
         return json.dumps({"error": str(err)})
 
-    # Walk the specs, not the runs, to echo the client-sent ref value (None vs ""). A shared session's single
-    # outcome pairs with its main repository, the first spec.
+    # Walk the specs, not the runs, to echo the client-sent ref value (None vs "").
     jobs = [
         {
             "job_id": str(outcome.id),
@@ -328,7 +327,7 @@ async def submit_job(
             "thread_id": str(outcome.session_id) if outcome.session_id else None,
             "status": str(outcome.status),
         }
-        for spec, outcome in zip(specs, result.outcomes, strict=False)
+        for spec, outcome in zip(specs[:1] if result.shared else specs, result.outcomes, strict=True)
         if not isinstance(outcome, BatchSubmitFailure)
     ]
     job_ids = [str(run.id) for run in result.runs]

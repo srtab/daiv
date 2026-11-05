@@ -740,15 +740,17 @@ def publish_failure(slug: str, exc: Exception) -> str:
 
 
 def _extra_repo_ctx(ctx: RuntimeCtx, handle: RepoHandle) -> RuntimeCtx:
-    """``ctx`` seen through ``handle`` alone, minus the platform-issue references (in ``handle``'s merge request their
-    ``Closes`` line would name an issue of ``handle``'s repository, not the one meant) and with every other reference
-    only related: a ``Fixes`` line in each repository would close the work item when the first of them merges."""
+    """``ctx`` seen through ``handle`` alone, minus the main repository's issue and the platform-issue references (in
+    ``handle``'s merge request their ``Closes`` line would name an issue of ``handle``'s repository, not the one meant)
+    and with every other reference only related: a ``Fixes`` line in each repository would close the work item when
+    the first of them merges."""
     references = tuple(
         ref.model_copy(update={"relation": "relates"})
         for ref in ctx.references
         if ref.provider not in PLATFORM_ISSUE_PROVIDERS
     )
-    return replace(ctx, repos=(handle,), references=references)
+    scope = Scope.GLOBAL if ctx.scope == Scope.ISSUE else ctx.scope
+    return replace(ctx, repos=(handle,), references=references, issue=None, scope=scope)
 
 
 async def aopen_branch_merge_request(handle: RepoHandle, *, strict: bool = False) -> MergeRequest | None:

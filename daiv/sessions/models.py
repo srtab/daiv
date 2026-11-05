@@ -425,6 +425,7 @@ class Run(models.Model):
     )
     merge_requests = models.JSONField(_("merge requests"), default=list, blank=True)
     publish_errors = models.JSONField(_("publish errors"), default=list, blank=True)
+    sibling_pushed_shas = models.JSONField(_("sibling pushed commits"), default=list, blank=True)
 
     # Denormalized result / error / usage — copied verbatim from Activity.
     result_summary = models.TextField(_("result summary"), blank=True, default="")

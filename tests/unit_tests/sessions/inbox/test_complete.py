@@ -307,13 +307,19 @@ class TestOwnerlessCiReport:
 
 class TestDelegatedNoPush:
     async def _ci_run(
-        self, *, pushed_sha: str = "", parent: bool = True, status=RunStatus.SUCCESSFUL, attempts: int = 0
+        self,
+        *,
+        pushed_sha: str = "",
+        sibling_pushed_shas: tuple[str, ...] = (),
+        parent: bool = True,
+        status=RunStatus.SUCCESSFUL,
+        attempts: int = 0,
     ) -> Run:
         coordinator = await amake_session(repo_id="group/coordinator") if parent else None
         session = await amake_session(parent=coordinator)
         run = await Run.objects.acreate(
             session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id=session.repo_id, status=status,
-            pushed_sha=pushed_sha,
+            pushed_sha=pushed_sha, sibling_pushed_shas=list(sibling_pushed_shas),
         )  # fmt: skip
         await amake_event(
             session, EventKind.CI_FAILED, run=run, state=EventState.TAKEN, merge_request_iid=9, attempts=attempts
@@ -374,18 +380,22 @@ class TestDelegatedNoPush:
         ("fields"),
         [
             {"pushed_sha": "f00dfeed"},
+            {"sibling_pushed_shas": ("f00dfeed",)},
             {"pushed_sha": "f00dfeed", "status": RunStatus.WAITING_INPUT},
             {"parent": False},
             {"status": RunStatus.FAILED},
             {"status": RunStatus.FAILED, "attempts": MAX_EVENT_ATTEMPTS - 1, "pushed_sha": "f00dfeed"},
+            {"status": RunStatus.FAILED, "attempts": MAX_EVENT_ATTEMPTS - 1, "sibling_pushed_shas": ("f00dfeed",)},
             {"status": RunStatus.FAILED, "attempts": MAX_EVENT_ATTEMPTS - 1, "parent": False},
         ],
         ids=[
             "pushed",
+            "pushed-to-a-sibling",
             "asked-after-pushing",
             "no-parent",
             "failed",
             "failed-for-good-after-pushing",
+            "failed-for-good-after-pushing-to-a-sibling",
             "failed-for-good-without-a-parent",
         ],
     )

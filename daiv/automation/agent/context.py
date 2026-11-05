@@ -1,9 +1,11 @@
+import asyncio
 import logging
 import sys
 from collections.abc import AsyncGenerator, Awaitable, Generator  # noqa: TC003
 from contextlib import ExitStack, asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from functools import partial
 from time import monotonic
 from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
@@ -262,8 +264,9 @@ async def set_runtime_ctx(
             the remote (a merged-and-deleted branch) retries on the repository default branch
             instead of raising. ``ctx.repo.ref`` then reflects the branch actually used.
         repo_client: The run's platform client (``ctx.repo.client``); the configured platform's when omitted.
-        extra_repos: Repositories cloned beside the main one, in order, off the event loop; a missing ref falls
-            back to the default branch under the same ``fallback_ref_on_missing`` rule as the main one.
+        extra_repos: Repositories cloned beside the main one, in parallel off the event loop and kept in order; a
+            missing ref falls back to the default branch under the same ``fallback_ref_on_missing`` rule as the main
+            one.
 
     Yields:
         RuntimeCtx: The runtime context
@@ -290,12 +293,17 @@ async def set_runtime_ctx(
             handles = [
                 _clone_handle(clones, repo_client, repo_id, repository, config, ref, fallback=fallback_ref_on_missing)
             ]
-            for extra in extra_repos:
-                handles.append(
-                    await sync_to_async(_clone_extra_handle)(
-                        clones, repo_client, extra, offline=offline, fallback=fallback_ref_on_missing
-                    )
-                )
+            # return_exceptions: every clone must have entered ``clones`` before a failure unwinds it.
+            clone_extra = partial(
+                _clone_extra_handle, clones, repo_client, offline=offline, fallback=fallback_ref_on_missing
+            )
+            extras = await asyncio.gather(
+                *(asyncio.to_thread(clone_extra, extra) for extra in extra_repos), return_exceptions=True
+            )
+            for extra_handle in extras:
+                if isinstance(extra_handle, BaseException):
+                    raise extra_handle
+                handles.append(extra_handle)
             ctx = RuntimeCtx(
                 bot_username=repo_client.current_user.username,
                 repos=tuple(handles),

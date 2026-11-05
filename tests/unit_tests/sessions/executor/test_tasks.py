@@ -495,6 +495,7 @@ async def test_run_job_task_forwards_ref_and_acting_user():
 
 @pytest.mark.django_db(transaction=True)
 async def test_a_multi_repo_continuation_joins_the_next_run_and_clones_main_where_the_session_moved(member_user):
+    from sessions.inbox.pending import PendingEvents
     from sessions.multi_repo import asubmit_shared_session_run
     from sessions.services import RepoTarget
 
@@ -516,6 +517,9 @@ async def test_a_multi_repo_continuation_joins_the_next_run_and_clones_main_wher
     follow_up = await InboxEvent.objects.aget(session_id=first.session_id, kind=EventKind.FOLLOW_UP_JOB)
     assert follow_up.run_id == queued.pk
     await Session.objects.filter(pk=first.session_id).aupdate(ref="daiv/fix-1")
+    session = await Session.objects.aget(pk=first.session_id)
+    await sync_to_async(PendingEvents(session, [follow_up]).follow_session_branch)([queued])
+    await queued.arefresh_from_db()
     captured = await _runtime_ctx_kwargs(first.session_id, ref=queued.ref)
     assert captured["ref"] == "daiv/fix-1"
 

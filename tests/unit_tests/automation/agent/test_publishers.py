@@ -20,6 +20,7 @@ from automation.agent.publishers import (
     GitChangePublisher,
     PublishOutcome,
     UnresolvedMergeConflictsError,
+    _extra_repo_ctx,
     append_trailer,
     apublish_extra_repos,
     run_base_branch,
@@ -1672,6 +1673,21 @@ async def test_the_diff_to_metadata_chain_and_trace_label_are_the_repos():
 
     assert [c.kwargs["model"] for c in get_model.call_args_list] == ["repo-model", "repo-fallback"]
     assert trace_models == ["repo-model"]
+
+
+def test_a_siblings_view_drops_the_main_repositorys_issue():
+    """Its merge request would otherwise be written as addressing an issue number of its own repository."""
+    issue = Issue(iid=12, title="Broken parser", description="d", author=User(id=1, username="u"))
+    ctx = RuntimeCtx(
+        bot_username="daiv",
+        repos=(make_repo_handle("g/app"), make_repo_handle("g/mod")),
+        scope=Scope.ISSUE,
+        issue=issue,
+    )
+
+    sibling = _extra_repo_ctx(ctx, ctx.extra_repos[0])
+
+    assert (sibling.repository.slug, sibling.scope, sibling.issue) == ("g/mod", Scope.GLOBAL, None)
 
 
 class TestDiffToMetadataExtraContext:

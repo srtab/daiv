@@ -1136,6 +1136,25 @@ _SIBLING_ERROR = RepoPublish(
 
 
 class TestExtraRepoPublish:
+    async def test_the_siblings_publish_after_the_main_repository(self):
+        """The turn-end claim is what marks a sibling's push as DAIV's, so the siblings push last."""
+        order: list[str] = []
+        mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+
+        with (
+            patch("automation.agent.publishers.GitChangePublisher") as sibling_cls,
+            patch("automation.agent.middlewares.git.GitChangePublisher") as main_cls,
+        ):
+            sibling_cls.return_value.publish = AsyncMock(
+                side_effect=lambda **_: order.append("g/mod") or PublishOutcome(merge_request=None, published=False)
+            )
+            main_cls.return_value.publish = AsyncMock(
+                side_effect=lambda **_: order.append("g/app") or PublishOutcome(merge_request=_mr(), published=True)
+            )
+            await mw.aafter_agent({"merge_request": None}, _multi_repo_runtime(make_repo_handle("g/mod")))
+
+        assert order == ["g/app", "g/mod"]
+
     async def test_sibling_failure_is_recorded_and_main_still_publishes(self, caplog):
         mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
 

@@ -200,8 +200,11 @@ async def asubmit_shared_session_run(
     mcp_overrides: dict | None = None,
 ) -> BatchSubmitResult:
     """Submit one run over several repositories: a new shared session, or a continuation of one, which goes to its
-    inbox like any follow-up job (:func:`sessions.services._asubmit_follow_up`) and follows the session's branch."""
-    validate_shared_repos(repos, continuation=thread_id is not None)
+    inbox like any follow-up job (:func:`sessions.services._asubmit_follow_up`) and follows the session's branch.
+
+    For :func:`asubmit_jobs` only, which has already validated ``repos`` (:func:`validate_shared_repos`), admitted
+    them, and checked that ``thread_id`` names a multi-repository session the user owns.
+    """
     refs = [*(references or []), *(ref for t in repos for ref in t.references)]
     stored_refs = [ref.to_stored() for ref in refs]
     if len(stored_refs) > MAX_REFS_PER_SUBMISSION:
@@ -209,14 +212,8 @@ async def asubmit_shared_session_run(
 
     batch_id = uuid.uuid4()
     if thread_id is not None:
-        try:
-            uuid.UUID(thread_id)
-        except (ValueError, TypeError) as err:
-            raise SharedSessionError("thread_id must be a UUID string") from err
-        session = await Session.objects.filter(pk=thread_id).afirst()
-        stored_ids = await session.arepo_ids() if session else []
-        if len(stored_ids) < 2:
-            raise SharedSessionError(f"thread {thread_id} is not a multi-repository session")
+        session = await Session.objects.aget(pk=thread_id)
+        stored_ids = await session.arepo_ids()
         _validate_continuation(repos, stored_ids)
         await aassert_repo_access(user, stored_ids)
         follow_up = await _asubmit_follow_up(
@@ -231,9 +228,8 @@ async def asubmit_shared_session_run(
             references=stored_refs,
             mcp_overrides=mcp_overrides,
         )
-        return BatchSubmitResult(batch_id=batch_id, outcomes=[follow_up])
+        return BatchSubmitResult(batch_id=batch_id, outcomes=[follow_up], shared=True)
 
-    await aassert_repo_access(user, [target.repo_id for target in repos])
     run_kwargs = {
         "trigger_type": trigger_type,
         "prompt": prompt,
@@ -258,7 +254,9 @@ async def asubmit_shared_session_run(
         log_context=log_context,
         mcp_overrides=mcp_overrides,
     )
-    result = BatchSubmitResult(batch_id=batch_id, outcomes=[await _astart_run(claimed, log_context=log_context)])
+    result = BatchSubmitResult(
+        batch_id=batch_id, outcomes=[await _astart_run(claimed, log_context=log_context)], shared=True
+    )
     await _aenqueue_batch_title(
         batch_id=batch_id, prompt=prompt, user=user, trigger_type=trigger_type, runs=result.runs
     )

@@ -156,8 +156,8 @@ async def test_one_shot_run_loads_no_extra_repos():
     assert stack.context_kwargs["extra_repos"] == []
 
 
-async def test_a_multi_repo_run_clones_main_on_the_sessions_current_branch():
-    spec = make_spec(ref="dev", fallback_ref_on_missing=True)
+async def test_a_multi_repo_run_without_a_ref_clones_main_on_the_sessions_current_branch():
+    spec = make_spec(ref="", fallback_ref_on_missing=True)
 
     with agent_stack(_agent()) as stack:
         stack.load_extra_repos.return_value = [SimpleNamespace(repo_id="g/mod", ref="", sandbox_environment_id=None)]
@@ -167,6 +167,17 @@ async def test_a_multi_repo_run_clones_main_on_the_sessions_current_branch():
     stack.session_ref.assert_awaited_once_with(thread_id=spec.thread_id)
     assert stack.context_kwargs["ref"] == "daiv/fix-1"
     stack.reset.assert_awaited_once_with(thread_id=spec.thread_id, new_ref="main")
+
+
+async def test_a_multi_repo_run_clones_main_on_the_ref_it_was_given():
+    """A CI failure on an older merge request of the session runs on that merge request's branch."""
+    with agent_stack(_agent()) as stack:
+        stack.load_extra_repos.return_value = [SimpleNamespace(repo_id="g/mod", ref="", sandbox_environment_id=None)]
+        stack.session_ref.return_value = "daiv/fix-2"
+        await execute_run(make_spec(ref="daiv/fix-1"))
+
+    stack.session_ref.assert_not_awaited()
+    assert stack.context_kwargs["ref"] == "daiv/fix-1"
 
 
 async def test_a_single_repo_run_clones_the_ref_it_was_given():
@@ -601,6 +612,22 @@ async def test_after_run_keeps_each_sibling_publish_and_claims_each_published_me
     persisted = stack.persist_extra.await_args.args
     assert persisted[0] == spec.thread_id
     assert [rp.repo_id for rp in persisted[1]] == ["g/mod", "g/lib"]
+
+
+async def test_after_run_records_the_commits_it_pushed_to_sibling_repositories():
+    state = {"published": True, "repo_publishes": [*_sibling_state("g/mod"), *_sibling_state("g/lib", published=False)]}
+    rows = MagicMock(aupdate=AsyncMock())
+
+    with (
+        agent_stack(_agent(state=state)),
+        patch("sessions.executor.run._persist_resolved_agent", new=AsyncMock()),
+        patch("sessions.executor.run._record_measurements", new=AsyncMock()),
+        patch("sessions.executor.run.Run.objects.filter", return_value=rows) as runs,
+    ):
+        await execute_run(make_spec(run_id="run-1"))
+
+    runs.assert_any_call(pk="run-1")
+    rows.aupdate.assert_any_await(sibling_pushed_shas=["sha1"])
 
 
 async def test_after_run_claims_no_sibling_merge_request_it_did_not_publish_to():

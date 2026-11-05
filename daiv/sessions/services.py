@@ -59,10 +59,12 @@ class BatchSubmitFailure:
 
 @dataclass(frozen=True)
 class BatchSubmitResult:
-    """``outcomes`` holds one entry per submitted target, in order: its ``Run``, or why it could not start."""
+    """``outcomes`` holds one entry per submitted target, in order: its ``Run``, or why it could not start. A ``shared``
+    session's single outcome is its main repository's, the first target."""
 
     batch_id: uuid.UUID
     outcomes: list[Run | BatchSubmitFailure] = field(default_factory=list)
+    shared: bool = False
 
     @property
     def runs(self) -> list[Run]:

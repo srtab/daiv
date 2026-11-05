@@ -381,8 +381,10 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
     else:
         thread_id, checkpoints = spec.thread_id, open_checkpointer()
     extra_rows = await aload_extra_repos(spec.thread_id) if spec.thread_id is not None else []
-    # A turn queued behind another must continue on the branch that turn moved the main repository to.
-    main_ref = (await aget_session_ref(thread_id=thread_id) or None) if extra_rows else spec.ref
+    main_ref = spec.ref
+    if extra_rows and not main_ref:
+        # Like its extra repositories, a multi-repo run with no ref of its own continues on the session's branch.
+        main_ref = await aget_session_ref(thread_id=thread_id) or None
     async with (
         set_runtime_ctx(
             repo_id=spec.repo_id,
@@ -641,7 +643,8 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
 async def _record_sibling_publishes(
     spec: RunSpec, run: AgentRun, publishes: Sequence[RepoPublish], *, claim: bool = False
 ) -> None:
-    """Keep each extra repository's branch and merge request on its row, so the next turn continues there. With
+    """Keep each extra repository's branch and merge request on its row, so the next turn continues there, and the
+    commits the run pushed there on the run (``Run.sibling_pushed_shas``), so they are known as DAIV's. With
     ``claim``, the session also claims each merge request the run published to, as it does the main repository's, so
     its CI failures and mentions reach the session's inbox."""
     if publishes and spec.persist_ref:
@@ -649,6 +652,12 @@ async def _record_sibling_publishes(
             await apersist_extra_repo_state(run.thread_id, publishes)
         except Exception:
             logger.exception("executor: failed to persist extra repository state for thread_id=%s", run.thread_id)
+    pushed_shas = [publish.pushed_sha for publish in publishes if publish.pushed_sha]
+    if pushed_shas and spec.run_id is not None:
+        try:
+            await Run.objects.filter(pk=spec.run_id).aupdate(sibling_pushed_shas=pushed_shas)
+        except Exception:
+            logger.exception("executor: failed to record the extra repositories' pushes for run=%s", spec.run_id)
     if not claim or not spec.arm_watch or spec.run_id is None:
         return
     for publish in publishes:

@@ -72,8 +72,7 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
             # A follow-up's run may have started, or even ended, by the time it is returned.
             status="QUEUED" if outcome.status == RunStatus.QUEUED else "READY",
         )
-        # A shared session's single outcome pairs with its main repository, the first spec.
-        for spec, outcome in zip(payload.repos, result.outcomes, strict=False)
+        for spec, outcome in zip(payload.repos[:1] if result.shared else payload.repos, result.outcomes, strict=True)
         if not isinstance(outcome, BatchSubmitFailure)
     ]
 

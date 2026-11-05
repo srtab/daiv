@@ -400,3 +400,15 @@ class TestSiblingRepository:
 
         [pushed] = await _events(run.session_id)
         assert (pushed.kind, pushed.repo_id, pushed.ref) == (EventKind.BRANCH_PUSHED, self.SIBLING, MR["source_branch"])
+
+    async def test_a_push_a_run_of_the_session_recorded_as_its_own_is_not_remembered(self):
+        """The claim lags the push; the run already recorded the commit as DAIV's."""
+        run = await _publishing_run(await _user("alice"))
+        await self._claim_sibling(run)
+        await Run.objects.filter(pk=run.pk).aupdate(sibling_pushed_shas=["0a1b2c3d"])
+
+        await Ownerships(self.SIBLING).aclassify_push(
+            branch=MR["source_branch"], before="5f6e7d8c", after="0a1b2c3d", pusher_username="daiv", commit_count=1
+        )
+
+        assert await _events(run.session_id) == []
