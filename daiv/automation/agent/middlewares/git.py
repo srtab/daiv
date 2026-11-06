@@ -13,7 +13,12 @@ from langchain_core.prompts import SystemMessagePromptTemplate
 from langsmith import get_current_run_tree
 
 from automation.agent.context import RuntimeCtx, extra_repo_path
-from automation.agent.events import PUBLISH_RESULT_EVENT, publish_result_payload, published_outcome_payload
+from automation.agent.events import (
+    PUBLISH_RESULT_EVENT,
+    publish_result_payload,
+    published_outcome_payload,
+    repo_publish_payload,
+)
 from automation.agent.git_state import RepoPublish, checkpointed_merge_request, effective_merge_request
 from automation.agent.publish_errors import publish_error_kind
 from automation.agent.publishers import (
@@ -25,12 +30,13 @@ from automation.agent.publishers import (
     publish_failure,
 )
 from automation.agent.sibling_links import RelatedMergeRequest, aensure_related_links
+from automation.agent.synthetic import PUBLISH_FAILURES_KIND, synthetic_ai_message
 from automation.agent.utils import final_assistant_text, streamed_assistant_message
 from automation.agent.workspace.git_runners import SandboxGitProtocolError
 from codebase.base import MergeRequest, Scope
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Sequence
 
     from langgraph.runtime import Runtime
 
@@ -177,11 +183,21 @@ def _sibling_failure_notice(ctx: RuntimeCtx, repo_publishes: list[RepoPublish]) 
     failed = [
         f"- `{handle.repository.slug}`: {publish.error}"
         for handle, publish in zip(ctx.extra_repos, repo_publishes, strict=True)
-        if publish.error
+        if publish.error and publish.error_kind != "conflicts"
     ]
     if not failed:
         return None
     return "\n".join(["I couldn't publish the changes in these repositories:", *failed])
+
+
+def _conflicts_notice(paths: Sequence[str], *, where: str) -> str:
+    """The reply naming the files still holding conflict markers; ``where`` is a trailing place phrase or ``""``."""
+    there = " there" if where else ""
+    return (
+        f"I didn't publish the merge{where}: {', '.join(f'`{path}`' for path in paths)} still "
+        f"{'has' if len(paths) == 1 else 'have'} conflict markers, so nothing was committed or "
+        f"pushed{there}. Ask me to finish resolving them."
+    )
 
 
 class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
@@ -516,19 +532,21 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 skip_ci=self.skip_ci,
                 agent_summary=None if multi_repo else agent_summary,
             )
+            if outcome.published:
+                await self._emit_publish_result(published_outcome_payload(outcome, repository=ctx.repo.repo_id))
         except UnresolvedMergeConflictsError as exc:
             logger.warning("Not publishing: %s", exc)
             if multi_repo:
                 update["main_publish_error"] = str(exc)
-            in_main, there = (f" in the main repository `{ctx.repository.slug}`", " there") if multi_repo else ("", "")
-            notice = (
-                f"I didn't publish the merge{in_main}: {', '.join(f'`{path}`' for path in exc.paths)} still "
-                f"{'has' if len(exc.paths) == 1 else 'have'} conflict markers, so nothing was committed or "
-                f"pushed{there}. Ask me to finish resolving them."
+            where = f" in the main repository `{ctx.repository.slug}`" if multi_repo else ""
+            notice = _conflicts_notice(exc.paths, where=where)
+            await self._emit_publish_result(
+                publish_result_payload(status="not_published", error_kind="conflicts", repository=ctx.repo.repo_id)
             )
-            await self._emit_publish_result(publish_result_payload(status="not_published", error_kind="conflicts"))
         except Exception as exc:
-            await self._emit_publish_result(publish_result_payload(status="failed", error_kind=publish_error_kind(exc)))
+            await self._emit_publish_result(
+                publish_result_payload(status="failed", error_kind=publish_error_kind(exc), repository=ctx.repo.repo_id)
+            )
             if not multi_repo:
                 raise
             logger.exception("Publishing to %s failed", ctx.repository.slug)
@@ -544,6 +562,9 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 ctx, self._workspace, settings=self._settings, session_links=self._session_links, skip_ci=self.skip_ci
             )
             update["repo_publishes"] = [publish.to_state() for publish in repo_publishes]
+            for publish in repo_publishes:
+                if (payload := repo_publish_payload(publish)) is not None:
+                    await self._emit_publish_result(payload)
 
         # A link block only goes stale when a publish opens a merge request or rewrites its description.
         if outcome is None or outcome.published or any(publish.published for publish in repo_publishes):
@@ -551,8 +572,18 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             await self._alink_related(
                 ctx, main_merge_request or checkpointed_merge_request(state, strict=False), repo_publishes
             )
-        if notice := "\n\n".join(filter(None, [notice, _sibling_failure_notice(ctx, repo_publishes)])):
-            update["messages"] = [await streamed_assistant_message(notice)]
+        visible = [notice] + [
+            _conflicts_notice(publish.conflicted_paths, where=f" in `{handle.repository.slug}`")
+            for handle, publish in zip(ctx.extra_repos, repo_publishes, strict=True)
+            if publish.error_kind == "conflicts"
+        ]
+        messages = []
+        if visible_text := "\n\n".join(filter(None, visible)):
+            messages.append(await streamed_assistant_message(visible_text))
+        if failures := _sibling_failure_notice(ctx, repo_publishes):
+            messages.append(synthetic_ai_message(failures, kind=PUBLISH_FAILURES_KIND))
+        if messages:
+            update["messages"] = messages
         if outcome is None:
             return update
 
@@ -562,7 +593,6 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             # Only ever set true here; ``abefore_agent`` clears it, so a no-op turn cannot
             # inherit the previous turn's push.
             update["published"] = True
-            await self._emit_publish_result(published_outcome_payload(outcome))
 
         if outcome.merge_request is None:
             # published + no MR is the branch-visibility degrade (branch pushed, MR pending): record

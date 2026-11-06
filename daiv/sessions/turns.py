@@ -77,7 +77,7 @@ def build_turns(messages: list[Any], *, in_flight: bool = False) -> list[dict[st
                 continue
             turns.append(_build_user_turn(m))
         elif mtype in _ASSISTANT_ROLES:
-            if is_question_close(messages, index):
+            if is_synthetic(m) or is_question_close(messages, index):
                 continue
             turn = _build_assistant_turn(m)
             turn_idx = len(turns)

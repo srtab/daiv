@@ -1,6 +1,6 @@
 """Messages DAIV adds to a thread on its own, as opposed to ones a person wrote.
 
-They reach the model like any other ``HumanMessage``. The mark in ``additional_kwargs`` lets transcripts hide
+They reach the model like any other message of their type. The mark in ``additional_kwargs`` lets transcripts hide
 them and lets turn-boundary checks look past them. Kept free of ``langchain`` imports beyond
 ``langchain_core.messages`` so ``sessions`` and the webhook managers can import it cheaply.
 """
@@ -10,10 +10,11 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 
 SYNTHETIC_KWARG = "daiv_synthetic"
 ISSUE_CONTEXT_KIND = "issue_context"
+PUBLISH_FAILURES_KIND = "publish_failures"
 
 
 def synthetic_message(content: str, *, kind: str, message_id: str | None = None) -> HumanMessage:
@@ -24,6 +25,11 @@ def synthetic_message(content: str, *, kind: str, message_id: str | None = None)
     earlier copy instead of adding a second one.
     """
     return HumanMessage(content=content, id=message_id or str(uuid.uuid4()), additional_kwargs={SYNTHETIC_KWARG: kind})
+
+
+def synthetic_ai_message(content: str, *, kind: str) -> AIMessage:
+    """An ``AIMessage`` marked as DAIV's own: it stays in the thread and the run's reply but never streams."""
+    return AIMessage(content=content, id=str(uuid.uuid4()), additional_kwargs={SYNTHETIC_KWARG: kind})
 
 
 def synthetic_kind(message: Any) -> str | None:
