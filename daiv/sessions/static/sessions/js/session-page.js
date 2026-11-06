@@ -87,7 +87,7 @@ document.addEventListener("alpine:init", () => {
 
   Alpine.data("sessionPage", (config) => ({
     latest: null,
-    // CI on each merge request the session owns (`repo_id` blank for the main repository).
+    // CI on each merge request the session owns.
     ci: [],
     // What the session will do next (``sessions.up_next``).
     upNext: null,
@@ -161,6 +161,11 @@ document.addEventListener("alpine:init", () => {
       this.detailsTab = tab;
       store(`${config.storageKey}.tab`, tab);
     },
+    // Arrow keys on the tab list move the selection and the focus along it, as a WAI-ARIA tablist does.
+    cycleTab(tablist, step) {
+      this.selectTab(TABS[(TABS.indexOf(this.detailsTab) + step + TABS.length) % TABS.length]);
+      this.$nextTick(() => tablist.querySelector("[aria-selected=true]")?.focus());
+    },
     isFolded(section) {
       return Boolean(this._folds[section]);
     },
@@ -175,9 +180,6 @@ document.addEventListener("alpine:init", () => {
       this.setDetails(true);
       const el = document.getElementById(`session-details-${section}`);
       if (el) whenShown(el, () => el.scrollIntoView({ block: "start" }));
-    },
-    closeSheetDetails() {
-      if (!this.wide) this.detailsOpen = false;
     },
     get _running() {
       return this.streaming || this.resuming || this._settling;
@@ -205,7 +207,7 @@ document.addEventListener("alpine:init", () => {
       this.runCount = data.run_count ?? this.runCount;
       // A response asked for before the last toggle answered read CI from before it.
       const stale = data.requestedAt <= this._watchAt;
-      if ("watch" in data && !stale) this._showCi(data);
+      if ("ci" in data && !stale) this._showCi(data);
       if ("up_next" in data) this._applyUpNext(data.up_next ?? null, data.requestedAt ?? -Infinity);
       if ("delegations" in data) this.delegations = data.delegations ?? null;
       if ("repositories" in data) this._applyRepositories(data.repositories ?? null);
@@ -227,9 +229,14 @@ document.addEventListener("alpine:init", () => {
     },
     // The CI of every merge request the session owns in `row`'s repository, the row's own first.
     ciItems(row) {
-      const main = this.repositories?.rows?.[0]?.repo_id;
       const own = (item) => item.merge_request_iid === row.mr_iid;
-      return this.ci.filter((item) => (item.repo_id || main) === row.repo_id).sort((a, b) => own(b) - own(a));
+      return this.ci.filter((item) => item.repo_id === row.repo_id).sort((a, b) => own(b) - own(a));
+    },
+    // A finished run left this repository nothing to show: no merge request, change, CI or publish error.
+    isQuiet(row) {
+      return (
+        Boolean(this.repositories?.ran) && !row.mr_iid && !row.diff_stats && !row.errors.length && !this.ciItems(row).length
+      );
     },
     // Names the merge request of a CI item that is not the card's own.
     ciTag(row, item) {
@@ -248,23 +255,25 @@ document.addEventListener("alpine:init", () => {
         more: Math.max(rows.length - 1, 0),
         mrs: withMr.length,
         mrIid: withMr.length === 1 ? withMr[0].mr_iid : null,
+        mrLabel: withMr.length ? window.TranscriptLabels.tn("details_merge_requests", withMr.length) : "",
         tone: worst?.tone ?? "",
         ci: worst?.label ?? "",
       };
     },
     get summaryLabel() {
-      const { main, more, mrs, mrIid, ci } = this.summary;
+      const { main, more, mrIid, mrLabel, ci } = this.summary;
       const repositories = more ? `${main} +${more}` : main;
-      const mergeRequests = mrIid ? `!${mrIid}` : mrs ? window.TranscriptLabels.tn("details_merge_requests", mrs) : "";
-      const parts = [repositories, mergeRequests, ci && `${config.labels.ci}: ${ci}`].filter(Boolean);
+      const parts = [repositories, mrIid ? `!${mrIid}` : mrLabel, ci && `${config.labels.ci}: ${ci}`].filter(Boolean);
       return `${config.labels.summary}: ${parts.join(", ")}`;
+    },
+    get repositoriesHeading() {
+      return this.repositoryRows.length === 1 ? config.labels.repository : config.labels.repositories;
     },
     // A lone repository's section is labelled in the singular, so its count would only repeat that.
     get repositoriesSummary() {
-      const { more, mrs } = this.summary;
-      const mrLabel = mrs ? window.TranscriptLabels.tn("details_merge_requests", mrs) : "";
+      const { more, mrLabel } = this.summary;
       if (!more) return mrLabel;
-      return [String(this.repositoryRows.length), mrLabel].filter(Boolean).join(" · ");
+      return [String(more + 1), mrLabel].filter(Boolean).join(" · ");
     },
     _showCi(data) {
       this.ci = data?.ci ?? [];
@@ -340,7 +349,7 @@ document.addEventListener("alpine:init", () => {
         const res = await this._send(config.ciWatchUrl, "POST", {
           on: !item.watch_enabled,
           merge_request_iid: item.merge_request_iid,
-          repo_id: item.repo_id || undefined,
+          repo_id: item.repo_id,
         });
         const data = await res.json();
         if (res.status === 409 && data.reason) {

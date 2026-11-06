@@ -4,7 +4,7 @@ One of ``repositoryRows`` as ``row`` at ``index``, inside ``sessionPage``. ``hea
 session list's filter; ``can_act`` and the row's own ``can_act`` add a CI toggle per merge request in ``ciItems(row)``.
 {% endcomment %}
 <article class="repo-card" data-testid="repository-card"
-         :class="{ 'repo-card--quiet': row.ran && !row.mr_iid && !row.diff_stats && !ciItems(row).length && !repositories.publish_errors.some((item) => item.repo_id === row.repo_id) }">
+         :class="{ 'repo-card--quiet': isQuiet(row) }">
   <div class="repo-card__head">
     {% icon "repo" "h-3 w-3 shrink-0 text-text-faint" %}
     <span class="repo-card__slug" :title="row.repo_id" x-text="row.repo_id"></span>
@@ -82,7 +82,7 @@ session list's filter; ``can_act`` and the row's own ``can_act`` add a CI toggle
   <template x-if="row.mr_iid">
     <p class="repo-card__mr">
       <a class="repo-card__mr-link" :href="row.mr_url || null" target="_blank" rel="noopener noreferrer">
-        <span class="repo-card__iid" x-text="'!' + row.mr_iid"></span><span x-text="row.mr_title"></span>
+        <span class="repo-card__iid" x-text="row.mr_url ? mergeRequestLabel(row.mr_url) : '!' + row.mr_iid"></span><span x-text="row.mr_title"></span>
       </a>
       <span class="draft-badge" x-show="row.mr_draft">{% translate "Draft" %}</span>
     </p>
@@ -101,15 +101,15 @@ session list's filter; ``can_act`` and the row's own ``can_act`` add a CI toggle
     </div>
     <template x-if="row.diff_stats">
       <span class="repo-card__diff">
-        <span class="repo-card__added" x-text="`+${row.diff_stats.lines_added}`"></span>
-        <span class="repo-card__removed" x-text="`−${row.diff_stats.lines_removed}`"></span>
+        <span class="diff-stat__plus" x-text="`+${row.diff_stats.lines_added}`"></span>
+        <span class="diff-stat__minus" x-text="`−${row.diff_stats.lines_removed}`"></span>
         <span aria-hidden="true">·</span>
         <span x-text="TranscriptLabels.tn('publish_files', row.diff_stats.files_changed)"></span>
       </span>
     </template>
   </div>
 
-  <template x-for="(failure, fi) in repositories.publish_errors.filter((item) => item.repo_id === row.repo_id)" :key="fi">
-    <p class="repo-card__error" role="alert" x-text="failure.error"></p>
+  <template x-for="(error, ei) in row.errors" :key="ei">
+    <p class="repo-card__error" role="alert" x-text="error"></p>
   </template>
 </article>

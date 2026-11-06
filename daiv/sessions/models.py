@@ -337,7 +337,7 @@ class SessionRepository(models.Model):
     ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
     merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
     merge_request_web_url = models.URLField(_("merge request URL"), max_length=500, blank=True, default="")
-    merge_request_title = models.CharField(_("merge request title"), max_length=255, blank=True, default="")
+    merge_request_title = models.TextField(_("merge request title"), blank=True, default="")
     merge_request_draft = models.BooleanField(_("merge request is a draft"), default=False)
     diff_stats = models.JSONField(_("change size"), null=True, blank=True)
     sandbox_environment = models.ForeignKey(

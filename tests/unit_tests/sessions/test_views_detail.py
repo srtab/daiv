@@ -195,15 +195,15 @@ def test_detail_lists_every_repository_and_its_mr(member_client, member_user):
         "mr_title": "Mod change",
         "mr_draft": True,
         "diff_stats": {"lines_added": 4, "lines_removed": 9, "files_changed": 1},
-        "ran": False,
         "can_act": True,
+        "errors": [],
     }
     assert rows[0]["repo_id"] == "g/app"
 
 
 @pytest.mark.django_db
 def test_each_row_says_whether_the_viewer_can_act_on_its_repository(member_client, member_user):
-    with patch("sessions.page_state.can_run", side_effect=lambda user, repo_id: repo_id != "g/mod"):
+    with patch("sessions.page_state.runnable_repo_ids", return_value={"g/app"}):
         rows = _get_detail(member_client, _multi_repo_session(member_user)).context["header"]["repositories"]["rows"]
 
     assert [(r["repo_id"], r["can_act"]) for r in rows] == [("g/app", True), ("g/mod", False)]
@@ -211,11 +211,11 @@ def test_each_row_says_whether_the_viewer_can_act_on_its_repository(member_clien
 
 @pytest.mark.django_db
 def test_a_viewer_who_cannot_run_the_main_repository_can_act_on_none(member_client, member_user):
-    with patch("sessions.page_state.can_run", return_value=False) as can_run:
+    with patch("sessions.page_state.runnable_repo_ids", return_value={"g/mod"}) as runnable:
         rows = _get_detail(member_client, _multi_repo_session(member_user)).context["header"]["repositories"]["rows"]
 
     assert [r["can_act"] for r in rows] == [False, False]
-    assert [c.args[1] for c in can_run.call_args_list] == ["g/app"]
+    assert [c.args[1] for c in runnable.call_args_list] == [["g/app", "g/mod"]]
 
 
 @pytest.mark.django_db
@@ -256,9 +256,9 @@ def test_detail_shows_latest_publish_errors(member_client, member_user):
     _create_run(session, publish_errors=[{"repo_id": "g/old", "error": "stale"}])
     _create_run(session, publish_errors=[{"repo_id": "g/mod", "error": "push rejected"}])
 
-    resp = _get_detail(member_client, session)
+    rows = _get_detail(member_client, session).context["header"]["repositories"]["rows"]
 
-    assert resp.context["header"]["repositories"]["publish_errors"] == [{"repo_id": "g/mod", "error": "push rejected"}]
+    assert [(r["repo_id"], r["errors"]) for r in rows] == [("g/app", []), ("g/mod", ["push rejected"])]
 
 
 @pytest.mark.django_db
@@ -267,9 +267,9 @@ def test_detail_hides_publish_errors_once_a_new_run_starts(member_client, member
     _create_run(session, publish_errors=[{"repo_id": "g/mod", "error": "push rejected"}])
     _create_run(session, status=RunStatus.RUNNING)
 
-    resp = _get_detail(member_client, session)
+    rows = _get_detail(member_client, session).context["header"]["repositories"]["rows"]
 
-    assert resp.context["header"]["repositories"]["publish_errors"] == []
+    assert [r["errors"] for r in rows] == [[], []]
 
 
 @pytest.mark.django_db
@@ -281,25 +281,21 @@ def test_single_repo_detail_has_one_repository_row(member_client, member_user):
 
 
 @pytest.mark.django_db
-def test_a_finished_run_marks_the_rows_as_ran(member_client, member_user):
+def test_a_finished_run_marks_the_session_as_ran(member_client, member_user):
     session = _multi_repo_session(member_user)
     _create_run(session, status=RunStatus.SUCCESSFUL)
 
-    rows = _get_detail(member_client, session).context["header"]["repositories"]["rows"]
-
-    assert all(r["ran"] for r in rows)
+    assert _get_detail(member_client, session).context["header"]["repositories"]["ran"] is True
 
 
 @pytest.mark.django_db
-def test_a_failed_last_run_does_not_mark_the_rows_as_ran(member_client, member_user):
+def test_a_failed_last_run_does_not_mark_the_session_as_ran(member_client, member_user):
     session = _multi_repo_session(member_user)
     _create_run(session, status=RunStatus.SUCCESSFUL)
     _create_run(session, status=RunStatus.FAILED)
     _create_run(session, status=RunStatus.RUNNING)
 
-    rows = _get_detail(member_client, session).context["header"]["repositories"]["rows"]
-
-    assert not any(r["ran"] for r in rows)
+    assert _get_detail(member_client, session).context["header"]["repositories"]["ran"] is False
 
 
 NO_CHANGES = {"lines_added": 0, "lines_removed": 0, "files_changed": 0}
@@ -345,9 +341,10 @@ def test_a_finished_run_that_changed_nothing_reads_no_changes(member_client, mem
 
     resp = _get_detail_with_diff_stats(member_client, session, NO_CHANGES)
 
-    row = resp.context["header"]["repositories"]["rows"][0]
-    assert (row["ran"], row["mr_iid"], row["diff_stats"]) == (True, None, None)
-    assert "'repo-card--quiet': row.ran && !row.mr_iid && !row.diff_stats && !ciItems(row).length &&" in _card(resp)
+    repositories = resp.context["header"]["repositories"]
+    row = repositories["rows"][0]
+    assert (repositories["ran"], row["mr_iid"], row["diff_stats"]) == (True, None, None)
+    assert "'repo-card--quiet': isQuiet(row)" in _card(resp)
 
 
 @pytest.mark.django_db
@@ -1411,7 +1408,7 @@ def test_detail_hands_the_latest_runs_retry_to_the_page(member_client, member_us
     session = _create_session(user=member_user)
     run = _create_run(session, status=RunStatus.FAILED, prompt="fix it")
 
-    with patch("sessions.page_state.can_run", return_value=True):
+    with patch("sessions.page_state.runnable_repo_ids", side_effect=lambda user, ids: set(ids)):
         resp = _get_detail(member_client, session)
 
     latest = resp.context["header"]["latest_run"]
@@ -1562,21 +1559,20 @@ def test_only_a_multi_repository_session_tags_its_main_card(member_client, membe
 @pytest.mark.django_db
 def test_a_repository_without_a_merge_request_or_a_run_shows_only_its_branch(member_client, member_user):
     resp = _get_detail(member_client, _create_session(user=member_user))
-    row = resp.context["header"]["repositories"]["rows"][0]
+    repositories = resp.context["header"]["repositories"]
     card = _card(resp)
 
-    assert (row["mr_iid"], row["ran"]) == (None, False)
+    assert (repositories["rows"][0]["mr_iid"], repositories["ran"]) == (None, False)
     assert _guards(card, "repository-card-menu") == ["row.mr_iid || ciItems(row).length"]
     assert 'x-show="ciItems(row).length || row.diff_stats"' in card
-    assert "'repo-card--quiet': row.ran && !row.mr_iid && !row.diff_stats && !ciItems(row).length &&" in card
+    assert "'repo-card--quiet': isQuiet(row)" in card
 
 
 @pytest.mark.django_db
-def test_a_publish_error_shows_on_its_own_card_and_keeps_it_from_reading_no_changes(member_client, member_user):
+def test_a_publish_error_shows_on_its_own_card(member_client, member_user):
     card = _card(_get_detail(member_client, _multi_repo_session(member_user)))
 
-    assert "repositories.publish_errors.filter((item) => item.repo_id === row.repo_id)" in card
-    assert "!repositories.publish_errors.some((item) => item.repo_id === row.repo_id)" in card
+    assert 'x-for="(error, ei) in row.errors"' in card
 
 
 @pytest.mark.django_db
@@ -1594,7 +1590,7 @@ def test_a_merge_request_without_ci_has_no_ci_line_or_toggle(member_client, memb
 def test_a_viewer_who_cannot_run_gets_no_ci_toggle(member_client, member_user):
     session = _create_session(user=member_user)
 
-    with patch("sessions.page_state.can_run", return_value=False):
+    with patch("sessions.page_state.runnable_repo_ids", return_value=set()):
         details = _details(_get_detail(member_client, session))
 
     assert 'data-testid="session-ci-toggle"' not in details
@@ -1643,7 +1639,7 @@ def test_detail_offers_rename_the_ci_toggle_and_archive_to_a_runner(member_clien
 def test_detail_offers_only_archive_to_a_viewer_who_cannot_run(member_client, member_user):
     session = _create_session(user=member_user, title="Fix the login redirect")
 
-    with patch("sessions.page_state.can_run", return_value=False):
+    with patch("sessions.page_state.runnable_repo_ids", return_value=set()):
         resp = _get_detail(member_client, session, merge_request={"id": 5, "url": "", "draft": False})
     topbar = _topbar(resp)
 
@@ -1901,7 +1897,7 @@ def test_a_coordinator_page_has_the_delegations_button_and_details_section(membe
     resp = _get_detail(member_client, coordinator)
 
     assert 'id="session-details-delegations"' in _details(resp)
-    assert _header_payload(resp)["delegations"]["failed"] == 1
+    assert _header_payload(resp)["delegations"]["total"] == 1
 
 
 @pytest.mark.django_db

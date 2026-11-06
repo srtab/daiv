@@ -20,6 +20,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="sessionrepository",
             name="merge_request_title",
-            field=models.CharField(blank=True, default="", max_length=255, verbose_name="merge request title"),
+            field=models.TextField(blank=True, default="", verbose_name="merge request title"),
         ),
     ]

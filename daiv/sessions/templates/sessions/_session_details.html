@@ -5,12 +5,11 @@ A column beside the transcript from 1100px, a bottom sheet below it. Must sit in
 {% endcomment %}
 {% include "core/_sheet_backdrop.html" with show_expr="detailsOpen && !wide" %}
 <aside id="session-details" class="session-details" x-show="detailsOpen" x-cloak
-       @click.outside="closeSheetDetails()" @keydown.escape.window="closeSheetDetails()"
+       @click.outside="setDetails(false)" @keydown.escape.window="setDetails(false)"
        aria-label="{% translate 'Session details' %}" data-testid="session-details">
   <div class="session-details__head">
     <div class="details-tabs" role="tablist" aria-label="{% translate 'Session details' %}"
-         @keydown.arrow-left.prevent="selectTab(detailsTab === 'info' ? 'overview' : 'info'); $nextTick(() => $el.querySelector('[aria-selected=true]')?.focus())"
-         @keydown.arrow-right.prevent="selectTab(detailsTab === 'info' ? 'overview' : 'info'); $nextTick(() => $el.querySelector('[aria-selected=true]')?.focus())"
+         @keydown.arrow-left.prevent="cycleTab($el, -1)" @keydown.arrow-right.prevent="cycleTab($el, 1)"
          data-testid="session-details-tabs">
       <button type="button" role="tab" id="session-details-tab-overview" class="details-tab"
               :class="{ 'details-tab--on': detailsTab === 'overview' }"
@@ -31,15 +30,8 @@ A column beside the transcript from 1100px, a bottom sheet below it. Must sit in
     <div id="session-details-overview" role="tabpanel" aria-labelledby="session-details-tab-overview"
          x-show="detailsTab === 'overview'">
       <section class="details-fold" id="session-details-repositories">
-        <h3>
-          <button type="button" class="details-fold__head" :aria-expanded="(!isFolded('repositories')).toString()"
-                  aria-controls="session-details-repositories-body" @click="toggleFold('repositories')">
-            <span class="session-details__label"
-                  x-text="repositoryRows.length === 1 ? '{{ _("Repository")|escapejs }}' : '{{ _("Repositories")|escapejs }}'">{% if header.repositories.rows|length == 1 %}{% translate "Repository" %}{% else %}{% translate "Repositories" %}{% endif %}</span>
-            <span class="details-fold__summary" x-text="repositoriesSummary"></span>
-            {% icon "chevron-right" "details-fold__chevron" %}
-          </button>
-        </h3>
+        {% if header.repositories.rows|length == 1 %}{% translate "Repository" as repositories_heading %}{% else %}{% translate "Repositories" as repositories_heading %}{% endif %}
+        {% include "sessions/_details_fold_head.html" with section="repositories" label=repositories_heading label_expr="repositoriesHeading" summary_expr="repositoriesSummary" %}
         <div class="details-fold__body" id="session-details-repositories-body" x-show="!isFolded('repositories')">
           <template x-for="(row, index) in repositoryRows" :key="row.repo_id">
             {% include "sessions/_repository_card.html" %}
@@ -48,13 +40,7 @@ A column beside the transcript from 1100px, a bottom sheet below it. Must sit in
       </section>
 
       <section class="details-fold" id="session-details-environment">
-        <h3>
-          <button type="button" class="details-fold__head" :aria-expanded="(!isFolded('environment')).toString()"
-                  aria-controls="session-details-environment-body" @click="toggleFold('environment')">
-            <span class="session-details__label">{% translate "Environment" %}</span>
-            {% icon "chevron-right" "details-fold__chevron" %}
-          </button>
-        </h3>
+        {% include "sessions/_details_fold_head.html" with section="environment" label=_("Environment") %}
         <div class="details-fold__body" id="session-details-environment-body" x-show="!isFolded('environment')">
           <dl class="session-details__grid">
             <dt>{% translate "Sandbox" %}</dt>
@@ -65,17 +51,22 @@ A column beside the transcript from 1100px, a bottom sheet below it. Must sit in
         </div>
       </section>
 
-      {% include "chat/_usage_body.html" with group_class="details-fold" label_class="session-details__label" context_id="session-details-context" spend_id="session-details-spend" foldable=True %}
+      <section class="details-fold" id="session-details-context" x-show="contextUsage" x-cloak>
+        {% include "sessions/_details_fold_head.html" with section="context" label=_("Context") summary_expr="contextMeter?.label || ''" %}
+        <div class="details-fold__body" id="session-details-context-body" x-show="!isFolded('context')">
+          {% include "chat/_context_readout.html" %}
+        </div>
+      </section>
+
+      <section class="details-fold" id="session-details-spend" x-show="spend" x-cloak>
+        {% include "sessions/_details_fold_head.html" with section="spend" label=_("Spend") summary_expr="spendTotal" %}
+        <div class="details-fold__body" id="session-details-spend-body" x-show="!isFolded('spend')">
+          {% include "chat/_spend_readout.html" %}
+        </div>
+      </section>
 
       <section class="details-fold" id="session-details-outputs" x-show="latestArtifactsById.size" x-cloak>
-        <h3>
-          <button type="button" class="details-fold__head" :aria-expanded="(!isFolded('outputs')).toString()"
-                  aria-controls="session-details-outputs-body" @click="toggleFold('outputs')">
-            <span class="session-details__label">{% translate "Outputs" %}</span>
-            <span class="details-fold__summary" x-text="latestArtifactsById.size"></span>
-            {% icon "chevron-right" "details-fold__chevron" %}
-          </button>
-        </h3>
+        {% include "sessions/_details_fold_head.html" with section="outputs" label=_("Outputs") summary_expr="latestArtifactsById.size" %}
         <div class="details-fold__body" id="session-details-outputs-body" x-show="!isFolded('outputs')">
           <ul class="session-details__list">
             <template x-for="item in [...latestArtifactsById.values()]" :key="item.id">

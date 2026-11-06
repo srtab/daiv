@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
 
@@ -23,8 +23,6 @@ from sessions.services import (
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-
-    from django.db.models import CharField
 
     from accounts.models import User
     from automation.agent.git_state import RepoPublish
@@ -59,10 +57,8 @@ async def apersist_extra_repo_state(thread_id: str, publishes: Sequence[RepoPubl
     """Keep each extra repository's working branch, MR (title, draft flag) and change size on its row, so the next
     turn continues there.
 
-    A failed publish leaves its row alone; a blank ref is never written, since it means the default branch. A title
-    longer than the column is cut to fit.
+    A failed publish leaves its row alone; a blank ref is never written, since it means the default branch.
     """
-    max_title_length = cast("CharField", SessionRepository._meta.get_field("merge_request_title")).max_length
     for rp in publishes:
         if rp.error:
             continue
@@ -72,7 +68,7 @@ async def apersist_extra_repo_state(thread_id: str, publishes: Sequence[RepoPubl
                 ref=rp.merge_request.source_branch,
                 merge_request_iid=rp.merge_request.merge_request_id,
                 merge_request_web_url=rp.merge_request.web_url or "",
-                merge_request_title=rp.merge_request.title[:max_title_length],
+                merge_request_title=rp.merge_request.title,
                 merge_request_draft=rp.merge_request.draft,
             )
         elif not rp.published and rp.current_ref:

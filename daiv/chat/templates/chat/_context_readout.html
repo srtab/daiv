@@ -1,0 +1,18 @@
+{% load icon_tags %}
+{# Inside ``chat({…})``; the surface around it gives the heading. #}
+{# Exact, locale-grouped counts on purpose: the figure must be checkable against a provider's own limit error. #}
+<p class="context-panel__figure" x-text="contextFigure"></p>
+<div class="context-panel__track" x-show="contextMeter?.hasWindow" aria-hidden="true">
+  <div class="context-panel__fill"
+       :class="contextMeter?.tone ? 'context-panel__fill--' + contextMeter.tone : ''"
+       :style="contextMeter ? 'width: ' + contextMeter.fill + '%' : ''"></div>
+</div>
+<p class="context-panel__subline" x-text="contextSubline"></p>
+<p class="context-panel__headroom"
+   x-show="contextHeadroom"
+   :class="contextHeadroom ? 'context-panel__headroom--' + contextHeadroom.tone : ''">
+  <span class="context-panel__headroom-glyph" x-show="contextHeadroom?.tone === 'ok'" aria-hidden="true">{% icon "check-circle" "h-3.5 w-3.5" %}</span>
+  <span class="context-panel__headroom-glyph" x-show="contextHeadroom?.tone === 'warn'" aria-hidden="true">{% icon "exclamation-circle" "h-3.5 w-3.5" %}</span>
+  <span class="context-panel__headroom-glyph" x-show="contextHeadroom?.tone === 'danger'" aria-hidden="true">{% icon "exclamation-triangle" "h-3.5 w-3.5" %}</span>
+  <span x-text="contextHeadroom?.text || ''"></span>
+</p>

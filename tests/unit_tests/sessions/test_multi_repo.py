@@ -349,16 +349,15 @@ async def test_persisting_a_publish_keeps_the_mr_title_draft_and_diff_stats():
     assert row.diff_stats == {"lines_added": 4, "lines_removed": 9, "files_changed": 1}
 
 
-async def test_a_merge_request_title_longer_than_its_column_is_cut_to_fit():
+async def test_a_long_merge_request_title_is_kept_whole():
     session = await _session_with_rows("g/mod")
-    limit = SessionRepository._meta.get_field("merge_request_title").max_length
 
     await apersist_extra_repo_state(
-        session.thread_id, [_publish("g/mod", iid=17, branch="daiv/mod", published=True, title="x" * (limit + 45))]
+        session.thread_id, [_publish("g/mod", iid=17, branch="daiv/mod", published=True, title="x" * 300)]
     )
 
     row = await SessionRepository.objects.aget(session_id=session.thread_id, repo_id="g/mod")
-    assert (row.merge_request_title, row.ref, row.merge_request_iid) == ("x" * limit, "daiv/mod", 17)
+    assert (row.merge_request_title, row.ref, row.merge_request_iid) == ("x" * 300, "daiv/mod", 17)
 
 
 async def test_a_publish_without_diff_stats_keeps_the_stored_ones():

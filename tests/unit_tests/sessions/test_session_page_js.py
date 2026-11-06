@@ -86,6 +86,7 @@ vm.runInContext(readFileSync(src, "utf8"), sandbox);
 const labels = {
   running: "Running", queued: "Queued", watching: "Watching: {state}", watchOff: "Off for this merge request",
   watchFailed: "Couldn't change it", summary: "Repositories and merge requests", ci: "CI",
+  repository: "Repository", repositories: "Repositories",
 };
 const page = components.sessionPage({
   sessionUrl: "/session", ciWatchUrl: "/ci-watch", archiveUrl: "/archive", storageKey: "key", title: "Old",
@@ -120,6 +121,10 @@ for (const [action, value] of steps) {
   else if (action === "ci-toggle-item") sending = page.toggleCiWatch(value);
   else if (action === "archive") sending = page.setArchived(value);
   else if (action === "tab") page.selectTab(value);
+  else if (action === "cycle-tab") {
+    const tablist = { querySelector: (selector) => ({ focus: () => focused.push(`${selector} ${page.detailsTab}`) }) };
+    page.cycleTab(tablist, value);
+  }
   else if (action === "fold") page.toggleFold(value);
   else if (action === "media") onMedia({ matches: value });
   else if (action === "open-details") page.openDetails(value);
@@ -139,9 +144,10 @@ for (const [action, value] of steps) {
       disabled: page.ci.map((item) => page.ciDisabled(item)),
       tab: page.detailsTab, folds: Object.fromEntries(SECTIONS.map((s) => [s, page.isFolded(s)])),
       summary: page.summary, summaryLabel: page.summaryLabel, repositoriesSummary: page.repositoriesSummary,
+      heading: page.repositoriesHeading, quiet: page.repositoryRows.map((row) => page.isQuiet(row)),
       explanations: page.ci.map((item) => page.ciExplanation(item)), upNext: page.upNext,
       ciTexts: page.ci.map((item) => page.ciText(item)),
-      delegations: page.delegations, legs: (page.delegations?.legs ?? []).map((leg) => leg.repo_id),
+      delegations: page.delegations,
       repositories: page.repositories, repositoryRows: page.repositoryRows,
       repositoriesKept: page.repositories === lastRepositories,
       timers: timers.map((timer) => timer.ms),
@@ -166,7 +172,7 @@ DEFAULT_FOLDS = {"repositories": False, "environment": True, "context": False, "
 
 def _ci(status="running", *, explanation=None, iid=7) -> dict:
     return {
-        "repo_id": "",
+        "repo_id": "g/app",
         "merge_request_iid": iid,
         "status": status,
         "label": status.capitalize(),
@@ -445,7 +451,7 @@ def test_unticking_turns_off_the_watch_on_the_merge_request_and_takes_the_respon
     reply = {"ci": [{**item, "watch_enabled": False}], "watch": WATCH_OFF}
     result = _run([_with_ci([item]), ["ci-toggle-item", item], ["reply", {"body": reply}], ["read", None]])
 
-    body = {"on": False, "merge_request_iid": 7}
+    body = {"on": False, "merge_request_iid": 7, "repo_id": "g/app"}
     assert result["requests"][0] == {"url": "/ci-watch", "method": "POST", "body": body, "csrf": "tok"}
     seen = result["seen"][0]
     assert (seen["ci"], seen["notes"]) == (reply["ci"], ["Off for this merge request"])
@@ -457,7 +463,7 @@ def test_ticking_turns_the_watch_back_on():
     steps = [_with_ci([item], WATCH_OFF), ["read", None], ["ci-toggle-item", item], ["reply", {"body": reply}]]
     result = _run([*steps, ["read", None]])
 
-    assert result["requests"][0]["body"] == {"on": True, "merge_request_iid": 5}
+    assert result["requests"][0]["body"] == {"on": True, "merge_request_iid": 5, "repo_id": "g/app"}
     before, after = result["seen"]
     assert (before["notes"], after["notes"]) == (["Off for this merge request"], ["Watching: Waiting for CI"])
 
@@ -561,9 +567,9 @@ def test_a_poll_asked_for_before_the_toggle_answered_does_not_undo_it():
         [
             ["ci-toggle-item", {**_ci(), "watch_enabled": False}],
             ["reply", {"body": {"ci": [_ci()], "watch": WATCHING}}],
-            ["poll", {"latest_run": FAILED, "watch": None, "requestedAt": 9}],
+            ["poll", {"latest_run": FAILED, "ci": [], "requestedAt": 9}],
             ["read", None],
-            ["poll", {"latest_run": FAILED, "watch": None, "requestedAt": 11}],
+            ["poll", {"latest_run": FAILED, "ci": [], "requestedAt": 11}],
             ["read", None],
         ],
         watch=None,
@@ -745,40 +751,25 @@ def test_no_retry_while_a_run_is_busy_or_settling_or_the_session_is_archived(ste
 # ---------------------------------------------------------------------------
 
 
-def _leg(repo_id: str, state: str) -> dict:
-    return {"repo_id": repo_id, "ref": "", "state": state, "merge_request_url": "", "session_url": ""}
-
-
-def _delegations(*, total=2, running=0, waiting=0, failed=0, legs=None) -> dict:
-    counts = {"total": total, "running": running, "waiting": waiting, "failed": failed}
-    return {**counts, "batches": [], "legs": legs or []}
+def _delegations(*, total=2) -> dict:
+    return {"total": total, "batches": [{"goal": "", "created_at": "2026-11-06T00:00:00", "legs": []}]}
 
 
 def test_a_session_that_delegated_nothing_has_no_delegations():
-    seen = _read()
-
-    assert (seen["delegations"], seen["legs"]) == (None, [])
-
-
-def test_the_popover_lists_the_legs_in_the_servers_order():
-    legs = [_leg("a/two", "failed"), _leg("a/one", "running"), _leg("a/three", "finished")]
-
-    seen = _read(delegations=_delegations(total=3, running=1, failed=1, legs=legs))
-
-    assert seen["legs"] == ["a/two", "a/one", "a/three"]
+    assert _read()["delegations"] is None
 
 
 def test_each_poll_replaces_the_delegations():
-    polled = _delegations(failed=2)
+    polled = _delegations(total=3)
     steps = [["poll", {"latest_run": DONE, "delegations": polled}], ["read", None]]
 
-    seen = _run(steps, delegations=_delegations(running=2))["seen"][0]
+    seen = _run(steps, delegations=_delegations())["seen"][0]
 
     assert seen["delegations"] == polled
 
 
 def test_a_poll_without_delegations_keeps_the_ones_the_page_has():
-    delegations = _delegations(running=1)
+    delegations = _delegations()
 
     seen = _run([["poll", {"latest_run": FAILED}], ["read", None]], delegations=delegations)["seen"][0]
 
@@ -795,15 +786,15 @@ def _repo(repo_id, ref, mr_iid=None) -> dict:
         "mr_title": "",
         "mr_draft": False,
         "diff_stats": None,
-        "ran": False,
+        "errors": [],
     }
 
 
 def test_the_repositories_card_follows_each_turns_payload():
-    rendered = {"rows": [_repo("g/app", "daiv/fix", 7), _repo("g/mod", "main")], "publish_errors": []}
+    rendered = {"rows": [_repo("g/app", "daiv/fix", 7), _repo("g/mod", "main")], "ran": False}
     published = {
-        "rows": [_repo("g/app", "daiv/fix", 7), _repo("g/mod", "daiv/fix", 3)],
-        "publish_errors": [{"repo_id": "g/lib", "error": "push rejected"}],
+        "rows": [_repo("g/app", "daiv/fix", 7), {**_repo("g/mod", "daiv/fix", 3), "errors": ["push rejected"]}],
+        "ran": True,
     }
 
     steps = [["read", None], ["poll", {"latest_run": DONE, "repositories": published}], ["read", None]]
@@ -813,13 +804,13 @@ def test_the_repositories_card_follows_each_turns_payload():
 
 
 def test_a_single_repository_session_has_one_card():
-    repositories = {"rows": [_repo("g/app", "main")], "publish_errors": []}
+    repositories = {"rows": [_repo("g/app", "main")], "ran": False}
 
     assert _read(repositories=repositories)["repositoryRows"] == repositories["rows"]
 
 
 def test_a_failed_fetch_keeps_the_repositories_card():
-    repositories = {"rows": [_repo("g/app", "main"), _repo("g/mod", "main")], "publish_errors": []}
+    repositories = {"rows": [_repo("g/app", "main"), _repo("g/mod", "main")], "ran": False}
 
     seen = _run([["poll", None], ["read", None]], repositories=repositories)["seen"][0]
 
@@ -827,7 +818,7 @@ def test_a_failed_fetch_keeps_the_repositories_card():
 
 
 def test_the_main_row_takes_the_chats_branch_and_merge_request():
-    repositories = {"rows": [_repo("g/app", "main", 7), _repo("g/mod", "main")], "publish_errors": []}
+    repositories = {"rows": [_repo("g/app", "main", 7), _repo("g/mod", "main")], "ran": False}
     mr = {"url": "https://gl/g/app/-/merge_requests/9", "id": 9, "title": "Fix the lint", "draft": True}
 
     seen = _read(repositories=repositories, thread={"ref": "daiv/fix", "merge_request": mr})
@@ -837,7 +828,7 @@ def test_the_main_row_takes_the_chats_branch_and_merge_request():
 
 
 def test_without_the_chats_merge_request_the_main_row_keeps_the_servers():
-    repositories = {"rows": [_repo("g/app", "main", 7), _repo("g/mod", "main")], "publish_errors": []}
+    repositories = {"rows": [_repo("g/app", "main", 7), _repo("g/mod", "main")], "ran": False}
 
     seen = _read(repositories=repositories, thread={"ref": "main", "merge_request": None})
 
@@ -845,9 +836,8 @@ def test_without_the_chats_merge_request_the_main_row_keeps_the_servers():
 
 
 def test_an_unchanged_repositories_card_is_left_alone():
-    errors = [{"repo_id": "g/mod", "error": "x"}]
-    repositories = {"rows": [_repo("g/app", "main"), _repo("g/mod", "main")], "publish_errors": errors}
-    changed = {**repositories, "publish_errors": []}
+    repositories = {"rows": [_repo("g/app", "main"), {**_repo("g/mod", "main"), "errors": ["x"]}], "ran": True}
+    changed = {**repositories, "rows": [_repo("g/app", "main"), _repo("g/mod", "main")]}
     steps = [
         ["read", None],
         ["poll", {"latest_run": DONE, "repositories": repositories}],
@@ -909,7 +899,15 @@ def test_a_card_without_a_merge_request_still_shows_its_repositorys_ci():
 def test_the_summary_counts_repositories_and_merge_requests():
     seen = _read(repositories=THREE_ROWS)
 
-    assert seen["summary"] == {"main": "g/app", "more": 2, "mrs": 2, "mrIid": None, "tone": "", "ci": ""}
+    assert seen["summary"] == {
+        "main": "g/app",
+        "more": 2,
+        "mrs": 2,
+        "mrIid": None,
+        "mrLabel": "2 MRs",
+        "tone": "",
+        "ci": "",
+    }
 
 
 def test_the_summary_names_a_single_merge_request():
@@ -920,13 +918,14 @@ def test_the_summary_names_a_single_merge_request():
         "more": 0,
         "mrs": 1,
         "mrIid": 42,
+        "mrLabel": "1 MR",
         "tone": "",
         "ci": "",
     }
 
 
 def test_a_page_without_repositories_has_an_empty_summary():
-    assert _read()["summary"] == {"main": "", "more": 0, "mrs": 0, "mrIid": None, "tone": "", "ci": ""}
+    assert _read()["summary"] == {"main": "", "more": 0, "mrs": 0, "mrIid": None, "mrLabel": "", "tone": "", "ci": ""}
 
 
 @pytest.mark.parametrize(
@@ -991,3 +990,35 @@ def test_the_summary_says_what_it_shows_in_words(rows, ci, label):
 )
 def test_the_folded_repositories_section_counts_them_and_their_merge_requests(rows, label):
     assert _read(repositories={"rows": rows})["repositoriesSummary"] == label
+
+
+def test_arrow_keys_cycle_the_tabs_and_move_the_focus():
+    steps = [["cycle-tab", 1], ["read", None], ["cycle-tab", 1], ["read", None], ["cycle-tab", -1], ["read", None]]
+    result = _run(steps)
+
+    assert [seen["tab"] for seen in result["seen"]] == ["info", "overview", "info"]
+    assert result["focused"][-1] == "[aria-selected=true] info"
+
+
+@pytest.mark.parametrize(
+    ("rows", "heading"), [([_repo("g/app", "main")], "Repository"), (THREE_ROWS["rows"], "Repositories")]
+)
+def test_the_repositories_heading_follows_how_many_there_are(rows, heading):
+    assert _read(repositories={"rows": rows})["heading"] == heading
+
+
+def test_only_a_card_a_finished_run_left_nothing_to_show_is_quiet():
+    rows = [
+        _repo("g/app", "main", 42),
+        {**_repo("g/mod", "main"), "diff_stats": {"lines_added": 1, "lines_removed": 0, "files_changed": 1}},
+        {**_repo("g/lib", "main"), "errors": ["push rejected"]},
+        _repo("g/ci", "main"),
+        _repo("g/idle", "main"),
+    ]
+    ci = [{**_ci(iid=9), "repo_id": "g/ci"}]
+
+    ran = _run([_with_ci(ci), ["read", None]], repositories={"rows": rows, "ran": True})["seen"][0]
+    not_ran = _run([_with_ci(ci), ["read", None]], repositories={"rows": rows, "ran": False})["seen"][0]
+
+    assert ran["quiet"] == [False, False, False, False, True]
+    assert not_ran["quiet"] == [False] * 5
