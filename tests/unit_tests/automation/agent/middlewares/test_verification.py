@@ -20,7 +20,6 @@ from automation.agent.middlewares.verification import VerificationMiddleware
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME, QUESTION_DELIVERED
 from automation.agent.synthetic import is_synthetic
 from automation.agent.verification.checks import diff_fingerprint
-from automation.agent.workspace.git_manager import StashRestoreError
 from automation.agent.workspace.git_runners import SandboxGitProtocolError
 from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
 from tests.unit_tests.conftest import FakeWorkspace
@@ -414,20 +413,6 @@ async def test_failed_reminder_call_keeps_the_round_for_the_retry():
     assert outcome["rounds"] == 1
     assert repo.check_runs == 1
     assert repo.stashes == 1
-
-
-async def test_verification_error_is_raised_again_on_later_calls():
-    repo = FakeRepo(failing={"make test"}, restore_error=StashRestoreError())
-    middleware = _middleware(repo)
-    handler, seen = _scripted(_final())
-    with pytest.raises(StashRestoreError) as first:
-        await middleware.awrap_model_call(_request(), handler)
-
-    with pytest.raises(StashRestoreError) as again:
-        await middleware.awrap_model_call(_request(), handler)
-
-    assert again.value is first.value
-    assert len(seen) == 1
 
 
 async def test_checks_unavailable_records_not_verified():

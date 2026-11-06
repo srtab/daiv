@@ -544,9 +544,22 @@ async def test_the_reply_carries_the_verification_report_when_no_description_did
     assert outcome.agent_result["response"] == outcome.response_text
 
 
-@pytest.mark.parametrize(
-    "verification", [_verification("failed", reported=True), _verification("not_configured", commands=[]), None]
-)
+async def test_the_reply_has_no_verification_report_when_the_new_merge_requests_description_carries_it():
+    agent = _agent(state={"verification": _verification("failed")})
+
+    async def _ainvoke(_input, *, config, **_kwargs):
+        payload = publish_result_payload(status="opened")
+        await RunnableLambda(_dispatch_publish_result).ainvoke(payload, config=config)
+        return {"messages": [MagicMock(content="done")]}
+
+    agent.ainvoke = AsyncMock(side_effect=_ainvoke)
+    with agent_stack(agent):
+        outcome = await execute_run(make_spec())
+
+    assert outcome.response_text == "done"
+
+
+@pytest.mark.parametrize("verification", [_verification("not_configured", commands=[]), None])
 async def test_the_reply_has_no_verification_report_when_there_is_none_to_add(verification):
     state = {} if verification is None else {"verification": verification}
 

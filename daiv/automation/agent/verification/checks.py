@@ -9,15 +9,14 @@ from typing import TYPE_CHECKING
 import httpx
 
 from automation.agent.constants import REPO_PATH
+from automation.agent.middlewares.sandbox import is_bare_timeout_notice
 from automation.agent.workspace.git_manager import GIT_ERRORS
-from core.constants import SANDBOX_TIMEOUT_EXIT_CODE
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from automation.agent.workspace.git_manager import GitManager
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
-    from core.sandbox.schemas import RunCommandResult
 
 logger = logging.getLogger("daiv.agent")
 
@@ -103,17 +102,7 @@ async def _run_check(bash: SandboxFileBackend, command: str, redact: Sequence[st
         exit_code=result.exit_code,
         output_tail=output[-OUTPUT_TAIL_CHARS:],
         signature=_signature(output) if result.exit_code else frozenset(),
-        timed_out=_timed_out(result),
-    )
-
-
-def _timed_out(result: RunCommandResult) -> bool:
-    if result.timed_out:
-        return True
-    # daiv-sandbox 0.5.0 sets no ``timed_out``; its bare notice is recognised by its text.
-    return (
-        result.exit_code == SANDBOX_TIMEOUT_EXIT_CODE
-        and result.output == f"Command timed out after {CHECK_TIMEOUT_SECONDS}s"
+        timed_out=result.timed_out or is_bare_timeout_notice(result, CHECK_TIMEOUT_SECONDS),
     )
 
 

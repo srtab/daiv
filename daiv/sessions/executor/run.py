@@ -616,10 +616,12 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
         except Exception:
             logger.exception("executor: failed to persist session ref for thread_id=%s", run.thread_id)
     if spec.arm_watch and published and spec.run_id is not None:
-        checks_failed = bool(verification) and verification.get("status") == "failed"
-        await _claim_merge_request(run, spec.run_id, merge_request, checks_failed=checks_failed)
+        from automation.agent.verification.outcome import checks_failed
 
-    response_text = _with_verification_report(response_text, verification)
+        await _claim_merge_request(run, spec.run_id, merge_request, checks_failed=checks_failed(verification))
+
+    opened = run.publish is not None and (run.publish.payload or {}).get("status") == "opened"
+    response_text = _with_verification_report(response_text, verification, opened_merge_request=opened)
     agent_result = build_agent_result(
         response=response_text,
         usage=build_usage_summary(run.usage).to_dict(),
@@ -629,12 +631,14 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
     return RunOutcome(agent_result=agent_result, response_text=response_text, snapshot=snapshot)
 
 
-def _with_verification_report(response_text: str, verification: VerificationOutcome | None) -> str:
-    """The run's reply followed by its before_publish report, unless the description of a merge request the run
+def _with_verification_report(
+    response_text: str, verification: VerificationOutcome | None, *, opened_merge_request: bool
+) -> str:
+    """The run's reply followed by its before_publish report, unless the description of the merge request the run
     opened carries it or no checks are configured."""
     from automation.agent.verification.outcome import render_report
 
-    if not verification or verification.get("reported"):
+    if not verification or opened_merge_request:
         return response_text
     report = render_report(verification, new_merge_request=False)
     if report is None:

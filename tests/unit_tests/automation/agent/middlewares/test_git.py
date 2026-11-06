@@ -416,17 +416,14 @@ class TestGitMiddleware:
         assert kwargs["as_draft"] is True
         assert kwargs["verification"] == verification
 
-    async def test_after_agent_passes_outcome_and_marks_reported(self):
-        kwargs, result = await self._publish_with(self._verification("passed"), created=True)
+    async def test_after_agent_passes_and_keeps_the_outcome(self):
+        verification = self._verification("passed")
+
+        kwargs, result = await self._publish_with(verification, created=True)
 
         assert kwargs["as_draft"] is False
-        assert kwargs["verification"]["status"] == "passed"
-        assert result["verification"]["reported"] is True
-
-    async def test_after_agent_marks_not_reported_when_no_merge_request_was_created(self):
-        _, result = await self._publish_with(self._verification("passed"), created=False)
-
-        assert result["verification"]["reported"] is False
+        assert kwargs["verification"] == verification
+        assert result["verification"] == verification
 
     async def test_after_agent_without_outcome_publishes_as_before(self):
         kwargs, result = await self._publish_with(None)
@@ -453,7 +450,6 @@ class TestGitMiddleware:
         )
 
         assert result["verification"]["status"] == "failed"
-        assert result["verification"]["reported"] is False
 
     async def test_after_agent_emits_failed_then_raises_when_the_recheck_cannot_restore_the_tree(self, dispatched):
         recheck = AsyncMock(side_effect=StashRestoreError())

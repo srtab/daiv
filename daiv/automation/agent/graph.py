@@ -315,14 +315,15 @@ async def create_daiv_agent(
         *([WebFetchMiddleware()] if settings.web_fetch_enabled else []),
         *([ArtifactsMiddleware(workspace=workspace, store=artifact_store)] if artifact_store is not None else []),
         *([DelegateJobsMiddleware(delegator=delegator)] if delegator is not None else []),
+        # Outside the fallback, so a fallback model retries only the model call, never the checks.
+        *([verification] if verification is not None else []),
         *([ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:])] if fallback_models else []),
         # Web search/fetch, git-platform, and MCP tools are all deferred behind tool_search; only the
         # file/bash/todo core in ALWAYS_LOADED_TOOLS is eagerly bound.
         *deferred_tools,
+        *([AskUserQuestionMiddleware()] if ask_user_enabled else []),
         # Before the caching middleware so the cache-control placement sees the final
         # message list, including any injected budget reminder.
-        *([verification] if verification is not None else []),
-        *([AskUserQuestionMiddleware()] if ask_user_enabled else []),
         loop_breaker,
         step_budget,
         ContextUsageMiddleware(),

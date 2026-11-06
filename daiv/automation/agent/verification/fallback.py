@@ -2,17 +2,15 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
-from automation.agent.verification.outcome import escape_tags
+from automation.agent.verification.outcome import code_span, escape_tags
 from automation.agent.workspace.bash_policy.command_parser import CommandParseError, parse_command
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from langchain_core.messages import ToolMessage
-
-type FallbackVerdict = Literal["checked", "not_run", "failed"]
 
 _RUNNER_PREFIXES = (
     ("uv", "run"),
@@ -62,21 +60,16 @@ _JS_RUN_SCRIPTS = frozenset({"test", "lint", "build", "typecheck", "check", "ci"
 
 
 @dataclass(frozen=True)
-class FallbackFinding:
-    verdict: FallbackVerdict
-    command: str | None = None
-    exit_code: int | None = None
+class Check:
+    """A test, linter or build the agent ran through bash, and how it exited."""
+
+    command: str
+    exit_code: int
 
 
 def _strip_runner_prefixes(argv: tuple[str, ...]) -> tuple[str, ...]:
-    stripped = True
-    while stripped:
-        stripped = False
-        for prefix in _RUNNER_PREFIXES:
-            if argv[: len(prefix)] == prefix:
-                argv = argv[len(prefix) :]
-                stripped = True
-                break
+    while prefix := next((prefix for prefix in _RUNNER_PREFIXES if argv[: len(prefix)] == prefix), None):
+        argv = argv[len(prefix) :]
     return argv
 
 
@@ -126,33 +119,27 @@ def bash_results(message: ToolMessage) -> list[tuple[str, int]]:
     return results
 
 
-def last_check(message: ToolMessage) -> FallbackFinding | None:
+def last_check(message: ToolMessage) -> Check | None:
     """The last test, linter or build run in a bash tool result; ``None`` when it ran none."""
-    checks = [(command, exit_code) for command, exit_code in bash_results(message) if is_check_command(command)]
-    if not checks:
-        return None
-    command, exit_code = checks[-1]
-    return FallbackFinding("checked" if exit_code == 0 else "failed", command, exit_code)
+    checks = [Check(command, exit_code) for command, exit_code in bash_results(message) if is_check_command(command)]
+    return checks[-1] if checks else None
 
 
-def fallback_reminder(finding: FallbackFinding, edited_paths: Sequence[str]) -> str:
-    match finding.verdict:
-        case "not_run":
-            files = ", ".join(escape_tags(path) for path in edited_paths)
-            return (
-                "<system-reminder>"
-                f"You edited files ({files}) but did not run any test, linter or build afterwards. "
-                "Before finishing, run the tests, linters or build relevant to your change and fix what they "
-                "report. If they cannot be run here, say so in your final answer and explain why."
-                "</system-reminder>"
-            )
-        case "failed":
-            return (
-                "<system-reminder>"
-                f"The last check you ran after your final edit, `{escape_tags(finding.command or '')}`, failed with "
-                f"exit code {finding.exit_code}. Fix the failure and re-run it before finishing, or say in your "
-                "final answer why it cannot pass."
-                "</system-reminder>"
-            )
-        case _:
-            raise ValueError(f"No reminder for verdict {finding.verdict!r}")
+def fallback_reminder(failed: Check | None, edited_paths: Sequence[str]) -> str:
+    """The reminder for the last check run on the tree, which ``failed``, or for no check run on it (``None``)."""
+    if failed is None:
+        files = ", ".join(escape_tags(path) for path in edited_paths)
+        return (
+            "<system-reminder>"
+            f"You edited files ({files}) but did not run any test, linter or build afterwards. "
+            "Before finishing, run the tests, linters or build relevant to your change and fix what they "
+            "report. If they cannot be run here, say so in your final answer and explain why."
+            "</system-reminder>"
+        )
+    return (
+        "<system-reminder>"
+        f"The last check you ran after your final edit, {code_span(escape_tags(failed.command))}, failed with "
+        f"exit code {failed.exit_code}. Fix the failure and re-run it before finishing, or say in your "
+        "final answer why it cannot pass."
+        "</system-reminder>"
+    )

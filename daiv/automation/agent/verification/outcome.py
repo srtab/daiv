@@ -40,7 +40,10 @@ class VerificationOutcome(TypedDict):
     reason: NotRequired[str]
     fingerprint: NotRequired[str]
     changed_by_checks: NotRequired[list[str]]
-    reported: NotRequired[bool]
+
+
+def checks_failed(outcome: VerificationOutcome | None) -> bool:
+    return outcome is not None and outcome["status"] == "failed"
 
 
 def command_outcomes(
@@ -66,13 +69,13 @@ def _longest_backtick_run(text: str) -> int:
     return max((len(run) for run in re.findall(r"`+", text)), default=0)
 
 
-def _code_span(text: str) -> str:
+def code_span(text: str) -> str:
     delimiter = "`" * (_longest_backtick_run(text) + 1)
     return f"{delimiter} {text} {delimiter}" if delimiter != "`" else f"`{text}`"
 
 
 def _bullet(command: CommandOutcome) -> str:
-    span = _code_span(command["command"])
+    span = code_span(command["command"])
     if command["exit_code"] == 0:
         return f"- {span} passed"
     if command["already_failing"]:
@@ -120,13 +123,13 @@ def render_report(outcome: VerificationOutcome, *, new_merge_request: bool = Tru
             lines += ["", block]
         after_block = block is not None
     if changed_by_checks := outcome.get("changed_by_checks"):
-        lines += ["", "Running the checks changed these files: " + ", ".join(map(_code_span, changed_by_checks))]
+        lines += ["", "Running the checks changed these files: " + ", ".join(map(code_span, changed_by_checks))]
     if outcome["status"] == "failed":
         lines += ["", _failed_line(outcome["rounds"], new_merge_request)]
     elif outcome["status"] == "not_verified":
         lines += ["", f"Not verified: {outcome.get('reason', 'the checks could not be run')}"]
     if outcome["suspicious_paths"]:
-        lines += ["", SUSPICIOUS_PATHS_LINE + ", ".join(_code_span(path) for path in outcome["suspicious_paths"])]
+        lines += ["", SUSPICIOUS_PATHS_LINE + ", ".join(code_span(path) for path in outcome["suspicious_paths"])]
     return "\n".join(lines)
 
 

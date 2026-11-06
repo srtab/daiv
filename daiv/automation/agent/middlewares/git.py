@@ -16,6 +16,7 @@ from automation.agent.git_state import checkpointed_merge_request, effective_mer
 from automation.agent.publish_errors import publish_error_kind
 from automation.agent.publishers import GitChangePublisher, UnresolvedMergeConflictsError
 from automation.agent.utils import final_assistant_text, streamed_assistant_message
+from automation.agent.verification.outcome import checks_failed
 from automation.agent.workspace.git_manager import GIT_ERRORS
 from codebase.base import MergeRequest, Scope
 from codebase.clients.base import aget_open_merge_request
@@ -436,7 +437,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 merge_request=self._publish_target(state, runtime),
                 skip_ci=self.skip_ci,
                 agent_summary=agent_summary,
-                as_draft=verification is not None and verification["status"] == "failed",
+                as_draft=checks_failed(verification),
                 verification=verification,
             )
         except UnresolvedMergeConflictsError as exc:
@@ -453,7 +454,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             raise
 
         if verification is not None:
-            update["verification"] = {**verification, "reported": outcome.created_merge_request}
+            update["verification"] = verification
         if outcome.diff_stats is not None:
             update["diff_stats"] = outcome.diff_stats.model_dump()
         if outcome.published:

@@ -32,9 +32,6 @@ class AgentResult(TypedDict):
     question: dict[str, Any] | None
     """The question the run ended on (``{"questions": [...]}``), or None when it ended without one."""
 
-    verification: dict[str, Any] | None
-    """The before_publish verification outcome, or None when the run recorded none."""
-
 
 def parse_agent_result(rv: dict | str | None) -> AgentResult:
     """Parse a DBTaskResult.return_value into an AgentResult.
@@ -50,7 +47,6 @@ def parse_agent_result(rv: dict | str | None) -> AgentResult:
             merge_request_web_url=rv.get("merge_request_web_url"),
             usage=rv.get("usage") if isinstance(rv.get("usage"), dict) else None,
             question=rv.get("question") if isinstance(rv.get("question"), dict) else None,
-            verification=rv.get("verification") if isinstance(rv.get("verification"), dict) else None,
         )
     return AgentResult(
         response=str(rv) if rv else "",
@@ -59,7 +55,6 @@ def parse_agent_result(rv: dict | str | None) -> AgentResult:
         merge_request_web_url=None,
         usage=None,
         question=None,
-        verification=None,
     )
 
 
@@ -83,7 +78,6 @@ def build_agent_result(
             merge_request_web_url=None,
             usage=usage,
             question=question,
-            verification=None,
         )
     mr = checkpointed_merge_request(snapshot.values, strict=False)
     return AgentResult(
@@ -93,5 +87,4 @@ def build_agent_result(
         merge_request_web_url=mr.web_url if mr else None,
         usage=usage,
         question=question,
-        verification=snapshot.values.get("verification"),
     )

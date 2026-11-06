@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
+from langchain.agents.middleware import ModelFallbackMiddleware
 from sandbox_envs.spec import SandboxSpec
 
 from automation.agent import graph as graph_module
@@ -346,14 +347,15 @@ async def test_loop_breaker_registered_before_prompt_caching():
     assert built.middleware.index(breaker) < built.middleware.index(built.caching)
 
 
-async def test_verification_middleware_wraps_ask_user_and_the_loop_breaker():
+async def test_verification_middleware_wraps_the_fallback_ask_user_and_the_loop_breaker():
     built = await _construct(bash=True, auto_commit_changes=True)
 
     [verification] = _verification(built.middleware)
+    [fallback] = [m for m in built.middleware if isinstance(m, ModelFallbackMiddleware)]
     [ask_user] = [m for m in built.middleware if isinstance(m, AskUserQuestionMiddleware)]
     [breaker] = [m for m in built.middleware if isinstance(m, LoopBreakerMiddleware)]
     index = built.middleware.index
-    assert index(verification) < index(ask_user) < index(breaker)
+    assert index(verification) < index(fallback) < index(ask_user) < index(breaker)
     assert verification._loop_breaker is breaker
 
 

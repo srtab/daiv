@@ -19,8 +19,8 @@ from automation.agent.verification.checks import (
     failing_before_change,
     run_checks_in_place,
 )
-from automation.agent.verification.fallback import FallbackFinding, fallback_reminder, last_check
-from automation.agent.verification.outcome import VerificationOutcome, command_outcomes, failure_reminder
+from automation.agent.verification.fallback import fallback_reminder, last_check
+from automation.agent.verification.outcome import VerificationOutcome, code_span, command_outcomes, failure_reminder
 from automation.agent.verification.suspicious import suspicious_paths
 from automation.agent.workspace.git_manager import GIT_ERRORS
 
@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
     from automation.agent.middlewares.step_budget import StepBudgetMiddleware
     from automation.agent.verification.checks import CheckResult, CheckRun
+    from automation.agent.verification.fallback import Check
     from automation.agent.verification.outcome import CommandOutcome, VerificationStatus
     from automation.agent.workspace.base import Workspace
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
@@ -60,7 +61,7 @@ class VerificationResetMiddleware(AgentMiddleware):
 
 
 def _before_publishing_section(commands: Sequence[str]) -> str:
-    listed = "\n".join(f"- `{command}`" for command in commands)
+    listed = "\n".join(f"- {code_span(command)}" for command in commands)
     return (
         "## Before publishing\n\n"
         "Before your changes are published, DAIV runs these commands from the repository root, and each must exit 0:\n"
@@ -100,7 +101,7 @@ def _outcome(
 class _AgentCheck:
     """The last check the agent ran through bash, and the fingerprint of the tree it ran on."""
 
-    finding: FallbackFinding
+    check: Check
     tree: str
 
 
@@ -133,10 +134,9 @@ class VerificationMiddleware(AgentMiddleware):
     ``awrap_model_call``, so it adds no graph node per turn; each reminder is saved into the thread ahead of the reply
     it produced (see ``reminders``).
 
-    A tree that can't be read, or checks that can't run, record the run as not verified. ``ModelFallbackMiddleware``
-    retries the whole chain on any error. So a reminder counts only once the call carrying it returned, and any other
-    error from the verification itself is raised again on every later call of the run: a retry after a failed stash
-    pop would find a clean tree and publish nothing.
+    A tree that can't be read, or checks that can't run, record the run as not verified. This sits outside
+    ``ModelFallbackMiddleware``, so a fallback model retries only the model call, never the checks, and a reminder
+    counts only once the call carrying it returned.
 
     Args:
         workspace: The run's workspace; its ``bash`` runs the checks and its ``git`` reads the tree.
@@ -172,13 +172,10 @@ class VerificationMiddleware(AgentMiddleware):
         self._reminded_tree: str | None = None
         self._agent_check: _AgentCheck | None = None
         self._fallback_sent = False
-        self._error: Exception | None = None
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
     ) -> ModelCallResult:
-        if self._error is not None:
-            raise self._error
         if self._commands:
             request = request.override(
                 system_prompt=f"{request.system_prompt}\n\n{_before_publishing_section(self._commands)}"
@@ -186,11 +183,7 @@ class VerificationMiddleware(AgentMiddleware):
         response = await handler(request)
         asked = delivered_question_call(request.messages) is not None
         while _stopped(response.result):
-            try:
-                verdict = await self._verdict(may_remind=not asked and self._may_remind())
-            except Exception as exc:
-                self._error = exc
-                raise
+            verdict = await self._verdict(may_remind=not asked and self._may_remind())
             if verdict is None:
                 break
             if verdict.reminder is None:
@@ -254,15 +247,15 @@ class VerificationMiddleware(AgentMiddleware):
             self._fallback_sent = True
 
     async def _note_agent_check(self, message: ToolMessage) -> None:
-        finding = last_check(message)
-        if finding is None:
+        check = last_check(message)
+        if check is None:
             return
         try:
             tree = diff_fingerprint(await self._workspace.git.get_diff())
         except GIT_ERRORS:
             logger.warning("Could not read the repository after the agent ran a check", exc_info=True)
             return
-        self._agent_check = _AgentCheck(finding, tree)
+        self._agent_check = _AgentCheck(check, tree)
 
     async def _verdict(self, *, may_remind: bool) -> _Verdict | None:
         """What the agent's stop comes to, or ``None`` when it leaves nothing to publish."""
@@ -341,9 +334,9 @@ class VerificationMiddleware(AgentMiddleware):
 
     def _fallback(self, changed: list[str], tree: str, *, may_remind: bool) -> _Verdict:
         """The ``not_configured`` outcome, and the run's one reminder when no passing check ran on this tree."""
-        check = self._agent_check
-        finding = check.finding if check is not None and check.tree == tree else FallbackFinding("not_run")
+        agent_check = self._agent_check
+        check = agent_check.check if agent_check is not None and agent_check.tree == tree else None
         reminder = None
-        if finding.verdict != "checked" and not self._fallback_sent and may_remind:
-            reminder = fallback_reminder(finding, changed)
+        if (check is None or check.exit_code != 0) and not self._fallback_sent and may_remind:
+            reminder = fallback_reminder(check, changed)
         return _Verdict(_outcome("not_configured", commands=[], changed=changed, rounds=0), reminder)

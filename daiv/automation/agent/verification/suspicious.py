@@ -4,6 +4,8 @@ from fnmatch import fnmatchcase
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
+from codebase.repo_config import CONFIGURATION_FILE_NAME
+
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
@@ -27,7 +29,7 @@ CONFIG_FILES = frozenset({
     ".pre-commit-config.yaml",
     "Jenkinsfile",
     "azure-pipelines.yml",
-    ".daiv.yml",
+    CONFIGURATION_FILE_NAME,
 })
 CONFIG_FILE_PATTERNS = ("jest.config.*", "vitest.config.*", ".eslintrc*", "eslint.config.*", ".prettierrc*")
 CONFIG_DIRECTORIES = ((".github", "workflows"), (".circleci",))
