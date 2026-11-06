@@ -5,6 +5,7 @@ from sessions.views import (
     RunArtifactRawView,
     RunDownloadMarkdownView,
     SessionDetailView,
+    SessionEnvResolveView,
     SessionListView,
     SessionMergeRequestRedirectView,
     SessionNewView,
@@ -16,6 +17,7 @@ urlpatterns = [
     # Specific "new/*" and "stream/" routes precede the slug catch-all so they match first.
     path("new/", SessionNewView.as_view(), name="session_new"),
     path("new/chat/", SessionDetailView.as_view(), name="session_new_chat"),
+    path("new/environment/", SessionEnvResolveView.as_view(), name="session_env_resolve"),
     path("stream/", SessionStreamView.as_view(), name="session_stream"),
     path("<slug:thread_id>/", SessionDetailView.as_view(), name="session_detail"),
     path("<slug:thread_id>/merge-request/", SessionMergeRequestRedirectView.as_view(), name="session_merge_request"),
