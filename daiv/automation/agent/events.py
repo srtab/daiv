@@ -6,7 +6,7 @@ renamed on one side alone fails silently — empty turns for the assistant messa
 for context usage. The consumer half lives with each event: Python (``sessions.live.agui``,
 parsing through this module) for the assistant message, JS (``chat-stream.js``, whose node test
 drives the handler with payloads built here) for the context meter and the publish result, which
-is also kept per run by :func:`record_publish_result`.
+is also kept per run, for every repository, by :func:`record_publish_result`.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator, Mapping
     from uuid import UUID
 
+    from automation.agent.git_state import RepoPublish
     from automation.agent.publishers import PublishOutcome
     from automation.agent.usage_tracking import ResolvedWindow
     from codebase.base import MergeRequest, MergeRequestDiffStats
@@ -103,6 +104,8 @@ PUBLISH_RESULT_EVENT = "daiv_publish_result"
 def publish_result_payload(
     *,
     status: str,
+    repository: str = "",
+    sibling: bool = False,
     merge_request: MergeRequest | None = None,
     diff_stats: MergeRequestDiffStats | None = None,
     error_kind: str | None = None,
@@ -112,6 +115,9 @@ def publish_result_payload(
     return {
         "status": status,
         "pushed_sha": pushed_sha or None,
+        "repository": repository,
+        "sibling": sibling,
+        "merge_request_title": merge_request.title if merge_request else None,
         "merge_request_iid": merge_request.merge_request_id if merge_request else None,
         "merge_request_web_url": merge_request.web_url if merge_request else None,
         "files_changed": diff_stats.files_changed if diff_stats else None,
@@ -121,22 +127,47 @@ def publish_result_payload(
     }
 
 
-def published_outcome_payload(outcome: PublishOutcome) -> dict[str, Any]:
+def published_outcome_payload(
+    outcome: PublishOutcome | RepoPublish, *, repository: str = "", sibling: bool = False
+) -> dict[str, Any]:
     """The :func:`publish_result_payload` of a publish that pushed ``outcome``."""
     if outcome.merge_request is None:
         return publish_result_payload(
-            status="pushed", diff_stats=outcome.diff_stats, error_kind="mr_pending", pushed_sha=outcome.pushed_sha
+            status="pushed",
+            repository=repository,
+            sibling=sibling,
+            diff_stats=outcome.diff_stats,
+            error_kind="mr_pending",
+            pushed_sha=outcome.pushed_sha,
         )
     return publish_result_payload(
         status="opened" if outcome.created_merge_request else "pushed",
+        repository=repository,
+        sibling=sibling,
         merge_request=outcome.merge_request,
         diff_stats=outcome.diff_stats,
         pushed_sha=outcome.pushed_sha,
     )
 
 
+def repo_publish_payload(publish: RepoPublish) -> dict[str, Any] | None:
+    """The sibling :func:`publish_result_payload` of an extra repository's publish, or ``None`` when it has nothing
+    to report."""
+    if publish.error:
+        return publish_result_payload(
+            status="not_published" if publish.error_kind == "conflicts" else "failed",
+            repository=publish.repo_id,
+            sibling=True,
+            error_kind=publish.error_kind or "unknown",
+        )
+    if not publish.published:
+        return None
+    return published_outcome_payload(publish, repository=publish.repo_id, sibling=True)
+
+
 class PublishResultRecorder(BaseCallbackHandler):
-    """Keeps the last :data:`PUBLISH_RESULT_EVENT` payload dispatched while :func:`record_publish_result` is active."""
+    """Keeps the last :data:`PUBLISH_RESULT_EVENT` payload of the main repository (``payload``) and of each extra
+    repository (``siblings``, by repository) dispatched in the active recording block."""
 
     run_inline = True
     # Custom events only: an unhandled chat-model start makes langchain stringify the whole prompt per call.
@@ -144,6 +175,13 @@ class PublishResultRecorder(BaseCallbackHandler):
 
     def __init__(self) -> None:
         self.payload: dict[str, Any] | None = None
+        self.siblings: dict[str, dict[str, Any]] = {}
+
+    def record(self, payload: dict[str, Any]) -> None:
+        if payload.get("sibling"):
+            self.siblings[payload.get("repository") or ""] = payload
+        else:
+            self.payload = payload
 
     def on_custom_event(
         self,
@@ -156,7 +194,7 @@ class PublishResultRecorder(BaseCallbackHandler):
         **kwargs: Any,
     ) -> None:
         if name == PUBLISH_RESULT_EVENT and isinstance(data, dict):
-            self.payload = data
+            self.record(data)
 
 
 # Once, at import: a hook registered per block would pile up in langchain's module-level hook list.

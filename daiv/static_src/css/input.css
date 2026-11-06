@@ -900,6 +900,7 @@ html {
     @apply bg-status-fail;
   }
   .chat-inbox-event--ci_passed .chat-inbox-event__dot,
+  .chat-inbox-event--published .chat-inbox-event__dot,
   .chat-inbox-event--mr_merged .chat-inbox-event__dot {
     @apply bg-status-clear;
   }
@@ -916,6 +917,12 @@ html {
     @apply max-w-full shrink-0 truncate;
     color: color-mix(in srgb, var(--color-status-fail) 55%, var(--color-text-muted));
   }
+  .chat-inbox-event--published .chat-inbox-event__why {
+    color: var(--color-text-muted);
+  }
+  .chat-inbox-event__repo {
+    @apply min-w-0 truncate font-mono;
+  }
   .chat-inbox-event__why::before {
     content: "· ";
     color: var(--color-text-faint);
@@ -923,6 +930,9 @@ html {
   .chat-inbox-event__link,
   .chat-inbox-event__time {
     @apply shrink-0 text-text-faint hover:text-accent-bright;
+  }
+  .chat-inbox-event__mr {
+    @apply shrink-0 font-medium text-accent-bright hover:underline;
   }
   .draft-badge {
     @apply rounded-full px-1.5 font-sans text-[11px] font-semibold text-status-found;
@@ -1895,7 +1905,8 @@ html {
     margin-top: 0.75rem;
   }
 
-  .up-next__told-label {
+  .up-next__told-label,
+  .publish-rows__label {
     margin: 0;
     font-size: 12px;
     color: var(--color-text-faint);
@@ -2222,20 +2233,8 @@ html {
     to { transform: rotate(360deg); }
   }
 
-  .publish-row {
-    @apply mx-auto my-1 flex max-w-2xl items-center gap-2 text-[13px] text-gray-400;
-  }
-  .publish-row__main {
-    @apply inline-flex min-w-0 flex-wrap items-center gap-x-1.5;
-  }
-  .publish-row__link {
-    @apply font-medium text-gray-200 hover:underline;
-  }
-  .publish-row__files {
-    @apply text-gray-500;
-  }
-  .publish-row--failed {
-    @apply text-red-300;
+  .publish-rows {
+    @apply mx-auto my-1 w-full max-w-2xl;
   }
 
   .chat-tool__body {

@@ -16,6 +16,7 @@ pytestmark = requires_node
 
 CHAT_JS = DAIV_DIR / "chat" / "static" / "chat" / "js"
 TRANSCRIPT_JS = ("tool-renderers.js", "transcript-blocks.js", "chat-stream.js", "transcript-labels.js")
+TEMPLATE_LABEL = re.compile(r"""TranscriptLabels\.tn?\(\s*['"](\w+)['"]""")
 ICON_LITERAL = re.compile(r"""\bicon:\s*["']([\w-]+)["']|iconHTML\(\s*["']([\w-]+)["']""")
 
 SHAPES = """Object.fromEntries(
@@ -57,3 +58,13 @@ def test_every_icon_the_transcript_js_names_ships_rendered():
     assert {"document-text", "puzzle-piece", "light-bulb"} <= named
     assert named <= set(transcript_icons())
     assert [name for name in TRANSCRIPT_ICONS if not finders.find(f"core/img/icons/{name}.svg")] == []
+
+
+def test_every_label_a_template_names_is_defined():
+    named = {
+        key
+        for template in DAIV_DIR.glob("*/templates/**/*.html")
+        for key in TEMPLATE_LABEL.findall(template.read_text(encoding="utf-8"))
+    }
+    assert "publish_files" in named
+    assert named - set(transcript_labels()) == set()

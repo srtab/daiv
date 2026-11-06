@@ -33,6 +33,9 @@ class RepoPublish:
     error: str | None = None
     pushed_sha: str = ""
     diff_stats: MergeRequestDiffStats | None = None
+    created_merge_request: bool = False
+    error_kind: str | None = None
+    conflicted_paths: tuple[str, ...] = ()
 
     def to_state(self) -> dict[str, Any]:
         return {
@@ -43,6 +46,9 @@ class RepoPublish:
             "error": self.error,
             "pushed_sha": self.pushed_sha,
             "diff_stats": self.diff_stats.model_dump() if self.diff_stats is not None else None,
+            "created_merge_request": self.created_merge_request,
+            "error_kind": self.error_kind,
+            "conflicted_paths": list(self.conflicted_paths),
         }
 
     @classmethod
@@ -57,6 +63,9 @@ class RepoPublish:
             error=data.get("error"),
             pushed_sha=data.get("pushed_sha") or "",
             diff_stats=MergeRequestDiffStats.model_validate(diff_stats) if diff_stats else None,
+            created_merge_request=bool(data.get("created_merge_request")),
+            error_kind=data.get("error_kind"),
+            conflicted_paths=tuple(data.get("conflicted_paths") or ()),
         )
 
 
