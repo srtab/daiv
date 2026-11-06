@@ -167,7 +167,6 @@
 
     <div class="chat-column"
          :class="{ 'chat-column--empty': !thread && turns.length === 0 }">
-      {% include "sessions/_session_repositories.html" %}
       {% if watch_only %}
         <div x-show="turns.length === 0" class="mb-4 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-gray-300">
           {% blocktranslate with iid=session.merge_request_iid %}This session tracks CI on !{{ iid }}. It gets a transcript once DAIV looks at a failure or someone mentions it on the merge request.{% endblocktranslate %}

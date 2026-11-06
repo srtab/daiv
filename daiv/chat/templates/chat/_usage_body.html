@@ -1,39 +1,66 @@
 {% load i18n icon_tags %}
 {% comment %}
 Context and spend readout, shared by the composer's usage sheet and the session details panel.
-Takes ``group_class`` and ``label_class`` from the surface, and ``context_id`` to make the context section a jump target.
+Takes ``group_class`` and ``label_class`` from the surface, ``context_id`` and ``spend_id`` to make each section a jump
+target, and ``foldable`` to give each a fold toggle from ``sessionPage`` with its figure on the label row.
 {% endcomment %}
 <section class="{{ group_class }}"{% if context_id %} id="{{ context_id }}"{% endif %} x-show="contextUsage" x-cloak>
-  <h3 class="{{ label_class }}">{% translate "Context" %}</h3>
-  {# Exact, locale-grouped counts on purpose: the figure must be checkable against a provider's own limit error. #}
-  <p class="context-panel__figure" x-text="contextFigure"></p>
-  <div class="context-panel__track" x-show="contextMeter?.hasWindow" aria-hidden="true">
-    <div class="context-panel__fill"
-         :class="contextMeter?.tone ? 'context-panel__fill--' + contextMeter.tone : ''"
-         :style="contextMeter ? 'width: ' + contextMeter.fill + '%' : ''"></div>
+  {% if foldable %}
+    <h3>
+      <button type="button" class="details-fold__head" :aria-expanded="(!isFolded('context')).toString()"
+              aria-controls="{{ context_id }}-body" @click="toggleFold('context')">
+        <span class="{{ label_class }}">{% translate "Context" %}</span>
+        <span class="details-fold__summary" x-text="contextMeter?.label || ''"></span>
+        {% icon "chevron-right" "details-fold__chevron" %}
+      </button>
+    </h3>
+  {% else %}
+    <h3 class="{{ label_class }}">{% translate "Context" %}</h3>
+  {% endif %}
+  <div {% if foldable %}class="details-fold__body" id="{{ context_id }}-body" x-show="!isFolded('context')"{% else %}class="contents"{% endif %}>
+    {# Exact, locale-grouped counts on purpose: the figure must be checkable against a provider's own limit error. #}
+    <p class="context-panel__figure" x-text="contextFigure"></p>
+    <div class="context-panel__track" x-show="contextMeter?.hasWindow" aria-hidden="true">
+      <div class="context-panel__fill"
+           :class="contextMeter?.tone ? 'context-panel__fill--' + contextMeter.tone : ''"
+           :style="contextMeter ? 'width: ' + contextMeter.fill + '%' : ''"></div>
+    </div>
+    <p class="context-panel__subline" x-text="contextSubline"></p>
+    <p class="context-panel__headroom"
+       x-show="contextHeadroom"
+       :class="contextHeadroom ? 'context-panel__headroom--' + contextHeadroom.tone : ''">
+      <span class="context-panel__headroom-glyph" x-show="contextHeadroom?.tone === 'ok'" aria-hidden="true">{% icon "check-circle" "h-3.5 w-3.5" %}</span>
+      <span class="context-panel__headroom-glyph" x-show="contextHeadroom?.tone === 'warn'" aria-hidden="true">{% icon "exclamation-circle" "h-3.5 w-3.5" %}</span>
+      <span class="context-panel__headroom-glyph" x-show="contextHeadroom?.tone === 'danger'" aria-hidden="true">{% icon "exclamation-triangle" "h-3.5 w-3.5" %}</span>
+      <span x-text="contextHeadroom?.text || ''"></span>
+    </p>
   </div>
-  <p class="context-panel__subline" x-text="contextSubline"></p>
-  <p class="context-panel__headroom"
-     x-show="contextHeadroom"
-     :class="contextHeadroom ? 'context-panel__headroom--' + contextHeadroom.tone : ''">
-    <span class="context-panel__headroom-glyph" x-show="contextHeadroom?.tone === 'ok'" aria-hidden="true">{% icon "check-circle" "h-3.5 w-3.5" %}</span>
-    <span class="context-panel__headroom-glyph" x-show="contextHeadroom?.tone === 'warn'" aria-hidden="true">{% icon "exclamation-circle" "h-3.5 w-3.5" %}</span>
-    <span class="context-panel__headroom-glyph" x-show="contextHeadroom?.tone === 'danger'" aria-hidden="true">{% icon "exclamation-triangle" "h-3.5 w-3.5" %}</span>
-    <span x-text="contextHeadroom?.text || ''"></span>
-  </p>
 </section>
 
-<section class="{{ group_class }}" x-show="spend" x-cloak>
-  <div class="context-panel__label-row">
-    <h3 class="{{ label_class }}">{% translate "Spend" %}</h3>
-    <span class="context-panel__total" x-text="spendTotal"></span>
+<section class="{{ group_class }}"{% if spend_id %} id="{{ spend_id }}"{% endif %} x-show="spend" x-cloak>
+  {% if foldable %}
+    <h3>
+      <button type="button" class="details-fold__head" :aria-expanded="(!isFolded('spend')).toString()"
+              aria-controls="{{ spend_id }}-body" @click="toggleFold('spend')">
+        <span class="{{ label_class }}">{% translate "Spend" %}</span>
+        <span class="details-fold__summary" x-text="spendTotal"></span>
+        {% icon "chevron-right" "details-fold__chevron" %}
+      </button>
+    </h3>
+  {% else %}
+    <div class="context-panel__label-row">
+      <h3 class="{{ label_class }}">{% translate "Spend" %}</h3>
+      <span class="context-panel__total" x-text="spendTotal"></span>
+    </div>
+  {% endif %}
+  <div {% if foldable %}class="details-fold__body" id="{{ spend_id }}-body" x-show="!isFolded('spend')"{% else %}class="contents"{% endif %}>
+    <p class="context-panel__subline" x-text="spendSummary"></p>
+    <template x-for="row in spendRows" :key="row.model">
+      <p class="context-panel__model">
+        <span class="context-panel__model-name" x-text="row.model"></span>
+        <span class="context-panel__model-cost" x-text="exactTokens(row.total_tokens) + ' · ' + spendRowCost(row)"></span>
+      </p>
+    </template>
+    <p class="composer-sheet__empty" x-show="spendUnrecordedLine" x-text="spendUnrecordedLine"></p>
   </div>
-  <p class="context-panel__subline" x-text="spendSummary"></p>
-  <template x-for="row in spendRows" :key="row.model">
-    <p class="context-panel__model">
-      <span class="context-panel__model-name" x-text="row.model"></span>
-      <span class="context-panel__model-cost" x-text="exactTokens(row.total_tokens) + ' · ' + spendRowCost(row)"></span>
-    </p>
-  </template>
-  <p class="composer-sheet__empty" x-show="spendUnrecordedLine" x-text="spendUnrecordedLine"></p>
 </section>

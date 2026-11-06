@@ -53,8 +53,9 @@ def test_a_thread_shows_repo_and_branch_in_its_details_not_the_dock(member_clien
     assert 'class="chat-context"' not in html
     start = html.index('data-testid="session-details"')
     details = html[start : html.index("</aside>", start)]
-    assert "group/project" in details
-    assert "thread?.ref" in details
+    assert 'x-for="(row, index) in repositoryRows"' in details
+    assert 'x-text="row.repo_id"' in details
+    assert 'x-text="row.ref"' in details
 
 
 @pytest.mark.django_db

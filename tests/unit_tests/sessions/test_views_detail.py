@@ -4,9 +4,11 @@ import json
 import re
 import uuid
 from datetime import timedelta
+from html.parser import HTMLParser
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import escapejs
@@ -32,6 +34,7 @@ from sessions.models import (
 )
 from sessions.transcript_labels import transcript_icons
 
+from tests.unit_tests.htmltree import VOID_TAGS
 from tests.unit_tests.sessions.conftest import (
     create_archive,
     delegate_messages,
@@ -1125,6 +1128,43 @@ def _details(resp) -> str:
     return _part(resp, "session-details", "</aside>")
 
 
+def _section(html: str, element_id: str) -> str:
+    start = html.index(f'id="{element_id}"')
+    return html[start : html.index("</section>", start)]
+
+
+def _card(resp) -> str:
+    return _part(resp, "repository-card", "</article>")
+
+
+class _TemplateGuards(HTMLParser):
+    """The ``x-if`` of every ``<template>`` enclosing each ``data-testid``, outermost first."""
+
+    def __init__(self):
+        super().__init__()
+        self.open: list[tuple[str, str | None]] = []
+        self.found: dict[str, list[str]] = {}
+
+    def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
+        if testid := attributes.get("data-testid"):
+            self.found[testid] = [condition for name, condition in self.open if name == "template" and condition]
+        if tag not in VOID_TAGS:
+            self.open.append((tag, attributes.get("x-if")))
+
+    def handle_endtag(self, tag):
+        for depth in range(len(self.open) - 1, -1, -1):
+            if self.open[depth][0] == tag:
+                del self.open[depth:]
+                return
+
+
+def _guards(html: str, testid: str) -> list[str]:
+    parser = _TemplateGuards()
+    parser.feed(html)
+    return parser.found[testid]
+
+
 @pytest.mark.django_db
 def test_detail_has_a_top_bar_and_no_breadcrumb(member_client, member_user):
     session = _create_session(user=member_user, title="Fix the login redirect")
@@ -1155,16 +1195,18 @@ def test_detail_top_bar_sits_outside_the_scrolling_main(member_client, member_us
         (SessionOrigin.PIPELINE_WEBHOOK, "Pipeline Webhook"),
     ],
 )
-def test_detail_panel_shows_origin_repo_branch_and_owner(member_client, member_user, origin, started_by):
+def test_detail_info_tab_shows_origin_owner_runs_and_session_id(member_client, member_user, origin, started_by):
     session = _create_session(user=member_user, origin=origin, ref="feat/login")
     _create_run(session, trigger_type=origin)
 
-    details = _details(_get_detail(member_client, session))
+    info = _section(_details(_get_detail(member_client, session)), "session-details-info")
 
-    assert started_by in details
-    assert "group/project" in details
-    assert "feat/login" in details
-    assert "avatar" in details
+    assert started_by in info
+    assert "avatar" in info
+    assert 'x-text="runCount"' in info
+    assert str(session.thread_id) in info
+    assert f"copyText('{escapejs(session.thread_id)}')" in info
+    assert "Created" in info and "Today, " in info
 
 
 @pytest.mark.django_db
@@ -1276,7 +1318,7 @@ def test_detail_shows_the_ci_watch_without_a_merge_request_payload(member_client
     resp = _get_detail(member_client, _create_session(user=member_user, watch_state=WatchState.WATCHING))
 
     assert 'x-if="watch && !thread?.merge_request"' in _topbar(resp)
-    assert 'x-show="thread?.merge_request || watch"' in _details(resp)
+    assert "ciFor(row)" in _guards(_details(resp), "session-details-ci")
 
 
 @pytest.mark.django_db
@@ -1325,6 +1367,131 @@ def test_detail_remembers_the_panel_per_user(member_client, member_user):
     html = _get_detail(member_client, _create_session(user=member_user)).content.decode()
 
     assert f"storageKey: 'daiv.session-details.{member_user.pk}'" in html
+
+
+@pytest.mark.django_db
+def test_detail_sidebar_has_no_title_and_closes_only_as_a_sheet(member_client, member_user):
+    details = _details(_get_detail(member_client, _create_session(user=member_user)))
+
+    assert "session-details__title" not in details
+    assert 'x-show="!wide"' in details and "setDetails(false)" in details
+
+
+@pytest.mark.django_db
+def test_detail_sidebar_has_overview_and_info_tabs(member_client, member_user):
+    details = _details(_get_detail(member_client, _create_session(user=member_user)))
+
+    assert 'data-testid="session-details-tabs"' in details and 'role="tablist"' in details
+    assert ">Overview<" in details and ">Info<" in details
+    assert "selectTab('overview')" in details and "selectTab('info')" in details
+    assert details.count('role="tabpanel"') == 2
+
+
+@pytest.mark.django_db
+def test_detail_overview_sections_fold(member_client, member_user):
+    details = _details(_get_detail(member_client, _create_session(user=member_user)))
+
+    for section in ("repositories", "environment", "context", "spend", "outputs"):
+        assert f"toggleFold('{section}')" in details
+        assert f":aria-expanded=\"(!isFolded('{section}')).toString()\"" in details
+        assert f"x-show=\"!isFolded('{section}')\"" in details
+
+
+@pytest.mark.django_db
+def test_detail_overview_sections_keep_their_visibility_conditions(member_client, member_user):
+    details = _details(_get_detail(member_client, _create_session(user=member_user)))
+
+    assert 'x-show="contextUsage"' in _section(details, "session-details-context")
+    assert 'x-show="spend"' in _section(details, "session-details-spend")
+    assert 'x-show="latestArtifactsById.size"' in _section(details, "session-details-outputs")
+
+
+@pytest.mark.django_db
+def test_detail_environment_lists_sandbox_and_model_but_not_the_repository(member_client, member_user):
+    details = _details(_get_detail(member_client, _create_session(user=member_user)))
+
+    env = _section(details, "session-details-environment")
+    assert "lockedEnvLabel" in env and "lockedAgentLabel" in env and "group/project" not in env
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(("multi", "label"), [(False, "Repository"), (True, "Repositories")])
+def test_a_lone_repository_names_its_section_in_the_singular(member_client, member_user, multi, label):
+    session = _multi_repo_session(member_user) if multi else _create_session(user=member_user)
+
+    repositories = _section(_details(_get_detail(member_client, session)), "session-details-repositories")
+
+    assert f">{label}</span>" in repositories
+    assert 'x-text="repositoriesSummary"' in repositories
+    assert 'x-for="(row, index) in repositoryRows"' in repositories
+
+
+@pytest.mark.django_db
+def test_the_card_binds_exactly_the_fields_its_rows_carry(member_client, member_user):
+    header = _get_detail(member_client, _multi_repo_session(member_user)).context["header"]
+
+    card = render_to_string("sessions/_repository_card.html", {"header": header, "can_act": True})
+
+    assert set(re.findall(r"(?<![\w/])row\.(\w+)", card)) == set(header["repositories"]["rows"][0])
+
+
+@pytest.mark.django_db
+def test_other_sessions_is_offered_on_the_main_card_only(member_client, member_user):
+    card = _card(_get_detail(member_client, _create_session(user=member_user)))
+
+    assert 'x-if="index === 0"' in card and f"{reverse('session_list')}?repo=group/project&amp;mr=" in card
+
+
+@pytest.mark.django_db
+def test_only_a_multi_repository_session_tags_its_main_card(member_client, member_user):
+    card = _card(_get_detail(member_client, _create_session(user=member_user)))
+
+    assert 'x-if="repositoryRows.length > 1 && index === 0"' in card
+
+
+@pytest.mark.django_db
+def test_a_repository_without_a_merge_request_or_a_run_shows_only_its_branch(member_client, member_user):
+    resp = _get_detail(member_client, _create_session(user=member_user))
+    row = resp.context["header"]["repositories"]["rows"][0]
+    card = _card(resp)
+
+    assert (row["mr_iid"], row["ran"]) == (None, False)
+    assert _guards(card, "repository-card-menu") == ["row.mr_iid"]
+    assert "ciFor(row)" in _guards(card, "session-details-ci")
+    assert "'repo-card--quiet': row.ran && !row.mr_iid && !row.diff_stats &&" in card
+
+
+@pytest.mark.django_db
+def test_a_publish_error_shows_on_its_own_card_and_keeps_it_from_reading_no_changes(member_client, member_user):
+    card = _card(_get_detail(member_client, _multi_repo_session(member_user)))
+
+    assert "repositories.publish_errors.filter((item) => item.repo_id === row.repo_id)" in card
+    assert "!repositories.publish_errors.some((item) => item.repo_id === row.repo_id)" in card
+
+
+@pytest.mark.django_db
+def test_a_merge_request_without_ci_has_no_ci_line_or_toggle(member_client, member_user):
+    card = _card(_get_detail(member_client, _multi_repo_session(member_user)))
+
+    assert "ciFor(row)" in _guards(card, "session-details-ci")
+    assert _guards(card, "session-ci-toggle") == ["row.mr_iid", "ciFor(row)"]
+    assert "toggleCiWatch(ciFor(row))" in card and ':aria-checked="ciFor(row).watch_enabled.toString()"' in card
+
+
+@pytest.mark.django_db
+def test_a_viewer_who_cannot_run_gets_no_ci_toggle(member_client, member_user):
+    session = _create_session(user=member_user)
+
+    with patch("sessions.page_state.can_run", return_value=False):
+        details = _details(_get_detail(member_client, session))
+
+    assert 'data-testid="session-ci-toggle"' not in details
+    assert str(session.thread_id) in _section(details, "session-details-info")
+
+
+@pytest.mark.django_db
+def test_detail_has_no_transcript_repositories_box(member_client, member_user):
+    assert "session-repositories" not in _get_detail(member_client, _multi_repo_session(member_user)).content.decode()
 
 
 @pytest.mark.django_db
@@ -1625,6 +1792,17 @@ def test_a_coordinator_page_has_the_delegations_button_and_details_section(membe
     assert "openDetails('delegations')" in _topbar(resp)
     assert 'id="session-details-delegations"' in _details(resp)
     assert _header_payload(resp)["delegations"]["failed"] == 1
+
+
+@pytest.mark.django_db
+def test_delegated_jobs_sit_in_the_info_tab(member_client, member_user):
+    coordinator = make_coordinator(member_user)
+    make_delegating_run(coordinator, member_user)
+    make_leg(coordinator, uuid.uuid4(), status=RunStatus.FAILED)
+
+    details = _details(_get_detail(member_client, coordinator))
+
+    assert details.index('id="session-details-info"') < details.index('id="session-details-delegations"')
 
 
 @pytest.mark.django_db
