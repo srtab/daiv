@@ -1,9 +1,11 @@
 {% load i18n icon_tags %}
 {% comment %}
-Options trigger + sheet: Tools (MCP servers) only — model, repositories and environment live
-elsewhere — so the trigger's dot only ever means "MCP server selection differs from the defaults".
+Options trigger + sheet: Tools (MCP servers), plus a new chat's locked environment once its first
+message makes the thread — before that the Workspace card sets it, and a session page's sidebar shows it.
+Model and repositories live elsewhere, so the trigger's dot only ever means "MCP server selection
+differs from the defaults".
 {% endcomment %}
-<div class="composer-sheet-anchor" x-show="mcpCatalog.length" x-cloak>
+<div class="composer-sheet-anchor" x-show="mcpCatalog.length{% if not session %} || thread{% endif %}" x-cloak>
   <button type="button"
           class="composer-trigger"
           @click.stop="toggleSheet('options')"
@@ -25,12 +27,19 @@ elsewhere — so the trigger's dot only ever means "MCP server selection differs
     {% include "core/_sheet_head.html" with title=_("Options") close_expr="closeSheet()" surface="composer-sheet" %}
 
     <div class="composer-sheet__body scrollbar-thin">
+      {% if not session %}
+        <section class="composer-sheet__group" x-show="thread" x-cloak>
+          <h3 class="composer-sheet__label">{% translate "Environment" %}</h3>
+          {% include "sandbox_envs/_env_picker.html" with variant="sheet" disabled=True selected_env=selected_sandbox_env dynamic_label_expr="lockedEnvLabel" %}
+        </section>
+      {% endif %}
+
       {% comment %}
       Tools = MCP servers, one row per server and never one per tool. There can be
       dozens, so the group collapses to a single disclosure row and the sheet's height
       stops depending on how many servers exist.
       {% endcomment %}
-      <section class="composer-sheet__group">
+      <section class="composer-sheet__group" x-show="mcpCatalog.length" x-cloak>
         <h3 class="composer-sheet__label">{% translate "Tools" %}</h3>
 
         <button type="button"

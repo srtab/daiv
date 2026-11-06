@@ -120,6 +120,12 @@ msgid_plural "up to %(max)s repositories"
 msgstr[0] "até %(max)s repositório"
 msgstr[1] "até %(max)s repositórios"
 
+msgid "Context"
+msgstr "Contexto"
+
+msgid "Spend"
+msgstr "Gasto"
+
 #, fuzzy
 #~| msgid "Session context"
 #~ msgid "Session context"

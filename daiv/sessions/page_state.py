@@ -19,8 +19,10 @@ from django.core.cache import cache
 
 from asgiref.sync import sync_to_async
 
-from codebase.authorization import can_run
+from codebase.authorization import runnable_repo_ids
 from codebase.clients.base import PLATFORM_ERRORS
+from codebase.conf import settings as codebase_settings
+from codebase.models import RepositoryCatalog
 from core.ui_events import aread_session_revision
 from sessions.executor.lock import background_in_flight, live_run_for, session_activity
 from sessions.header import build_session_header, delegations_for, retry_for
@@ -98,6 +100,9 @@ async def aload_session_state(session: Session, user: User, *, always_look_up_me
     annotated = annotate_transcript(build_turns(hydrated.messages, in_flight=activity.in_flight), runs, activity)
     expired_banner = hydrated.expired and not activity.in_flight and not annotated
     extra_repositories = await aload_extra_repos(session.thread_id)
+    # The pill is the working branch, as the live stream's ``_applyRepoState`` couples it to the merge request;
+    # ``Session.ref`` lags it on any run that never synced back.
+    thread_ref = (merge_request or {}).get("source_branch") or session.ref
 
     def finish() -> tuple[list[dict[str, Any]], dict[str, Any], bool, LiveRun | None]:
         turns = interleave_inbox_events(
@@ -107,14 +112,23 @@ async def aload_session_state(session: Session, user: User, *, always_look_up_me
         )
         mark_run_openings(turns, Timeline(session.thread_id).opening_events())
         mark_skill_links(turns, session.thread_id)
-        can_act = can_run(user, session.repo_id)
+        runnable = runnable_repo_ids(user, [session.repo_id, *(r.repo_id for r in extra_repositories)])
+        can_act = session.repo_id in runnable
         delegations = delegations_for(turns, session, user)
         retry = retry_for(session, runs, turns, user, can_act=can_act)
         header = build_session_header(
             session, runs, retry=retry, user=user, delegations=delegations, merge_request=merge_request
         )
         header["up_next"] = up_next_payload(session, runs, user, activity)
-        header["repositories"] = _repositories(session, runs, extra_repositories)
+        header["repositories"] = _repositories(
+            session,
+            runs,
+            extra_repositories,
+            merge_request=merge_request,
+            ref=thread_ref,
+            main_diff_stats=hydrated.diff_stats,
+            runnable=runnable,
+        )
         return turns, header, can_act, live_run_for(activity.live, session, user)
 
     turns, header, can_act, live_run = await sync_to_async(finish)()
@@ -126,9 +140,7 @@ async def aload_session_state(session: Session, user: User, *, always_look_up_me
         hydrated=hydrated,
         merge_request=merge_request,
         merge_request_known=merge_request_known,
-        # The pill is the working branch, as the live stream's ``_applyRepoState`` couples it to the merge request;
-        # ``Session.ref`` lags it on any run that never synced back.
-        thread_ref=(merge_request or {}).get("source_branch") or session.ref,
+        thread_ref=thread_ref,
         live_run=live_run,
         header=header,
         can_act=can_act,
@@ -136,24 +148,78 @@ async def aload_session_state(session: Session, user: User, *, always_look_up_me
     )
 
 
-def _repositories(session: Session, runs: list[Run], extra_repositories: list[SessionRepository]) -> dict | None:
-    """A multi-repository session's ``rows``, the main repository first, each with its branch and merge request, and
-    the ``publish_errors`` of its latest run once it finished; ``None`` for a single-repository session. The main row
-    holds what the database knows; the page lays the chat's live branch and merge request over it."""
-    if not extra_repositories:
-        return None
-    run_url = next((r.merge_request_web_url for r in reversed(runs) if r.merge_request_web_url), "")
+def _repositories(
+    session: Session,
+    runs: list[Run],
+    extra_repositories: list[SessionRepository],
+    *,
+    merge_request: dict | None,
+    ref: str,
+    main_diff_stats: dict | None,
+    runnable: set[str],
+) -> dict:
+    """SYNC ONLY: the session's ``rows``, the main repository first, each with its branch, merge request, change
+    size, the ``errors`` of its publish in the latest run once that finished, and whether the viewer may act on its
+    merge request (``can_act``: run access to it and to the main repository, from ``runnable``); and ``ran``, whether
+    the last finished run completed, since a failed one may have left work unpublished. The main row takes
+    ``merge_request`` and ``ref`` when known, else what the database knows; the page lays the chat's live ones over it.
+
+    A blank branch is the repository's default one, named when the catalog knows it. A change size that counts
+    nothing is ``None``: a publish of a clean tree records zeros.
+    """
     latest = runs[-1] if runs else None
-    return {
-        "rows": [
-            {"repo_id": session.repo_id, "ref": session.ref, "mr_url": run_url, "mr_iid": session.merge_request_iid},
-            *(
-                {"repo_id": r.repo_id, "ref": r.ref, "mr_url": r.merge_request_web_url, "mr_iid": r.merge_request_iid}
-                for r in extra_repositories
-            ),
-        ],
-        "publish_errors": latest.publish_errors if latest and latest.status in RunStatus.terminal() else [],
-    }
+    errors = latest.publish_errors if latest and latest.status in RunStatus.terminal() else []
+    finished = next((r for r in reversed(runs) if r.status in RunStatus.terminal()), None)
+    can_act = session.repo_id in runnable
+    if merge_request:
+        main_mr = {
+            "mr_url": merge_request.get("url") or "",
+            "mr_iid": merge_request.get("id"),
+            "mr_title": merge_request.get("title") or "",
+            "mr_draft": bool(merge_request.get("draft")),
+        }
+    else:
+        run_url = next((r.merge_request_web_url for r in reversed(runs) if r.merge_request_web_url), "")
+        main_mr = {"mr_url": run_url, "mr_iid": session.merge_request_iid, "mr_title": "", "mr_draft": False}
+    rows = [
+        {
+            "repo_id": session.repo_id,
+            "ref": ref,
+            **main_mr,
+            "diff_stats": _change_size(main_diff_stats),
+            "can_act": can_act,
+        },
+        *(
+            {
+                "repo_id": r.repo_id,
+                "ref": r.ref,
+                "mr_url": r.merge_request_web_url,
+                "mr_iid": r.merge_request_iid,
+                "mr_title": r.merge_request_title,
+                "mr_draft": r.merge_request_draft,
+                "diff_stats": _change_size(r.diff_stats),
+                "can_act": can_act and r.repo_id in runnable,
+            }
+            for r in extra_repositories
+        ),
+    ]
+    for row in rows:
+        row["errors"] = [item["error"] for item in errors if item.get("repo_id") == row["repo_id"]]
+    if unnamed := [row["repo_id"] for row in rows if not row["ref"]]:
+        default_branches = dict(
+            RepositoryCatalog.objects.filter(provider=codebase_settings.CLIENT.value, slug__in=unnamed).values_list(
+                "slug", "default_branch"
+            )
+        )
+        for row in rows:
+            row["ref"] = row["ref"] or default_branches.get(row["repo_id"], "")
+    return {"rows": rows, "ran": finished is not None and finished.status != RunStatus.FAILED}
+
+
+def _change_size(diff_stats: dict | None) -> dict | None:
+    if diff_stats and any(diff_stats.get(key) for key in ("lines_added", "lines_removed", "files_changed")):
+        return diff_stats
+    return None
 
 
 async def _alook_up_merge_request(session: Session, *, fresh: bool) -> tuple[dict | None, bool]:

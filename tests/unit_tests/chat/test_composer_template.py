@@ -41,8 +41,9 @@ def test_a_thread_shows_repo_and_branch_in_its_details_not_the_dock(member_clien
     assert 'class="chat-context"' not in html
     start = html.index('data-testid="session-details"')
     details = html[start : html.index("</aside>", start)]
-    assert "group/project" in details
-    assert "thread?.ref" in details
+    assert 'x-for="(row, index) in repositoryRows"' in details
+    assert 'x-text="row.repo_id"' in details
+    assert 'x-text="row.ref"' in details
 
 
 @pytest.mark.django_db
@@ -401,3 +402,30 @@ def test_the_meter_strings_reach_the_page_translated(member_client, member_user)
     assert "Contexto: {percent} de {window} usados" in html
     assert "Espaço de sobra" in html
     assert "Plenty of room" not in html
+
+
+def _options_sheet(html: str) -> str:
+    start = html.index("composer-sheet--options")
+    return html[start : html.index("</section>", html.index('composer-sheet__label">Tools', start)) + 10]
+
+
+@pytest.mark.django_db
+def test_the_options_sheet_has_no_environment_on_a_session_page(member_client, member_user):
+    """The session sidebar shows the environment."""
+    sheet = _options_sheet(render_thread(member_client, create_session(member_user)))
+
+    assert "lockedEnvLabel" not in sheet
+    assert "daiv:env-changed" not in sheet
+
+
+@pytest.mark.django_db
+def test_a_new_chat_keeps_the_locked_environment_once_it_has_a_thread(member_client):
+    """A new chat's page has no session sidebar, and its Workspace card goes with the first message, so the sheet
+    is then the only place the environment shows."""
+    html = render_new_chat(member_client)
+    sheet = _options_sheet(html)
+
+    assert 'class="composer-sheet-anchor" x-show="mcpCatalog.length || thread"' in html
+    assert '<section class="composer-sheet__group" x-show="thread" x-cloak>' in sheet
+    assert "lockedEnvLabel" in sheet
+    assert "daiv:env-changed" not in sheet

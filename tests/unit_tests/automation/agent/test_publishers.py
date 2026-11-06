@@ -2016,6 +2016,16 @@ class TestPublishExtraRepos:
         ]
         assert "push rejected" in caplog.text
 
+    async def test_a_sibling_publish_carries_its_outcomes_diff_stats(self):
+        stats = MergeRequestDiffStats(lines_added=4, lines_removed=9, files_changed=1)
+
+        publishes, _, _, _ = await _publish_extras(
+            _multi_repo_ctx(make_repo_handle("g/mod")),
+            publish=[PublishOutcome(merge_request=None, published=True, diff_stats=stats)],
+        )
+
+        assert publishes[0].diff_stats == stats
+
     async def test_sibling_conflict_markers_recorded_as_error(self):
         conflict = UnresolvedMergeConflictsError(["a.py"])
 

@@ -1,0 +1,13 @@
+{% load icon_tags %}
+{% comment %}
+Inside ``sessionPage``: the head of the details fold ``section``, folding ``#session-details-<section>-body``. Shows
+``label`` (``label_expr`` once Alpine runs, when given) with ``summary_expr`` beside it.
+{% endcomment %}
+<h3>
+  <button type="button" class="details-fold__head" :aria-expanded="(!isFolded('{{ section }}')).toString()"
+          aria-controls="session-details-{{ section }}-body" @click="toggleFold('{{ section }}')">
+    <span class="session-details__label"{% if label_expr %} x-text="{{ label_expr }}"{% endif %}>{{ label }}</span>
+    {% if summary_expr %}<span class="details-fold__summary" x-text="{{ summary_expr }}"></span>{% endif %}
+    {% icon "chevron-right" "details-fold__chevron" %}
+  </button>
+</h3>

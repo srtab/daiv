@@ -185,7 +185,7 @@ async def test_the_retry_follows_the_run_access_the_state_reports(member_user):
     with (
         patch("sessions.page_state.ahydrate_thread", _hydration()),
         patch("sessions.page_state.aget_existing_mr_payload", AsyncMock(return_value=None)),
-        patch("sessions.page_state.can_run", Mock(return_value=False)),
+        patch("sessions.page_state.runnable_repo_ids", Mock(return_value=set())),
         patch("sessions.header.can_run", Mock(return_value=True)),
     ):
         state = await aload_session_state(session, member_user, always_look_up_merge_request=False)
@@ -266,15 +266,27 @@ async def test_the_payload_carries_what_a_turn_did_to_each_repository(member_use
         trigger_type=SessionOrigin.UI_JOB,
         repo_id=session.repo_id,
         status=RunStatus.SUCCESSFUL,
-        publish_errors=[{"repo_id": "group/other", "error": "push rejected"}],
+        publish_errors=[{"repo_id": "group/lib", "error": "push rejected"}],
     )
     after = await fetch()
 
-    main = {"repo_id": "group/project", "ref": "feature", "mr_url": "", "mr_iid": None}
-    lib = {"repo_id": "group/lib", "ref": "feature", "mr_url": "", "mr_iid": None}
-    published = {"repo_id": "group/lib", "ref": "daiv/lib", "mr_url": "https://example.com/lib/mr/3", "mr_iid": 3}
-    assert before["repositories"] == {"rows": [main, lib], "publish_errors": []}
-    assert after["repositories"] == {
-        "rows": [main, published],
-        "publish_errors": [{"repo_id": "group/other", "error": "push rejected"}],
+    unchanged = {"mr_draft": False, "diff_stats": None, "can_act": True}
+    main = {
+        "repo_id": "group/project",
+        "ref": "daiv/fix",
+        "mr_url": "https://example.com/mr/5",
+        "mr_iid": 5,
+        "mr_title": "Fix",
+        **unchanged,
+        "errors": [],
     }
+    lib = {"repo_id": "group/lib", "ref": "feature", "mr_url": "", "mr_iid": None, "mr_title": "", **unchanged}
+    published = {
+        **lib,
+        "ref": "daiv/lib",
+        "mr_url": "https://example.com/lib/mr/3",
+        "mr_iid": 3,
+        "errors": ["push rejected"],
+    }
+    assert before["repositories"] == {"rows": [main, {**lib, "errors": []}], "ran": True}
+    assert after["repositories"] == {"rows": [main, published], "ran": True}

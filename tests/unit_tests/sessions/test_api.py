@@ -455,7 +455,7 @@ async def test_session_turns_report_the_latest_run_for_the_page_header(client, a
 
     with (
         patch("sessions.page_state.ahydrate_thread", AsyncMock(return_value=hydrated)),
-        patch("sessions.page_state.can_run", return_value=True),
+        patch("sessions.page_state.runnable_repo_ids", side_effect=lambda user, ids: set(ids)),
     ):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
@@ -499,7 +499,7 @@ async def test_session_turns_carry_delegations_and_leave_the_parent_to_the_page(
         parent = (await client.get(f"/sessions/{coordinator.thread_id}/turns", headers=_auth_headers(raw))).json()
         child = (await client.get(f"/sessions/{leg.session_id}/turns", headers=_auth_headers(raw))).json()
 
-    assert parent["delegations"]["failed"] == 1
+    assert parent["delegations"]["total"] == 1
     assert child["delegations"] is None
     assert "parent" not in child
 
@@ -872,7 +872,7 @@ async def test_session_ci_watch_names_the_repository_of_a_merge_request_sharing_
     off = [o.repo_id async for o in MergeRequestOwnership.objects.filter(watch_enabled=False)]
     assert off == [turned_off]
     assert sorted((item["repo_id"], item["watch_enabled"]) for item in resp.json()["ci"]) == sorted([
-        ("", turned_off != "group/project"),
+        ("group/project", turned_off != "group/project"),
         ("group/lib", turned_off != "group/lib"),
     ])
 
@@ -925,7 +925,7 @@ async def test_session_turns_report_ci_on_the_merge_requests_the_session_owns(cl
 
     assert resp.json()["ci"] == [
         {
-            "repo_id": "",
+            "repo_id": session.repo_id,
             "merge_request_iid": 7,
             "status": "running",
             "label": "Waiting for CI",
