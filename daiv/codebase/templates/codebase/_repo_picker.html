@@ -18,12 +18,15 @@ Parameters:
 - required (default True)       — emit the sr-only guard input that blocks form submit when empty
 - field_errors (default None)   — Django ErrorList for the repos field
 - extra_errors (default None)   — Django ErrorList for sibling fields rendered inside the same box
+- unique_repos (default False)  — one entry per repository: the same repo on another branch is refused
 - with_x_data (default True)    — wrap in `x-data='promptBox(...)'`; set False when a parent already provides scope
 - on_change_event (default "")  — when set, promptBox dispatches this window event with detail={repos} on every chip mutation
 - variant (default "")          — "context" renders the chat composer's context-row form: an accent
                                   "Pick a repository" trigger while nothing is selected, a chevron on
                                   the chip instead of the remove control (the row always carries
-                                  exactly one repo). Any other value keeps the default rendering.
+                                  exactly one repo). "card" renders one `.workspace-row` per repo (MAIN tag,
+                                  branch button, "Make main", remove) plus an "Add repository" button.
+                                  Any other value keeps the default rendering.
 
 `prompt-box.js` must be loaded for the Alpine state to bind.
 {% endcomment %}
@@ -32,6 +35,7 @@ Parameters:
 <div x-data='promptBox({
         initialRepos: {{ initial_repos|default:"[]" }},
         maxRepos: {{ max_repos|default:1 }},
+        uniqueRepos: {{ unique_repos|yesno:"true,false,false" }},
         repoPickerUrl: "{{ repo_picker_url|escapejs }}",
         branchPickerTemplate: "{{ branch_picker_template|escapejs }}",
         conflictMessageTemplate: "{{ conflict_message_template|escapejs }}",
@@ -40,6 +44,41 @@ Parameters:
      class="relative">
 {% endif %}
 
+    {% if variant == "card" %}
+    <div class="workspace-rows">
+        <template x-for="(repo, index) in repos" :key="index">
+            <div class="workspace-row" :class="conflictIndex === index ? 'workspace-row--conflict' : ''">
+                {% icon "repo" "h-4 w-4 workspace-row__icon" %}
+                <span class="workspace-row__slug" x-text="repo.slug" :title="repo.slug"></span>
+                <span x-show="repos.length > 1 && index === 0" x-cloak class="workspace-tag">{% translate "Main" %}</span>
+                <button type="button"
+                        @click.stop="openBranchPicker(index)"
+                        :aria-label="'Change branch for ' + repo.slug"
+                        class="workspace-row__branch">
+                    {% icon "branch" "h-3.5 w-3.5" %}
+                    <span x-text="repo.ref || '{{ default_branch_label|escapejs }}'"></span>
+                </button>
+                <button type="button"
+                        x-show="index > 0" x-cloak
+                        @click.stop="makeMain(index)"
+                        :aria-label="'Make ' + repo.slug + ' the main repository'"
+                        class="workspace-row__action">{% translate "Make main" %}</button>
+                <button type="button"
+                        @click="remove(index)"
+                        :aria-label="'Remove ' + repo.slug"
+                        class="workspace-row__remove">{% icon "x-mark" "h-3.5 w-3.5" %}</button>
+            </div>
+        </template>
+        <button type="button"
+                @click.stop="openRepoPicker()"
+                :disabled="repos.length >= maxRepos"
+                :class="repos.length === 0 ? 'workspace-add--accent' : ''"
+                class="workspace-add">
+            {% icon "plus" "h-4 w-4" %}
+            <span>{% translate "Add repository" %}</span>
+        </button>
+    </div>
+    {% else %}
     <div class="flex flex-wrap items-center gap-1.5">
         <template x-for="(repo, index) in repos" :key="index">
             <span class="repo-chip" :class="conflictIndex === index ? 'repo-chip--conflict' : ''">
@@ -100,6 +139,7 @@ Parameters:
             {% icon "plus" "h-3.5 w-3.5" %}
         </button>
     </div>
+    {% endif %}
 
     {% comment %}
     Both popovers stay in the DOM with hx-get pre-set so HTMX registers them during its

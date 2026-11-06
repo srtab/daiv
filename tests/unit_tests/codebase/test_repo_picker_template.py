@@ -39,3 +39,21 @@ def test_multi_repo_done_control_does_not_submit_the_enclosing_form():
     assert done is not None
     assert done["type"] == "button"
     assert footer.find(attrs={"aria-live": "polite"}) is not None
+
+
+def test_the_card_variant_renders_rows_with_make_main_and_remove():
+    html = render_to_string(
+        "codebase/_repo_picker.html", CONTEXT | {"variant": "card", "max_repos": 5, "unique_repos": True}
+    )
+
+    assert "uniqueRepos: true" in html
+    assert "makeMain(index)" in html
+    assert "remove(index)" in html
+    assert "workspace-row" in html
+    assert "repo-chip" not in html
+
+
+def test_unique_repos_is_off_by_default():
+    html = render_to_string("codebase/_repo_picker.html", CONTEXT)
+
+    assert "uniqueRepos: false" in html

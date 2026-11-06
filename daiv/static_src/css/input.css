@@ -1262,9 +1262,9 @@ html {
     gap: 4px;
     padding: 2px 4px;
     border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.05);
-    color: #cbd5e1;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface-2);
+    color: var(--color-text);
     font-size: 13px;
     font-weight: 500;
     transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
@@ -1272,9 +1272,9 @@ html {
 
   /* Conflict state used by the picker when the chosen repo is already in the list. */
   .repo-chip--conflict {
-    border-color: rgba(248, 113, 113, 0.6);
-    background: rgba(239, 68, 68, 0.15);
-    color: #fecaca;
+    border-color: color-mix(in srgb, var(--color-status-fail) 60%, transparent);
+    background: color-mix(in srgb, var(--color-status-fail) 15%, transparent);
+    color: var(--color-text);
   }
 
   .repo-chip__btn {
@@ -1286,21 +1286,22 @@ html {
   }
 
   button.repo-chip__btn:hover {
-    background: rgba(255, 255, 255, 0.05);
-    color: #fff;
+    background: var(--color-surface-3);
+    color: var(--color-text-strong);
   }
 
   .repo-chip__btn--branch {
-    color: #93c5fd;
+    font-family: var(--font-mono);
+    color: var(--color-text-muted);
   }
 
   /* Picker-only "×" remove control. */
   .repo-chip__remove {
     border-radius: 999px;
     padding: 0 6px;
-    color: #6b7280;
+    color: var(--color-text-faint);
   }
-  button.repo-chip__remove:hover { color: #e5e7eb; }
+  button.repo-chip__remove:hover { color: var(--color-text); }
 
   /* When the agent has committed to a working branch, lift the branch segment
      so users see at a glance that it's not the original ref anymore. */
@@ -1343,6 +1344,131 @@ html {
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
+  }
+
+  /* Workspace rows — `_repo_picker.html` variant="card": one row per repository. */
+  .workspace-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .workspace-row {
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr) auto auto auto auto;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    font-size: 13px;
+    transition: background-color 0.15s ease;
+  }
+
+  .workspace-row:hover {
+    background: var(--color-surface-3);
+  }
+
+  .workspace-row--conflict {
+    background: color-mix(in srgb, var(--color-status-fail) 15%, transparent);
+  }
+
+  .workspace-row__icon {
+    color: var(--color-text-faint);
+  }
+
+  .workspace-row__slug {
+    grid-column: 2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--color-text);
+  }
+
+  .workspace-tag {
+    padding: 1px 6px;
+    border-radius: 999px;
+    border: 1px solid var(--color-border);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-text-faint);
+  }
+
+  .workspace-row__branch {
+    grid-column: 4;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 24ch;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--color-border);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--color-text-muted);
+  }
+
+  .workspace-row__branch > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .workspace-row__branch:hover {
+    color: var(--color-text-strong);
+  }
+
+  .workspace-row__action {
+    grid-column: 5;
+    padding: 2px 6px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--color-text-muted);
+  }
+
+  .workspace-row__action:hover {
+    color: var(--color-accent-bright);
+  }
+
+  .workspace-row__remove {
+    grid-column: 6;
+    display: inline-flex;
+    padding: 3px;
+    border-radius: 6px;
+    color: var(--color-text-faint);
+  }
+
+  .workspace-row__remove:hover {
+    color: var(--color-text);
+  }
+
+  .workspace-add {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-text-muted);
+  }
+
+  .workspace-add:hover:not(:disabled) {
+    background: var(--color-surface-3);
+    color: var(--color-accent-bright);
+  }
+
+  .workspace-add:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .workspace-add--accent {
+    color: var(--color-accent-bright);
   }
 
   /* Turn */
