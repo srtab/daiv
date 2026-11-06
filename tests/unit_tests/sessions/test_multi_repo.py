@@ -23,6 +23,7 @@ from sessions.services import RepoTarget
 
 from automation.agent.references import RefIn
 from codebase.authorization import RepositoryAccessDenied
+from codebase.base import MergeRequestDiffStats
 from tests.unit_tests.sessions.conftest import make_task_result
 
 pytestmark = pytest.mark.django_db(transaction=True)
@@ -257,7 +258,18 @@ async def test_enqueue_failure_is_reported_as_failed(member_user):
     assert result.failed[0].repo_id == "g/app"
 
 
-def _publish(repo_id, *, iid=None, branch="", published=False, current_ref="", error=None):
+def _publish(
+    repo_id,
+    *,
+    iid=None,
+    branch="",
+    published=False,
+    current_ref="",
+    error=None,
+    title="t",
+    draft=False,
+    diff_stats=None,
+):
     from automation.agent.git_state import RepoPublish
     from codebase.base import MergeRequest, User
 
@@ -267,7 +279,8 @@ def _publish(repo_id, *, iid=None, branch="", published=False, current_ref="", e
             merge_request_id=iid,
             source_branch=branch,
             target_branch="main",
-            title="t",
+            title=title,
+            draft=draft,
             description="d",
             web_url=f"https://git/{repo_id}/-/merge_requests/{iid}",
             author=User(id=1, username="bot"),
@@ -275,7 +288,14 @@ def _publish(repo_id, *, iid=None, branch="", published=False, current_ref="", e
         if iid
         else None
     )
-    return RepoPublish(repo_id=repo_id, merge_request=mr, published=published, current_ref=current_ref, error=error)
+    return RepoPublish(
+        repo_id=repo_id,
+        merge_request=mr,
+        published=published,
+        current_ref=current_ref,
+        error=error,
+        diff_stats=diff_stats,
+    )
 
 
 async def _session_with_rows(*repo_ids):
@@ -303,6 +323,66 @@ async def test_persist_extra_repo_state_keeps_each_branch_and_mr():
     assert rows["g/mod"].merge_request_web_url == "https://git/g/mod/-/merge_requests/7"
     assert (rows["g/lib"].ref, rows["g/lib"].merge_request_iid) == ("daiv/lib", 8)
     assert (rows["g/err"].ref, rows["g/err"].merge_request_iid) == ("", None)
+
+
+async def test_persisting_a_publish_keeps_the_mr_title_draft_and_diff_stats():
+    session = await _session_with_rows("g/mod")
+    stats = MergeRequestDiffStats(lines_added=4, lines_removed=9, files_changed=1)
+
+    await apersist_extra_repo_state(
+        session.thread_id,
+        [
+            _publish(
+                "g/mod",
+                iid=17,
+                branch="daiv/mod",
+                published=True,
+                title="Drop the redirect",
+                draft=True,
+                diff_stats=stats,
+            )
+        ],
+    )
+
+    row = await SessionRepository.objects.aget(session_id=session.thread_id, repo_id="g/mod")
+    assert (row.merge_request_title, row.merge_request_draft) == ("Drop the redirect", True)
+    assert row.diff_stats == {"lines_added": 4, "lines_removed": 9, "files_changed": 1}
+
+
+async def test_a_publish_without_diff_stats_keeps_the_stored_ones():
+    session = await _session_with_rows("g/mod")
+    stored = {"lines_added": 1, "lines_removed": 2, "files_changed": 3}
+    await SessionRepository.objects.filter(session_id=session.thread_id).aupdate(diff_stats=stored)
+
+    await apersist_extra_repo_state(session.thread_id, [_publish("g/mod", iid=17, branch="daiv/mod", published=True)])
+
+    row = await SessionRepository.objects.aget(session_id=session.thread_id, repo_id="g/mod")
+    assert row.diff_stats == stored
+
+
+async def test_a_failed_publish_leaves_the_mr_details_alone():
+    session = await _session_with_rows("g/mod")
+    stored = {"lines_added": 1, "lines_removed": 2, "files_changed": 3}
+    await SessionRepository.objects.filter(session_id=session.thread_id).aupdate(
+        merge_request_title="Kept", merge_request_draft=True, diff_stats=stored
+    )
+
+    await apersist_extra_repo_state(
+        session.thread_id,
+        [
+            _publish(
+                "g/mod",
+                iid=17,
+                branch="daiv/mod",
+                error="push rejected",
+                title="New",
+                diff_stats=MergeRequestDiffStats(lines_added=9),
+            )
+        ],
+    )
+
+    row = await SessionRepository.objects.aget(session_id=session.thread_id, repo_id="g/mod")
+    assert (row.merge_request_title, row.merge_request_draft, row.diff_stats) == ("Kept", True, stored)
 
 
 async def test_persist_extra_repo_state_without_an_mr():

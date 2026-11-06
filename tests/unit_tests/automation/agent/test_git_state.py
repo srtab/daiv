@@ -6,6 +6,7 @@ from automation.agent.git_state import (
     checkpointed_repo_publishes,
     effective_merge_request,
 )
+from codebase.base import MergeRequestDiffStats
 from tests.unit_tests.automation.agent.conftest import make_merge_request
 
 
@@ -82,3 +83,16 @@ def test_checkpointed_repo_publishes_skips_unreadable_items(caplog):
     assert [rp.repo_id for rp in publishes] == ["g/mod"]
     assert "repo_id=g/bad" in caplog.text
     assert checkpointed_repo_publishes({"repo_publishes": "nope"}) == []
+
+
+def test_a_repo_publish_round_trips_its_diff_stats():
+    stats = MergeRequestDiffStats(lines_added=12, lines_removed=3, files_changed=2)
+    rp = RepoPublish(repo_id="g/mod", merge_request=None, published=True, current_ref="b", diff_stats=stats)
+
+    assert RepoPublish.from_state(rp.to_state()).diff_stats == stats
+
+
+def test_a_repo_publish_checkpointed_before_diff_stats_reads_none():
+    state = {"repo_id": "g/mod", "merge_request": None, "published": False, "current_ref": ""}
+
+    assert RepoPublish.from_state(state).diff_stats is None

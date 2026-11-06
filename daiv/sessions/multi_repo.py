@@ -54,7 +54,8 @@ async def aload_extra_repos(thread_id: str) -> list[SessionRepository]:
 
 
 async def apersist_extra_repo_state(thread_id: str, publishes: Sequence[RepoPublish]) -> None:
-    """Keep each extra repository's working branch and MR on its row, so the next turn continues there.
+    """Keep each extra repository's working branch, MR (title, draft flag) and change size on its row, so the next
+    turn continues there.
 
     A failed publish leaves its row alone; a blank ref is never written, since it means the default branch.
     """
@@ -67,9 +68,13 @@ async def apersist_extra_repo_state(thread_id: str, publishes: Sequence[RepoPubl
                 ref=rp.merge_request.source_branch,
                 merge_request_iid=rp.merge_request.merge_request_id,
                 merge_request_web_url=rp.merge_request.web_url or "",
+                merge_request_title=rp.merge_request.title,
+                merge_request_draft=rp.merge_request.draft,
             )
         elif not rp.published and rp.current_ref:
             await rows.aupdate(ref=rp.current_ref)
+        if rp.diff_stats is not None:
+            await rows.aupdate(diff_stats=rp.diff_stats.model_dump())
 
 
 def validate_shared_repos(repos: Sequence[RepoTarget], *, continuation: bool) -> None:
