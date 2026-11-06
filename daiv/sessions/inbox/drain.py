@@ -4,8 +4,10 @@
 pending events in one transaction: it moves the requests that follow the session to its branch, supersedes all but the
 newest event per subject, turns the CI and delegation wakes the policy blocks into remembered events, and drops a QUEUED
 next run left with nothing to wake it. When a waking event survives, it picks the branch and requester of the oldest
-one, checks that requester may still run on the repository (a mention is gated where it is made, FR-026), and takes
-their waking events for the branch with every remembered one, up to their first builtin slash command
+one (an event about another of the session's repositories is on the session's branch,
+:meth:`sessions.inbox.next_runs.NextRuns.branch_of`), checks that requester may still run on the repository (a mention
+is gated where it is made, FR-026), and takes their waking events for the branch with every remembered one, up to their
+first builtin slash command
 (:meth:`sessions.inbox.splits.RequestSplits.runs_alone`). A command that comes first is taken alone, with nothing
 remembered: the slash-command middleware answers it only as the whole request, and ends the run. The requester's next
 run for the branch is promoted to READY to run what was taken, unless requests it holds stay behind; it then keeps
@@ -24,6 +26,8 @@ from __future__ import annotations
 
 import logging
 import uuid
+from functools import reduce
+from operator import or_
 from typing import TYPE_CHECKING, NamedTuple
 
 from django.db import IntegrityError, transaction
@@ -159,7 +163,7 @@ class Drain:
                 if charge.event_id in retaken:
                     continue
                 rows = MergeRequestOwnership.objects.filter(
-                    repo_id=run.repo_id, merge_request_iid=charge.merge_request_iid
+                    repo_id=charge.repo_id, merge_request_iid=charge.merge_request_iid
                 )
                 rows.filter(attempts__gt=0).update(attempts=F("attempts") - 1)
                 rows.filter(last_examined_sha=charge.sha).update(last_examined_sha="")
@@ -169,6 +173,7 @@ class Drain:
 class _Charge(NamedTuple):
     """A CI attempt the take spent: the merge request, the commit it recorded as examined, the failure that woke."""
 
+    repo_id: str
     merge_request_iid: int
     sha: str
     event_id: uuid.UUID
@@ -200,27 +205,34 @@ class _Take:
             queued.setdefault((next_run.ref, Requester.of_run(next_run)), next_run)
         survivors = pending_events.supersede()
         self._apply_policy(survivors)
+        branches = {event.pk: next_runs.branch_of(event) for event in survivors}
         waking = [event for event in survivors if event.wake]
-        wanted = {(event.ref, Requester.of_event(event, session)) for event in waking}
+        wanted = {(branches[event.pk], Requester.of_event(event, session)) for event in waking}
         next_runs.drop([run for key, run in queued.items() if key not in wanted])
         if not waking:
             return None
 
-        branch, requester = waking[0].ref, Requester.of_event(waking[0], session)
+        branch, requester = branches[waking[0].pk], Requester.of_event(waking[0], session)
         requested = [
-            event for event in waking if event.ref in ("", branch) and Requester.of_event(event, session) == requester
+            event
+            for event in waking
+            if branches[event.pk] in ("", branch) and Requester.of_event(event, session) == requester
         ]
         splits = RequestSplits(requested)
         asked = splits.splits[0]
         if RequestSplits.runs_alone(asked[0]):
             taken = asked
         else:
-            taken = [event for event in survivors if event.ref in ("", branch) and (not event.wake or event in asked)]
+            taken = [
+                event
+                for event in survivors
+                if branches[event.pk] in ("", branch) and (not event.wake or event in asked)
+            ]
         waiting_run = queued.get((branch, requester))
         next_run = waiting_run if waiting_run is not None and splits.holding(waiting_run.pk) == 0 else None
         user = requester.user(session, requested)
         checked = any(event.kind != EventKind.MENTION for event in requested)
-        if user is not None and checked and not self._may_run(user, session.repo_id):
+        if user is not None and checked and not self._may_run(user, session.repo_ids()):
             self._fail(requested, waiting_run)
             next_runs.drop_emptied(queued_runs)
             transaction.on_commit(Drain(session.thread_id).start_logged, robust=True)
@@ -247,18 +259,26 @@ class _Take:
         InboxEvent.objects.filter(pk__in=[event.pk for event in taken]).update(
             state=EventState.TAKEN, run=run, claim_token="", updated_at=timezone.now()
         )
-        InboxEvent.objects.filter(
-            session=session,
-            state=EventState.SUPERSEDED,
-            run__isnull=True,
-            subject__in={e.subject for e in taken} - {""},
-        ).filter(Q(ref="") | Q(ref=branch)).update(run=run)
+        self._link_superseded(taken, run, branch)
         next_runs.drop_emptied(queued_run for queued_run in queued_runs if queued_run.pk != run.pk)
         if waiting_run is not None and waiting_run.pk != run.pk:
             next_runs.describe(waiting_run)
         self._merge_references(taken)
         self._apply_tools_selection(taken)
         return run, self._charge_ci_attempts(taken)
+
+    def _link_superseded(self, taken: list[InboxEvent], run: Run, branch: str) -> None:
+        """Link to ``run`` the superseded events of the subjects it took, on its ``branch``, which it shows replaced."""
+        subjects = {event.subject_key for event in taken if event.subject}
+        if not subjects:
+            return
+        InboxEvent.objects.filter(
+            reduce(or_, (Q(repo_id=repo_id, subject=subject) for repo_id, subject in subjects)),
+            NextRuns(self.session).events_on(branch),
+            session=self.session,
+            state=EventState.SUPERSEDED,
+            run__isnull=True,
+        ).update(run=run)
 
     def _merge_references(self, taken: list[InboxEvent]) -> None:
         """Add the references the follow-up jobs the run took declared to the session, which the run reads them from."""
@@ -287,12 +307,10 @@ class _Take:
         for event in taken:
             if event.kind != EventKind.CI_FAILED or not event.wake or event.merge_request_iid is None:
                 continue
-            sha = event.payload["sha"]
-            rows = MergeRequestOwnership.objects.filter(
-                repo_id=self.session.repo_id, merge_request_iid=event.merge_request_iid
-            )
+            sha, repo_id = event.payload["sha"], event.effective_repo_id(self.session.repo_id)
+            rows = MergeRequestOwnership.objects.filter(repo_id=repo_id, merge_request_iid=event.merge_request_iid)
             if rows.exclude(last_examined_sha=sha).update(last_examined_sha=sha, attempts=F("attempts") + 1):
-                charges.append(_Charge(event.merge_request_iid, sha, event.pk))
+                charges.append(_Charge(repo_id, event.merge_request_iid, sha, event.pk))
         return charges
 
     def _apply_policy(self, survivors: list[InboxEvent]) -> None:
@@ -309,9 +327,9 @@ class _Take:
             transaction.on_commit(WakePolicy(self.session).report_run_limit, robust=True)
 
     @staticmethod
-    def _may_run(user: User, repo_id: str) -> bool:
+    def _may_run(user: User, repo_ids: list[str]) -> bool:
         try:
-            assert_repo_access(user, [repo_id])
+            assert_repo_access(user, repo_ids)
         except RepoAccessError:
             return False
         return True
@@ -388,7 +406,9 @@ class _Take:
             "agent_model": agent_model,
             "agent_thinking_level": agent_thinking_level,
             "message_id": chats[-1].payload["agui_message_id"] if chats else "",
-            "merge_request_iid": next((event.merge_request_iid for event in waking if event.merge_request_iid), None),
+            "merge_request_iid": next(
+                (event.merge_request_iid for event in waking if event.merge_request_iid and not event.repo_id), None
+            ),
             "sandbox_environment_id": sandbox_environment_id,
             "prompt": RunInput(taken).request(),
             "muted": (person or top).payload.get("muted"),

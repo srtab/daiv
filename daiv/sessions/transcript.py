@@ -47,7 +47,7 @@ from sessions.models import (
 from sessions.turns import tool_call_segment
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Iterable, Iterator, Mapping
 
     from sessions.delegation import Delegations
     from sessions.models import InboxEvent
@@ -108,50 +108,68 @@ def _red_line_replaces(marker: dict[str, Any], run: Run) -> bool:
     return marker["status"] == "failed" and run.publish_status == PublishStatus.FAILED
 
 
-def _publish_entry(run: Run, status: str, *, error: str = "") -> dict[str, Any]:
-    """Only a publish that landed shows the run's merge request and figures, as the live line does."""
-    entry = {
-        "status": str(status),
-        "merge_request_iid": None,
-        "merge_request_web_url": "",
-        "files_changed": None,
-        "lines_added": None,
-        "lines_removed": None,
-        "error": error,
-    }
-    if status in (PublishStatus.OPENED, PublishStatus.PUSHED):
-        entry |= {
-            "merge_request_iid": run.merge_request_iid,
-            "merge_request_web_url": run.merge_request_web_url or "",
-            "files_changed": run.files_changed,
-            "lines_added": run.lines_added,
-            "lines_removed": run.lines_removed,
-        }
-    return entry
-
-
-def _publish_error(run: Run) -> str:
-    if not run.publish_error:
+def _error_label(kind: str | None) -> str:
+    if not kind:
         return ""
     try:
-        kind = PublishErrorKind(run.publish_error)
+        return str(PublishErrorKind(kind).label)
     except ValueError:
-        kind = PublishErrorKind.UNKNOWN
-    return str(kind.label)
+        return str(PublishErrorKind.UNKNOWN.label)
 
 
-def _publish_entries(run: Run) -> list[dict[str, Any]]:
-    """The entries of ``run``'s publish result; a failed publish is the red line and carries the retry anchor, followed
-    by the draft recovery opened after it."""
+def _publish_entry(publish: Mapping[str, Any], *, repository: str, sibling: bool) -> dict[str, Any]:
+    """The entry of a ``publish_result`` payload; only a publish that landed shows the merge request and figures, as
+    the live line does."""
+    status = publish["status"]
+    landed = status in (PublishStatus.OPENED, PublishStatus.PUSHED)
+    return {
+        "status": str(status),
+        "repository": repository,
+        "sibling": sibling,
+        "merge_request_iid": publish.get("merge_request_iid") if landed else None,
+        "merge_request_web_url": (publish.get("merge_request_web_url") or "") if landed else "",
+        "merge_request_title": (publish.get("merge_request_title") or "") if landed else "",
+        "lines_added": publish.get("lines_added") if landed else None,
+        "lines_removed": publish.get("lines_removed") if landed else None,
+        "error": _error_label(publish.get("error_kind")),
+    }
+
+
+def _main_publish_entry(run: Run, status: str, *, error_kind: str | None = None) -> dict[str, Any]:
+    publish = {
+        "status": status,
+        "error_kind": error_kind,
+        "merge_request_iid": run.merge_request_iid,
+        "merge_request_web_url": run.merge_request_web_url,
+        "merge_request_title": run.merge_request_title,
+        "lines_added": run.lines_added,
+        "lines_removed": run.lines_removed,
+    }
+    return _publish_entry(publish, repository=run.repo_id, sibling=False)
+
+
+def _main_publish_entries(run: Run) -> list[dict[str, Any]]:
+    """A failed main publish is the red line and carries the retry anchor, followed by the draft recovery opened
+    after it."""
     if not run.publish_status:
         return []
-    entry = _publish_entry(run, run.publish_status, error=_publish_error(run))
+    entry = _main_publish_entry(run, run.publish_status, error_kind=run.publish_error)
     if run.publish_status != PublishStatus.FAILED:
         return [entry]
     entries = [{"id": marker_id(run), **entry}]
     if run.code_changes and run.merge_request_iid:
-        entries.append(_publish_entry(run, PublishStatus.OPENED))
+        entries.append(_main_publish_entry(run, PublishStatus.OPENED))
     return entries
+
+
+def _publish_entries(run: Run) -> list[dict[str, Any]]:
+    """The entries of ``run``'s publish result, main repository first then the extras in session order."""
+    siblings = [
+        _publish_entry(item, repository=item.get("repository") or "", sibling=True)
+        for item in run.repo_publishes or []
+        if isinstance(item, dict) and item.get("status")
+    ]
+    return [*_main_publish_entries(run), *siblings]
 
 
 def _stamp_publish(run_turns: list[dict[str, Any]], run: Run) -> None:

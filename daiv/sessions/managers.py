@@ -19,6 +19,20 @@ if TYPE_CHECKING:
     from sessions.models import Run, RunArtifact, Session
 
 
+def _readable_repos_q(user: User, session_ref: str) -> models.Q:
+    """Rows on a repository ``user`` can read whose session (``session_ref``) has no extra repository they can't."""
+    # Local import: keep this module from pulling codebase.authorization
+    # (and its codebase.* / allauth graph) in at app-load time.
+    from codebase.authorization import viewable_repo_ids_subquery
+    from sessions.models import SessionRepository
+
+    viewable = viewable_repo_ids_subquery(user)
+    unreadable_extra = models.Exists(
+        SessionRepository.objects.filter(session=models.OuterRef(session_ref)).exclude(repo_id__in=viewable)
+    )
+    return models.Q(repo_id__in=viewable) & ~unreadable_extra
+
+
 _NEWEST_FIRST = ("-created_at", "-id")
 
 
@@ -94,11 +108,7 @@ class SessionQuerySet(models.QuerySet["Session"]):
         """
         if user.is_admin:
             return self.all()
-        # Local import: keep this module from pulling codebase.authorization
-        # (and its codebase.* / allauth graph) in at app-load time.
-        from codebase.authorization import viewable_repo_ids_subquery
-
-        return self.filter(self._owner_q(user) | models.Q(repo_id__in=viewable_repo_ids_subquery(user)))
+        return self.filter(self._owner_q(user) | _readable_repos_q(user, "pk"))
 
     def for_merge_request(self, iid: int) -> models.QuerySet[Session]:
         """Sessions that touched merge request ``iid``, whichever way they learned of it.
@@ -181,6 +191,10 @@ class RunQuerySet(models.QuerySet["Run"]):
         """Runs outside the sessions ``user`` archived out of their own lists."""
         return self.filter(~_archived_by(user, models.OuterRef("session")))
 
+    def that_pushed(self) -> models.QuerySet[Run]:
+        """Runs that pushed a commit, to their main repository or to another of their session's repositories."""
+        return self.exclude(pushed_sha="", sibling_pushed_shas=[])
+
     def latest_in_session(self) -> models.QuerySet[Run]:
         """Each session's newest run, whoever started it: the run ``with_latest_status`` reads the status of."""
         newest = _session_runs_newest_first(models.OuterRef("session")).values("pk")[:1]
@@ -218,11 +232,7 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
         """
         if user.is_admin:
             return self.all()
-        # Local import: keep this module from pulling codebase.authorization
-        # (and its codebase.* / allauth graph) in at app-load time.
-        from codebase.authorization import viewable_repo_ids_subquery
-
-        return self.filter(self._owner_q(user) | models.Q(repo_id__in=viewable_repo_ids_subquery(user)))
+        return self.filter(self._owner_q(user) | _readable_repos_q(user, "session_id"))
 
     def by_batch(self, batch_id) -> models.QuerySet[Run]:
         return self.filter(batch_id=batch_id)

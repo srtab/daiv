@@ -8,15 +8,13 @@ Anatomy, top to bottom inside the sticky dock:
   it opens upwards in place into todos and files changed (``_progress_drawer.html``).
 - **Composer** — one row: the options trigger (``+``), the textarea, then the context ring,
   the model as plain text, and an icon-only Send / Stop.
-- **Context row** (new-chat route only) — repo · branch, plus the MR pill once one exists.
-  Locked once a thread exists (the backend snapshots repo/ref on the first turn); before
-  that it *is* the repo picker, and picking a repo is what ungates Send. It shares its line
-  with the disclaimer.
 
-Everything that isn't acted on lives one tap away, and nothing appears twice: env and MCP
-servers in the options sheet, todos and files changed in the drawer. The sheets are bottom
-sheets below 1100px and popovers anchored above their trigger at or above it — same
-markup, only the container differs (see ``.composer-sheet`` in input.css).
+A new chat's repositories and environment are set in the Workspace card above the dock
+(``_workspace_card.html``). Everything else that isn't acted on lives one tap away, and
+nothing appears twice: MCP servers in the options sheet, todos and files changed in the
+drawer. The sheets are bottom sheets below 1100px and popovers anchored above their
+trigger at or above it — same markup, only the container differs (see ``.composer-sheet``
+in input.css).
 Typing ``/`` as the draft's first token opens the command autocomplete above the composer
 box (``_command_menu.html``).
 {% endcomment %}
@@ -98,50 +96,9 @@ box (``_command_menu.html``).
     </form>
   </div>
 
-  <div class="chat-dock__foot">
-    {% if not session %}
-    <div class="chat-context">
-      {# Locked once the thread exists: the backend pins repo + ref on the first turn. #}
-      <template x-if="thread">
-        <span class="repo-chip">
-          <span class="repo-chip__btn">
-            {% icon "repo" "h-3.5 w-3.5" %}
-            <span x-text="thread?.repo_id"></span>
-          </span>
-          <span class="repo-chip__btn"
-                :class="thread?.merge_request ? 'repo-chip__btn--accent' : ''">
-            {% icon "branch" "h-3.5 w-3.5" %}
-            <span class="repo-chip__btn--branch" x-text="thread?.ref"></span>
-          </span>
-        </span>
-      </template>
-
-      <div x-show="!thread" class="chat-context__picker">
-        {% include "codebase/_repo_picker.html" with variant="context" max_repos=1 initial_repos="[]" field_name="" required=False on_change_event="daiv:chat-repo-changed" %}
-      </div>
-
-      {# MR pill — only renders once the agent's commit has produced a merge request. #}
-      <template x-if="thread?.merge_request">
-        <a class="repo-chip repo-chip--mr"
-           :href="thread.merge_request.url || '#'"
-           :target="thread.merge_request.url ? '_blank' : '_self'"
-           rel="noopener noreferrer"
-           :title="thread.merge_request.title || ''">
-          <span class="repo-chip__btn">
-            {% icon "merge-request" "h-3.5 w-3.5" %}
-            <span x-text="thread.merge_request.id ? '!' + thread.merge_request.id : '{% translate "MR" %}'"></span>
-            <span x-show="thread.merge_request.draft"
-                  class="repo-chip__badge"
-                  x-cloak>{% translate "draft" %}</span>
-          </span>
-        </a>
-      </template>
-    </div>
-    {% endif %}
-    <p class="chat-dock__disclaimer">
-      {% translate "DAIV can make mistakes. Verify important information." %}
-    </p>
-  </div>
+  <p class="chat-dock__disclaimer">
+    {% translate "DAIV can make mistakes. Verify important information." %}
+  </p>
 
   {% include "core/_sheet_backdrop.html" with show_expr="sheet && sheet !== 'progress'" %}
 </div>

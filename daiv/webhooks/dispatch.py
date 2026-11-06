@@ -202,6 +202,7 @@ async def _post_comment(
         wake=kind == EventKind.MENTION,
         ref=ownership.source_branch,
         merge_request_iid=ownership.merge_request_iid,
+        repo_id=ownership.repo_id,
         author=await resolve_linked_user(author.provider, author.uid),
         author_username=author.username,
         author_provider=author.provider,

@@ -46,6 +46,7 @@ def create_diff_to_metadata_graph(
     backend: BackendProtocol,
     include_pr_metadata: bool = True,
     include_commit_message: bool = True,
+    repo_path: str = REPO_PATH,
 ) -> Runnable:
     """
     Create a graph to describe changes to feed into a pull request and optionally a commit message.
@@ -53,8 +54,9 @@ def create_diff_to_metadata_graph(
     Args:
         model_names: The model chain: the model to use for the agent, then its fallbacks.
         ctx: The runtime context.
-        backend: The run's workspace backend, which serves the repository at ``REPO_PATH``. The repository's
+        backend: The run's workspace backend, which serves the repository at ``repo_path``. The repository's
             context files are read through it, so a sandbox run's edits to them are what the metadata follows.
+        repo_path: Where in ``/workspace`` the repository whose changes are described sits.
 
     Returns:
         The PR metadata graph.
@@ -67,7 +69,7 @@ def create_diff_to_metadata_graph(
     fallback_models = [get_model(model=model_name) for model_name in model_names[1:]]
 
     middleware = [
-        build_agents_memory_middleware(backend, REPO_PATH, ctx.config.context_file_name, memory_section),
+        build_agents_memory_middleware(backend, repo_path, ctx.config.context_file_name, memory_section),
         # Wraps caching so a fallback attempt is cached (or not) for its own model, not the primary's.
         *([ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:])] if fallback_models else []),
         AnthropicPromptCachingMiddleware(),

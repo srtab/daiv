@@ -6,6 +6,9 @@
 {% translate "Search branches..." as search_branches_placeholder %}
 {% translate "default" as default_branch_label %}
 {% translate "Repository already in the list: __LABEL__." as conflict_message_template %}
+{% translate "Change branch for __LABEL__" as change_branch_template %}
+{% translate "Make __LABEL__ the main repository" as make_main_template %}
+{% translate "Remove __LABEL__" as remove_repo_template %}
 
 {% comment %}
 Reusable repo + branch picker. Renders the chip list, both popovers, and (optionally)
@@ -18,12 +21,12 @@ Parameters:
 - required (default True)       — emit the sr-only guard input that blocks form submit when empty
 - field_errors (default None)   — Django ErrorList for the repos field
 - extra_errors (default None)   — Django ErrorList for sibling fields rendered inside the same box
+- unique_repos (default False)  — one entry per repository: the same repo on another branch is refused
 - with_x_data (default True)    — wrap in `x-data='promptBox(...)'`; set False when a parent already provides scope
 - on_change_event (default "")  — when set, promptBox dispatches this window event with detail={repos} on every chip mutation
-- variant (default "")          — "context" renders the chat composer's context-row form: an accent
-                                  "Pick a repository" trigger while nothing is selected, a chevron on
-                                  the chip instead of the remove control (the row always carries
-                                  exactly one repo). Any other value keeps the default rendering.
+- variant (default "")          — "card" renders one `.workspace-row` per repo (MAIN tag or "Make main",
+                                  branch button, remove) plus an "Add repository" button. Any other value
+                                  keeps the default rendering.
 
 `prompt-box.js` must be loaded for the Alpine state to bind.
 {% endcomment %}
@@ -32,6 +35,7 @@ Parameters:
 <div x-data='promptBox({
         initialRepos: {{ initial_repos|default:"[]" }},
         maxRepos: {{ max_repos|default:1 }},
+        uniqueRepos: {{ unique_repos|yesno:"true,false,false" }},
         repoPickerUrl: "{{ repo_picker_url|escapejs }}",
         branchPickerTemplate: "{{ branch_picker_template|escapejs }}",
         conflictMessageTemplate: "{{ conflict_message_template|escapejs }}",
@@ -40,6 +44,42 @@ Parameters:
      class="relative">
 {% endif %}
 
+    {% if variant == "card" %}
+    <div class="workspace-rows">
+        <template x-for="(repo, index) in repos" :key="index">
+            <div class="workspace-row" :class="conflictIndex === index ? 'workspace-row--conflict' : ''">
+                {% icon "repo" "h-4 w-4 workspace-row__icon" %}
+                <span class="workspace-row__slug" x-text="repo.slug" :title="repo.slug"></span>
+                <span x-show="repos.length > 1 && index === 0" x-cloak class="workspace-tag">{% translate "Main" %}</span>
+                <button type="button"
+                        x-show="index > 0" x-cloak
+                        @click.stop="makeMain(index)"
+                        :aria-label="'{{ make_main_template|escapejs }}'.replace('__LABEL__', repo.slug)"
+                        title="{% translate 'Make main' %}"
+                        class="workspace-row__action">{% icon "arrow-up" "h-3.5 w-3.5" %}</button>
+                <button type="button"
+                        @click.stop="openBranchPicker(index)"
+                        :aria-label="'{{ change_branch_template|escapejs }}'.replace('__LABEL__', repo.slug)"
+                        class="workspace-row__branch">
+                    {% icon "branch" "h-3.5 w-3.5" %}
+                    <span x-text="repo.ref || '{{ default_branch_label|escapejs }}'"></span>
+                </button>
+                <button type="button"
+                        @click="remove(index)"
+                        :aria-label="'{{ remove_repo_template|escapejs }}'.replace('__LABEL__', repo.slug)"
+                        class="workspace-row__remove">{% icon "x-mark" "h-3.5 w-3.5" %}</button>
+            </div>
+        </template>
+        <button type="button"
+                @click.stop="openRepoPicker()"
+                :disabled="repos.length >= maxRepos"
+                :class="repos.length === 0 ? 'workspace-add--accent' : ''"
+                class="workspace-add">
+            {% icon "plus" "h-4 w-4" %}
+            <span>{% translate "Add repository" %}</span>
+        </button>
+    </div>
+    {% else %}
     <div class="flex flex-wrap items-center gap-1.5">
         <template x-for="(repo, index) in repos" :key="index">
             <span class="repo-chip" :class="conflictIndex === index ? 'repo-chip--conflict' : ''">
@@ -52,43 +92,30 @@ Parameters:
                 </button>
                 <button type="button"
                         @click.stop="openBranchPicker(index)"
-                        :aria-label="'Change branch for ' + repo.slug"
+                        :aria-label="'{{ change_branch_template|escapejs }}'.replace('__LABEL__', repo.slug)"
                         class="repo-chip__btn">
                     {% icon "branch" "h-3.5 w-3.5" %}
                     <span x-text="repo.ref || '{{ default_branch_label|escapejs }}'" class="repo-chip__btn--branch"></span>
                 </button>
-                {% if variant == "context" %}
-                <button type="button"
-                        @click.stop="openRepoPicker(index)"
-                        :aria-label="'Change repository ' + repo.slug"
-                        class="repo-chip__caret">{% icon "chevron-down" "h-3 w-3" %}</button>
-                {% else %}
                 <button type="button"
                         @click="remove(index)"
-                        :aria-label="'Remove ' + repo.slug"
+                        :aria-label="'{{ remove_repo_template|escapejs }}'.replace('__LABEL__', repo.slug)"
                         class="repo-chip__remove">×</button>
-                {% endif %}
             </span>
         </template>
 
         <button type="button"
                 x-show="repos.length === 0"
                 @click.stop="openRepoPicker()"
-                class="{% if variant == 'context' %}repo-context-trigger{% else %}inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.05] px-2.5 py-1 text-[13px] font-medium text-gray-300 hover:bg-white/[0.08]{% endif %}">
-            {% if variant == "context" %}
-                {% icon "repo" "h-3.5 w-3.5" %}
-                <span>{% translate "Pick a repository" %}</span>
-                {% icon "chevron-down" "h-3 w-3 opacity-70" %}
+                class="repo-picker-trigger">
+            {% if git_platform == "github" %}
+                {% icon "github" "h-3.5 w-3.5" %}
+            {% elif git_platform == "gitlab" %}
+                {% icon "gitlab" "h-3.5 w-3.5 text-[#FC6D26]" %}
             {% else %}
-                {% if git_platform == "github" %}
-                    {% icon "github" "h-3.5 w-3.5" %}
-                {% elif git_platform == "gitlab" %}
-                    {% icon "gitlab" "h-3.5 w-3.5 text-[#FC6D26]" %}
-                {% else %}
-                    {% icon "squares-2x2" "h-3.5 w-3.5" %}
-                {% endif %}
-                <span>{{ choose_repo_label }}</span>
+                {% icon "squares-2x2" "h-3.5 w-3.5" %}
             {% endif %}
+            <span>{{ choose_repo_label }}</span>
         </button>
 
         <button type="button"
@@ -96,10 +123,11 @@ Parameters:
                 @click.stop="openRepoPicker()"
                 aria-label="{% translate 'Add repository' %}"
                 title="{% translate 'Add repository' %}"
-                class="inline-flex h-[26px] w-[26px] items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.05] text-gray-400 hover:bg-white/[0.08] hover:text-white">
+                class="repo-picker-trigger repo-picker-trigger--icon">
             {% icon "plus" "h-3.5 w-3.5" %}
         </button>
     </div>
+    {% endif %}
 
     {% comment %}
     Both popovers stay in the DOM with hx-get pre-set so HTMX registers them during its
@@ -199,7 +227,7 @@ Parameters:
 
     {% if field_errors or extra_errors or show_conflict_message|default_if_none:True %}
     <ul {% if not field_errors and not extra_errors %}x-show="conflictMessage" x-cloak{% endif %}
-        class="mt-2 text-sm text-red-400">
+        class="repo-picker-errors">
         {% for err in extra_errors %}<li>{{ err }}</li>{% endfor %}
         {% for err in field_errors %}<li>{{ err }}</li>{% endfor %}
         <li x-show="conflictMessage" x-cloak x-text="conflictMessage"></li>

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
@@ -44,6 +44,7 @@ def _ctx() -> SimpleNamespace:
         config=RepositoryConfig(),
         repo=SimpleNamespace(ref="main", head_detached=False, clone_seconds=0.0),
         gitrepo=SimpleNamespace(working_dir="/clone"),
+        extra_repos=(),
         sandbox=None,
         sandbox_client=None,
         bot_username="daiv",
@@ -211,7 +212,7 @@ class TestIssueAfterRunMatrix:
         assert run.context_kwargs["ref"] == "fix/42"
         assert run.context_kwargs["acting_user_id"] == 5
         run.persist.assert_awaited_once_with(thread_id="t-issue", current_ref="main", merge_request=mr, published=True)
-        assert run.claimed == [{"run_id": "run-42", "merge_request": mr, "pushed_sha": ""}]
+        assert run.claimed == [{"run_id": "run-42", "merge_request": mr, "pushed_sha": "", "repo_id": None}]
         run.recover.assert_not_awaited()
         [reply] = captured_client.create_issue_comment.call_args_list
         assert reply.args[2] == "done"
@@ -253,6 +254,7 @@ class TestIssueAfterRunMatrix:
             "workspace": run.create_agent.await_args.kwargs["workspace"],
             "settings": run.resolve.return_value,
             "session_links": run.create_agent.await_args.kwargs["session_links"],
+            "on_publish": ANY,
         }
         [note] = captured_client.create_issue_comment.call_args_list
         assert "To avoid losing progress" in note.args[2]

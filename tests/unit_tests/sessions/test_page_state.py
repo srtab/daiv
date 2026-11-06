@@ -9,7 +9,7 @@ from django.utils import timezone
 import pytest
 from gitlab.exceptions import GitlabError
 from sessions.hydration import HydratedThread
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import Run, RunStatus, Session, SessionOrigin, SessionRepository
 from sessions.page_state import aload_session_state, turns_payload
 
 MERGE_REQUEST = {
@@ -185,7 +185,7 @@ async def test_the_retry_follows_the_run_access_the_state_reports(member_user):
     with (
         patch("sessions.page_state.ahydrate_thread", _hydration()),
         patch("sessions.page_state.aget_existing_mr_payload", AsyncMock(return_value=None)),
-        patch("sessions.page_state.can_run", Mock(return_value=False)),
+        patch("sessions.page_state.runnable_repo_ids", Mock(return_value=set())),
         patch("sessions.header.can_run", Mock(return_value=True)),
     ):
         state = await aload_session_state(session, member_user, always_look_up_merge_request=False)
@@ -242,3 +242,51 @@ async def test_the_payload_says_whether_a_render_would_show_the_expired_banner(m
 
     payload = turns_payload(state, session)
     assert (payload["expired"], payload["expired_banner"]) == (True, banner)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_the_payload_carries_what_a_turn_did_to_each_repository(member_user):
+    session = await _session(member_user, in_flight=False)
+    await SessionRepository.objects.acreate(session=session, position=1, repo_id="group/lib", ref="feature")
+
+    async def fetch():
+        with (
+            patch("sessions.page_state.ahydrate_thread", _hydration()),
+            patch("sessions.page_state.aget_existing_mr_payload", AsyncMock(return_value=MERGE_REQUEST)),
+        ):
+            state = await aload_session_state(session, member_user, always_look_up_merge_request=False)
+        return turns_payload(state, session)
+
+    before = await fetch()
+    await SessionRepository.objects.filter(session=session).aupdate(
+        ref="daiv/lib", merge_request_iid=3, merge_request_web_url="https://example.com/lib/mr/3"
+    )
+    await Run.objects.acreate(
+        session=session,
+        trigger_type=SessionOrigin.UI_JOB,
+        repo_id=session.repo_id,
+        status=RunStatus.SUCCESSFUL,
+        publish_errors=[{"repo_id": "group/lib", "error": "push rejected"}],
+    )
+    after = await fetch()
+
+    unchanged = {"mr_draft": False, "diff_stats": None, "can_act": True}
+    main = {
+        "repo_id": "group/project",
+        "ref": "daiv/fix",
+        "mr_url": "https://example.com/mr/5",
+        "mr_iid": 5,
+        "mr_title": "Fix",
+        **unchanged,
+        "errors": [],
+    }
+    lib = {"repo_id": "group/lib", "ref": "feature", "mr_url": "", "mr_iid": None, "mr_title": "", **unchanged}
+    published = {
+        **lib,
+        "ref": "daiv/lib",
+        "mr_url": "https://example.com/lib/mr/3",
+        "mr_iid": 3,
+        "errors": ["push rejected"],
+    }
+    assert before["repositories"] == {"rows": [main, {**lib, "errors": []}], "ran": True}
+    assert after["repositories"] == {"rows": [main, published], "ran": True}

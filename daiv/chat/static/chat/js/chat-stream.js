@@ -46,9 +46,11 @@
     const v = value || {};
     return {
       status: v.status,
+      repository: v.repository ?? "",
+      sibling: Boolean(v.sibling),
+      merge_request_title: v.merge_request_title ?? "",
       merge_request_iid: v.merge_request_iid ?? null,
       merge_request_web_url: v.merge_request_web_url ?? "",
-      files_changed: v.files_changed ?? null,
       lines_added: v.lines_added ?? null,
       lines_removed: v.lines_removed ?? null,
       error: v.error_kind ? labels.t(`publish_error_${v.error_kind}`) : "",
@@ -172,6 +174,7 @@
     cached: "cached",
     output: "output",
     waiting: "Waiting in queue",
+    autoResolved: "Auto · {name}",
   };
 
   const formatBraces = (template, values) => window.TranscriptLabels.fill(template, values);
@@ -354,18 +357,10 @@
     // Set by sessionPage's Archive through Alpine's merged scope; an archived session takes no follow-ups.
     archived: Boolean(config.archived),
     selectedSandboxEnvId: config.selectedSandboxEnvId || "",
-    // Locked-pill labels for the composer chips. Server-side ``_composer.html`` renders
-    // the static text at template time, which on a brand-new chat is the empty-thread
-    // fallback ("Pick a model" / "Auto") — by the time those pills become visible
-    // (``x-show="thread"``) the user has already picked something the server hasn't seen
-    // yet. The locked pills read these via ``x-text`` so the picker keeps its selection
-    // visible during the hero→composer transition, with no page refresh needed.
-    // Refreshed reactively by the ``daiv:agent-changed`` / ``daiv:env-changed`` listeners
-    // (see chat_detail.html). The agent picker dispatches its own pillLabel so the locked
-    // pill stays in sync without re-deriving the label from the raw model spec.
+    // The locked model and env labels, kept current by ``daiv:agent-changed`` / ``daiv:env-changed``: on a new chat
+    // the server-rendered text is the empty-thread fallback, not what the user picked before the first turn.
     lockedAgentLabel: config.initialAgentLabel || "",
     lockedEnvLabel: config.initialEnvLabel || "",
-    lockedEnvScope: config.initialEnvScope || "",
     // Current agent-picker selection, kept in sync via ``daiv:agent-changed``. Forwarded
     // to the server on submit; empty when the user hasn't touched the picker yet (the
     // first event fires only on actual change). Submit() then falls back to reading the
@@ -375,6 +370,9 @@
     // Server-translated "Auto" so re-picking Auto after a real env reverts the
     // locked pill text correctly (the JS itself has no i18n surface).
     _envAutoLabel: config.envAutoLabel || "Auto",
+    // The Workspace card's env field label while Auto is picked: the whole "Auto · name" text, or "".
+    autoEnvLabel: "",
+    _autoEnvLabels: new Map(),
     turns: loadInitialTurns(),
     // Server-measured diff for the work published so far, refreshed by every
     // STATE_SNAPSHOT that carries it. Drives the progress drawer's ``+x −y``.
@@ -384,8 +382,15 @@
     contextUsage: loadInitialContextUsage(),
     spend: loadInitialSpend(),
     draftMessage: "",
-    draftRepoId: "",
-    draftRef: "",
+    draftRepos: [],
+    get draftRepoId() {
+      return this.draftRepos[0]?.repo_id || "";
+    },
+    get draftRef() {
+      return this.draftRepos[0]?.ref || "";
+    },
+    // A new chat's first turn was refused: the Workspace card shows again and the next send re-reads it.
+    firstTurnRefused: false,
     streaming: false,
     resuming: !!config.activeRunId,
     // Whether the session has a run in flight, streamed here or not; turns fetches and own runs keep it current.
@@ -464,17 +469,26 @@
     // user's in-progress selections and typed text before it is sent.
     questionDrafts: {},
 
-    // The new-chat repo picker is its own Alpine root; it dispatches the
-    // `daiv:chat-repo-changed` window event whenever its single-repo selection
-    // changes. The chat root listens declaratively (see chat_detail.html) and
-    // calls `applyRepoSelection()` so the proxy assignment goes through Alpine's
-    // reactivity (an `addEventListener` from inside `init()` does not).
+    // The picker, nested in this root, dispatches `daiv:chat-repo-changed`; the root listens declaratively
+    // (session_detail.html) so the assignment goes through Alpine's reactivity, which `init()` listeners miss.
     applyRepoSelection(repos) {
-      const first = (repos || [])[0];
-      this.draftRepoId = first?.repo_id || "";
-      this.draftRef = first?.ref || "";
-      if (this.draftRepoId) {
-        this.$nextTick(() => this.$refs.prompt?.focus());
+      const previousMain = this.draftRepoId;
+      this.draftRepos = repos || [];
+      if (this.draftRepoId !== previousMain) this._resolveAutoEnv(this.draftRepoId);
+    },
+
+    async _resolveAutoEnv(repoId) {
+      this.autoEnvLabel = this._autoEnvLabels.get(repoId) || "";
+      if (!repoId || !config.envResolveUrl || this._autoEnvLabels.has(repoId)) return;
+      try {
+        const resp = await fetch(`${config.envResolveUrl}?repo=${encodeURIComponent(repoId)}`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const label = data?.name ? formatBraces(this._labels.autoResolved, { name: data.name }) : "";
+        this._autoEnvLabels.set(repoId, label);
+        if (this.draftRepoId === repoId) this.autoEnvLabel = label;
+      } catch {
+        // Plain "Auto" stays; sending never waits on this.
       }
     },
 
@@ -484,6 +498,10 @@
       this._agentModel = detail?.model || "";
       this._agentThinkingLevel = detail?.thinking_level || "";
       this.lockedAgentLabel = detail?.label || "";
+    },
+
+    get drawerDiffStats() {
+      return config.diffInDetails ? null : this.diffStats;
     },
 
     // Effort word after the model name in the composer's label. Derived rather than a
@@ -744,14 +762,11 @@
       // visually treat it as Auto so the locked label never renders empty.
       if (!detail?.id) {
         this.lockedEnvLabel = this._envAutoLabel;
-        this.lockedEnvScope = "";
       } else if (!detail?.name) {
         console.warn("daiv:env-changed: id %o has no matching env; falling back to Auto label", detail.id);
         this.lockedEnvLabel = this._envAutoLabel;
-        this.lockedEnvScope = "";
       } else {
         this.lockedEnvLabel = detail.name;
-        this.lockedEnvScope = detail.scope || "";
       }
     },
 
@@ -1120,7 +1135,7 @@
       const files = this.filesTouched;
       const live = this.streaming || this.resuming;
       const stopped = !live && this._lastRunAborted();
-      const stats = !live && !stopped && !config.diffInDetails ? this.diffStats : null;
+      const stats = !live && !stopped ? this.drawerDiffStats : null;
       const diff = stats && (stats.added || stats.removed) ? stats : null;
       if (!todos.length && !files.length && !diff) return null;
 
@@ -1519,7 +1534,7 @@
 
     canSend(text = this.draftMessage) {
       if (!text.trim() || this.archived || this.queueing) return false;
-      if (this.thread) return true;
+      if (this.thread && !this.firstTurnRefused) return true;
       return !!(this.draftRepoId && this.draftRef);
     },
 
@@ -1551,6 +1566,9 @@
         const threadId = uuid();
         this.thread = { thread_id: threadId, repo_id: this.draftRepoId, ref: this.draftRef };
         history.replaceState(null, "", `/dashboard/sessions/${threadId}/`);
+      } else if (this.firstTurnRefused) {
+        this.thread = { ...this.thread, repo_id: this.draftRepoId, ref: this.draftRef };
+        this.firstTurnRefused = false;
       }
 
       this.turns.push({
@@ -1596,6 +1614,7 @@
 
         if (!resp.ok) {
           this._pushRunStatus("failed", await formatHttpError(resp));
+          if (!config.thread) this.firstTurnRefused = true;
           return;
         }
         // This page has no session top bar, details or Up next; the session page, already at this address, has them
@@ -1644,6 +1663,11 @@
       // the server to keep the thread's stored overrides. Sending an untouched selection
       // would be harmless but would re-diff it against a pool the admin may have changed.
       if (this._mcpTouched) forwardedProps = { ...forwardedProps, mcp_servers: [...this.mcpSelected] };
+      // Every request of a page opened as a new chat carries the list, so a retry or a message queued
+      // mid-flight can't be the one that creates a single-repo session; the server ignores it afterwards.
+      if (!config.thread && this.draftRepos.length > 1) {
+        forwardedProps = { ...forwardedProps, repos: this.draftRepos };
+      }
       const body = {
         threadId: this.thread.thread_id,
         runId,
@@ -1967,7 +1991,7 @@
       } else if (type === AGUI.CUSTOM && evt.name === PUBLISH_RESULT_EVENT) {
         this.publishPhase = "";
         const entry = publishEntry(evt.value, window.TranscriptLabels);
-        if (entry.status === "failed") entry.id = this._runStatusId();
+        if (entry.status === "failed" && !entry.sibling) entry.id = this._runStatusId();
         turn.publish = [...(turn.publish || []), entry];
       } else if (type === AGUI.CUSTOM && evt.name === "daiv_context_usage") {
         // Last main-model call's usage (ContextUsageMiddleware). Whole-payload replace.

@@ -1,0 +1,115 @@
+{% load i18n icon_tags %}
+{% comment %}
+One of ``repositoryRows`` as ``row`` at ``index``, inside ``sessionPage``. ``header`` names the main repository for the
+session list's filter; ``can_act`` and the row's own ``can_act`` add a CI toggle per merge request in ``ciItems(row)``.
+{% endcomment %}
+<article class="repo-card" data-testid="repository-card"
+         :class="{ 'repo-card--quiet': isQuiet(row) }">
+  <div class="repo-card__head">
+    {% icon "repo" "h-3 w-3 shrink-0 text-text-faint" %}
+    <span class="repo-card__slug" :title="row.repo_id" x-text="row.repo_id"></span>
+    <template x-if="repositoryRows.length > 1 && index === 0">
+      <span class="repo-card__tag">{% translate "Main" context "main repository tag" %}</span>
+    </template>
+    <template x-if="row.mr_iid || ciItems(row).length">
+      <div class="repo-card__menu" x-data="menuButton" x-id="['repo-card-menu']"
+           @keydown.escape="onEscape($event)" @click.outside="close()">
+        <button type="button" class="repo-card__more"
+                x-ref="trigger"
+                @click="toggle()"
+                @keydown.arrow-down.prevent="show(0)"
+                @keydown.arrow-up.prevent="show(-1)"
+                aria-haspopup="menu"
+                :aria-expanded="open.toString()"
+                :aria-controls="$id('repo-card-menu')"
+                aria-label="{% translate 'Merge request actions' %}"
+                data-testid="repository-card-menu">
+          {% icon "ellipsis-horizontal" "h-3.5 w-3.5" %}
+        </button>
+        <div x-ref="menu" x-show="open" x-cloak :id="$id('repo-card-menu')" role="menu"
+             aria-label="{% translate 'Merge request actions' %}"
+             data-surface
+             @keydown="onMenuKey($event)" class="session-menu">
+          <template x-if="row.mr_url">
+            <a role="menuitem" tabindex="-1" class="session-menu__item"
+               :href="row.mr_url" target="_blank" rel="noopener noreferrer">
+              {% icon "arrow-top-right-on-square" "session-menu__icon" %}{% if git_platform == "github" %}{% translate "Open on GitHub" %}{% else %}{% translate "Open on GitLab" %}{% endif %}
+            </a>
+          </template>
+          <template x-if="row.mr_url">
+            <button type="button" role="menuitem" tabindex="-1" class="session-menu__item"
+                    @click="copyLink(row.mr_url); close(true)">
+              {% icon "link" "session-menu__icon" %}{% translate "Copy link" %}
+            </button>
+          </template>
+          <template x-if="index === 0 && row.mr_iid">
+            <a role="menuitem" tabindex="-1" class="session-menu__item"
+               :href="'{% url 'session_list' %}?repo={{ header.repositories.rows.0.repo_id|urlencode }}&amp;mr=' + row.mr_iid">
+              {% icon "list-bullet" "session-menu__icon" %}<span x-text="'{{ _("Other sessions on")|escapejs }} !' + row.mr_iid"></span>
+            </a>
+          </template>
+          {% if can_act %}
+            <template x-if="row.can_act && ciItems(row).length">
+              <div class="session-menu__divider" role="separator"></div>
+            </template>
+            <template x-for="item in row.can_act ? ciItems(row) : []" :key="item.merge_request_iid">
+              <button type="button" role="menuitemcheckbox" tabindex="-1"
+                      class="session-menu__item session-menu__item--check"
+                      :aria-checked="item.watch_enabled.toString()"
+                      :aria-disabled="(ciWatchBusy || ciDisabled(item)).toString()"
+                      @click="toggleCiWatch(item)" data-testid="session-ci-toggle">
+                <span class="session-menu__check" aria-hidden="true">{% icon "check" "h-3 w-3" %}</span>
+                <span class="min-w-0">
+                  {% translate "Fix CI failures" %}<span x-show="ciTag(row, item)" x-text="' ' + ciTag(row, item)"></span>
+                  <span class="session-menu__hint" x-text="ciNote(item)"></span>
+                </span>
+              </button>
+            </template>
+          {% endif %}
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <div class="repo-card__branch">
+    {% icon "branch" "h-3 w-3 shrink-0" %}
+    <span class="truncate" :title="row.ref" x-text="row.ref"></span>
+    <span class="repo-card__default-branch" x-show="!row.ref">{% translate "default branch" %}</span>
+    {# Shown only on a quiet card: see ``.repo-card--quiet .repo-card__quiet-note``. #}
+    <span class="repo-card__quiet-note">{% translate "no changes" %}</span>
+  </div>
+
+  <template x-if="row.mr_iid">
+    <p class="repo-card__mr">
+      <a class="repo-card__mr-link" :href="row.mr_url || null" target="_blank" rel="noopener noreferrer">
+        <span class="repo-card__iid" x-text="row.mr_url ? mergeRequestLabel(row.mr_url) : '!' + row.mr_iid"></span><span x-text="row.mr_title"></span>
+      </a>
+      <span class="draft-badge" x-show="row.mr_draft">{% translate "Draft" %}</span>
+    </p>
+  </template>
+
+  <div class="repo-card__split" x-show="ciItems(row).length || row.diff_stats">
+    <div class="repo-card__ci-list">
+      <template x-for="item in ciItems(row)" :key="item.merge_request_iid">
+        <p class="repo-card__ci" :class="'ci-tone--' + item.tone" data-testid="session-details-ci">
+          <span class="ci-dot" aria-hidden="true"></span><span x-text="[ciTag(row, item), '{{ _("CI")|escapejs }}: ' + ciText(item)].filter(Boolean).join(' ')"></span>
+          <template x-if="ciExplanation(item)">
+            <a :href="ciExplanation(item)">{% translate "What DAIV found" %}</a>
+          </template>
+        </p>
+      </template>
+    </div>
+    <template x-if="row.diff_stats">
+      <span class="repo-card__diff">
+        <span class="diff-stat__plus" x-text="`+${row.diff_stats.lines_added}`"></span>
+        <span class="diff-stat__minus" x-text="`−${row.diff_stats.lines_removed}`"></span>
+        <span aria-hidden="true">·</span>
+        <span x-text="TranscriptLabels.tn('publish_files', row.diff_stats.files_changed)"></span>
+      </span>
+    </template>
+  </div>
+
+  <template x-for="(error, ei) in row.errors" :key="ei">
+    <p class="repo-card__error" role="alert" x-text="error"></p>
+  </template>
+</article>

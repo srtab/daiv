@@ -42,6 +42,18 @@ from tests.unit_tests.sessions.conftest import (
     make_leg,
 )
 
+LIVE_ENTRY_KEYS = (
+    "status",
+    "repository",
+    "sibling",
+    "merge_request_iid",
+    "merge_request_web_url",
+    "merge_request_title",
+    "lines_added",
+    "lines_removed",
+    "error",
+)
+
 CREATED_AT = datetime(2026, 7, 31, 12, 0, 0, tzinfo=UTC)
 STARTED_AT = datetime(2026, 7, 31, 12, 0, 2, tzinfo=UTC)
 FINISHED_AT = datetime(2026, 7, 31, 12, 5, 0, tzinfo=UTC)
@@ -67,6 +79,9 @@ def _run(
     merge_request_iid=None,
     merge_request_web_url="",
     code_changes=False,
+    repo_id="srtab/daiv",
+    merge_request_title="",
+    repo_publishes=(),
 ):
     return SimpleNamespace(
         id=rid,
@@ -87,6 +102,9 @@ def _run(
         merge_request_iid=merge_request_iid,
         merge_request_web_url=merge_request_web_url,
         code_changes=code_changes,
+        repo_id=repo_id,
+        merge_request_title=merge_request_title,
+        repo_publishes=list(repo_publishes),
     )
 
 
@@ -828,9 +846,11 @@ def test_opened_result_is_stamped_on_the_runs_last_turn():
     assert result[-1]["publish"] == [
         {
             "status": "opened",
+            "repository": "srtab/daiv",
+            "sibling": False,
+            "merge_request_title": "",
             "merge_request_iid": 1832,
             "merge_request_web_url": "https://git/mr/1832",
-            "files_changed": 3,
             "lines_added": 16,
             "lines_removed": 4,
             "error": "",
@@ -915,7 +935,7 @@ def test_failed_publish_with_a_recovered_draft_shows_red_then_opened():
     red, draft = annotate_transcript([_user("h1"), _assistant("a1")], runs)[-1]["publish"]
 
     assert (red["status"], red["lines_added"], red["id"]) == ("failed", None, marker_id(runs[0]))
-    assert (draft["status"], draft["merge_request_iid"], draft["files_changed"], draft["error"]) == ("opened", 9, 2, "")
+    assert (draft["status"], draft["merge_request_iid"], draft["lines_added"], draft["error"]) == ("opened", 9, 5, "")
     assert "id" not in draft
 
 
@@ -953,7 +973,7 @@ def test_a_draft_recovered_after_the_run_failed_shows_opened_above_the_marker():
     result = annotate_transcript([_user("h1"), _assistant("a1")], runs)
 
     (entry,) = result[-2]["publish"]
-    assert (entry["status"], entry["merge_request_iid"], entry["files_changed"], entry["error"]) == ("opened", 9, 2, "")
+    assert (entry["status"], entry["merge_request_iid"], entry["error"]) == ("opened", 9, "")
     assert result[-1]["role"] == "run_status"
 
 
@@ -1072,6 +1092,89 @@ def test_a_checkpointed_run_without_an_assistant_turn_times_its_carrier_turn():
 
     assert "received_at" not in user
     assert carrier["received_at"] == FINISHED_AT.isoformat()
+
+
+SIBLING_OPENED = {
+    "status": "opened",
+    "repository": "srtab/daiv",
+    "sibling": True,
+    "merge_request_iid": 101,
+    "merge_request_web_url": "https://git/mr/101",
+    "merge_request_title": "Add it",
+    "files_changed": 2,
+    "lines_added": 5,
+    "lines_removed": 1,
+    "error_kind": None,
+}
+SIBLING_FAILED = {**SIBLING_OPENED, "status": "failed", "repository": "srtab/daiv-stack", "error_kind": "push_rejected"}
+
+
+def _publish_of(run):
+    return annotate_transcript([_user("h1"), _assistant("a1")], [run])[-1]["publish"]
+
+
+def test_every_repository_gets_a_publish_entry_main_first_then_the_extras_in_order():
+    run = _run(
+        "r1",
+        message_id="h1",
+        publish_status="pushed",
+        merge_request_iid=7,
+        merge_request_title="Main title",
+        repo_publishes=[SIBLING_OPENED, SIBLING_FAILED],
+    )
+
+    main, opened, failed = _publish_of(run)
+
+    assert (main["repository"], main["sibling"], main["merge_request_title"]) == ("srtab/daiv", False, "Main title")
+    assert (opened["sibling"], opened["merge_request_iid"], opened["merge_request_title"]) == (True, 101, "Add it")
+    assert (failed["repository"], failed["sibling"], failed["error"]) == (
+        "srtab/daiv-stack",
+        True,
+        "The push was rejected",
+    )
+    assert "id" not in failed
+    assert failed["merge_request_iid"] is None
+
+
+def test_a_run_with_only_extra_repository_results_still_gets_their_entries():
+    run = _run("r1", message_id="h1", repo_publishes=[SIBLING_OPENED])
+
+    (entry,) = _publish_of(run)
+
+    assert (entry["sibling"], entry["status"]) == (True, "opened")
+
+
+def test_a_run_with_no_results_gets_no_publish_entries():
+    result = annotate_transcript([_user("h1"), _assistant("a1")], [_run("r1", message_id="h1")])
+
+    assert "publish" not in result[-1]
+
+
+def test_malformed_extra_repository_results_are_skipped():
+    run = _run("r1", message_id="h1", repo_publishes=["x", {"repository": "a/b"}, SIBLING_OPENED])
+
+    assert [e["repository"] for e in _publish_of(run)] == ["srtab/daiv"]
+
+
+def test_a_main_failure_keeps_the_retry_anchor_and_the_extras_follow_it():
+    run = _run(
+        "r1",
+        message_id="h1",
+        status=RunStatus.FAILED,
+        publish_status="failed",
+        publish_error="mr_failed",
+        repo_publishes=[SIBLING_FAILED],
+    )
+
+    red, extra = _publish_of(run)
+
+    assert red["id"] == marker_id(run)
+    assert "id" not in extra
+
+
+def test_server_and_live_entries_have_the_same_keys():
+    server = _publish_of(_run("r1", message_id="h1", publish_status="opened", repo_publishes=[SIBLING_FAILED]))
+    assert {frozenset(e) - {"id"} for e in server} == {frozenset(LIVE_ENTRY_KEYS)}
 
 
 def test_retry_stays_offered_on_a_failed_publish_run_and_its_red_entry_is_the_retry_anchor():

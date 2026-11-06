@@ -1,7 +1,44 @@
 // Applies each turns fetch sessionSync announces and polls nothing; the status follows the chat while it streams or
-// waits on a run. Rename, the CI toggle and Archive write through the sessions API.
+// waits on a run. Rename, each merge request's CI toggle and Archive write through the sessions API. The details panel
+// is always shown from `WIDE` up and is a sheet below it; its tab and folded sections are remembered per browser.
 document.addEventListener("alpine:init", () => {
   const WIDE = "(min-width: 1100px)";
+  const TABS = ["overview", "info"];
+  const FOLDED = { repositories: false, environment: true, context: false, spend: true, outputs: true };
+  const CI_TONES_WORST_FIRST = ["fail", "found", "attn", "clear"];
+
+  const stored = (key) => {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  };
+
+  const store = (key, value) => {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      // Blocked storage only means the choice is forgotten on the next load.
+    }
+  };
+
+  const storedFolds = (key) => {
+    let saved;
+    try {
+      saved = JSON.parse(stored(key) ?? "{}");
+    } catch {
+      saved = null;
+    }
+    return Object.fromEntries(
+      Object.entries(FOLDED).map(([section, folded]) => [
+        section,
+        typeof saved?.[section] === "boolean" ? saved[section] : folded,
+      ]),
+    );
+  };
+
+  const ciKey = (item) => `${item.repo_id}!${item.merge_request_iid}`;
 
   const readJSON = (id) => {
     const el = document.getElementById(id);
@@ -42,14 +79,6 @@ document.addEventListener("alpine:init", () => {
     return { groups: next, told: upNext?.told ?? [] };
   };
 
-  const delegationsSummary = (delegations) => {
-    const T = window.TranscriptLabels;
-    if (delegations.running) return { state: "running", text: T.tn("delegations_running", delegations.running) };
-    if (delegations.waiting) return { state: "queued", text: T.tn("delegations_queued", delegations.waiting) };
-    if (delegations.failed) return { state: "failed", text: T.tn("delegations_failed", delegations.failed) };
-    return { state: "", text: "" };
-  };
-
   // x-show reveals on the next animation frame, so a scroll sent from $nextTick can land on a hidden panel.
   const whenShown = (el, then, frames = 10) => {
     if (el.getClientRects().length) then();
@@ -58,22 +87,24 @@ document.addEventListener("alpine:init", () => {
 
   Alpine.data("sessionPage", (config) => ({
     latest: null,
-    // CI on each merge request the session owns; `watch` is the first one's, which the top bar's toggle acts on.
+    // CI on each merge request the session owns.
     ci: [],
-    watch: null,
     // What the session will do next (``sessions.up_next``).
     upNext: null,
     runCount: 0,
     delegations: null,
+    repositories: null,
     title: config.title || "",
     titleDraft: "",
     titleWidth: 0,
     editingTitle: false,
     ciWatchBusy: false,
-    ciWatchDisabled: "",
-    ciWatchError: "",
+    ciWatchDisabled: {},
+    ciWatchError: {},
     detailsOpen: false,
+    detailsTab: "overview",
     wide: false,
+    _folds: { ...FOLDED },
     _settling: false,
     _watchAt: -Infinity,
     _media: null,
@@ -81,14 +112,17 @@ document.addEventListener("alpine:init", () => {
     _provisional: [],
     init() {
       this.applyHeader(readJSON("session-header"));
+      const tab = stored(`${config.storageKey}.tab`);
+      if (TABS.includes(tab)) this.detailsTab = tab;
+      this._folds = storedFolds(`${config.storageKey}.folds`);
       this._media = window.matchMedia?.(WIDE) ?? null;
       this.wide = Boolean(this._media?.matches);
       this._onMedia = (event) => {
         this.wide = event.matches;
-        this.detailsOpen = this.wide && this._remembered();
+        this.detailsOpen = this.wide;
       };
       this._media?.addEventListener?.("change", this._onMedia);
-      this.detailsOpen = this.wide && this._remembered();
+      this.detailsOpen = this.wide;
     },
     destroy() {
       this._media?.removeEventListener?.("change", this._onMedia);
@@ -119,47 +153,39 @@ document.addEventListener("alpine:init", () => {
       this._provisional = this._provisional.filter((provisional) => provisional.at >= requestedAt);
       this.upNext = this._provisional.reduce(withProvisional, upNext);
     },
-    _remembered() {
-      try {
-        return localStorage.getItem(config.storageKey) === "open";
-      } catch {
-        return false;
-      }
-    },
-    _remember(open) {
-      try {
-        localStorage.setItem(config.storageKey, open ? "open" : "closed");
-      } catch {
-        // Blocked storage only means the panel starts closed next time.
-      }
-    },
-    // Only the column's state is remembered: the sheet below `WIDE` is opened for one look and dismissed.
     setDetails(open) {
-      this.detailsOpen = open;
-      if (this.wide) this._remember(open);
+      this.detailsOpen = open || this.wide;
     },
-    toggleDetails() {
-      this.setDetails(!this.detailsOpen);
+    selectTab(tab) {
+      if (!TABS.includes(tab)) return;
+      this.detailsTab = tab;
+      store(`${config.storageKey}.tab`, tab);
+    },
+    // Arrow keys on the tab list move the selection and the focus along it, as a WAI-ARIA tablist does.
+    cycleTab(tablist, step) {
+      this.selectTab(TABS[(TABS.indexOf(this.detailsTab) + step + TABS.length) % TABS.length]);
+      this.$nextTick(() => tablist.querySelector("[aria-selected=true]")?.focus());
+    },
+    isFolded(section) {
+      return Boolean(this._folds[section]);
+    },
+    toggleFold(section) {
+      if (!(section in FOLDED)) return;
+      this._folds = { ...this._folds, [section]: !this._folds[section] };
+      store(`${config.storageKey}.folds`, JSON.stringify(this._folds));
     },
     openDetails(section) {
+      this.selectTab("overview");
+      if (this.isFolded(section)) this.toggleFold(section);
       this.setDetails(true);
       const el = document.getElementById(`session-details-${section}`);
       if (el) whenShown(el, () => el.scrollIntoView({ block: "start" }));
-    },
-    closeSheetDetails() {
-      if (!this.wide) this.detailsOpen = false;
     },
     get _running() {
       return this.streaming || this.resuming || this._settling;
     },
     get busy() {
       return this._running || this.waiting;
-    },
-    get delegationsBadge() {
-      if (!this.delegations) return { count: "", state: "", text: "", label: "" };
-      const count = window.TranscriptLabels.tn("delegations_total", this.delegations.total);
-      const { state, text } = delegationsSummary(this.delegations);
-      return { count, state, text, label: [count, text].filter(Boolean).join(" · ") };
     },
     get status() {
       if (this._running) return { variant: "running", label: config.labels.running };
@@ -181,14 +207,76 @@ document.addEventListener("alpine:init", () => {
       this.runCount = data.run_count ?? this.runCount;
       // A response asked for before the last toggle answered read CI from before it.
       const stale = data.requestedAt <= this._watchAt;
-      if ("watch" in data && !stale) this._showCi(data);
+      if ("ci" in data && !stale) this._showCi(data);
       if ("up_next" in data) this._applyUpNext(data.up_next ?? null, data.requestedAt ?? -Infinity);
       if ("delegations" in data) this.delegations = data.delegations ?? null;
+      if ("repositories" in data) this._applyRepositories(data.repositories ?? null);
       if (data.title && !this.editingTitle) this._showTitle(data.title);
+    },
+    // An unchanged card is left alone, as rewriting its errors would have them announced again.
+    _applyRepositories(next) {
+      if (JSON.stringify(next) !== JSON.stringify(this.repositories)) this.repositories = next;
+    },
+    // The main repository's branch and merge request are the chat's, which the live stream keeps current.
+    get repositoryRows() {
+      const [main, ...extras] = this.repositories?.rows ?? [];
+      if (!main) return [];
+      const mr = this.thread?.merge_request;
+      const live = mr
+        ? { mr_url: mr.url || "", mr_iid: mr.id ?? null, mr_title: mr.title || "", mr_draft: Boolean(mr.draft) }
+        : {};
+      return [{ ...main, ref: this.thread?.ref || main.ref, ...live }, ...extras];
+    },
+    // The CI of every merge request the session owns in `row`'s repository, the row's own first.
+    ciItems(row) {
+      const own = (item) => item.merge_request_iid === row.mr_iid;
+      return this.ci.filter((item) => item.repo_id === row.repo_id).sort((a, b) => own(b) - own(a));
+    },
+    // A finished run left this repository nothing to show: no merge request, change, CI or publish error.
+    isQuiet(row) {
+      return (
+        Boolean(this.repositories?.ran) && !row.mr_iid && !row.diff_stats && !row.errors.length && !this.ciItems(row).length
+      );
+    },
+    // Names the merge request of a CI item that is not the card's own.
+    ciTag(row, item) {
+      return item.merge_request_iid === row.mr_iid ? "" : `!${item.merge_request_iid}`;
+    },
+    ciDisabled(item) {
+      return Boolean(this.ciWatchDisabled[ciKey(item)]);
+    },
+    get summary() {
+      const rows = this.repositoryRows;
+      const withMr = rows.filter((row) => row.mr_iid);
+      const shown = rows.flatMap((row) => this.ciItems(row));
+      const worst = CI_TONES_WORST_FIRST.map((tone) => shown.find((item) => item.tone === tone)).find(Boolean);
+      return {
+        main: rows[0]?.repo_id ?? "",
+        more: Math.max(rows.length - 1, 0),
+        mrs: withMr.length,
+        mrIid: withMr.length === 1 ? withMr[0].mr_iid : null,
+        mrLabel: withMr.length ? window.TranscriptLabels.tn("details_merge_requests", withMr.length) : "",
+        tone: worst?.tone ?? "",
+        ci: worst?.label ?? "",
+      };
+    },
+    get summaryLabel() {
+      const { main, more, mrIid, mrLabel, ci } = this.summary;
+      const repositories = more ? `${main} +${more}` : main;
+      const parts = [repositories, mrIid ? `!${mrIid}` : mrLabel, ci && `${config.labels.ci}: ${ci}`].filter(Boolean);
+      return `${config.labels.summary}: ${parts.join(", ")}`;
+    },
+    get repositoriesHeading() {
+      return this.repositoryRows.length === 1 ? config.labels.repository : config.labels.repositories;
+    },
+    // A lone repository's section is labelled in the singular, so its count would only repeat that.
+    get repositoriesSummary() {
+      const { more, mrLabel } = this.summary;
+      if (!more) return mrLabel;
+      return [String(more + 1), mrLabel].filter(Boolean).join(" · ");
     },
     _showCi(data) {
       this.ci = data?.ci ?? [];
-      this.watch = data?.watch ?? null;
     },
     _setCi(data) {
       this._showCi(data);
@@ -244,36 +332,36 @@ document.addEventListener("alpine:init", () => {
       this.title = title;
       document.title = `${title} — ${config.titleSuffix}`;
     },
-    // On while failures on the merge request wake the session; off, its CI results are only remembered.
-    get ciWatchOn() {
-      return Boolean(this.watch?.open);
+    ciNote(item) {
+      if (!item) return "";
+      const key = ciKey(item);
+      if (this.ciWatchDisabled[key]) return this.ciWatchDisabled[key];
+      if (this.ciWatchError[key]) return this.ciWatchError[key];
+      if (!item.watch_enabled) return config.labels.watchOff;
+      return config.labels.watching.replace("{state}", item.label);
     },
-    get ciWatchHint() {
-      if (this.ciWatchDisabled) return this.ciWatchDisabled;
-      if (this.ciWatchError) return this.ciWatchError;
-      if (!this.ciWatchOn) return config.labels.watchOff;
-      return config.labels.watching.replace("{state}", this.watch.label);
-    },
-    async toggleCiWatch(mergeRequestIid) {
-      if (this.ciWatchBusy || this.ciWatchDisabled) return;
+    async toggleCiWatch(item) {
+      const key = ciKey(item);
+      if (this.ciWatchBusy || this.ciDisabled(item)) return;
       this.ciWatchBusy = true;
-      this.ciWatchError = "";
+      this.ciWatchError = { ...this.ciWatchError, [key]: "" };
       try {
         const res = await this._send(config.ciWatchUrl, "POST", {
-          on: !this.ciWatchOn,
-          merge_request_iid: mergeRequestIid,
+          on: !item.watch_enabled,
+          merge_request_iid: item.merge_request_iid,
+          repo_id: item.repo_id,
         });
         const data = await res.json();
         if (res.status === 409 && data.reason) {
           this._setCi(data);
-          if (data.reason === "disabled") this.ciWatchDisabled = data.detail;
-          else this.ciWatchError = data.detail;
+          if (data.reason === "disabled") this.ciWatchDisabled = { ...this.ciWatchDisabled, [key]: data.detail };
+          else this.ciWatchError = { ...this.ciWatchError, [key]: data.detail };
           return;
         }
         if (!res.ok) throw new Error(`CI watch toggle failed: ${res.status}`);
         this._setCi(data);
       } catch {
-        this.ciWatchError = config.labels.watchFailed;
+        this.ciWatchError = { ...this.ciWatchError, [key]: config.labels.watchFailed };
       } finally {
         this.ciWatchBusy = false;
       }
@@ -291,12 +379,15 @@ document.addEventListener("alpine:init", () => {
         this.archived = previous;
       }
     },
-    async copyLink(url) {
+    async copyText(text) {
       try {
-        await navigator.clipboard.writeText(new URL(url, window.location.href).href);
+        await navigator.clipboard.writeText(text);
       } catch {
-        // Clipboard access denied: the link stays in the menu's href for a manual copy.
+        // Clipboard access denied: the text stays on the page for a manual copy.
       }
+    },
+    copyLink(url) {
+      return this.copyText(new URL(url, window.location.href).href);
     },
   }));
 });

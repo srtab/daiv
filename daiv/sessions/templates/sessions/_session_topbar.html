@@ -1,7 +1,7 @@
 {% load i18n icon_tags session_tags %}
 {% comment %}
-Must sit inside ``sessionPage`` inside ``chat({…})``: status, merge request and CI read state the stream and turns fetches update.
-``can_act`` (run access to the repository) shows rename and the CI toggle; Archive changes only the viewer's lists and composer.
+Must sit inside ``sessionPage`` inside ``chat({…})``: status and the repository summary read state the stream and turns fetches update.
+``can_act`` (run access to the repository) shows rename; Archive changes only the viewer's lists and composer.
 {% endcomment %}
 {% session_title session as title %}
 <header class="session-topbar" data-testid="session-topbar">
@@ -44,153 +44,19 @@ Must sit inside ``sessionPage`` inside ``chat({…})``: status, merge request an
   </div>
 
   <div class="session-topbar__actions">
-    <template x-if="thread?.merge_request">
-      <div class="mr-split" x-data="menuButton" x-id="['mr-menu']"
-           @keydown.escape="onEscape($event)" @click.outside="close()" data-testid="session-mr">
-        <a class="mr-split__main"
-           :href="thread.merge_request.url || null"
-           target="_blank" rel="noopener noreferrer"
-           :title="[thread.merge_request.title, watch ? '{{ _("CI")|escapejs }}: ' + (ciText(ci[0]) || watch.label) : ''].filter(Boolean).join(' · ')">
-          {% icon "merge-request" "h-3.5 w-3.5 shrink-0" %}
-          <span x-text="thread.merge_request.id ? '!' + thread.merge_request.id : '{% translate "MR" %}'"></span>
-          <span class="mr-split__draft mr-split__draft--bar" x-show="thread.merge_request.draft">{% translate "Draft" %}</span>
-          <template x-if="watch">
-            <span class="mr-split__ci" :class="'mr-split__ci--' + watch.tone">
-              <span class="mr-split__ci-dot" aria-hidden="true"></span><span class="mr-split__ci-label">{% translate "CI" %}</span>
-            </span>
-          </template>
-        </a>
-        <button type="button" class="mr-split__toggle"
-                x-ref="trigger"
-                @click="toggle()"
-                @keydown.arrow-down.prevent="show(0)"
-                @keydown.arrow-up.prevent="show(-1)"
-                aria-haspopup="menu"
-                :aria-expanded="open.toString()"
-                :aria-controls="$id('mr-menu')"
-                aria-label="{% translate 'Merge request actions' %}">
-          {% icon "chevron-down" "h-3.5 w-3.5" %}
-        </button>
-        <div x-ref="menu" x-show="open" x-cloak :id="$id('mr-menu')" role="menu"
-             aria-label="{% translate 'Merge request actions' %}"
-             data-surface
-             @keydown="onMenuKey($event)" class="session-menu">
-          <a role="menuitem" tabindex="-1" class="session-menu__item"
-             :href="thread.merge_request.url || null" target="_blank" rel="noopener noreferrer"
-             x-show="thread.merge_request.url">
-            {% icon "arrow-top-right-on-square" "session-menu__icon" %}{% if git_platform == "github" %}{% translate "Open on GitHub" %}{% else %}{% translate "Open on GitLab" %}{% endif %}
-          </a>
-          <button type="button" role="menuitem" tabindex="-1" class="session-menu__item"
-                  x-show="thread.merge_request.url"
-                  @click="copyLink(thread.merge_request.url); close(true)">
-            {% icon "link" "session-menu__icon" %}{% translate "Copy link" %}
-          </button>
-          <a role="menuitem" tabindex="-1" class="session-menu__item"
-             x-show="thread.merge_request.id"
-             :href="'{% url 'session_list' %}?repo={{ session.repo_id|urlencode }}&mr=' + thread.merge_request.id">
-            {% icon "list-bullet" "session-menu__icon" %}<span x-text="'{{ _("Other sessions on")|escapejs }} !' + thread.merge_request.id"></span>
-          </a>
-          <a role="menuitem" tabindex="-1" class="session-menu__item"
-             x-show="ciExplanation(ci[0])" :href="ciExplanation(ci[0]) || null" @click="close(true)"
-             data-testid="session-ci-explanation">
-            {% icon "magnifying-glass" "session-menu__icon" %}{% translate "What DAIV found on the failure" %}
-          </a>
-          {% if can_act %}
-            <div class="session-menu__divider" role="separator" x-show="thread.merge_request.id"></div>
-            <button type="button" role="menuitemcheckbox" tabindex="-1"
-                    class="session-menu__item session-menu__item--check"
-                    x-show="thread.merge_request.id"
-                    :aria-checked="ciWatchOn.toString()"
-                    :aria-disabled="(ciWatchDisabled || ciWatchBusy).toString()"
-                    @click="toggleCiWatch(thread.merge_request.id)" data-testid="session-ci-toggle">
-              <span class="session-menu__check" aria-hidden="true">{% icon "check" "h-3 w-3" %}</span>
-              <span class="min-w-0">
-                {% translate "Fix CI failures" %}
-                <span class="session-menu__hint" x-text="ciWatchHint"></span>
-              </span>
-            </button>
-          {% endif %}
-        </div>
-      </div>
-    </template>
-
-    <template x-if="watch && !thread?.merge_request">
-      <span class="mr-split__ci" :class="'mr-split__ci--' + watch.tone"
-            :title="'{{ _("CI")|escapejs }}: ' + (ciText(ci[0]) || watch.label)" data-testid="session-ci">
-        <span class="mr-split__ci-dot" aria-hidden="true"></span><span class="mr-split__ci-label" x-text="'{{ _("CI")|escapejs }}: ' + (ciText(ci[0]) || watch.label)"></span>
+    <button type="button" class="session-summary" x-show="!wide" x-cloak
+            @click="openDetails('repositories')"
+            aria-controls="session-details" :aria-expanded="detailsOpen.toString()"
+            :aria-label="summaryLabel"
+            data-testid="session-summary">
+      {% icon "repo" "h-3.5 w-3.5 shrink-0" %}
+      <span class="session-summary__main" x-text="summary.main"></span>
+      <span class="session-summary__more" x-show="summary.more > 0" x-text="'+' + summary.more"></span>
+      <span class="session-summary__mr" x-show="summary.mrs">
+        {% icon "merge-request" "h-3.5 w-3.5 shrink-0" %}
+        <span x-text="summary.mrIid ? '!' + summary.mrIid : summary.mrs"></span>
       </span>
-    </template>
-
-    <template x-if="delegations">
-      <div class="relative" x-data="menuButton" x-id="['delegations-menu']"
-           @keydown.escape="onEscape($event)" @click.outside="close()" data-testid="session-delegations">
-        <button type="button" class="delegations-btn"
-                :class="delegationsBadge.state && `delegations-btn--${delegationsBadge.state}`"
-                x-ref="trigger"
-                @click="toggle()"
-                @keydown.arrow-down.prevent="show(0)"
-                @keydown.arrow-up.prevent="show(-1)"
-                aria-haspopup="menu"
-                :aria-expanded="open.toString()"
-                :aria-controls="$id('delegations-menu')"
-                :aria-label="delegationsBadge.label"
-                :title="delegationsBadge.label">
-          {% icon "share" "h-3.5 w-3.5 shrink-0" %}
-          <span class="delegations-btn__short" x-text="delegations.total"></span>
-          <span class="delegations-btn__long" x-text="delegationsBadge.count"></span>
-          <template x-if="delegationsBadge.state">
-            <span class="delegations-btn__status">
-              <span class="delegations-btn__long" aria-hidden="true">·</span>
-              <span class="leg-dot" :class="`leg-dot--${delegationsBadge.state}`" aria-hidden="true"></span>
-              <span class="delegations-btn__long" x-text="delegationsBadge.text"></span>
-            </span>
-          </template>
-        </button>
-        <div x-ref="menu" x-show="open" x-cloak :id="$id('delegations-menu')" role="menu"
-             aria-label="{% translate 'Delegated jobs' context 'delegated jobs card' %}"
-             data-surface
-             @keydown="onMenuKey($event)" class="session-menu delegations-menu">
-          <div class="delegations-menu__legs scrollbar-thin" role="none">
-            <template x-for="(leg, li) in delegations.legs" :key="li">
-              <div class="delegations-menu__row" role="none">
-                <a role="menuitem" tabindex="-1" class="session-menu__item delegated-leg delegations-menu__leg"
-                   :href="leg.session_url || null" :aria-disabled="(!leg.session_url).toString()"
-                   target="_blank" rel="noopener">
-                  <span class="leg-dot" :class="`leg-dot--${leg.state}`" aria-hidden="true"></span>
-                  <span class="delegated-leg__body">
-                    <span class="delegated-leg__repo" x-text="leg.repo_id"></span>
-                    <span class="delegated-leg__sub">
-                      <span x-text="TranscriptLabels.t(`leg_${leg.state}`)"></span>
-                      <span class="delegations-menu__open" x-show="leg.session_url">
-                        · {% translate "Open session →" %}
-                      </span>
-                    </span>
-                  </span>
-                </a>
-                <template x-if="mergeRequestLabel(leg.merge_request_url)">
-                  <a role="menuitem" tabindex="-1" class="delegations-menu__mr" :href="leg.merge_request_url"
-                     target="_blank" rel="noopener noreferrer" x-text="mergeRequestLabel(leg.merge_request_url)"></a>
-                </template>
-              </div>
-            </template>
-          </div>
-          <div class="session-menu__divider" role="separator"></div>
-          <button type="button" role="menuitem" tabindex="-1" class="session-menu__item"
-                  @click.stop="close(); openDetails('delegations')">
-            {% icon "sidebar-right" "session-menu__icon" %}{% translate "Show in details" %}
-          </button>
-        </div>
-      </div>
-    </template>
-
-    <button type="button" class="session-topbar__icon-btn"
-            :class="{ 'session-topbar__icon-btn--on': detailsOpen }"
-            @click="toggleDetails()"
-            :aria-expanded="detailsOpen.toString()"
-            aria-controls="session-details"
-            aria-label="{% translate 'Session details' %}"
-            title="{% translate 'Session details' %}">
-      {% icon "sidebar-right" "h-4 w-4" %}
+      <span class="ci-dot" :class="'ci-tone--' + summary.tone" x-show="summary.tone" aria-hidden="true"></span>
     </button>
 
     <div class="relative" x-data="menuButton" x-id="['session-menu']"

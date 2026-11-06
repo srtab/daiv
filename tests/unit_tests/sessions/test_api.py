@@ -455,7 +455,7 @@ async def test_session_turns_report_the_latest_run_for_the_page_header(client, a
 
     with (
         patch("sessions.page_state.ahydrate_thread", AsyncMock(return_value=hydrated)),
-        patch("sessions.page_state.can_run", return_value=True),
+        patch("sessions.page_state.runnable_repo_ids", side_effect=lambda user, ids: set(ids)),
     ):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
@@ -499,7 +499,7 @@ async def test_session_turns_carry_delegations_and_leave_the_parent_to_the_page(
         parent = (await client.get(f"/sessions/{coordinator.thread_id}/turns", headers=_auth_headers(raw))).json()
         child = (await client.get(f"/sessions/{leg.session_id}/turns", headers=_auth_headers(raw))).json()
 
-    assert parent["delegations"]["failed"] == 1
+    assert parent["delegations"]["total"] == 1
     assert child["delegations"] is None
     assert "parent" not in child
 
@@ -853,6 +853,53 @@ async def test_session_ci_watch_needs_the_merge_request_when_the_session_owns_se
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(("repo_id", "turned_off"), [("", "group/project"), ("group/lib", "group/lib")])
+async def test_session_ci_watch_names_the_repository_of_a_merge_request_sharing_its_iid(
+    client, authed, watch_world, repo_id, turned_off
+):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+    await _own(session)
+    await MergeRequestOwnership.objects.acreate(
+        repo_id="group/lib", merge_request_iid=7, session=session, source_branch="daiv/lib"
+    )
+
+    resp = await client.post(
+        f"/sessions/{session.thread_id}/ci-watch", json=TURN_OFF | {"repo_id": repo_id}, headers=_auth_headers(raw)
+    )
+
+    assert resp.status_code == 200
+    off = [o.repo_id async for o in MergeRequestOwnership.objects.filter(watch_enabled=False)]
+    assert off == [turned_off]
+    assert sorted((item["repo_id"], item["watch_enabled"]) for item in resp.json()["ci"]) == sorted([
+        ("group/project", turned_off != "group/project"),
+        ("group/lib", turned_off != "group/lib"),
+    ])
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_ci_watch_403_for_a_caller_who_cannot_run_on_the_merge_requests_repository(
+    client, authed, watch_world
+):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+    await MergeRequestOwnership.objects.acreate(
+        repo_id="group/lib", merge_request_iid=7, session=session, source_branch="daiv/lib", watch_enabled=False
+    )
+
+    with patch("sessions.api.views.can_run", side_effect=lambda _user, repo_id: repo_id == session.repo_id):
+        resp = await client.post(
+            f"/sessions/{session.thread_id}/ci-watch",
+            json=TURN_ON | {"repo_id": "group/lib"},
+            headers=_auth_headers(raw),
+        )
+
+    assert resp.status_code == 403
+    assert not await MergeRequestOwnership.objects.filter(watch_enabled=True).aexists()
+    assert watch_world.evaluations == []
+
+
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("body", [{"merge_request_iid": 7}, {"on": True, "merge_request_iid": 0}])
 async def test_session_ci_watch_validates_its_body(client, authed, watch_world, body):
     _key_obj, raw, user = authed
@@ -878,6 +925,7 @@ async def test_session_turns_report_ci_on_the_merge_requests_the_session_owns(cl
 
     assert resp.json()["ci"] == [
         {
+            "repo_id": session.repo_id,
             "merge_request_iid": 7,
             "status": "running",
             "label": "Waiting for CI",
