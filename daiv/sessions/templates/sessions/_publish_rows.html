@@ -19,7 +19,7 @@
         <span class="chat-inbox-event__repo" :title="p.repository" x-text="p.repository"></span>
         <template x-if="p.merge_request_iid">
           <a class="chat-inbox-event__mr" :href="p.merge_request_web_url || null" target="_blank" rel="noopener noreferrer"
-             x-text="'!' + p.merge_request_iid"></a>
+             x-text="p.merge_request_web_url ? mergeRequestLabel(p.merge_request_web_url) : '!' + p.merge_request_iid"></a>
         </template>
         <template x-if="p.merge_request_title">
           <span class="chat-inbox-event__summary" :title="p.merge_request_title" x-text="p.merge_request_title"></span>

@@ -26,7 +26,7 @@ from sessions.inbox.ownership import Ownerships
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from automation.agent.agent_settings import RunOverrides, resolve_agent_settings
-from automation.agent.events import PUBLISH_RESULT_EVENT, publish_result_payload, record_publish, repo_publish_payload
+from automation.agent.events import PUBLISH_RESULT_EVENT, publish_result_payload, repo_publish_payload
 from automation.agent.publishers import PublishOutcome
 from automation.agent.questions import render_questions
 from automation.agent.references import ExternalRef
@@ -1173,6 +1173,7 @@ async def test_an_agent_error_recovers_a_draft_inside_the_context_and_tells_on_f
         workspace=stack.create_agent.await_args.kwargs["workspace"],
         settings=stack.resolve.return_value,
         session_links=stack.create_agent.await_args.kwargs["session_links"],
+        on_publish=ANY,
     )
     assert stack.events == ["context entered", "draft recovered", "context exited"]
     agent.aget_state.assert_awaited_once_with(config=stack.langsmith.return_value)
@@ -1209,9 +1210,9 @@ async def test_a_recovered_sibling_draft_is_recorded_as_opened_on_the_run():
     agent.ainvoke = AsyncMock(side_effect=RuntimeError("agent blew up"))
     rows = MagicMock(aupdate=AsyncMock())
 
-    async def _recover(*_args, **_kwargs):
+    async def _recover(*_args, on_publish, **_kwargs):
         for payload in _sibling_payloads("g/mod", created=True):
-            record_publish(payload)
+            on_publish(payload)
 
     with (
         agent_stack(agent),
@@ -1863,6 +1864,7 @@ class TestStreamRun:
             workspace=stack.create_agent.await_args.kwargs["workspace"],
             settings=stack.resolve.return_value,
             session_links=stack.create_agent.await_args.kwargs["session_links"],
+            on_publish=ANY,
         )
         on_failure.assert_awaited_once_with(error, draft_published=True, snapshot=agent.aget_state.return_value)
 

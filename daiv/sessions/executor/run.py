@@ -318,6 +318,7 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
         workspace=run.workspace,
         settings=run.settings,
         session_links=run.session_links,
+        on_publish=run.publish.record if run.publish is not None else None,
     )
     recovery.snapshot = await _read_snapshot_after_recovery(run)
     if recovery.snapshot is not None:
@@ -329,7 +330,7 @@ async def _record_publish_result(
     publish: dict[str, Any] | None,
     draft: PublishOutcome | None,
     *,
-    siblings: Sequence[dict[str, Any]] = (),
+    siblings: list[dict[str, Any]] | None = None,
 ) -> None:
     """Write the run's publish result onto its ``Run`` once, however the run ended: the last one it dispatched, never
     the checkpoint's, which can still hold the previous run's. A draft merge request recovery opened replaces it,
@@ -349,7 +350,7 @@ async def _record_publish_result(
     if opened_draft:
         fields["code_changes"] = True
     if siblings:
-        fields["repo_publishes"] = list(siblings)
+        fields["repo_publishes"] = siblings
         if pushed_shas := [sibling["pushed_sha"] for sibling in siblings if sibling.get("pushed_sha")]:
             fields["sibling_pushed_shas"] = pushed_shas
     if not run_id or not fields:

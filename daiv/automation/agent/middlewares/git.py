@@ -178,19 +178,18 @@ def _turn_publish_reset() -> dict[str, Any]:
     return {"code_changes": False, "published": False, "repo_publishes": [], "main_publish_error": None}
 
 
-def _sibling_failure_notice(ctx: RuntimeCtx, repo_publishes: list[RepoPublish]) -> str | None:
-    """The turn-end notice naming each extra repository whose publish failed; ``None`` when none did.
-
-    Repositories whose publish stopped on merge conflicts are left out: they get their own visible notice.
-    """
-    failed = [
-        f"- `{handle.repository.slug}`: {publish.error}"
-        for handle, publish in zip(ctx.extra_repos, repo_publishes, strict=True)
-        if publish.error and publish.error_kind != "conflicts"
-    ]
-    if not failed:
-        return None
-    return "\n".join(["I couldn't publish the changes in these repositories:", *failed])
+def _sibling_notices(ctx: RuntimeCtx, repo_publishes: list[RepoPublish]) -> tuple[list[str], str | None]:
+    """The turn-end notices of the extra repositories: one naming the conflicted files of each that stopped on merge
+    conflicts, and the list of the others whose publish failed (``None`` when none did)."""
+    conflicts: list[str] = []
+    failed: list[str] = []
+    for handle, publish in zip(ctx.extra_repos, repo_publishes, strict=True):
+        if publish.conflicted_paths:
+            conflicts.append(_conflicts_notice(publish.conflicted_paths, where=f" in `{handle.repository.slug}`"))
+        elif publish.error:
+            failed.append(f"- `{handle.repository.slug}`: {publish.error}")
+    failures = "\n".join(["I couldn't publish the changes in these repositories:", *failed]) if failed else None
+    return conflicts, failures
 
 
 def _conflicts_notice(paths: Sequence[str], *, where: str) -> str:
@@ -581,15 +580,11 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             await self._alink_related(
                 ctx, main_merge_request or checkpointed_merge_request(state, strict=False), repo_publishes
             )
-        visible = [notice] + [
-            _conflicts_notice(publish.conflicted_paths, where=f" in `{handle.repository.slug}`")
-            for handle, publish in zip(ctx.extra_repos, repo_publishes, strict=True)
-            if publish.error_kind == "conflicts"
-        ]
+        conflicts, failures = _sibling_notices(ctx, repo_publishes)
         messages = []
-        if visible_text := "\n\n".join(filter(None, visible)):
+        if visible_text := "\n\n".join(filter(None, [notice, *conflicts])):
             messages.append(await streamed_assistant_message(visible_text))
-        if failures := _sibling_failure_notice(ctx, repo_publishes):
+        if failures:
             messages.append(synthetic_ai_message(failures, kind=PUBLISH_FAILURES_KIND))
         if messages:
             update["messages"] = messages

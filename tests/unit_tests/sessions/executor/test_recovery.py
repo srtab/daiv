@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from sessions.executor.recovery import recover_draft
 
-from automation.agent.events import record_publish_result, repo_publish_payload
+from automation.agent.events import repo_publish_payload
 from automation.agent.git_state import RepoPublish
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxSession
@@ -223,7 +223,9 @@ _SIBLING_DRAFT = RepoPublish(
 
 class TestExtraRepos:
     @staticmethod
-    async def _recover(*, main_publish, sibling_publishes, workspace=None, session_links=None) -> tuple[Any, Mock]:
+    async def _recover(
+        *, main_publish, sibling_publishes, workspace=None, session_links=None, on_publish=None
+    ) -> tuple[Any, Mock]:
         """Recover a two-repository run whose main publish has ``main_publish`` as its ``side_effect``."""
         ctx = _ctx()
         ctx.extra_repos = (Mock(),)
@@ -241,6 +243,7 @@ class TestExtraRepos:
                 workspace=workspace or FakeWorkspace(),
                 settings=SETTINGS,
                 session_links=session_links,
+                on_publish=on_publish,
             )
         return draft, agent
 
@@ -261,13 +264,16 @@ class TestExtraRepos:
         assert sibling_publishes.await_args.kwargs == {"settings": SETTINGS, "session_links": links, "recovering": True}
         agent.aupdate_state.assert_awaited_once_with(config={}, values={"repo_publishes": [_SIBLING_DRAFT.to_state()]})
 
-    async def test_recovered_sibling_drafts_reach_the_runs_publish_recorder(self):
-        with record_publish_result() as recorder:
-            await self._recover(
-                main_publish=[Mock(merge_request=None)], sibling_publishes=AsyncMock(return_value=[_SIBLING_DRAFT])
-            )
+    async def test_recovered_sibling_drafts_are_handed_on_as_publish_results(self):
+        on_publish = Mock()
 
-        assert recorder.siblings == {"g/mod": repo_publish_payload(_SIBLING_DRAFT)}
+        await self._recover(
+            main_publish=[Mock(merge_request=None)],
+            sibling_publishes=AsyncMock(return_value=[_SIBLING_DRAFT]),
+            on_publish=on_publish,
+        )
+
+        on_publish.assert_called_once_with(repo_publish_payload(_SIBLING_DRAFT))
 
     async def test_a_failed_main_recovery_still_recovers_the_siblings(self, caplog):
         with caplog.at_level("ERROR", logger="daiv.sessions"):

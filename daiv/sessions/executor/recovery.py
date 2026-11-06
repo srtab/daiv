@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING, Any
 from automation.agent.git_state import checkpointed_merge_request, effective_merge_request
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from langchain_core.runnables import RunnableConfig
     from langgraph.graph.state import CompiledStateGraph
 
@@ -25,6 +27,7 @@ async def recover_draft(
     workspace: Workspace,
     settings: AgentSettings,
     session_links: SessionLinksResolver | None,
+    on_publish: Callable[[dict[str, Any]], None] | None = None,
 ) -> PublishOutcome | None:
     """Publish a draft merge request from the agent's checkpoint after the agent raised; return the main repository's
     outcome that landed a merge request, or ``None`` when none did.
@@ -36,8 +39,8 @@ async def recover_draft(
     draft to save.
 
     The session's extra repositories are recovered after the main one, each to its own merge request recorded in the
-    checkpoint's ``repo_publishes`` and in the run's publish recorder, and a failure on either side never stops the
-    other.
+    checkpoint's ``repo_publishes`` and handed to ``on_publish`` as a ``publish_result`` payload, and a failure on
+    either side never stops the other.
     """
     if not workspace.is_ready:
         logger.info("executor: no draft to recover for thread_id=%s: the run acquired no sandbox session", thread_id)
@@ -47,7 +50,14 @@ async def recover_draft(
     )
     if ctx.extra_repos:
         await _recover_extra_repo_drafts(
-            ctx, agent, config, thread_id=thread_id, workspace=workspace, settings=settings, session_links=session_links
+            ctx,
+            agent,
+            config,
+            thread_id=thread_id,
+            workspace=workspace,
+            settings=settings,
+            session_links=session_links,
+            on_publish=on_publish,
         )
     return outcome
 
@@ -100,8 +110,9 @@ async def _recover_extra_repo_drafts(
     workspace: Workspace,
     settings: AgentSettings,
     session_links: SessionLinksResolver | None,
+    on_publish: Callable[[dict[str, Any]], None] | None,
 ) -> None:
-    from automation.agent.events import record_publish, repo_publish_payload
+    from automation.agent.events import repo_publish_payload
     from automation.agent.publishers import apublish_extra_repos
 
     try:
@@ -111,9 +122,10 @@ async def _recover_extra_repo_drafts(
     except Exception:
         logger.exception("executor: extra repository recovery failed for thread_id=%s", thread_id)
         return
-    for publish in publishes:
-        if (payload := repo_publish_payload(publish)) is not None:
-            record_publish(payload)
+    if on_publish is not None:
+        for publish in publishes:
+            if (payload := repo_publish_payload(publish)) is not None:
+                on_publish(payload)
     try:
         await agent.aupdate_state(config=config, values={"repo_publishes": [p.to_state() for p in publishes]})
     except Exception:

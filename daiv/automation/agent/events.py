@@ -127,12 +127,15 @@ def publish_result_payload(
     }
 
 
-def published_outcome_payload(outcome: PublishOutcome, *, repository: str = "") -> dict[str, Any]:
+def published_outcome_payload(
+    outcome: PublishOutcome | RepoPublish, *, repository: str = "", sibling: bool = False
+) -> dict[str, Any]:
     """The :func:`publish_result_payload` of a publish that pushed ``outcome``."""
     if outcome.merge_request is None:
         return publish_result_payload(
             status="pushed",
             repository=repository,
+            sibling=sibling,
             diff_stats=outcome.diff_stats,
             error_kind="mr_pending",
             pushed_sha=outcome.pushed_sha,
@@ -140,6 +143,7 @@ def published_outcome_payload(outcome: PublishOutcome, *, repository: str = "") 
     return publish_result_payload(
         status="opened" if outcome.created_merge_request else "pushed",
         repository=repository,
+        sibling=sibling,
         merge_request=outcome.merge_request,
         diff_stats=outcome.diff_stats,
         pushed_sha=outcome.pushed_sha,
@@ -149,27 +153,16 @@ def published_outcome_payload(outcome: PublishOutcome, *, repository: str = "") 
 def repo_publish_payload(publish: RepoPublish) -> dict[str, Any] | None:
     """The sibling :func:`publish_result_payload` of an extra repository's publish, or ``None`` when it has nothing
     to report."""
-
-    def sibling(status: str, *, error_kind: str | None = None, merge_request: MergeRequest | None = None):
+    if publish.error:
         return publish_result_payload(
-            status=status,
+            status="not_published" if publish.error_kind == "conflicts" else "failed",
             repository=publish.repo_id,
             sibling=True,
-            merge_request=merge_request,
-            diff_stats=publish.diff_stats,
-            error_kind=error_kind,
-            pushed_sha=publish.pushed_sha,
+            error_kind=publish.error_kind or "unknown",
         )
-
-    if publish.error_kind == "conflicts":
-        return sibling("not_published", error_kind="conflicts")
-    if publish.error:
-        return sibling("failed", error_kind=publish.error_kind or "unknown")
     if not publish.published:
         return None
-    if publish.merge_request is None:
-        return sibling("pushed", error_kind="mr_pending")
-    return sibling("opened" if publish.created_merge_request else "pushed", merge_request=publish.merge_request)
+    return published_outcome_payload(publish, repository=publish.repo_id, sibling=True)
 
 
 class PublishResultRecorder(BaseCallbackHandler):
@@ -221,10 +214,3 @@ def record_publish_result() -> Generator[PublishResultRecorder]:
         yield recorder
     finally:
         _publish_result_recorder.reset(token)
-
-
-def record_publish(payload: dict[str, Any]) -> None:
-    """Hand ``payload`` to the active recording block, for a publish made outside any runnable (draft recovery),
-    where a dispatched event reaches no callback."""
-    if (recorder := _publish_result_recorder.get()) is not None:
-        recorder.record(payload)

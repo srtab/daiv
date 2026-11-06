@@ -24,12 +24,16 @@ def synthetic_message(content: str, *, kind: str, message_id: str | None = None)
     saved into the thread are the same message. Pass ``message_id`` to make a re-sent message replace its
     earlier copy instead of adding a second one.
     """
-    return HumanMessage(content=content, id=message_id or str(uuid.uuid4()), additional_kwargs={SYNTHETIC_KWARG: kind})
+    return HumanMessage(content=content, **_synthetic_fields(kind, message_id))
 
 
 def synthetic_ai_message(content: str, *, kind: str) -> AIMessage:
     """An ``AIMessage`` marked as DAIV's own: it stays in the thread and the run's reply but never streams."""
-    return AIMessage(content=content, id=str(uuid.uuid4()), additional_kwargs={SYNTHETIC_KWARG: kind})
+    return AIMessage(content=content, **_synthetic_fields(kind))
+
+
+def _synthetic_fields(kind: str, message_id: str | None = None) -> dict[str, Any]:
+    return {"id": message_id or str(uuid.uuid4()), "additional_kwargs": {SYNTHETIC_KWARG: kind}}
 
 
 def synthetic_kind(message: Any) -> str | None:

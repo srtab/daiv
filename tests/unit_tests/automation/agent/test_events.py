@@ -8,7 +8,6 @@ from automation.agent.events import (
     context_usage_payload,
     publish_result_payload,
     published_outcome_payload,
-    record_publish,
     record_publish_result,
     repo_publish_payload,
 )
@@ -214,13 +213,3 @@ async def test_the_recorder_keeps_the_last_result_of_each_extra_repository():
 
     assert recorder.payload is None
     assert list(recorder.siblings.values()) == [last, other]
-
-
-def test_a_publish_recorded_outside_any_runnable_reaches_the_active_block_only():
-    sibling = repo_publish_payload(RepoPublish("srtab/other", None, True, "b"))
-    record_publish(sibling)
-
-    with record_publish_result() as recorder:
-        record_publish(sibling)
-
-    assert recorder.siblings == {"srtab/other": sibling}
