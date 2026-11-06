@@ -156,7 +156,7 @@ A revised artifact stays on the run that first published it — on the dashboard
 
 Chat is the interactive dashboard workspace where you converse with the agent in real time. Go to **Dashboard > Sessions** and click **New session** (`/dashboard/sessions/new/`) to open the empty workspace.
 
-Before the composer appears, pick a **repository** in the hero picker. Each session is bound to a repository and a ref:
+Before the composer appears, set up the **Workspace** card in the hero: the repositories the session works on, and its sandbox environment. A session is bound to its repositories and a ref for each:
 
 - Selecting a repository defaults the ref to its **default branch**; you can switch to any other branch.
 - If the chosen ref already has an open merge/pull request, the workspace surfaces it.
@@ -165,8 +165,17 @@ Before the composer appears, pick a **repository** in the hero picker. Each sess
 
 Once a repository is selected, the prompt box appears and you can type your first message. The session gets its own URL (`/dashboard/sessions/<thread_id>/`) so you can bookmark it or share it with teammates who have access.
 
-!!! note "A session targets one repository and ref"
-    The repository and ref are fixed for the life of the session. To work against a different repository or branch, start a new session.
+!!! note "A session's repositories and refs are fixed"
+    The repositories and their refs are fixed for the life of the session. To work against a different repository or branch, start a new session.
+
+### Starting a chat over several repositories
+
+The Workspace card takes up to 5 repositories, for work that spans them (a backend change and the client that consumes it). Use **Add repository** to add one, and the branch button on a row to pick its ref. Each repository can be listed once, on any branch.
+
+- The first repository is the **main** one, tagged **Main** once there is more than one. Its `.daiv.yml`, sandbox environment, skills and memory drive the session. Use **Make main** on another row to promote it; removing the main row promotes the next one.
+- The **Environment** field shows `Auto · <environment>` for the current main repository while it is on **Auto**.
+- The list is fixed after your first message: later turns in the session reuse it, as in the [Jobs API](jobs-api.md#multi-repository-sessions).
+- Every repository the agent changes gets its own merge/pull request, as described under [Merge requests](jobs-api.md#merge-requests).
 
 As the agent works, the workspace streams updates live:
 
@@ -184,13 +193,13 @@ Stop is offered to the session's owner, on chat runs and on the runs a job or th
 
 ### Model and sandbox environment
 
-Each session pins three choices, set in the hero before your first message and then locked for the rest of the session:
+Each session pins three choices, set before your first message (the environment in the Workspace card) and then locked for the rest of the session:
 
 | Choice | What it controls | Default |
 |--------|------------------|---------|
 | **Agent model** | Which configured LLM the agent runs on | The admin-configured system default |
 | **Thinking level** | Reasoning effort: Minimal, Low, Medium, High, or Extra high | The admin-configured default (if any) |
-| **Sandbox environment** | The named [Sandbox Environment](sandbox-environments.md) the agent's commands run in | **Auto** — resolved per repository |
+| **Sandbox environment** | The named [Sandbox Environment](sandbox-environments.md) the agent's commands run in | **Auto** — resolved for the main repository |
 
 These selections are fixed at session creation. To use a different model, effort level, or sandbox environment, start a new session.
 

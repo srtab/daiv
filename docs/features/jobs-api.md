@@ -223,6 +223,7 @@ By default, several entries in `repos` fan out into independent jobs, one sessio
 }
 ```
 
+- You can also start such a session from the dashboard chat, which takes the same list: see [Starting a chat over several repositories](sessions.md#starting-a-chat-over-several-repositories).
 - `repos` takes up to 5 entries (the first is the main one), each repository at most once, and no per-repository `prompt`: the session runs the one `prompt`.
 - The response holds **one** job and one `thread_id`; the job's `repo_id` is the first entry, the **main repository**.
 - You need write access to every repository. If any is missing or unknown, the call fails with the usual opaque `404`.

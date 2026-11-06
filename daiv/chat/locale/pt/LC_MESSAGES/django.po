@@ -114,6 +114,12 @@ msgstr "Ficheiros alterados"
 msgid "Show all"
 msgstr "Mostrar tudo"
 
+msgid "Workspace"
+msgstr "Área de trabalho"
+
+msgid "up to 5 repositories"
+msgstr "até 5 repositórios"
+
 #, fuzzy
 #~| msgid "Session context"
 #~ msgid "Session context"

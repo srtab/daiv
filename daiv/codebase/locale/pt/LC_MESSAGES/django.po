@@ -199,3 +199,18 @@ msgstr "Concluído"
 
 msgid "Selected:"
 msgstr "Selecionado:"
+
+msgid "Main"
+msgstr "Principal"
+
+msgid "Make main"
+msgstr "Tornar principal"
+
+msgid "Change branch for __LABEL__"
+msgstr "Alterar o ramo de __LABEL__"
+
+msgid "Make __LABEL__ the main repository"
+msgstr "Tornar __LABEL__ o repositório principal"
+
+msgid "Remove __LABEL__"
+msgstr "Remover __LABEL__"

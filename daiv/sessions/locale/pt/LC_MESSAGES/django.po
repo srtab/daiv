@@ -1027,6 +1027,9 @@ msgstr[1] "%(succeeded)s de %(total)s tarefas concluídas com sucesso"
 msgid "The person it would run as can no longer run on this repository"
 msgstr "A pessoa em nome de quem correria já não pode executar neste repositório"
 
+msgid "Auto · {name}"
+msgstr "Automático · {name}"
+
 #~ msgid "Session context"
 #~ msgstr "Contexto da sessão"
 

@@ -454,6 +454,15 @@ Interactive (linked) cards add hover:
 </a>
 ```
 
+### Workspace card
+
+The new-chat page's setup card (`chat/_workspace_card.html`, classes `.workspace-card*` in `input.css`):
+a titled card holding the repository list (`codebase/_repo_picker.html`, `variant="card"`) and, below a
+divider, an **Environment** field (`sandbox_envs/_env_picker.html`, `variant="field"`). It is static markup
+in the hero, not inserted by Alpine, so HTMX processes the pickers at load. It carries no shadow, opacity or
+transform, so the popovers it hosts are not trapped in a stacking context. On phones a row's branch button
+wraps under the repository name.
+
 ### Empty State
 
 Centered card for "nothing here yet" and "can't show this" states, classes in `input.css`:
@@ -707,8 +716,13 @@ its own `{% comment %}` block); the Alpine state lives in `sessions/static/sessi
 as `promptBox(...)`:
 
 ```django
-{% include "codebase/_repo_picker.html" with variant="context" max_repos=1 field_name="" required=False on_change_event="daiv:chat-repo-changed" %}
+{% include "codebase/_repo_picker.html" with variant="card" max_repos=5 unique_repos=True field_name="" required=False on_change_event="daiv:chat-repo-changed" %}
 ```
+
+`variant="card"` renders one `.workspace-row` per repository (a **Main** tag once there is more than one,
+a branch button, **Make main** on every row but the first, a remove button) and an **Add repository**
+button; the default variant renders chips. `unique_repos=True` lists each repository once, whatever its
+branch, and the first row is the main repository.
 
 Both popovers are HTMX fragments served by `codebase.views` — debounced search on the input, and
 the repository list pages in on scroll via an `intersect`-triggered sentinel row. Adding to a
@@ -718,6 +732,10 @@ choices. Successful repository results, search, and scroll position survive reop
 page; reopening after a failed request retries the current search. A failed fragment
 request is surfaced by `promptBox`, which listens for both `htmx:sendError` and `htmx:responseError`
 (HTMX skips the swap on 4xx/5xx, so without the latter the popover stays blank).
+
+The environment picker (`sandbox_envs/_env_picker.html`) takes `variant="field"` for the select-like trigger
+used in the Workspace card; `auto_label_expr` is an Alpine expression whose value names what **Auto**
+resolves to (`Auto · <env>`).
 
 **Picker error row** — `window.pickerError` (`core/js/picker-error.js`, loaded in `base.html`) renders
 the failure row for every HTMX picker popover, reading its message from the nearest
