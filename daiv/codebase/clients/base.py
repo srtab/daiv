@@ -31,6 +31,7 @@ from codebase.base import (
     User,
 )
 from codebase.conf import settings
+from core.sandbox.egress import PlatformCredential
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
@@ -97,7 +98,7 @@ def _basic_oauth2(token: str) -> str:
 
 
 @dataclass(frozen=True)
-class GitEgressCredential:
+class GitEgressCredential(PlatformCredential):
     """Egress-proxy contribution for a repo's git platform: which host to allow and the
     ``Authorization`` header to inject so git-over-HTTPS in the sandbox is authenticated.
 
@@ -107,15 +108,11 @@ class GitEgressCredential:
     The host is still returned so reachability works; auth, if required, then fails at the git
     layer."""
 
-    host: str
-    header: str = "Authorization"
-    value: SecretStr | None = None
-
     @classmethod
-    def for_token(cls, *, host: str, token: str | None) -> GitEgressCredential:
+    def for_token(cls, *, host: str, token: str | None, path: str = "") -> GitEgressCredential:
         """Build a credential injecting ``Authorization: Basic base64("oauth2:<token>")``.
-        ``value`` is ``None`` when ``token`` is falsy."""
-        return cls(host=host, value=SecretStr(_basic_oauth2(token)) if token else None)
+        ``value`` is ``None`` when ``token`` is falsy; ``path`` is the clone URL's path."""
+        return cls(host=host, value=SecretStr(_basic_oauth2(token)) if token else None, path=path)
 
 
 @dataclass(frozen=True)
@@ -283,10 +280,12 @@ class RepoClient(abc.ABC):
         The shared shape lives here — derive the host from the clone URL, then build a
         ``Basic oauth2:<token>`` credential. Platforms supply only the token via
         :meth:`_git_egress_token` (overriding this method is unnecessary)."""
-        host = urlparse(repository.clone_url).hostname
-        if not host:
+        parsed = urlparse(repository.clone_url)
+        if not parsed.hostname:
             return None
-        return GitEgressCredential.for_token(host=host, token=self._git_egress_token(repository))
+        return GitEgressCredential.for_token(
+            host=parsed.hostname, token=self._git_egress_token(repository), path=parsed.path
+        )
 
     def _git_egress_token(self, repository: Repository) -> str | None:
         """Short-lived token authenticating git-over-HTTPS for this repo's platform, or ``None`` for
@@ -579,14 +578,19 @@ class RepoClient(abc.ABC):
         return GitHubClient(integration=get_github_integration(), installation_id=settings.GITHUB_INSTALLATION_ID)
 
 
-async def aget_open_merge_request(client: RepoClient, repo_id: str, source_branch: str) -> MergeRequest | None:
+async def aget_open_merge_request(
+    client: RepoClient, repo_id: str, source_branch: str, *, strict: bool = False
+) -> MergeRequest | None:
     """The open merge request from ``source_branch``, or ``None`` when there is none or the platform failed.
 
     Best-effort: a platform error (:data:`PLATFORM_ERRORS`) is logged and reads as no merge request, so the caller
-    carries on and the publisher opens one if it must. Anything else is a bug and propagates.
+    carries on and the publisher opens one if it must. With ``strict`` it raises instead, for a caller that would
+    otherwise open a second merge request beside the one it couldn't see. Anything else is a bug and propagates.
     """
     try:
         return await sync_to_async(client.get_merge_request_by_branches)(repo_id, source_branch)
     except PLATFORM_ERRORS:
+        if strict:
+            raise
         logger.exception("Failed to look up the open merge request for %s on %s", repo_id, source_branch)
         return None

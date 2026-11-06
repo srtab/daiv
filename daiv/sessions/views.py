@@ -50,6 +50,7 @@ from sessions.filters import (
 )
 from sessions.forms import AgentRunCreateForm
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
+from sessions.multi_repo import MAX_REPOS_PER_SESSION
 from sessions.page_state import aload_session_state
 from sessions.services import RepoTarget, submit_batch_runs
 from sessions.spend import build_session_spend
@@ -288,14 +289,14 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         if session is not None:
             ctx["nav_session_thread_id"] = session.thread_id
 
-        # Populate sandbox envs both for the empty hero state and a live session.
-        ctx["sandbox_envs"] = list(SandboxEnvironment.objects.visible_to(self.request.user))
-        ctx["selected_sandbox_env_id"] = (
-            str(session.sandbox_environment_id) if session is not None and session.sandbox_environment_id else ""
+        env_id = session.sandbox_environment_id if session is not None else None
+        ctx["selected_sandbox_env_id"] = str(env_id) if env_id else ""
+        ctx["selected_sandbox_env"] = (
+            SandboxEnvironment.objects.visible_to(self.request.user).filter(pk=env_id).first() if env_id else None
         )
-        ctx["selected_sandbox_env"] = next(
-            (e for e in ctx["sandbox_envs"] if str(e.id) == ctx["selected_sandbox_env_id"]), None
-        )
+        if session is None:
+            ctx["max_session_repos"] = MAX_REPOS_PER_SESSION
+            ctx["sandbox_envs"] = list(SandboxEnvironment.objects.visible_to(self.request.user))
 
         ctx.update(
             agent_picker_context(

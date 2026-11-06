@@ -385,12 +385,6 @@ msgstr "Nova sessão"
 msgid "What are we building today?"
 msgstr "O que vamos construir hoje?"
 
-msgid "Pick a repository to get started."
-msgstr "Selecione um repositório para começar."
-
-msgid "Ready when you are — describe the change, the bug, or what to explore."
-msgstr "Pronto quando quiser — descreva a alteração, o erro ou o que explorar."
-
 msgid "Waiting in queue"
 msgstr "À espera na fila"
 
@@ -544,6 +538,15 @@ msgstr "Ecrã inteiro"
 
 msgid "Open full size"
 msgstr "Abrir em tamanho real"
+
+msgid "Repositories"
+msgstr "Repositórios"
+
+msgid "main"
+msgstr "principal"
+
+msgid "Merge request"
+msgstr "Merge request"
 
 msgid "read {count} file"
 msgstr "leu {count} ficheiro"
@@ -875,8 +878,12 @@ msgstr "Enviado para"
 msgid "Pushed"
 msgstr "Enviado"
 
-msgid "Not published:"
-msgstr "Não publicado:"
+msgctxt "publish rows heading"
+msgid "Published"
+msgstr "Publicado"
+
+msgid "Not published"
+msgstr "Não publicado"
 
 msgid "{count} file"
 msgstr "{count} ficheiro"
@@ -1017,6 +1024,78 @@ msgstr[1] "%(succeeded)s de %(total)s tarefas concluídas com sucesso"
 
 msgid "The person it would run as can no longer run on this repository"
 msgstr "A pessoa em nome de quem correria já não pode executar neste repositório"
+
+msgid "Auto · {name}"
+msgstr "Automático · {name}"
+
+msgid "Overview"
+msgstr "Resumo"
+
+msgid "Info"
+msgstr "Informação"
+
+msgid "Created"
+msgstr "Criada"
+
+msgid "Session ID"
+msgstr "ID da sessão"
+
+msgid "Copy session ID"
+msgstr "Copiar ID da sessão"
+
+msgctxt "main repository tag"
+msgid "Main"
+msgstr "Principal"
+
+msgid "no changes"
+msgstr "sem alterações"
+
+msgid "Draft"
+msgstr "Rascunho"
+
+msgid "Merge request actions"
+msgstr "Ações do merge request"
+
+msgid "Open on GitHub"
+msgstr "Abrir no GitHub"
+
+msgid "Open on GitLab"
+msgstr "Abrir no GitLab"
+
+msgid "Copy link"
+msgstr "Copiar ligação"
+
+msgid "Other sessions on"
+msgstr "Outras sessões em"
+
+msgid "Fix CI failures"
+msgstr "Corrigir falhas de CI"
+
+msgid "What DAIV found"
+msgstr "O que o DAIV encontrou"
+
+msgid "Outputs"
+msgstr "Resultados"
+
+msgid "Session details"
+msgstr "Detalhes da sessão"
+
+msgid "Repositories and merge requests"
+msgstr "Repositórios e merge requests"
+
+msgid "merge request title"
+msgstr "título do merge request"
+
+msgid "merge request is a draft"
+msgstr "o merge request é um rascunho"
+
+msgid "change size"
+msgstr "tamanho da alteração"
+
+msgid "{count} MR"
+msgid_plural "{count} MRs"
+msgstr[0] "{count} MR"
+msgstr[1] "{count} MRs"
 
 #~ msgid "Session context"
 #~ msgstr "Contexto da sessão"

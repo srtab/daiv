@@ -255,6 +255,13 @@ class Session(models.Model):
         )
         return {self.merge_request_iid, *run_iids} - {None}
 
+    def repo_ids(self) -> list[str]:
+        """Every repository of the session, the main one first."""
+        return [self.repo_id, *self.extra_repositories.values_list("repo_id", flat=True)]
+
+    async def arepo_ids(self) -> list[str]:
+        return [self.repo_id, *[repo_id async for repo_id in self.extra_repositories.values_list("repo_id", flat=True)]]
+
     def touch(self) -> None:
         """Bump ``last_active_at`` (a queryset update, so no other column is written)."""
         type(self).objects.filter(pk=self.pk).update(last_active_at=timezone.now())
@@ -297,6 +304,8 @@ def agent_result_field_updates(result: AgentResult) -> dict[str, Any]:
         "code_changes": result["code_changes"],
         "merge_request_iid": result["merge_request_id"],
         "merge_request_web_url": result["merge_request_web_url"],
+        "merge_requests": result["merge_requests"],
+        "publish_errors": result["publish_errors"],
     }
     return {field: value for field, value in updates.items() if value}
 
@@ -307,6 +316,7 @@ def publish_field_updates(publish: dict[str, Any] | None) -> dict[str, Any]:
     updates = {
         "merge_request_iid": publish.get("merge_request_iid"),
         "merge_request_web_url": publish.get("merge_request_web_url"),
+        "merge_request_title": publish.get("merge_request_title"),
         "publish_status": publish.get("status"),
         "publish_error": publish.get("error_kind"),
         "files_changed": publish.get("files_changed"),
@@ -315,6 +325,40 @@ def publish_field_updates(publish: dict[str, Any] | None) -> dict[str, Any]:
         "pushed_sha": publish.get("pushed_sha"),
     }
     return {field: value for field, value in updates.items() if value}
+
+
+class SessionRepository(models.Model):
+    """An extra repository of a multi-repository session; the main one stays on ``Session``."""
+
+    session = models.ForeignKey(
+        Session, on_delete=models.CASCADE, related_name="extra_repositories", verbose_name=_("session")
+    )
+    position = models.PositiveSmallIntegerField(_("position"))
+    repo_id = models.CharField(_("repository"), max_length=255)
+    ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
+    merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
+    merge_request_web_url = models.URLField(_("merge request URL"), max_length=500, blank=True, default="")
+    merge_request_title = models.TextField(_("merge request title"), blank=True, default="")
+    merge_request_draft = models.BooleanField(_("merge request is a draft"), default=False)
+    diff_stats = models.JSONField(_("change size"), null=True, blank=True)
+    sandbox_environment = models.ForeignKey(
+        "sandbox_envs.SandboxEnvironment",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name=_("sandbox environment"),
+    )
+
+    class Meta:
+        ordering = ["position"]
+        constraints = [
+            models.UniqueConstraint(fields=["session", "repo_id"], name="session_repo_unique"),
+            models.UniqueConstraint(fields=["session", "position"], name="session_repo_position_unique"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.repo_id} ({self.session_id})"
 
 
 class Run(models.Model):
@@ -375,6 +419,7 @@ class Run(models.Model):
     muted = models.BooleanField(_("muted"), null=True, blank=True, default=None)  # null = inherit
     merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
     merge_request_web_url = models.URLField(_("merge request URL"), max_length=500, blank=True, default="")
+    merge_request_title = models.TextField(_("merge request title"), blank=True, default="")
     sandbox_environment = models.ForeignKey(
         "sandbox_envs.SandboxEnvironment",
         on_delete=models.SET_NULL,
@@ -382,6 +427,17 @@ class Run(models.Model):
         blank=True,
         related_name="agent_runs",
         verbose_name=_("sandbox environment"),
+    )
+    merge_requests = models.JSONField(_("merge requests"), default=list, blank=True)
+    publish_errors = models.JSONField(_("publish errors"), default=list, blank=True)
+    repo_publishes = models.JSONField(_("repository publishes"), default=list, blank=True)
+    sibling_pushed_shas = models.JSONField(
+        _("sibling pushed commits"),
+        default=list,
+        blank=True,
+        help_text=_(
+            "The commits the run pushed to its session's other repositories, without which repository each went to."
+        ),
     )
 
     # Denormalized result / error / usage — copied verbatim from Activity.
@@ -491,6 +547,19 @@ class Run(models.Model):
 
     def __str__(self) -> str:
         return f"{self.get_trigger_type_display()} on {self.repo_id} ({self.status})"
+
+    def primary_merge_request_url(self) -> str | None:
+        """The main repository's merge request URL, else the first one the run opened in another repository."""
+        return self.merge_request_web_url or next((link["url"] for link in self.merge_request_links()), None)
+
+    def merge_request_links(self) -> list[dict[str, str]]:
+        """``[{"repo_id", "url"}]`` for every MR the run opened, falling back to the legacy single MR URL."""
+        links = [
+            {"repo_id": item["repo_id"], "url": item["web_url"]} for item in self.merge_requests if item.get("web_url")
+        ]
+        if not links and self.merge_request_web_url:
+            links = [{"repo_id": self.repo_id, "url": self.merge_request_web_url}]
+        return links
 
     @property
     def effective_muted(self) -> bool:
@@ -803,6 +872,13 @@ class InboxEvent(models.Model):
     kind = models.CharField(_("kind"), max_length=32, choices=EventKind.choices)
     source_key = models.CharField(_("source key"), max_length=255)
     subject = models.CharField(_("subject"), max_length=255, blank=True, default="")
+    repo_id = models.CharField(
+        _("repository"),
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=_("The repository the event concerns when it is not the session's own; blank when it is."),
+    )
     ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
     merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
     wake = models.BooleanField(_("wakes the agent"))
@@ -861,3 +937,22 @@ class InboxEvent(models.Model):
 
     def __str__(self) -> str:
         return f"{self.get_kind_display()} on session {self.session_id} ({self.state})"
+
+    @property
+    def subject_key(self) -> tuple[str, str]:
+        """What a newer event shares with this one to replace it: its ``subject``, about the same repository."""
+        return self.repo_id, self.subject
+
+    def effective_repo_id(self, own_repo_id: str) -> str:
+        """The repository the event is about: ``repo_id``, or ``own_repo_id``, its session's, when blank."""
+        return self.repo_id or own_repo_id
+
+    @staticmethod
+    def about_repo(repo_id: Any, *, prefix: str = "") -> models.Q:
+        """The events about the repository ``repo_id`` (a value or an ``OuterRef``): those naming it, and those naming
+        none in a session whose own repository it is. ``prefix`` is the lookup path to the event, as ``inbox_events__``.
+        """
+        return models.Q(**{f"{prefix}repo_id": repo_id}) | models.Q(**{
+            f"{prefix}repo_id": "",
+            f"{prefix}session__repo_id": repo_id,
+        })

@@ -20,7 +20,7 @@ the default branch always does.
 ``delegation_finished`` event to the coordinator's inbox (source key ``batch:<id>``, so several legs finishing at once
 post it once), whose summary covers every leg without quoting DAIV's own error text. The inbox starts the
 coordinator's ``SessionOrigin.DELEGATION_RESUME`` run once the session is free, as the legs' user and with their mute,
-after checking that user may still run on its repository. A
+after checking that user may still run on every repository of its session. A
 batch none of whose legs reached the task queue or waited for the coordinator resumes nothing: the tool already told
 the agent nothing started, and neither does one whose every leg was cancelled. ``continuation_of_batch_id`` is no
 longer written; it stays readable on older continuations.
@@ -405,10 +405,6 @@ def render_batch_summary(batch_id: uuid.UUID, legs: Sequence[Run]) -> str:
     )
     return "\n".join(lines)
 
-
-RUNNING = frozenset({"running", "stopping"})
-WAITING = frozenset({"queued", "waits"})
-FAILED = frozenset({"failed", "lost"})
 
 # The word the coordinator reads for each state; "queued" is listed before "waits", which reads the same.
 _OUTCOMES = {

@@ -529,7 +529,7 @@ def test_validate_egress_rejects_oversized_secrets_blob():
 
 def test_validate_egress_rejects_reserved_platform_secret_name():
     """A user-defined egress secret named ``__daiv_git_platform__`` (or a rule injecting it) must be
-    rejected at save time: ``with_platform_credential`` overwrites that key at runtime, so allowing it in
+    rejected at save time: ``with_platform_credentials`` overwrites that key at runtime, so allowing it in
     stored config would let a user silently shadow DAIV's authenticated git-platform credential."""
     from django.core.exceptions import ValidationError
 
@@ -542,6 +542,19 @@ def test_validate_egress_rejects_reserved_platform_secret_name():
             "rules": [{"host": "example.com", "methods": ["GET"], "inject": PLATFORM_EGRESS_SECRET_NAME}],
         },
         egress_secrets={PLATFORM_EGRESS_SECRET_NAME: {"header": "Authorization", "value": "Bearer t"}},
+    )
+    with pytest.raises(ValidationError, match="reserved"):
+        env._validate_egress()
+
+
+def test_validate_egress_rejects_numbered_platform_secret_name():
+    from django.core.exceptions import ValidationError
+
+    from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME
+
+    env = _egress_env(
+        egress_policy={"default": "deny", "intercept": "all", "rules": []},
+        egress_secrets={f"{PLATFORM_EGRESS_SECRET_NAME}2": {"header": "Authorization", "value": "Bearer t"}},
     )
     with pytest.raises(ValidationError, match="reserved"):
         env._validate_egress()

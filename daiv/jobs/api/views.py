@@ -1,45 +1,33 @@
 import logging
 import uuid as uuid_mod
-from typing import TYPE_CHECKING, Literal, cast
-from uuid import UUID
+from typing import Literal, cast
 
 from django.http import HttpRequest  # noqa: TC002 - required at runtime by Django
 
 from ninja import Router
 from ninja.errors import HttpError
-from sessions.admission import AdmissionError, RepoAccessError, aadmit
+from sessions.admission import AdmissionError, RepoAccessError
 from sessions.artifacts import aserialize_run_artifacts_for_status
-from sessions.models import Run, RunStatus, Session, SessionOrigin
-from sessions.services import BatchSubmitFailure, RepoTarget, asubmit_batch_runs
+from sessions.models import Run, RunStatus, SessionOrigin
+from sessions.multi_repo import asubmit_jobs
+from sessions.services import RepoTarget
 
 from accounts.api.security import AuthBearer
 from core.api.throttling import JobsRateThrottle
 
-from .schemas import JobStatusResponse, JobSubmitFailureItem, JobSubmitJobItem, JobSubmitRequest, JobSubmitResponse
-
-if TYPE_CHECKING:
-    from accounts.models import User
+from .schemas import (
+    JobMergeRequestItem,
+    JobPublishErrorItem,
+    JobStatusResponse,
+    JobSubmitFailureItem,
+    JobSubmitJobItem,
+    JobSubmitRequest,
+    JobSubmitResponse,
+)
 
 logger = logging.getLogger("daiv.jobs")
 
-_THREAD_NOT_FOUND = "thread_id not found"
-_THREAD_ARCHIVED = "thread_id is archived; unarchive the session to continue it"
-
 jobs_router = Router(auth=AuthBearer(), tags=["jobs"])
-
-
-async def _validate_thread_id(thread_id: UUID, user: User) -> tuple[bool, str | None]:
-    """Return (ok, error_detail). One opaque message whether unknown or not owned; its own when ``user`` archived it.
-
-    Schema-layer validation already constrains ``thread_id`` to a well-formed UUID, so no
-    UUID parsing is needed here — a non-existent ID is indistinguishable from a non-owned one.
-    """
-    owned = Session.objects.by_owner(user).filter(thread_id=str(thread_id))
-    if not await owned.aexists():
-        return False, _THREAD_NOT_FOUND
-    if await owned.archived_for(user).aexists():
-        return False, _THREAD_ARCHIVED
-    return True, None
 
 
 @jobs_router.post("", response={202: JobSubmitResponse, 400: dict, 404: dict, 503: dict}, throttle=[JobsRateThrottle()])
@@ -47,40 +35,27 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
     """Submit a batch of 1-20 agent jobs. Each repository runs as an independent job.
 
     If ``thread_id`` is supplied, the new job continues an existing thread: exactly one
-    repo must be provided and the session owning that thread must belong to the caller, who has not archived it.
+    repo must be provided (a multi-repository session also takes its full list) and the
+    session owning that thread must belong to the caller, who has not archived it.
     If the session is busy, the job joins its next run for the job's branch (``QUEUED``), which
     other jobs on that branch may share, and so their ``job_id``.
     """
-    if payload.thread_id is not None:
-        if len(payload.repos) != 1:
-            return 400, {"detail": "thread_id continuation requires exactly one repo"}
-        ok, err = await _validate_thread_id(payload.thread_id, request.auth)
-        if not ok:
-            return 400, {"detail": err}
-
     try:
-        admission = await aadmit(
+        result = await asubmit_jobs(
             user=request.auth,
             repos=[
                 RepoTarget(repo_id=spec.repo_id, ref=spec.ref or "", prompt=spec.prompt or "") for spec in payload.repos
             ],
+            shared=payload.shared_session,
+            thread_id=str(payload.thread_id) if payload.thread_id is not None else None,
+            prompt=payload.prompt,
             agent_model=payload.agent_model,
             agent_thinking_level=payload.agent_thinking_level,
             environment=payload.environment,
             mcp_overrides=payload.mcp_overrides,
-            thread_id=str(payload.thread_id) if payload.thread_id is not None else None,
-        )
-        result = await asubmit_batch_runs(
-            user=request.auth,
-            prompt=payload.prompt,
-            repos=admission.targets,
-            agent_model=admission.agent_model,
-            agent_thinking_level=admission.agent_thinking_level,
             muted=payload.muted,
             trigger_type=SessionOrigin.API_JOB,
-            thread_id=str(payload.thread_id) if payload.thread_id is not None else None,
             references=payload.references,
-            mcp_overrides=admission.mcp_overrides,
         )
     except RepoAccessError as err:
         # Opaque 404: don't confirm the repo's existence to unauthorized callers.
@@ -97,8 +72,7 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
             # A follow-up's run may have started, or even ended, by the time it is returned.
             status="QUEUED" if outcome.status == RunStatus.QUEUED else "READY",
         )
-        for spec, outcome in zip(payload.repos, result.outcomes, strict=True)
-        if not isinstance(outcome, BatchSubmitFailure)
+        for spec, outcome in result.started(payload.repos)
     ]
 
     failed = [JobSubmitFailureItem(repo_id=f.repo_id, ref=f.ref, error=f.error) for f in result.failed]
@@ -126,7 +100,9 @@ async def get_job_status(request: HttpRequest, job_id: str):
         thread_id=str(run.session_id) if run.session_id else None,
         result=run.response_text or None,
         question=run.question,
-        merge_request_url=run.merge_request_web_url or None,
+        merge_request_url=run.primary_merge_request_url(),
+        merge_requests=[JobMergeRequestItem(**link) for link in run.merge_request_links()],
+        publish_errors=[JobPublishErrorItem(**item) for item in run.publish_errors],
         artifacts=artifacts,
         artifacts_error=artifacts_error,
         error=error,

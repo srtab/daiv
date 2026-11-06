@@ -21,9 +21,6 @@ msgstr ""
 msgid "MR"
 msgstr "MR"
 
-msgid "draft"
-msgstr "rascunho"
-
 msgid "Jump to latest"
 msgstr "Ir para o mais recente"
 
@@ -113,6 +110,21 @@ msgstr "Ficheiros alterados"
 
 msgid "Show all"
 msgstr "Mostrar tudo"
+
+msgid "Workspace"
+msgstr "Área de trabalho"
+
+#, python-format
+msgid "up to %(max)s repository"
+msgid_plural "up to %(max)s repositories"
+msgstr[0] "até %(max)s repositório"
+msgstr[1] "até %(max)s repositórios"
+
+msgid "Context"
+msgstr "Contexto"
+
+msgid "Spend"
+msgstr "Gasto"
 
 #, fuzzy
 #~| msgid "Session context"

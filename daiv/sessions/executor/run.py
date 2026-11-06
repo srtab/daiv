@@ -15,6 +15,7 @@ from asgiref.sync import sync_to_async
 from redis.exceptions import RedisError
 from redisvl.exceptions import RedisSearchError
 
+from automation.agent.git_state import checkpointed_repo_publishes
 from automation.agent.session_links import SessionLinks
 from core.utils import build_absolute_url
 from sessions.archive import aarchive_thread, arestore_thread
@@ -25,10 +26,11 @@ from sessions.executor.recovery import recover_draft
 from sessions.executor.spec import RunHooks, RunOutcome
 from sessions.inbox.ownership import Ownerships
 from sessions.models import PublishStatus, Run, publish_field_updates
-from sessions.services import apersist_session_ref, areset_session_ref
+from sessions.multi_repo import aload_extra_repos, apersist_extra_repo_state
+from sessions.services import aget_session_ref, apersist_session_ref, areset_session_ref
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Awaitable, Callable, Coroutine
+    from collections.abc import AsyncGenerator, Awaitable, Callable, Coroutine, Sequence
     from contextlib import AbstractAsyncContextManager
 
     from langchain_core.runnables import RunnableConfig
@@ -39,6 +41,7 @@ if TYPE_CHECKING:
     from automation.agent.agent_settings import AgentSettings
     from automation.agent.context import RuntimeCtx
     from automation.agent.events import PublishResultRecorder
+    from automation.agent.git_state import RepoPublish
     from automation.agent.publishers import PublishOutcome
     from automation.agent.session_links import SessionLinksResolver
     from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler
@@ -271,7 +274,7 @@ class _Recovery:
 
 
 async def _invoke(spec: RunSpec, hooks: RunHooks, recovery: _Recovery, run_relay: RunRelay | None) -> RunOutcome:
-    from automation.agent.utils import extract_text_content
+    from automation.agent.utils import closing_reply_text
 
     async with _agent_run(spec, hooks, recovery) as run:
         try:
@@ -282,7 +285,7 @@ async def _invoke(spec: RunSpec, hooks: RunHooks, recovery: _Recovery, run_relay
         messages = result.get("messages")
         if not messages:
             raise ValueError(f"Agent returned no messages for repo_id={spec.repo_id}")
-        return await _after_run(spec, run, response_text=extract_text_content(messages[-1].content))
+        return await _after_run(spec, run, response_text=closing_reply_text(messages))
 
 
 async def _ainvoke(run: AgentRun, spec: RunSpec, run_relay: RunRelay | None) -> dict[str, Any]:
@@ -316,17 +319,25 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
         workspace=run.workspace,
         settings=run.settings,
         session_links=run.session_links,
+        on_publish=run.publish.record if run.publish is not None else None,
     )
     recovery.snapshot = await _read_snapshot_after_recovery(run)
+    if recovery.snapshot is not None:
+        await _persist_sibling_state(spec, run, checkpointed_repo_publishes(recovery.snapshot.values))
 
 
 async def _record_publish_result(
-    run_id: str | None, publish: dict[str, Any] | None, draft: PublishOutcome | None
+    run_id: str | None,
+    publish: dict[str, Any] | None,
+    draft: PublishOutcome | None,
+    *,
+    siblings: list[dict[str, Any]] | None = None,
 ) -> None:
     """Write the run's publish result onto its ``Run`` once, however the run ended: the last one it dispatched, never
     the checkpoint's, which can still hold the previous run's. A draft merge request recovery opened replaces it,
-    unless the publish failed: the failure then stays, with the draft's merge request beside it. Best-effort: logged,
-    never raised."""
+    unless the publish failed: the failure then stays, with the draft's merge request beside it. ``siblings`` are the
+    extra repositories' results, kept with the commits they pushed (``Run.sibling_pushed_shas``) so those are known as
+    DAIV's. Best-effort: logged, never raised."""
     opened_draft = draft is not None and draft.created_merge_request
     if opened_draft:
         from automation.agent.events import published_outcome_payload
@@ -339,6 +350,10 @@ async def _record_publish_result(
     fields = publish_field_updates(publish)
     if opened_draft:
         fields["code_changes"] = True
+    if siblings:
+        fields["repo_publishes"] = siblings
+        if pushed_shas := [sibling["pushed_sha"] for sibling in siblings if sibling.get("pushed_sha")]:
+            fields["sibling_pushed_shas"] = pushed_shas
     if not run_id or not fields:
         return
     try:
@@ -355,7 +370,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
     from sandbox_envs.services import build_sandbox_spec
 
     from automation.agent.agent_settings import resolve_agent_settings
-    from automation.agent.context import set_runtime_ctx
+    from automation.agent.context import ExtraRepo, set_runtime_ctx
     from automation.agent.events import record_publish_result
     from automation.agent.graph import create_daiv_agent
     from automation.agent.middlewares.slash_commands import resets_thread, skips_sandbox
@@ -376,14 +391,19 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
         thread_id, checkpoints = str(uuid.uuid4()), nullcontext(InMemorySaver())
     else:
         thread_id, checkpoints = spec.thread_id, open_checkpointer()
+    extra_rows = await aload_extra_repos(spec.thread_id) if spec.thread_id is not None else []
+    main_ref = spec.ref
+    if extra_rows and not main_ref:
+        main_ref = await aget_session_ref(thread_id=thread_id) or None
     async with (
         set_runtime_ctx(
             repo_id=spec.repo_id,
             scope=spec.scope,
-            ref=spec.ref,
+            ref=main_ref,
             issue=spec.issue,
             merge_request=spec.merge_request,
             fallback_ref_on_missing=spec.fallback_ref_on_missing,
+            extra_repos=[ExtraRepo(row.repo_id, row.ref) for row in extra_rows],
             sandbox_spec=sandbox_spec,
             acting_user_id=spec.acting_user_id,
             references=spec.references,
@@ -395,7 +415,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
         logger.info("executor: %s for thread_id=%s", type(workspace).__name__, thread_id)
         handed_over = False
         try:
-            if spec.fallback_ref_on_missing and spec.ref and ctx.repo.ref != spec.ref:
+            if spec.fallback_ref_on_missing and main_ref and ctx.repo.ref != main_ref:
                 await _repin_fallback_ref(thread_id, ctx.repo.ref)
             if hooks.on_context_ready is not None:
                 await hooks.on_context_ready(ctx.repo.ref)
@@ -456,7 +476,9 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
                     handed_over = await _handed_over(run)
                     raise
                 finally:
-                    await _record_publish_result(spec.run_id, publish.payload, recovery.draft)
+                    await _record_publish_result(
+                        spec.run_id, publish.payload, recovery.draft, siblings=list(publish.siblings.values())
+                    )
                     if archiving:
                         await _archive_thread(checkpointer, thread_id, reset=reset)
         finally:
@@ -589,11 +611,11 @@ async def _repin_fallback_ref(thread_id: str, new_ref: str) -> None:
 
 
 async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None = None) -> RunOutcome:
-    """``response_text`` is ``None`` for a stream, which has no invoke result: the checkpoint's last message
+    """``response_text`` is ``None`` for a stream, which has no invoke result: the checkpoint's closing reply
     stands in."""
     from automation.agent.questions import pending_question
     from automation.agent.usage_tracking import build_usage_summary
-    from automation.agent.utils import extract_text_content
+    from automation.agent.utils import closing_reply_text
     from sessions.executor.result import build_agent_result
 
     snapshot = await _read_snapshot(run)
@@ -601,10 +623,11 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
     messages = values.get("messages") or []
     streamed = response_text is None
     if response_text is None:
-        response_text = extract_text_content(messages[-1].content) if messages else ""
+        response_text = closing_reply_text(messages)
     merge_request = values.get("merge_request")
     published = bool(values.get("published"))
     verification = values.get("verification")
+    sibling_publishes = checkpointed_repo_publishes(values)
     # An unread checkpoint must not pass for one that published nothing: that would pin a blank ref to the clone's.
     if spec.persist_ref and snapshot is not None:
         try:
@@ -620,9 +643,17 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
     if spec.arm_watch and published and spec.run_id is not None:
         from automation.agent.verification.outcome import checks_failed
 
+        pushed_sha = (run.publish.payload or {}).get("pushed_sha") if run.publish is not None else None
         # A streamed reply is not where the report goes, so CI stays the only notice of the failure.
         examined = checks_failed(verification) and (opened or not streamed)
-        await _claim_merge_request(run, spec.run_id, merge_request, examined=examined)
+        await _claim_merge_request(run, spec.run_id, merge_request, pushed_sha=pushed_sha or "", examined=examined)
+    await _persist_sibling_state(spec, run, sibling_publishes)
+    if spec.arm_watch and spec.run_id is not None:
+        for publish in sibling_publishes:
+            if publish.published:
+                await _claim_merge_request(
+                    run, spec.run_id, publish.merge_request, pushed_sha=publish.pushed_sha, repo_id=publish.repo_id
+                )
 
     response_text = _with_verification_report(response_text, verification, opened_merge_request=opened)
     agent_result = build_agent_result(
@@ -630,6 +661,7 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
         usage=build_usage_summary(run.usage).to_dict(),
         snapshot=snapshot,
         question=pending_question(messages),
+        main_repo_id=spec.repo_id,
     )
     return RunOutcome(agent_result=agent_result, response_text=response_text, snapshot=snapshot)
 
@@ -649,22 +681,43 @@ def _with_verification_report(
     return f"{response_text.rstrip()}\n\n{report}" if response_text.strip() else report
 
 
-async def _claim_merge_request(run: AgentRun, run_id: str, merge_request: Any, *, examined: bool) -> None:
-    """Claim the merge request the run published for its session, then judge the branch's CI at once: the push
-    happened during publish, so its pipeline event can arrive before the claim exists. ``examined`` claims the commit
-    as examined, so CI failing on it wakes no fix run: the caller sets it when the ``before_publish`` checks still fail
-    and their report reached the person. Best-effort: logged, never raised over a run that already published."""
+async def _persist_sibling_state(spec: RunSpec, run: AgentRun, publishes: Sequence[RepoPublish]) -> None:
+    """Keep each extra repository's branch and merge request on its row, so the next turn continues there."""
+    if publishes and spec.persist_ref:
+        try:
+            await apersist_extra_repo_state(run.thread_id, publishes)
+        except Exception:
+            logger.exception("executor: failed to persist extra repository state for thread_id=%s", run.thread_id)
+
+
+async def _claim_merge_request(
+    run: AgentRun,
+    run_id: str,
+    merge_request: Any,
+    *,
+    pushed_sha: str,
+    repo_id: str | None = None,
+    examined: bool = False,
+) -> None:
+    """Claim the merge request the run published for its session, in ``repo_id`` when it is not the run's own, then
+    judge the branch's CI at once: the push happened during publish, so its pipeline event can arrive before the claim
+    exists. ``examined`` claims the commit as examined, so CI failing on it wakes no fix run: the caller sets it when
+    the ``before_publish`` checks still fail and their report reached the person. Best-effort: logged, never raised
+    over a run that already published."""
     from sessions.tasks import evaluate_pipeline_watch_task
 
-    pushed_sha = (run.publish.payload or {}).get("pushed_sha") if run.publish is not None else None
     try:
         ownership = await Ownerships.aclaim(
-            run_id=run_id, merge_request=merge_request, pushed_sha=pushed_sha or "", examined=examined
+            run_id=run_id, merge_request=merge_request, pushed_sha=pushed_sha, repo_id=repo_id, examined=examined
         )
         if ownership is not None:
             await evaluate_pipeline_watch_task.aenqueue(repo_id=ownership.repo_id, ref=ownership.source_branch)
     except Exception:
-        logger.exception("executor: failed to claim the merge request for thread_id=%s", run.thread_id)
+        logger.exception(
+            "executor: failed to claim the merge request of %s for thread_id=%s",
+            repo_id or "the main repository",
+            run.thread_id,
+        )
 
 
 async def _read_snapshot(run: AgentRun) -> StateSnapshot | None:

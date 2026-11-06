@@ -64,6 +64,25 @@ def test_memory_files_load_without_the_main_agents_guidelines():
     assert build_memory.call_args.args[1:] == (REPO_PATH, "AGENTS.md", memory_section)
 
 
+def test_a_sibling_repositorys_memory_files_are_read_from_its_own_path():
+    ctx = MagicMock()
+    ctx.config.context_file_name = "AGENTS.md"
+
+    with (
+        patch("automation.agent.diff_to_metadata.graph.get_model") as get_model,
+        patch(
+            "automation.agent.diff_to_metadata.graph.build_agents_memory_middleware",
+            wraps=build_agents_memory_middleware,
+        ) as build_memory,
+    ):
+        get_model.return_value = FakeListChatModel(responses=["ok"])
+        create_diff_to_metadata_graph(
+            model_names=["m"], ctx=ctx, backend=MagicMock(), repo_path="/workspace/repos/g/mod"
+        )
+
+    assert build_memory.call_args.args[1:] == ("/workspace/repos/g/mod", "AGENTS.md", memory_section)
+
+
 async def test_fallback_attempt_carries_no_openrouter_cache_control():
     primary = ChatOpenRouter(model="anthropic/claude-haiku-4.5", api_key="x")
     fallback = ChatOpenRouter(model="openai/gpt-5.4", api_key="x")

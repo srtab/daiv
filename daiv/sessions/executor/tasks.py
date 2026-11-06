@@ -61,6 +61,7 @@ async def run_job_task(
 
     from sessions.executor.run import RunStoppedError, execute_run
     from sessions.inbox.render import RunInput
+    from sessions.multi_repo import acontinues_multi_repo_session
 
     if not thread_id:
         raise ValueError("run_job_task requires a non-empty thread_id; mint one before enqueueing")
@@ -111,7 +112,8 @@ async def run_job_task(
             lock=lock,
             ref=ref,
             # A request that follows the session falls back like a chat turn when its branch was deleted (merged).
-            fallback_ref_on_missing=inbox and bool(ref) and ref == session_row.ref,
+            fallback_ref_on_missing=(inbox and bool(ref) and ref == session_row.ref)
+            or await acontinues_multi_repo_session(thread_id, run_id),
             agent_model=agent_model,
             agent_thinking_level=agent_thinking_level,
             sandbox_env_id=sandbox_environment_id,

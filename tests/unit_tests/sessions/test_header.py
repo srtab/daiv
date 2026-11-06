@@ -118,6 +118,20 @@ def test_retry_for_needs_a_viewer_who_owns_the_session_and_can_run_on_it(member_
 
 
 @pytest.mark.django_db
+def test_retry_for_needs_run_access_on_every_repository_of_a_multi_repo_session(member_user):
+    from sessions.models import SessionRepository
+
+    session = _session(user=member_user)
+    SessionRepository.objects.create(session=session, position=1, repo_id="group/module")
+    runs = [_run(session, status=RunStatus.FAILED, prompt="fix it")]
+
+    with patch("sessions.header.can_run", side_effect=lambda _user, repo_id: repo_id == "group/project"):
+        retry = retry_for(session, runs, [], member_user, can_act=True)
+
+    assert retry == ""
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(("status", "can_act"), [(RunStatus.SUCCESSFUL, None), (RunStatus.FAILED, True)])
 def test_retry_for_asks_for_run_access_only_when_it_has_to(member_user, status, can_act):
     session = _session(user=member_user)
@@ -217,6 +231,7 @@ class TestCiPayload:
 
         assert ci_payload(session) == [
             {
+                "repo_id": session.repo_id,
                 "merge_request_iid": 7,
                 "status": status,
                 "label": label,
@@ -368,6 +383,19 @@ class TestCiSubjects:
 
         assert ci_payload(session)[0]["status"] == "passing"
 
+    def test_a_merge_request_in_another_repository_is_reported_apart_from_the_one_sharing_its_iid(self, policy):
+        session = _session()
+        _owned(session)
+        _owned(session, repo_id="group/lib", source_branch="daiv/lib")
+        _ci_event(session, EventKind.CI_FAILED, wake=False)
+        _ci_event(
+            session, EventKind.CI_PASSED, wake=False, repo_id="group/lib", payload=ci_event_payload(status="success")
+        )
+
+        statuses = {item["repo_id"]: item["status"] for item in ci_payload(session)}
+
+        assert statuses == {session.repo_id: "failing", "group/lib": "passing"}
+
 
 def test_watch_payload_is_the_first_merge_requests_ci_in_the_old_shape():
     ci = [
@@ -420,12 +448,11 @@ def test_header_counts_delegated_jobs_across_batches_and_lists_newest_batch_firs
 
     payload = _delegations(coordinator, admin)
 
-    counts = ("total", "running", "waiting", "failed")
-    assert tuple(payload[key] for key in counts) == (5, 1, 1, 1)
+    assert payload["total"] == 5
     assert [b["goal"] for b in payload["batches"]] == ["x" * 120, "Bump auth"]
     assert [leg["state"] for leg in payload["batches"][0]["legs"]] == ["waiting_input", "finished", "queued"]
+    assert [leg["state"] for leg in payload["batches"][1]["legs"]] == ["running", "failed"]
     assert payload["batches"][1]["created_at"]
-    assert [leg["state"] for leg in payload["legs"]] == ["waiting_input", "finished", "queued", "running", "failed"]
 
 
 @pytest.mark.django_db

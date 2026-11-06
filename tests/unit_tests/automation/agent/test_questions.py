@@ -100,6 +100,12 @@ class TestDerivation:
         messages = [HumanMessage(content="migrate the db"), *ask_user_question_messages()]
         assert pending_question(messages) == SAMPLE_QUESTION_PAYLOAD
 
+    def test_a_notice_minted_after_the_question_keeps_it_pending(self):
+        """A publish failure appends its notice after the agent's close; the turn still ended on the question."""
+        notice = AIMessage(content="I couldn't publish the changes in these repositories: ...")
+        messages = [HumanMessage(content="migrate the db"), *ask_user_question_messages(), notice]
+        assert pending_question(messages) == SAMPLE_QUESTION_PAYLOAD
+
     def test_the_answer_clears_the_pending_question(self):
         messages = [*ask_user_question_messages(), HumanMessage(content="**Database** — SQLite")]
         assert pending_question(messages) is None

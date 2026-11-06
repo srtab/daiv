@@ -30,10 +30,10 @@ decides whether it shows and what the bar says; open is ``sheet === 'progress'``
         {% translate "Files changed" %}
         <span x-text="`· ${filesTouched.length}`"></span>
         {# Whole-run totals: the diff is measured once, not file by file. #}
-        <template x-if="diffStats">
+        <template x-if="drawerDiffStats">
           <span class="diff-stat">·
-            <span class="diff-stat__plus" x-text="`+${diffStats.added}`"></span>
-            <span class="diff-stat__minus" x-text="`−${diffStats.removed}`"></span>
+            <span class="diff-stat__plus" x-text="`+${drawerDiffStats.added}`"></span>
+            <span class="diff-stat__minus" x-text="`−${drawerDiffStats.removed}`"></span>
           </span>
         </template>
       </h3>

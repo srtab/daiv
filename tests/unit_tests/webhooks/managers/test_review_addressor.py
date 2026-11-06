@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
@@ -45,6 +45,7 @@ def _ctx() -> SimpleNamespace:
         config=MagicMock(),
         repo=SimpleNamespace(ref="feature", clone_seconds=0.0),
         gitrepo=SimpleNamespace(working_dir="/clone"),
+        extra_repos=(),
         sandbox=None,
         sandbox_client=None,
         bot_username="daiv",
@@ -248,6 +249,7 @@ class TestReviewAfterRunMatrix:
             "workspace": run.create_agent.await_args.kwargs["workspace"],
             "settings": run.resolve.return_value,
             "session_links": run.create_agent.await_args.kwargs["session_links"],
+            "on_publish": ANY,
         }
         [note] = mention.create_merge_request_comment.call_args_list
         assert "committed the changes done so far" in note.args[2]

@@ -208,14 +208,14 @@ async def test_submit_job_forwards_agent_override(openrouter_provider):
 
 
 def _capture_asubmit_batch_runs(captured: dict):
-    """Patch ``mcp_api.server.asubmit_batch_runs`` to record kwargs and return one run."""
+    """Patch ``sessions.multi_repo.asubmit_batch_runs`` to record kwargs and return one run."""
     from sessions.services import BatchSubmitResult
 
     async def _fake(**kwargs):
         captured.update(kwargs)
         return BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[FakeRun(task_result_id=None)])
 
-    return patch("mcp_api.server.asubmit_batch_runs", side_effect=_fake)
+    return patch("sessions.multi_repo.asubmit_batch_runs", side_effect=_fake)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -327,6 +327,9 @@ async def test_submit_job_wait_success():
             finished.started_at = now
             finished.finished_at = now
             finished.question = None
+            finished.merge_request_links.return_value = []
+            finished.primary_merge_request_url.return_value = None
+            finished.publish_errors = []
             return _AsyncRows([finished])
 
         mock_model.objects.filter = MagicMock(side_effect=lambda **kw: _make_filter(**kw))
@@ -455,6 +458,9 @@ async def test_get_job_status_wait_already_complete():
     mock_run.started_at = now
     mock_run.finished_at = now
     mock_run.question = None
+    mock_run.merge_request_links.return_value = []
+    mock_run.primary_merge_request_url.return_value = None
+    mock_run.publish_errors = []
 
     caller = MagicMock(pk=1)
     with (
@@ -493,6 +499,9 @@ async def test_get_job_status_wait_polls_until_complete():
     finished_result.started_at = now
     finished_result.finished_at = now
     finished_result.question = None
+    finished_result.merge_request_links.return_value = []
+    finished_result.primary_merge_request_url.return_value = None
+    finished_result.publish_errors = []
 
     caller = MagicMock(pk=1)
     with (
@@ -528,6 +537,9 @@ async def test_get_job_status_wait_not_found_then_appears():
     finished_result.started_at = now
     finished_result.finished_at = now
     finished_result.question = None
+    finished_result.merge_request_links.return_value = []
+    finished_result.primary_merge_request_url.return_value = None
+    finished_result.publish_errors = []
 
     class _DoesNotExistError(Exception):
         pass
@@ -768,13 +780,11 @@ class TestMCPThreadContinuation:
         assert captured["thread_id"] == thread_id
 
     async def test_multi_repo_with_thread_id_rejected(self):
-        user = MagicMock(pk=1)
-        with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
-            result = await submit_job(
-                repos=[{"repo_id": "a/b", "ref": None}, {"repo_id": "c/d", "ref": None}],
-                prompt="x",
-                thread_id=str(uuid.uuid4()),
-            )
+        result = await submit_job(
+            repos=[{"repo_id": "a/b", "ref": None}, {"repo_id": "c/d", "ref": None}],
+            prompt="x",
+            thread_id=str(uuid.uuid4()),
+        )
         data = json.loads(result)
         assert "exactly one repo" in data["error"]
 
