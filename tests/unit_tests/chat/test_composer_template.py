@@ -1,8 +1,8 @@
 """Markup-level guards for the redesigned chat composer.
 
 These assert the *anatomy* the composer is built around — one row of ``+``, text and
-buttons, the context row under it, the progress drawer tucked behind it, everything else
-behind a sheet — and that the surfaces it replaced are really gone. They deliberately
+buttons, the progress drawer tucked behind it, everything else behind a sheet — and that
+the surfaces it replaced are really gone. They deliberately
 don't assert on the Alpine-only branches (both the locked and the live model label ship
 in the HTML; which one shows is a client-side decision).
 """
@@ -34,18 +34,6 @@ def test_summary_strip_and_rail_are_gone(member_client, member_user):
 
 
 @pytest.mark.django_db
-def test_context_row_lives_in_the_dock_below_the_composer(member_client):
-    """Repo and branch belong to the sticky dock, not the scrolling column — the two facts
-    people misjudge have to stay on screen."""
-    html = render_new_chat(member_client)
-
-    dock = html.index('class="chat-dock"')
-    composer = html.index('class="chat-composer"')
-    context_row = html.index('class="chat-context"')
-    assert dock < composer < context_row
-
-
-@pytest.mark.django_db
 def test_a_thread_shows_repo_and_branch_in_its_details_not_the_dock(member_client, member_user):
     """The session page's details panel carries them, so a second copy in the dock would only repeat it."""
     html = render_thread(member_client, create_session(member_user))
@@ -55,15 +43,6 @@ def test_a_thread_shows_repo_and_branch_in_its_details_not_the_dock(member_clien
     details = html[start : html.index("</aside>", start)]
     assert "group/project" in details
     assert "thread?.ref" in details
-
-
-@pytest.mark.django_db
-def test_new_chat_context_row_is_the_repo_picker(member_client):
-    """State 01: nothing picked yet, so the row is an accent instruction rather than a fact."""
-    html = render_new_chat(member_client)
-
-    assert "repo-context-trigger" in html
-    assert "Pick a repository" in html
 
 
 @pytest.mark.django_db
@@ -185,17 +164,18 @@ def test_model_label_is_locked_for_an_existing_thread(member_client, member_user
     html = render_thread(member_client, session)
 
     assert "model-label--locked" in html
-    assert "Locked for this conversation" in html
     assert 'x-if="!thread"' in html
 
 
 @pytest.mark.django_db
-def test_hero_carries_no_pickers_or_selection_line(member_client):
-    """What the first turn runs with is one ``+`` away in the composer; the hero only greets."""
+def test_the_hero_greets_above_the_workspace_card(member_client):
+    """What the first turn runs over is set in the Workspace card under the greeting, not in the composer."""
     html = render_new_chat(member_client)
 
-    assert "chat-hero__selection" not in html
-    assert "chat-hero__picker" not in html
+    eyebrow = html.index('class="chat-hero__eyebrow"')
+    title = html.index('class="chat-hero__title"')
+    card = html.index('data-testid="workspace-card"')
+    assert eyebrow < title < card < html.index('class="chat-dock"')
 
 
 @pytest.mark.django_db
@@ -210,13 +190,13 @@ def test_progress_drawer_tints_the_line_counts(member_client, member_user):
 
 @pytest.mark.django_db
 def test_options_sheet_hosts_no_floating_popover(member_client, member_user):
-    """Environment and Tools share one interaction model, and neither escapes the sheet:
-    a bottom sheet has nothing below it for a popover to open into."""
+    """Tools expands in place and never escapes the sheet: a bottom sheet has nothing below
+    it for a popover to open into."""
     html = render_thread(member_client, create_session(member_user))
 
     sheet_start = html.index('class="composer-sheet composer-sheet--options')
     sheet = html[sheet_start : html.index('id="chat_prompt"')]
-    assert sheet.count("sheet-disclosure") >= 2
+    assert 'class="sheet-disclosure"' in sheet
     assert not POPOVER_CONTAINER.search(sheet)
 
 

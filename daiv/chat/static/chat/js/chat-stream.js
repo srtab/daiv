@@ -375,6 +375,8 @@
     // Server-translated "Auto" so re-picking Auto after a real env reverts the
     // locked pill text correctly (the JS itself has no i18n surface).
     _envAutoLabel: config.envAutoLabel || "Auto",
+    // The Workspace card's env field while Auto is picked: what Auto resolves to for the main repository, or "".
+    autoEnvLabel: "",
     turns: loadInitialTurns(),
     // Server-measured diff for the work published so far, refreshed by every
     // STATE_SNAPSHOT that carries it. Drives the progress drawer's ``+x −y``.

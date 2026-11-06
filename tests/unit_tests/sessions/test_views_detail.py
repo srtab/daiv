@@ -33,6 +33,7 @@ from sessions.models import (
 )
 from sessions.transcript_labels import transcript_icons
 
+from tests.unit_tests.htmltree import ElementStack
 from tests.unit_tests.sessions.conftest import (
     create_archive,
     delegate_messages,
@@ -121,6 +122,75 @@ def test_session_new_chat_has_no_breadcrumb(member_client):
     pushes both down, and the sidebar already links back to the list."""
     resp = member_client.get(reverse("session_new_chat"))
     assert b'data-testid="app-breadcrumb"' not in resp.content
+
+
+def _new_chat(client):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
+        return client.get(reverse("session_new_chat"))
+
+
+def _section(html: str, marker: str) -> str:
+    """The element whose opening tag carries ``marker``, through its matching end tag."""
+    start = html.rindex("<", 0, html.index(marker))
+    tag = re.match(r"<(\w+)", html[start:]).group(1)
+    depth = 0
+    for match in re.finditer(rf"<(/?){tag}\b", html[start:]):
+        depth += -1 if match.group(1) else 1
+        if depth == 0:
+            return html[start : start + match.end()]
+    raise AssertionError(f"<{tag}> carrying {marker!r} is never closed")
+
+
+class _Ancestors(ElementStack):
+    def __init__(self, testid: str):
+        super().__init__()
+        self.testid = testid
+        self.tags: list[str] | None = None
+
+    def visit(self, tag, classes, attrs):
+        if attrs.get("data-testid") == self.testid:
+            self.tags = [ancestor for ancestor, _ in self.stack]
+
+
+@pytest.mark.django_db
+def test_session_new_chat_shows_the_workspace_card(member_client):
+    html = _new_chat(member_client).content.decode()
+    card = _section(html, 'data-testid="workspace-card"')
+
+    assert "Workspace" in card and "up to 5 repositories" in card
+    assert "maxRepos: 5" in card and "uniqueRepos: true" in card and escapejs("daiv:chat-repo-changed") in card
+    assert "Environment" in card and escapejs("daiv:env-changed") in card
+    assert "(autoEnvLabel) || 'Auto'" in card
+
+
+@pytest.mark.django_db
+def test_the_workspace_card_is_in_the_page_at_load_not_inserted_by_alpine(member_client):
+    """HTMX wires the repo popover's search input only in its page-load sweep, and never sees
+    nodes Alpine inserts later, so neither the card nor the hero around it may be an ``x-if``."""
+    html = _new_chat(member_client).content.decode()
+    parser = _Ancestors("workspace-card")
+    parser.feed(html)
+
+    assert parser.tags is not None
+    assert "template" not in parser.tags
+    assert 'class="chat-hero" x-show="!thread && turns.length === 0"' in html
+
+
+@pytest.mark.django_db
+def test_the_composer_has_no_repository_row_and_the_options_sheet_only_tools(member_client):
+    html = _new_chat(member_client).content.decode()
+
+    assert 'class="chat-context"' not in html
+    options = _section(html, "composer-sheet--options")
+    assert "Environment" not in options and "Tools" in options
+
+
+@pytest.mark.django_db
+def test_a_session_page_has_no_workspace_card(member_client, member_user):
+    html = _get_detail(member_client, _create_session(user=member_user)).content.decode()
+
+    assert 'data-testid="workspace-card"' not in html
+    assert "chat-hero" not in html
 
 
 @pytest.mark.django_db

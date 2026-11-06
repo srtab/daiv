@@ -1181,6 +1181,7 @@ html {
     display: flex;
     flex-direction: column;
     gap: 12px;
+    width: 100%;
     max-width: 34rem;
     margin: auto;
     padding: 2rem 1rem;
@@ -1217,29 +1218,6 @@ html {
     -webkit-text-fill-color: transparent;
   }
 
-  .chat-hero__subtitle {
-    font-size: 15px;
-    color: #94a3b8;
-  }
-
-  /* Stack the two subtitle variants in the same grid cell so the container
-     always sizes to the larger one — eliminates the layout jump when the
-     visible text swaps after a repo is picked. Crossfade via opacity. */
-  .chat-hero__subtitle-stack {
-    display: grid;
-  }
-
-  .chat-hero__subtitle-stack > .chat-hero__subtitle {
-    grid-area: 1 / 1;
-    margin: 0;
-    transition: opacity 0.3s ease;
-  }
-
-  .chat-hero__subtitle-stack > .chat-hero__subtitle--hidden {
-    opacity: 0;
-    pointer-events: none;
-  }
-
   /* New-chat empty state: the transcript holds only the hero, centred above the docked composer. */
   .chat-column--empty .chat-transcript {
     display: flex;
@@ -1247,10 +1225,7 @@ html {
     padding-bottom: 1.5rem;
   }
 
-  /* Repo chip — shared between the interactive picker (`_repo_picker.html`)
-     and the static chip rendered by the chat composer once a thread exists.
-     The picker uses `<button>` elements so it gets hover affordances; the
-     composer uses `<span>` so its segments stay visually inert. */
+  /* Repo chip — the default variant of `_repo_picker.html`. */
 
   /* Outer vertical padding is intentionally tight (2px) so the total chip
      height matches `.env-pill` and the empty-state "Choose repository"
@@ -1303,47 +1278,58 @@ html {
   }
   button.repo-chip__remove:hover { color: var(--color-text); }
 
-  /* When the agent has committed to a working branch, lift the branch segment
-     so users see at a glance that it's not the original ref anymore. */
-  .repo-chip__btn--accent {
-    background: rgba(96, 165, 250, 0.12);
-    color: #bfdbfe;
+  /* Workspace card — `chat/_workspace_card.html`: a new chat's repositories and environment. */
+  .workspace-card {
+    width: 100%;
+    margin-top: 12px;
+    padding: 14px 10px 8px;
+    border: 1px solid var(--color-border);
+    border-radius: 16px;
+    background: var(--color-surface-2);
   }
 
-  .repo-chip__btn--accent .repo-chip__btn--branch {
-    color: #dbeafe;
+  .workspace-card__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 4px 12px;
+    padding: 0 10px 8px;
   }
 
-  /* MR pill — companion chip rendered after the repo chip when GitMiddleware
-     produced a merge request. Sits in the same row, links to the MR, and
-     carries an optional draft badge so reviewers can spot WIP work. */
-  .repo-chip--mr {
-    background: rgba(34, 197, 94, 0.08);
-    border-color: rgba(34, 197, 94, 0.22);
-    color: #bbf7d0;
-    text-decoration: none;
-    transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
-  }
-
-  .repo-chip--mr:hover {
-    background: rgba(34, 197, 94, 0.14);
-    border-color: rgba(34, 197, 94, 0.35);
-    transform: translateY(-1px);
-  }
-
-  .repo-chip__badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 0 6px;
-    height: 16px;
-    border-radius: 8px;
-    background: rgba(251, 191, 36, 0.18);
-    border: 1px solid rgba(251, 191, 36, 0.28);
-    color: #fde68a;
-    font-size: 10.5px;
+  .workspace-card__title {
+    font-size: 15px;
     font-weight: 600;
+    letter-spacing: -0.025em;
+    color: var(--color-text-strong);
+  }
+
+  .workspace-card__hint {
+    font-size: 12px;
+    color: var(--color-text-faint);
+  }
+
+  .workspace-card__divider {
+    height: 1px;
+    margin: 4px 6px;
+    background: var(--color-border);
+  }
+
+  .workspace-card__field {
+    display: grid;
+    grid-template-columns: 100px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+  }
+
+  .workspace-card__label {
+    @apply font-mono;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    color: var(--color-text-faint);
   }
 
   /* Workspace rows — `_repo_picker.html` variant="card": one row per repository. */
@@ -1353,15 +1339,22 @@ html {
     gap: 2px;
   }
 
+  /* No column gap: a hidden MAIN tag or Make main would still leave its gutters, so each cell
+     after the first carries the spacing as a margin, which `display: none` takes with it. */
   .workspace-row {
     display: grid;
     grid-template-columns: 16px minmax(0, 1fr) auto auto auto auto;
+    grid-template-areas: "icon slug tag branch action remove";
     align-items: center;
-    gap: 8px;
+    row-gap: 6px;
     padding: 7px 10px;
     border-radius: 8px;
     font-size: 13px;
     transition: background-color 0.15s ease;
+  }
+
+  .workspace-row > * + * {
+    margin-inline-start: 8px;
   }
 
   .workspace-row:hover {
@@ -1373,24 +1366,26 @@ html {
   }
 
   .workspace-row__icon {
+    grid-area: icon;
     color: var(--color-text-faint);
   }
 
   .workspace-row__slug {
-    grid-column: 2;
+    grid-area: slug;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-family: var(--font-mono);
+    @apply font-mono;
     font-size: 12px;
     color: var(--color-text);
   }
 
   .workspace-tag {
+    grid-area: tag;
     padding: 1px 6px;
     border-radius: 999px;
     border: 1px solid var(--color-border);
-    font-family: var(--font-mono);
+    @apply font-mono;
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.14em;
@@ -1399,15 +1394,16 @@ html {
   }
 
   .workspace-row__branch {
-    grid-column: 4;
+    grid-area: branch;
     display: inline-flex;
     align-items: center;
     gap: 5px;
+    min-width: 0;
     max-width: 24ch;
     padding: 2px 8px;
     border-radius: 999px;
     border: 1px solid var(--color-border);
-    font-family: var(--font-mono);
+    @apply font-mono;
     font-size: 12px;
     color: var(--color-text-muted);
   }
@@ -1423,7 +1419,7 @@ html {
   }
 
   .workspace-row__action {
-    grid-column: 5;
+    grid-area: action;
     padding: 2px 6px;
     border-radius: 6px;
     font-size: 12px;
@@ -1435,7 +1431,7 @@ html {
   }
 
   .workspace-row__remove {
-    grid-column: 6;
+    grid-area: remove;
     display: inline-flex;
     padding: 3px;
     border-radius: 6px;
@@ -1444,6 +1440,21 @@ html {
 
   .workspace-row__remove:hover {
     color: var(--color-text);
+  }
+
+  /* A phone gives the slug the first line and the branch its own line under it. */
+  @media (width < 640px) {
+    .workspace-row {
+      grid-template-columns: 16px minmax(0, 1fr) auto auto auto;
+      grid-template-areas:
+        "icon slug tag action remove"
+        ". branch branch branch branch";
+    }
+
+    .workspace-row__branch {
+      justify-self: start;
+      max-width: 100%;
+    }
   }
 
   .workspace-add {
@@ -3154,33 +3165,15 @@ html {
     background: linear-gradient(180deg, transparent, var(--color-ground));
   }
 
-  /* New chat: the context row on the left, the disclaimer on the right, wrapping under it on a
-     phone. A session page has no context row, so the disclaimer centres alone. */
   .chat-dock__foot {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px 12px;
     padding: 8px 2px 0;
   }
 
   .chat-dock__disclaimer {
-    flex: 1 1 auto;
-    text-align: right;
+    text-align: center;
     font-size: 11px;
     line-height: 1.4;
     color: #64748b;
-  }
-
-  .chat-dock__disclaimer:only-child {
-    text-align: center;
-  }
-
-  @media (width < 640px) {
-    .chat-dock__disclaimer {
-      flex-basis: 100%;
-      text-align: center;
-    }
   }
 
   .chat-archived {
@@ -3615,45 +3608,8 @@ html {
     animation: fade-up 0.3s ease-out backwards;
   }
 
-  /* Context row — repo · branch (+ MR). Lives in the dock, under the composer box, so it
-     is sticky and cannot scroll away. It is the repo *picker* until a thread exists. */
-
-  .chat-context {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 6px;
-    min-width: 0;
-  }
-
-  .chat-context__picker {
-    min-width: 0;
-  }
-
-  /* Branch names are the one part of the row with no length ceiling. Letting the chip
-     shrink and ellipsizing the branch keeps the context row one line down to 320px,
-     where it would otherwise wrap inside the chip. */
-  .chat-context .repo-chip {
-    max-width: 100%;
-    min-width: 0;
-  }
-
-  .chat-context .repo-chip__btn {
-    min-width: 0;
-  }
-
-  .chat-context .repo-chip__btn--branch {
-    display: inline-block;
-    min-width: 0;
-    max-width: 24ch;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    vertical-align: bottom;
-  }
-
   /* Only above 1100px, where these are still anchored popovers rather than bottom sheets
-     (see `.picker-popover`). Scoped to the dock rather than to the two triggers that live
+     (see `.picker-popover`). Scoped to the dock rather than to the trigger that lives
      there today: the dock is pinned to the viewport bottom, so anything anchored
      `top-full` inside it opens off the screen. */
   @media (width >= 1100px) {
@@ -3669,41 +3625,6 @@ html {
       left: auto;
       right: 0;
     }
-  }
-
-  /* Accent is reserved for "nothing picked yet" (the one state where the row is an
-     instruction rather than a fact). A selected repo renders as the neutral chip the
-     thread states use — only the chevron stays, marking it changeable. */
-  .repo-context-trigger {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 10px;
-    border-radius: 999px;
-    border: 1px solid color-mix(in srgb, var(--color-accent) 35%, transparent);
-    background: color-mix(in srgb, var(--color-accent) 10%, transparent);
-    color: var(--color-accent-bright);
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background-color 0.15s ease, border-color 0.15s ease;
-  }
-
-  .repo-context-trigger:hover {
-    background: color-mix(in srgb, var(--color-accent) 16%, transparent);
-    border-color: color-mix(in srgb, var(--color-accent) 50%, transparent);
-  }
-
-  .repo-chip__caret {
-    display: inline-flex;
-    align-items: center;
-    border-radius: 999px;
-    padding: 0 5px;
-    color: #6b7280;
-  }
-
-  .repo-chip__caret:hover {
-    color: #e5e7eb;
   }
 
   /* "/" autocomplete. Not a picker-popover and not a sheet: it spans the composer's own
@@ -4360,6 +4281,33 @@ html {
     color: #d4b7ff;
   }
   .env-pill__caret { @apply text-[10px] opacity-50 ml-px; }
+
+  /* `_env_picker.html` variant="field": the pill's popover behind a select-like trigger. */
+  .env-field {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 5px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background: var(--color-surface-1);
+    @apply font-mono;
+    font-size: 12px;
+    color: var(--color-text);
+    transition: background-color 0.15s ease;
+  }
+
+  .env-field:hover {
+    background: var(--color-surface-3);
+  }
+
+  .env-field__name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 
   /* Shared shell for the model / repo / branch / env / subscriber pickers. Geometry lives
      here, never as `left-*`/`w-*` utilities on the element: utilities outrank every

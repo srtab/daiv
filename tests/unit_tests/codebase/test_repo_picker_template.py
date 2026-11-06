@@ -14,20 +14,6 @@ def test_default_variant_keeps_the_remove_control_and_choose_button():
 
     assert "repo-chip__remove" in html
     assert "Choose repository" in html
-    assert "repo-context-trigger" not in html
-    assert "repo-chip__caret" not in html
-
-
-def test_context_variant_swaps_remove_for_a_chevron_and_accents_the_empty_state():
-    """The composer's context row always carries exactly one repo, so removal is
-    meaningless there — the chevron replaces it and marks the chip as changeable. Accent
-    is reserved for the empty state, the one moment the row is an instruction."""
-    html = render_to_string("codebase/_repo_picker.html", CONTEXT | {"variant": "context"})
-
-    assert "repo-context-trigger" in html
-    assert "Pick a repository" in html
-    assert "repo-chip__caret" in html
-    assert "repo-chip__remove" not in html
 
 
 def test_multi_repo_done_control_does_not_submit_the_enclosing_form():
@@ -51,6 +37,14 @@ def test_the_card_variant_renders_rows_with_make_main_and_remove():
     assert "remove(index)" in html
     assert "workspace-row" in html
     assert "repo-chip" not in html
+
+
+def test_the_card_rows_name_their_controls_through_translated_templates():
+    html = render_to_string("codebase/_repo_picker.html", CONTEXT | {"variant": "card", "max_repos": 5})
+    rows = html[html.index('class="workspace-rows"') : html.index('class="workspace-add')]
+
+    assert "' + repo.slug" not in rows
+    assert rows.count(".replace('__LABEL__', repo.slug)") == 3
 
 
 def test_unique_repos_is_off_by_default():

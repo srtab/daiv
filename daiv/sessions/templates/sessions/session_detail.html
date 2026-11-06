@@ -180,21 +180,14 @@
       {% endif %}
 
       <div class="chat-transcript">
-        {# Empty state, centred above the composer. #}
-        <template x-if="!thread && turns.length === 0">
-          <div class="chat-hero">
-            <span class="chat-hero__eyebrow">{% translate "New session" %}</span>
-            <h1 class="chat-hero__title">{% translate "What are we building today?" %}</h1>
-            <div class="chat-hero__subtitle-stack">
-              <p class="chat-hero__subtitle" :class="{ 'chat-hero__subtitle--hidden': draftRepoId }">
-                {% translate "Pick a repository to get started." %}
-              </p>
-              <p class="chat-hero__subtitle" :class="{ 'chat-hero__subtitle--hidden': !draftRepoId }">
-                {% translate "Ready when you are — describe the change, the bug, or what to explore." %}
-              </p>
-            </div>
-          </div>
-        </template>
+        {% if not session %}
+        {# Empty state, centred above the composer. ``x-show``, not ``x-if``: HTMX wires the card's pickers only at page load. #}
+        <div class="chat-hero" x-show="!thread && turns.length === 0">
+          <span class="chat-hero__eyebrow">{% translate "New session" %}</span>
+          <h1 class="chat-hero__title">{% translate "What are we building today?" %}</h1>
+          {% include "chat/_workspace_card.html" %}
+        </div>
+        {% endif %}
 
         <template x-for="block in runBlocks" :key="block.key">
           <div class="run-block" :id="!block.anchor && block.runId ? `run-${block.runId}` : null">

@@ -1,11 +1,7 @@
 {% load i18n icon_tags %}
 {% comment %}
-Options trigger + sheet: Environment, then Tools (MCP servers).
-
-Deliberately holds nothing that is already on screen — no model row, no effort row, no
-repo/branch row. The env is locked once a thread exists (the backend snapshots it on the
-first turn and discards the header afterwards), so the badge dot on the trigger can only
-ever mean "MCP server selection differs from the defaults".
+Options trigger + sheet: Tools (MCP servers) only — model, repositories and environment live
+elsewhere — so the trigger's dot only ever means "MCP server selection differs from the defaults".
 {% endcomment %}
 <div class="composer-sheet-anchor">
   <button type="button"
@@ -29,20 +25,6 @@ ever mean "MCP server selection differs from the defaults".
     {% include "core/_sheet_head.html" with title=_("Options") close_expr="closeSheet()" surface="composer-sheet" %}
 
     <div class="composer-sheet__body scrollbar-thin">
-      <section class="composer-sheet__group">
-        <h3 class="composer-sheet__label">{% translate "Environment" %}</h3>
-        <div x-show="thread" x-cloak>
-          {% include "sandbox_envs/_env_picker.html" with variant="sheet" disabled=True selected_env=selected_sandbox_env dynamic_label_expr="lockedEnvLabel" dynamic_scope_expr="lockedEnvScope" %}
-        </div>
-        {% comment %}
-        ``x-if``: the live picker announces its selection on the window, which in a
-        thread would fight the server-rendered locked row for the same value.
-        {% endcomment %}
-        <template x-if="!thread">
-          {% include "sandbox_envs/_env_picker.html" with variant="sheet" envs=sandbox_envs selected_id=selected_sandbox_env_id field_name="" on_change_event="daiv:env-changed" %}
-        </template>
-      </section>
-
       {% comment %}
       Tools = MCP servers, one row per server and never one per tool. There can be
       dozens, so the group collapses to a single disclosure row and the sheet's height
