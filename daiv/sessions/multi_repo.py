@@ -120,17 +120,22 @@ def _create_session_run(*, repos: list[RepoTarget], thread_id: str, status: str,
             task_result_id=None,
             status=status,
         )
-        SessionRepository.objects.bulk_create([
-            SessionRepository(
-                session=run.session,
-                position=position,
-                repo_id=target.repo_id,
-                ref=target.ref,
-                sandbox_environment_id=target.sandbox_environment_id,
-            )
-            for position, target in enumerate(extras, start=1)
-        ])
+        create_extra_repos(run.session, extras)
     return run
+
+
+def create_extra_repos(session: Session, extras: Sequence[RepoTarget]) -> None:
+    """Store ``extras`` as the repositories of ``session`` after its main one, in order."""
+    SessionRepository.objects.bulk_create([
+        SessionRepository(
+            session=session,
+            position=position,
+            repo_id=target.repo_id,
+            ref=target.ref,
+            sandbox_environment_id=target.sandbox_environment_id,
+        )
+        for position, target in enumerate(extras, start=1)
+    ])
 
 
 async def asubmit_jobs(

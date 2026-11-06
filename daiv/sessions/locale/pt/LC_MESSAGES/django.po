@@ -385,12 +385,6 @@ msgstr "Nova sessão"
 msgid "What are we building today?"
 msgstr "O que vamos construir hoje?"
 
-msgid "Pick a repository to get started."
-msgstr "Selecione um repositório para começar."
-
-msgid "Ready when you are — describe the change, the bug, or what to explore."
-msgstr "Pronto quando quiser — descreva a alteração, o erro ou o que explorar."
-
 msgid "Waiting in queue"
 msgstr "À espera na fila"
 
@@ -1026,6 +1020,9 @@ msgstr[1] "%(succeeded)s de %(total)s tarefas concluídas com sucesso"
 
 msgid "The person it would run as can no longer run on this repository"
 msgstr "A pessoa em nome de quem correria já não pode executar neste repositório"
+
+msgid "Auto · {name}"
+msgstr "Automático · {name}"
 
 msgid "Overview"
 msgstr "Resumo"

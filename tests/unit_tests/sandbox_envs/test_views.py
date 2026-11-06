@@ -606,6 +606,25 @@ def test_sheet_variant_expands_in_place_instead_of_floating():
 
 
 @pytest.mark.django_db
+def test_field_variant_is_a_select_that_floats_its_list():
+    """The Workspace card labels the env like a form field; its list floats like the pill's."""
+    html = _render_picker(variant="field")
+
+    assert "env-field" in html
+    assert POPOVER_CONTAINER.search(html)
+    assert "env-pill" not in html
+    assert "sheet-disclosure" not in html
+
+
+@pytest.mark.django_db
+def test_field_variant_names_auto_from_the_callers_expression():
+    """While Auto is picked the caller can say what it resolves to; an empty answer reads "Auto"."""
+    html = _render_picker(variant="field", auto_label_expr="autoEnvLabel")
+
+    assert "_isAutoSelected() ? (autoEnvLabel) || 'Auto' : pillLabel.name" in html
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize("selected_env", [None, SimpleNamespace(name="ci-heavy", scope="user")])
 def test_locked_sheet_variant_states_the_env_rather_than_offering_it(selected_env):
     """The lock reason rides an `sr-only` line rather than `title`, which the env name would

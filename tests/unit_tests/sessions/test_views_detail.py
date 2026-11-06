@@ -15,6 +15,7 @@ from django.utils.html import escapejs
 
 import pytest
 from allauth.socialaccount.models import SocialAccount
+from bs4 import BeautifulSoup
 from sessions.conf import settings as sessions_settings
 from sessions.delegation import outcome_states
 from sessions.executor.lock import STALE_RUN_MINUTES
@@ -34,7 +35,8 @@ from sessions.models import (
 )
 from sessions.transcript_labels import transcript_icons
 
-from tests.unit_tests.htmltree import VOID_TAGS
+from tests.unit_tests.chat.chat_pages import render_new_chat
+from tests.unit_tests.htmltree import VOID_TAGS, ElementStack
 from tests.unit_tests.sessions.conftest import (
     create_archive,
     delegate_messages,
@@ -123,6 +125,59 @@ def test_session_new_chat_has_no_breadcrumb(member_client):
     pushes both down, and the sidebar already links back to the list."""
     resp = member_client.get(reverse("session_new_chat"))
     assert b'data-testid="app-breadcrumb"' not in resp.content
+
+
+class _Ancestors(ElementStack):
+    def __init__(self, testid: str):
+        super().__init__()
+        self.testid = testid
+        self.tags: list[str] | None = None
+
+    def visit(self, tag, classes, attrs):
+        if attrs.get("data-testid") == self.testid:
+            self.tags = [ancestor for ancestor, _ in self.stack]
+
+
+@pytest.mark.django_db
+def test_session_new_chat_shows_the_workspace_card(member_client):
+    card = str(
+        BeautifulSoup(render_new_chat(member_client), "html.parser").select_one('[data-testid="workspace-card"]')
+    )
+
+    assert "Workspace" in card and "up to 5 repositories" in card
+    assert "maxRepos: 5" in card and "uniqueRepos: true" in card and escapejs("daiv:chat-repo-changed") in card
+    assert "Environment" in card and escapejs("daiv:env-changed") in card
+    assert "(autoEnvLabel) || 'Auto'" in card
+
+
+@pytest.mark.django_db
+def test_the_workspace_card_is_in_the_page_at_load_not_inserted_by_alpine(member_client):
+    """HTMX wires the repo popover's search input only in its page-load sweep, and never sees
+    nodes Alpine inserts later, so neither the card nor the hero around it may be an ``x-if``."""
+    html = render_new_chat(member_client)
+    parser = _Ancestors("workspace-card")
+    parser.feed(html)
+
+    assert parser.tags is not None
+    assert "template" not in parser.tags
+    assert 'class="chat-hero" x-show="(!thread && turns.length === 0) || firstTurnRefused"' in html
+
+
+@pytest.mark.django_db
+def test_the_composer_has_no_repository_row_and_the_options_sheet_no_environment_picker(member_client):
+    html = render_new_chat(member_client)
+
+    assert 'class="chat-context"' not in html
+    options = BeautifulSoup(html, "html.parser").select_one(".composer-sheet--options")
+    assert "daiv:env-changed" not in str(options) and "Tools" in options.get_text()
+
+
+@pytest.mark.django_db
+def test_a_session_page_has_no_workspace_card(member_client, member_user):
+    html = _get_detail(member_client, _create_session(user=member_user)).content.decode()
+
+    assert 'data-testid="workspace-card"' not in html
+    assert "chat-hero" not in html
 
 
 @pytest.mark.django_db
