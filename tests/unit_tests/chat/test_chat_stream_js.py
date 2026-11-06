@@ -85,6 +85,7 @@ def test_server_turns_render_their_run_anchor():
         finished_at=None,
         is_cancelled=False,
         publish_status="",
+        repo_publishes=[],
     )
     turns = annotate_transcript([_turn("h1"), {"id": "a1", "role": "assistant", "segments": []}], [run])
 
@@ -411,6 +412,7 @@ for (const entry of script) {
   if (op === "segmentTypes") out.push(live().segments.map((s) => s.type));
   if (op === "segmentStatuses") out.push(live().segments.map((s) => s.status));
   if (op === "block0.publish") out.push(chat.runBlocks[0].publish);
+  if (op === "hasFailedPublish") out.push(chat._hasFailedPublish());
   if (op === "break") broken = true;
   if (op === "errors") out.push(errors.length);
   if (op === "watched") out.push(watched);
@@ -815,6 +817,9 @@ def test_publish_event_adds_the_result_to_the_run():
     assert out[-1] == [
         {
             "status": "opened",
+            "repository": "",
+            "sibling": False,
+            "merge_request_title": "Add it",
             "merge_request_iid": 7,
             "merge_request_web_url": "https://git.example/mr/7",
             "files_changed": 3,
@@ -823,6 +828,23 @@ def test_publish_event_adds_the_result_to_the_run():
             "error": "",
         }
     ]
+
+
+def test_an_extra_repositorys_result_is_a_separate_entry_without_the_retry_anchor():
+    script = [
+        "activeRun:pk-1",
+        _publish_custom(status="pushed", repository="srtab/daiv", merge_request=MR, diff_stats=STATS),
+        _publish_custom(status="failed", repository="srtab/daiv-stack", sibling=True, error_kind="push_rejected"),
+        "block0.publish",
+        "hasFailedPublish",
+    ]
+    out = _drive(PUBLISHING, script=script)
+
+    main, extra = out[-2]
+    assert (main["repository"], main["sibling"], main["merge_request_title"]) == ("srtab/daiv", False, "Add it")
+    assert (extra["repository"], extra["sibling"], extra["merge_request_title"]) == ("srtab/daiv-stack", True, "")
+    assert "id" not in extra
+    assert out[-1] is False
 
 
 def test_failed_publish_carries_the_kinds_fixed_message_and_the_retry_anchor():

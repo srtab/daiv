@@ -46,6 +46,9 @@
     const v = value || {};
     return {
       status: v.status,
+      repository: v.repository ?? "",
+      sibling: Boolean(v.sibling),
+      merge_request_title: v.merge_request_title ?? "",
       merge_request_iid: v.merge_request_iid ?? null,
       merge_request_web_url: v.merge_request_web_url ?? "",
       files_changed: v.files_changed ?? null,
@@ -1971,7 +1974,7 @@
       } else if (type === AGUI.CUSTOM && evt.name === PUBLISH_RESULT_EVENT) {
         this.publishPhase = "";
         const entry = publishEntry(evt.value, window.TranscriptLabels);
-        if (entry.status === "failed") entry.id = this._runStatusId();
+        if (entry.status === "failed" && !entry.sibling) entry.id = this._runStatusId();
         turn.publish = [...(turn.publish || []), entry];
       } else if (type === AGUI.CUSTOM && evt.name === "daiv_context_usage") {
         // Last main-model call's usage (ContextUsageMiddleware). Whole-payload replace.

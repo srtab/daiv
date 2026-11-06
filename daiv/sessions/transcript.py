@@ -108,50 +108,91 @@ def _red_line_replaces(marker: dict[str, Any], run: Run) -> bool:
     return marker["status"] == "failed" and run.publish_status == PublishStatus.FAILED
 
 
-def _publish_entry(run: Run, status: str, *, error: str = "") -> dict[str, Any]:
-    """Only a publish that landed shows the run's merge request and figures, as the live line does."""
-    entry = {
-        "status": str(status),
-        "merge_request_iid": None,
-        "merge_request_web_url": "",
-        "files_changed": None,
-        "lines_added": None,
-        "lines_removed": None,
-        "error": error,
-    }
-    if status in (PublishStatus.OPENED, PublishStatus.PUSHED):
-        entry |= {
-            "merge_request_iid": run.merge_request_iid,
-            "merge_request_web_url": run.merge_request_web_url or "",
-            "files_changed": run.files_changed,
-            "lines_added": run.lines_added,
-            "lines_removed": run.lines_removed,
-        }
-    return entry
-
-
-def _publish_error(run: Run) -> str:
-    if not run.publish_error:
+def _error_label(kind: str | None) -> str:
+    if not kind:
         return ""
     try:
-        kind = PublishErrorKind(run.publish_error)
+        return str(PublishErrorKind(kind).label)
     except ValueError:
-        kind = PublishErrorKind.UNKNOWN
-    return str(kind.label)
+        return str(PublishErrorKind.UNKNOWN.label)
+
+
+def _publish_entry(
+    status: str,
+    *,
+    repository: str,
+    sibling: bool,
+    error_kind: str | None = None,
+    merge_request_iid: int | None = None,
+    merge_request_web_url: str | None = "",
+    merge_request_title: str | None = "",
+    files_changed: int | None = None,
+    lines_added: int | None = None,
+    lines_removed: int | None = None,
+) -> dict[str, Any]:
+    """Only a publish that landed shows the merge request and figures, as the live line does."""
+    landed = status in (PublishStatus.OPENED, PublishStatus.PUSHED)
+    return {
+        "status": str(status),
+        "repository": repository,
+        "sibling": sibling,
+        "merge_request_iid": merge_request_iid if landed else None,
+        "merge_request_web_url": (merge_request_web_url or "") if landed else "",
+        "merge_request_title": (merge_request_title or "") if landed else "",
+        "files_changed": files_changed if landed else None,
+        "lines_added": lines_added if landed else None,
+        "lines_removed": lines_removed if landed else None,
+        "error": _error_label(error_kind),
+    }
+
+
+def _main_publish_entry(run: Run, status: str, *, error_kind: str | None = None) -> dict[str, Any]:
+    return _publish_entry(
+        status,
+        repository=run.repo_id,
+        sibling=False,
+        error_kind=error_kind,
+        merge_request_iid=run.merge_request_iid,
+        merge_request_web_url=run.merge_request_web_url,
+        merge_request_title=run.merge_request_title,
+        files_changed=run.files_changed,
+        lines_added=run.lines_added,
+        lines_removed=run.lines_removed,
+    )
+
+
+def _sibling_publish_entries(run: Run) -> list[dict[str, Any]]:
+    return [
+        _publish_entry(
+            item["status"],
+            repository=item.get("repository") or "",
+            sibling=True,
+            error_kind=item.get("error_kind"),
+            merge_request_iid=item.get("merge_request_iid"),
+            merge_request_web_url=item.get("merge_request_web_url"),
+            merge_request_title=item.get("merge_request_title"),
+            files_changed=item.get("files_changed"),
+            lines_added=item.get("lines_added"),
+            lines_removed=item.get("lines_removed"),
+        )
+        for item in run.repo_publishes or []
+        if isinstance(item, dict) and item.get("status")
+    ]
 
 
 def _publish_entries(run: Run) -> list[dict[str, Any]]:
-    """The entries of ``run``'s publish result; a failed publish is the red line and carries the retry anchor, followed
-    by the draft recovery opened after it."""
-    if not run.publish_status:
-        return []
-    entry = _publish_entry(run, run.publish_status, error=_publish_error(run))
-    if run.publish_status != PublishStatus.FAILED:
-        return [entry]
-    entries = [{"id": marker_id(run), **entry}]
-    if run.code_changes and run.merge_request_iid:
-        entries.append(_publish_entry(run, PublishStatus.OPENED))
-    return entries
+    """The entries of ``run``'s publish result, main repository first then the extras in session order; a failed main
+    publish is the red line and carries the retry anchor, followed by the draft recovery opened after it."""
+    entries: list[dict[str, Any]] = []
+    if run.publish_status:
+        entry = _main_publish_entry(run, run.publish_status, error_kind=run.publish_error)
+        if run.publish_status != PublishStatus.FAILED:
+            entries.append(entry)
+        else:
+            entries.append({"id": marker_id(run), **entry})
+            if run.code_changes and run.merge_request_iid:
+                entries.append(_main_publish_entry(run, PublishStatus.OPENED))
+    return [*entries, *_sibling_publish_entries(run)]
 
 
 def _stamp_publish(run_turns: list[dict[str, Any]], run: Run) -> None:
