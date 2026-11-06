@@ -1,7 +1,44 @@
 // Applies each turns fetch sessionSync announces and polls nothing; the status follows the chat while it streams or
-// waits on a run. Rename, the CI toggle and Archive write through the sessions API.
+// waits on a run. Rename, each merge request's CI toggle and Archive write through the sessions API. The details panel
+// is always shown from `WIDE` up and is a sheet below it; its tab and folded sections are remembered per browser.
 document.addEventListener("alpine:init", () => {
   const WIDE = "(min-width: 1100px)";
+  const TABS = ["overview", "info"];
+  const FOLDED = { repositories: false, environment: true, context: false, spend: true, outputs: true };
+  const CI_TONES_WORST_FIRST = ["fail", "found", "attn", "clear"];
+
+  const stored = (key) => {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  };
+
+  const store = (key, value) => {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      // Blocked storage only means the choice is forgotten on the next load.
+    }
+  };
+
+  const storedFolds = (key) => {
+    let saved;
+    try {
+      saved = JSON.parse(stored(key) ?? "{}");
+    } catch {
+      saved = null;
+    }
+    return Object.fromEntries(
+      Object.entries(FOLDED).map(([section, folded]) => [
+        section,
+        typeof saved?.[section] === "boolean" ? saved[section] : folded,
+      ]),
+    );
+  };
+
+  const ciKey = (item) => `${item.repo_id}!${item.merge_request_iid}`;
 
   const readJSON = (id) => {
     const el = document.getElementById(id);
@@ -58,7 +95,7 @@ document.addEventListener("alpine:init", () => {
 
   Alpine.data("sessionPage", (config) => ({
     latest: null,
-    // CI on each merge request the session owns; `watch` is the first one's, which the top bar's toggle acts on.
+    // CI on each merge request the session owns (`repo_id` blank for the main repository); `watch` is the first one's.
     ci: [],
     watch: null,
     // What the session will do next (``sessions.up_next``).
@@ -71,10 +108,12 @@ document.addEventListener("alpine:init", () => {
     titleWidth: 0,
     editingTitle: false,
     ciWatchBusy: false,
-    ciWatchDisabled: "",
-    ciWatchError: "",
+    ciWatchDisabled: {},
+    ciWatchError: {},
     detailsOpen: false,
+    detailsTab: "overview",
     wide: false,
+    _folds: { ...FOLDED },
     _settling: false,
     _watchAt: -Infinity,
     _media: null,
@@ -82,14 +121,17 @@ document.addEventListener("alpine:init", () => {
     _provisional: [],
     init() {
       this.applyHeader(readJSON("session-header"));
+      const tab = stored(`${config.storageKey}.tab`);
+      if (TABS.includes(tab)) this.detailsTab = tab;
+      this._folds = storedFolds(`${config.storageKey}.folds`);
       this._media = window.matchMedia?.(WIDE) ?? null;
       this.wide = Boolean(this._media?.matches);
       this._onMedia = (event) => {
         this.wide = event.matches;
-        this.detailsOpen = this.wide && this._remembered();
+        this.detailsOpen = this.wide;
       };
       this._media?.addEventListener?.("change", this._onMedia);
-      this.detailsOpen = this.wide && this._remembered();
+      this.detailsOpen = this.wide;
     },
     destroy() {
       this._media?.removeEventListener?.("change", this._onMedia);
@@ -120,29 +162,31 @@ document.addEventListener("alpine:init", () => {
       this._provisional = this._provisional.filter((provisional) => provisional.at >= requestedAt);
       this.upNext = this._provisional.reduce(withProvisional, upNext);
     },
-    _remembered() {
-      try {
-        return localStorage.getItem(config.storageKey) === "open";
-      } catch {
-        return false;
-      }
-    },
-    _remember(open) {
-      try {
-        localStorage.setItem(config.storageKey, open ? "open" : "closed");
-      } catch {
-        // Blocked storage only means the panel starts closed next time.
-      }
-    },
-    // Only the column's state is remembered: the sheet below `WIDE` is opened for one look and dismissed.
     setDetails(open) {
-      this.detailsOpen = open;
-      if (this.wide) this._remember(open);
+      this.detailsOpen = open || this.wide;
     },
     toggleDetails() {
       this.setDetails(!this.detailsOpen);
     },
+    selectTab(tab) {
+      if (!TABS.includes(tab)) return;
+      this.detailsTab = tab;
+      store(`${config.storageKey}.tab`, tab);
+    },
+    isFolded(section) {
+      return Boolean(this._folds[section]);
+    },
+    toggleFold(section) {
+      if (!(section in FOLDED)) return;
+      this._folds = { ...this._folds, [section]: !this._folds[section] };
+      store(`${config.storageKey}.folds`, JSON.stringify(this._folds));
+    },
     openDetails(section) {
+      if (section === "delegations") this.selectTab("info");
+      else {
+        this.selectTab("overview");
+        if (this.isFolded(section)) this.toggleFold(section);
+      }
       this.setDetails(true);
       const el = document.getElementById(`session-details-${section}`);
       if (el) whenShown(el, () => el.scrollIntoView({ block: "start" }));
@@ -197,8 +241,33 @@ document.addEventListener("alpine:init", () => {
       const [main, ...extras] = this.repositories?.rows ?? [];
       if (!main) return [];
       const mr = this.thread?.merge_request;
-      const live = mr ? { mr_url: mr.url || "", mr_iid: mr.id ?? null } : {};
+      const live = mr
+        ? { mr_url: mr.url || "", mr_iid: mr.id ?? null, mr_title: mr.title || "", mr_draft: Boolean(mr.draft) }
+        : {};
       return [{ ...main, ref: this.thread?.ref || main.ref, ...live }, ...extras];
+    },
+    ciFor(row) {
+      if (!row?.mr_iid) return null;
+      const main = this.repositoryRows[0]?.repo_id;
+      return (
+        this.ci.find((item) => (item.repo_id || main) === row.repo_id && item.merge_request_iid === row.mr_iid) ?? null
+      );
+    },
+    get summary() {
+      const rows = this.repositoryRows;
+      const withMr = rows.filter((row) => row.mr_iid);
+      return {
+        main: rows[0]?.repo_id ?? "",
+        more: Math.max(rows.length - 1, 0),
+        mrs: withMr.length,
+        mrIid: withMr.length === 1 ? withMr[0].mr_iid : null,
+        tone: CI_TONES_WORST_FIRST.find((tone) => this.ci.some((item) => item.tone === tone)) ?? "",
+      };
+    },
+    get repositoriesSummary() {
+      const count = String(this.repositoryRows.length);
+      const { mrs } = this.summary;
+      return mrs ? `${count} · ${window.TranscriptLabels.tn("details_merge_requests", mrs)}` : count;
     },
     _showCi(data) {
       this.ci = data?.ci ?? [];
@@ -258,36 +327,36 @@ document.addEventListener("alpine:init", () => {
       this.title = title;
       document.title = `${title} — ${config.titleSuffix}`;
     },
-    // On while failures on the merge request wake the session; off, its CI results are only remembered.
-    get ciWatchOn() {
-      return Boolean(this.watch?.open);
+    ciNote(item) {
+      if (!item) return "";
+      const key = ciKey(item);
+      if (this.ciWatchDisabled[key]) return this.ciWatchDisabled[key];
+      if (this.ciWatchError[key]) return this.ciWatchError[key];
+      if (!item.watch_enabled) return config.labels.watchOff;
+      return config.labels.watching.replace("{state}", item.label);
     },
-    get ciWatchHint() {
-      if (this.ciWatchDisabled) return this.ciWatchDisabled;
-      if (this.ciWatchError) return this.ciWatchError;
-      if (!this.ciWatchOn) return config.labels.watchOff;
-      return config.labels.watching.replace("{state}", this.watch.label);
-    },
-    async toggleCiWatch(mergeRequestIid) {
-      if (this.ciWatchBusy || this.ciWatchDisabled) return;
+    async toggleCiWatch(item) {
+      const key = ciKey(item);
+      if (this.ciWatchBusy || this.ciWatchDisabled[key]) return;
       this.ciWatchBusy = true;
-      this.ciWatchError = "";
+      this.ciWatchError = { ...this.ciWatchError, [key]: "" };
       try {
         const res = await this._send(config.ciWatchUrl, "POST", {
-          on: !this.ciWatchOn,
-          merge_request_iid: mergeRequestIid,
+          on: !item.watch_enabled,
+          merge_request_iid: item.merge_request_iid,
+          repo_id: item.repo_id || undefined,
         });
         const data = await res.json();
         if (res.status === 409 && data.reason) {
           this._setCi(data);
-          if (data.reason === "disabled") this.ciWatchDisabled = data.detail;
-          else this.ciWatchError = data.detail;
+          if (data.reason === "disabled") this.ciWatchDisabled = { ...this.ciWatchDisabled, [key]: data.detail };
+          else this.ciWatchError = { ...this.ciWatchError, [key]: data.detail };
           return;
         }
         if (!res.ok) throw new Error(`CI watch toggle failed: ${res.status}`);
         this._setCi(data);
       } catch {
-        this.ciWatchError = config.labels.watchFailed;
+        this.ciWatchError = { ...this.ciWatchError, [key]: config.labels.watchFailed };
       } finally {
         this.ciWatchBusy = false;
       }
@@ -305,12 +374,15 @@ document.addEventListener("alpine:init", () => {
         this.archived = previous;
       }
     },
-    async copyLink(url) {
+    async copyText(text) {
       try {
-        await navigator.clipboard.writeText(new URL(url, window.location.href).href);
+        await navigator.clipboard.writeText(text);
       } catch {
-        // Clipboard access denied: the link stays in the menu's href for a manual copy.
+        // Clipboard access denied: the text stays on the page for a manual copy.
       }
+    },
+    copyLink(url) {
+      return this.copyText(new URL(url, window.location.href).href);
     },
   }));
 });

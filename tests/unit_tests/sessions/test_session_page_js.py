@@ -6,6 +6,8 @@ through Alpine's merged scope; here they are plain properties on the component, 
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from tests.unit_tests.jsdriver import requires_node, run_node
@@ -21,12 +23,16 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
 const {
-  src, labelsSrc, initial, watch, delegations, repositories, thread, wide, stored, storageBlocked, archived, steps,
+  src, labelsSrc, initial, watch, delegations, repositories, thread, wide, storedTab, storedFolds, storageBlocked,
+  archived, steps,
 } = JSON.parse(readFileSync(0, "utf8"));
+const SECTIONS = ["repositories", "environment", "context", "spend", "outputs"];
 const components = {};
 const fetches = [];
 const pending = [];
-const storage = new Map(stored == null ? [] : [["key", stored]]);
+const copied = [];
+const storage = new Map([["key.tab", storedTab], ["key.folds", storedFolds]].filter(([, value]) => value != null));
+let onMedia = null;
 let clock = 10;
 const json = { "session-header": { latest_run: initial, watch, run_count: 1, delegations, repositories } };
 const watchers = {};
@@ -66,9 +72,12 @@ const sandbox = {
   },
 };
 sandbox.document.title = "Old — DAIV Sessions";
+sandbox.navigator = { clipboard: { writeText: async (text) => { copied.push(text); } } };
 sandbox.window = {
-  matchMedia: () => ({ matches: wide, addEventListener() {}, removeEventListener() {} }),
+  location: { href: "https://daiv.test/sessions/t-1/" },
+  matchMedia: () => ({ matches: wide, addEventListener: (_, cb) => { onMedia = cb; }, removeEventListener() {} }),
 };
+sandbox.URL = URL;
 sandbox.Alpine = { data: (name, factory) => { components[name] = factory; } };
 vm.createContext(sandbox);
 vm.runInContext(readFileSync(labelsSrc, "utf8"), sandbox);
@@ -108,18 +117,25 @@ for (const [action, value] of steps) {
   else if (action === "draft") page.titleDraft = value;
   else if (action === "commit") sending = page.commitRename();
   else if (action === "cancel") page.cancelRename();
-  else if (action === "ci-toggle") sending = page.toggleCiWatch(value ?? 7);
+  else if (action === "ci-toggle-item") sending = page.toggleCiWatch(value);
   else if (action === "archive") sending = page.setArchived(value);
-  else if (action === "toggle") page.toggleDetails();
-  else if (action === "open-details") page.openDetails("context");
+  else if (action === "tab") page.selectTab(value);
+  else if (action === "fold") page.toggleFold(value);
+  else if (action === "media") onMedia({ matches: value });
+  else if (action === "open-details") page.openDetails(value);
+  else if (action === "set-details") page.setDetails(value);
+  else if (action === "copy") await page.copyText(value);
+  else if (action === "copy-link") await page.copyLink(value);
   else if (action === "frame") { section.shown = value; frames.splice(0).forEach((cb) => cb()); }
   else if (action === "offers-retry") seen.push(value.map((marker) => page.canRetry(marker)));
   else if (action === "read") {
     seen.push({
       status: page.status, watch: page.watch, open: page.detailsOpen, runs: page.runCount,
       scrolled: scrolled.length, title: page.title, editing: page.editingTitle, titleWidth: page.titleWidth,
-      docTitle: sandbox.document.title, archived: page.archived, hint: page.ciWatchHint,
-      ciDisabled: Boolean(page.ciWatchDisabled), checked: page.ciWatchOn, ci: page.ci,
+      docTitle: sandbox.document.title, archived: page.archived, ci: page.ci,
+      notes: page.ci.map((item) => page.ciNote(item)), ciFor: page.repositoryRows.map((row) => page.ciFor(row)),
+      tab: page.detailsTab, folds: Object.fromEntries(SECTIONS.map((s) => [s, page.isFolded(s)])),
+      summary: page.summary, repositoriesSummary: page.repositoriesSummary,
       explanations: page.ci.map((item) => page.ciExplanation(item)), upNext: page.upNext,
       ciTexts: page.ci.map((item) => page.ciText(item)),
       delegations: page.delegations, delegationsLabel: page.delegationsBadge.label,
@@ -133,7 +149,8 @@ for (const [action, value] of steps) {
   }
 }
 process.stdout.write(JSON.stringify({
-  seen, fetches: fetches.length, requests: fetches, focused, stored: storage.get("key") ?? null,
+  seen, fetches: fetches.length, requests: fetches, focused, copied,
+  stored_tab: storage.get("key.tab") ?? null, stored_folds: storage.get("key.folds") ?? null,
 }));
 """
 
@@ -142,10 +159,18 @@ FAILED = {"label": "Failed", "variant": "failed"}
 RUNNING = {"variant": "running", "label": "Running"}
 WATCHING = {"state": "running", "label": "Waiting for CI", "tone": "attn", "open": True}
 WATCH_OFF = {"state": "failing", "label": "Failing", "tone": "fail", "open": False}
+DEFAULT_FOLDS = {"repositories": False, "environment": True, "context": False, "spend": True, "outputs": True}
 
 
 def _ci(status="running", *, explanation=None, iid=7) -> dict:
-    return {"merge_request_iid": iid, "status": status, "watch_enabled": True, "explanation_run_id": explanation}
+    return {
+        "repo_id": "",
+        "merge_request_iid": iid,
+        "status": status,
+        "label": status.capitalize(),
+        "watch_enabled": True,
+        "explanation_run_id": explanation,
+    }
 
 
 def _run(
@@ -157,7 +182,8 @@ def _run(
     repositories=None,
     thread=None,
     wide=True,
-    stored=None,
+    stored_tab=None,
+    stored_folds=None,
     storage_blocked=False,
     archived=False,
 ) -> dict:
@@ -170,7 +196,8 @@ def _run(
         "repositories": repositories,
         "thread": thread,
         "wide": wide,
-        "stored": stored,
+        "storedTab": stored_tab,
+        "storedFolds": stored_folds,
         "storageBlocked": storage_blocked,
         "archived": archived,
         "steps": steps,
@@ -224,29 +251,74 @@ def test_a_failed_settling_fetch_releases_the_held_status():
     assert [s["status"] for s in seen] == [RUNNING, DONE]
 
 
-def test_a_wide_page_opens_the_panel_as_last_left():
-    assert _read(stored="open")["open"] is True
-    assert _read(stored="closed")["open"] is False
-    assert _read(stored=None)["open"] is False
+def test_a_wide_page_always_shows_the_panel():
+    assert _read(wide=True)["open"] is True
 
 
-def test_toggling_the_column_remembers_it():
-    result = _run([["toggle", None], ["read", None]], stored=None)
-
-    assert (result["seen"][0]["open"], result["stored"]) == (True, "open")
+def test_the_sheet_on_a_narrow_page_starts_closed():
+    assert _read(wide=False)["open"] is False
 
 
-def test_the_sheet_on_a_narrow_page_starts_closed_and_is_not_remembered():
-    result = _run([["read", None], ["toggle", None], ["read", None]], wide=False, stored="open")
+def test_the_column_cannot_be_closed_while_wide():
+    seen = _run([["set-details", False], ["read", None]], wide=True)["seen"][0]
 
-    assert [s["open"] for s in result["seen"]] == [False, True]
-    assert result["stored"] == "open"
+    assert seen["open"] is True
 
 
-def test_blocked_storage_starts_closed_and_still_toggles():
-    result = _run([["read", None], ["toggle", None], ["read", None]], storage_blocked=True)
+def test_narrowing_closes_the_sheet_and_widening_shows_the_column():
+    steps = [["media", False], ["read", None], ["media", True], ["read", None]]
 
-    assert [s["open"] for s in result["seen"]] == [False, True]
+    assert [s["open"] for s in _run(steps, wide=True)["seen"]] == [False, True]
+
+
+def test_the_overview_tab_and_default_folds_come_first():
+    seen = _read()
+
+    assert seen["tab"] == "overview"
+    assert seen["folds"] == DEFAULT_FOLDS
+
+
+def test_tab_and_folds_are_remembered():
+    result = _run([["tab", "info"], ["fold", "spend"], ["read", None]])
+
+    assert result["stored_tab"] == "info" and json.loads(result["stored_folds"])["spend"] is False
+
+
+def test_a_reload_restores_the_tab_and_folds():
+    seen = _read(stored_tab="info", stored_folds=json.dumps({"spend": False, "context": True}))
+
+    assert (seen["tab"], seen["folds"]) == ("info", {**DEFAULT_FOLDS, "spend": False, "context": True})
+
+
+def test_garbage_or_blocked_storage_falls_back_to_the_defaults():
+    assert _read(stored_folds="{not json")["folds"] == DEFAULT_FOLDS
+    assert _read(stored_tab="nonsense", stored_folds="[1]")["tab"] == "overview"
+    assert _read(storage_blocked=True)["tab"] == "overview"
+
+
+def test_blocked_storage_still_switches_tabs_and_folds():
+    seen = _run([["tab", "info"], ["fold", "outputs"], ["read", None]], storage_blocked=True)["seen"][0]
+
+    assert (seen["tab"], seen["folds"]["outputs"]) == ("info", False)
+
+
+def test_a_poll_keeps_the_tab_and_folds():
+    poll = ["poll", {"latest_run": DONE, "watch": None, "run_count": 2}]
+    seen = _run([["tab", "info"], ["fold", "context"], poll, ["read", None]])["seen"][0]
+
+    assert (seen["tab"], seen["folds"]["context"]) == ("info", True)
+
+
+def test_opening_context_selects_overview_and_unfolds_it():
+    steps = [["tab", "info"], ["fold", "context"], ["open-details", "context"], ["read", None]]
+    result = _run(steps)
+
+    assert (result["seen"][0]["tab"], result["seen"][0]["folds"]["context"]) == ("overview", False)
+    assert (result["stored_tab"], json.loads(result["stored_folds"])["context"]) == ("overview", False)
+
+
+def test_opening_delegations_selects_info():
+    assert _run([["open-details", "delegations"], ["read", None]])["seen"][0]["tab"] == "info"
 
 
 def test_polls_and_a_settled_run_update_the_run_count():
@@ -268,10 +340,16 @@ def test_the_page_creates_no_timers():
 
 
 def test_opening_a_section_scrolls_once_the_panel_is_shown():
-    steps = [["open-details", None], ["read", None], ["frame", False], ["read", None], ["frame", True], ["read", None]]
-    seen = _run(steps, wide=False)["seen"]
+    steps = [["open-details", "context"], ["read", None], ["frame", False], ["read", None], ["frame", True]]
+    seen = _run([*steps, ["read", None]], wide=False)["seen"]
 
     assert [(s["open"], s["scrolled"]) for s in seen] == [(True, 0), (True, 0), (True, 1)]
+
+
+def test_copying_text_copies_it_as_is_and_a_link_whole():
+    result = _run([["copy", "6f1c2a"], ["copy-link", "/sessions/6f1c2a/"]])
+
+    assert result["copied"] == ["6f1c2a", "https://daiv.test/sessions/6f1c2a/"]
 
 
 # ---------------------------------------------------------------------------
@@ -348,51 +426,98 @@ def test_a_served_title_does_not_overwrite_a_rename_in_progress():
 # ---------------------------------------------------------------------------
 
 
-def test_the_ci_item_describes_the_watch():
-    assert _read(watch=WATCHING)["hint"] == "Watching: Waiting for CI"
-    assert _read(watch=WATCH_OFF)["hint"] == "Off for this merge request"
-    assert _read(watch=None)["hint"] == "Off for this merge request"
+def _with_ci(ci, watch=WATCHING) -> list:
+    return ["poll", {"latest_run": DONE, "run_count": 1, "watch": watch, "ci": ci}]
+
+
+def test_each_merge_requests_note_describes_its_watch():
+    ci = [{**_ci(), "label": "Waiting for CI"}, {**_ci("failing", iid=8), "watch_enabled": False}]
+
+    assert _run([_with_ci(ci), ["read", None]])["seen"][0]["notes"] == [
+        "Watching: Waiting for CI",
+        "Off for this merge request",
+    ]
 
 
 def test_unticking_turns_off_the_watch_on_the_merge_request_and_takes_the_response():
-    reply = {"ci": [_ci("failing")], "watch": WATCH_OFF}
-    result = _run([["ci-toggle", 7], ["reply", {"body": reply}], ["read", None]], watch=WATCHING)
+    item = _ci("failing")
+    reply = {"ci": [{**item, "watch_enabled": False}], "watch": WATCH_OFF}
+    result = _run([_with_ci([item]), ["ci-toggle-item", item], ["reply", {"body": reply}], ["read", None]])
 
     body = {"on": False, "merge_request_iid": 7}
     assert result["requests"][0] == {"url": "/ci-watch", "method": "POST", "body": body, "csrf": "tok"}
     seen = result["seen"][0]
-    assert (seen["watch"], seen["checked"], seen["ci"]) == (WATCH_OFF, False, reply["ci"])
+    assert (seen["watch"], seen["ci"], seen["notes"]) == (WATCH_OFF, reply["ci"], ["Off for this merge request"])
 
 
 def test_ticking_turns_the_watch_back_on():
-    reply = {"ci": [_ci()], "watch": WATCHING}
-    result = _run([["read", None], ["ci-toggle", 5], ["reply", {"body": reply}], ["read", None]], watch=WATCH_OFF)
+    item = {**_ci(iid=5), "label": "Waiting for CI", "watch_enabled": False}
+    reply = {"ci": [{**item, "watch_enabled": True}], "watch": WATCHING}
+    steps = [_with_ci([item], WATCH_OFF), ["read", None], ["ci-toggle-item", item], ["reply", {"body": reply}]]
+    result = _run([*steps, ["read", None]])
 
     assert result["requests"][0]["body"] == {"on": True, "merge_request_iid": 5}
     before, after = result["seen"]
-    assert (before["checked"], after["checked"], after["hint"]) == (False, True, "Watching: Waiting for CI")
+    assert (before["notes"], after["notes"]) == (["Off for this merge request"], ["Watching: Waiting for CI"])
 
 
-def test_a_merge_request_the_session_does_not_own_says_so():
+def test_a_merge_request_the_session_no_longer_owns_leaves_the_list_and_can_be_tried_again():
+    item = _ci()
     refused = {"detail": "This session doesn't own that merge request", "reason": "not_owned", "ci": [], "watch": None}
-    result = _run([["ci-toggle", None], ["reply", {"status": 409, "body": refused}], ["read", None]], watch=WATCHING)
+    steps = [_with_ci([item]), ["ci-toggle-item", item], ["reply", {"status": 409, "body": refused}], ["read", None]]
+    result = _run([*steps, ["ci-toggle-item", item]])
 
     seen = result["seen"][0]
-    assert (seen["watch"], seen["ciDisabled"], seen["hint"]) == (None, False, refused["detail"])
+    assert (seen["watch"], seen["ci"], result["fetches"]) == (None, [], 2)
 
 
 def test_a_repository_with_the_watch_off_disables_the_item_with_the_reason():
-    refused = {"detail": "CI fixes are turned off for this repository", "reason": "disabled", "ci": [], "watch": None}
+    item = {**_ci("failing"), "watch_enabled": False}
+    refused = {"detail": "CI fixes are turned off for this repository", "reason": "disabled", "ci": [item]}
     result = _run([
-        ["ci-toggle", None],
-        ["reply", {"status": 409, "body": refused}],
-        ["ci-toggle", None],
+        _with_ci([item], WATCH_OFF),
+        ["ci-toggle-item", item],
+        ["reply", {"status": 409, "body": {**refused, "watch": WATCH_OFF}}],
+        ["ci-toggle-item", item],
         ["read", None],
     ])
 
-    seen = result["seen"][0]
-    assert (seen["watch"], seen["ciDisabled"], seen["hint"]) == (None, True, refused["detail"])
+    assert result["seen"][0]["notes"] == [refused["detail"]]
     assert result["fetches"] == 1
+
+
+def test_toggling_ci_on_an_extra_repository_sends_its_repo():
+    item = {**_ci("failing", iid=17), "repo_id": "g/mod", "watch_enabled": True}
+    result = _run([_with_ci([item]), ["ci-toggle-item", item]])
+
+    assert result["requests"][-1]["body"] == {"on": False, "merge_request_iid": 17, "repo_id": "g/mod"}
+
+
+def test_a_disabled_watch_is_noted_on_its_own_merge_request_only():
+    main = _ci("passing")
+    extra = {**_ci("failing", iid=17), "repo_id": "g/mod", "watch_enabled": False}
+    refused = {"detail": "CI watching is off for g/mod", "reason": "disabled", "ci": [main, extra], "watch": WATCHING}
+    result = _run([
+        _with_ci([main, extra]),
+        ["ci-toggle-item", extra],
+        ["reply", {"status": 409, "body": refused}],
+        ["ci-toggle-item", extra],
+        ["read", None],
+        ["ci-toggle-item", main],
+    ])
+
+    assert result["seen"][0]["notes"] == ["Watching: Passing", "CI watching is off for g/mod"]
+    assert [request["body"]["merge_request_iid"] for request in result["requests"]] == [17, 7]
+
+
+def test_a_failed_toggle_is_noted_on_its_merge_request_and_cleared_by_the_next():
+    main, extra = _ci("passing"), {**_ci("failing", iid=17), "repo_id": "g/mod"}
+    steps = [_with_ci([main, extra]), ["ci-toggle-item", extra], ["reply", {"status": 502, "body": {}}], ["read", None]]
+    retried = [["ci-toggle-item", extra], ["read", None]]
+    first, retrying = _run([*steps, *retried])["seen"]
+
+    assert first["notes"] == ["Watching: Passing", "Couldn't change it"]
+    assert retrying["notes"] == ["Watching: Passing", "Watching: Failing"]
 
 
 def test_a_failure_links_the_run_that_looked_at_it():
@@ -415,10 +540,11 @@ def test_a_failure_names_its_failing_jobs_after_its_label():
 
 @pytest.mark.parametrize(("status", "body"), [(502, {}), (409, {"detail": "Something else"}), (422, {"detail": []})])
 def test_a_failed_toggle_keeps_the_watch_and_says_so(status, body):
-    result = _run([["ci-toggle", None], ["reply", {"status": status, "body": body}], ["read", None]], watch=WATCHING)
+    item = _ci()
+    steps = [_with_ci([item]), ["ci-toggle-item", item], ["reply", {"status": status, "body": body}], ["read", None]]
 
-    seen = result["seen"][0]
-    assert (seen["watch"], seen["hint"], seen["ciDisabled"]) == (WATCHING, "Couldn't change it", False)
+    seen = _run(steps)["seen"][0]
+    assert (seen["watch"], seen["ci"], seen["notes"]) == (WATCHING, [item], ["Couldn't change it"])
 
 
 def test_a_poll_without_a_watch_keeps_the_one_the_page_has():
@@ -430,7 +556,7 @@ def test_a_poll_without_a_watch_keeps_the_one_the_page_has():
 def test_a_poll_asked_for_before_the_toggle_answered_does_not_undo_it():
     result = _run(
         [
-            ["ci-toggle", None],
+            ["ci-toggle-item", {**_ci(), "watch_enabled": False}],
             ["reply", {"body": {"ci": [_ci()], "watch": WATCHING}}],
             ["poll", {"latest_run": FAILED, "watch": None, "requestedAt": 9}],
             ["read", None],
@@ -674,7 +800,16 @@ def test_a_poll_without_delegations_keeps_the_ones_the_page_has():
 
 def _repo(repo_id, ref, mr_iid=None) -> dict:
     mr_url = f"https://gl/{repo_id}/-/merge_requests/{mr_iid}" if mr_iid else ""
-    return {"repo_id": repo_id, "ref": ref, "mr_url": mr_url, "mr_iid": mr_iid}
+    return {
+        "repo_id": repo_id,
+        "ref": ref,
+        "mr_url": mr_url,
+        "mr_iid": mr_iid,
+        "mr_title": "",
+        "mr_draft": False,
+        "diff_stats": None,
+        "ran": False,
+    }
 
 
 def test_the_repositories_card_follows_each_turns_payload():
@@ -704,11 +839,12 @@ def test_a_failed_fetch_keeps_the_repositories_card():
 
 def test_the_main_row_takes_the_chats_branch_and_merge_request():
     repositories = {"rows": [_repo("g/app", "main", 7), _repo("g/mod", "main")], "publish_errors": []}
-    thread = {"ref": "daiv/fix", "merge_request": {"url": "https://gl/g/app/-/merge_requests/9", "id": 9}}
+    mr = {"url": "https://gl/g/app/-/merge_requests/9", "id": 9, "title": "Fix the lint", "draft": True}
 
-    seen = _read(repositories=repositories, thread=thread)
+    seen = _read(repositories=repositories, thread={"ref": "daiv/fix", "merge_request": mr})
 
-    assert seen["repositoryRows"] == [_repo("g/app", "daiv/fix", 9), _repo("g/mod", "main")]
+    main = {**_repo("g/app", "daiv/fix", 9), "mr_title": "Fix the lint", "mr_draft": True}
+    assert seen["repositoryRows"] == [main, _repo("g/mod", "main")]
 
 
 def test_without_the_chats_merge_request_the_main_row_keeps_the_servers():
@@ -734,3 +870,77 @@ def test_an_unchanged_repositories_card_is_left_alone():
     kept = [s["repositoriesKept"] for s in _run(steps, repositories=repositories)["seen"]]
 
     assert kept == [False, True, False]
+
+
+# ---------------------------------------------------------------------------
+# repository cards: CI per merge request, the summary
+# ---------------------------------------------------------------------------
+
+
+THREE_ROWS = {"rows": [_repo("g/app", "main", 42), _repo("g/mod", "main", 17), _repo("g/common", "main")]}
+
+
+def test_each_card_finds_its_own_merge_requests_ci():
+    main, extra = _ci("passing", iid=42), {**_ci("failing", iid=17), "repo_id": "g/mod"}
+    other_repo_same_iid = {**_ci("running", iid=42), "repo_id": "g/elsewhere"}
+    seen = _run([_with_ci([other_repo_same_iid, extra, main]), ["read", None]], repositories=THREE_ROWS)["seen"][0]
+
+    assert seen["ciFor"] == [main, extra, None]
+
+
+def test_the_main_card_finds_the_ci_of_the_chats_live_merge_request():
+    live = {"url": "https://gl/g/app/-/merge_requests/43", "id": 43, "title": "Fix", "draft": False}
+    item = _ci("passing", iid=43)
+    seen = _run([_with_ci([item]), ["read", None]], repositories=THREE_ROWS, thread={"merge_request": live})["seen"][0]
+
+    assert seen["ciFor"][0] == item
+
+
+def test_the_summary_counts_repositories_and_merge_requests():
+    seen = _read(repositories=THREE_ROWS)
+
+    assert seen["summary"] == {"main": "g/app", "more": 2, "mrs": 2, "mrIid": None, "tone": ""}
+
+
+def test_the_summary_names_a_single_merge_request():
+    repositories = {"rows": [_repo("g/app", "main", 42)]}
+
+    assert _read(repositories=repositories)["summary"] == {
+        "main": "g/app",
+        "more": 0,
+        "mrs": 1,
+        "mrIid": 42,
+        "tone": "",
+    }
+
+
+def test_a_page_without_repositories_has_an_empty_summary():
+    assert _read()["summary"] == {"main": "", "more": 0, "mrs": 0, "mrIid": None, "tone": ""}
+
+
+@pytest.mark.parametrize(
+    ("tones", "worst"),
+    [
+        (["clear", "fail"], "fail"),
+        (["attn", "found", "clear"], "found"),
+        (["clear", "attn"], "attn"),
+        (["clear"], "clear"),
+    ],
+)
+def test_the_summary_ci_is_the_worst_tone(tones, worst):
+    ci = [{**_ci(iid=index), "tone": tone} for index, tone in enumerate(tones)]
+    seen = _run([_with_ci(ci), ["read", None]], repositories=THREE_ROWS)["seen"][0]
+
+    assert seen["summary"]["tone"] == worst
+
+
+@pytest.mark.parametrize(
+    ("rows", "label"),
+    [
+        (THREE_ROWS["rows"], "3 · 2 MRs"),
+        ([_repo("g/app", "main", 42), _repo("g/mod", "main")], "2 · 1 MR"),
+        ([_repo("g/app", "main"), _repo("g/mod", "main")], "2"),
+    ],
+)
+def test_the_folded_repositories_section_counts_them_and_their_merge_requests(rows, label):
+    assert _read(repositories={"rows": rows})["repositoriesSummary"] == label

@@ -141,6 +141,7 @@
     leg_cancelled: "Cancelled",
     leg_lost: "Lost",
     delegations_total: ["{count} delegated", "{count} delegated"],
+    details_merge_requests: ["{count} MR", "{count} MRs"],
     delegations_running: ["{count} running", "{count} running"],
     delegations_queued: ["{count} queued", "{count} queued"],
     delegations_failed: ["{count} failed", "{count} failed"],
