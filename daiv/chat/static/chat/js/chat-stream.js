@@ -486,6 +486,10 @@
       this.lockedAgentLabel = detail?.label || "";
     },
 
+    get drawerDiffStats() {
+      return config.diffInDetails ? null : this.diffStats;
+    },
+
     // Effort word after the model name in the composer's label. Derived rather than a
     // second stored copy of ``_agentThinkingLevel``, which drifts the moment one of the
     // two assignments is missed; the seed covers the render before the picker dispatches.

@@ -186,7 +186,6 @@ def test_model_label_is_locked_for_an_existing_thread(member_client, member_user
     html = render_thread(member_client, session)
 
     assert "model-label--locked" in html
-    assert "Locked for this conversation" in html
     assert 'x-if="!thread"' in html
 
 
@@ -415,3 +414,18 @@ def test_the_meter_strings_reach_the_page_translated(member_client, member_user)
     assert "Contexto: {percent} de {window} usados" in html
     assert "Espaço de sobra" in html
     assert "Plenty of room" not in html
+
+
+def _options_sheet(html: str) -> str:
+    start = html.index("composer-sheet--options")
+    return html[start : html.index("</section>", html.index("composer-sheet__label", start)) + 10]
+
+
+@pytest.mark.django_db
+def test_the_options_sheet_has_no_locked_environment_on_a_session_page(member_client, member_user):
+    """The session sidebar shows the environment, so the sheet's Environment group is new-chat only."""
+    html = render_thread(member_client, create_session(member_user))
+    environment = _options_sheet(html)
+
+    assert "lockedEnvLabel" not in environment
+    assert 'x-show="!thread"' in environment
