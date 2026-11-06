@@ -270,9 +270,16 @@ async def test_the_payload_carries_what_a_turn_did_to_each_repository(member_use
     )
     after = await fetch()
 
-    main = {"repo_id": "group/project", "ref": "feature", "mr_url": "", "mr_iid": None}
-    lib = {"repo_id": "group/lib", "ref": "feature", "mr_url": "", "mr_iid": None}
-    published = {"repo_id": "group/lib", "ref": "daiv/lib", "mr_url": "https://example.com/lib/mr/3", "mr_iid": 3}
+    details = {"mr_title": "", "mr_draft": False, "diff_stats": None, "ran": True}
+    main = {"repo_id": "group/project", "ref": "feature", "mr_url": "", "mr_iid": None, **details}
+    lib = {"repo_id": "group/lib", "ref": "feature", "mr_url": "", "mr_iid": None, **details}
+    published = {
+        "repo_id": "group/lib",
+        "ref": "daiv/lib",
+        "mr_url": "https://example.com/lib/mr/3",
+        "mr_iid": 3,
+        **details,
+    }
     assert before["repositories"] == {"rows": [main, lib], "publish_errors": []}
     assert after["repositories"] == {
         "rows": [main, published],

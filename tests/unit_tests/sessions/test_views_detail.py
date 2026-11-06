@@ -7,7 +7,6 @@ from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import escapejs
@@ -173,6 +172,9 @@ def _multi_repo_session(user) -> Session:
         ref="feat/mod",
         merge_request_iid=3,
         merge_request_web_url="https://gl/g/mod/-/merge_requests/3",
+        merge_request_title="Mod change",
+        merge_request_draft=True,
+        diff_stats={"lines_added": 4, "lines_removed": 9, "files_changed": 1},
     )
     return session
 
@@ -181,10 +183,18 @@ def _multi_repo_session(user) -> Session:
 def test_detail_lists_every_repository_and_its_mr(member_client, member_user):
     resp = _get_detail(member_client, _multi_repo_session(member_user))
 
-    assert resp.context["header"]["repositories"]["rows"] == [
-        {"repo_id": "g/app", "ref": "main", "mr_url": "", "mr_iid": 7},
-        {"repo_id": "g/mod", "ref": "feat/mod", "mr_url": "https://gl/g/mod/-/merge_requests/3", "mr_iid": 3},
-    ]
+    rows = resp.context["header"]["repositories"]["rows"]
+    assert rows[1] == {
+        "repo_id": "g/mod",
+        "ref": "feat/mod",
+        "mr_url": "https://gl/g/mod/-/merge_requests/3",
+        "mr_iid": 3,
+        "mr_title": "Mod change",
+        "mr_draft": True,
+        "diff_stats": {"lines_added": 4, "lines_removed": 9, "files_changed": 1},
+        "ran": False,
+    }
+    assert rows[0]["repo_id"] == "g/app"
 
 
 @pytest.mark.django_db
@@ -220,24 +230,36 @@ def test_detail_hides_publish_errors_once_a_new_run_starts(member_client, member
 
 
 @pytest.mark.django_db
-def test_the_card_binds_exactly_the_fields_its_rows_and_errors_carry(member_client, member_user):
-    session = _multi_repo_session(member_user)
-    _create_run(session, publish_errors=[{"repo_id": "g/mod", "error": "push rejected"}])
-    header = _get_detail(member_client, session).context["header"]
+def test_single_repo_detail_has_one_repository_row(member_client, member_user):
+    resp = _get_detail(member_client, _create_session(user=member_user))
 
-    card = render_to_string("sessions/_session_repositories.html", {"header": header})
-
-    repositories = header["repositories"]
-    assert set(re.findall(r"(?<![\w/])repo\.(\w+)", card)) == set(repositories["rows"][0])
-    assert set(re.findall(r"(?<![\w/])item\.(\w+)", card)) == set(repositories["publish_errors"][0])
+    rows = resp.context["header"]["repositories"]["rows"]
+    assert [r["repo_id"] for r in rows] == ["group/project"]
 
 
 @pytest.mark.django_db
-def test_single_repo_detail_has_no_repositories_block(member_client, member_user):
-    resp = _get_detail(member_client, _create_session(user=member_user))
+def test_a_finished_run_marks_the_rows_as_ran(member_client, member_user):
+    session = _multi_repo_session(member_user)
+    _create_run(session, status=RunStatus.SUCCESSFUL)
 
-    assert resp.context["header"]["repositories"] is None
-    assert "session-repositories" not in resp.content.decode()
+    rows = _get_detail(member_client, session).context["header"]["repositories"]["rows"]
+
+    assert all(r["ran"] for r in rows)
+
+
+@pytest.mark.django_db
+def test_the_main_row_takes_the_checkpoints_diff_stats(member_client, member_user):
+    session = _create_session(user=member_user)
+    stats = {"lines_added": 12, "lines_removed": 3, "files_changed": 2}
+    hydrated = AsyncMock(return_value=HydratedThread([], False, None, stats, None))
+
+    with (
+        patch("sessions.page_state.ahydrate_thread", hydrated),
+        patch("sessions.page_state.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+    assert resp.context["header"]["repositories"]["rows"][0]["diff_stats"] == stats
 
 
 @pytest.mark.django_db

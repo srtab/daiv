@@ -114,7 +114,7 @@ async def aload_session_state(session: Session, user: User, *, always_look_up_me
             session, runs, retry=retry, user=user, delegations=delegations, merge_request=merge_request
         )
         header["up_next"] = up_next_payload(session, runs, user, activity)
-        header["repositories"] = _repositories(session, runs, extra_repositories)
+        header["repositories"] = _repositories(session, runs, extra_repositories, main_diff_stats=hydrated.diff_stats)
         return turns, header, can_act, live_run_for(activity.live, session, user)
 
     turns, header, can_act, live_run = await sync_to_async(finish)()
@@ -136,19 +136,38 @@ async def aload_session_state(session: Session, user: User, *, always_look_up_me
     )
 
 
-def _repositories(session: Session, runs: list[Run], extra_repositories: list[SessionRepository]) -> dict | None:
-    """A multi-repository session's ``rows``, the main repository first, each with its branch and merge request, and
-    the ``publish_errors`` of its latest run once it finished; ``None`` for a single-repository session. The main row
-    holds what the database knows; the page lays the chat's live branch and merge request over it."""
-    if not extra_repositories:
-        return None
+def _repositories(
+    session: Session, runs: list[Run], extra_repositories: list[SessionRepository], *, main_diff_stats: dict | None
+) -> dict:
+    """The session's ``rows``, the main repository first, each with its branch, merge request, change size and
+    whether the session ran, and the ``publish_errors`` of its latest run once it finished. The main row holds what
+    the database and checkpoint know; the page lays the chat's live branch and merge request over it."""
     run_url = next((r.merge_request_web_url for r in reversed(runs) if r.merge_request_web_url), "")
     latest = runs[-1] if runs else None
+    ran = any(r.status in RunStatus.terminal() for r in runs)
     return {
         "rows": [
-            {"repo_id": session.repo_id, "ref": session.ref, "mr_url": run_url, "mr_iid": session.merge_request_iid},
+            {
+                "repo_id": session.repo_id,
+                "ref": session.ref,
+                "mr_url": run_url,
+                "mr_iid": session.merge_request_iid,
+                "mr_title": "",
+                "mr_draft": False,
+                "diff_stats": main_diff_stats,
+                "ran": ran,
+            },
             *(
-                {"repo_id": r.repo_id, "ref": r.ref, "mr_url": r.merge_request_web_url, "mr_iid": r.merge_request_iid}
+                {
+                    "repo_id": r.repo_id,
+                    "ref": r.ref,
+                    "mr_url": r.merge_request_web_url,
+                    "mr_iid": r.merge_request_iid,
+                    "mr_title": r.merge_request_title,
+                    "mr_draft": r.merge_request_draft,
+                    "diff_stats": r.diff_stats,
+                    "ran": ran,
+                }
                 for r in extra_repositories
             ),
         ],
