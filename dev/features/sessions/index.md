@@ -17,6 +17,8 @@ A **Session** groups all runs that share the same agent thread:
 - **Session** — the thread. Has a repository, ref, origin (how it was first triggered), title, and an optional link to an issue or merge request, schedule, or user.
 - **Run** — one agent execution inside that session. A session can have many runs: retries, follow-up chat turns, and API submissions that continue the thread all add new runs to the same session.
 
+A session can also span several repositories: a [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/#multi-repository-sessions) or MCP request with `shared_session` opens one session over up to five repositories, with the first as the main one. The agent edits them together, each changed repository gets its own merge request, and the session page lists every repository and merge request. Only users who can read all of them (and admins) can see it.
+
 A chat conversation is a session where the origin is `Chat`; each turn you send creates a new Run. A webhook event (issue or MR) creates a session tied to the issue or merge request; the single agent invocation is its first Run.
 
 ______________________________________________________________________
@@ -101,9 +103,8 @@ ______________________________________________________________________
 
 Click any session to see its full detail page, which includes:
 
-- **Origin and status badges**
-- **Context** — repository, branch/ref, linked schedule or issue/MR (as a clickable link) or, for a delegated run, the session that delegated it, the agent model and thinking level, and the sandbox environment. Admins viewing another user's session also see the owning user.
-- **Delegated jobs** — on a session that delegated work, each job's current state, in the transcript, the top bar and the details panel (see [Orchestration](https://srtab.github.io/daiv/dev/features/orchestration/#seeing-the-batch)).
+- **Origin and status** — the session's title and status in the header, and who or what started it in the sidebar's **Info** tab.
+- **Sidebar** — repositories and merge requests, CI, the environment, usage and outputs (see [The session page](#the-session-page)).
 - **Transcript** — the full conversation transcript streams live during active runs, whatever started them (chat, job, webhook or schedule), and is replayed on return visits and mid-run refreshes — reopening the session rejoins the live stream and replays any events it missed (a fresh page load from the start of the run; an automatic reconnect only the events since it dropped).
 - **Up next** — at the end of the conversation, what the session will do next, in order: each run still to start, as whom, with the requests that start it, then the updates the next run will be told (see [The session inbox](#the-session-inbox)). A CI failure or finished delegated batch DAIV won't act on says why, such as *not fixing: out of attempts*; a request DAIV couldn't handle shows in the conversation as a *not handled* line with the reason. A run DAIV started itself opens with the message it received, and **Show request** expands the full prompt the run got.
 
@@ -153,18 +154,27 @@ ______________________________________________________________________
 
 Chat is the interactive dashboard workspace where you converse with the agent in real time. Go to **Dashboard > Sessions** and click **New session** (`/dashboard/sessions/new/`) to open the empty workspace.
 
-Before the composer appears, pick a **repository** in the hero picker. Each session is bound to a repository and a ref:
+Before your first message, set up the **Workspace** card in the hero: the repositories the session works on, and its sandbox environment. A session is bound to its repositories and a ref for each:
 
 - Selecting a repository defaults the ref to its **default branch**; you can switch to any other branch.
 - If the chosen ref already has an open merge/pull request, the workspace surfaces it.
 - The ref is the branch the work is based on: when the agent opens a new merge/pull request, that ref is its **target branch**. If it has been deleted from the remote by the time the agent publishes, the request targets the default branch instead.
 - The new merge/pull request is **assigned to you**, when your DAIV account is linked to the git platform through OAuth login.
 
-Once a repository is selected, the prompt box appears and you can type your first message. The session gets its own URL (`/dashboard/sessions/<thread_id>/`) so you can bookmark it or share it with teammates who have access.
+Send stays disabled until a repository is selected; then type your first message. The session gets its own URL (`/dashboard/sessions/<thread_id>/`) so you can bookmark it or share it with teammates who have access.
 
-A session targets one repository and ref
+A session's repositories and refs are fixed
 
-The repository and ref are fixed for the life of the session. To work against a different repository or branch, start a new session.
+The repositories and their refs are fixed for the life of the session. To work against a different repository or branch, start a new session.
+
+### Starting a chat over several repositories
+
+The Workspace card takes up to 5 repositories, for work that spans them (a backend change and the client that consumes it). Use **Add repository** to add one, and the branch button on a row to pick its ref. Each repository can be listed once, on any branch.
+
+- The first repository is the **main** one, tagged **Main** once there is more than one. Its `.daiv.yml`, sandbox environment, skills and memory drive the session. Use **Make main** on another row to promote it; removing the main row promotes the next one.
+- The **Environment** field shows `Auto · <environment>` for the current main repository while it is on **Auto**.
+- The list is fixed after your first message: later turns in the session reuse it, as in the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/#multi-repository-sessions).
+- Every repository the agent changes gets its own merge/pull request, as described under [Merge requests](https://srtab.github.io/daiv/dev/features/jobs-api/#merge-requests).
 
 As the agent works, the workspace streams updates live:
 
@@ -182,19 +192,42 @@ Stop is offered to the session's owner, on chat runs and on the runs a job or th
 
 ### Model and sandbox environment
 
-Each session pins three choices, set in the hero before your first message and then locked for the rest of the session:
+Each session pins three choices, set before your first message (the environment in the Workspace card) and then locked for the rest of the session:
 
-| Choice                  | What it controls                                                                                                                     | Default                               |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------- |
-| **Agent model**         | Which configured LLM the agent runs on                                                                                               | The admin-configured system default   |
-| **Thinking level**      | Reasoning effort: Minimal, Low, Medium, High, or Extra high                                                                          | The admin-configured default (if any) |
-| **Sandbox environment** | The named [Sandbox Environment](https://srtab.github.io/daiv/dev/features/sandbox-environments/index.md) the agent's commands run in | **Auto** — resolved per repository    |
+| Choice                  | What it controls                                                                                                                     | Default                                     |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------- |
+| **Agent model**         | Which configured LLM the agent runs on                                                                                               | The admin-configured system default         |
+| **Thinking level**      | Reasoning effort: Minimal, Low, Medium, High, or Extra high                                                                          | The admin-configured default (if any)       |
+| **Sandbox environment** | The named [Sandbox Environment](https://srtab.github.io/daiv/dev/features/sandbox-environments/index.md) the agent's commands run in | **Auto** — resolved for the main repository |
 
 These selections are fixed at session creation. To use a different model, effort level, or sandbox environment, start a new session.
 
+### The session page
+
+The header carries only the session's title (rename it from the pencil when you can run agents on the repository), its status and a **⋯** menu with **Copy session link**, the linked issue and Archive. Everything about the work itself sits in the sidebar beside the transcript.
+
+From 1100px wide the sidebar is always open. Below that it is a sheet, which a summary button in the header opens: the main repository, `+N` for the others, the merge request (`!iid`, or a count) and a CI dot. The sheet opens on the Overview tab, scrolled to the repositories with that section unfolded.
+
+The sidebar has two tabs, and remembers the tab and which sections you folded in this browser:
+
+- **Overview** — foldable sections, each with a one-line summary beside its name while folded:
+  - **Repositories** (**Repository** for a lone one) — a card per repository.
+  - **Environment** — the sandbox and the model.
+  - **Context** and **Spend** — how full the model's context window is, and what the session has cost.
+  - **Outputs** — the artifacts the session published, once there are any.
+- **Info** — status, who started the session, its owner, the number of runs, when it was created and its **Session ID** (with a copy button), then, on a session that delegated work, the **Delegated jobs** of each batch (see [Orchestration](https://srtab.github.io/daiv/dev/features/orchestration/#seeing-the-batch)).
+
+A repository card shows the repository, tagged **Main** when the session spans several; the branch; the merge request with its title and a **Draft** badge; the merge request's CI status, with **What DAIV found** when a run explained a failure; and the lines added and removed with the number of files changed. A repository where the agent ran but changed nothing shows as a quiet card marked *no changes*. A repository DAIV could not publish shows the reason on its card.
+
+A card's **⋯** menu, offered once the repository has a merge request, holds:
+
+- **Open on GitLab** (or **GitHub**) and **Copy link**
+- **Other sessions on !iid**, on the main repository's card: the [sessions list](#filtering) filtered to that merge request
+- **Fix CI failures**, for the people who can run agents on the repository: turns the [CI watch](https://srtab.github.io/daiv/dev/features/pipeline-watch/#the-session-page) on or off for that merge request
+
 ### Merge request awareness
 
-When the agent commits changes, DAIV creates or updates a merge/pull request on the session's ref. The workspace shows an MR/PR pill that links to it and flags drafts. A pre-existing open request for the ref is detected and shown even before the agent runs.
+When the agent commits changes, DAIV creates or updates a merge/pull request on the session's ref. The session's repository card links to it and flags drafts. A pre-existing open request for the ref is detected and shown even before the agent runs.
 
 The request itself links back to the session that produced it — see [Linking back to sessions](#linking-back-to-sessions), which applies to every origin, not just chat.
 

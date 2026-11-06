@@ -1803,6 +1803,7 @@
 <p>Edit the <code>%QUEUE_REPO_MAP</code> hash at the top of the pasted code so each queue you care about maps to the correct DAIV <code>repo_id</code> (e.g. <code>group/project</code>).</p>
 </li>
 </ol>
+<p>A queue can map to several repositories. To have one agent session work across them, send them as one <code>repos</code> list with <code>"shared_session": true</code>: the first entry is the main repository and each changed repository gets its own merge request (see <a href="../../features/jobs-api/#multi-repository-sessions">Multi-repository sessions</a>). Without <code>shared_session</code>, each repository runs as a separate job.</p>
 <h3 id="3-attach-the-scrip-to-queues">3. Attach the Scrip to queues</h3>
 <p>From the Scrip's <strong>Applies To</strong> tab in the RT admin UI, select the queues you want triaged. <strong>The "Applies To" list and the keys of <code>%QUEUE_REPO_MAP</code> must stay in lockstep</strong> — any queue where the Scrip runs but no repo is mapped will log a warning and skip (no ticket change, no job).</p>
 <p>Start with a single pilot queue. Expand only after the pilot looks healthy.</p>
