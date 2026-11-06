@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING
 from django.db import transaction
 
 from asgiref.sync import sync_to_async
-from sessions.models import Session, SessionOrigin, SessionRepository
+from sessions.models import Session, SessionOrigin
+from sessions.multi_repo import create_extra_repos
 from sessions.tasks import generate_title_task
 from sessions.titling import heuristic_title
 
@@ -95,8 +96,8 @@ class ChatSessionService:
         existing-session case and reject a client that tries to change the override
         after the first turn — see ``chat.api.views.create_chat_completion``.
 
-        ``extra_repos`` are the session's repositories after the main one; they are stored only when
-        the session is created, in the same transaction.
+        ``extra_repos`` are the session's repositories after the main one, each with its resolved
+        environment; they are stored only when the session is created, in the same transaction.
         """
         first_message = _extract_first_user_message(input_data)
         defaults = {
@@ -116,16 +117,7 @@ class ChatSessionService:
             with transaction.atomic():
                 session, created = Session.objects.get_or_create(thread_id=thread_id, defaults=defaults)
                 if created:
-                    SessionRepository.objects.bulk_create([
-                        SessionRepository(
-                            session=session,
-                            position=position,
-                            repo_id=target.repo_id,
-                            ref=target.ref,
-                            sandbox_environment=sandbox_environment,
-                        )
-                        for position, target in enumerate(extra_repos, start=1)
-                    ])
+                    create_extra_repos(session, extra_repos)
             return session, created
 
         session, created = await sync_to_async(_create)()

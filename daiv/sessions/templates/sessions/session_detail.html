@@ -185,7 +185,7 @@
       <div class="chat-transcript">
         {% if not session %}
         {# Empty state, centred above the composer. ``x-show``, not ``x-if``: HTMX wires the card's pickers only at page load. #}
-        <div class="chat-hero" x-show="!thread && turns.length === 0">
+        <div class="chat-hero" x-show="(!thread && turns.length === 0) || firstTurnRefused">
           <span class="chat-hero__eyebrow">{% translate "New session" %}</span>
           <h1 class="chat-hero__title">{% translate "What are we building today?" %}</h1>
           {% include "chat/_workspace_card.html" %}

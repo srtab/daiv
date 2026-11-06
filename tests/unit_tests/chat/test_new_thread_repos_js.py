@@ -128,7 +128,7 @@ Object.assign(chat, {
 });
 const sent = [];
 sandbox.fetch = async (url, init) => {
-  sent.push(JSON.parse(init.body).forwardedProps);
+  sent.push({ repoId: init.headers["X-Repo-ID"], ...JSON.parse(init.body).forwardedProps });
   const headers = { get: () => "application/json" };
   return { ok: false, status: 404, json: async () => ({}), text: async () => "x", headers };
 };
@@ -136,7 +136,10 @@ chat.applyRepoSelection(payload.repos);
 await chat.submit("hi").catch(() => {});
 chat.streaming = false;
 chat.resuming = false;
+const refused = chat.firstTurnRefused;
+if (payload.retryRepos) chat.applyRepoSelection(payload.retryRepos);
 await chat.submit("hi again").catch(() => {});
+sent.push({ refused });
 process.stdout.write(JSON.stringify(sent));
 """
 
@@ -162,7 +165,16 @@ GLOBALS = "history: { replaceState: () => {} }, setTimeout,"
 def test_a_retry_after_a_failed_first_turn_still_forwards_the_repositories():
     sent = run_chat_stream(RETRY_BODY, {"repos": TWO}, extra_globals=GLOBALS)
 
-    assert [props["repos"] for props in sent] == [TWO, TWO]
+    assert [props["repos"] for props in sent[:2]] == [TWO, TWO]
+
+
+def test_a_retry_after_a_refused_first_turn_sends_the_edited_repositories():
+    edited = [{"repo_id": "g/b", "ref": "dev"}, {"repo_id": "g/c", "ref": ""}]
+
+    sent = run_chat_stream(RETRY_BODY, {"repos": TWO, "retryRepos": edited}, extra_globals=GLOBALS)
+
+    assert sent[2] == {"refused": True}
+    assert (sent[1]["repoId"], sent[1]["repos"]) == ("g/b", edited)
 
 
 def test_a_message_queued_while_the_first_request_is_in_flight_forwards_the_repositories():

@@ -173,7 +173,7 @@ def test_the_workspace_card_is_in_the_page_at_load_not_inserted_by_alpine(member
 
     assert parser.tags is not None
     assert "template" not in parser.tags
-    assert 'class="chat-hero" x-show="!thread && turns.length === 0"' in html
+    assert 'class="chat-hero" x-show="(!thread && turns.length === 0) || firstTurnRefused"' in html
 
 
 @pytest.mark.django_db

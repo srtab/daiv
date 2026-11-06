@@ -1023,6 +1023,52 @@ async def test_repos_on_a_continuation_are_ignored(
     await user.adelete()
 
 
+@pytest.mark.django_db(transaction=True)
+async def test_auto_resolves_each_extra_repos_own_environment(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    from sandbox_envs.models import SandboxEnvironment, Visibility
+    from sessions.models import SessionRepository
+
+    _, raw, user = authed
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
+    main_env = await SandboxEnvironment.objects.acreate(
+        scope=Visibility.USER, user=user, name="main", base_image="python:3.14", repo_ids=["a/b"]
+    )
+    theme_env = await SandboxEnvironment.objects.acreate(
+        scope=Visibility.USER, user=user, name="theme", base_image="node:24", repo_ids=["a/theme"]
+    )
+
+    response = await _post_first_turn(client, raw, REPOS)
+
+    assert response.status_code == 200
+    await asyncio.gather(*captured_runs)
+    session = await Session.objects.aget(thread_id="t-new")
+    rows = [
+        (r.repo_id, r.sandbox_environment_id)
+        async for r in SessionRepository.objects.filter(session_id="t-new").order_by("position")
+    ]
+    assert session.sandbox_environment_id == main_env.id
+    assert rows == [("a/theme", theme_env.id), ("a/common", None)]
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_extra_repo_ids_are_stripped(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    from sessions.models import SessionRepository
+
+    _, raw, user = authed
+
+    response = await _post_first_turn(client, raw, [REPOS[0], {"repo_id": " a/theme ", "ref": "develop"}])
+
+    assert response.status_code == 200
+    await asyncio.gather(*captured_runs)
+    assert [r.repo_id async for r in SessionRepository.objects.filter(session_id="t-new")] == ["a/theme"]
+    await user.adelete()
+
+
 @pytest.fixture
 async def ondemand_global_mcp():
     """A non-default (on-demand) global MCP server named ``b`` — checking it produces

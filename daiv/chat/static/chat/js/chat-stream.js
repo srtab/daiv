@@ -394,6 +394,8 @@
     get draftRef() {
       return this.draftRepos[0]?.ref || "";
     },
+    // A new chat's first turn was refused: the Workspace card shows again and the next send re-reads it.
+    firstTurnRefused: false,
     streaming: false,
     resuming: !!config.activeRunId,
     // Whether the session has a run in flight, streamed here or not; turns fetches and own runs keep it current.
@@ -480,7 +482,7 @@
       const main = this.draftRepoId;
       if (main && !previousMain) {
         const active = document.activeElement;
-        if (!active?.closest?.('[data-testid="workspace-card"]')) {
+        if (!active?.closest?.(".workspace-card")) {
           this.$nextTick(() => this.$refs.prompt?.focus());
         }
       }
@@ -1542,7 +1544,7 @@
 
     canSend(text = this.draftMessage) {
       if (!text.trim() || this.archived || this.queueing) return false;
-      if (this.thread) return true;
+      if (this.thread && !this.firstTurnRefused) return true;
       return !!(this.draftRepoId && this.draftRef);
     },
 
@@ -1574,6 +1576,9 @@
         const threadId = uuid();
         this.thread = { thread_id: threadId, repo_id: this.draftRepoId, ref: this.draftRef };
         history.replaceState(null, "", `/dashboard/sessions/${threadId}/`);
+      } else if (this.firstTurnRefused) {
+        this.thread = { ...this.thread, repo_id: this.draftRepoId, ref: this.draftRef };
+        this.firstTurnRefused = false;
       }
 
       this.turns.push({
@@ -1619,6 +1624,7 @@
 
         if (!resp.ok) {
           this._pushRunStatus("failed", await formatHttpError(resp));
+          if (!config.thread) this.firstTurnRefused = true;
           return;
         }
         // This page has no session top bar, details or Up next; the session page, already at this address, has them

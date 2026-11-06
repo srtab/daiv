@@ -1,6 +1,7 @@
 import logging
 import time
 import uuid
+from typing import Annotated
 
 from django.http import Http404, HttpRequest
 
@@ -11,7 +12,8 @@ from mcp_connectors.selection import build_selection_pool, diff_selection, parse
 from ninja import Router, Schema
 from ninja.errors import HttpError
 from ninja.security import django_auth
-from sandbox_envs.selection import resolve_env_for_run
+from pydantic import BaseModel, Field, StringConstraints, TypeAdapter, ValidationError
+from sandbox_envs.selection import aresolve_repo_envs, resolve_env_for_run
 from sessions.admission import AdmissionError, RepoAccessError, aassert_repo_access, aresolve_environment
 from sessions.executor.lock import SessionLock, session_activity, stale_cutoff
 from sessions.inbox import kinds
@@ -226,8 +228,9 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         )
 
     targets = [RepoTarget(repo_id, ref, None)]
-    if not await Session.objects.filter(pk=thread_id).aexists():
-        targets = parse_forwarded_repos(forwarded.get("repos"), repo_id=repo_id, ref=ref)
+    raw_repos = forwarded.get("repos")
+    if raw_repos is not None and not await Session.objects.filter(pk=thread_id).aexists():
+        targets = parse_forwarded_repos(raw_repos, repo_id=repo_id, ref=ref)
         if len(targets) > 1:
             try:
                 validate_shared_repos(targets, continuation=False)
@@ -237,6 +240,9 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
                 await aassert_repo_access(user, [t.repo_id for t in targets])
             except RepoAccessError as err:
                 raise Http404(str(err)) from err
+            targets = await aresolve_repo_envs(
+                user=user, repos=targets, explicit_env_id=None if auto_resolved or env_obj is None else str(env_obj.id)
+            )
 
     session, created = await ChatSessionService.get_or_create_for_user(
         user=user,
@@ -390,20 +396,21 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     return {"run_id": run_id, "thread_id": thread_id}
 
 
+class ForwardedRepo(BaseModel):
+    repo_id: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    ref: str = ""
+
+
+_FORWARDED_REPOS = TypeAdapter(Annotated[list[ForwardedRepo], Field(min_length=1)])
+
+
 def parse_forwarded_repos(raw: object, *, repo_id: str, ref: str) -> list[RepoTarget]:
-    """The repositories a first turn opens its session over, main one first; absent means the header's alone."""
-    if raw is None:
-        return [RepoTarget(repo_id, ref, None)]
-    entries_ok = isinstance(raw, list) and all(
-        isinstance(entry, dict)
-        and isinstance(entry.get("repo_id"), str)
-        and entry["repo_id"].strip()
-        and isinstance(entry.get("ref", ""), str)
-        for entry in raw
-    )
-    if not entries_ok or not raw:
-        raise HttpError(400, "repos must be a list of {repo_id, ref} objects")
-    targets = [RepoTarget(entry["repo_id"], entry.get("ref", ""), None) for entry in raw]
+    """The repositories a first turn opens its session over, main one first."""
+    try:
+        entries = _FORWARDED_REPOS.validate_python(raw)
+    except ValidationError as err:
+        raise HttpError(400, "repos must be a list of {repo_id, ref} objects") from err
+    targets = [RepoTarget(entry.repo_id, entry.ref, None) for entry in entries]
     if (targets[0].repo_id, targets[0].ref) != (repo_id, ref):
         raise HttpError(400, "repos must start with the X-Repo-ID repository and ref")
     return targets
