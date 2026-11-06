@@ -472,11 +472,8 @@
     // user's in-progress selections and typed text before it is sent.
     questionDrafts: {},
 
-    // The new-chat repo picker is its own Alpine root; it dispatches the
-    // `daiv:chat-repo-changed` window event whenever its single-repo selection
-    // changes. The chat root listens declaratively (see chat_detail.html) and
-    // calls `applyRepoSelection()` so the proxy assignment goes through Alpine's
-    // reactivity (an `addEventListener` from inside `init()` does not).
+    // The picker, nested in this root, dispatches `daiv:chat-repo-changed`; the root listens declaratively
+    // (session_detail.html) so the assignment goes through Alpine's reactivity, which `init()` listeners miss.
     applyRepoSelection(repos) {
       const previousMain = this.draftRepoId;
       this.draftRepos = (repos || []).map((r) => ({ repo_id: r.repo_id, ref: r.ref || "" }));
@@ -1573,7 +1570,6 @@
         || this.$root?.querySelector?.('input[name="agent_thinking_level"]')?.value
         || "";
 
-      const firstTurnRepos = !this.thread && this.draftRepos.length > 1 ? this.draftRepos.map((r) => ({ ...r })) : null;
       if (!this.thread) {
         const threadId = uuid();
         this.thread = { thread_id: threadId, repo_id: this.draftRepoId, ref: this.draftRef };
@@ -1607,7 +1603,6 @@
       const forwardedProps = {};
       if (agentModel) forwardedProps.agent_model = agentModel;
       if (agentThinkingLevel) forwardedProps.agent_thinking_level = agentThinkingLevel;
-      if (firstTurnRepos) forwardedProps.repos = firstTurnRepos;
 
       const runId = uuid();
 
@@ -1672,6 +1667,11 @@
       // the server to keep the thread's stored overrides. Sending an untouched selection
       // would be harmless but would re-diff it against a pool the admin may have changed.
       if (this._mcpTouched) forwardedProps = { ...forwardedProps, mcp_servers: [...this.mcpSelected] };
+      // Every request of a page opened as a new chat carries the list, so a retry or a message queued
+      // mid-flight can't be the one that creates a single-repo session; the server ignores it afterwards.
+      if (!config.thread && this.draftRepos.length > 1) {
+        forwardedProps = { ...forwardedProps, repos: this.draftRepos.map((r) => ({ ...r })) };
+      }
       const body = {
         threadId: this.thread.thread_id,
         runId,

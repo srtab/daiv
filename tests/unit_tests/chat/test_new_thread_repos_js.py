@@ -118,3 +118,61 @@ def test_focus_moves_to_the_prompt_only_when_it_does_not_leave_the_card(in_card,
     out = run_chat_stream(FOCUS_BODY, {"inCard": in_card})
 
     assert out == {"afterFirst": expected, "total": expected}
+
+
+RETRY_BODY = """
+const chat = registry.chat({ endpoint: "/api/chat", csrfToken: "t" });
+Object.assign(chat, {
+  scrollToBottom: () => {}, autosize: () => {}, $nextTick: () => {}, _pushRunStatus: () => {},
+  _finishTurn: () => { chat.streaming = false; chat._activeRun = null; },
+});
+const sent = [];
+sandbox.fetch = async (url, init) => {
+  sent.push(JSON.parse(init.body).forwardedProps);
+  const headers = { get: () => "application/json" };
+  return { ok: false, status: 404, json: async () => ({}), text: async () => "x", headers };
+};
+chat.applyRepoSelection(payload.repos);
+await chat.submit("hi").catch(() => {});
+chat.streaming = false;
+chat.resuming = false;
+await chat.submit("hi again").catch(() => {});
+process.stdout.write(JSON.stringify(sent));
+"""
+
+INFLIGHT_BODY = """
+const chat = registry.chat({ endpoint: "/api/chat", csrfToken: "t" });
+Object.assign(chat, { scrollToBottom: () => {}, autosize: () => {}, $nextTick: () => {} });
+const sent = [];
+sandbox.fetch = (url, init) => {
+  sent.push(JSON.parse(init.body).forwardedProps);
+  return new Promise(() => {});
+};
+chat.applyRepoSelection(payload.repos);
+chat.submit("first");
+await new Promise((r) => setTimeout(r, 0));
+chat.submit("second");
+await new Promise((r) => setTimeout(r, 0));
+process.stdout.write(JSON.stringify(sent));
+"""
+
+GLOBALS = "history: { replaceState: () => {} }, setTimeout,"
+
+
+def test_a_retry_after_a_failed_first_turn_still_forwards_the_repositories():
+    sent = run_chat_stream(RETRY_BODY, {"repos": TWO}, extra_globals=GLOBALS)
+
+    assert [props["repos"] for props in sent] == [TWO, TWO]
+
+
+def test_a_message_queued_while_the_first_request_is_in_flight_forwards_the_repositories():
+    sent = run_chat_stream(INFLIGHT_BODY, {"repos": TWO}, extra_globals=GLOBALS)
+
+    assert sent[1]["queue"] is True
+    assert sent[1]["repos"] == TWO
+
+
+def test_a_queued_message_of_a_single_repository_chat_forwards_no_list():
+    sent = run_chat_stream(INFLIGHT_BODY, {"repos": TWO[:1]}, extra_globals=GLOBALS)
+
+    assert "repos" not in sent[1]
