@@ -314,9 +314,36 @@ class GitManager:
         await self._git("commit", "-m", message)
 
     async def stash_all(self, message: str) -> bool:
-        """Stash tracked and untracked changes. ``False`` when there was nothing to stash."""
-        result = await self._git("stash", "push", "--include-untracked", "-m", message)
+        """Stash tracked and untracked changes. ``False`` when there was nothing to stash.
+
+        A push that fails may already have stored its entry and taken part of the changes out of the tree, so the tree
+        is put back from that entry before the failure is raised; ``StashRestoreError`` when that can't be done or
+        can't be ruled out.
+        """
+        label = f"{message} [{uuid4().hex[:12]}]"
+        try:
+            result = await self._git_unless_busy("stash", "push", "--include-untracked", "-m", label)
+        except GIT_ERRORS as exc:
+            if not self._never_ran(exc):
+                await self._put_back_failed_stash(label)
+            raise
         return "No local changes to save" not in result.output
+
+    async def _put_back_failed_stash(self, label: str) -> None:
+        """Restore the tree from the entry a failed ``stash push`` stored under ``label``, if it stored one."""
+        try:
+            newest = await self._git("stash", "list", "--max-count=1", "--format=%gs")
+        except GIT_ERRORS as exc:
+            raise StashRestoreError from exc
+        if label in newest.output:
+            await self.restore_stash()
+
+    @staticmethod
+    def _never_ran(exc: Exception) -> bool:
+        """Whether the sandbox turned a git command away before running it: busy (HTTP 409), or never reached."""
+        if isinstance(exc, httpx.HTTPStatusError):
+            return exc.response.status_code == _SANDBOX_BUSY
+        return isinstance(exc, httpx.ConnectError | httpx.ConnectTimeout)
 
     async def save_tree(self, message: str) -> bool:
         """Copy the tracked and untracked changes into a stash entry and leave them in the tree, for ``restore_stash``
@@ -348,18 +375,16 @@ class GitManager:
         except GIT_ERRORS as exc:
             raise StashRestoreError from exc
 
-    async def _git_unless_busy(self, *args: str) -> None:
+    async def _git_unless_busy(self, *args: str) -> GitResult:
         for attempt in range(1, _BUSY_ATTEMPTS):
             try:
-                await self._git(*args)
+                return await self._git(*args)
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code != _SANDBOX_BUSY:
                     raise
-            else:
-                return
             logger.warning("Sandbox busy for git %s; retrying (attempt %d)", " ".join(args), attempt)
             await asyncio.sleep(_BUSY_BACKOFF_SECONDS * attempt)
-        await self._git(*args)
+        return await self._git(*args)
 
     async def head_sha(self) -> str:
         """The full sha of the current ``HEAD``.

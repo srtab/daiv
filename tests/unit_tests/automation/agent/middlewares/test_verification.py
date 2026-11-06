@@ -415,12 +415,15 @@ async def test_failed_reminder_call_keeps_the_round_for_the_retry():
     assert repo.stashes == 1
 
 
-async def test_checks_unavailable_records_not_verified():
+async def test_checks_unavailable_records_not_verified(caplog):
     repo = FakeRepo(error=httpx.ConnectError("All connection attempts failed: http://sandbox:8000/session/s-1/"))
     reply = _final()
     handler, seen = _scripted(reply)
 
-    result = await _middleware(repo).awrap_model_call(_request(), handler)
+    with caplog.at_level("ERROR", logger="daiv.agent"):
+        result = await _middleware(repo).awrap_model_call(_request(), handler)
+
+    assert [record.levelname for record in caplog.records] == ["ERROR"]
 
     outcome = _outcome(result)
     assert outcome["status"] == "not_verified"
@@ -438,13 +441,15 @@ _READ_ERRORS = [
 
 @pytest.mark.parametrize("method", ["get_changed_files", "pending_merge", "get_diff"])
 @pytest.mark.parametrize("error", _READ_ERRORS, ids=type)
-async def test_unreadable_tree_records_not_verified_and_the_run_goes_on(method, error):
+async def test_unreadable_tree_records_not_verified_and_the_run_goes_on(method, error, caplog):
     repo = FakeRepo(changed=[] if method == "pending_merge" else ["a.py"], read_errors={method: error})
     middleware = _middleware(repo)
     handler, _ = _scripted(_final(), _final())
 
-    outcome = _outcome(await middleware.awrap_model_call(_request(), handler))
+    with caplog.at_level("ERROR", logger="daiv.agent"):
+        outcome = _outcome(await middleware.awrap_model_call(_request(), handler))
 
+    assert [record.levelname for record in caplog.records] == ["ERROR"]
     assert outcome["status"] == "not_verified"
     assert outcome["reason"] == "the repository could not be read to run the checks"
     assert repo.check_runs == 0

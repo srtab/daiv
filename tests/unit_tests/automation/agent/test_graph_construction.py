@@ -404,7 +404,7 @@ async def test_check_output_masks_the_sandbox_env_values():
     built = await _construct(bash=True, auto_commit_changes=True, sandbox=sandbox)
 
     [verification] = _verification(built.middleware)
-    assert verification._redact == ("abcd1234efgh",)
+    assert verification._checks._mask("TOKEN=abcd1234efgh DEBUG=1") == "TOKEN=****** DEBUG=1"
 
 
 async def test_the_git_middleware_rechecks_through_the_verification_middleware():

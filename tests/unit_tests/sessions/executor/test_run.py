@@ -534,6 +534,23 @@ async def test_the_claim_marks_the_commit_examined_only_when_the_checks_still_fa
     assert stack.claimed[0]["examined"] is expected
 
 
+@pytest.mark.parametrize(("status", "expected"), [("pushed", False), ("opened", True)])
+async def test_a_streamed_run_marks_the_commit_examined_only_when_its_new_merge_request_carries_the_report(
+    status, expected
+):
+    async def _events(run):
+        await RunnableLambda(_dispatch_publish_result).ainvoke(publish_result_payload(status=status), config=run.config)
+        yield "done"
+
+    state = {"merge_request": MR, "published": True, "verification": _verification("failed")}
+    persist, measure, record = _unrecorded()
+
+    with agent_stack(_agent(state=state)) as stack, persist, measure, record:
+        await _drain(make_spec(arm_watch=True, run_id="run-1"), _events)
+
+    assert stack.claimed[0]["examined"] is expected
+
+
 async def test_the_reply_carries_the_verification_report_when_no_description_did():
     with agent_stack(_agent(state={"verification": _verification("failed")})):
         outcome = await execute_run(make_spec())

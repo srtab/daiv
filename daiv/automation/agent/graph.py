@@ -59,7 +59,7 @@ from automation.agent.subagents import (
     load_builtin_code_review_detectors,
     load_custom_subagents,
 )
-from automation.agent.verification.checks import redacted_values
+from automation.agent.verification.checks import CheckRunner
 from codebase.base import GitPlatform
 from core.constants import BOT_NAME
 
@@ -282,7 +282,7 @@ async def create_daiv_agent(
             ),
             step_budget=step_budget,
             loop_breaker=loop_breaker,
-            redact=redacted_values(ctx.sandbox.env_vars) if ctx.sandbox else (),
+            redact=CheckRunner.redacted_values(ctx.sandbox.env_vars) if ctx.sandbox else (),
         )
 
     user_middleware: list[AgentMiddleware[Any, Any, Any]] = [

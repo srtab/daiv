@@ -149,11 +149,11 @@ When a command fails, DAIV sends the output back to the agent and the agent fixe
 
 ### What happens when checks still fail
 
-DAIV publishes the run with a **Verification** section that lists each command's result and, for failing ones, the end of its output in a collapsible block, with the values of the sandbox's environment variables masked as `******`. It also lists files the checks themselves changed, and suspicious edits: test files, lint and test configuration, CI files and `.daiv.yml`. Suspicious edits are flagged for review, not blocked.
+DAIV publishes the run with a **Verification** section that lists each command's result and, for failing ones, the end of its output in a collapsible block, with the values of the sandbox's environment variables masked as `******`, as typed or URL- or base64-encoded. Values shorter than 8 characters are not masked. It also lists files the checks themselves changed, and suspicious edits: test files, lint and test configuration, task runners such as a `Makefile`, CI files and `.daiv.yml`. Suspicious edits are flagged for review, not blocked.
 
 - A new merge request opens as a draft.
 - On an existing merge request, the merge request's draft status is not changed, and the section goes in DAIV's reply: the comment it posts on the issue or merge request, or the result of a job, MCP call or scheduled job. Chat replies don't show it yet. When DAIV opened the merge request, the section in its description is replaced with the new one, so it always shows the latest checks.
-- The [pipeline watch](../features/pipeline-watch.md) counts the commit DAIV published as already examined, so CI failing on it doesn't wake the session for a fix after the checks gave up. The session still shows the pipeline's result, and the next commit DAIV pushes is watched as usual.
+- The [pipeline watch](../features/pipeline-watch.md) counts the commit DAIV published as already examined, so CI failing on it doesn't wake the session for a fix after the checks gave up. The session still shows the pipeline's result, and the next commit DAIV pushes is watched as usual. A chat run that pushed to an existing merge request is the exception: its reply doesn't show the section, so CI failing on that commit still wakes the session.
 
 If the agent gets stuck in a loop and DAIV stops it, the checks still run and are reported, but no fix round is spent. If the checks can't run at all, for example when the sandbox fails, DAIV publishes normally and says in the report that the run was not verified, and why. The CI fix loop works as usual in that case.
 

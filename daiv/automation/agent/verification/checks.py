@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import logging
 import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 
 import httpx
 
@@ -63,119 +65,123 @@ class ChecksUnavailableError(Exception):
     session or path, and the cause is chained for the logs."""
 
 
-def redacted_values(env_vars: Mapping[str, str]) -> tuple[str, ...]:
-    """The values of the sandbox's env vars, which may be secrets, that check output must not show."""
-    return tuple(value for value in env_vars.values() if len(value) >= _MIN_REDACTED_LENGTH)
+class CheckRunner:
+    """
+    Runs a repository's ``before_publish`` checks in the sandbox, each from the repo root in a request of its own so one
+    that fails or times out never stops the others, and puts back whatever they change in the tree.
 
+    Args:
+        bash: The sandbox shell the checks run in.
+        git: The run's git, which sets the tree aside and puts it back.
+        redact: Values masked in the checks' output before anyone sees it.
+    """
 
-def _redact(text: str, values: Sequence[str]) -> str:
-    for value in sorted(values, key=len, reverse=True):
-        text = text.replace(value, _REDACTED)
-    return text
+    def __init__(self, bash: SandboxFileBackend, git: GitManager, *, redact: Sequence[str] = ()) -> None:
+        self._bash = bash
+        self._git = git
+        self._redact = sorted(redact, key=len, reverse=True)
+
+    @staticmethod
+    def redacted_values(env_vars: Mapping[str, str]) -> tuple[str, ...]:
+        """The values of the sandbox's env vars, which may be secrets, and their URL- and base64-encoded forms, that
+        check output must not show."""
+        values = [value for value in env_vars.values() if len(value) >= _MIN_REDACTED_LENGTH]
+        encoded = [
+            form
+            for value in values
+            for form in (quote(value, safe=""), base64.b64encode(value.encode()).decode().rstrip("="))
+        ]
+        return tuple(dict.fromkeys([*values, *encoded]))
+
+    async def run(self, commands: Sequence[str]) -> list[CheckResult]:
+        """One result per command, every ``redact`` value in its output masked."""
+        return [await self._run_one(command) for command in commands]
+
+    async def run_in_place(self, commands: Sequence[str], *, before: str, merging: bool) -> CheckRun:
+        """Run the checks on the tree whose diff is ``before``, then put back the files they changed so none of it is
+        published.
+
+        The tree is saved in the stash first, which a merge in progress (``merging``) would not survive, so during a
+        merge what the checks changed stays. Failing to save the tree or to read it afterwards raises
+        ``ChecksUnavailableError``; failing to put it back raises ``StashRestoreError``.
+        """
+        try:
+            saved = not merging and await self._git.save_tree(_STASH_MESSAGE)
+        except GIT_ERRORS as exc:
+            raise ChecksUnavailableError("could not set the changes aside to run the checks") from exc
+        try:
+            results = await self.run(commands)
+            try:
+                after = await self._git.get_diff()
+            except GIT_ERRORS as exc:
+                raise ChecksUnavailableError(UNREADABLE) from exc
+        except Exception:
+            if saved:
+                await self._git.restore_stash()
+            raise
+        changed = changed_between(before, after)
+        if saved and changed:
+            await self._git.restore_stash()
+            after = before
+        elif saved:
+            try:
+                await self._git.drop_stash()
+            except GIT_ERRORS:
+                logger.warning("Could not drop the stash entry saved before the checks", exc_info=True)
+        return CheckRun(results, changed, diff_fingerprint(after))
+
+    async def failing_before_change(
+        self, failing: Sequence[CheckResult], *, merging: bool
+    ) -> dict[str, frozenset[str]]:
+        """The ``failing`` commands that already fail on the starting code, found by stashing the agent's changes and
+        running them, each mapped to the signature of its output there; none during a merge in progress
+        (``merging``).
+
+        Failing to set the changes aside leaves the tree as it was, so it is reported as the checks being unavailable;
+        failing to restore them raises ``StashRestoreError``.
+        """
+        if merging:
+            return {}
+        try:
+            stashed = await self._git.stash_all(_STASH_MESSAGE)
+        except GIT_ERRORS as exc:
+            raise ChecksUnavailableError("could not set the changes aside to re-check the starting code") from exc
+        if not stashed:
+            # Nothing was stashed, so the tree is the starting code, and a pop would restore an older, unrelated stash.
+            return {result.command: result.signature for result in failing}
+        try:
+            results = await self.run([result.command for result in failing])
+        finally:
+            await self._git.restore_stash()
+        return {result.command: result.signature for result in results if not result.passed}
+
+    async def _run_one(self, command: str) -> CheckResult:
+        try:
+            response = await self._bash.run_commands(
+                [f"cd {REPO_PATH} && {command}"], fail_fast=False, timeout=CHECK_TIMEOUT_SECONDS
+            )
+        except httpx.HTTPError as exc:
+            raise ChecksUnavailableError("the sandbox could not be reached to run the checks") from exc
+        if not response.results:
+            raise ChecksUnavailableError("the sandbox returned no result for a check")
+        result = response.results[0]
+        output = self._mask(result.output)
+        return CheckResult(
+            command=command,
+            exit_code=result.exit_code,
+            output_tail=output[-OUTPUT_TAIL_CHARS:],
+            signature=_signature(output) if result.exit_code else frozenset(),
+            timed_out=result.timed_out or is_bare_timeout_notice(result, CHECK_TIMEOUT_SECONDS),
+        )
+
+    def _mask(self, text: str) -> str:
+        for value in self._redact:
+            text = text.replace(value, _REDACTED)
+        return text
 
 
 def _signature(output: str) -> frozenset[str]:
     return frozenset(filter(None, (line.strip() for line in _VOLATILE.sub("#", output).splitlines())))
-
-
-async def run_checks(
-    bash: SandboxFileBackend, commands: Sequence[str], *, redact: Sequence[str] = ()
-) -> list[CheckResult]:
-    """Run every command from the repo root, each in a request of its own so one that fails or times out never stops
-    the others, and return one result per command, every ``redact`` value in its output masked."""
-    return [await _run_check(bash, command, redact) for command in commands]
-
-
-async def _run_check(bash: SandboxFileBackend, command: str, redact: Sequence[str]) -> CheckResult:
-    try:
-        response = await bash.run_commands(
-            [f"cd {REPO_PATH} && {command}"], fail_fast=False, timeout=CHECK_TIMEOUT_SECONDS
-        )
-    except httpx.HTTPError as exc:
-        raise ChecksUnavailableError("the sandbox could not be reached to run the checks") from exc
-    if not response.results:
-        raise ChecksUnavailableError("the sandbox returned no result for a check")
-    result = response.results[0]
-    output = _redact(result.output, redact)
-    return CheckResult(
-        command=command,
-        exit_code=result.exit_code,
-        output_tail=output[-OUTPUT_TAIL_CHARS:],
-        signature=_signature(output) if result.exit_code else frozenset(),
-        timed_out=result.timed_out or is_bare_timeout_notice(result, CHECK_TIMEOUT_SECONDS),
-    )
-
-
-async def run_checks_in_place(
-    bash: SandboxFileBackend,
-    git: GitManager,
-    commands: Sequence[str],
-    *,
-    before: str,
-    merging: bool,
-    redact: Sequence[str] = (),
-) -> CheckRun:
-    """Run the checks on the tree whose diff is ``before``, then put back the files they changed so none of it is
-    published.
-
-    The tree is saved in the stash first, which a merge in progress (``merging``) would not survive, so during a merge
-    what the checks changed stays. Failing to save the tree or to read it afterwards raises ``ChecksUnavailableError``;
-    failing to put it back raises ``StashRestoreError``.
-    """
-    try:
-        saved = not merging and await git.save_tree(_STASH_MESSAGE)
-    except GIT_ERRORS as exc:
-        raise ChecksUnavailableError("could not set the changes aside to run the checks") from exc
-    try:
-        results = await run_checks(bash, commands, redact=redact)
-        try:
-            after = await git.get_diff()
-        except GIT_ERRORS as exc:
-            raise ChecksUnavailableError(UNREADABLE) from exc
-    except Exception:
-        if saved:
-            await git.restore_stash()
-        raise
-    changed = changed_between(before, after)
-    if saved and changed:
-        await git.restore_stash()
-        after = before
-    elif saved:
-        try:
-            await git.drop_stash()
-        except GIT_ERRORS:
-            logger.warning("Could not drop the stash entry saved before the checks", exc_info=True)
-    return CheckRun(results, changed, diff_fingerprint(after))
-
-
-async def failing_before_change(
-    bash: SandboxFileBackend,
-    git: GitManager,
-    failing: Sequence[CheckResult],
-    *,
-    merging: bool,
-    redact: Sequence[str] = (),
-) -> dict[str, frozenset[str]]:
-    """The ``failing`` commands that already fail on the starting code, found by stashing the agent's changes and
-    running them, each mapped to the signature of its output there; none during a merge in progress (``merging``).
-
-    Failing to set the changes aside leaves the tree as it was, so it is reported as the checks being unavailable;
-    failing to restore them raises ``StashRestoreError``.
-    """
-    if merging:
-        return {}
-    try:
-        stashed = await git.stash_all(_STASH_MESSAGE)
-    except GIT_ERRORS as exc:
-        raise ChecksUnavailableError("could not set the changes aside to re-check the starting code") from exc
-    if not stashed:
-        # Nothing was stashed, so the tree is the starting code, and a pop would restore an older, unrelated stash.
-        return {result.command: result.signature for result in failing}
-    try:
-        results = await run_checks(bash, [result.command for result in failing], redact=redact)
-    finally:
-        await git.restore_stash()
-    return {result.command: result.signature for result in results if not result.passed}
 
 
 def diff_fingerprint(diff: str) -> str:

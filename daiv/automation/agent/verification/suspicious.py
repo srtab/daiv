@@ -29,10 +29,18 @@ CONFIG_FILES = frozenset({
     ".pre-commit-config.yaml",
     "Jenkinsfile",
     "azure-pipelines.yml",
+    "Makefile",
+    "makefile",
+    "GNUmakefile",
+    "noxfile.py",
+    "justfile",
+    "Justfile",
+    "Taskfile.yml",
+    "Taskfile.yaml",
     CONFIGURATION_FILE_NAME,
 })
 CONFIG_FILE_PATTERNS = ("jest.config.*", "vitest.config.*", ".eslintrc*", "eslint.config.*", ".prettierrc*")
-CONFIG_DIRECTORIES = ((".github", "workflows"), (".circleci",))
+CONFIG_DIRECTORIES = ((".github", "workflows"), (".github", "actions"), (".circleci",))
 
 
 def _is_suspicious(path: str) -> bool:

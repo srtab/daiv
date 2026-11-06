@@ -599,6 +599,7 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
     snapshot = await _read_snapshot(run)
     values = snapshot.values if snapshot is not None else {}
     messages = values.get("messages") or []
+    streamed = response_text is None
     if response_text is None:
         response_text = extract_text_content(messages[-1].content) if messages else ""
     merge_request = values.get("merge_request")
@@ -615,12 +616,14 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
             )
         except Exception:
             logger.exception("executor: failed to persist session ref for thread_id=%s", run.thread_id)
+    opened = run.publish is not None and (run.publish.payload or {}).get("status") == "opened"
     if spec.arm_watch and published and spec.run_id is not None:
         from automation.agent.verification.outcome import checks_failed
 
-        await _claim_merge_request(run, spec.run_id, merge_request, checks_failed=checks_failed(verification))
+        # A streamed reply is not where the report goes, so CI stays the only notice of the failure.
+        examined = checks_failed(verification) and (opened or not streamed)
+        await _claim_merge_request(run, spec.run_id, merge_request, examined=examined)
 
-    opened = run.publish is not None and (run.publish.payload or {}).get("status") == "opened"
     response_text = _with_verification_report(response_text, verification, opened_merge_request=opened)
     agent_result = build_agent_result(
         response=response_text,
@@ -646,17 +649,17 @@ def _with_verification_report(
     return f"{response_text.rstrip()}\n\n{report}" if response_text.strip() else report
 
 
-async def _claim_merge_request(run: AgentRun, run_id: str, merge_request: Any, *, checks_failed: bool) -> None:
+async def _claim_merge_request(run: AgentRun, run_id: str, merge_request: Any, *, examined: bool) -> None:
     """Claim the merge request the run published for its session, then judge the branch's CI at once: the push
-    happened during publish, so its pipeline event can arrive before the claim exists. A run whose ``before_publish``
-    checks still fail claims its commit as examined, so CI failing on it wakes no fix run: the agent already spent its
-    fix rounds there. Best-effort: logged, never raised over a run that already published."""
+    happened during publish, so its pipeline event can arrive before the claim exists. ``examined`` claims the commit
+    as examined, so CI failing on it wakes no fix run: the caller sets it when the ``before_publish`` checks still fail
+    and their report reached the person. Best-effort: logged, never raised over a run that already published."""
     from sessions.tasks import evaluate_pipeline_watch_task
 
     pushed_sha = (run.publish.payload or {}).get("pushed_sha") if run.publish is not None else None
     try:
         ownership = await Ownerships.aclaim(
-            run_id=run_id, merge_request=merge_request, pushed_sha=pushed_sha or "", examined=checks_failed
+            run_id=run_id, merge_request=merge_request, pushed_sha=pushed_sha or "", examined=examined
         )
         if ownership is not None:
             await evaluate_pipeline_watch_task.aenqueue(repo_id=ownership.repo_id, ref=ownership.source_branch)

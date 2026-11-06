@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
@@ -1034,10 +1035,63 @@ async def test_head_sha_refuses_output_that_is_not_a_sha() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_stash_all_returns_true_when_changes_stashed() -> None:
+@pytest.fixture
+def fixed_label(monkeypatch) -> str:
+    monkeypatch.setattr("automation.agent.workspace.git_manager.uuid4", lambda: SimpleNamespace(hex="0123456789abcdef"))
+    return "m [0123456789ab]"
+
+
+async def test_stash_all_returns_true_when_changes_stashed(fixed_label) -> None:
     gm, client = _sandbox_manager({"stash push": (0, "Saved working directory and index state On main: m")})
     assert await gm.stash_all("m") is True
-    assert client.ran("stash push --include-untracked -m m")
+    assert client.ran("stash push --include-untracked -m 'm [0123456789ab]'")
+
+
+async def test_stash_all_puts_the_tree_back_when_a_failed_push_stored_its_entry(fixed_label) -> None:
+    gm, client = _sandbox_manager({
+        "stash push": (1, "error: could not remove 'ro/'"),
+        "stash list": (0, f"On main: {fixed_label}\n"),
+    })
+
+    with pytest.raises(GitCommandError):
+        await gm.stash_all("m")
+
+    assert [c.removeprefix("git -C /workspace/repo ") for c in client.commands][1:] == [
+        "stash list --max-count=1 '--format=%gs'",
+        "reset --hard HEAD",
+        "clean -fd",
+        "stash pop --index",
+    ]
+
+
+async def test_stash_all_leaves_the_tree_alone_when_a_failed_push_stored_nothing(fixed_label) -> None:
+    gm, client = _sandbox_manager({
+        "stash push": (1, "error: could not write index"),
+        "stash list": (0, "On main: m [ffffffffffff]\n"),
+    })
+
+    with pytest.raises(GitCommandError):
+        await gm.stash_all("m")
+
+    assert not client.ran("reset --hard")
+
+
+async def test_stash_all_fails_loudly_when_it_cannot_tell_whether_a_failed_push_stored_its_entry(fixed_label) -> None:
+    gm, client = _sandbox_manager({"stash push": (1, "error"), "stash list": (128, "fatal")})
+
+    with pytest.raises(StashRestoreError):
+        await gm.stash_all("m")
+
+    assert not client.ran("reset --hard")
+
+
+async def test_stash_all_leaves_the_tree_alone_when_the_sandbox_never_ran_the_push() -> None:
+    runner = _BusyRunner(busy=3)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await GitManager(runner).stash_all("m")
+
+    assert [args[:2] for args in runner.attempts] == [("stash", "push")] * 3
 
 
 async def test_stash_all_returns_false_when_clean() -> None:
@@ -1062,11 +1116,11 @@ async def test_restore_stash_raises_when_pop_fails() -> None:
     assert isinstance(raised.value.__cause__, GitCommandError)
 
 
-async def test_save_tree_stashes_then_puts_the_changes_back() -> None:
+async def test_save_tree_stashes_then_puts_the_changes_back(fixed_label) -> None:
     gm, client = _sandbox_manager({"stash push": (0, "Saved working directory and index state On main: m")})
     assert await gm.save_tree("m") is True
     assert [c.removeprefix("git -C /workspace/repo ") for c in client.commands] == [
-        "stash push --include-untracked -m m",
+        "stash push --include-untracked -m 'm [0123456789ab]'",
         "stash apply --index",
     ]
 
@@ -1111,14 +1165,12 @@ class _BusyRunner:
         return GitResult(exit_code=0, output="")
 
 
-@pytest.fixture
-def no_backoff(monkeypatch) -> AsyncMock:
-    sleep = AsyncMock()
-    monkeypatch.setattr("automation.agent.workspace.git_manager.asyncio.sleep", sleep)
-    return sleep
+@pytest.fixture(autouse=True)
+def no_backoff(monkeypatch) -> None:
+    monkeypatch.setattr("automation.agent.workspace.git_manager._BUSY_BACKOFF_SECONDS", 0)
 
 
-async def test_restore_stash_retries_a_step_the_sandbox_refused_as_busy(no_backoff) -> None:
+async def test_restore_stash_retries_a_step_the_sandbox_refused_as_busy() -> None:
     runner = _BusyRunner(busy=2)
 
     await GitManager(runner).restore_stash()
@@ -1130,10 +1182,9 @@ async def test_restore_stash_retries_a_step_the_sandbox_refused_as_busy(no_backo
         ("clean", "-fd"),
         ("stash", "pop", "--index"),
     ]
-    assert no_backoff.await_count == 2
 
 
-async def test_restore_stash_gives_up_after_three_busy_answers(no_backoff) -> None:
+async def test_restore_stash_gives_up_after_three_busy_answers() -> None:
     runner = _BusyRunner(busy=3)
 
     with pytest.raises(StashRestoreError) as raised:
@@ -1144,14 +1195,13 @@ async def test_restore_stash_gives_up_after_three_busy_answers(no_backoff) -> No
     assert len(runner.attempts) == 3
 
 
-async def test_restore_stash_does_not_retry_other_sandbox_errors(no_backoff) -> None:
+async def test_restore_stash_does_not_retry_other_sandbox_errors() -> None:
     runner = _BusyRunner(busy=1, status=500)
 
     with pytest.raises(StashRestoreError):
         await GitManager(runner).restore_stash()
 
     assert len(runner.attempts) == 1
-    no_backoff.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

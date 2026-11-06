@@ -14,10 +14,9 @@ from automation.agent.questions import delivered_question_call
 from automation.agent.verification.checks import (
     MAX_FIX_ROUNDS,
     UNREADABLE,
+    CheckRunner,
     ChecksUnavailableError,
     diff_fingerprint,
-    failing_before_change,
-    run_checks_in_place,
 )
 from automation.agent.verification.fallback import fallback_reminder, last_check
 from automation.agent.verification.outcome import VerificationOutcome, code_span, command_outcomes, failure_reminder
@@ -38,7 +37,6 @@ if TYPE_CHECKING:
     from automation.agent.verification.fallback import Check
     from automation.agent.verification.outcome import CommandOutcome, VerificationStatus
     from automation.agent.workspace.base import Workspace
-    from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 
 logger = logging.getLogger("daiv.agent")
 
@@ -161,11 +159,10 @@ class VerificationMiddleware(AgentMiddleware):
         if workspace.bash is None:
             raise ValueError("VerificationMiddleware needs a workspace with a shell")
         self._workspace = workspace
-        self._bash: SandboxFileBackend = workspace.bash
+        self._checks = CheckRunner(workspace.bash, workspace.git, redact=redact)
         self._commands = commands
         self._step_budget = step_budget
         self._loop_breaker = loop_breaker
-        self._redact = redact
         self._rounds = 0
         self._starting: dict[str, frozenset[str] | None] = {}
         self._runs: dict[str, CheckRun] = {}
@@ -267,9 +264,10 @@ class VerificationMiddleware(AgentMiddleware):
                 return None
             before = await git.get_diff()
         except GIT_ERRORS:
-            logger.warning("Could not read the repository to verify the agent's work", exc_info=True)
             if not self._commands:
+                logger.warning("Could not read the repository to check the agent tested its work", exc_info=True)
                 return _Verdict(_outcome("not_configured", commands=[], changed=[], rounds=0))
+            logger.exception("Could not read the repository to verify the agent's work; publishing it as not verified")
             return self._not_verified([], UNREADABLE)
         if self._commands:
             return await self._verify(changed, before, merging=merge is not None, may_remind=may_remind)
@@ -283,12 +281,10 @@ class VerificationMiddleware(AgentMiddleware):
         try:
             run = self._runs.get(tree)
             if run is None:
-                run = self._runs[tree] = await run_checks_in_place(
-                    self._bash, self._workspace.git, self._commands, before=before, merging=merging, redact=self._redact
-                )
+                run = self._runs[tree] = await self._checks.run_in_place(self._commands, before=before, merging=merging)
             baseline = await self._baseline([result for result in run.results if not result.passed], merging=merging)
         except ChecksUnavailableError as exc:
-            logger.warning("Could not run the before_publish checks: %s", exc, exc_info=True)
+            logger.exception("Could not run the before_publish checks; publishing as not verified: %s", exc)
             return self._not_verified(changed, str(exc))
 
         failures = [result for result in run.results if not result.passed and result.command not in baseline]
@@ -324,9 +320,7 @@ class VerificationMiddleware(AgentMiddleware):
         re-checking each command at most once per run."""
         unchecked = [result for result in failing if result.command not in self._starting]
         if unchecked:
-            found = await failing_before_change(
-                self._bash, self._workspace.git, unchecked, merging=merging, redact=self._redact
-            )
+            found = await self._checks.failing_before_change(unchecked, merging=merging)
             self._starting.update({result.command: found.get(result.command) for result in unchecked})
         return {
             result.command: signature for result in failing if (signature := self._starting[result.command]) is not None
