@@ -290,6 +290,18 @@ def test_a_finished_run_marks_the_rows_as_ran(member_client, member_user):
     assert all(r["ran"] for r in rows)
 
 
+@pytest.mark.django_db
+def test_a_failed_last_run_does_not_mark_the_rows_as_ran(member_client, member_user):
+    session = _multi_repo_session(member_user)
+    _create_run(session, status=RunStatus.SUCCESSFUL)
+    _create_run(session, status=RunStatus.FAILED)
+    _create_run(session, status=RunStatus.RUNNING)
+
+    rows = _get_detail(member_client, session).context["header"]["repositories"]["rows"]
+
+    assert not any(r["ran"] for r in rows)
+
+
 NO_CHANGES = {"lines_added": 0, "lines_removed": 0, "files_changed": 0}
 
 
@@ -335,7 +347,7 @@ def test_a_finished_run_that_changed_nothing_reads_no_changes(member_client, mem
 
     row = resp.context["header"]["repositories"]["rows"][0]
     assert (row["ran"], row["mr_iid"], row["diff_stats"]) == (True, None, None)
-    assert "'repo-card--quiet': row.ran && !row.mr_iid && !row.diff_stats &&" in _card(resp)
+    assert "'repo-card--quiet': row.ran && !row.mr_iid && !row.diff_stats && !ciItems(row).length &&" in _card(resp)
 
 
 @pytest.mark.django_db
@@ -1391,7 +1403,7 @@ def test_a_watched_sessions_ci_shows_on_its_repository_card_not_in_the_top_bar(m
     resp = _get_detail(member_client, _create_session(user=member_user, watch_state=WatchState.WATCHING))
 
     assert 'data-testid="session-ci"' not in _topbar(resp)
-    assert "ciFor(row)" in _guards(_details(resp), "session-details-ci")
+    assert 'x-for="item in ciItems(row)"' in _card(resp)
 
 
 @pytest.mark.django_db
@@ -1535,7 +1547,8 @@ def test_the_card_binds_exactly_the_fields_its_rows_carry(member_client, member_
 def test_other_sessions_is_offered_on_the_main_card_only(member_client, member_user):
     card = _card(_get_detail(member_client, _create_session(user=member_user)))
 
-    assert 'x-if="index === 0"' in card and f"{reverse('session_list')}?repo=group/project&amp;mr=" in card
+    assert 'x-if="index === 0 && row.mr_iid"' in card
+    assert f"{reverse('session_list')}?repo=group/project&amp;mr=" in card
 
 
 @pytest.mark.django_db
@@ -1553,9 +1566,9 @@ def test_a_repository_without_a_merge_request_or_a_run_shows_only_its_branch(mem
     card = _card(resp)
 
     assert (row["mr_iid"], row["ran"]) == (None, False)
-    assert _guards(card, "repository-card-menu") == ["row.mr_iid"]
-    assert "ciFor(row)" in _guards(card, "session-details-ci")
-    assert "'repo-card--quiet': row.ran && !row.mr_iid && !row.diff_stats &&" in card
+    assert _guards(card, "repository-card-menu") == ["row.mr_iid || ciItems(row).length"]
+    assert 'x-show="ciItems(row).length || row.diff_stats"' in card
+    assert "'repo-card--quiet': row.ran && !row.mr_iid && !row.diff_stats && !ciItems(row).length &&" in card
 
 
 @pytest.mark.django_db
@@ -1570,9 +1583,11 @@ def test_a_publish_error_shows_on_its_own_card_and_keeps_it_from_reading_no_chan
 def test_a_merge_request_without_ci_has_no_ci_line_or_toggle(member_client, member_user):
     card = _card(_get_detail(member_client, _multi_repo_session(member_user)))
 
-    assert "ciFor(row)" in _guards(card, "session-details-ci")
-    assert _guards(card, "session-ci-toggle") == ["row.mr_iid", "row.can_act && ciFor(row)"]
-    assert "toggleCiWatch(ciFor(row))" in card and ':aria-checked="ciFor(row).watch_enabled.toString()"' in card
+    assert _guards(card, "session-details-ci") == []
+    assert 'x-for="item in ciItems(row)"' in card
+    assert _guards(card, "session-ci-toggle") == ["row.mr_iid || ciItems(row).length"]
+    assert 'x-for="item in row.can_act ? ciItems(row) : []"' in card
+    assert "toggleCiWatch(item)" in card and ':aria-checked="item.watch_enabled.toString()"' in card
 
 
 @pytest.mark.django_db

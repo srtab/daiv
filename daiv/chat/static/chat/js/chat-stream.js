@@ -1124,7 +1124,7 @@
       const files = this.filesTouched;
       const live = this.streaming || this.resuming;
       const stopped = !live && this._lastRunAborted();
-      const stats = !live && !stopped && !config.diffInDetails ? this.diffStats : null;
+      const stats = !live && !stopped ? this.drawerDiffStats : null;
       const diff = stats && (stats.added || stats.removed) ? stats : null;
       if (!todos.length && !files.length && !diff) return null;
 

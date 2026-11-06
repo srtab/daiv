@@ -170,11 +170,8 @@ document.addEventListener("alpine:init", () => {
       store(`${config.storageKey}.folds`, JSON.stringify(this._folds));
     },
     openDetails(section) {
-      if (section === "delegations") this.selectTab("info");
-      else {
-        this.selectTab("overview");
-        if (this.isFolded(section)) this.toggleFold(section);
-      }
+      this.selectTab("overview");
+      if (this.isFolded(section)) this.toggleFold(section);
       this.setDetails(true);
       const el = document.getElementById(`session-details-${section}`);
       if (el) whenShown(el, () => el.scrollIntoView({ block: "start" }));
@@ -228,17 +225,23 @@ document.addEventListener("alpine:init", () => {
         : {};
       return [{ ...main, ref: this.thread?.ref || main.ref, ...live }, ...extras];
     },
-    ciFor(row) {
-      if (!row?.mr_iid) return null;
-      const main = this.repositoryRows[0]?.repo_id;
-      return (
-        this.ci.find((item) => (item.repo_id || main) === row.repo_id && item.merge_request_iid === row.mr_iid) ?? null
-      );
+    // The CI of every merge request the session owns in `row`'s repository, the row's own first.
+    ciItems(row) {
+      const main = this.repositories?.rows?.[0]?.repo_id;
+      const own = (item) => item.merge_request_iid === row.mr_iid;
+      return this.ci.filter((item) => (item.repo_id || main) === row.repo_id).sort((a, b) => own(b) - own(a));
+    },
+    // Names the merge request of a CI item that is not the card's own.
+    ciTag(row, item) {
+      return item.merge_request_iid === row.mr_iid ? "" : `!${item.merge_request_iid}`;
+    },
+    ciDisabled(item) {
+      return Boolean(this.ciWatchDisabled[ciKey(item)]);
     },
     get summary() {
       const rows = this.repositoryRows;
       const withMr = rows.filter((row) => row.mr_iid);
-      const shown = rows.map((row) => this.ciFor(row)).filter(Boolean);
+      const shown = rows.flatMap((row) => this.ciItems(row));
       const worst = CI_TONES_WORST_FIRST.map((tone) => shown.find((item) => item.tone === tone)).find(Boolean);
       return {
         main: rows[0]?.repo_id ?? "",
@@ -330,7 +333,7 @@ document.addEventListener("alpine:init", () => {
     },
     async toggleCiWatch(item) {
       const key = ciKey(item);
-      if (this.ciWatchBusy || this.ciWatchDisabled[key]) return;
+      if (this.ciWatchBusy || this.ciDisabled(item)) return;
       this.ciWatchBusy = true;
       this.ciWatchError = { ...this.ciWatchError, [key]: "" };
       try {

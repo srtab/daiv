@@ -1207,6 +1207,9 @@ html {
   .repo-card__split {
     @apply flex items-center justify-between gap-2;
   }
+  .repo-card__ci-list {
+    @apply flex min-w-0 flex-col gap-0.5;
+  }
   .repo-card__ci {
     @apply inline-flex min-w-0 items-center gap-1.5 text-[12px];
     color: var(--ci-color);

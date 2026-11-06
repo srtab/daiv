@@ -153,8 +153,9 @@ def _repositories(
     runnable: dict[str, bool],
 ) -> dict:
     """SYNC ONLY: the session's ``rows``, the main repository first, each with its branch, merge request, change
-    size, whether the session ran and whether the viewer may act on its merge request (``runnable``), and the
-    ``publish_errors`` of its latest run once it finished. The main row holds what the database and checkpoint know;
+    size, whether the session's last finished run completed (``ran``; a failed one may have left work unpublished)
+    and whether the viewer may act on its merge request (``runnable``), and the ``publish_errors`` of its latest run
+    once it finished. The main row holds what the database and checkpoint know;
     the page lays the chat's live branch and merge request over it.
 
     A blank branch is the repository's default one, named when the catalog knows it. A change size that counts
@@ -162,7 +163,8 @@ def _repositories(
     """
     run_url = next((r.merge_request_web_url for r in reversed(runs) if r.merge_request_web_url), "")
     latest = runs[-1] if runs else None
-    ran = any(r.status in RunStatus.terminal() for r in runs)
+    finished = next((r for r in reversed(runs) if r.status in RunStatus.terminal()), None)
+    ran = finished is not None and finished.status != RunStatus.FAILED
     rows = [
         {
             "repo_id": session.repo_id,

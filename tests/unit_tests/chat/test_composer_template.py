@@ -429,3 +429,12 @@ def test_the_options_sheet_has_no_locked_environment_on_a_session_page(member_cl
 
     assert "lockedEnvLabel" not in environment
     assert 'x-show="!thread"' in environment
+
+
+@pytest.mark.django_db
+def test_a_new_chat_keeps_the_locked_environment_once_it_has_a_thread(member_client):
+    """A new chat's page has no session sidebar, so after the first message the sheet is the only place it shows."""
+    environment = _options_sheet(render_new_chat(member_client))
+
+    assert 'class="composer-sheet__group">' in environment
+    assert 'x-show="thread"' in environment and "lockedEnvLabel" in environment

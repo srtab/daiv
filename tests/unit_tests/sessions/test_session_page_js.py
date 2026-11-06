@@ -133,8 +133,10 @@ for (const [action, value] of steps) {
       status: page.status, open: page.detailsOpen, runs: page.runCount,
       scrolled: scrolled.length, title: page.title, editing: page.editingTitle, titleWidth: page.titleWidth,
       docTitle: sandbox.document.title, archived: page.archived, ci: page.ci,
-      notes: page.ci.map((item) => page.ciNote(item)), ciFor: page.repositoryRows.map((row) => page.ciFor(row)),
-      cardNotes: page.repositoryRows.map((row) => page.ciNote(page.ciFor(row))),
+      notes: page.ci.map((item) => page.ciNote(item)), ciItems: page.repositoryRows.map((row) => page.ciItems(row)),
+      cardNotes: page.repositoryRows.map((row) => page.ciItems(row).map((item) => page.ciNote(item))),
+      ciTags: page.repositoryRows.map((row) => page.ciItems(row).map((item) => page.ciTag(row, item))),
+      disabled: page.ci.map((item) => page.ciDisabled(item)),
       tab: page.detailsTab, folds: Object.fromEntries(SECTIONS.map((s) => [s, page.isFolded(s)])),
       summary: page.summary, summaryLabel: page.summaryLabel, repositoriesSummary: page.repositoriesSummary,
       explanations: page.ci.map((item) => page.ciExplanation(item)), upNext: page.upNext,
@@ -318,10 +320,6 @@ def test_opening_context_selects_overview_and_unfolds_it():
 
     assert (result["seen"][0]["tab"], result["seen"][0]["folds"]["context"]) == ("overview", False)
     assert (result["stored_tab"], json.loads(result["stored_folds"])["context"]) == ("overview", False)
-
-
-def test_opening_delegations_selects_info():
-    assert _run([["open-details", "delegations"], ["read", None]])["seen"][0]["tab"] == "info"
 
 
 def test_polls_and_a_settled_run_update_the_run_count():
@@ -510,6 +508,7 @@ def test_a_disabled_watch_is_noted_on_its_own_merge_request_only():
     ])
 
     assert result["seen"][0]["notes"] == ["Watching: Passing", "CI watching is off for g/mod"]
+    assert result["seen"][0]["disabled"] == [False, True]
     assert [request["body"]["merge_request_iid"] for request in result["requests"]] == [17, 7]
 
 
@@ -875,14 +874,14 @@ def test_each_card_finds_its_own_merge_requests_ci():
     other_repo_same_iid = {**_ci("running", iid=42), "repo_id": "g/elsewhere"}
     seen = _run([_with_ci([other_repo_same_iid, extra, main]), ["read", None]], repositories=THREE_ROWS)["seen"][0]
 
-    assert seen["ciFor"] == [main, extra, None]
+    assert seen["ciItems"] == [[main], [extra], []]
 
 
 def test_a_merge_request_whose_watch_never_registered_has_no_ci_and_no_note():
     main = _ci("passing", iid=42)
     seen = _run([_with_ci([main]), ["read", None]], repositories=THREE_ROWS)["seen"][0]
 
-    assert (seen["ciFor"], seen["cardNotes"]) == ([main, None, None], ["Watching: Passing", "", ""])
+    assert (seen["ciItems"], seen["cardNotes"]) == ([[main], [], []], [["Watching: Passing"], [], []])
 
 
 def test_the_main_card_finds_the_ci_of_the_chats_live_merge_request():
@@ -890,7 +889,21 @@ def test_the_main_card_finds_the_ci_of_the_chats_live_merge_request():
     item = _ci("passing", iid=43)
     seen = _run([_with_ci([item]), ["read", None]], repositories=THREE_ROWS, thread={"merge_request": live})["seen"][0]
 
-    assert seen["ciFor"][0] == item
+    assert seen["ciItems"][0] == [item]
+
+
+def test_a_card_lists_every_merge_request_its_repository_owns_its_own_first():
+    other, own = _ci("failing", iid=40), _ci("passing", iid=42)
+    seen = _run([_with_ci([other, own]), ["read", None]], repositories=THREE_ROWS)["seen"][0]
+
+    assert (seen["ciItems"][0], seen["ciTags"][0]) == ([own, other], ["", "!40"])
+
+
+def test_a_card_without_a_merge_request_still_shows_its_repositorys_ci():
+    item = {**_ci("failing", iid=5), "repo_id": "g/common"}
+    seen = _run([_with_ci([item]), ["read", None]], repositories=THREE_ROWS)["seen"][0]
+
+    assert (seen["ciItems"][2], seen["ciTags"][2]) == ([item], ["!5"])
 
 
 def test_the_summary_counts_repositories_and_merge_requests():
@@ -938,7 +951,7 @@ def test_the_summary_ci_is_the_worst_tone(tones, worst):
 
 def test_the_summary_ci_counts_only_the_ci_a_card_shows():
     shown = {**_ci("passing", iid=42), "tone": "clear"}
-    unmatched = {**_ci("failing", iid=99), "tone": "fail"}
+    unmatched = {**_ci("failing", iid=99), "repo_id": "g/elsewhere", "tone": "fail"}
     seen = _run([_with_ci([unmatched, shown]), ["read", None]], repositories=THREE_ROWS)["seen"][0]
 
     assert (seen["summary"]["tone"], seen["summary"]["ci"]) == ("clear", "Passing")
