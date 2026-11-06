@@ -3,7 +3,7 @@
 Options trigger + sheet: Tools (MCP servers) only — model, repositories and environment live
 elsewhere — so the trigger's dot only ever means "MCP server selection differs from the defaults".
 {% endcomment %}
-<div class="composer-sheet-anchor">
+<div class="composer-sheet-anchor" x-show="mcpCatalog.length" x-cloak>
   <button type="button"
           class="composer-trigger"
           @click.stop="toggleSheet('options')"

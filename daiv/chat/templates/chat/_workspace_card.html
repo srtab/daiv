@@ -3,10 +3,10 @@
 <section class="workspace-card" data-testid="workspace-card" aria-labelledby="workspace-card-title">
   <header class="workspace-card__head">
     <h2 id="workspace-card-title" class="workspace-card__title">{% translate "Workspace" %}</h2>
-    <span class="workspace-card__hint">{% translate "up to 5 repositories" %}</span>
+    <span class="workspace-card__hint">{% blocktranslate count max=max_session_repos %}up to {{ max }} repository{% plural %}up to {{ max }} repositories{% endblocktranslate %}</span>
   </header>
 
-  {% include "codebase/_repo_picker.html" with variant="card" max_repos=5 unique_repos=True initial_repos="[]" field_name="" required=False on_change_event="daiv:chat-repo-changed" %}
+  {% include "codebase/_repo_picker.html" with variant="card" max_repos=max_session_repos unique_repos=True initial_repos="[]" field_name="" required=False on_change_event="daiv:chat-repo-changed" %}
 
   <div class="workspace-card__divider"></div>
 

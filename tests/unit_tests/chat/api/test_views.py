@@ -922,6 +922,29 @@ async def test_repos_must_start_with_the_header_repository(client: TestAsyncClie
     await user.adelete()
 
 
+@pytest.mark.parametrize(
+    "repos",
+    [
+        "a/b",
+        [],
+        ["a/b"],
+        [{"repo_id": 7, "ref": "main"}],
+        [{"repo_id": "a/b", "ref": 3}],
+        [{"repo_id": "  ", "ref": "main"}],
+    ],
+    ids=["not-a-list", "empty-list", "entry-not-an-object", "non-str-repo-id", "non-str-ref", "blank-repo-id"],
+)
+@pytest.mark.django_db(transaction=True)
+async def test_malformed_repos_are_refused(client: TestAsyncClient, authed, repos):
+    _, raw, user = authed
+
+    response = await _post_first_turn(client, raw, repos)
+
+    assert response.status_code == 400
+    await _assert_nothing_created()
+    await user.adelete()
+
+
 @pytest.mark.django_db(transaction=True)
 async def test_more_than_five_repos_are_refused(client: TestAsyncClient, authed):
     _, raw, user = authed

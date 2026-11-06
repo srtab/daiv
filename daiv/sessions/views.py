@@ -52,6 +52,7 @@ from sessions.filters import (
 )
 from sessions.forms import AgentRunCreateForm
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
+from sessions.multi_repo import MAX_REPOS_PER_SESSION
 from sessions.page_state import aload_session_state
 from sessions.services import RepoTarget, submit_batch_runs
 from sessions.spend import build_session_spend
@@ -305,6 +306,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         if session is not None:
             ctx["nav_session_thread_id"] = session.thread_id
 
+        ctx["max_session_repos"] = MAX_REPOS_PER_SESSION
         # Populate sandbox envs both for the empty hero state and a live session.
         ctx["sandbox_envs"] = list(SandboxEnvironment.objects.visible_to(self.request.user))
         ctx["selected_sandbox_env_id"] = (

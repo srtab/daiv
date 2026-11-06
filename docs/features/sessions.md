@@ -156,14 +156,14 @@ A revised artifact stays on the run that first published it — on the dashboard
 
 Chat is the interactive dashboard workspace where you converse with the agent in real time. Go to **Dashboard > Sessions** and click **New session** (`/dashboard/sessions/new/`) to open the empty workspace.
 
-Before the composer appears, set up the **Workspace** card in the hero: the repositories the session works on, and its sandbox environment. A session is bound to its repositories and a ref for each:
+Before your first message, set up the **Workspace** card in the hero: the repositories the session works on, and its sandbox environment. A session is bound to its repositories and a ref for each:
 
 - Selecting a repository defaults the ref to its **default branch**; you can switch to any other branch.
 - If the chosen ref already has an open merge/pull request, the workspace surfaces it.
 - The ref is the branch the work is based on: when the agent opens a new merge/pull request, that ref is its **target branch**. If it has been deleted from the remote by the time the agent publishes, the request targets the default branch instead.
 - The new merge/pull request is **assigned to you**, when your DAIV account is linked to the git platform through OAuth login.
 
-Once a repository is selected, the prompt box appears and you can type your first message. The session gets its own URL (`/dashboard/sessions/<thread_id>/`) so you can bookmark it or share it with teammates who have access.
+Send stays disabled until a repository is selected; then type your first message. The session gets its own URL (`/dashboard/sessions/<thread_id>/`) so you can bookmark it or share it with teammates who have access.
 
 !!! note "A session's repositories and refs are fixed"
     The repositories and their refs are fixed for the life of the session. To work against a different repository or branch, start a new session.

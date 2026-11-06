@@ -170,6 +170,9 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
 
     Runs execute detached (see ``chat.api.runner``); the response is a run handle (JSON) or an
     inline relay tail (``Accept: text/event-stream``).
+
+    ``forwarded_props.repos`` (``[{repo_id, ref}]``) opens a new session over several repositories: first turn
+    only, its first entry must match ``X-Repo-ID``/``X-Ref``, and a continuation ignores it.
     """
     repo_id = request.headers.get(HEADER_REPO_ID)
     if not repo_id:
@@ -392,7 +395,10 @@ def parse_forwarded_repos(raw: object, *, repo_id: str, ref: str) -> list[RepoTa
     if raw is None:
         return [RepoTarget(repo_id, ref, None)]
     entries_ok = isinstance(raw, list) and all(
-        isinstance(entry, dict) and isinstance(entry.get("repo_id"), str) and isinstance(entry.get("ref", ""), str)
+        isinstance(entry, dict)
+        and isinstance(entry.get("repo_id"), str)
+        and entry["repo_id"].strip()
+        and isinstance(entry.get("ref", ""), str)
         for entry in raw
     )
     if not entries_ok or not raw:

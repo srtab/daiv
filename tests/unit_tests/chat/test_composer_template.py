@@ -95,6 +95,13 @@ def test_progress_lives_in_a_drawer_not_a_sheet(member_client, member_user):
 
 
 @pytest.mark.django_db
+def test_the_options_trigger_is_hidden_when_there_are_no_mcp_servers(member_client, member_user):
+    html = render_thread(member_client, create_session(member_user))
+
+    assert 'class="composer-sheet-anchor" x-show="mcpCatalog.length"' in html
+
+
+@pytest.mark.django_db
 def test_the_drawer_tucks_behind_the_composer_and_outside_its_form(member_client, member_user):
     """Before the form in the dock is what lets the composer paint over its lower edge; outside
     the form keeps it out of the controls that go inert while a turn runs, which is when it is read."""

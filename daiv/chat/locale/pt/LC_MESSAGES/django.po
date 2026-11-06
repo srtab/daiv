@@ -117,8 +117,11 @@ msgstr "Mostrar tudo"
 msgid "Workspace"
 msgstr "Área de trabalho"
 
-msgid "up to 5 repositories"
-msgstr "até 5 repositórios"
+#, python-format
+msgid "up to %(max)s repository"
+msgid_plural "up to %(max)s repositories"
+msgstr[0] "até %(max)s repositório"
+msgstr[1] "até %(max)s repositórios"
 
 #, fuzzy
 #~| msgid "Session context"

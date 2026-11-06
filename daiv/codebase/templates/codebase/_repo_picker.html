@@ -106,7 +106,7 @@ Parameters:
         <button type="button"
                 x-show="repos.length === 0"
                 @click.stop="openRepoPicker()"
-                class="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.05] px-2.5 py-1 text-[13px] font-medium text-gray-300 hover:bg-white/[0.08]">
+                class="repo-picker-trigger">
             {% if git_platform == "github" %}
                 {% icon "github" "h-3.5 w-3.5" %}
             {% elif git_platform == "gitlab" %}
@@ -122,7 +122,7 @@ Parameters:
                 @click.stop="openRepoPicker()"
                 aria-label="{% translate 'Add repository' %}"
                 title="{% translate 'Add repository' %}"
-                class="inline-flex h-[26px] w-[26px] items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.05] text-gray-400 hover:bg-white/[0.08] hover:text-white">
+                class="repo-picker-trigger repo-picker-trigger--icon">
             {% icon "plus" "h-3.5 w-3.5" %}
         </button>
     </div>
@@ -226,7 +226,7 @@ Parameters:
 
     {% if field_errors or extra_errors or show_conflict_message|default_if_none:True %}
     <ul {% if not field_errors and not extra_errors %}x-show="conflictMessage" x-cloak{% endif %}
-        class="mt-2 text-sm text-red-400">
+        class="repo-picker-errors">
         {% for err in extra_errors %}<li>{{ err }}</li>{% endfor %}
         {% for err in field_errors %}<li>{{ err }}</li>{% endfor %}
         <li x-show="conflictMessage" x-cloak x-text="conflictMessage"></li>
