@@ -51,12 +51,7 @@ class SlashCommandMiddleware(AgentMiddleware):
 
     @hook_config(can_jump_to=["end"])
     async def abefore_agent(self, state: dict, runtime: Runtime[RuntimeCtx], config: RunnableConfig) -> dict | None:
-        update = await self._apply_builtin_slash_commands(state["messages"], runtime.context, config)
-        if update is not None and state.get("verification") is not None:
-            # The jump skips VerificationMiddleware.abefore_agent, which clears the previous run's outcome; only a
-            # state that holds one has the channel to write to.
-            update["verification"] = None
-        return update
+        return await self._apply_builtin_slash_commands(state["messages"], runtime.context, config)
 
     async def _apply_builtin_slash_commands(
         self, messages: list[AnyMessage], context: RuntimeCtx, config: RunnableConfig

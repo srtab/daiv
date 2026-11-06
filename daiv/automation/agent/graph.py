@@ -47,7 +47,7 @@ from automation.agent.middlewares.skills import SkillsMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.middlewares.summarization import build_summarization_middleware
-from automation.agent.middlewares.verification import VerificationMiddleware
+from automation.agent.middlewares.verification import VerificationMiddleware, VerificationResetMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.profile import register as _register_harness_profile
@@ -286,6 +286,7 @@ async def create_daiv_agent(
         )
 
     user_middleware: list[AgentMiddleware[Any, Any, Any]] = [
+        VerificationResetMiddleware(),
         # Replaces the FilesystemMiddleware create_deep_agent would auto-add: 0.7 merges custom
         # middleware into the base stack by ``.name``, taking the same slot and preserving order.
         # Passed only to restrict the toolset (see WORKSPACE_FS_TOOLS); ``_permissions`` must keep
@@ -318,10 +319,10 @@ async def create_daiv_agent(
         # Web search/fetch, git-platform, and MCP tools are all deferred behind tool_search; only the
         # file/bash/todo core in ALWAYS_LOADED_TOOLS is eagerly bound.
         *deferred_tools,
-        *([AskUserQuestionMiddleware()] if ask_user_enabled else []),
         # Before the caching middleware so the cache-control placement sees the final
         # message list, including any injected budget reminder.
         *([verification] if verification is not None else []),
+        *([AskUserQuestionMiddleware()] if ask_user_enabled else []),
         loop_breaker,
         step_budget,
         ContextUsageMiddleware(),

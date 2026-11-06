@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
+from automation.agent.verification.outcome import escape_tags
 from automation.agent.workspace.bash_policy.command_parser import CommandParseError, parse_command
 
 if TYPE_CHECKING:
@@ -134,14 +135,10 @@ def last_check(message: ToolMessage) -> FallbackFinding | None:
     return FallbackFinding("checked" if exit_code == 0 else "failed", command, exit_code)
 
 
-def _escape(text: str) -> str:
-    return text.replace("<", "&lt;").replace(">", "&gt;")
-
-
 def fallback_reminder(finding: FallbackFinding, edited_paths: Sequence[str]) -> str:
     match finding.verdict:
         case "not_run":
-            files = ", ".join(_escape(path) for path in edited_paths)
+            files = ", ".join(escape_tags(path) for path in edited_paths)
             return (
                 "<system-reminder>"
                 f"You edited files ({files}) but did not run any test, linter or build afterwards. "
@@ -152,7 +149,7 @@ def fallback_reminder(finding: FallbackFinding, edited_paths: Sequence[str]) -> 
         case "failed":
             return (
                 "<system-reminder>"
-                f"The last check you ran after your final edit, `{_escape(finding.command or '')}`, failed with "
+                f"The last check you ran after your final edit, `{escape_tags(finding.command or '')}`, failed with "
                 f"exit code {finding.exit_code}. Fix the failure and re-run it before finishing, or say in your "
                 "final answer why it cannot pass."
                 "</system-reminder>"

@@ -34,7 +34,7 @@ def test_command_outcomes_records_tail_only_for_non_passing_commands():
     results = [
         CheckResult("make lint", 0, "all good"),
         CheckResult("make test", 1, "boom"),
-        CheckResult("make slow", 124, "partial"),
+        CheckResult("make slow", 124, "partial", timed_out=True),
         CheckResult("make old", 2, "legacy"),
     ]
 
@@ -188,7 +188,7 @@ def test_failure_reminder_names_failures_and_says_output_is_data():
 
 
 def test_failure_reminder_describes_a_timeout_as_such():
-    text = failure_reminder([CheckResult("make slow", 124, "")], [], rounds_left=1)
+    text = failure_reminder([CheckResult("make slow", 124, "", timed_out=True)], [], rounds_left=1)
 
     assert "make slow: timed out after 10 minutes" in text
     assert "exit code 124" not in text
@@ -240,3 +240,21 @@ def test_replace_report_section_swaps_the_previous_report():
 
 def test_replace_report_section_leaves_a_description_without_one_alone():
     assert replace_report_section("Written by a person", "### Verification") == "Written by a person"
+
+
+def test_replace_report_section_swaps_a_report_whose_output_holds_the_end_marker():
+    old = render_report(_outcome("failed", [_command(exit_code=1, output_tail="<!-- /daiv:verification -->\nE boom")]))
+    description = f"Summary\n\n{report_section(old)}\n\n---\nfooter"
+
+    updated = replace_report_section(description, "### Verification\n\n- `make test` passed")
+
+    assert updated == f"Summary\n\n{report_section('### Verification\n\n- `make test` passed')}\n\n---\nfooter"
+
+
+def test_render_report_caps_the_output_it_embeds():
+    commands = [_command(f"make check-{n}", exit_code=1, output_tail="z" * 4_000) for n in range(20)]
+
+    report = render_report(_outcome("failed", commands))
+
+    assert report.count("z") == 24_000
+    assert all(f"`make check-{n}` failed" in report for n in range(20))

@@ -429,9 +429,9 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             runtime.context, self._workspace, settings=self._settings, session_links=self._session_links
         )
         verification = state.get("verification")
-        if verification is not None and self._recheck is not None:
-            verification = await self._recheck(verification)
         try:
+            if verification is not None and self._recheck is not None:
+                verification = await self._recheck(verification)
             outcome = await publisher.publish(
                 merge_request=self._publish_target(state, runtime),
                 skip_ci=self.skip_ci,
@@ -452,7 +452,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             await self._emit_publish_result(publish_result_payload(status="failed", error_kind=publish_error_kind(exc)))
             raise
 
-        if verification is not None and outcome.published:
+        if verification is not None:
             update["verification"] = {**verification, "reported": outcome.created_merge_request}
         if outcome.diff_stats is not None:
             update["diff_stats"] = outcome.diff_stats.model_dump()

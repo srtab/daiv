@@ -13,12 +13,13 @@ from automation.agent.verification.checks import (
     run_checks,
     run_checks_in_place,
 )
-from automation.agent.workspace.git_manager import PendingMerge, StashRestoreError
+from automation.agent.workspace.git_manager import StashRestoreError
 from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
 
 
 class FakeBash:
-    """``exit_codes`` are handed out one per command, in order; a command past their end exits 0."""
+    """``exit_codes`` are handed out one per command, in order, 124 as a sandbox timeout; a command past their end exits
+    0."""
 
     def __init__(self) -> None:
         self.calls: list[tuple[list[str], int | None]] = []
@@ -32,10 +33,11 @@ class FakeBash:
             raise self.error
         if self.results is not None:
             return RunCommandsResponse(results=self.results)
+        codes = [self.exit_codes.pop(0) if self.exit_codes else 0 for _ in commands]
         return RunCommandsResponse(
             results=[
-                RunCommandResult(command=c, output="", exit_code=self.exit_codes.pop(0) if self.exit_codes else 0)
-                for c in commands
+                RunCommandResult(command=c, output="", exit_code=code, timed_out=code == 124)
+                for c, code in zip(commands, codes, strict=True)
             ]
         )
 
@@ -43,19 +45,12 @@ class FakeBash:
 class FakeGit:
     def __init__(self) -> None:
         self.stashed = True
-        self.merge: PendingMerge | None = None
         self.diffs = ["diff"]
         self.events: list[str] = []
         self.stash_error: Exception | None = None
-        self.merge_error: Exception | None = None
         self.restore_error: Exception | None = None
         self.drop_error: Exception | None = None
         self.diff_error: Exception | None = None
-
-    async def pending_merge(self):
-        if self.merge_error is not None:
-            raise self.merge_error
-        return self.merge
 
     async def stash_all(self, message: str) -> bool:
         self.events.append("stash_all")
@@ -130,8 +125,21 @@ def test_redacted_values_keeps_values_of_eight_characters_or_more():
     assert redacted_values({"SHORT": "abc1234", "TOKEN": "abcd1234", "EMPTY": ""}) == ("abcd1234",)
 
 
-def test_check_result_timed_out_on_exit_124():
-    assert CheckResult("make test", 124, "").timed_out
+@pytest.mark.parametrize(
+    ("result", "timed_out"),
+    [
+        (RunCommandResult(command="make test", output="", exit_code=124, timed_out=True), True),
+        (RunCommandResult(command="make test", output="Command timed out after 600s", exit_code=124), True),
+        (RunCommandResult(command="timeout 60 make test", output="", exit_code=124), False),
+    ],
+    ids=["sandbox-flag", "sandbox-notice", "the-commands-own-timeout"],
+)
+async def test_run_checks_tells_the_sandbox_timeout_from_the_commands_own(fake_bash, result, timed_out):
+    fake_bash.results = [result]
+
+    [check] = await run_checks(fake_bash, ["make test"])
+
+    assert check.timed_out is timed_out
 
 
 async def test_run_checks_raises_unavailable_on_transport_error(fake_bash):
@@ -158,7 +166,7 @@ async def test_run_checks_signature_ignores_counts_timings_and_addresses(fake_ba
 async def test_failing_before_change_maps_commands_failing_on_starting_code_to_their_signature(fake_bash, fake_git):
     fake_bash.results = [RunCommandResult(command="x", output="E1 broken", exit_code=1)]
 
-    found = await failing_before_change(fake_bash, fake_git, _failing("make lint"))
+    found = await failing_before_change(fake_bash, fake_git, _failing("make lint"), merging=False)
 
     assert found == {"make lint": frozenset({"E# broken"})}
     assert fake_git.events == ["stash_all", "restore_stash"]
@@ -167,7 +175,7 @@ async def test_failing_before_change_maps_commands_failing_on_starting_code_to_t
 async def test_failing_before_change_leaves_out_commands_that_pass_on_starting_code(fake_bash, fake_git):
     fake_bash.exit_codes = [1, 0]
 
-    found = await failing_before_change(fake_bash, fake_git, _failing("make lint", "make test"))
+    found = await failing_before_change(fake_bash, fake_git, _failing("make lint", "make test"), merging=False)
 
     assert set(found) == {"make lint"}
 
@@ -175,7 +183,9 @@ async def test_failing_before_change_leaves_out_commands_that_pass_on_starting_c
 async def test_failing_before_change_masks_the_values_in_the_starting_output(fake_bash, fake_git):
     fake_bash.results = [RunCommandResult(command="x", output="token s3cr3t-value", exit_code=1)]
 
-    found = await failing_before_change(fake_bash, fake_git, _failing("make test"), redact=("s3cr3t-value",))
+    found = await failing_before_change(
+        fake_bash, fake_git, _failing("make test"), merging=False, redact=("s3cr3t-value",)
+    )
 
     assert found == {"make test": frozenset({"token ******"})}
 
@@ -183,7 +193,7 @@ async def test_failing_before_change_masks_the_values_in_the_starting_output(fak
 async def test_failing_before_change_restores_tree_even_when_command_raises(fake_bash, fake_git):
     fake_bash.error = httpx.ConnectError("down")
     with pytest.raises(ChecksUnavailableError):
-        await failing_before_change(fake_bash, fake_git, _failing("make test"))
+        await failing_before_change(fake_bash, fake_git, _failing("make test"), merging=False)
     assert fake_git.events == ["stash_all", "restore_stash"]
 
 
@@ -191,40 +201,30 @@ async def test_failing_before_change_is_unavailable_when_the_changes_cannot_be_s
     fake_git.stash_error = GitCommandError(["git", "stash", "push"], 1, "error: could not write index")
 
     with pytest.raises(ChecksUnavailableError):
-        await failing_before_change(fake_bash, fake_git, _failing("make test"))
+        await failing_before_change(fake_bash, fake_git, _failing("make test"), merging=False)
 
     assert fake_git.events == ["stash_all"]
     assert fake_bash.calls == []
-
-
-async def test_failing_before_change_is_unavailable_when_the_tree_cannot_be_read(fake_bash, fake_git):
-    fake_git.merge_error = httpx.ReadTimeout("timed out")
-
-    with pytest.raises(ChecksUnavailableError):
-        await failing_before_change(fake_bash, fake_git, _failing("make test"))
-
-    assert fake_git.events == []
 
 
 async def test_failing_before_change_propagates_a_failed_restore(fake_bash, fake_git):
     fake_git.restore_error = StashRestoreError()
 
     with pytest.raises(StashRestoreError):
-        await failing_before_change(fake_bash, fake_git, _failing("make test"))
+        await failing_before_change(fake_bash, fake_git, _failing("make test"), merging=False)
 
     assert fake_git.events == ["stash_all", "restore_stash"]
 
 
 async def test_failing_before_change_skips_pending_merge(fake_bash, fake_git):
-    fake_git.merge = PendingMerge(head="a" * 40, branch=None, unmerged_paths=(), conflicted_paths=())
-    assert await failing_before_change(fake_bash, fake_git, _failing("make test")) == {}
+    assert await failing_before_change(fake_bash, fake_git, _failing("make test"), merging=True) == {}
     assert fake_git.events == []
     assert fake_bash.calls == []
 
 
 async def test_failing_before_change_uses_the_current_output_when_nothing_was_stashed(fake_bash, fake_git):
     fake_git.stashed = False
-    assert await failing_before_change(fake_bash, fake_git, _failing("make test")) == {
+    assert await failing_before_change(fake_bash, fake_git, _failing("make test"), merging=False) == {
         "make test": frozenset({"make test now"})
     }
     assert fake_git.events == ["stash_all"]
@@ -244,7 +244,7 @@ LOCK_DIFF = "diff --git a/uv.lock b/uv.lock\n+v2\n"
 async def test_run_checks_in_place_drops_the_saved_tree_when_the_checks_change_nothing(fake_bash, fake_git):
     fake_git.diffs = [AGENT_DIFF]
 
-    run = await run_checks_in_place(fake_bash, fake_git, ["make test"], before=AGENT_DIFF)
+    run = await run_checks_in_place(fake_bash, fake_git, ["make test"], before=AGENT_DIFF, merging=False)
 
     assert [result.command for result in run.results] == ["make test"]
     assert (run.changed_by_checks, run.fingerprint) == ([], diff_fingerprint(AGENT_DIFF))
@@ -254,17 +254,16 @@ async def test_run_checks_in_place_drops_the_saved_tree_when_the_checks_change_n
 async def test_run_checks_in_place_puts_back_what_the_checks_changed(fake_bash, fake_git):
     fake_git.diffs = [AGENT_DIFF + LOCK_DIFF]
 
-    run = await run_checks_in_place(fake_bash, fake_git, ["make test"], before=AGENT_DIFF)
+    run = await run_checks_in_place(fake_bash, fake_git, ["make test"], before=AGENT_DIFF, merging=False)
 
     assert (run.changed_by_checks, run.fingerprint) == (["uv.lock"], diff_fingerprint(AGENT_DIFF))
     assert fake_git.events == ["save_tree", "restore_stash"]
 
 
 async def test_run_checks_in_place_keeps_what_the_checks_changed_during_a_merge(fake_bash, fake_git):
-    fake_git.merge = PendingMerge(head="a" * 40, branch=None, unmerged_paths=(), conflicted_paths=())
     fake_git.diffs = [AGENT_DIFF + LOCK_DIFF]
 
-    run = await run_checks_in_place(fake_bash, fake_git, ["make test"], before=AGENT_DIFF)
+    run = await run_checks_in_place(fake_bash, fake_git, ["make test"], before=AGENT_DIFF, merging=True)
 
     assert (run.changed_by_checks, run.fingerprint) == (["uv.lock"], diff_fingerprint(AGENT_DIFF + LOCK_DIFF))
     assert fake_git.events == []
@@ -274,7 +273,7 @@ async def test_run_checks_in_place_tolerates_a_failed_drop(fake_bash, fake_git):
     fake_git.diffs = [AGENT_DIFF]
     fake_git.drop_error = GitCommandError(["git", "stash", "drop"], 1, "error")
 
-    run = await run_checks_in_place(fake_bash, fake_git, ["make test"], before=AGENT_DIFF)
+    run = await run_checks_in_place(fake_bash, fake_git, ["make test"], before=AGENT_DIFF, merging=False)
 
     assert run.changed_by_checks == []
 
@@ -283,7 +282,7 @@ async def test_run_checks_in_place_is_unavailable_when_the_tree_cannot_be_saved(
     fake_git.stash_error = GitCommandError(["git", "stash", "push"], 1, "error: could not write index")
 
     with pytest.raises(ChecksUnavailableError):
-        await run_checks_in_place(fake_bash, fake_git, ["make test"], before=AGENT_DIFF)
+        await run_checks_in_place(fake_bash, fake_git, ["make test"], before=AGENT_DIFF, merging=False)
 
     assert fake_bash.calls == []
 
@@ -292,7 +291,7 @@ async def test_run_checks_in_place_puts_the_tree_back_when_the_checks_cannot_run
     fake_bash.error = httpx.ConnectError("down")
 
     with pytest.raises(ChecksUnavailableError):
-        await run_checks_in_place(fake_bash, fake_git, ["make test"], before=AGENT_DIFF)
+        await run_checks_in_place(fake_bash, fake_git, ["make test"], before=AGENT_DIFF, merging=False)
 
     assert fake_git.events == ["save_tree", "restore_stash"]
 
@@ -301,7 +300,7 @@ async def test_run_checks_in_place_is_unavailable_when_the_tree_cannot_be_read_a
     fake_git.diff_error = httpx.ReadTimeout("timed out")
 
     with pytest.raises(ChecksUnavailableError) as raised:
-        await run_checks_in_place(fake_bash, fake_git, ["make test"], before=AGENT_DIFF)
+        await run_checks_in_place(fake_bash, fake_git, ["make test"], before=AGENT_DIFF, merging=False)
 
     assert str(raised.value) == "the repository could not be read to run the checks"
     assert fake_git.events == ["save_tree", "restore_stash"]

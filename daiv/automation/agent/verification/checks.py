@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
     from automation.agent.workspace.git_manager import GitManager
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
+    from core.sandbox.schemas import RunCommandResult
 
 logger = logging.getLogger("daiv.agent")
 
@@ -41,14 +42,12 @@ class CheckResult:
     signature: frozenset[str] = field(default=frozenset(), compare=False, repr=False)
     """A failing run's output lines with addresses, counts and timings masked, so two runs that fail alike compare
     equal; empty for a passing run."""
+    timed_out: bool = False
+    """Whether the sandbox cut the command off; exit 124 from the command itself (``timeout 60 make``) is not."""
 
     @property
     def passed(self) -> bool:
         return self.exit_code == 0
-
-    @property
-    def timed_out(self) -> bool:
-        return self.exit_code == SANDBOX_TIMEOUT_EXIT_CODE
 
 
 @dataclass(frozen=True)
@@ -104,21 +103,38 @@ async def _run_check(bash: SandboxFileBackend, command: str, redact: Sequence[st
         exit_code=result.exit_code,
         output_tail=output[-OUTPUT_TAIL_CHARS:],
         signature=_signature(output) if result.exit_code else frozenset(),
+        timed_out=_timed_out(result),
+    )
+
+
+def _timed_out(result: RunCommandResult) -> bool:
+    if result.timed_out:
+        return True
+    # daiv-sandbox 0.5.0 sets no ``timed_out``; its bare notice is recognised by its text.
+    return (
+        result.exit_code == SANDBOX_TIMEOUT_EXIT_CODE
+        and result.output == f"Command timed out after {CHECK_TIMEOUT_SECONDS}s"
     )
 
 
 async def run_checks_in_place(
-    bash: SandboxFileBackend, git: GitManager, commands: Sequence[str], *, before: str, redact: Sequence[str] = ()
+    bash: SandboxFileBackend,
+    git: GitManager,
+    commands: Sequence[str],
+    *,
+    before: str,
+    merging: bool,
+    redact: Sequence[str] = (),
 ) -> CheckRun:
     """Run the checks on the tree whose diff is ``before``, then put back the files they changed so none of it is
     published.
 
-    The tree is saved in the stash first, which a merge in progress would not survive, so during a merge what the
-    checks changed stays. Failing to save the tree or to read it afterwards raises ``ChecksUnavailableError``; failing
-    to put it back raises ``StashRestoreError``.
+    The tree is saved in the stash first, which a merge in progress (``merging``) would not survive, so during a merge
+    what the checks changed stays. Failing to save the tree or to read it afterwards raises ``ChecksUnavailableError``;
+    failing to put it back raises ``StashRestoreError``.
     """
     try:
-        saved = await git.pending_merge() is None and await git.save_tree(_STASH_MESSAGE)
+        saved = not merging and await git.save_tree(_STASH_MESSAGE)
     except GIT_ERRORS as exc:
         raise ChecksUnavailableError("could not set the changes aside to run the checks") from exc
     try:
@@ -144,17 +160,22 @@ async def run_checks_in_place(
 
 
 async def failing_before_change(
-    bash: SandboxFileBackend, git: GitManager, failing: Sequence[CheckResult], *, redact: Sequence[str] = ()
+    bash: SandboxFileBackend,
+    git: GitManager,
+    failing: Sequence[CheckResult],
+    *,
+    merging: bool,
+    redact: Sequence[str] = (),
 ) -> dict[str, frozenset[str]]:
     """The ``failing`` commands that already fail on the starting code, found by stashing the agent's changes and
-    running them, each mapped to the signature of its output there.
+    running them, each mapped to the signature of its output there; none during a merge in progress (``merging``).
 
     Failing to set the changes aside leaves the tree as it was, so it is reported as the checks being unavailable;
     failing to restore them raises ``StashRestoreError``.
     """
+    if merging:
+        return {}
     try:
-        if await git.pending_merge() is not None:
-            return {}
         stashed = await git.stash_all(_STASH_MESSAGE)
     except GIT_ERRORS as exc:
         raise ChecksUnavailableError("could not set the changes aside to re-check the starting code") from exc

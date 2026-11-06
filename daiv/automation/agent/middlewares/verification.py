@@ -10,6 +10,7 @@ from langgraph.types import Command
 
 from automation.agent.middlewares.reminders import call_with_reminder
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME
+from automation.agent.questions import delivered_question_call
 from automation.agent.verification.checks import (
     MAX_FIX_ROUNDS,
     UNREADABLE,
@@ -43,6 +44,19 @@ logger = logging.getLogger("daiv.agent")
 
 class VerificationState(AgentState):
     verification: NotRequired[VerificationOutcome | None]
+
+
+class VerificationResetMiddleware(AgentMiddleware):
+    """Start every run with no verification outcome, so a run never reports the previous run's checks.
+
+    Registered ahead of every ``before_agent`` hook that can jump to the end (a slash command), which would skip a
+    reset placed later, and whether or not the run is verified, so turning verification off leaves no stale outcome.
+    """
+
+    state_schema = VerificationState
+
+    async def abefore_agent(self, state: AgentState, runtime: Runtime[Any]) -> dict[str, Any]:
+        return {"verification": None}
 
 
 def _before_publishing_section(commands: Sequence[str]) -> str:
@@ -111,8 +125,8 @@ class VerificationMiddleware(AgentMiddleware):
     and any file the checks changed, go back to the agent as a reminder, for at most ``MAX_FIX_ROUNDS`` rounds; a stop
     on the tree a reminder was sent for records the failure without another round. Without commands, the agent gets
     one reminder when the tree changed after the last check it ran through bash, or that check failed. No reminder is
-    sent once the step budget is finalizing or ``LoopBreakerMiddleware`` has ended the run: the outcome is still
-    recorded.
+    sent once the step budget is finalizing, ``LoopBreakerMiddleware`` has ended the run or the run ends on a question
+    ``AskUserQuestionMiddleware`` delivered, which therefore sits inside this one: the outcome is still recorded.
 
     The outcome is recorded in the ``verification`` state key for the publish and the run executor, and ``recheck``
     judges it again when the tree changed before publishing. Like ``LoopBreakerMiddleware`` this lives in
@@ -152,9 +166,6 @@ class VerificationMiddleware(AgentMiddleware):
         self._step_budget = step_budget
         self._loop_breaker = loop_breaker
         self._redact = redact
-        self._reset()
-
-    def _reset(self) -> None:
         self._rounds = 0
         self._starting: dict[str, frozenset[str] | None] = {}
         self._runs: dict[str, CheckRun] = {}
@@ -162,11 +173,6 @@ class VerificationMiddleware(AgentMiddleware):
         self._agent_check: _AgentCheck | None = None
         self._fallback_sent = False
         self._error: Exception | None = None
-
-    async def abefore_agent(self, state: AgentState, runtime: Runtime[Any]) -> dict[str, Any]:
-        """Start the run with no outcome, so a follow-up turn never reports the previous turn's checks."""
-        self._reset()
-        return {"verification": None}
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
@@ -178,9 +184,10 @@ class VerificationMiddleware(AgentMiddleware):
                 system_prompt=f"{request.system_prompt}\n\n{_before_publishing_section(self._commands)}"
             )
         response = await handler(request)
+        asked = delivered_question_call(request.messages) is not None
         while _stopped(response.result):
             try:
-                verdict = await self._verdict()
+                verdict = await self._verdict(may_remind=not asked and self._may_remind())
             except Exception as exc:
                 self._error = exc
                 raise
@@ -222,7 +229,8 @@ class VerificationMiddleware(AgentMiddleware):
             before = await git.get_diff()
             if diff_fingerprint(before) == outcome.get("fingerprint"):
                 return outcome
-            verdict = await self._verify(await git.get_changed_files(), before, may_remind=False)
+            merging = await git.pending_merge() is not None
+            verdict = await self._verify(await git.get_changed_files(), before, merging=merging, may_remind=False)
         except GIT_ERRORS:
             logger.exception("Re-checking the tree before publishing failed; publishing it as not verified")
             return VerificationOutcome(
@@ -256,12 +264,13 @@ class VerificationMiddleware(AgentMiddleware):
             return
         self._agent_check = _AgentCheck(finding, tree)
 
-    async def _verdict(self) -> _Verdict | None:
+    async def _verdict(self, *, may_remind: bool) -> _Verdict | None:
         """What the agent's stop comes to, or ``None`` when it leaves nothing to publish."""
         git = self._workspace.git
         try:
             changed = await git.get_changed_files()
-            if not changed and await git.pending_merge() is None:
+            merge = await git.pending_merge() if self._commands or not changed else None
+            if not changed and merge is None:
                 return None
             before = await git.get_diff()
         except GIT_ERRORS:
@@ -270,21 +279,21 @@ class VerificationMiddleware(AgentMiddleware):
                 return _Verdict(_outcome("not_configured", commands=[], changed=[], rounds=0))
             return self._not_verified([], UNREADABLE)
         if self._commands:
-            return await self._verify(changed, before, may_remind=self._may_remind())
-        return self._fallback(changed, diff_fingerprint(before))
+            return await self._verify(changed, before, merging=merge is not None, may_remind=may_remind)
+        return self._fallback(changed, diff_fingerprint(before), may_remind=may_remind)
 
     def _not_verified(self, changed: Sequence[str], reason: str) -> _Verdict:
         return _Verdict(_outcome("not_verified", commands=[], changed=changed, rounds=self._rounds, reason=reason))
 
-    async def _verify(self, changed: Sequence[str], before: str, *, may_remind: bool) -> _Verdict:
+    async def _verify(self, changed: Sequence[str], before: str, *, merging: bool, may_remind: bool) -> _Verdict:
         tree = diff_fingerprint(before)
         try:
             run = self._runs.get(tree)
             if run is None:
                 run = self._runs[tree] = await run_checks_in_place(
-                    self._bash, self._workspace.git, self._commands, before=before, redact=self._redact
+                    self._bash, self._workspace.git, self._commands, before=before, merging=merging, redact=self._redact
                 )
-            baseline = await self._baseline([result for result in run.results if not result.passed])
+            baseline = await self._baseline([result for result in run.results if not result.passed], merging=merging)
         except ChecksUnavailableError as exc:
             logger.warning("Could not run the before_publish checks: %s", exc, exc_info=True)
             return self._not_verified(changed, str(exc))
@@ -317,22 +326,24 @@ class VerificationMiddleware(AgentMiddleware):
         )
         return _Verdict(outcome, reminder, tree)
 
-    async def _baseline(self, failing: Sequence[CheckResult]) -> dict[str, frozenset[str]]:
+    async def _baseline(self, failing: Sequence[CheckResult], *, merging: bool) -> dict[str, frozenset[str]]:
         """The ``failing`` commands that also fail on the starting code, each with its output signature there,
         re-checking each command at most once per run."""
         unchecked = [result for result in failing if result.command not in self._starting]
         if unchecked:
-            found = await failing_before_change(self._bash, self._workspace.git, unchecked, redact=self._redact)
+            found = await failing_before_change(
+                self._bash, self._workspace.git, unchecked, merging=merging, redact=self._redact
+            )
             self._starting.update({result.command: found.get(result.command) for result in unchecked})
         return {
             result.command: signature for result in failing if (signature := self._starting[result.command]) is not None
         }
 
-    def _fallback(self, changed: list[str], tree: str) -> _Verdict:
+    def _fallback(self, changed: list[str], tree: str, *, may_remind: bool) -> _Verdict:
         """The ``not_configured`` outcome, and the run's one reminder when no passing check ran on this tree."""
         check = self._agent_check
         finding = check.finding if check is not None and check.tree == tree else FallbackFinding("not_run")
         reminder = None
-        if finding.verdict != "checked" and not self._fallback_sent and self._may_remind():
+        if finding.verdict != "checked" and not self._fallback_sent and may_remind:
             reminder = fallback_reminder(finding, changed)
         return _Verdict(_outcome("not_configured", commands=[], changed=changed, rounds=0), reminder)

@@ -17,7 +17,10 @@ SUSPICIOUS_PATHS_LINE = "Changed test, lint, CI or DAIV configuration files — 
 _TIMED_OUT = f"timed out after {CHECK_TIMEOUT_SECONDS // 60} minutes"
 _REPORT_START = "<!-- daiv:verification -->"
 _REPORT_END = "<!-- /daiv:verification -->"
-_REPORT_SECTION = re.compile(f"{re.escape(_REPORT_START)}.*?{re.escape(_REPORT_END)}", re.DOTALL)
+# Greedy: a check's output inside the section can itself hold the end marker.
+_REPORT_SECTION = re.compile(f"{re.escape(_REPORT_START)}.*{re.escape(_REPORT_END)}", re.DOTALL)
+# Keeps a report with many failing commands well under GitHub's 65,536-character PR body limit.
+_REPORT_OUTPUT_CHARS = 24_000
 
 
 class CommandOutcome(TypedDict):
@@ -81,8 +84,8 @@ def _bullet(command: CommandOutcome) -> str:
     return f"- {span} failed (exit {command['exit_code']})"
 
 
-def _output_block(command: CommandOutcome) -> str | None:
-    tail = command.get("output_tail")
+def _output_block(command: CommandOutcome, max_chars: int) -> str | None:
+    tail = command.get("output_tail", "")[-max_chars:]
     if not tail:
         return None
     fence = "`" * max(3, _longest_backtick_run(tail) + 1)
@@ -106,11 +109,13 @@ def render_report(outcome: VerificationOutcome, *, new_merge_request: bool = Tru
 
     lines = ["### Verification", ""]
     after_block = False
+    with_output = sum(1 for command in outcome["commands"] if command.get("output_tail"))
+    max_chars = _REPORT_OUTPUT_CHARS // max(with_output, 1)
     for command in outcome["commands"]:
         if after_block:
             lines.append("")
         lines.append(_bullet(command))
-        block = _output_block(command)
+        block = _output_block(command, max_chars)
         if block is not None:
             lines += ["", block]
         after_block = block is not None
@@ -135,10 +140,14 @@ def replace_report_section(description: str, report: str) -> str:
     return _REPORT_SECTION.sub(lambda _: report_section(report), description, count=1)
 
 
+def escape_tags(text: str) -> str:
+    """``text`` with its angle brackets escaped, so nothing in it reads as a tag of the reminder around it."""
+    return text.replace("<", "&lt;").replace(">", "&gt;")
+
+
 def _check_output(result: CheckResult) -> str:
     command = escape(result.command, quote=True)
-    tail = result.output_tail.replace("<", "&lt;").replace(">", "&gt;")
-    return f'<check-output command="{command}">\n{tail}\n</check-output>'
+    return f'<check-output command="{command}">\n{escape_tags(result.output_tail)}\n</check-output>'
 
 
 def failure_reminder(

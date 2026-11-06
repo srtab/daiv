@@ -17,6 +17,7 @@ from automation.agent.constants import REPO_PATH
 from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.middlewares.verification import VerificationMiddleware
+from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME, QUESTION_DELIVERED
 from automation.agent.synthetic import is_synthetic
 from automation.agent.verification.checks import diff_fingerprint
 from automation.agent.workspace.git_manager import StashRestoreError
@@ -715,17 +716,16 @@ async def test_recheck_records_not_verified_when_the_tree_cannot_be_read():
     assert updated["suspicious_paths"] == ["tests/test_a.py"]
 
 
-async def test_abefore_agent_resets_previous_outcome():
+@pytest.mark.parametrize(("commands", "status"), [(("make test",), "failed"), ((), "not_configured")])
+async def test_a_delivered_question_records_the_outcome_without_a_reminder(commands, status):
     repo = FakeRepo(failing={"make test"})
-    middleware = _middleware(repo)
-    handler, _ = _scripted(_final(), _final())
-    assert _outcome(await middleware.awrap_model_call(_request(), handler))["status"] == "failed"
+    ask = AIMessage(content="", tool_calls=[{"name": ASK_USER_QUESTION_TOOL_NAME, "args": {}, "id": "q1"}])
+    delivered = ToolMessage(content=QUESTION_DELIVERED, tool_call_id="q1", name=ASK_USER_QUESTION_TOOL_NAME)
+    handler, seen = _scripted(_final("Which one?"))
 
-    assert await middleware.abefore_agent({}, Mock()) == {"verification": None}
+    result = await _middleware(repo, commands).awrap_model_call(
+        _request([HumanMessage(content="task"), ask, delivered]), handler
+    )
 
-    repo.failing = set()
-    handler, _ = _scripted(_final())
-    outcome = _outcome(await middleware.awrap_model_call(_request(), handler))
-    assert outcome["status"] == "passed"
-    assert outcome["rounds"] == 0
-    assert repo.check_runs == 2
+    assert _outcome(result)["status"] == status
+    assert len(seen) == 1

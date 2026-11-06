@@ -14,11 +14,12 @@ from automation.agent import graph as graph_module
 from automation.agent import subagents as subagents_module
 from automation.agent.agent_settings import RunOverrides
 from automation.agent.graph import create_daiv_agent
+from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
 from automation.agent.middlewares.delegate_jobs import DelegateJobsMiddleware
 from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.memory import RepositoryMemoryMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
-from automation.agent.middlewares.verification import VerificationMiddleware
+from automation.agent.middlewares.verification import VerificationMiddleware, VerificationResetMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from codebase.repo_config import RepositoryConfig
@@ -345,13 +346,24 @@ async def test_loop_breaker_registered_before_prompt_caching():
     assert built.middleware.index(breaker) < built.middleware.index(built.caching)
 
 
-async def test_verification_middleware_sits_before_loop_breaker():
+async def test_verification_middleware_wraps_ask_user_and_the_loop_breaker():
     built = await _construct(bash=True, auto_commit_changes=True)
 
     [verification] = _verification(built.middleware)
-    breaker = built.middleware[built.middleware.index(verification) + 1]
-    assert isinstance(breaker, LoopBreakerMiddleware)
+    [ask_user] = [m for m in built.middleware if isinstance(m, AskUserQuestionMiddleware)]
+    [breaker] = [m for m in built.middleware if isinstance(m, LoopBreakerMiddleware)]
+    index = built.middleware.index
+    assert index(verification) < index(ask_user) < index(breaker)
     assert verification._loop_breaker is breaker
+
+
+@pytest.mark.parametrize("bash", [True, False])
+async def test_the_verification_reset_runs_before_slash_commands_can_jump(bash):
+    built = await _construct(bash=bash, auto_commit_changes=True, slash_commands=True)
+
+    [reset] = [m for m in built.middleware if isinstance(m, VerificationResetMiddleware)]
+    [slash] = [m for m in built.middleware if isinstance(m, SlashCommandMiddleware)]
+    assert built.middleware.index(reset) < built.middleware.index(slash)
 
 
 async def test_verification_middleware_absent_without_bash():

@@ -394,7 +394,7 @@ class TestGitMiddleware:
             "fingerprint": fingerprint,
         }
 
-    async def _publish_with(self, verification, *, created=False, recheck=None):
+    async def _publish_with(self, verification, *, created=False, recheck=None, published=True):
         mw = GitMiddleware(settings=SETTINGS, auto_commit_changes=True, workspace=FakeWorkspace(), recheck=recheck)
         runtime = _make_runtime(scope=Scope.GLOBAL)
         state = {"merge_request": None}
@@ -403,7 +403,7 @@ class TestGitMiddleware:
         with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
             pub = pub_cls.return_value
             pub.publish = AsyncMock(
-                return_value=PublishOutcome(merge_request=_mr(), published=True, created_merge_request=created)
+                return_value=PublishOutcome(merge_request=_mr(), published=published, created_merge_request=created)
             )
             result = await mw.aafter_agent(state, runtime)
         return pub.publish.await_args.kwargs, result
@@ -445,11 +445,25 @@ class TestGitMiddleware:
         assert kwargs["as_draft"] is True
         assert result["verification"]["status"] == "failed"
 
-    async def test_after_agent_raises_when_the_recheck_cannot_restore_the_tree(self):
+    async def test_after_agent_keeps_the_rechecked_outcome_when_nothing_was_published(self):
+        recheck = AsyncMock(return_value=self._verification("failed"))
+
+        _, result = await self._publish_with(
+            self._verification("passed", fingerprint="stale"), recheck=recheck, published=False
+        )
+
+        assert result["verification"]["status"] == "failed"
+        assert result["verification"]["reported"] is False
+
+    async def test_after_agent_emits_failed_then_raises_when_the_recheck_cannot_restore_the_tree(self, dispatched):
         recheck = AsyncMock(side_effect=StashRestoreError())
 
         with pytest.raises(StashRestoreError):
             await self._publish_with(self._verification("passed", fingerprint="stale"), recheck=recheck)
+
+        dispatched.assert_awaited_once_with(
+            PUBLISH_RESULT_EVENT, publish_result_payload(status="failed", error_kind="unknown")
+        )
 
     async def test_after_agent_does_not_recheck_without_verification(self):
         kwargs, _ = await self._publish_with(self._verification("passed", fingerprint="stale"))
