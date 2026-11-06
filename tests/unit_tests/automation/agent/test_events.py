@@ -9,7 +9,9 @@ from automation.agent.events import (
     publish_result_payload,
     published_outcome_payload,
     record_publish_result,
+    repo_publish_payload,
 )
+from automation.agent.git_state import RepoPublish
 from automation.agent.publishers import PublishOutcome
 from automation.agent.usage_tracking import ResolvedWindow
 from codebase.base import MergeRequestDiffStats
@@ -87,6 +89,9 @@ def test_the_publish_result_payload_carries_the_merge_request_and_stats():
     assert payload == {
         "status": "opened",
         "pushed_sha": "e96f1f77",
+        "repository": "",
+        "sibling": False,
+        "merge_request_title": "Test MR",
         "merge_request_iid": 42,
         "merge_request_web_url": "https://example.com/owner/repo/-/merge_requests/42",
         "files_changed": 3,
@@ -100,6 +105,9 @@ def test_the_publish_result_payload_defaults_absent_values_to_none():
     assert publish_result_payload(status="failed", error_kind="push_rejected") == {
         "status": "failed",
         "pushed_sha": None,
+        "repository": "",
+        "sibling": False,
+        "merge_request_title": None,
         "merge_request_iid": None,
         "merge_request_web_url": None,
         "files_changed": None,
@@ -144,3 +152,53 @@ async def test_the_recorder_holds_nothing_when_no_publish_result_was_dispatched(
         await _dispatch((CONTEXT_USAGE_EVENT, {}))
 
     assert recorder.payload is None
+
+
+MR_101 = make_merge_request(merge_request_id=101, title="Add the thing")
+
+
+@pytest.mark.parametrize(
+    ("publish", "expected"),
+    [
+        (
+            RepoPublish("srtab/daiv", MR_101, True, "b", created_merge_request=True),
+            {"status": "opened", "merge_request_iid": 101},
+        ),
+        (RepoPublish("srtab/daiv", MR_101, True, "b"), {"status": "pushed", "merge_request_iid": 101}),
+        (RepoPublish("srtab/daiv", None, True, "b"), {"status": "pushed", "error_kind": "mr_pending"}),
+        (
+            RepoPublish("srtab/daiv", None, False, "b", error="x", error_kind="push_rejected"),
+            {"status": "failed", "error_kind": "push_rejected"},
+        ),
+        (
+            RepoPublish("srtab/daiv", None, False, "b", error="x", error_kind="conflicts"),
+            {"status": "not_published", "error_kind": "conflicts"},
+        ),
+        (RepoPublish("srtab/daiv", None, False, "b", error="x"), {"status": "failed", "error_kind": "unknown"}),
+    ],
+)
+def test_repo_publish_payload(publish, expected):
+    payload = repo_publish_payload(publish)
+
+    assert payload["repository"] == "srtab/daiv"
+    assert payload["sibling"] is True
+    assert payload.items() >= expected.items()
+
+
+def test_repo_publish_payload_is_none_when_nothing_was_published():
+    assert repo_publish_payload(RepoPublish("srtab/daiv", MR_101, False, "b")) is None
+
+
+def test_the_publish_result_payload_carries_the_merge_request_title():
+    assert publish_result_payload(status="opened", merge_request=MR_101)["merge_request_title"] == MR_101.title
+
+
+async def test_the_recorder_keeps_the_main_repository_payload_over_a_later_sibling():
+    main = publish_result_payload(status="opened", merge_request=MR_101)
+    sibling = repo_publish_payload(RepoPublish("srtab/other", None, True, "b"))
+
+    with record_publish_result() as recorder:
+        await _dispatch((PUBLISH_RESULT_EVENT, main), (PUBLISH_RESULT_EVENT, sibling))
+
+    assert recorder.payload == main
+    assert recorder.payload["sibling"] is False

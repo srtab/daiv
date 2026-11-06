@@ -768,7 +768,7 @@ def test_the_run_blocks_get_the_mcp_server_rows():
     assert seen == catalog
 
 
-MR = SimpleNamespace(merge_request_id=7, web_url="https://git.example/mr/7")
+MR = SimpleNamespace(merge_request_id=7, title="Add it", web_url="https://git.example/mr/7")
 STATS = SimpleNamespace(files_changed=3, lines_added=48, lines_removed=12)
 PUBLISHING = [user("u1"), asst("a1", text("Done."), streaming=True)]
 

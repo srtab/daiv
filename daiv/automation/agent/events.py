@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator, Mapping
     from uuid import UUID
 
+    from automation.agent.git_state import RepoPublish
     from automation.agent.publishers import PublishOutcome
     from automation.agent.usage_tracking import ResolvedWindow
     from codebase.base import MergeRequest, MergeRequestDiffStats
@@ -103,6 +104,8 @@ PUBLISH_RESULT_EVENT = "daiv_publish_result"
 def publish_result_payload(
     *,
     status: str,
+    repository: str = "",
+    sibling: bool = False,
     merge_request: MergeRequest | None = None,
     diff_stats: MergeRequestDiffStats | None = None,
     error_kind: str | None = None,
@@ -112,6 +115,9 @@ def publish_result_payload(
     return {
         "status": status,
         "pushed_sha": pushed_sha or None,
+        "repository": repository,
+        "sibling": sibling,
+        "merge_request_title": merge_request.title if merge_request else None,
         "merge_request_iid": merge_request.merge_request_id if merge_request else None,
         "merge_request_web_url": merge_request.web_url if merge_request else None,
         "files_changed": diff_stats.files_changed if diff_stats else None,
@@ -121,22 +127,53 @@ def publish_result_payload(
     }
 
 
-def published_outcome_payload(outcome: PublishOutcome) -> dict[str, Any]:
+def published_outcome_payload(outcome: PublishOutcome, *, repository: str = "") -> dict[str, Any]:
     """The :func:`publish_result_payload` of a publish that pushed ``outcome``."""
     if outcome.merge_request is None:
         return publish_result_payload(
-            status="pushed", diff_stats=outcome.diff_stats, error_kind="mr_pending", pushed_sha=outcome.pushed_sha
+            status="pushed",
+            repository=repository,
+            diff_stats=outcome.diff_stats,
+            error_kind="mr_pending",
+            pushed_sha=outcome.pushed_sha,
         )
     return publish_result_payload(
         status="opened" if outcome.created_merge_request else "pushed",
+        repository=repository,
         merge_request=outcome.merge_request,
         diff_stats=outcome.diff_stats,
         pushed_sha=outcome.pushed_sha,
     )
 
 
+def repo_publish_payload(publish: RepoPublish) -> dict[str, Any] | None:
+    """The sibling :func:`publish_result_payload` of an extra repository's publish, or ``None`` when it has nothing
+    to report."""
+
+    def sibling(status: str, *, error_kind: str | None = None, merge_request: MergeRequest | None = None):
+        return publish_result_payload(
+            status=status,
+            repository=publish.repo_id,
+            sibling=True,
+            merge_request=merge_request,
+            diff_stats=publish.diff_stats,
+            error_kind=error_kind,
+            pushed_sha=publish.pushed_sha,
+        )
+
+    if publish.error_kind == "conflicts":
+        return sibling("not_published", error_kind="conflicts")
+    if publish.error:
+        return sibling("failed", error_kind=publish.error_kind or "unknown")
+    if not publish.published:
+        return None
+    if publish.merge_request is None:
+        return sibling("pushed", error_kind="mr_pending")
+    return sibling("opened" if publish.created_merge_request else "pushed", merge_request=publish.merge_request)
+
+
 class PublishResultRecorder(BaseCallbackHandler):
-    """Keeps the last :data:`PUBLISH_RESULT_EVENT` payload dispatched while :func:`record_publish_result` is active."""
+    """Keeps the last main-repository :data:`PUBLISH_RESULT_EVENT` payload dispatched in the active recording block."""
 
     run_inline = True
     # Custom events only: an unhandled chat-model start makes langchain stringify the whole prompt per call.
@@ -155,7 +192,7 @@ class PublishResultRecorder(BaseCallbackHandler):
         metadata: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> None:
-        if name == PUBLISH_RESULT_EVENT and isinstance(data, dict):
+        if name == PUBLISH_RESULT_EVENT and isinstance(data, dict) and not data.get("sibling"):
             self.payload = data
 
 
