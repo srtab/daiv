@@ -83,14 +83,14 @@ session list's filter; ``can_act`` adds each merge request's CI toggle.
       <a class="repo-card__mr-link" :href="row.mr_url || null" target="_blank" rel="noopener noreferrer">
         <span class="repo-card__iid" x-text="'!' + row.mr_iid"></span><span x-text="row.mr_title"></span>
       </a>
-      <span class="mr-split__draft" x-show="row.mr_draft">{% translate "Draft" %}</span>
+      <span class="draft-badge" x-show="row.mr_draft">{% translate "Draft" %}</span>
     </p>
   </template>
 
   <div class="repo-card__split" x-show="ciFor(row) || row.diff_stats">
     <template x-if="ciFor(row)">
-      <p class="repo-card__ci" :class="'mr-split__ci--' + ciFor(row).tone" data-testid="session-details-ci">
-        <span class="mr-split__ci-dot" aria-hidden="true"></span><span x-text="'{{ _("CI")|escapejs }}: ' + ciText(ciFor(row))"></span>
+      <p class="repo-card__ci" :class="'ci-tone--' + ciFor(row).tone" data-testid="session-details-ci">
+        <span class="ci-dot" aria-hidden="true"></span><span x-text="'{{ _("CI")|escapejs }}: ' + ciText(ciFor(row))"></span>
         <template x-if="ciExplanation(ciFor(row))">
           <a :href="ciExplanation(ciFor(row))">{% translate "What DAIV found" %}</a>
         </template>

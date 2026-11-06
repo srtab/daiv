@@ -1317,7 +1317,7 @@ def test_detail_hands_ci_on_the_owned_merge_requests_to_the_page(member_client, 
 def test_detail_shows_the_ci_watch_without_a_merge_request_payload(member_client, member_user):
     resp = _get_detail(member_client, _create_session(user=member_user, watch_state=WatchState.WATCHING))
 
-    assert 'x-if="watch && !thread?.merge_request"' in _topbar(resp)
+    assert 'data-testid="session-ci"' not in _topbar(resp)
     assert "ciFor(row)" in _guards(_details(resp), "session-details-ci")
 
 
@@ -1341,13 +1341,27 @@ def test_detail_has_no_ci_watch_when_off(member_client, member_user):
 
 
 @pytest.mark.django_db
-def test_detail_merge_request_menu_links_its_other_sessions(member_client, member_user):
-    session = _create_session(user=member_user)
+def test_detail_top_bar_has_no_merge_request_delegations_or_details_toggle(member_client, member_user):
+    session = _create_session(user=member_user, watch_state=WatchState.WATCHING)
+    resp = _get_detail(member_client, session, merge_request={"id": 5, "url": "", "draft": False})
+    topbar = _topbar(resp)
 
-    topbar = _topbar(_get_detail(member_client, session, merge_request={"id": 5, "url": "", "draft": True}))
+    for gone in (
+        'data-testid="session-mr"',
+        'data-testid="session-delegations"',
+        "toggleDetails()",
+        'data-testid="session-ci"',
+    ):
+        assert gone not in topbar
 
-    assert 'data-testid="session-mr"' in topbar
-    assert f"{reverse('session_list')}?repo=group/project&mr=" in topbar
+
+@pytest.mark.django_db
+def test_detail_top_bar_has_a_summary_for_narrow_screens(member_client, member_user):
+    topbar = _topbar(_get_detail(member_client, _create_session(user=member_user)))
+
+    assert 'data-testid="session-summary"' in topbar
+    assert 'x-show="!wide"' in topbar
+    assert "openDetails('repositories')" in topbar
 
 
 @pytest.mark.django_db
@@ -1517,8 +1531,8 @@ def test_detail_offers_rename_the_ci_toggle_and_archive_to_a_runner(member_clien
 
     assert 'data-testid="session-rename"' in topbar
     assert 'data-testid="session-title-input"' in topbar
-    assert 'role="menuitemcheckbox"' in topbar
-    assert "Fix CI failures" in topbar
+    assert 'role="menuitemcheckbox"' in _details(resp)
+    assert 'data-testid="session-ci-toggle"' in _details(resp)
     assert 'data-testid="session-archive"' in topbar
     assert 'data-testid="session-archive-dialog"' in html
     assert f"sessionUrl: '{reverse('api:session_update', kwargs={'thread_id': session.thread_id})}'" in html
@@ -1788,8 +1802,6 @@ def test_a_coordinator_page_has_the_delegations_button_and_details_section(membe
 
     resp = _get_detail(member_client, coordinator)
 
-    assert 'x-if="delegations"' in _topbar(resp) and 'data-testid="session-delegations"' in _topbar(resp)
-    assert "openDetails('delegations')" in _topbar(resp)
     assert 'id="session-details-delegations"' in _details(resp)
     assert _header_payload(resp)["delegations"]["failed"] == 1
 

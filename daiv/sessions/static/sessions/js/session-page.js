@@ -165,9 +165,6 @@ document.addEventListener("alpine:init", () => {
     setDetails(open) {
       this.detailsOpen = open || this.wide;
     },
-    toggleDetails() {
-      this.setDetails(!this.detailsOpen);
-    },
     selectTab(tab) {
       if (!TABS.includes(tab)) return;
       this.detailsTab = tab;
