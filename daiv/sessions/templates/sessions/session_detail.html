@@ -88,6 +88,7 @@
   {% translate "cached" as cached_word %}
   {% translate "output" as output_word %}
   {% translate "Waiting in queue" as waiting_word %}
+  {% translate "Auto · {name}" as auto_resolved_label %}
 
   <div x-data='chat({
          endpoint: "{% url 'api:completions' %}",
@@ -118,6 +119,7 @@
          initialEnvLabel: "{% if selected_sandbox_env %}{{ selected_sandbox_env.name|escapejs }}{% else %}{{ locked_env_fallback|escapejs }}{% endif %}",
          initialEnvScope: "{% if selected_sandbox_env %}{{ selected_sandbox_env.scope|escapejs }}{% endif %}",
          envAutoLabel: "{{ locked_env_fallback|escapejs }}",
+         envResolveUrl: "{% url 'session_env_resolve' %}",
          labels: {
            file: "{{ file_word|escapejs }}",
            files: "{{ files_word|escapejs }}",
@@ -139,7 +141,8 @@
            unrecorded: "{{ unrecorded_label|escapejs }}",
            cached: "{{ cached_word|escapejs }}",
            output: "{{ output_word|escapejs }}",
-           waiting: "{{ waiting_word|escapejs }}"
+           waiting: "{{ waiting_word|escapejs }}",
+           autoResolved: "{{ auto_resolved_label|escapejs }}"
          }
        })'
        @daiv:chat-repo-changed.window="applyRepoSelection($event.detail.repos)"

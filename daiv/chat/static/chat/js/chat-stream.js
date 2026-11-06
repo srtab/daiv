@@ -172,6 +172,7 @@
     cached: "cached",
     output: "output",
     waiting: "Waiting in queue",
+    autoResolved: "Auto · {name}",
   };
 
   const formatBraces = (template, values) => window.TranscriptLabels.fill(template, values);
@@ -375,7 +376,7 @@
     // Server-translated "Auto" so re-picking Auto after a real env reverts the
     // locked pill text correctly (the JS itself has no i18n surface).
     _envAutoLabel: config.envAutoLabel || "Auto",
-    // The Workspace card's env field while Auto is picked: what Auto resolves to for the main repository, or "".
+    // The Workspace card's env field label while Auto is picked: the whole "Auto · name" text, or "".
     autoEnvLabel: "",
     turns: loadInitialTurns(),
     // Server-measured diff for the work published so far, refreshed by every
@@ -386,8 +387,13 @@
     contextUsage: loadInitialContextUsage(),
     spend: loadInitialSpend(),
     draftMessage: "",
-    draftRepoId: "",
-    draftRef: "",
+    draftRepos: [],
+    get draftRepoId() {
+      return this.draftRepos[0]?.repo_id || "";
+    },
+    get draftRef() {
+      return this.draftRepos[0]?.ref || "";
+    },
     streaming: false,
     resuming: !!config.activeRunId,
     // Whether the session has a run in flight, streamed here or not; turns fetches and own runs keep it current.
@@ -472,11 +478,29 @@
     // calls `applyRepoSelection()` so the proxy assignment goes through Alpine's
     // reactivity (an `addEventListener` from inside `init()` does not).
     applyRepoSelection(repos) {
-      const first = (repos || [])[0];
-      this.draftRepoId = first?.repo_id || "";
-      this.draftRef = first?.ref || "";
-      if (this.draftRepoId) {
-        this.$nextTick(() => this.$refs.prompt?.focus());
+      const previousMain = this.draftRepoId;
+      this.draftRepos = (repos || []).map((r) => ({ repo_id: r.repo_id, ref: r.ref || "" }));
+      const main = this.draftRepoId;
+      if (main && !previousMain) {
+        const active = document.activeElement;
+        if (!active?.closest?.('[data-testid="workspace-card"]')) {
+          this.$nextTick(() => this.$refs.prompt?.focus());
+        }
+      }
+      if (main !== previousMain) this._resolveAutoEnv(main);
+    },
+
+    async _resolveAutoEnv(repoId) {
+      this.autoEnvLabel = "";
+      if (!repoId || !config.envResolveUrl) return;
+      try {
+        const resp = await fetch(`${config.envResolveUrl}?repo=${encodeURIComponent(repoId)}`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (this.draftRepoId !== repoId || !data?.name) return;
+        this.autoEnvLabel = formatBraces(this._labels.autoResolved, { name: data.name });
+      } catch {
+        // Plain "Auto" stays; sending never waits on this.
       }
     },
 
@@ -1549,6 +1573,7 @@
         || this.$root?.querySelector?.('input[name="agent_thinking_level"]')?.value
         || "";
 
+      const firstTurnRepos = !this.thread && this.draftRepos.length > 1 ? this.draftRepos.map((r) => ({ ...r })) : null;
       if (!this.thread) {
         const threadId = uuid();
         this.thread = { thread_id: threadId, repo_id: this.draftRepoId, ref: this.draftRef };
@@ -1582,6 +1607,7 @@
       const forwardedProps = {};
       if (agentModel) forwardedProps.agent_model = agentModel;
       if (agentThinkingLevel) forwardedProps.agent_thinking_level = agentThinkingLevel;
+      if (firstTurnRepos) forwardedProps.repos = firstTurnRepos;
 
       const runId = uuid();
 

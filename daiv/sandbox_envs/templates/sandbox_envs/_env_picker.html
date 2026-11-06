@@ -35,8 +35,8 @@ Parameters:
                                   renders a select-like trigger for a labelled form field (the new
                                   chat's Workspace card) over the pill's popover. Any other value renders
                                   the pill + popover, unchanged.
-- auto_label_expr (default "")  — field variant only: Alpine expression for the trigger's name while Auto
-                                  is selected (what Auto resolves to); an empty result reads "Auto".
+- auto_label_expr (default "")  — field variant only: Alpine expression for the trigger's whole label while
+                                  Auto is selected (e.g. "Auto · php-8.3"); an empty result reads "Auto".
 {% endcomment %}
 
 {% if disabled %}
@@ -164,7 +164,7 @@ Parameters:
     <button type="button"
             @click.stop="toggle()"
             :aria-expanded="open"
-            :title="pillLabel.scopeTag ? pillLabel.scopeTag + ' · ' + pillLabel.name : pillLabel.name"
+            :title="_isAutoSelected() ? ({{ auto_label_expr|default:"''" }}) || '{{ auto_label|escapejs }}' : pillLabel.scopeTag ? pillLabel.scopeTag + ' · ' + pillLabel.name : pillLabel.name"
             class="env-field">
         {% icon "sandbox" "h-3.5 w-3.5 shrink-0 text-text-faint" %}
         <span class="env-field__name" x-text="_isAutoSelected() ? ({{ auto_label_expr|default:"''" }}) || '{{ auto_label|escapejs }}' : pillLabel.name"></span>
