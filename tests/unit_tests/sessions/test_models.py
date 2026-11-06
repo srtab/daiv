@@ -555,10 +555,15 @@ def test_publish_fields_carry_the_publish_result():
         "publish_status": "opened",
         "merge_request_iid": 7,
         "merge_request_web_url": "https://git.example/mr/7",
+        "merge_request_title": "Test MR",
         "lines_added": 12,
         "lines_removed": 3,
         "files_changed": 2,
     }
+
+
+def test_publish_fields_carry_the_merge_request_title():
+    assert publish_field_updates({"status": "opened", "merge_request_title": "T"})["merge_request_title"] == "T"
 
 
 def test_publish_fields_leave_out_a_zero_figure_and_a_missing_error():

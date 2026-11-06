@@ -15,6 +15,7 @@ from asgiref.sync import sync_to_async
 from redis.exceptions import RedisError
 from redisvl.exceptions import RedisSearchError
 
+from automation.agent.events import repo_publish_payload
 from automation.agent.git_state import checkpointed_repo_publishes
 from automation.agent.session_links import SessionLinks
 from core.utils import build_absolute_url
@@ -659,6 +660,12 @@ async def _record_sibling_publishes(spec: RunSpec, run: AgentRun, publishes: Seq
             await Run.objects.filter(pk=spec.run_id).aupdate(sibling_pushed_shas=pushed_shas)
         except Exception:
             logger.exception("executor: failed to record the extra repositories' pushes for run=%s", spec.run_id)
+    payloads = [payload for payload in map(repo_publish_payload, publishes) if payload is not None]
+    if payloads and spec.run_id is not None:
+        try:
+            await Run.objects.filter(pk=spec.run_id).aupdate(repo_publishes=payloads)
+        except Exception:
+            logger.exception("executor: failed to record the extra repositories' publishes for run=%s", spec.run_id)
 
 
 async def _claim_merge_request(

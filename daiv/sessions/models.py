@@ -316,6 +316,7 @@ def publish_field_updates(publish: dict[str, Any] | None) -> dict[str, Any]:
     updates = {
         "merge_request_iid": publish.get("merge_request_iid"),
         "merge_request_web_url": publish.get("merge_request_web_url"),
+        "merge_request_title": publish.get("merge_request_title"),
         "publish_status": publish.get("status"),
         "publish_error": publish.get("error_kind"),
         "files_changed": publish.get("files_changed"),
@@ -418,6 +419,7 @@ class Run(models.Model):
     muted = models.BooleanField(_("muted"), null=True, blank=True, default=None)  # null = inherit
     merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
     merge_request_web_url = models.URLField(_("merge request URL"), max_length=500, blank=True, default="")
+    merge_request_title = models.TextField(_("merge request title"), blank=True, default="")
     sandbox_environment = models.ForeignKey(
         "sandbox_envs.SandboxEnvironment",
         on_delete=models.SET_NULL,
@@ -428,6 +430,7 @@ class Run(models.Model):
     )
     merge_requests = models.JSONField(_("merge requests"), default=list, blank=True)
     publish_errors = models.JSONField(_("publish errors"), default=list, blank=True)
+    repo_publishes = models.JSONField(_("repository publishes"), default=list, blank=True)
     sibling_pushed_shas = models.JSONField(
         _("sibling pushed commits"),
         default=list,

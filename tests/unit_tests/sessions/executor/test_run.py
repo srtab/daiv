@@ -567,7 +567,7 @@ async def test_the_claim_carries_the_sha_the_run_pushed():
     assert stack.claimed == [{"run_id": "run-1", "merge_request": MR, "pushed_sha": "e96f1f77", "repo_id": None}]
 
 
-def _sibling_state(*repo_ids: str, published: bool = True) -> list[dict]:
+def _sibling_state(*repo_ids: str, published: bool = True, created: bool = False) -> list[dict]:
     from automation.agent.git_state import RepoPublish
     from codebase.base import MergeRequest, User
 
@@ -587,6 +587,7 @@ def _sibling_state(*repo_ids: str, published: bool = True) -> list[dict]:
             published=published,
             current_ref=f"daiv/{index}",
             pushed_sha=f"sha{index}" if published else "",
+            created_merge_request=created,
         ).to_state()
         for index, repo_id in enumerate(repo_ids, start=1)
     ]
@@ -628,6 +629,25 @@ async def test_after_run_records_the_commits_it_pushed_to_sibling_repositories()
 
     runs.assert_any_call(pk="run-1")
     rows.aupdate.assert_any_await(sibling_pushed_shas=["sha1"])
+
+
+async def test_after_run_records_each_sibling_publish_that_has_something_to_show():
+    state = {
+        "published": True,
+        "repo_publishes": [*_sibling_state("srtab/daiv", created=True), *_sibling_state("g/lib", published=False)],
+    }
+    rows = MagicMock(aupdate=AsyncMock())
+
+    with (
+        agent_stack(_agent(state=state)),
+        patch("sessions.executor.run._persist_resolved_agent", new=AsyncMock()),
+        patch("sessions.executor.run._record_measurements", new=AsyncMock()),
+        patch("sessions.executor.run.Run.objects.filter", return_value=rows),
+    ):
+        await execute_run(make_spec(run_id="run-1"))
+
+    (kwargs,) = [c.kwargs for c in rows.aupdate.await_args_list if "repo_publishes" in c.kwargs]
+    assert [(p["repository"], p["status"]) for p in kwargs["repo_publishes"]] == [("srtab/daiv", "opened")]
 
 
 @pytest.mark.parametrize(("published", "arm_watch"), [(False, True), (True, False)], ids=["unpublished", "watch-off"])
@@ -1213,6 +1233,28 @@ async def test_a_recovered_sibling_draft_is_kept_on_its_row():
     assert stack.claimed == []
 
 
+async def test_a_recovered_sibling_draft_is_recorded_as_opened_on_the_run():
+    agent = _agent(state={"merge_request": None})
+    agent.ainvoke = AsyncMock(side_effect=RuntimeError("agent blew up"))
+    rows = MagicMock(aupdate=AsyncMock())
+
+    with agent_stack(agent):
+
+        async def _recover(*_args, **_kwargs):
+            state = {"repo_publishes": _sibling_state("g/mod", created=True)}
+            agent.aget_state.return_value = MagicMock(values=state)
+
+        with (
+            patch("sessions.executor.run.recover_draft", new=AsyncMock(side_effect=_recover)),
+            patch("sessions.executor.run.Run.objects.filter", return_value=rows),
+            pytest.raises(RuntimeError, match="agent blew up"),
+        ):
+            await execute_run(make_spec(recover_draft=True, run_id="run-1"))
+
+    (kwargs,) = [c.kwargs for c in rows.aupdate.await_args_list if "repo_publishes" in c.kwargs]
+    assert [(p["repository"], p["status"]) for p in kwargs["repo_publishes"]] == [("g/mod", "opened")]
+
+
 def _recovery_outcome(*, created: bool) -> PublishOutcome:
     return PublishOutcome(
         merge_request=make_merge_request(merge_request_id=11, web_url="https://git.example/mr/11"),
@@ -1290,6 +1332,7 @@ OPENED = publish_result_payload(
 OPENED_FIELDS = {
     "merge_request_iid": 7,
     "merge_request_web_url": "https://git.example/mr/7",
+    "merge_request_title": "Test MR",
     "publish_status": "opened",
     "files_changed": 2,
     "lines_added": 4,
@@ -1298,6 +1341,7 @@ OPENED_FIELDS = {
 DRAFT_FIELDS = {
     "merge_request_iid": 11,
     "merge_request_web_url": "https://git.example/mr/11",
+    "merge_request_title": "Test MR",
     "files_changed": 3,
     "lines_added": 5,
     "lines_removed": 2,
