@@ -179,7 +179,10 @@ def _turn_publish_reset() -> dict[str, Any]:
 
 
 def _sibling_failure_notice(ctx: RuntimeCtx, repo_publishes: list[RepoPublish]) -> str | None:
-    """The turn-end notice naming each extra repository whose publish failed; ``None`` when none did."""
+    """The turn-end notice naming each extra repository whose publish failed; ``None`` when none did.
+
+    Repositories whose publish stopped on merge conflicts are left out: they get their own visible notice.
+    """
     failed = [
         f"- `{handle.repository.slug}`: {publish.error}"
         for handle, publish in zip(ctx.extra_repos, repo_publishes, strict=True)
@@ -476,8 +479,10 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         The session's extra repositories publish after the main one, each to its own merge request (see
         :func:`~automation.agent.publishers.apublish_extra_repos`), and land in ``repo_publishes`` on every return. With
         extra repositories, a failed main publish is recorded in ``main_publish_error`` and ends the turn with a notice
-        rather than raising, which would skip the extra repositories' publishes. An extra repository whose publish
-        failed is named in the turn's closing notice too.
+        rather than raising, which would skip the extra repositories' publishes. Each repository dispatches its own
+        ``PUBLISH_RESULT_EVENT``, main first. The list of failed extra repositories is a synthetic message the chat
+        hides (it stays in the run's messages); an extra repository's merge conflicts get a visible notice naming
+        the files.
 
         Short-circuited runs (a builtin slash command jumps from ``SlashCommandMiddleware.abefore_agent``
         straight to the after_agent chain) never ran the agent loop, so nothing was captured or changed. Unless
@@ -532,8 +537,6 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 skip_ci=self.skip_ci,
                 agent_summary=None if multi_repo else agent_summary,
             )
-            if outcome.published:
-                await self._emit_publish_result(published_outcome_payload(outcome, repository=ctx.repo.repo_id))
         except UnresolvedMergeConflictsError as exc:
             logger.warning("Not publishing: %s", exc)
             if multi_repo:
@@ -555,6 +558,9 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 f"I couldn't publish the changes in the main repository `{ctx.repository.slug}` "
                 f"({type(exc).__name__}). The other repositories were published on their own, and their results stand."
             )
+        else:
+            if outcome.published:
+                await self._emit_publish_result(published_outcome_payload(outcome, repository=ctx.repo.repo_id))
 
         repo_publishes: list[RepoPublish] = []
         if multi_repo:

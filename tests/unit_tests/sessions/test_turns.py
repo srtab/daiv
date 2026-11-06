@@ -527,5 +527,5 @@ def test_a_synthetic_assistant_message_is_not_a_turn():
 
     assistant = [t for t in turns if t["role"] == "assistant"]
     assert len(assistant) == 1
-    assert assistant[0]["segments"] == [{"type": "text", "text": "done"}] or "done" in json.dumps(assistant[0])
+    assert assistant[0]["segments"] == [{"type": "text", "content": "done"}]
     assert "couldn't publish" not in json.dumps(turns)

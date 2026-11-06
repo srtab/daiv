@@ -5,8 +5,9 @@ degrades a payload it cannot read to "no frames" (or "no update") rather than ra
 renamed on one side alone fails silently — empty turns for the assistant message, a frozen meter
 for context usage. The consumer half lives with each event: Python (``sessions.live.agui``,
 parsing through this module) for the assistant message, JS (``chat-stream.js``, whose node test
-drives the handler with payloads built here) for the context meter and the publish result, which
-is also kept per run by :func:`record_publish_result`.
+drives the handler with payloads built here) for the context meter and the publish result. The main
+repository's result is also kept per run by :func:`record_publish_result`; extra repositories' results reach the
+run from the checkpoint (``Run.repo_publishes``).
 """
 
 from __future__ import annotations

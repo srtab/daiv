@@ -1304,12 +1304,15 @@ class TestExtraRepoPublish:
         with (
             patch("automation.agent.middlewares.git.apublish_extra_repos", AsyncMock(return_value=[conflict])),
             patch("automation.agent.middlewares.git.GitChangePublisher") as main_cls,
+            patch("automation.agent.utils.adispatch_custom_event", new=AsyncMock()) as streamed,
         ):
             main_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=None, published=False))
             result = await mw.aafter_agent({"merge_request": None}, _multi_repo_runtime(make_repo_handle("g/mod")))
 
         [notice] = result["messages"]
         assert not is_synthetic(notice)
+        [message_call] = [c for c in streamed.await_args_list if c.args[0] == ASSISTANT_MESSAGE_EVENT]
+        assert message_call.args[1]["message"] == notice.content
         assert "`a.py`" in notice.content
         assert "in `g/mod`" in notice.content
         assert "Ask me to finish resolving them." in notice.content

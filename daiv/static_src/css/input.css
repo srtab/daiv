@@ -923,9 +923,6 @@ html {
   .chat-inbox-event__repo {
     @apply min-w-0 truncate font-mono;
   }
-  .chat-inbox-event__mr {
-    @apply shrink-0 font-medium text-accent-bright hover:underline;
-  }
   .chat-inbox-event__why::before {
     content: "· ";
     color: var(--color-text-faint);
@@ -933,6 +930,9 @@ html {
   .chat-inbox-event__link,
   .chat-inbox-event__time {
     @apply shrink-0 text-text-faint hover:text-accent-bright;
+  }
+  .chat-inbox-event__mr {
+    @apply shrink-0 font-medium text-accent-bright hover:underline;
   }
   .draft-badge {
     @apply rounded-full px-1.5 font-sans text-[11px] font-semibold text-status-found;
