@@ -114,6 +114,12 @@ msgstr "Ficheiros alterados"
 msgid "Show all"
 msgstr "Mostrar tudo"
 
+msgid "Context"
+msgstr "Contexto"
+
+msgid "Spend"
+msgstr "Gasto"
+
 #, fuzzy
 #~| msgid "Session context"
 #~ msgid "Session context"
