@@ -46,8 +46,8 @@ Must sit inside ``sessionPage`` inside ``chat({…})``: status and the repositor
   <div class="session-topbar__actions">
     <button type="button" class="session-summary" x-show="!wide" x-cloak
             @click="openDetails('repositories')"
-            aria-controls="session-details"
-            :aria-label="'{{ _("Repositories and merge requests")|escapejs }}: ' + summary.main"
+            aria-controls="session-details" :aria-expanded="detailsOpen.toString()"
+            :aria-label="summaryLabel"
             data-testid="session-summary">
       {% icon "repo" "h-3.5 w-3.5 shrink-0" %}
       <span class="session-summary__main" x-text="summary.main"></span>

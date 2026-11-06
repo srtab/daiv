@@ -85,7 +85,7 @@ vm.runInContext(readFileSync(src, "utf8"), sandbox);
 
 const labels = {
   running: "Running", queued: "Queued", watching: "Watching: {state}", watchOff: "Off for this merge request",
-  watchFailed: "Couldn't change it",
+  watchFailed: "Couldn't change it", summary: "Repositories and merge requests", ci: "CI",
 };
 const page = components.sessionPage({
   sessionUrl: "/session", ciWatchUrl: "/ci-watch", archiveUrl: "/archive", storageKey: "key", title: "Old",
@@ -136,7 +136,7 @@ for (const [action, value] of steps) {
       notes: page.ci.map((item) => page.ciNote(item)), ciFor: page.repositoryRows.map((row) => page.ciFor(row)),
       cardNotes: page.repositoryRows.map((row) => page.ciNote(page.ciFor(row))),
       tab: page.detailsTab, folds: Object.fromEntries(SECTIONS.map((s) => [s, page.isFolded(s)])),
-      summary: page.summary, repositoriesSummary: page.repositoriesSummary,
+      summary: page.summary, summaryLabel: page.summaryLabel, repositoriesSummary: page.repositoriesSummary,
       explanations: page.ci.map((item) => page.ciExplanation(item)), upNext: page.upNext,
       ciTexts: page.ci.map((item) => page.ciText(item)),
       delegations: page.delegations, legs: (page.delegations?.legs ?? []).map((leg) => leg.repo_id),
@@ -813,8 +813,10 @@ def test_the_repositories_card_follows_each_turns_payload():
     assert [s["repositories"] for s in seen] == [rendered, published]
 
 
-def test_a_single_repository_session_has_no_repositories_card():
-    assert _read()["repositories"] is None
+def test_a_single_repository_session_has_one_card():
+    repositories = {"rows": [_repo("g/app", "main")], "publish_errors": []}
+
+    assert _read(repositories=repositories)["repositoryRows"] == repositories["rows"]
 
 
 def test_a_failed_fetch_keeps_the_repositories_card():
@@ -894,7 +896,7 @@ def test_the_main_card_finds_the_ci_of_the_chats_live_merge_request():
 def test_the_summary_counts_repositories_and_merge_requests():
     seen = _read(repositories=THREE_ROWS)
 
-    assert seen["summary"] == {"main": "g/app", "more": 2, "mrs": 2, "mrIid": None, "tone": ""}
+    assert seen["summary"] == {"main": "g/app", "more": 2, "mrs": 2, "mrIid": None, "tone": "", "ci": ""}
 
 
 def test_the_summary_names_a_single_merge_request():
@@ -906,11 +908,12 @@ def test_the_summary_names_a_single_merge_request():
         "mrs": 1,
         "mrIid": 42,
         "tone": "",
+        "ci": "",
     }
 
 
 def test_a_page_without_repositories_has_an_empty_summary():
-    assert _read()["summary"] == {"main": "", "more": 0, "mrs": 0, "mrIid": None, "tone": ""}
+    assert _read()["summary"] == {"main": "", "more": 0, "mrs": 0, "mrIid": None, "tone": "", "ci": ""}
 
 
 @pytest.mark.parametrize(
@@ -923,10 +926,44 @@ def test_a_page_without_repositories_has_an_empty_summary():
     ],
 )
 def test_the_summary_ci_is_the_worst_tone(tones, worst):
-    ci = [{**_ci(iid=index), "tone": tone} for index, tone in enumerate(tones)]
-    seen = _run([_with_ci(ci), ["read", None]], repositories=THREE_ROWS)["seen"][0]
+    rows = [_repo(f"g/r{index}", "main", index + 1) for index in range(len(tones))]
+    ci = [
+        {**_ci(iid=index + 1), "repo_id": f"g/r{index}", "tone": tone, "label": tone}
+        for index, tone in enumerate(tones)
+    ]
+    seen = _run([_with_ci(ci), ["read", None]], repositories={"rows": rows})["seen"][0]
 
-    assert seen["summary"]["tone"] == worst
+    assert (seen["summary"]["tone"], seen["summary"]["ci"]) == (worst, worst)
+
+
+def test_the_summary_ci_counts_only_the_ci_a_card_shows():
+    shown = {**_ci("passing", iid=42), "tone": "clear"}
+    unmatched = {**_ci("failing", iid=99), "tone": "fail"}
+    seen = _run([_with_ci([unmatched, shown]), ["read", None]], repositories=THREE_ROWS)["seen"][0]
+
+    assert (seen["summary"]["tone"], seen["summary"]["ci"]) == ("clear", "Passing")
+
+
+@pytest.mark.parametrize(
+    ("rows", "ci", "label"),
+    [
+        ([_repo("g/app", "main")], [], "Repositories and merge requests: g/app"),
+        (
+            [_repo("g/app", "main", 42)],
+            [{**_ci("passing", iid=42), "tone": "clear"}],
+            "Repositories and merge requests: g/app, !42, CI: Passing",
+        ),
+        (
+            THREE_ROWS["rows"],
+            [{**_ci("failing", iid=17), "repo_id": "g/mod", "tone": "fail"}],
+            "Repositories and merge requests: g/app +2, 2 MRs, CI: Failing",
+        ),
+    ],
+)
+def test_the_summary_says_what_it_shows_in_words(rows, ci, label):
+    seen = _run([_with_ci(ci), ["read", None]], repositories={"rows": rows})["seen"][0]
+
+    assert seen["summaryLabel"] == label
 
 
 @pytest.mark.parametrize(

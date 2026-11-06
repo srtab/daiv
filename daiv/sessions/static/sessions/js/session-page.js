@@ -87,7 +87,7 @@ document.addEventListener("alpine:init", () => {
 
   Alpine.data("sessionPage", (config) => ({
     latest: null,
-    // CI on each merge request the session owns (`repo_id` blank for the main repository);
+    // CI on each merge request the session owns (`repo_id` blank for the main repository).
     ci: [],
     // What the session will do next (``sessions.up_next``).
     upNext: null,
@@ -238,13 +238,23 @@ document.addEventListener("alpine:init", () => {
     get summary() {
       const rows = this.repositoryRows;
       const withMr = rows.filter((row) => row.mr_iid);
+      const shown = rows.map((row) => this.ciFor(row)).filter(Boolean);
+      const worst = CI_TONES_WORST_FIRST.map((tone) => shown.find((item) => item.tone === tone)).find(Boolean);
       return {
         main: rows[0]?.repo_id ?? "",
         more: Math.max(rows.length - 1, 0),
         mrs: withMr.length,
         mrIid: withMr.length === 1 ? withMr[0].mr_iid : null,
-        tone: CI_TONES_WORST_FIRST.find((tone) => this.ci.some((item) => item.tone === tone)) ?? "",
+        tone: worst?.tone ?? "",
+        ci: worst?.label ?? "",
       };
+    },
+    get summaryLabel() {
+      const { main, more, mrs, mrIid, ci } = this.summary;
+      const repositories = more ? `${main} +${more}` : main;
+      const mergeRequests = mrIid ? `!${mrIid}` : mrs ? window.TranscriptLabels.tn("details_merge_requests", mrs) : "";
+      const parts = [repositories, mergeRequests, ci && `${config.labels.ci}: ${ci}`].filter(Boolean);
+      return `${config.labels.summary}: ${parts.join(", ")}`;
     },
     // A lone repository's section is labelled in the singular, so its count would only repeat that.
     get repositoriesSummary() {

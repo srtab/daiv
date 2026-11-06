@@ -196,8 +196,48 @@ def test_detail_lists_every_repository_and_its_mr(member_client, member_user):
         "mr_draft": True,
         "diff_stats": {"lines_added": 4, "lines_removed": 9, "files_changed": 1},
         "ran": False,
+        "can_act": True,
     }
     assert rows[0]["repo_id"] == "g/app"
+
+
+@pytest.mark.django_db
+def test_each_row_says_whether_the_viewer_can_act_on_its_repository(member_client, member_user):
+    with patch("sessions.page_state.can_run", side_effect=lambda user, repo_id: repo_id != "g/mod"):
+        rows = _get_detail(member_client, _multi_repo_session(member_user)).context["header"]["repositories"]["rows"]
+
+    assert [(r["repo_id"], r["can_act"]) for r in rows] == [("g/app", True), ("g/mod", False)]
+
+
+@pytest.mark.django_db
+def test_a_viewer_who_cannot_run_the_main_repository_can_act_on_none(member_client, member_user):
+    with patch("sessions.page_state.can_run", return_value=False) as can_run:
+        rows = _get_detail(member_client, _multi_repo_session(member_user)).context["header"]["repositories"]["rows"]
+
+    assert [r["can_act"] for r in rows] == [False, False]
+    assert [c.args[1] for c in can_run.call_args_list] == ["g/app"]
+
+
+@pytest.mark.django_db
+def test_a_repository_without_a_branch_takes_its_default_branch_from_the_catalog(member_client, member_user):
+    from codebase.models import RepositoryCatalog
+
+    session = _create_session(user=member_user, ref="")
+    SessionRepository.objects.create(session=session, position=1, repo_id="g/mod", ref="")
+    SessionRepository.objects.create(session=session, position=2, repo_id="g/lib", ref="feat/lib")
+    for slug, branch in (("group/project", "develop"), ("g/lib", "main")):
+        RepositoryCatalog.objects.create(provider="gitlab", slug=slug, default_branch=branch, synced_at=timezone.now())
+
+    rows = _get_detail(member_client, session).context["header"]["repositories"]["rows"]
+
+    assert [r["ref"] for r in rows] == ["develop", "", "feat/lib"]
+
+
+@pytest.mark.django_db
+def test_a_branch_nobody_knows_reads_as_the_default_branch(member_client, member_user):
+    card = _card(_get_detail(member_client, _create_session(user=member_user, ref="")))
+
+    assert 'x-show="!row.ref">default branch</span>' in card
 
 
 @pytest.mark.django_db
@@ -250,19 +290,52 @@ def test_a_finished_run_marks_the_rows_as_ran(member_client, member_user):
     assert all(r["ran"] for r in rows)
 
 
-@pytest.mark.django_db
-def test_the_main_row_takes_the_checkpoints_diff_stats(member_client, member_user):
-    session = _create_session(user=member_user)
-    stats = {"lines_added": 12, "lines_removed": 3, "files_changed": 2}
-    hydrated = AsyncMock(return_value=HydratedThread([], False, None, stats, None))
+NO_CHANGES = {"lines_added": 0, "lines_removed": 0, "files_changed": 0}
 
+
+def _get_detail_with_diff_stats(client, session: Session, stats):
+    hydrated = AsyncMock(return_value=HydratedThread([], False, None, stats, None))
     with (
         patch("sessions.page_state.ahydrate_thread", hydrated),
         patch("sessions.page_state.aget_existing_mr_payload", AsyncMock(return_value=None)),
     ):
-        resp = member_client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+        return client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "stats",
+    [
+        {"lines_added": 12, "lines_removed": 3, "files_changed": 2},
+        {"lines_added": 0, "lines_removed": 0, "files_changed": 1},
+    ],
+)
+def test_the_main_row_takes_the_checkpoints_diff_stats(member_client, member_user, stats):
+    resp = _get_detail_with_diff_stats(member_client, _create_session(user=member_user), stats)
 
     assert resp.context["header"]["repositories"]["rows"][0]["diff_stats"] == stats
+
+
+@pytest.mark.django_db
+def test_a_publish_that_changed_nothing_has_no_change_size(member_client, member_user):
+    session = _create_session(user=member_user)
+    SessionRepository.objects.create(session=session, position=1, repo_id="g/mod", ref="main", diff_stats=NO_CHANGES)
+
+    rows = _get_detail_with_diff_stats(member_client, session, NO_CHANGES).context["header"]["repositories"]["rows"]
+
+    assert [r["diff_stats"] for r in rows] == [None, None]
+
+
+@pytest.mark.django_db
+def test_a_finished_run_that_changed_nothing_reads_no_changes(member_client, member_user):
+    session = _create_session(user=member_user)
+    _create_run(session, status=RunStatus.SUCCESSFUL)
+
+    resp = _get_detail_with_diff_stats(member_client, session, NO_CHANGES)
+
+    row = resp.context["header"]["repositories"]["rows"][0]
+    assert (row["ran"], row["mr_iid"], row["diff_stats"]) == (True, None, None)
+    assert "'repo-card--quiet': row.ran && !row.mr_iid && !row.diff_stats &&" in _card(resp)
 
 
 @pytest.mark.django_db
@@ -1314,7 +1387,7 @@ def test_detail_hands_ci_on_the_owned_merge_requests_to_the_page(member_client, 
 
 
 @pytest.mark.django_db
-def test_detail_shows_the_ci_watch_without_a_merge_request_payload(member_client, member_user):
+def test_a_watched_sessions_ci_shows_on_its_repository_card_not_in_the_top_bar(member_client, member_user):
     resp = _get_detail(member_client, _create_session(user=member_user, watch_state=WatchState.WATCHING))
 
     assert 'data-testid="session-ci"' not in _topbar(resp)
@@ -1362,6 +1435,15 @@ def test_detail_top_bar_has_a_summary_for_narrow_screens(member_client, member_u
     assert 'data-testid="session-summary"' in topbar
     assert 'x-show="!wide"' in topbar
     assert "openDetails('repositories')" in topbar
+    assert ':aria-expanded="detailsOpen.toString()"' in topbar
+    assert ':aria-label="summaryLabel"' in topbar
+
+
+@pytest.mark.django_db
+def test_detail_hands_the_page_the_summary_labels(member_client, member_user):
+    html = _get_detail(member_client, _create_session(user=member_user)).content.decode()
+
+    assert "summary: 'Repositories and merge requests', ci: 'CI'" in html
 
 
 @pytest.mark.django_db
@@ -1458,9 +1540,10 @@ def test_other_sessions_is_offered_on_the_main_card_only(member_client, member_u
 
 @pytest.mark.django_db
 def test_only_a_multi_repository_session_tags_its_main_card(member_client, member_user):
-    card = _card(_get_detail(member_client, _create_session(user=member_user)))
+    card = _card(_get_detail(member_client, _multi_repo_session(member_user)))
 
-    assert 'x-if="repositoryRows.length > 1 && index === 0"' in card
+    tag = r'x-if="repositoryRows.length > 1 && index === 0">\s*<span class="repo-card__tag">Main</span>'
+    assert re.search(tag, card)
 
 
 @pytest.mark.django_db
@@ -1488,7 +1571,7 @@ def test_a_merge_request_without_ci_has_no_ci_line_or_toggle(member_client, memb
     card = _card(_get_detail(member_client, _multi_repo_session(member_user)))
 
     assert "ciFor(row)" in _guards(card, "session-details-ci")
-    assert _guards(card, "session-ci-toggle") == ["row.mr_iid", "ciFor(row)"]
+    assert _guards(card, "session-ci-toggle") == ["row.mr_iid", "row.can_act && ciFor(row)"]
     assert "toggleCiWatch(ciFor(row))" in card and ':aria-checked="ciFor(row).watch_enabled.toString()"' in card
 
 

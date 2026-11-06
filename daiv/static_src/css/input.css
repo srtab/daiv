@@ -1151,7 +1151,7 @@ html {
     @apply flex items-center gap-1.5;
   }
   .details-info__copy-btn {
-    @apply inline-flex shrink-0 rounded-md p-0.5 text-text-faint transition-colors hover:text-text;
+    @apply -m-0.75 inline-flex shrink-0 rounded-md p-1.25 text-text-faint transition-colors hover:text-text;
   }
 
   .repo-card {
@@ -1174,11 +1174,14 @@ html {
     @apply relative ml-auto shrink-0;
   }
   .repo-card__more {
-    @apply inline-flex h-5.5 w-5.5 items-center justify-center rounded-md text-text-faint transition-colors
+    @apply -m-px inline-flex h-6 w-6 items-center justify-center rounded-md text-text-faint transition-colors
       hover:bg-surface-3 hover:text-text;
   }
   .repo-card__branch {
     @apply flex min-w-0 items-center gap-1.25 font-mono text-[12px] text-text-muted;
+  }
+  .repo-card__default-branch {
+    @apply truncate font-sans;
   }
   .repo-card__quiet-note {
     @apply ml-auto hidden shrink-0 font-sans text-text-faint;

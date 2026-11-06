@@ -1,7 +1,7 @@
 {% load i18n icon_tags %}
 {% comment %}
 One of ``repositoryRows`` as ``row`` at ``index``, inside ``sessionPage``. ``header`` names the main repository for the
-session list's filter; ``can_act`` adds each merge request's CI toggle.
+session list's filter; ``can_act`` and the row's own ``can_act`` add its merge request's CI toggle.
 {% endcomment %}
 <article class="repo-card" data-testid="repository-card"
          :class="{ 'repo-card--quiet': row.ran && !row.mr_iid && !row.diff_stats && !repositories.publish_errors.some((item) => item.repo_id === row.repo_id) }">
@@ -49,10 +49,10 @@ session list's filter; ``can_act`` adds each merge request's CI toggle.
             </a>
           </template>
           {% if can_act %}
-            <template x-if="ciFor(row)">
+            <template x-if="row.can_act && ciFor(row)">
               <div class="session-menu__divider" role="separator"></div>
             </template>
-            <template x-if="ciFor(row)">
+            <template x-if="row.can_act && ciFor(row)">
               <button type="button" role="menuitemcheckbox" tabindex="-1"
                       class="session-menu__item session-menu__item--check"
                       :aria-checked="ciFor(row).watch_enabled.toString()"
@@ -74,6 +74,7 @@ session list's filter; ``can_act`` adds each merge request's CI toggle.
   <div class="repo-card__branch">
     {% icon "branch" "h-3 w-3 shrink-0" %}
     <span class="truncate" :title="row.ref" x-text="row.ref"></span>
+    <span class="repo-card__default-branch" x-show="!row.ref">{% translate "default branch" %}</span>
     {# Shown only on a quiet card: see ``.repo-card--quiet .repo-card__quiet-note``. #}
     <span class="repo-card__quiet-note">{% translate "no changes" %}</span>
   </div>
