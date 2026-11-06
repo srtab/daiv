@@ -1,5 +1,3 @@
-import pytest
-
 from tests.unit_tests.chat.chat_stream_driver import run_chat_stream
 from tests.unit_tests.jsdriver import requires_node
 
@@ -20,10 +18,11 @@ process.stdout.write(JSON.stringify(request));
 """
 
 TWO = [{"repo_id": "g/a", "ref": "main"}, {"repo_id": "g/b", "ref": ""}]
+GLOBALS = "history: { replaceState: () => {} }, setTimeout,"
 
 
 def test_a_first_turn_over_several_repositories_forwards_them():
-    request = run_chat_stream(SUBMIT_BODY, {"repos": TWO}, extra_globals="history: { replaceState: () => {} },")
+    request = run_chat_stream(SUBMIT_BODY, {"repos": TWO}, extra_globals=GLOBALS)
 
     assert request["headers"]["X-Repo-ID"] == "g/a"
     assert request["headers"]["X-Ref"] == "main"
@@ -31,7 +30,7 @@ def test_a_first_turn_over_several_repositories_forwards_them():
 
 
 def test_a_single_repository_forwards_no_list():
-    request = run_chat_stream(SUBMIT_BODY, {"repos": TWO[:1]}, extra_globals="history: { replaceState: () => {} },")
+    request = run_chat_stream(SUBMIT_BODY, {"repos": TWO[:1]}, extra_globals=GLOBALS)
 
     assert "repos" not in request["body"]["forwardedProps"]
 
@@ -55,12 +54,15 @@ chat.applyRepoSelection([{ repo_id: "g/b", ref: "main" }, { repo_id: "g/a", ref:
 await new Promise((r) => setTimeout(r, 0));
 chat.applyRepoSelection([{ repo_id: "g/b", ref: "main" }]);
 const afterSameMain = urls.length;
+chat.applyRepoSelection([{ repo_id: "g/a", ref: "main" }, { repo_id: "g/b", ref: "main" }]);
+chat.applyRepoSelection([{ repo_id: "g/b", ref: "main" }, { repo_id: "g/a", ref: "main" }]);
+await new Promise((r) => setTimeout(r, 0));
 process.stdout.write(JSON.stringify({ urls, afterSameMain, label: chat.autoEnvLabel, canSend: chat.canSend("hi") }));
 """
 
 
-def test_a_new_main_repository_resolves_auto_again():
-    out = run_chat_stream(RESOLVE_BODY, {}, extra_globals="setTimeout,")
+def test_each_main_repository_resolves_auto_once():
+    out = run_chat_stream(RESOLVE_BODY, {}, extra_globals=GLOBALS)
 
     assert out["urls"] == ["/envs/resolve/?repo=g%2Fa", "/envs/resolve/?repo=g%2Fb"]
     assert out["afterSameMain"] == 2
@@ -68,7 +70,7 @@ def test_a_new_main_repository_resolves_auto_again():
 
 
 def test_a_failed_resolve_leaves_plain_auto_and_send_enabled():
-    out = run_chat_stream(RESOLVE_BODY, {"fail": True}, extra_globals="setTimeout,")
+    out = run_chat_stream(RESOLVE_BODY, {"fail": True}, extra_globals=GLOBALS)
 
     assert out["label"] == ""
     assert out["canSend"] is True
@@ -94,30 +96,9 @@ process.stdout.write(JSON.stringify({ label: chat.autoEnvLabel }));
 
 
 def test_an_answer_for_a_repository_that_is_no_longer_main_is_ignored():
-    out = run_chat_stream(STALE_BODY, {}, extra_globals="setTimeout,")
+    out = run_chat_stream(STALE_BODY, {}, extra_globals=GLOBALS)
 
     assert out == {"label": ""}
-
-
-FOCUS_BODY = """
-const chat = registry.chat({ endpoint: "/api/chat" });
-let focused = 0;
-const prompt = { focus: () => { focused += 1; } };
-Object.assign(chat, { $nextTick: (fn) => fn(), $refs: { prompt } });
-sandbox.document.activeElement = payload.inCard ? { closest: () => ({}) } : null;
-chat.applyRepoSelection([{ repo_id: "g/a", ref: "main" }]);
-const afterFirst = focused;
-sandbox.document.activeElement = { closest: () => ({}) };
-chat.applyRepoSelection([{ repo_id: "g/a", ref: "main" }, { repo_id: "g/b", ref: "" }]);
-process.stdout.write(JSON.stringify({ afterFirst, total: focused }));
-"""
-
-
-@pytest.mark.parametrize(("in_card", "expected"), [(False, 1), (True, 0)])
-def test_focus_moves_to_the_prompt_only_when_it_does_not_leave_the_card(in_card, expected):
-    out = run_chat_stream(FOCUS_BODY, {"inCard": in_card})
-
-    assert out == {"afterFirst": expected, "total": expected}
 
 
 RETRY_BODY = """
@@ -158,8 +139,6 @@ chat.submit("second");
 await new Promise((r) => setTimeout(r, 0));
 process.stdout.write(JSON.stringify(sent));
 """
-
-GLOBALS = "history: { replaceState: () => {} }, setTimeout,"
 
 
 def test_a_retry_after_a_failed_first_turn_still_forwards_the_repositories():

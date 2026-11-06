@@ -7,6 +7,7 @@ import pytest
 from ninja.testing import TestAsyncClient
 from sessions.inbox.chat_claim import ChatClaim
 from sessions.models import EventKind, HiddenSession, InboxEvent, Run, RunStatus, Session, SessionOrigin
+from sessions.multi_repo import ais_multi_repo, aload_extra_repos
 
 from accounts.models import APIKey, User
 from daiv.api import api
@@ -884,89 +885,53 @@ async def _post_first_turn(client, raw, repos, *, thread_id="t-new"):
 
 
 async def _assert_nothing_created(thread_id="t-new"):
-    from sessions.models import SessionRepository
-
     assert not await Session.objects.filter(thread_id=thread_id).aexists()
-    assert not await SessionRepository.objects.filter(session_id=thread_id).aexists()
+    assert not await ais_multi_repo(thread_id)
 
 
 @pytest.mark.django_db(transaction=True)
 async def test_a_first_turn_over_several_repos_opens_a_multi_repo_session(
     client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
 ):
-    from sessions.models import SessionRepository
-
     _, raw, user = authed
 
     response = await _post_first_turn(client, raw, REPOS)
 
     assert response.status_code == 200
     await asyncio.gather(*captured_runs)
-    rows = [
-        (r.position, r.repo_id, r.ref)
-        async for r in SessionRepository.objects.filter(session_id="t-new").order_by("position")
-    ]
+    rows = [(r.position, r.repo_id, r.ref) for r in await aload_extra_repos("t-new")]
     assert rows == [(1, "a/theme", "develop"), (2, "a/common", "")]
     await user.adelete()
 
 
-@pytest.mark.django_db(transaction=True)
-async def test_repos_must_start_with_the_header_repository(client: TestAsyncClient, authed):
-    _, raw, user = authed
-
-    response = await _post_first_turn(client, raw, [REPOS[1], REPOS[0]])
-
-    assert response.status_code == 400
-    assert "must start with" in response.json()["detail"]
-    await _assert_nothing_created()
-    await user.adelete()
-
-
 @pytest.mark.parametrize(
-    "repos",
+    ("repos", "detail"),
     [
-        "a/b",
-        [],
-        ["a/b"],
-        [{"repo_id": 7, "ref": "main"}],
-        [{"repo_id": "a/b", "ref": 3}],
-        [{"repo_id": "  ", "ref": "main"}],
+        pytest.param("a/b", "a list of", id="not-a-list"),
+        pytest.param([], "a list of", id="empty-list"),
+        pytest.param(["a/b"], "a list of", id="entry-not-an-object"),
+        pytest.param([{"repo_id": 7, "ref": "main"}], "a list of", id="non-str-repo-id"),
+        pytest.param([{"repo_id": "a/b", "ref": 3}], "a list of", id="non-str-ref"),
+        pytest.param([{"repo_id": "  ", "ref": "main"}], "a list of", id="blank-repo-id"),
+        pytest.param([REPOS[1], REPOS[0]], "must start with", id="not-the-header-repository-first"),
+        pytest.param(
+            [REPOS[0], *({"repo_id": f"a/r{i}", "ref": ""} for i in range(5))], "at most 5", id="more-than-five"
+        ),
+        pytest.param(
+            [REPOS[0], {"repo_id": "a/theme", "ref": ""}, {"repo_id": "a/theme", "ref": "other"}],
+            "a/theme",
+            id="same-repository-twice",
+        ),
     ],
-    ids=["not-a-list", "empty-list", "entry-not-an-object", "non-str-repo-id", "non-str-ref", "blank-repo-id"],
 )
 @pytest.mark.django_db(transaction=True)
-async def test_malformed_repos_are_refused(client: TestAsyncClient, authed, repos):
+async def test_malformed_repos_are_refused(client: TestAsyncClient, authed, repos, detail):
     _, raw, user = authed
 
     response = await _post_first_turn(client, raw, repos)
 
     assert response.status_code == 400
-    await _assert_nothing_created()
-    await user.adelete()
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_more_than_five_repos_are_refused(client: TestAsyncClient, authed):
-    _, raw, user = authed
-    repos = [REPOS[0], *({"repo_id": f"a/r{i}", "ref": ""} for i in range(5))]
-
-    response = await _post_first_turn(client, raw, repos)
-
-    assert response.status_code == 400
-    assert "at most 5" in response.json()["detail"]
-    await _assert_nothing_created()
-    await user.adelete()
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_the_same_repository_twice_is_refused(client: TestAsyncClient, authed):
-    _, raw, user = authed
-    repos = [REPOS[0], {"repo_id": "a/theme", "ref": ""}, {"repo_id": "a/theme", "ref": "other"}]
-
-    response = await _post_first_turn(client, raw, repos)
-
-    assert response.status_code == 400
-    assert "a/theme" in response.json()["detail"]
+    assert detail in response.json()["detail"]
     await _assert_nothing_created()
     await user.adelete()
 
@@ -993,8 +958,6 @@ async def test_a_first_turn_needs_access_to_every_listed_repo(client: TestAsyncC
 async def test_a_single_entry_list_opens_a_single_repo_session(
     client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
 ):
-    from sessions.models import SessionRepository
-
     _, raw, user = authed
 
     response = await _post_first_turn(client, raw, [REPOS[0]])
@@ -1002,7 +965,7 @@ async def test_a_single_entry_list_opens_a_single_repo_session(
     assert response.status_code == 200
     await asyncio.gather(*captured_runs)
     assert await Session.objects.filter(thread_id="t-new").aexists()
-    assert await SessionRepository.objects.filter(session_id="t-new").acount() == 0
+    assert not await ais_multi_repo("t-new")
     await user.adelete()
 
 
@@ -1010,8 +973,6 @@ async def test_a_single_entry_list_opens_a_single_repo_session(
 async def test_repos_on_a_continuation_are_ignored(
     client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
 ):
-    from sessions.models import SessionRepository
-
     _, raw, user = authed
     await Session.objects.acreate(origin=SessionOrigin.CHAT, thread_id="t-1", user=user, repo_id="a/b", ref="main")
 
@@ -1019,7 +980,7 @@ async def test_repos_on_a_continuation_are_ignored(
 
     assert response.status_code == 200
     await asyncio.gather(*captured_runs)
-    assert await SessionRepository.objects.filter(session_id="t-1").acount() == 0
+    assert not await ais_multi_repo("t-1")
     await user.adelete()
 
 
@@ -1028,7 +989,6 @@ async def test_auto_resolves_each_extra_repos_own_environment(
     client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
 ):
     from sandbox_envs.models import SandboxEnvironment, Visibility
-    from sessions.models import SessionRepository
 
     _, raw, user = authed
     await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
@@ -1044,10 +1004,7 @@ async def test_auto_resolves_each_extra_repos_own_environment(
     assert response.status_code == 200
     await asyncio.gather(*captured_runs)
     session = await Session.objects.aget(thread_id="t-new")
-    rows = [
-        (r.repo_id, r.sandbox_environment_id)
-        async for r in SessionRepository.objects.filter(session_id="t-new").order_by("position")
-    ]
+    rows = [(r.repo_id, r.sandbox_environment_id) for r in await aload_extra_repos("t-new")]
     assert session.sandbox_environment_id == main_env.id
     assert rows == [("a/theme", theme_env.id), ("a/common", None)]
     await user.adelete()
@@ -1057,15 +1014,13 @@ async def test_auto_resolves_each_extra_repos_own_environment(
 async def test_extra_repo_ids_are_stripped(
     client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
 ):
-    from sessions.models import SessionRepository
-
     _, raw, user = authed
 
     response = await _post_first_turn(client, raw, [REPOS[0], {"repo_id": " a/theme ", "ref": "develop"}])
 
     assert response.status_code == 200
     await asyncio.gather(*captured_runs)
-    assert [r.repo_id async for r in SessionRepository.objects.filter(session_id="t-new")] == ["a/theme"]
+    assert [r.repo_id for r in await aload_extra_repos("t-new")] == ["a/theme"]
     await user.adelete()
 
 

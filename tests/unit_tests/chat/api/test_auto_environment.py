@@ -5,7 +5,7 @@ from django.urls import reverse
 import pytest
 from sandbox_envs.models import SandboxEnvironment, Visibility
 
-URL_NAME = "session_env_resolve"
+URL_NAME = "api:chat_auto_environment"
 
 
 @pytest.fixture(autouse=True)
@@ -13,13 +13,7 @@ def _no_seeded_global_envs(db):
     SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).delete()
 
 
-@pytest.fixture
-def readable():
-    with patch("sessions.views.can_view", return_value=True) as mocked:
-        yield mocked
-
-
-def test_resolves_auto_for_a_readable_repository(member_client, member_user, readable):
+def test_resolves_auto_for_a_readable_repository(member_client, member_user):
     SandboxEnvironment.objects.create(
         scope=Visibility.USER, user=member_user, name="mine", base_image="python:3.14", repo_ids=["acme/foo"]
     )
@@ -31,7 +25,7 @@ def test_resolves_auto_for_a_readable_repository(member_client, member_user, rea
     assert response.json()["scope"] == Visibility.USER
 
 
-def test_resolves_to_nothing_without_a_match_or_default(member_client, readable):
+def test_resolves_to_nothing_without_a_match_or_default(member_client):
     response = member_client.get(reverse(URL_NAME), {"repo": "acme/foo"})
 
     assert response.status_code == 200
@@ -43,15 +37,14 @@ def test_an_unreadable_repository_is_a_404(member_client, member_user):
         scope=Visibility.USER, user=member_user, name="mine", base_image="python:3.14", repo_ids=["acme/foo"]
     )
 
-    with patch("sessions.views.can_view", return_value=False):
+    with patch("chat.api.views.can_view", return_value=False):
         response = member_client.get(reverse(URL_NAME), {"repo": "acme/foo"})
 
     assert response.status_code == 404
-    assert response.json() == {}
+    assert "mine" not in response.content.decode()
 
 
-def test_requires_login(client):
+def test_requires_authentication(client):
     response = client.get(reverse(URL_NAME), {"repo": "acme/foo"})
 
-    assert response.status_code == 302
-    assert "login" in response["Location"]
+    assert response.status_code == 401

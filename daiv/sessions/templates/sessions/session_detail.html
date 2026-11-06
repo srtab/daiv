@@ -117,9 +117,8 @@
          initialAgentLabel: "{{ agent_picker_initial_model_display|default:agent_picker_initial_model|default:locked_agent_fallback|escapejs }}",
          initialAgentThinking: "{{ agent_picker_initial_thinking|default:''|escapejs }}",
          initialEnvLabel: "{% if selected_sandbox_env %}{{ selected_sandbox_env.name|escapejs }}{% else %}{{ locked_env_fallback|escapejs }}{% endif %}",
-         initialEnvScope: "{% if selected_sandbox_env %}{{ selected_sandbox_env.scope|escapejs }}{% endif %}",
          envAutoLabel: "{{ locked_env_fallback|escapejs }}",
-         envResolveUrl: "{% url 'session_env_resolve' %}",
+         envResolveUrl: "{% url 'api:chat_auto_environment' %}",
          labels: {
            file: "{{ file_word|escapejs }}",
            files: "{{ files_word|escapejs }}",

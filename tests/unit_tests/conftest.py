@@ -667,6 +667,7 @@ def mock_repo_authorization():
         patch("sessions.page_state.can_run", new=Mock(return_value=True)),
         patch("sessions.api.views.can_run", new=Mock(return_value=True)),
         patch("codebase.views.can_view", new=Mock(return_value=True)),
+        patch("chat.api.views.can_view", new=Mock(return_value=True)),
         patch("memory.views.can_view", new=Mock(return_value=True)),
         patch("memory.views.viewable_repo_ids", new=Mock(side_effect=lambda user, ids: set(ids))),
     ):

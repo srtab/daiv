@@ -21,9 +21,6 @@ msgstr ""
 msgid "MR"
 msgstr "MR"
 
-msgid "draft"
-msgstr "rascunho"
-
 msgid "Jump to latest"
 msgstr "Ir para o mais recente"
 

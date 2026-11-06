@@ -1249,7 +1249,6 @@ html {
   .repo-chip--conflict {
     border-color: color-mix(in srgb, var(--color-status-fail) 60%, transparent);
     background: color-mix(in srgb, var(--color-status-fail) 15%, transparent);
-    color: var(--color-text);
   }
 
   .repo-chip__btn {
@@ -1267,7 +1266,6 @@ html {
   }
 
   .repo-chip__btn--branch {
-    font-family: var(--font-mono);
     color: var(--color-text-muted);
   }
 
@@ -1314,7 +1312,6 @@ html {
 
   /* Workspace card — `chat/_workspace_card.html`: a new chat's repositories and environment. */
   .workspace-card {
-    width: 100%;
     margin-top: 12px;
     padding: 14px 10px 8px;
     border: 1px solid var(--color-border);
@@ -1383,7 +1380,6 @@ html {
     row-gap: 6px;
     padding: 7px 10px;
     border-radius: 8px;
-    font-size: 13px;
     transition: background-color 0.15s ease;
   }
 
@@ -1406,10 +1402,7 @@ html {
 
   .workspace-row__slug {
     grid-area: slug;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    @apply font-mono;
+    @apply truncate font-mono;
     font-size: 12px;
     color: var(--color-text);
   }
@@ -1443,9 +1436,7 @@ html {
   }
 
   .workspace-row__branch > span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    @apply truncate;
   }
 
   .workspace-row__branch:hover {
@@ -3198,11 +3189,8 @@ html {
     background: linear-gradient(180deg, transparent, var(--color-ground));
   }
 
-  .chat-dock__foot {
-    padding: 8px 2px 0;
-  }
-
   .chat-dock__disclaimer {
+    padding: 8px 2px 0;
     text-align: center;
     font-size: 11px;
     line-height: 1.4;
@@ -4337,9 +4325,7 @@ html {
 
   .env-field__name {
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    @apply truncate;
   }
 
   /* Shared shell for the model / repo / branch / env / subscriber pickers. Geometry lives

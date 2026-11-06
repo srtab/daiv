@@ -14,6 +14,7 @@ from django.utils.html import escapejs
 
 import pytest
 from allauth.socialaccount.models import SocialAccount
+from bs4 import BeautifulSoup
 from sessions.conf import settings as sessions_settings
 from sessions.delegation import outcome_states
 from sessions.executor.lock import STALE_RUN_MINUTES
@@ -33,6 +34,7 @@ from sessions.models import (
 )
 from sessions.transcript_labels import transcript_icons
 
+from tests.unit_tests.chat.chat_pages import render_new_chat
 from tests.unit_tests.htmltree import ElementStack
 from tests.unit_tests.sessions.conftest import (
     create_archive,
@@ -124,23 +126,6 @@ def test_session_new_chat_has_no_breadcrumb(member_client):
     assert b'data-testid="app-breadcrumb"' not in resp.content
 
 
-def _new_chat(client):
-    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
-        return client.get(reverse("session_new_chat"))
-
-
-def _section(html: str, marker: str) -> str:
-    """The element whose opening tag carries ``marker``, through its matching end tag."""
-    start = html.rindex("<", 0, html.index(marker))
-    tag = re.match(r"<(\w+)", html[start:]).group(1)
-    depth = 0
-    for match in re.finditer(rf"<(/?){tag}\b", html[start:]):
-        depth += -1 if match.group(1) else 1
-        if depth == 0:
-            return html[start : start + match.end()]
-    raise AssertionError(f"<{tag}> carrying {marker!r} is never closed")
-
-
 class _Ancestors(ElementStack):
     def __init__(self, testid: str):
         super().__init__()
@@ -154,8 +139,9 @@ class _Ancestors(ElementStack):
 
 @pytest.mark.django_db
 def test_session_new_chat_shows_the_workspace_card(member_client):
-    html = _new_chat(member_client).content.decode()
-    card = _section(html, 'data-testid="workspace-card"')
+    card = str(
+        BeautifulSoup(render_new_chat(member_client), "html.parser").select_one('[data-testid="workspace-card"]')
+    )
 
     assert "Workspace" in card and "up to 5 repositories" in card
     assert "maxRepos: 5" in card and "uniqueRepos: true" in card and escapejs("daiv:chat-repo-changed") in card
@@ -167,7 +153,7 @@ def test_session_new_chat_shows_the_workspace_card(member_client):
 def test_the_workspace_card_is_in_the_page_at_load_not_inserted_by_alpine(member_client):
     """HTMX wires the repo popover's search input only in its page-load sweep, and never sees
     nodes Alpine inserts later, so neither the card nor the hero around it may be an ``x-if``."""
-    html = _new_chat(member_client).content.decode()
+    html = render_new_chat(member_client)
     parser = _Ancestors("workspace-card")
     parser.feed(html)
 
@@ -178,10 +164,10 @@ def test_the_workspace_card_is_in_the_page_at_load_not_inserted_by_alpine(member
 
 @pytest.mark.django_db
 def test_the_composer_has_no_repository_row_and_the_options_sheet_only_tools(member_client):
-    html = _new_chat(member_client).content.decode()
+    html = render_new_chat(member_client)
 
     assert 'class="chat-context"' not in html
-    options = _section(html, "composer-sheet--options")
+    options = BeautifulSoup(html, "html.parser").select_one(".composer-sheet--options").get_text()
     assert "Environment" not in options and "Tools" in options
 
 

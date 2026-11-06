@@ -10,10 +10,9 @@ from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib import messages as messages_module
-from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, SuspiciousOperation
-from django.http import FileResponse, Http404, HttpResponse, HttpResponseBase, JsonResponse
+from django.http import FileResponse, Http404, HttpResponse, HttpResponseBase
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.decorators import method_decorator
@@ -28,11 +27,10 @@ from asgiref.sync import async_to_sync, sync_to_async
 from django_filters.views import FilterView
 from mcp_connectors.selection import composer_mcp_context, mcp_picker_context
 from sandbox_envs.models import SandboxEnvironment
-from sandbox_envs.selection import resolve_env_for_run, resolve_repo_envs
+from sandbox_envs.selection import resolve_repo_envs
 from sandbox_envs.services import env_picker_context
 
 from automation.picker.context import agent_picker_context
-from codebase.authorization import can_view
 from core.mixins import Breadcrumb, BreadcrumbMixin
 from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
 from core.ui_events import redis_connections
@@ -267,21 +265,6 @@ class SessionNewView(LoginRequiredMixin, BreadcrumbMixin, TemplateView):
         return [{"label": "Sessions", "url": reverse("session_list")}, {"label": "New", "url": None}]
 
 
-class SessionEnvResolveView(View):
-    """JSON: the environment "Auto" picks for ``?repo=``; ``{}`` when none, opaque 404 when unreadable."""
-
-    @method_decorator(login_required)
-    async def get(self, request, *args, **kwargs):
-        user = await request.auser()
-        repo = request.GET.get("repo", "").strip()
-        if not repo or not await sync_to_async(can_view)(user, repo):
-            return JsonResponse({}, status=404)
-        env = await resolve_env_for_run(user=user, repo_id=repo)
-        if env is None:
-            return JsonResponse({})
-        return JsonResponse({"id": str(env.id), "name": env.name, "scope": env.scope})
-
-
 class SessionDetailView(LoginRequiredMixin, DetailView):
     """Renders the session transcript page, or the empty state for the ``session_new_chat`` route."""
 
@@ -306,15 +289,14 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         if session is not None:
             ctx["nav_session_thread_id"] = session.thread_id
 
-        ctx["max_session_repos"] = MAX_REPOS_PER_SESSION
-        # Populate sandbox envs both for the empty hero state and a live session.
-        ctx["sandbox_envs"] = list(SandboxEnvironment.objects.visible_to(self.request.user))
-        ctx["selected_sandbox_env_id"] = (
-            str(session.sandbox_environment_id) if session is not None and session.sandbox_environment_id else ""
+        env_id = session.sandbox_environment_id if session is not None else None
+        ctx["selected_sandbox_env_id"] = str(env_id) if env_id else ""
+        ctx["selected_sandbox_env"] = (
+            SandboxEnvironment.objects.visible_to(self.request.user).filter(pk=env_id).first() if env_id else None
         )
-        ctx["selected_sandbox_env"] = next(
-            (e for e in ctx["sandbox_envs"] if str(e.id) == ctx["selected_sandbox_env_id"]), None
-        )
+        if session is None:
+            ctx["max_session_repos"] = MAX_REPOS_PER_SESSION
+            ctx["sandbox_envs"] = list(SandboxEnvironment.objects.visible_to(self.request.user))
 
         ctx.update(
             agent_picker_context(

@@ -96,11 +96,9 @@ box (``_command_menu.html``).
     </form>
   </div>
 
-  <div class="chat-dock__foot">
-    <p class="chat-dock__disclaimer">
-      {% translate "DAIV can make mistakes. Verify important information." %}
-    </p>
-  </div>
+  <p class="chat-dock__disclaimer">
+    {% translate "DAIV can make mistakes. Verify important information." %}
+  </p>
 
   {% include "core/_sheet_backdrop.html" with show_expr="sheet && sheet !== 'progress'" %}
 </div>

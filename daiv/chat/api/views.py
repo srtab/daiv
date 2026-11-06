@@ -1,7 +1,7 @@
 import logging
 import time
 import uuid
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 from django.http import Http404, HttpRequest
 
@@ -29,6 +29,7 @@ from sessions.spend import build_session_spend
 
 from accounts.api.security import AuthBearer
 from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
+from codebase.authorization import can_view
 from core.api.throttling import JobsRateThrottle
 from core.constants import CANCELLED_BY_USER_MESSAGE
 from core.sse import KEEP_ALIVE_FRAME, STREAM_MAX_DURATION_S, data_frame, end_frame, retry_frame, sse_response
@@ -36,6 +37,9 @@ from core.sse import KEEP_ALIVE_FRAME, STREAM_MAX_DURATION_S, data_frame, end_fr
 from . import runner
 from .streaming import ChatRunStreamer, arelease_turn, start_chat_run
 from .threads import ChatSessionService, _extract_last_user_message, _extract_last_user_message_id
+
+if TYPE_CHECKING:
+    from sandbox_envs.models import SandboxEnvironment
 
 logger = logging.getLogger("daiv.chat")
 
@@ -183,16 +187,17 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     ref = request.headers.get(HEADER_REF) or ""
 
     user = request.auth  # ty: ignore[unresolved-attribute]
-    try:
-        await aassert_repo_access(user, [repo_id])
-    except RepoAccessError as err:
-        # Opaque 404: don't confirm the repo's existence to unauthorized callers.
-        raise Http404(str(err)) from err
-
     thread_id = input_data.thread_id
     run_id = input_data.run_id
 
     forwarded = getattr(input_data, "forwarded_props", None) or {}
+    targets = await _arequested_repos(forwarded.get("repos"), thread_id=thread_id, repo_id=repo_id, ref=ref)
+    try:
+        await aassert_repo_access(user, [target.repo_id for target in targets])
+    except RepoAccessError as err:
+        # Opaque 404: don't confirm the repo's existence to unauthorized callers.
+        raise Http404(str(err)) from err
+
     try:
         agent_model, agent_thinking_level = validate_agent_override(
             forwarded.get("agent_model"), forwarded.get("agent_thinking_level")
@@ -217,6 +222,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         env_obj = await aresolve_environment(user, env_header)
     except AdmissionError as err:
         raise HttpError(400, str(err)) from err
+    explicit_env_id = str(env_obj.id) if env_obj else None
     # Auto: snapshot the resolved env at session creation so the stored env matches what ran.
     # Existing sessions keep their original env (get_or_create_for_user only applies on create);
     # this resolution still runs on every request but is discarded for existing sessions.
@@ -226,23 +232,8 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         logger.debug(
             "chat: auto-resolved env=%s for repo=%s user=%s", env_obj.id if env_obj else None, repo_id, user.pk
         )
-
-    targets = [RepoTarget(repo_id, ref, None)]
-    raw_repos = forwarded.get("repos")
-    if raw_repos is not None and not await Session.objects.filter(pk=thread_id).aexists():
-        targets = parse_forwarded_repos(raw_repos, repo_id=repo_id, ref=ref)
-        if len(targets) > 1:
-            try:
-                validate_shared_repos(targets, continuation=False)
-            except SharedSessionError as err:
-                raise HttpError(400, str(err)) from err
-            try:
-                await aassert_repo_access(user, [t.repo_id for t in targets])
-            except RepoAccessError as err:
-                raise Http404(str(err)) from err
-            targets = await aresolve_repo_envs(
-                user=user, repos=targets, explicit_env_id=None if auto_resolved or env_obj is None else str(env_obj.id)
-            )
+    if len(targets) > 1:
+        targets = await aresolve_repo_envs(user=user, repos=targets, explicit_env_id=explicit_env_id)
 
     session, created = await ChatSessionService.get_or_create_for_user(
         user=user,
@@ -350,7 +341,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         #   the session's stored env, and lying about it would mis-stamp the locked pill).
         auto_resolved_env: dict[str, str] | None = None
         if auto_resolved and created and env_obj is not None:
-            auto_resolved_env = {"id": str(env_obj.id), "name": str(env_obj.name), "scope": str(env_obj.scope)}
+            auto_resolved_env = _env_payload(env_obj)
 
         # Recorded before the answer, so the session page the browser loads next already shows the turn.
         chat_run = await start_chat_run(
@@ -410,10 +401,25 @@ def parse_forwarded_repos(raw: object, *, repo_id: str, ref: str) -> list[RepoTa
         entries = _FORWARDED_REPOS.validate_python(raw)
     except ValidationError as err:
         raise HttpError(400, "repos must be a list of {repo_id, ref} objects") from err
-    targets = [RepoTarget(entry.repo_id, entry.ref, None) for entry in entries]
+    targets = [RepoTarget(entry.repo_id, entry.ref) for entry in entries]
     if (targets[0].repo_id, targets[0].ref) != (repo_id, ref):
         raise HttpError(400, "repos must start with the X-Repo-ID repository and ref")
+    try:
+        validate_shared_repos(targets, continuation=False)
+    except SharedSessionError as err:
+        raise HttpError(400, str(err)) from err
     return targets
+
+
+async def _arequested_repos(raw: object, *, thread_id: str, repo_id: str, ref: str) -> list[RepoTarget]:
+    """The turn's repositories, main one first: ``raw`` on a thread's first turn, else the headers' one."""
+    if raw is None or await Session.objects.filter(pk=thread_id).aexists():
+        return [RepoTarget(repo_id, ref)]
+    return parse_forwarded_repos(raw, repo_id=repo_id, ref=ref)
+
+
+def _env_payload(env: SandboxEnvironment) -> dict[str, str]:
+    return {"id": str(env.id), "name": str(env.name), "scope": str(env.scope)}
 
 
 async def _abandon_turn(thread_id: str, run_id: str, *, chat_run: Run | None) -> None:
@@ -521,3 +527,13 @@ async def session_spend(request: HttpRequest, thread_id: str):
     if spend is None:
         raise HttpError(404, "Thread not found")
     return spend
+
+
+@chat_router.get("/environment", url_name="chat_auto_environment")
+async def auto_environment(request: HttpRequest, repo: str):
+    """The environment "Auto" picks for ``repo`` on a new chat's first turn; ``{}`` when none."""
+    user = request.auth  # ty: ignore[unresolved-attribute]
+    if not await sync_to_async(can_view)(user, repo):
+        raise HttpError(404, "Repository not found")
+    env = await resolve_env_for_run(user=user, repo_id=repo)
+    return _env_payload(env) if env else {}

@@ -91,14 +91,14 @@ Parameters:
                 </button>
                 <button type="button"
                         @click.stop="openBranchPicker(index)"
-                        :aria-label="'Change branch for ' + repo.slug"
+                        :aria-label="'{{ change_branch_template|escapejs }}'.replace('__LABEL__', repo.slug)"
                         class="repo-chip__btn">
                     {% icon "branch" "h-3.5 w-3.5" %}
                     <span x-text="repo.ref || '{{ default_branch_label|escapejs }}'" class="repo-chip__btn--branch"></span>
                 </button>
                 <button type="button"
                         @click="remove(index)"
-                        :aria-label="'Remove ' + repo.slug"
+                        :aria-label="'{{ remove_repo_template|escapejs }}'.replace('__LABEL__', repo.slug)"
                         class="repo-chip__remove">×</button>
             </span>
         </template>

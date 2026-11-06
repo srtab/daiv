@@ -176,9 +176,6 @@ msgstr "predefinição"
 msgid "Repository already in the list: __LABEL__."
 msgstr "Repositório já na lista: __LABEL__."
 
-msgid "Pick a repository"
-msgstr "Selecionar um repositório"
-
 msgid "Add repository"
 msgstr "Adicionar repositório"
 

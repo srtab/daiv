@@ -355,18 +355,10 @@
     // Set by sessionPage's Archive through Alpine's merged scope; an archived session takes no follow-ups.
     archived: Boolean(config.archived),
     selectedSandboxEnvId: config.selectedSandboxEnvId || "",
-    // Locked-pill labels for the composer chips. Server-side ``_composer.html`` renders
-    // the static text at template time, which on a brand-new chat is the empty-thread
-    // fallback ("Pick a model" / "Auto") — by the time those pills become visible
-    // (``x-show="thread"``) the user has already picked something the server hasn't seen
-    // yet. The locked pills read these via ``x-text`` so the picker keeps its selection
-    // visible during the hero→composer transition, with no page refresh needed.
-    // Refreshed reactively by the ``daiv:agent-changed`` / ``daiv:env-changed`` listeners
-    // (see chat_detail.html). The agent picker dispatches its own pillLabel so the locked
-    // pill stays in sync without re-deriving the label from the raw model spec.
+    // The locked model and env labels, kept current by ``daiv:agent-changed`` / ``daiv:env-changed``: on a new chat
+    // the server-rendered text is the empty-thread fallback, not what the user picked before the first turn.
     lockedAgentLabel: config.initialAgentLabel || "",
     lockedEnvLabel: config.initialEnvLabel || "",
-    lockedEnvScope: config.initialEnvScope || "",
     // Current agent-picker selection, kept in sync via ``daiv:agent-changed``. Forwarded
     // to the server on submit; empty when the user hasn't touched the picker yet (the
     // first event fires only on actual change). Submit() then falls back to reading the
@@ -378,6 +370,7 @@
     _envAutoLabel: config.envAutoLabel || "Auto",
     // The Workspace card's env field label while Auto is picked: the whole "Auto · name" text, or "".
     autoEnvLabel: "",
+    _autoEnvLabels: new Map(),
     turns: loadInitialTurns(),
     // Server-measured diff for the work published so far, refreshed by every
     // STATE_SNAPSHOT that carries it. Drives the progress drawer's ``+x −y``.
@@ -478,26 +471,20 @@
     // (session_detail.html) so the assignment goes through Alpine's reactivity, which `init()` listeners miss.
     applyRepoSelection(repos) {
       const previousMain = this.draftRepoId;
-      this.draftRepos = (repos || []).map((r) => ({ repo_id: r.repo_id, ref: r.ref || "" }));
-      const main = this.draftRepoId;
-      if (main && !previousMain) {
-        const active = document.activeElement;
-        if (!active?.closest?.(".workspace-card")) {
-          this.$nextTick(() => this.$refs.prompt?.focus());
-        }
-      }
-      if (main !== previousMain) this._resolveAutoEnv(main);
+      this.draftRepos = repos || [];
+      if (this.draftRepoId !== previousMain) this._resolveAutoEnv(this.draftRepoId);
     },
 
     async _resolveAutoEnv(repoId) {
-      this.autoEnvLabel = "";
-      if (!repoId || !config.envResolveUrl) return;
+      this.autoEnvLabel = this._autoEnvLabels.get(repoId) || "";
+      if (!repoId || !config.envResolveUrl || this._autoEnvLabels.has(repoId)) return;
       try {
         const resp = await fetch(`${config.envResolveUrl}?repo=${encodeURIComponent(repoId)}`);
         if (!resp.ok) return;
         const data = await resp.json();
-        if (this.draftRepoId !== repoId || !data?.name) return;
-        this.autoEnvLabel = formatBraces(this._labels.autoResolved, { name: data.name });
+        const label = data?.name ? formatBraces(this._labels.autoResolved, { name: data.name }) : "";
+        this._autoEnvLabels.set(repoId, label);
+        if (this.draftRepoId === repoId) this.autoEnvLabel = label;
       } catch {
         // Plain "Auto" stays; sending never waits on this.
       }
@@ -769,14 +756,11 @@
       // visually treat it as Auto so the locked label never renders empty.
       if (!detail?.id) {
         this.lockedEnvLabel = this._envAutoLabel;
-        this.lockedEnvScope = "";
       } else if (!detail?.name) {
         console.warn("daiv:env-changed: id %o has no matching env; falling back to Auto label", detail.id);
         this.lockedEnvLabel = this._envAutoLabel;
-        this.lockedEnvScope = "";
       } else {
         this.lockedEnvLabel = detail.name;
-        this.lockedEnvScope = detail.scope || "";
       }
     },
 
@@ -1676,7 +1660,7 @@
       // Every request of a page opened as a new chat carries the list, so a retry or a message queued
       // mid-flight can't be the one that creates a single-repo session; the server ignores it afterwards.
       if (!config.thread && this.draftRepos.length > 1) {
-        forwardedProps = { ...forwardedProps, repos: this.draftRepos.map((r) => ({ ...r })) };
+        forwardedProps = { ...forwardedProps, repos: this.draftRepos };
       }
       const body = {
         threadId: this.thread.thread_id,

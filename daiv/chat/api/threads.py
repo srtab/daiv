@@ -113,14 +113,17 @@ class ChatSessionService:
         if sandbox_environment is not None:
             defaults["sandbox_environment"] = sandbox_environment
 
-        def _create() -> tuple[Session, bool]:
+        def _create_with_extras() -> tuple[Session, bool]:
             with transaction.atomic():
                 session, created = Session.objects.get_or_create(thread_id=thread_id, defaults=defaults)
                 if created:
                     create_extra_repos(session, extra_repos)
             return session, created
 
-        session, created = await sync_to_async(_create)()
+        if extra_repos:
+            session, created = await sync_to_async(_create_with_extras)()
+        else:
+            session, created = await Session.objects.aget_or_create(thread_id=thread_id, defaults=defaults)
         if created and first_message:
             try:
                 await generate_title_task.aenqueue(pk=session.thread_id, prompt=first_message, repo_id=repo_id, ref=ref)
