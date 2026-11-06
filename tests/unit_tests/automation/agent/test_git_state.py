@@ -96,3 +96,24 @@ def test_a_repo_publish_checkpointed_before_diff_stats_reads_none():
     state = {"repo_id": "g/mod", "merge_request": None, "published": False, "current_ref": ""}
 
     assert RepoPublish.from_state(state).diff_stats is None
+
+
+def test_repo_publish_round_trips_outcome_fields():
+    rp = RepoPublish(
+        repo_id="srtab/daiv",
+        merge_request=None,
+        published=False,
+        current_ref="b",
+        error="x",
+        error_kind="conflicts",
+        conflicted_paths=("a.py", "b.py"),
+        created_merge_request=True,
+    )
+
+    assert RepoPublish.from_state(rp.to_state()) == rp
+
+
+def test_repo_publish_reads_a_state_without_outcome_fields():
+    rp = RepoPublish.from_state({"repo_id": "srtab/daiv", "merge_request": None, "published": True, "current_ref": "b"})
+
+    assert (rp.created_merge_request, rp.error_kind, rp.conflicted_paths) == (False, None, ())

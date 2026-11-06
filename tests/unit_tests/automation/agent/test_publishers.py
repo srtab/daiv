@@ -27,7 +27,7 @@ from automation.agent.publishers import (
 )
 from automation.agent.references import ExternalRef
 from automation.agent.session_links import SessionLinks
-from automation.agent.workspace.git_manager import PendingMerge, RepoStatus
+from automation.agent.workspace.git_manager import GitPushPermissionError, PendingMerge, RepoStatus
 from automation.agent.workspace.repo_view import RepoWorkspace
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from codebase.base import GitPlatform, Issue, MergeRequestDiffStats, Pipeline, Scope, TriggeredPipeline, User
@@ -1973,6 +1973,30 @@ class TestPublishExtraRepos:
         assert publish.merge_request == open_mr
         assert publish.error == "Publishing to g/mod failed (RuntimeError)"
 
+    async def test_a_publish_that_opened_a_merge_request_says_so(self):
+        mr = make_merge_request(repo_id="g/mod")
+        outcome = PublishOutcome(merge_request=mr, published=True, created_merge_request=True)
+
+        [publish], _, _, _ = await _publish_extras(_multi_repo_ctx(make_repo_handle("g/mod")), publish=[outcome])
+
+        assert publish.created_merge_request is True
+
+    async def test_a_rejected_push_records_its_kind_and_keeps_the_error_text(self):
+        [publish], _, _, _ = await _publish_extras(
+            _multi_repo_ctx(make_repo_handle("g/mod")), publish=GitPushPermissionError("denied")
+        )
+
+        assert publish.error_kind == "push_rejected"
+        assert publish.error == "Publishing to g/mod failed (GitPushPermissionError)"
+
+    async def test_unresolved_conflicts_record_their_paths(self):
+        [publish], _, _, _ = await _publish_extras(
+            _multi_repo_ctx(make_repo_handle("g/mod")), publish=UnresolvedMergeConflictsError(["a.py"])
+        )
+
+        assert publish.error_kind == "conflicts"
+        assert publish.conflicted_paths == ("a.py",)
+
     async def test_a_sibling_publish_only_relates_to_work_items_the_turn_closes(self):
         sentry = ExternalRef(key="PROJ-1A", provider="sentry", relation="closes")
         ctx = RuntimeCtx(
@@ -2011,6 +2035,7 @@ class TestPublishExtraRepos:
                 published=False,
                 current_ref="main",
                 error="Publishing to g/mod failed (RuntimeError)",
+                error_kind="unknown",
             ),
             RepoPublish(repo_id="g/web", merge_request=web_mr, published=True, current_ref="main"),
         ]
@@ -2032,7 +2057,13 @@ class TestPublishExtraRepos:
         [publish], _, _, _ = await _publish_extras(_multi_repo_ctx(make_repo_handle("g/mod")), publish=conflict)
 
         assert publish == RepoPublish(
-            repo_id="g/mod", merge_request=None, published=False, current_ref="main", error=str(conflict)
+            repo_id="g/mod",
+            merge_request=None,
+            published=False,
+            current_ref="main",
+            error=str(conflict),
+            error_kind="conflicts",
+            conflicted_paths=("a.py",),
         )
 
     @pytest.mark.parametrize(

@@ -14,7 +14,7 @@ from git import GitCommandError
 
 from accounts.utils import PlatformIdentity, aget_platform_identity
 from automation.agent.git_state import RepoPublish
-from automation.agent.publish_errors import PushRejectedError
+from automation.agent.publish_errors import PushRejectedError, publish_error_kind
 from automation.agent.references import (
     PLATFORM_ISSUE_PROVIDERS,
     render_agent_context,
@@ -710,6 +710,8 @@ async def _apublish_extra_repo(
     slug = handle.repository.slug
     branch = "" if handle.head_detached else handle.current_ref
     target: MergeRequest | None = None
+    error_kind: str
+    conflicted_paths: tuple[str, ...] = ()
     try:
         target = await aopen_branch_merge_request(handle, strict=True)
         publisher = GitChangePublisher(
@@ -721,9 +723,12 @@ async def _apublish_extra_repo(
     except UnresolvedMergeConflictsError as exc:
         logger.warning("Not publishing %s: %s", slug, exc)
         error = str(exc)
+        error_kind = "conflicts"
+        conflicted_paths = exc.paths
     except Exception as exc:
         logger.exception("Publishing to %s failed", slug)
         error = publish_failure(slug, exc)
+        error_kind = publish_error_kind(exc)
     else:
         return RepoPublish(
             repo_id=handle.repo_id,
@@ -732,8 +737,17 @@ async def _apublish_extra_repo(
             current_ref=branch,
             pushed_sha=outcome.pushed_sha,
             diff_stats=outcome.diff_stats,
+            created_merge_request=outcome.created_merge_request,
         )
-    return RepoPublish(repo_id=handle.repo_id, merge_request=target, published=False, current_ref=branch, error=error)
+    return RepoPublish(
+        repo_id=handle.repo_id,
+        merge_request=target,
+        published=False,
+        current_ref=branch,
+        error=error,
+        error_kind=error_kind,
+        conflicted_paths=conflicted_paths,
+    )
 
 
 def publish_failure(slug: str, exc: Exception) -> str:
