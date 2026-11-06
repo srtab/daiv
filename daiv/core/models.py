@@ -283,6 +283,15 @@ class SiteConfiguration(models.Model):
         validators=[MinValueValidator(1)],
         help_text=_("How many fix attempts to spend on one merge request before handing back."),
     )
+    verification_enabled = models.BooleanField(
+        _("verification enabled"),
+        blank=True,
+        null=True,
+        help_text=_(
+            "Run each repository's before_publish checks before publishing, and remind the agent to test when none "
+            "are declared."
+        ),
+    )
 
     # -- Commit & PR Writer --
     diff_to_metadata_model_name = models.CharField(
@@ -606,6 +615,7 @@ class SiteConfiguration(models.Model):
                 "agent_*",
                 "suggest_context_file_enabled",
                 "session_link_enabled",
+                "verification_enabled",
                 "model_request_timeout_seconds",
                 "model_max_retries",
             ),

@@ -346,6 +346,15 @@
         </div>
     </div>
 
+    <div>
+        <label for="{{ form.before_publish.id_for_label }}" class="block text-[15px] font-medium text-gray-400">
+            {% translate "Before publish" %}
+        </label>
+        {{ form.before_publish }}
+        <p class="mt-1.5 text-sm text-gray-500">{{ form.before_publish.help_text }}</p>
+        {% if form.before_publish.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.before_publish.errors.0 }}</p>{% endif %}
+    </div>
+
     <div class="flex items-center gap-3 border-t border-white/[0.06] pt-5">
         <button type="submit" class="btn-primary">{% translate "Save" %}</button>
         <button type="button" @click="$dispatch('close-env-drawer')" class="btn-secondary">{% translate "Cancel" %}</button>

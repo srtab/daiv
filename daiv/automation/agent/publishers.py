@@ -22,6 +22,7 @@ from automation.agent.references import (
     render_references_block,
 )
 from automation.agent.utils import build_langsmith_config, repo_relative_text
+from automation.agent.verification.outcome import render_report, replace_report_section, report_section
 from codebase.base import GitPlatform, MergeRequest, MergeRequestDiffStats, Scope
 from codebase.clients.base import aget_open_merge_request
 from codebase.exceptions import MergeRequestBranchNotVisibleError
@@ -37,6 +38,7 @@ if TYPE_CHECKING:
     from automation.agent.agent_settings import AgentSettings
     from automation.agent.context import RepoHandle, RuntimeCtx
     from automation.agent.session_links import SessionLinks, SessionLinksResolver
+    from automation.agent.verification.outcome import VerificationOutcome
     from automation.agent.workspace.base import PublishWorkspace, Workspace
     from automation.agent.workspace.git_manager import PendingMerge
 
@@ -145,6 +147,7 @@ class GitChangePublisher:
         skip_ci: bool = False,
         as_draft: bool = False,
         agent_summary: str | None = None,
+        verification: VerificationOutcome | None = None,
     ) -> PublishOutcome:
         """
         Daiv-direct publish: ensure the run's changes reach a merge request.
@@ -157,6 +160,9 @@ class GitChangePublisher:
         A merge the agent left pending (``git merge --no-commit``) is committed as a merge commit with git's merge
         subject; one whose files still hold conflict markers raises ``UnresolvedMergeConflictsError`` before anything
         is committed.
+
+        ``verification``'s report goes into a new merge request's description, and replaces the one DAIV wrote into an
+        existing merge request's description.
         """
         protected_branch_fallback_source: str | None = None
         default_branch = cast("str", self.ctx.config.default_branch)
@@ -280,6 +286,7 @@ class GitChangePublisher:
                     as_draft=as_draft,
                     fallback_from_mr=fallback_from_mr,
                     session_links=links,
+                    verification_report=render_report(verification) if verification is not None else None,
                 )
             except MergeRequestBranchNotVisibleError:
                 # Branch is pushed but GitLab won't open the MR yet; failing here would orphan the work
@@ -325,6 +332,8 @@ class GitChangePublisher:
                 )
             if suppress_bot_pipeline:
                 await self._trigger_service_account_pipeline(merge_request, pushed_sha or None)
+            if verification is not None:
+                await self._refresh_verification_report(merge_request, verification)
 
         return PublishOutcome(
             merge_request=merge_request,
@@ -514,6 +523,7 @@ class GitChangePublisher:
         as_draft: bool = False,
         fallback_from_mr: MergeRequest | None = None,
         session_links: SessionLinks | None = None,
+        verification_report: str | None = None,
     ) -> MergeRequest:
         """
         Update or create the merge request.
@@ -528,6 +538,8 @@ class GitChangePublisher:
             fallback_from_mr: The original MR whose protected source branch forced this fresh MR;
                 the description back-links to it so reviewers can trace the relationship.
             session_links: The session links; the description links to the session's merge request page.
+            verification_report: The before_publish report, Markdown with HTML blocks that goes below the description
+                unescaped; ``None`` for none.
 
         Returns:
             The merge request.
@@ -546,6 +558,11 @@ class GitChangePublisher:
                 "automation/issue_merge_request.txt",
                 {
                     "description": repo_relative_text(description, repo_path=self.workspace.repo_path),
+                    "verification_report": (
+                        repo_relative_text(report_section(verification_report), repo_path=self.workspace.repo_path)
+                        if verification_report
+                        else None
+                    ),
                     "references_block": render_references_block(
                         self.ctx.references, repo_slug=self.ctx.repository.slug
                     ),
@@ -557,6 +574,28 @@ class GitChangePublisher:
                 },
             ),
         )
+
+    async def _refresh_verification_report(
+        self, merge_request: MergeRequest, verification: VerificationOutcome
+    ) -> None:
+        """Replace the verification report DAIV wrote into ``merge_request``'s description with this run's. Logged, not
+        raised, on failure: the changes are already pushed."""
+        report = render_report(verification, new_merge_request=False)
+        if report is None:
+            return
+        try:
+            current = await sync_to_async(self.client.get_merge_request)(
+                merge_request.repo_id, merge_request.merge_request_id
+            )
+            description = replace_report_section(
+                current.description, repo_relative_text(report, repo_path=self.workspace.repo_path)
+            )
+            if description != current.description:
+                await sync_to_async(self.client.update_merge_request)(
+                    merge_request.repo_id, merge_request.merge_request_id, description=description
+                )
+        except Exception:
+            logger.exception("Could not update the verification report on MR !%s", merge_request.merge_request_id)
 
     async def _resolve_assignee_id(self) -> str | int | None:
         """The new merge request's assignee, in the shape its platform wants.

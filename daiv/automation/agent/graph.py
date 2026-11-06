@@ -14,6 +14,7 @@ from langchain.agents.middleware import (
 )
 from skills.constants import SKILLS_PATH
 
+from automation.agent.agent_settings import resolve_before_publish
 from automation.agent.base import get_model
 from automation.agent.constants import REPO_PATH, SKILLS_SOURCES, SKILLS_TOOL_NAME, SUBAGENTS_SOURCES
 from automation.agent.context import RuntimeCtx
@@ -46,6 +47,7 @@ from automation.agent.middlewares.skills import SkillsMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.middlewares.summarization import build_summarization_middleware
+from automation.agent.middlewares.verification import VerificationMiddleware, VerificationResetMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.profile import register as _register_harness_profile
@@ -57,6 +59,7 @@ from automation.agent.subagents import (
     load_builtin_code_review_detectors,
     load_custom_subagents,
 )
+from automation.agent.verification.checks import CheckRunner
 from codebase.base import GitPlatform
 from core.constants import BOT_NAME
 
@@ -267,8 +270,23 @@ async def create_daiv_agent(
 
     deferred_tools = deferred_tools_middleware(ALWAYS_LOADED_TOOLS, mcp_tools)
     step_budget = StepBudgetMiddleware()
+    # finalize (not raise) on the parent: a raise would skip after_agent (publish/patch capture)
+    # and discard work — the failure mode StepBudget guards against.
+    loop_breaker = LoopBreakerMiddleware(terminal="finalize")
+    verification: VerificationMiddleware | None = None
+    if settings.features.verification and auto_commit_changes and bash_tool_enabled:
+        verification = VerificationMiddleware(
+            workspace=workspace,
+            commands=resolve_before_publish(
+                repo=ctx.config, sandbox_default=ctx.sandbox.before_publish if ctx.sandbox else None
+            ),
+            step_budget=step_budget,
+            loop_breaker=loop_breaker,
+            redact=CheckRunner.redacted_values(ctx.sandbox.env_vars) if ctx.sandbox else (),
+        )
 
     user_middleware: list[AgentMiddleware[Any, Any, Any]] = [
+        VerificationResetMiddleware(),
         # Replaces the FilesystemMiddleware create_deep_agent would auto-add: 0.7 merges custom
         # middleware into the base stack by ``.name``, taking the same slot and preserving order.
         # Passed only to restrict the toolset (see WORKSPACE_FS_TOOLS); ``_permissions`` must keep
@@ -297,6 +315,8 @@ async def create_daiv_agent(
         *([WebFetchMiddleware()] if settings.web_fetch_enabled else []),
         *([ArtifactsMiddleware(workspace=workspace, store=artifact_store)] if artifact_store is not None else []),
         *([DelegateJobsMiddleware(delegator=delegator)] if delegator is not None else []),
+        # Outside the fallback, so a fallback model retries only the model call, never the checks.
+        *([verification] if verification is not None else []),
         *([ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:])] if fallback_models else []),
         # Web search/fetch, git-platform, and MCP tools are all deferred behind tool_search; only the
         # file/bash/todo core in ALWAYS_LOADED_TOOLS is eagerly bound.
@@ -304,9 +324,7 @@ async def create_daiv_agent(
         *([AskUserQuestionMiddleware()] if ask_user_enabled else []),
         # Before the caching middleware so the cache-control placement sees the final
         # message list, including any injected budget reminder.
-        # finalize (not raise) on the parent: a raise would skip after_agent (publish/patch capture)
-        # and discard work — the failure mode StepBudget guards against.
-        LoopBreakerMiddleware(terminal="finalize"),
+        loop_breaker,
         step_budget,
         ContextUsageMiddleware(),
         AnthropicPromptCachingMiddleware(),
@@ -318,6 +336,7 @@ async def create_daiv_agent(
             auto_commit_changes=auto_commit_changes,
             capture_patch=capture_patch,
             session_links=session_links,
+            recheck=verification.recheck if verification is not None else None,
             fork_branch=fork_branch,
         ),
         GitPlatformMiddleware(git_platform=ctx.git_platform, backend=backend),

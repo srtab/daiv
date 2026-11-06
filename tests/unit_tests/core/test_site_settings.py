@@ -28,6 +28,10 @@ class TestDefaults:
         with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(web_search_engine=None)):
             assert ss.web_search_engine == "duckduckgo"
 
+    def test_verification_enabled_defaults_true(self, ss):
+        with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(verification_enabled=None)):
+            assert ss.verification_enabled is True
+
 
 class TestDbOverride:
     def test_db_value_overrides_default(self, ss):

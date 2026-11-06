@@ -7,6 +7,7 @@ from automation.agent.agent_settings import (
     ModelChain,
     RunOverrides,
     resolve_agent_settings,
+    resolve_before_publish,
     resolve_consolidation_chain,
     resolve_features,
     resolve_pipeline_watch_enabled,
@@ -324,3 +325,36 @@ def test_a_malformed_watch_attempt_cap_fails_only_the_cap(monkeypatch):
     assert resolve_pipeline_watch_enabled(site=site, repo=repo) is True
     with pytest.raises(ValueError, match="Cannot parse"):
         resolve_pipeline_watch_max_attempts(site=site, repo=repo)
+
+
+def test_resolve_before_publish_prefers_repo():
+    repo = RepositoryConfig(hooks={"before_publish": ["make test"]})
+
+    assert resolve_before_publish(repo=repo, sandbox_default=("make ci",)) == ("make test",)
+
+
+def test_resolve_before_publish_falls_back_to_sandbox_default():
+    assert resolve_before_publish(repo=RepositoryConfig(), sandbox_default=("make ci",)) == ("make ci",)
+
+
+def test_resolve_before_publish_empty_repo_list_disables_default():
+    repo = RepositoryConfig(hooks={"before_publish": []})
+
+    assert resolve_before_publish(repo=repo, sandbox_default=("make ci",)) == ()
+
+
+def test_resolve_before_publish_none_anywhere_is_empty():
+    assert resolve_before_publish(repo=RepositoryConfig(), sandbox_default=None) == ()
+
+
+def test_resolve_features_verification_follows_site():
+    off = resolve_features(site=site_snapshot(verification_enabled=False), repo=RepositoryConfig())
+    on = resolve_features(site=site_snapshot(verification_enabled=True), repo=RepositoryConfig())
+
+    assert (off.verification, on.verification) == (False, True)
+
+
+def test_resolve_features_verification_off_for_a_repo_that_declares_no_commands():
+    repo = RepositoryConfig(hooks={"before_publish": []})
+
+    assert resolve_features(site=site_snapshot(verification_enabled=True), repo=repo).verification is False

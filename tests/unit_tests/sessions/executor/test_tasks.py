@@ -926,7 +926,7 @@ async def test_it_claims_off_the_published_flag():
     for ``apersist_session_ref``."""
     claimed = await _drive({"merge_request": MR, "published": True}, run_id="run-1", user_id=9)
 
-    assert claimed == [{"run_id": "run-1", "merge_request": MR, "pushed_sha": "", "repo_id": None}]
+    assert claimed == [{"run_id": "run-1", "merge_request": MR, "pushed_sha": "", "repo_id": None, "examined": False}]
 
 
 @pytest.mark.django_db(transaction=True)

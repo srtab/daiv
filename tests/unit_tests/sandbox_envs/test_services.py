@@ -268,6 +268,15 @@ async def test_row_to_override_fails_closed_to_none_on_decryption_error(mocker):
     assert override.egress is None
 
 
+@pytest.mark.parametrize(("stored", "expected"), [(["a", "b"], ("a", "b")), (None, None)])
+def test_row_to_override_maps_before_publish(stored, expected):
+    from sandbox_envs.services import row_to_override
+
+    env = SandboxEnvironment(name="e", before_publish=stored)
+
+    assert row_to_override(env).before_publish == expected
+
+
 def test_row_to_override_fails_closed_to_none_no_db():
     """Non-DB guard: dangling inject triggers the except branch → egress=None, no network."""
     from types import SimpleNamespace
@@ -288,6 +297,7 @@ def test_row_to_override_fails_closed_to_none_no_db():
         base_image="python:3.12",
         memory_bytes=None,
         cpus=None,
+        before_publish=None,
     )
     override = row_to_override(env)
     # The except branch (dangling inject → from_stored raises) must have been taken.

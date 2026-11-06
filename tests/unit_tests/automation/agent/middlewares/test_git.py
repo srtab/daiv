@@ -11,7 +11,7 @@ from automation.agent.git_state import RepoPublish
 from automation.agent.middlewares.git import GitMiddleware
 from automation.agent.publishers import PublishOutcome, UnresolvedMergeConflictsError
 from automation.agent.synthetic import is_synthetic
-from automation.agent.workspace.git_manager import GitPushPermissionError
+from automation.agent.workspace.git_manager import GitPushPermissionError, StashRestoreError
 from automation.agent.workspace.git_runners import SandboxGitProtocolError
 from codebase.base import MergeRequest, MergeRequestDiffStats, Scope, User
 from tests.unit_tests.automation.agent.conftest import make_repo_handle
@@ -389,6 +389,95 @@ class TestGitMiddleware:
         with patch.object(GitMiddleware, "_alookup_open_mr", AsyncMock(return_value=None)):
             result = await middleware.abefore_agent({}, runtime)
         assert result["published"] is False
+
+    @staticmethod
+    def _verification(status="passed", fingerprint="fp"):
+        return {
+            "status": status,
+            "commands": [
+                {
+                    "command": "make test",
+                    "exit_code": 0 if status == "passed" else 1,
+                    "timed_out": False,
+                    "already_failing": False,
+                }
+            ],
+            "rounds": 0,
+            "suspicious_paths": [],
+            "fingerprint": fingerprint,
+        }
+
+    async def _publish_with(self, verification, *, created=False, recheck=None, published=True):
+        mw = GitMiddleware(settings=SETTINGS, auto_commit_changes=True, workspace=FakeWorkspace(), recheck=recheck)
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        state = {"merge_request": None}
+        if verification is not None:
+            state["verification"] = verification
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub = pub_cls.return_value
+            pub.publish = AsyncMock(
+                return_value=PublishOutcome(merge_request=_mr(), published=published, created_merge_request=created)
+            )
+            result = await mw.aafter_agent(state, runtime)
+        return pub.publish.await_args.kwargs, result
+
+    async def test_after_agent_publishes_draft_when_verification_failed(self):
+        verification = self._verification("failed")
+
+        kwargs, _ = await self._publish_with(verification)
+
+        assert kwargs["as_draft"] is True
+        assert kwargs["verification"] == verification
+
+    async def test_after_agent_passes_and_keeps_the_outcome(self):
+        verification = self._verification("passed")
+
+        kwargs, result = await self._publish_with(verification, created=True)
+
+        assert kwargs["as_draft"] is False
+        assert kwargs["verification"] == verification
+        assert result["verification"] == verification
+
+    async def test_after_agent_without_outcome_publishes_as_before(self):
+        kwargs, result = await self._publish_with(None)
+
+        assert kwargs["as_draft"] is False
+        assert kwargs["verification"] is None
+        assert "verification" not in result
+
+    async def test_after_agent_publishes_the_rechecked_outcome(self):
+        stale, failed = self._verification("passed", fingerprint="stale"), self._verification("failed")
+        recheck = AsyncMock(return_value=failed)
+
+        kwargs, result = await self._publish_with(stale, recheck=recheck)
+
+        recheck.assert_awaited_once_with(stale)
+        assert kwargs["as_draft"] is True
+        assert result["verification"]["status"] == "failed"
+
+    async def test_after_agent_keeps_the_rechecked_outcome_when_nothing_was_published(self):
+        recheck = AsyncMock(return_value=self._verification("failed"))
+
+        _, result = await self._publish_with(
+            self._verification("passed", fingerprint="stale"), recheck=recheck, published=False
+        )
+
+        assert result["verification"]["status"] == "failed"
+
+    async def test_after_agent_emits_failed_then_raises_when_the_recheck_cannot_restore_the_tree(self, dispatched):
+        recheck = AsyncMock(side_effect=StashRestoreError())
+
+        with pytest.raises(StashRestoreError):
+            await self._publish_with(self._verification("passed", fingerprint="stale"), recheck=recheck)
+
+        dispatched.assert_awaited_once_with(
+            PUBLISH_RESULT_EVENT, publish_result_payload(status="failed", error_kind="unknown", repository="a/b")
+        )
+
+    async def test_after_agent_does_not_recheck_without_verification(self):
+        kwargs, _ = await self._publish_with(self._verification("passed", fingerprint="stale"))
+
+        assert kwargs["as_draft"] is False
 
     async def test_repo_publishes_reset_each_turn(self):
         middleware = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())

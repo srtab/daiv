@@ -161,6 +161,16 @@ class TestStepBudgetMiddleware:
             assert middleware._budget_reminder() is not None  # consumed 470 → 30 remaining → warn
         assert middleware._baseline_step == 467  # never re-anchored
 
+    def test_is_finalizing_true_in_finalize_band(self):
+        middleware = _middleware()
+        with _patched_config(recursion_limit=500, step=490):
+            assert middleware._budget_reminder()[0] == "finalize"
+            assert middleware.is_finalizing()
+
+    def test_is_finalizing_false_far_from_limit(self):
+        with _patched_config(recursion_limit=500, step=100):
+            assert not _middleware().is_finalizing()
+
     def test_step_below_baseline_fails_safe_to_full_budget(self):
         # Defensive: if langgraph_step is ever observed below the captured baseline (the per-run
         # rebuild invariant broke), consumed is clamped to 0 so we never spuriously tell the model

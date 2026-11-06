@@ -3,8 +3,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Annotated, Any, NotRequired, cast
 
-import httpx
-from git import GitCommandError
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import PrivateStateAttr
@@ -32,7 +30,8 @@ from automation.agent.publishers import (
 from automation.agent.sibling_links import RelatedMergeRequest, aensure_related_links
 from automation.agent.synthetic import PUBLISH_FAILURES_KIND, synthetic_ai_message
 from automation.agent.utils import final_assistant_text, streamed_assistant_message
-from automation.agent.workspace.git_runners import SandboxGitProtocolError
+from automation.agent.verification.outcome import checks_failed
+from automation.agent.workspace.git_manager import GIT_ERRORS
 from codebase.base import MergeRequest, Scope
 
 if TYPE_CHECKING:
@@ -42,6 +41,7 @@ if TYPE_CHECKING:
 
     from automation.agent.agent_settings import AgentSettings
     from automation.agent.session_links import SessionLinksResolver
+    from automation.agent.verification.outcome import VerificationOutcome
     from automation.agent.workspace.base import Workspace
 
 
@@ -221,6 +221,8 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         workspace: The run's workspace; its git backs the pre-run check and patch capture, and the publisher uses it.
         settings: The run's resolved agent settings.
         session_links: What builds the links the publisher puts in the commit and the merge request; ``None`` for none.
+        recheck: What judges the run's verification outcome again before publishing, ``VerificationMiddleware.recheck``;
+            ``None`` when the run is not verified.
         fork_branch: Whether a turn with no merge request of its own leaves an open one on the checked-out branch
             alone and publishes to a new branch and merge request instead of pushing onto it.
 
@@ -251,6 +253,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         auto_commit_changes: bool = True,
         capture_patch: bool = False,
         session_links: SessionLinksResolver | None = None,
+        recheck: Callable[[VerificationOutcome], Awaitable[VerificationOutcome]] | None = None,
         fork_branch: bool = False,
     ) -> None:
         """
@@ -263,6 +266,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         self._workspace = workspace
         self._settings = settings
         self._session_links = session_links
+        self._recheck = recheck
 
     async def abefore_agent(self, state: GitState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """
@@ -324,7 +328,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         """
         try:
             dirty_files = await self._workspace.git.get_changed_files()
-        except GitCommandError, httpx.HTTPError, SandboxGitProtocolError:
+        except GIT_ERRORS:
             logger.exception("Pre-run dirty-tree check failed; cannot verify the workspace is clean")
             return []
 
@@ -503,7 +507,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         if self.capture_patch:
             try:
                 update["model_patch"] = await self._workspace.git.get_diff()
-            except GitCommandError, httpx.HTTPError, SandboxGitProtocolError:
+            except GIT_ERRORS:
                 # Not publishing (eval harnesses): the patch IS the run's artifact — fail loudly
                 # rather than record an empty patch indistinguishable from "agent made no changes".
                 if not self.auto_commit_changes:
@@ -529,14 +533,19 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             update["main_publish_error"] = None
 
         publisher = GitChangePublisher(ctx, self._workspace, settings=self._settings, session_links=self._session_links)
+        verification = state.get("verification")
         outcome: PublishOutcome | None = None
         notice: str | None = None
         main_payload: dict[str, Any] | None = None
         try:
+            if verification is not None and self._recheck is not None:
+                verification = await self._recheck(verification)
             outcome = await publisher.publish(
                 merge_request=self._publish_target(state, runtime),
                 skip_ci=self.skip_ci,
                 agent_summary=None if multi_repo else agent_summary,
+                as_draft=checks_failed(verification),
+                verification=verification,
             )
         except UnresolvedMergeConflictsError as exc:
             logger.warning("Not publishing: %s", exc)
@@ -591,6 +600,8 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         if outcome is None:
             return update
 
+        if verification is not None:
+            update["verification"] = verification
         if outcome.diff_stats is not None:
             update["diff_stats"] = outcome.diff_stats.model_dump()
         if outcome.published:

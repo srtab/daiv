@@ -108,6 +108,7 @@ class LoopBreakerMiddleware(AgentMiddleware):
         self.terminal = terminal
         self.repeat_threshold = repeat_threshold
         self.max_reminders = max_reminders
+        self.terminated = False
 
     @property
     def _terminal_streak(self) -> int:
@@ -146,6 +147,7 @@ class LoopBreakerMiddleware(AgentMiddleware):
         )
 
     async def _terminate(self, streak: int, label: str) -> ModelCallResult:
+        self.terminated = True
         logger.warning(
             "LoopBreaker: %d identical consecutive '%s' call(s) and %d reminders ignored; terminating via '%s'.",
             streak,

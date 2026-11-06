@@ -44,9 +44,12 @@ step sits where it does:
    sandbox are still open, and the checkpoint is read again for the failure hook. Setup errors skip this.
 5. On success, still inside the context: the checkpoint is read once, the session's working branch is synced
    against the ref the clone landed on (``persist_ref``), a run that published claims its merge request for the
-   session and has the branch's CI judged (``arm_watch``, ``sessions.inbox.ownership.Ownerships``), and the
-   ``AgentResult`` is built. A failed checkpoint read yields ``None`` and logs an error, a failed ref sync or claim is
-   logged; none of them fails a run the agent already finished.
+   session and has the branch's CI judged (``arm_watch``, ``sessions.inbox.ownership.Ownerships``), its commit claimed
+   as examined when its ``before_publish`` checks still fail and their report reached the person (the new merge
+   request's description, or a reply that is not streamed) so a red pipeline on it wakes no fix run, and the
+   ``AgentResult`` is built, its reply followed by the verification report when no new merge request's description
+   carries it. A failed checkpoint read yields ``None`` and logs an error, a failed ref sync or claim is logged; none of
+   them fails a run the agent already finished.
 6. A session run that reached the agent has its thread archived (``sessions.archive.aarchive_thread``) however it
    ended, unless it lost its slot: the holder that took over archives its own end. A run that resets its thread closes
    the context it cleared. A failed archive, or one slower than ``run.ARCHIVE_TIMEOUT_S``, is logged. The sandbox

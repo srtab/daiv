@@ -23,6 +23,7 @@ class SandboxEnvOverride:
     cpus: float | None
     env_vars: dict[str, str]
     egress: EgressConfigRequest | None = None
+    before_publish: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,7 @@ class SandboxSpec:
     cpus: float | None
     env_vars: dict[str, str]
     egress: EgressConfigRequest | None = None
+    before_publish: tuple[str, ...] | None = None
 
     @property
     def enabled(self) -> bool:
@@ -43,8 +45,8 @@ class SandboxSpec:
     def fingerprint(self) -> str:
         """A stable digest of what a sandbox container is built from.
 
-        Covers the base image, memory, CPUs, env vars and the egress policy. Egress secrets are left
-        out: a warm session gets their current values through ``update_egress``. Keyed on
+        Covers the base image, memory, CPUs, env vars and the egress policy. ``before_publish`` is left
+        out, as are egress secrets: a warm session gets their current values through ``update_egress``. Keyed on
         ``SECRET_KEY`` so a checkpoint never holds a plain hash of env var values, which may be secrets.
         """
         payload = json.dumps(
@@ -85,6 +87,7 @@ def merge_sandbox_spec(*, per_run: SandboxEnvOverride | None, global_default: Sa
 
     return SandboxSpec(
         base_image=pick("base_image", None),
+        before_publish=pick("before_publish", None),
         memory_bytes=pick("memory_bytes", None),
         cpus=pick("cpus", None),
         # Network is explicit per env (no inherit): take the effective env's egress as-is. A per-run env

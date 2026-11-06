@@ -46,6 +46,9 @@ class TestFingerprint:
         """A warm session gets current secret values through ``update_egress``, so a rotation is no rebuild."""
         assert _spec(egress=_egress(secret="sk-2")).fingerprint == _spec().fingerprint  # noqa: S106
 
+    def test_before_publish_does_not_change_it(self):
+        assert _spec(before_publish=("make test",)).fingerprint == _spec().fingerprint
+
     def test_it_is_keyed_on_the_secret_key(self, settings):
         """So a checkpoint never holds a plain hash of env var values, which may be secrets."""
         before = _spec().fingerprint
@@ -112,3 +115,13 @@ class TestMergeSandboxSpec:
         egress = _egress("global.example")
         spec = merge_sandbox_spec(per_run=None, global_default=_ov(egress=egress))
         assert spec.egress is egress
+
+    def test_before_publish_per_run_wins(self):
+        spec = merge_sandbox_spec(
+            per_run=_ov(before_publish=("make test",)), global_default=_ov(before_publish=("make ci",))
+        )
+        assert spec.before_publish == ("make test",)
+
+    def test_before_publish_falls_back_to_global(self):
+        spec = merge_sandbox_spec(per_run=_ov(), global_default=_ov(before_publish=("make ci",)))
+        assert spec.before_publish == ("make ci",)

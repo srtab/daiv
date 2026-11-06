@@ -55,6 +55,7 @@ def row_to_override(env: SandboxEnvironment) -> SandboxEnvOverride:
             if entry.get("name") and entry.get("value") is not None
         },
         egress=egress,
+        before_publish=tuple(env.before_publish) if env.before_publish is not None else None,
     )
 
 

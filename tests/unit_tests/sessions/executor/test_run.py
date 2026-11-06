@@ -548,7 +548,9 @@ async def test_the_ref_sync_and_the_claim_run_when_asked():
     stack.persist.assert_awaited_once_with(
         thread_id=spec.thread_id, current_ref="main", merge_request=MR, published=True
     )
-    assert stack.claimed == [{"run_id": "run-1", "merge_request": MR, "pushed_sha": "", "repo_id": None}]
+    assert stack.claimed == [
+        {"run_id": "run-1", "merge_request": MR, "pushed_sha": "", "repo_id": None, "examined": False}
+    ]
 
 
 async def test_the_claim_carries_the_sha_the_run_pushed():
@@ -564,7 +566,87 @@ async def test_the_claim_carries_the_sha_the_run_pushed():
     with agent_stack(agent) as stack, persist, measure, record:
         await execute_run(make_spec(arm_watch=True, run_id="run-1"))
 
-    assert stack.claimed == [{"run_id": "run-1", "merge_request": MR, "pushed_sha": "e96f1f77", "repo_id": None}]
+    assert stack.claimed == [
+        {"run_id": "run-1", "merge_request": MR, "pushed_sha": "e96f1f77", "repo_id": None, "examined": False}
+    ]
+
+
+def _verification(status: str, **extra) -> dict:
+    command = {"command": "make test", "exit_code": 1, "timed_out": False, "already_failing": False}
+    return {"status": status, "commands": [command], "rounds": 2, "suspicious_paths": [], **extra}
+
+
+@pytest.mark.parametrize(
+    ("verification", "expected"),
+    [
+        (_verification("failed"), True),
+        (_verification("passed"), False),
+        (_verification("not_verified"), False),
+        (None, False),
+    ],
+)
+async def test_the_claim_marks_the_commit_examined_only_when_the_checks_still_fail(verification, expected):
+    state = {"merge_request": MR, "published": True}
+    if verification is not None:
+        state["verification"] = verification
+    persist, measure, record = _unrecorded()
+
+    with agent_stack(_agent(state=state)) as stack, persist, measure, record:
+        await execute_run(make_spec(arm_watch=True, run_id="run-1"))
+
+    assert stack.claimed[0]["examined"] is expected
+
+
+@pytest.mark.parametrize(("status", "expected"), [("pushed", False), ("opened", True)])
+async def test_a_streamed_run_marks_the_commit_examined_only_when_its_new_merge_request_carries_the_report(
+    status, expected
+):
+    async def _events(run):
+        await RunnableLambda(_dispatch_publish_result).ainvoke(publish_result_payload(status=status), config=run.config)
+        yield "done"
+
+    state = {"merge_request": MR, "published": True, "verification": _verification("failed")}
+    persist, measure, record = _unrecorded()
+
+    with agent_stack(_agent(state=state)) as stack, persist, measure, record:
+        await _drain(make_spec(arm_watch=True, run_id="run-1"), _events)
+
+    assert stack.claimed[0]["examined"] is expected
+
+
+async def test_the_reply_carries_the_verification_report_when_no_description_did():
+    with agent_stack(_agent(state={"verification": _verification("failed")})):
+        outcome = await execute_run(make_spec())
+
+    assert outcome.response_text.startswith("done\n\n### Verification\n")
+    assert "`make test` failed (exit 1)" in outcome.response_text
+    assert "draft" not in outcome.response_text
+    assert outcome.agent_result["response"] == outcome.response_text
+
+
+async def test_the_reply_has_no_verification_report_when_the_new_merge_requests_description_carries_it():
+    agent = _agent(state={"verification": _verification("failed")})
+
+    async def _ainvoke(_input, *, config, **_kwargs):
+        payload = publish_result_payload(status="opened")
+        await RunnableLambda(_dispatch_publish_result).ainvoke(payload, config=config)
+        return {"messages": [MagicMock(content="done")]}
+
+    agent.ainvoke = AsyncMock(side_effect=_ainvoke)
+    with agent_stack(agent):
+        outcome = await execute_run(make_spec())
+
+    assert outcome.response_text == "done"
+
+
+@pytest.mark.parametrize("verification", [_verification("not_configured", commands=[]), None])
+async def test_the_reply_has_no_verification_report_when_there_is_none_to_add(verification):
+    state = {} if verification is None else {"verification": verification}
+
+    with agent_stack(_agent(state=state)):
+        outcome = await execute_run(make_spec())
+
+    assert outcome.response_text == "done"
 
 
 def _sibling_state(*repo_ids: str, published: bool = True, created: bool = False) -> list[dict]:
