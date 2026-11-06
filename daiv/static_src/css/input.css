@@ -1374,8 +1374,8 @@ html {
      after the first carries the spacing as a margin, which `display: none` takes with it. */
   .workspace-row {
     display: grid;
-    grid-template-columns: 16px minmax(0, 1fr) auto auto auto auto;
-    grid-template-areas: "icon slug tag branch action remove";
+    grid-template-columns: 16px minmax(0, 1fr) auto auto auto;
+    grid-template-areas: "icon slug role branch remove";
     align-items: center;
     row-gap: 6px;
     padding: 7px 10px;
@@ -1407,8 +1407,10 @@ html {
     color: var(--color-text);
   }
 
+  /* The MAIN tag and Make main share one cell: only the first row shows the tag, only the
+     others show the action. */
   .workspace-tag {
-    grid-area: tag;
+    grid-area: role;
     padding: 1px 6px;
     border-radius: 999px;
     border: 1px solid var(--color-border);
@@ -1444,7 +1446,7 @@ html {
   }
 
   .workspace-row__action {
-    grid-area: action;
+    grid-area: role;
     padding: 2px 6px;
     border-radius: 6px;
     font-size: 12px;
@@ -1469,10 +1471,10 @@ html {
 
   @media (width < 640px) {
     .workspace-row {
-      grid-template-columns: 16px minmax(0, 1fr) auto auto auto;
+      grid-template-columns: 16px minmax(0, 1fr) auto auto;
       grid-template-areas:
-        "icon slug tag action remove"
-        ". branch branch branch branch";
+        "icon slug role remove"
+        ". branch branch branch";
     }
 
     .workspace-row__branch {

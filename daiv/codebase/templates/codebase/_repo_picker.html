@@ -24,8 +24,8 @@ Parameters:
 - unique_repos (default False)  — one entry per repository: the same repo on another branch is refused
 - with_x_data (default True)    — wrap in `x-data='promptBox(...)'`; set False when a parent already provides scope
 - on_change_event (default "")  — when set, promptBox dispatches this window event with detail={repos} on every chip mutation
-- variant (default "")          — "card" renders one `.workspace-row` per repo (MAIN tag, branch button,
-                                  "Make main", remove) plus an "Add repository" button. Any other value
+- variant (default "")          — "card" renders one `.workspace-row` per repo (MAIN tag or "Make main",
+                                  branch button, remove) plus an "Add repository" button. Any other value
                                   keeps the default rendering.
 
 `prompt-box.js` must be loaded for the Alpine state to bind.
@@ -52,17 +52,17 @@ Parameters:
                 <span class="workspace-row__slug" x-text="repo.slug" :title="repo.slug"></span>
                 <span x-show="repos.length > 1 && index === 0" x-cloak class="workspace-tag">{% translate "Main" %}</span>
                 <button type="button"
+                        x-show="index > 0" x-cloak
+                        @click.stop="makeMain(index)"
+                        :aria-label="'{{ make_main_template|escapejs }}'.replace('__LABEL__', repo.slug)"
+                        class="workspace-row__action">{% translate "Make main" %}</button>
+                <button type="button"
                         @click.stop="openBranchPicker(index)"
                         :aria-label="'{{ change_branch_template|escapejs }}'.replace('__LABEL__', repo.slug)"
                         class="workspace-row__branch">
                     {% icon "branch" "h-3.5 w-3.5" %}
                     <span x-text="repo.ref || '{{ default_branch_label|escapejs }}'"></span>
                 </button>
-                <button type="button"
-                        x-show="index > 0" x-cloak
-                        @click.stop="makeMain(index)"
-                        :aria-label="'{{ make_main_template|escapejs }}'.replace('__LABEL__', repo.slug)"
-                        class="workspace-row__action">{% translate "Make main" %}</button>
                 <button type="button"
                         @click="remove(index)"
                         :aria-label="'{{ remove_repo_template|escapejs }}'.replace('__LABEL__', repo.slug)"
