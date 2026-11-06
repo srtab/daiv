@@ -51,7 +51,6 @@
       merge_request_title: v.merge_request_title ?? "",
       merge_request_iid: v.merge_request_iid ?? null,
       merge_request_web_url: v.merge_request_web_url ?? "",
-      files_changed: v.files_changed ?? null,
       lines_added: v.lines_added ?? null,
       lines_removed: v.lines_removed ?? null,
       error: v.error_kind ? labels.t(`publish_error_${v.error_kind}`) : "",

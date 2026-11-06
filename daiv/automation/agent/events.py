@@ -5,9 +5,8 @@ degrades a payload it cannot read to "no frames" (or "no update") rather than ra
 renamed on one side alone fails silently — empty turns for the assistant message, a frozen meter
 for context usage. The consumer half lives with each event: Python (``sessions.live.agui``,
 parsing through this module) for the assistant message, JS (``chat-stream.js``, whose node test
-drives the handler with payloads built here) for the context meter and the publish result. The main
-repository's result is also kept per run by :func:`record_publish_result`; extra repositories' results reach the
-run from the checkpoint (``Run.repo_publishes``).
+drives the handler with payloads built here) for the context meter and the publish result, which
+is also kept per run, for every repository, by :func:`record_publish_result`.
 """
 
 from __future__ import annotations
@@ -174,7 +173,8 @@ def repo_publish_payload(publish: RepoPublish) -> dict[str, Any] | None:
 
 
 class PublishResultRecorder(BaseCallbackHandler):
-    """Keeps the last main-repository :data:`PUBLISH_RESULT_EVENT` payload dispatched in the active recording block."""
+    """Keeps the last :data:`PUBLISH_RESULT_EVENT` payload of the main repository (``payload``) and of each extra
+    repository (``siblings``, by repository) dispatched in the active recording block."""
 
     run_inline = True
     # Custom events only: an unhandled chat-model start makes langchain stringify the whole prompt per call.
@@ -182,6 +182,13 @@ class PublishResultRecorder(BaseCallbackHandler):
 
     def __init__(self) -> None:
         self.payload: dict[str, Any] | None = None
+        self.siblings: dict[str, dict[str, Any]] = {}
+
+    def record(self, payload: dict[str, Any]) -> None:
+        if payload.get("sibling"):
+            self.siblings[payload.get("repository") or ""] = payload
+        else:
+            self.payload = payload
 
     def on_custom_event(
         self,
@@ -193,8 +200,8 @@ class PublishResultRecorder(BaseCallbackHandler):
         metadata: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> None:
-        if name == PUBLISH_RESULT_EVENT and isinstance(data, dict) and not data.get("sibling"):
-            self.payload = data
+        if name == PUBLISH_RESULT_EVENT and isinstance(data, dict):
+            self.record(data)
 
 
 # Once, at import: a hook registered per block would pile up in langchain's module-level hook list.
@@ -214,3 +221,10 @@ def record_publish_result() -> Generator[PublishResultRecorder]:
         yield recorder
     finally:
         _publish_result_recorder.reset(token)
+
+
+def record_publish(payload: dict[str, Any]) -> None:
+    """Hand ``payload`` to the active recording block, for a publish made outside any runnable (draft recovery),
+    where a dispatched event reaches no callback."""
+    if (recorder := _publish_result_recorder.get()) is not None:
+        recorder.record(payload)

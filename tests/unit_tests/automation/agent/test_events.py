@@ -8,6 +8,7 @@ from automation.agent.events import (
     context_usage_payload,
     publish_result_payload,
     published_outcome_payload,
+    record_publish,
     record_publish_result,
     repo_publish_payload,
 )
@@ -201,4 +202,25 @@ async def test_the_recorder_keeps_the_main_repository_payload_over_a_later_sibli
         await _dispatch((PUBLISH_RESULT_EVENT, main), (PUBLISH_RESULT_EVENT, sibling))
 
     assert recorder.payload == main
-    assert recorder.payload["sibling"] is False
+    assert recorder.siblings == {"srtab/other": sibling}
+
+
+async def test_the_recorder_keeps_the_last_result_of_each_extra_repository():
+    first, last = (repo_publish_payload(RepoPublish("srtab/other", None, True, "b", pushed_sha=sha)) for sha in "12")
+    other = repo_publish_payload(RepoPublish("srtab/third", None, True, "b"))
+
+    with record_publish_result() as recorder:
+        await _dispatch((PUBLISH_RESULT_EVENT, first), (PUBLISH_RESULT_EVENT, other), (PUBLISH_RESULT_EVENT, last))
+
+    assert recorder.payload is None
+    assert list(recorder.siblings.values()) == [last, other]
+
+
+def test_a_publish_recorded_outside_any_runnable_reaches_the_active_block_only():
+    sibling = repo_publish_payload(RepoPublish("srtab/other", None, True, "b"))
+    record_publish(sibling)
+
+    with record_publish_result() as recorder:
+        record_publish(sibling)
+
+    assert recorder.siblings == {"srtab/other": sibling}

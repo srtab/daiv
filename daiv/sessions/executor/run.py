@@ -15,7 +15,6 @@ from asgiref.sync import sync_to_async
 from redis.exceptions import RedisError
 from redisvl.exceptions import RedisSearchError
 
-from automation.agent.events import repo_publish_payload
 from automation.agent.git_state import checkpointed_repo_publishes
 from automation.agent.session_links import SessionLinks
 from core.utils import build_absolute_url
@@ -322,16 +321,21 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
     )
     recovery.snapshot = await _read_snapshot_after_recovery(run)
     if recovery.snapshot is not None:
-        await _record_sibling_publishes(spec, run, checkpointed_repo_publishes(recovery.snapshot.values))
+        await _persist_sibling_state(spec, run, checkpointed_repo_publishes(recovery.snapshot.values))
 
 
 async def _record_publish_result(
-    run_id: str | None, publish: dict[str, Any] | None, draft: PublishOutcome | None
+    run_id: str | None,
+    publish: dict[str, Any] | None,
+    draft: PublishOutcome | None,
+    *,
+    siblings: Sequence[dict[str, Any]] = (),
 ) -> None:
     """Write the run's publish result onto its ``Run`` once, however the run ended: the last one it dispatched, never
     the checkpoint's, which can still hold the previous run's. A draft merge request recovery opened replaces it,
-    unless the publish failed: the failure then stays, with the draft's merge request beside it. Best-effort: logged,
-    never raised."""
+    unless the publish failed: the failure then stays, with the draft's merge request beside it. ``siblings`` are the
+    extra repositories' results, kept with the commits they pushed (``Run.sibling_pushed_shas``) so those are known as
+    DAIV's. Best-effort: logged, never raised."""
     opened_draft = draft is not None and draft.created_merge_request
     if opened_draft:
         from automation.agent.events import published_outcome_payload
@@ -344,6 +348,10 @@ async def _record_publish_result(
     fields = publish_field_updates(publish)
     if opened_draft:
         fields["code_changes"] = True
+    if siblings:
+        fields["repo_publishes"] = list(siblings)
+        if pushed_shas := [sibling["pushed_sha"] for sibling in siblings if sibling.get("pushed_sha")]:
+            fields["sibling_pushed_shas"] = pushed_shas
     if not run_id or not fields:
         return
     try:
@@ -466,7 +474,9 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
                     handed_over = await _handed_over(run)
                     raise
                 finally:
-                    await _record_publish_result(spec.run_id, publish.payload, recovery.draft)
+                    await _record_publish_result(
+                        spec.run_id, publish.payload, recovery.draft, siblings=list(publish.siblings.values())
+                    )
                     if archiving:
                         await _archive_thread(checkpointer, thread_id, reset=reset)
         finally:
@@ -628,7 +638,7 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
     if spec.arm_watch and published and spec.run_id is not None:
         pushed_sha = (run.publish.payload or {}).get("pushed_sha") if run.publish is not None else None
         await _claim_merge_request(run, spec.run_id, merge_request, pushed_sha=pushed_sha or "")
-    await _record_sibling_publishes(spec, run, sibling_publishes)
+    await _persist_sibling_state(spec, run, sibling_publishes)
     if spec.arm_watch and spec.run_id is not None:
         for publish in sibling_publishes:
             if publish.published:
@@ -646,26 +656,13 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
     return RunOutcome(agent_result=agent_result, response_text=response_text, snapshot=snapshot)
 
 
-async def _record_sibling_publishes(spec: RunSpec, run: AgentRun, publishes: Sequence[RepoPublish]) -> None:
-    """Keep each extra repository's branch and merge request on its row, so the next turn continues there, and the
-    commits the run pushed there on the run (``Run.sibling_pushed_shas``), so they are known as DAIV's."""
+async def _persist_sibling_state(spec: RunSpec, run: AgentRun, publishes: Sequence[RepoPublish]) -> None:
+    """Keep each extra repository's branch and merge request on its row, so the next turn continues there."""
     if publishes and spec.persist_ref:
         try:
             await apersist_extra_repo_state(run.thread_id, publishes)
         except Exception:
             logger.exception("executor: failed to persist extra repository state for thread_id=%s", run.thread_id)
-    pushed_shas = [publish.pushed_sha for publish in publishes if publish.pushed_sha]
-    if pushed_shas and spec.run_id is not None:
-        try:
-            await Run.objects.filter(pk=spec.run_id).aupdate(sibling_pushed_shas=pushed_shas)
-        except Exception:
-            logger.exception("executor: failed to record the extra repositories' pushes for run=%s", spec.run_id)
-    payloads = [payload for payload in map(repo_publish_payload, publishes) if payload is not None]
-    if payloads and spec.run_id is not None:
-        try:
-            await Run.objects.filter(pk=spec.run_id).aupdate(repo_publishes=payloads)
-        except Exception:
-            logger.exception("executor: failed to record the extra repositories' publishes for run=%s", spec.run_id)
 
 
 async def _claim_merge_request(

@@ -6,8 +6,8 @@
       <div class="chat-inbox-event"
            :class="{ 'chat-inbox-event--failed': publishFailed(p), 'chat-inbox-event--published': !publishFailed(p) }"
            data-testid="publish-row" :data-status="p.status"
-           :role="publishFailed(p) && !p.sibling ? 'status' : null"
-           :aria-live="publishFailed(p) && !p.sibling ? 'polite' : null"
+           :role="publishFailed(p) ? 'status' : null"
+           :aria-live="publishFailed(p) ? 'polite' : null"
            :data-run-ending="publishFailed(p) && !p.sibling && !block.items.length ? '' : false">
         <span class="chat-inbox-event__dot" aria-hidden="true"></span>
         <span class="chat-inbox-event__kind">
@@ -27,9 +27,6 @@
         {% include "sessions/_line_counts.html" with counts="({ added: p.lines_added, removed: p.lines_removed })" %}
         <template x-if="p.error">
           <span class="chat-inbox-event__why" x-text="p.error"></span>
-        </template>
-        <template x-if="p.merge_request_web_url">
-          <a class="chat-inbox-event__link" :href="p.merge_request_web_url" target="_blank" rel="noopener noreferrer">{% translate "Open ↗" %}</a>
         </template>
         {% if session %}
           <template x-if="!p.sibling">

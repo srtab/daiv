@@ -480,7 +480,8 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         :func:`~automation.agent.publishers.apublish_extra_repos`), and land in ``repo_publishes`` on every return. With
         extra repositories, a failed main publish is recorded in ``main_publish_error`` and ends the turn with a notice
         rather than raising, which would skip the extra repositories' publishes. Each repository dispatches its own
-        ``PUBLISH_RESULT_EVENT``, main first. The list of failed extra repositories is a synthetic message the chat
+        ``PUBLISH_RESULT_EVENT``, main first, once every repository has published: the chat ends its publish phase on
+        the first one. The list of failed extra repositories is a synthetic message the chat
         hides (it stays in the run's messages); an extra repository's merge conflicts get a visible notice naming
         the files.
 
@@ -531,6 +532,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         publisher = GitChangePublisher(ctx, self._workspace, settings=self._settings, session_links=self._session_links)
         outcome: PublishOutcome | None = None
         notice: str | None = None
+        main_payload: dict[str, Any] | None = None
         try:
             outcome = await publisher.publish(
                 merge_request=self._publish_target(state, runtime),
@@ -543,14 +545,15 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 update["main_publish_error"] = str(exc)
             where = f" in the main repository `{ctx.repository.slug}`" if multi_repo else ""
             notice = _conflicts_notice(exc.paths, where=where)
-            await self._emit_publish_result(
-                publish_result_payload(status="not_published", error_kind="conflicts", repository=ctx.repo.repo_id)
+            main_payload = publish_result_payload(
+                status="not_published", error_kind="conflicts", repository=ctx.repo.repo_id
             )
         except Exception as exc:
-            await self._emit_publish_result(
-                publish_result_payload(status="failed", error_kind=publish_error_kind(exc), repository=ctx.repo.repo_id)
+            main_payload = publish_result_payload(
+                status="failed", error_kind=publish_error_kind(exc), repository=ctx.repo.repo_id
             )
             if not multi_repo:
+                await self._emit_publish_result(main_payload)
                 raise
             logger.exception("Publishing to %s failed", ctx.repository.slug)
             update["main_publish_error"] = publish_failure(ctx.repository.slug, exc)
@@ -560,7 +563,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             )
         else:
             if outcome.published:
-                await self._emit_publish_result(published_outcome_payload(outcome, repository=ctx.repo.repo_id))
+                main_payload = published_outcome_payload(outcome, repository=ctx.repo.repo_id)
 
         repo_publishes: list[RepoPublish] = []
         if multi_repo:
@@ -568,9 +571,9 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 ctx, self._workspace, settings=self._settings, session_links=self._session_links, skip_ci=self.skip_ci
             )
             update["repo_publishes"] = [publish.to_state() for publish in repo_publishes]
-            for publish in repo_publishes:
-                if (payload := repo_publish_payload(publish)) is not None:
-                    await self._emit_publish_result(payload)
+        for payload in [main_payload, *map(repo_publish_payload, repo_publishes)]:
+            if payload is not None:
+                await self._emit_publish_result(payload)
 
         # A link block only goes stale when a publish opens a merge request or rewrites its description.
         if outcome is None or outcome.published or any(publish.published for publish in repo_publishes):

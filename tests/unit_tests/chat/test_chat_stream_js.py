@@ -822,7 +822,6 @@ def test_publish_event_adds_the_result_to_the_run():
             "merge_request_title": "Add it",
             "merge_request_iid": 7,
             "merge_request_web_url": "https://git.example/mr/7",
-            "files_changed": 3,
             "lines_added": 48,
             "lines_removed": 12,
             "error": "",

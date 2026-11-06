@@ -49,7 +49,6 @@ LIVE_ENTRY_KEYS = (
     "merge_request_iid",
     "merge_request_web_url",
     "merge_request_title",
-    "files_changed",
     "lines_added",
     "lines_removed",
     "error",
@@ -852,7 +851,6 @@ def test_opened_result_is_stamped_on_the_runs_last_turn():
             "merge_request_title": "",
             "merge_request_iid": 1832,
             "merge_request_web_url": "https://git/mr/1832",
-            "files_changed": 3,
             "lines_added": 16,
             "lines_removed": 4,
             "error": "",
@@ -937,7 +935,7 @@ def test_failed_publish_with_a_recovered_draft_shows_red_then_opened():
     red, draft = annotate_transcript([_user("h1"), _assistant("a1")], runs)[-1]["publish"]
 
     assert (red["status"], red["lines_added"], red["id"]) == ("failed", None, marker_id(runs[0]))
-    assert (draft["status"], draft["merge_request_iid"], draft["files_changed"], draft["error"]) == ("opened", 9, 2, "")
+    assert (draft["status"], draft["merge_request_iid"], draft["lines_added"], draft["error"]) == ("opened", 9, 5, "")
     assert "id" not in draft
 
 
@@ -975,7 +973,7 @@ def test_a_draft_recovered_after_the_run_failed_shows_opened_above_the_marker():
     result = annotate_transcript([_user("h1"), _assistant("a1")], runs)
 
     (entry,) = result[-2]["publish"]
-    assert (entry["status"], entry["merge_request_iid"], entry["files_changed"], entry["error"]) == ("opened", 9, 2, "")
+    assert (entry["status"], entry["merge_request_iid"], entry["error"]) == ("opened", 9, "")
     assert result[-1]["role"] == "run_status"
 
 

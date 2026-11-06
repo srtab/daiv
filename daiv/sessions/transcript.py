@@ -126,7 +126,6 @@ def _publish_entry(
     merge_request_iid: int | None = None,
     merge_request_web_url: str | None = "",
     merge_request_title: str | None = "",
-    files_changed: int | None = None,
     lines_added: int | None = None,
     lines_removed: int | None = None,
 ) -> dict[str, Any]:
@@ -139,7 +138,6 @@ def _publish_entry(
         "merge_request_iid": merge_request_iid if landed else None,
         "merge_request_web_url": (merge_request_web_url or "") if landed else "",
         "merge_request_title": (merge_request_title or "") if landed else "",
-        "files_changed": files_changed if landed else None,
         "lines_added": lines_added if landed else None,
         "lines_removed": lines_removed if landed else None,
         "error": _error_label(error_kind),
@@ -155,7 +153,6 @@ def _main_publish_entry(run: Run, status: str, *, error_kind: str | None = None)
         merge_request_iid=run.merge_request_iid,
         merge_request_web_url=run.merge_request_web_url,
         merge_request_title=run.merge_request_title,
-        files_changed=run.files_changed,
         lines_added=run.lines_added,
         lines_removed=run.lines_removed,
     )
@@ -171,7 +168,6 @@ def _sibling_publish_entries(run: Run) -> list[dict[str, Any]]:
             merge_request_iid=item.get("merge_request_iid"),
             merge_request_web_url=item.get("merge_request_web_url"),
             merge_request_title=item.get("merge_request_title"),
-            files_changed=item.get("files_changed"),
             lines_added=item.get("lines_added"),
             lines_removed=item.get("lines_removed"),
         )

@@ -891,12 +891,6 @@ msgstr "Publicado"
 msgid "Not published"
 msgstr "Não publicado"
 
-msgid "{count} file"
-msgstr "{count} ficheiro"
-
-msgid "{count} files"
-msgstr "{count} ficheiros"
-
 msgid "Committing changes"
 msgstr "A submeter as alterações"
 

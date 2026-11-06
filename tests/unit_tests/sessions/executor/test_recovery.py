@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from sessions.executor.recovery import recover_draft
 
+from automation.agent.events import record_publish_result, repo_publish_payload
 from automation.agent.git_state import RepoPublish
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxSession
@@ -259,6 +260,14 @@ class TestExtraRepos:
         assert sibling_publishes.await_args.args[1] is workspace
         assert sibling_publishes.await_args.kwargs == {"settings": SETTINGS, "session_links": links, "recovering": True}
         agent.aupdate_state.assert_awaited_once_with(config={}, values={"repo_publishes": [_SIBLING_DRAFT.to_state()]})
+
+    async def test_recovered_sibling_drafts_reach_the_runs_publish_recorder(self):
+        with record_publish_result() as recorder:
+            await self._recover(
+                main_publish=[Mock(merge_request=None)], sibling_publishes=AsyncMock(return_value=[_SIBLING_DRAFT])
+            )
+
+        assert recorder.siblings == {"g/mod": repo_publish_payload(_SIBLING_DRAFT)}
 
     async def test_a_failed_main_recovery_still_recovers_the_siblings(self, caplog):
         with caplog.at_level("ERROR", logger="daiv.sessions"):

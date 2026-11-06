@@ -144,7 +144,6 @@
     suggested_answer: "Suggested answer",
     publish_committing: "Committing changes",
     publish_creating: "Creating merge request",
-    publish_files: ["{count} file", "{count} files"],
     publish_error_conflicts: "Merge conflicts are left in the changed files",
     publish_error_mr_pending: "The merge request isn't created yet",
     publish_error_push_rejected: "The push was rejected",

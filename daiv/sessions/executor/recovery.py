@@ -36,7 +36,8 @@ async def recover_draft(
     draft to save.
 
     The session's extra repositories are recovered after the main one, each to its own merge request recorded in the
-    checkpoint's ``repo_publishes``, and a failure on either side never stops the other.
+    checkpoint's ``repo_publishes`` and in the run's publish recorder, and a failure on either side never stops the
+    other.
     """
     if not workspace.is_ready:
         logger.info("executor: no draft to recover for thread_id=%s: the run acquired no sandbox session", thread_id)
@@ -100,6 +101,7 @@ async def _recover_extra_repo_drafts(
     settings: AgentSettings,
     session_links: SessionLinksResolver | None,
 ) -> None:
+    from automation.agent.events import record_publish, repo_publish_payload
     from automation.agent.publishers import apublish_extra_repos
 
     try:
@@ -109,6 +111,9 @@ async def _recover_extra_repo_drafts(
     except Exception:
         logger.exception("executor: extra repository recovery failed for thread_id=%s", thread_id)
         return
+    for publish in publishes:
+        if (payload := repo_publish_payload(publish)) is not None:
+            record_publish(payload)
     try:
         await agent.aupdate_state(config=config, values={"repo_publishes": [p.to_state() for p in publishes]})
     except Exception:

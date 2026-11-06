@@ -1273,6 +1273,24 @@ class TestExtraRepoPublish:
         [payload, _sibling] = [call.args[1] for call in dispatched.await_args_list]
         assert payload["repository"] == runtime.context.repo.repo_id
 
+    async def test_the_main_result_waits_for_the_extra_repositories_to_publish(self, dispatched):
+        mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+
+        async def _publish_extras(*_args, **_kwargs):
+            dispatched.assert_not_awaited()
+            return [_SIBLING_ERROR]
+
+        with (
+            patch("automation.agent.middlewares.git.apublish_extra_repos", AsyncMock(side_effect=_publish_extras)),
+            patch("automation.agent.middlewares.git.GitChangePublisher") as main_cls,
+        ):
+            main_cls.return_value.publish = AsyncMock(
+                return_value=PublishOutcome(merge_request=_mr(), published=True, created_merge_request=True)
+            )
+            await mw.aafter_agent({"merge_request": None}, _multi_repo_runtime(make_repo_handle("g/mod")))
+
+        assert dispatched.await_count == 2
+
     async def test_a_sibling_failure_list_is_synthetic_and_never_streamed(self):
         mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
 

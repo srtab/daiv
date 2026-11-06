@@ -177,7 +177,6 @@ def transcript_labels() -> dict[str, str | list[str]]:
         "suggested_answer": gettext("Suggested answer"),
         "publish_committing": gettext("Committing changes"),
         "publish_creating": gettext("Creating merge request"),
-        "publish_files": [gettext("{count} file"), gettext("{count} files")],
         **{f"publish_error_{kind.value}": str(kind.label) for kind in PublishErrorKind},
         **{f"inbox_{kind.value}": str(kind.label) for kind in EventKind},
         "inbox_not_handled": gettext("{kind} not handled"),

@@ -26,7 +26,7 @@ from sessions.inbox.ownership import Ownerships
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from automation.agent.agent_settings import RunOverrides, resolve_agent_settings
-from automation.agent.events import PUBLISH_RESULT_EVENT, publish_result_payload
+from automation.agent.events import PUBLISH_RESULT_EVENT, publish_result_payload, record_publish, repo_publish_payload
 from automation.agent.publishers import PublishOutcome
 from automation.agent.questions import render_questions
 from automation.agent.references import ExternalRef
@@ -615,41 +615,6 @@ async def test_after_run_keeps_each_sibling_publish_and_claims_each_published_me
     assert [rp.repo_id for rp in persisted[1]] == ["g/mod", "g/lib"]
 
 
-async def test_after_run_records_the_commits_it_pushed_to_sibling_repositories():
-    state = {"published": True, "repo_publishes": [*_sibling_state("g/mod"), *_sibling_state("g/lib", published=False)]}
-    rows = MagicMock(aupdate=AsyncMock())
-
-    with (
-        agent_stack(_agent(state=state)),
-        patch("sessions.executor.run._persist_resolved_agent", new=AsyncMock()),
-        patch("sessions.executor.run._record_measurements", new=AsyncMock()),
-        patch("sessions.executor.run.Run.objects.filter", return_value=rows) as runs,
-    ):
-        await execute_run(make_spec(run_id="run-1"))
-
-    runs.assert_any_call(pk="run-1")
-    rows.aupdate.assert_any_await(sibling_pushed_shas=["sha1"])
-
-
-async def test_after_run_records_each_sibling_publish_that_has_something_to_show():
-    state = {
-        "published": True,
-        "repo_publishes": [*_sibling_state("srtab/daiv", created=True), *_sibling_state("g/lib", published=False)],
-    }
-    rows = MagicMock(aupdate=AsyncMock())
-
-    with (
-        agent_stack(_agent(state=state)),
-        patch("sessions.executor.run._persist_resolved_agent", new=AsyncMock()),
-        patch("sessions.executor.run._record_measurements", new=AsyncMock()),
-        patch("sessions.executor.run.Run.objects.filter", return_value=rows),
-    ):
-        await execute_run(make_spec(run_id="run-1"))
-
-    (kwargs,) = [c.kwargs for c in rows.aupdate.await_args_list if "repo_publishes" in c.kwargs]
-    assert [(p["repository"], p["status"]) for p in kwargs["repo_publishes"]] == [("srtab/daiv", "opened")]
-
-
 @pytest.mark.parametrize(("published", "arm_watch"), [(False, True), (True, False)], ids=["unpublished", "watch-off"])
 async def test_after_run_claims_no_sibling_merge_request_unless_published_with_the_watch(published, arm_watch):
     state = {"published": published, "repo_publishes": _sibling_state("g/mod", published=published)}
@@ -1233,26 +1198,47 @@ async def test_a_recovered_sibling_draft_is_kept_on_its_row():
     assert stack.claimed == []
 
 
+def _sibling_payloads(*repo_ids: str, created: bool = False) -> list[dict]:
+    from automation.agent.git_state import RepoPublish
+
+    return [repo_publish_payload(RepoPublish.from_state(state)) for state in _sibling_state(*repo_ids, created=created)]
+
+
 async def test_a_recovered_sibling_draft_is_recorded_as_opened_on_the_run():
     agent = _agent(state={"merge_request": None})
     agent.ainvoke = AsyncMock(side_effect=RuntimeError("agent blew up"))
     rows = MagicMock(aupdate=AsyncMock())
 
-    with agent_stack(agent):
+    async def _recover(*_args, **_kwargs):
+        for payload in _sibling_payloads("g/mod", created=True):
+            record_publish(payload)
 
-        async def _recover(*_args, **_kwargs):
-            state = {"repo_publishes": _sibling_state("g/mod", created=True)}
-            agent.aget_state.return_value = MagicMock(values=state)
-
-        with (
-            patch("sessions.executor.run.recover_draft", new=AsyncMock(side_effect=_recover)),
-            patch("sessions.executor.run.Run.objects.filter", return_value=rows),
-            pytest.raises(RuntimeError, match="agent blew up"),
-        ):
-            await execute_run(make_spec(recover_draft=True, run_id="run-1"))
+    with (
+        agent_stack(agent),
+        patch("sessions.executor.run.recover_draft", new=AsyncMock(side_effect=_recover)),
+        patch("sessions.executor.run.Run.objects.filter", return_value=rows),
+        pytest.raises(RuntimeError, match="agent blew up"),
+    ):
+        await execute_run(make_spec(recover_draft=True, run_id="run-1"))
 
     (kwargs,) = [c.kwargs for c in rows.aupdate.await_args_list if "repo_publishes" in c.kwargs]
     assert [(p["repository"], p["status"]) for p in kwargs["repo_publishes"]] == [("g/mod", "opened")]
+
+
+async def test_a_run_that_failed_before_publishing_records_no_sibling_publish_left_in_the_checkpoint():
+    agent = _agent(state={"repo_publishes": _sibling_state("g/mod")})
+    agent.ainvoke = AsyncMock(side_effect=RuntimeError("sandbox never started"))
+    rows = MagicMock(aupdate=AsyncMock())
+
+    with (
+        agent_stack(agent),
+        patch("sessions.executor.run.recover_draft", new=AsyncMock(return_value=None)),
+        patch("sessions.executor.run.Run.objects.filter", return_value=rows),
+        pytest.raises(RuntimeError, match="sandbox never started"),
+    ):
+        await execute_run(make_spec(recover_draft=True, run_id="run-1"))
+
+    assert not [c for c in rows.aupdate.await_args_list if {"repo_publishes", "sibling_pushed_shas"} & c.kwargs.keys()]
 
 
 def _recovery_outcome(*, created: bool) -> PublishOutcome:
@@ -1275,13 +1261,16 @@ async def _publish_writes(
     via_stream: bool = False,
     update: AsyncMock | None = None,
     recovered: PublishOutcome | None = None,
+    siblings: list[dict] | None = None,
 ) -> list[tuple[str, dict]]:
-    """Run after a runnable invoked under the run's config dispatched ``payload``, then raise ``error`` (``None``: the
-    run succeeds); return the run's publish writes as ``(pk, fields)``. ``recovered`` is what draft recovery opens."""
+    """Run after a runnable invoked under the run's config dispatched ``payload`` and then ``siblings``, then raise
+    ``error`` (``None``: the run succeeds); return the run's publish writes as ``(pk, fields)``. ``recovered`` is what
+    draft recovery opens."""
 
     async def _publish(config) -> None:
-        if payload is not None:
-            await RunnableLambda(_dispatch_publish_result).ainvoke(payload, config=config)
+        for dispatched in [payload, *(siblings or [])]:
+            if dispatched is not None:
+                await RunnableLambda(_dispatch_publish_result).ainvoke(dispatched, config=config)
 
     async def _ainvoke(_input, *, config, **_kwargs):
         await _publish(config)
@@ -1377,6 +1366,14 @@ async def test_a_failed_publish_records_its_kind(via_stream):
     )
 
     assert writes == [("run-1", {"publish_status": "failed", "publish_error": "push_rejected"})]
+
+
+async def test_the_run_records_each_extra_repositorys_result_and_pushed_commit_in_one_write():
+    siblings = _sibling_payloads("g/mod", "g/lib")
+
+    writes = await _publish_writes(OPENED, error=None, siblings=siblings)
+
+    assert writes == [("run-1", {**OPENED_FIELDS, "repo_publishes": siblings, "sibling_pushed_shas": ["sha1", "sha2"]})]
 
 
 async def test_a_failed_publish_result_write_is_logged_and_the_run_error_still_propagates(caplog):

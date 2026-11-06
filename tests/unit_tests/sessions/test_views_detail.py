@@ -1845,19 +1845,17 @@ def test_detail_renders_each_publish_entry_as_a_reminder_row(member_client, memb
     assert '<span class="chat-inbox-event__summary" :title="p.merge_request_title"' in markup
     assert 'x-text="p.repository"' in markup
     assert 'x-text="p.merge_request_title"' in markup
-    assert ':href="p.merge_request_web_url"' in markup
-    assert "Open ↗" in markup
+    assert markup.count(':href="p.merge_request_web_url || null"') == 1
+    assert "Open ↗" not in markup
     assert "publish_files" not in markup
 
 
 @pytest.mark.django_db
-def test_detail_keeps_the_run_status_semantics_and_retry_on_the_main_repositorys_failed_row_only(
-    member_client, member_user
-):
+def test_detail_announces_every_failed_row_and_keeps_the_retry_on_the_main_repositorys_only(member_client, member_user):
     markup = _publish_markup(member_client, _create_session(user=member_user))
 
-    assert ":role=\"publishFailed(p) && !p.sibling ? 'status' : null\"" in markup
-    assert ":aria-live=\"publishFailed(p) && !p.sibling ? 'polite' : null\"" in markup
+    assert ":role=\"publishFailed(p) ? 'status' : null\"" in markup
+    assert ":aria-live=\"publishFailed(p) ? 'polite' : null\"" in markup
     assert ":data-run-ending=\"publishFailed(p) && !p.sibling && !block.items.length ? '' : false\"" in markup
     retry = markup.index('data-testid="run-retry"')
     assert markup.rindex('x-if="!p.sibling"', 0, retry) > markup.index('data-testid="publish-row"')
