@@ -3,13 +3,19 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from sessions.models import Session, SessionOrigin
+from django.db import transaction
+
+from asgiref.sync import sync_to_async
+from sessions.models import Session, SessionOrigin, SessionRepository
 from sessions.tasks import generate_title_task
 from sessions.titling import heuristic_title
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from ag_ui.core import RunAgentInput
     from sandbox_envs.models import SandboxEnvironment
+    from sessions.services import RepoTarget
 
     from accounts.models import User
 
@@ -76,6 +82,7 @@ class ChatSessionService:
         agent_model: str = "",
         agent_thinking_level: str = "",
         mcp_overrides: dict | None = None,
+        extra_repos: Sequence[RepoTarget] = (),
     ) -> tuple[Session, bool]:
         """First sight of ``thread_id`` creates a chat-origin ``Session`` under ``user``;
         later calls return the existing row regardless of owner. Caller must enforce
@@ -87,6 +94,9 @@ class ChatSessionService:
         as ``sandbox_environment``). The boolean return flag lets callers detect the
         existing-session case and reject a client that tries to change the override
         after the first turn — see ``chat.api.views.create_chat_completion``.
+
+        ``extra_repos`` are the session's repositories after the main one; they are stored only when
+        the session is created, in the same transaction.
         """
         first_message = _extract_first_user_message(input_data)
         defaults = {
@@ -101,7 +111,24 @@ class ChatSessionService:
         }
         if sandbox_environment is not None:
             defaults["sandbox_environment"] = sandbox_environment
-        session, created = await Session.objects.aget_or_create(thread_id=thread_id, defaults=defaults)
+
+        def _create() -> tuple[Session, bool]:
+            with transaction.atomic():
+                session, created = Session.objects.get_or_create(thread_id=thread_id, defaults=defaults)
+                if created:
+                    SessionRepository.objects.bulk_create([
+                        SessionRepository(
+                            session=session,
+                            position=position,
+                            repo_id=target.repo_id,
+                            ref=target.ref,
+                            sandbox_environment=sandbox_environment,
+                        )
+                        for position, target in enumerate(extra_repos, start=1)
+                    ])
+            return session, created
+
+        session, created = await sync_to_async(_create)()
         if created and first_message:
             try:
                 await generate_title_task.aenqueue(pk=session.thread_id, prompt=first_message, repo_id=repo_id, ref=ref)

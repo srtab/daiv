@@ -21,6 +21,8 @@ from sessions.inbox.next_runs import NextRuns
 from sessions.inbox.post import Inbox
 from sessions.live import relay
 from sessions.models import EventKind, Run, RunStatus, Session
+from sessions.multi_repo import SharedSessionError, validate_shared_repos
+from sessions.services import RepoTarget
 from sessions.spend import build_session_spend
 
 from accounts.api.security import AuthBearer
@@ -220,6 +222,19 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
             "chat: auto-resolved env=%s for repo=%s user=%s", env_obj.id if env_obj else None, repo_id, user.pk
         )
 
+    targets = [RepoTarget(repo_id, ref, None)]
+    if not await Session.objects.filter(pk=thread_id).aexists():
+        targets = parse_forwarded_repos(forwarded.get("repos"), repo_id=repo_id, ref=ref)
+        if len(targets) > 1:
+            try:
+                validate_shared_repos(targets, continuation=False)
+            except SharedSessionError as err:
+                raise HttpError(400, str(err)) from err
+            try:
+                await aassert_repo_access(user, [t.repo_id for t in targets])
+            except RepoAccessError as err:
+                raise Http404(str(err)) from err
+
     session, created = await ChatSessionService.get_or_create_for_user(
         user=user,
         thread_id=thread_id,
@@ -230,6 +245,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         agent_model=agent_model,
         agent_thinking_level=agent_thinking_level,
         mcp_overrides=submitted_overrides or {},
+        extra_repos=targets[1:],
     )
     # Ownership: an existing session must be visible to the caller. A webhook-origin
     # session (user=None) is visible to anyone who can see it, so "continue as chat"
@@ -369,6 +385,22 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
         # ``Last-Event-ID`` header to resume a run longer than the cap.
         return sse_response(_run_event_frames(thread_id, run_id, "0-0"))
     return {"run_id": run_id, "thread_id": thread_id}
+
+
+def parse_forwarded_repos(raw: object, *, repo_id: str, ref: str) -> list[RepoTarget]:
+    """The repositories a first turn opens its session over, main one first; absent means the header's alone."""
+    if raw is None:
+        return [RepoTarget(repo_id, ref, None)]
+    entries_ok = isinstance(raw, list) and all(
+        isinstance(entry, dict) and isinstance(entry.get("repo_id"), str) and isinstance(entry.get("ref", ""), str)
+        for entry in raw
+    )
+    if not entries_ok or not raw:
+        raise HttpError(400, "repos must be a list of {repo_id, ref} objects")
+    targets = [RepoTarget(entry["repo_id"], entry.get("ref", ""), None) for entry in raw]
+    if (targets[0].repo_id, targets[0].ref) != (repo_id, ref):
+        raise HttpError(400, "repos must start with the X-Repo-ID repository and ref")
+    return targets
 
 
 async def _abandon_turn(thread_id: str, run_id: str, *, chat_run: Run | None) -> None:

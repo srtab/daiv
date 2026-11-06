@@ -868,6 +868,138 @@ async def test_completion_denied_repo_returns_404_and_no_thread(client: TestAsyn
     await user.adelete()
 
 
+REPOS = [
+    {"repo_id": "a/b", "ref": "main"},
+    {"repo_id": "a/theme", "ref": "develop"},
+    {"repo_id": "a/common", "ref": ""},
+]
+
+
+async def _post_first_turn(client, raw, repos, *, thread_id="t-new"):
+    return await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId=thread_id, forwardedProps={"repos": repos}),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+
+
+async def _assert_nothing_created(thread_id="t-new"):
+    from sessions.models import SessionRepository
+
+    assert not await Session.objects.filter(thread_id=thread_id).aexists()
+    assert not await SessionRepository.objects.filter(session_id=thread_id).aexists()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_first_turn_over_several_repos_opens_a_multi_repo_session(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    from sessions.models import SessionRepository
+
+    _, raw, user = authed
+
+    response = await _post_first_turn(client, raw, REPOS)
+
+    assert response.status_code == 200
+    await asyncio.gather(*captured_runs)
+    rows = [
+        (r.position, r.repo_id, r.ref)
+        async for r in SessionRepository.objects.filter(session_id="t-new").order_by("position")
+    ]
+    assert rows == [(1, "a/theme", "develop"), (2, "a/common", "")]
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_repos_must_start_with_the_header_repository(client: TestAsyncClient, authed):
+    _, raw, user = authed
+
+    response = await _post_first_turn(client, raw, [REPOS[1], REPOS[0]])
+
+    assert response.status_code == 400
+    assert "must start with" in response.json()["detail"]
+    await _assert_nothing_created()
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_more_than_five_repos_are_refused(client: TestAsyncClient, authed):
+    _, raw, user = authed
+    repos = [REPOS[0], *({"repo_id": f"a/r{i}", "ref": ""} for i in range(5))]
+
+    response = await _post_first_turn(client, raw, repos)
+
+    assert response.status_code == 400
+    assert "at most 5" in response.json()["detail"]
+    await _assert_nothing_created()
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_the_same_repository_twice_is_refused(client: TestAsyncClient, authed):
+    _, raw, user = authed
+    repos = [REPOS[0], {"repo_id": "a/theme", "ref": ""}, {"repo_id": "a/theme", "ref": "other"}]
+
+    response = await _post_first_turn(client, raw, repos)
+
+    assert response.status_code == 400
+    assert "a/theme" in response.json()["detail"]
+    await _assert_nothing_created()
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_first_turn_needs_access_to_every_listed_repo(client: TestAsyncClient, authed):
+    from codebase.authorization import RepositoryAccessDenied
+
+    _, raw, user = authed
+
+    def _deny_the_theme_repo(_user, repo_ids):
+        if "a/theme" in repo_ids:
+            raise RepositoryAccessDenied(["a/theme"])
+
+    with patch("sessions.admission.assert_can_run", side_effect=_deny_the_theme_repo):
+        response = await _post_first_turn(client, raw, REPOS)
+
+    assert response.status_code == 404
+    await _assert_nothing_created()
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_single_entry_list_opens_a_single_repo_session(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    from sessions.models import SessionRepository
+
+    _, raw, user = authed
+
+    response = await _post_first_turn(client, raw, [REPOS[0]])
+
+    assert response.status_code == 200
+    await asyncio.gather(*captured_runs)
+    assert await Session.objects.filter(thread_id="t-new").aexists()
+    assert await SessionRepository.objects.filter(session_id="t-new").acount() == 0
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_repos_on_a_continuation_are_ignored(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    from sessions.models import SessionRepository
+
+    _, raw, user = authed
+    await Session.objects.acreate(origin=SessionOrigin.CHAT, thread_id="t-1", user=user, repo_id="a/b", ref="main")
+
+    response = await _post_first_turn(client, raw, REPOS, thread_id="t-1")
+
+    assert response.status_code == 200
+    await asyncio.gather(*captured_runs)
+    assert await SessionRepository.objects.filter(session_id="t-1").acount() == 0
+    await user.adelete()
+
+
 @pytest.fixture
 async def ondemand_global_mcp():
     """A non-default (on-demand) global MCP server named ``b`` — checking it produces
