@@ -55,7 +55,8 @@ Parameters:
                         x-show="index > 0" x-cloak
                         @click.stop="makeMain(index)"
                         :aria-label="'{{ make_main_template|escapejs }}'.replace('__LABEL__', repo.slug)"
-                        class="workspace-row__action">{% translate "Make main" %}</button>
+                        title="{% translate 'Make main' %}"
+                        class="workspace-row__action">{% icon "arrow-up" "h-3.5 w-3.5" %}</button>
                 <button type="button"
                         @click.stop="openBranchPicker(index)"
                         :aria-label="'{{ change_branch_template|escapejs }}'.replace('__LABEL__', repo.slug)"

@@ -1447,10 +1447,10 @@ html {
 
   .workspace-row__action {
     grid-area: role;
-    padding: 2px 6px;
+    display: inline-flex;
+    padding: 3px;
     border-radius: 6px;
-    font-size: 12px;
-    color: var(--color-text-muted);
+    color: var(--color-text-faint);
   }
 
   .workspace-row__action:hover {
