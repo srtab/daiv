@@ -264,10 +264,12 @@ document.addEventListener("alpine:init", () => {
         tone: CI_TONES_WORST_FIRST.find((tone) => this.ci.some((item) => item.tone === tone)) ?? "",
       };
     },
+    // A lone repository's section is labelled in the singular, so its count would only repeat that.
     get repositoriesSummary() {
-      const count = String(this.repositoryRows.length);
-      const { mrs } = this.summary;
-      return mrs ? `${count} · ${window.TranscriptLabels.tn("details_merge_requests", mrs)}` : count;
+      const { more, mrs } = this.summary;
+      const mrLabel = mrs ? window.TranscriptLabels.tn("details_merge_requests", mrs) : "";
+      if (!more) return mrLabel;
+      return [String(this.repositoryRows.length), mrLabel].filter(Boolean).join(" · ");
     },
     _showCi(data) {
       this.ci = data?.ci ?? [];

@@ -134,6 +134,7 @@ for (const [action, value] of steps) {
       scrolled: scrolled.length, title: page.title, editing: page.editingTitle, titleWidth: page.titleWidth,
       docTitle: sandbox.document.title, archived: page.archived, ci: page.ci,
       notes: page.ci.map((item) => page.ciNote(item)), ciFor: page.repositoryRows.map((row) => page.ciFor(row)),
+      cardNotes: page.repositoryRows.map((row) => page.ciNote(page.ciFor(row))),
       tab: page.detailsTab, folds: Object.fromEntries(SECTIONS.map((s) => [s, page.isFolded(s)])),
       summary: page.summary, repositoriesSummary: page.repositoriesSummary,
       explanations: page.ci.map((item) => page.ciExplanation(item)), upNext: page.upNext,
@@ -888,6 +889,13 @@ def test_each_card_finds_its_own_merge_requests_ci():
     assert seen["ciFor"] == [main, extra, None]
 
 
+def test_a_merge_request_whose_watch_never_registered_has_no_ci_and_no_note():
+    main = _ci("passing", iid=42)
+    seen = _run([_with_ci([main]), ["read", None]], repositories=THREE_ROWS)["seen"][0]
+
+    assert (seen["ciFor"], seen["cardNotes"]) == ([main, None, None], ["Watching: Passing", "", ""])
+
+
 def test_the_main_card_finds_the_ci_of_the_chats_live_merge_request():
     live = {"url": "https://gl/g/app/-/merge_requests/43", "id": 43, "title": "Fix", "draft": False}
     item = _ci("passing", iid=43)
@@ -940,6 +948,8 @@ def test_the_summary_ci_is_the_worst_tone(tones, worst):
         (THREE_ROWS["rows"], "3 · 2 MRs"),
         ([_repo("g/app", "main", 42), _repo("g/mod", "main")], "2 · 1 MR"),
         ([_repo("g/app", "main"), _repo("g/mod", "main")], "2"),
+        ([_repo("g/app", "main", 42)], "1 MR"),
+        ([_repo("g/app", "main")], ""),
     ],
 )
 def test_the_folded_repositories_section_counts_them_and_their_merge_requests(rows, label):
