@@ -887,6 +887,13 @@ msgstr "Enviado"
 msgid "Not published:"
 msgstr "Não publicado:"
 
+msgctxt "publish rows heading"
+msgid "Published"
+msgstr "Publicado"
+
+msgid "Not published"
+msgstr "Não publicado"
+
 msgid "{count} file"
 msgstr "{count} ficheiro"
 

@@ -1760,31 +1760,107 @@ def test_detail_has_no_publish_chip_template(member_client, member_user):
     assert "chat-phase" not in _detail_html(member_client, _create_session(user=member_user))
 
 
+SIBLING_OPENED = {
+    "status": "opened",
+    "repository": "srtab/daiv",
+    "merge_request_iid": 101,
+    "merge_request_web_url": "https://git/srtab/daiv/-/merge_requests/101",
+    "merge_request_title": "docs: tagline",
+    "files_changed": 1,
+    "lines_added": 3,
+    "lines_removed": 0,
+    "error_kind": None,
+}
+
+
+def _publish_markup(client, session: Session) -> str:
+    content = _detail_html(client, session)
+    return content[content.index("block.endingTail") : content.index("block.statuses")]
+
+
+def _published_turns(client, session: Session):
+    with patch("sessions.page_state.ahydrate_thread", _null_hydration()):
+        resp = client.get(reverse("session_detail", kwargs={"thread_id": session.thread_id}))
+    return [turn for turn in resp.context["turns"] if turn.get("publish")]
+
+
 @pytest.mark.django_db
-def test_detail_renders_publish_lines_from_blocks(member_client, member_user):
+def test_detail_context_lists_the_main_repository_then_the_extra_ones_in_the_last_turns_publish(
+    member_client, member_user
+):
+    session = _create_session(user=member_user)
+    _create_run(
+        session,
+        publish_status="pushed",
+        merge_request_iid=7,
+        merge_request_title="Main title",
+        merge_request_web_url="https://git/group/project/-/merge_requests/7",
+        repo_publishes=[SIBLING_OPENED],
+    )
+
+    (turn,) = _published_turns(member_client, session)
+
+    main, extra = turn["publish"]
+    assert (main["repository"], main["sibling"]) == ("group/project", False)
+    assert (extra["repository"], extra["sibling"], extra["merge_request_iid"]) == ("srtab/daiv", True, 101)
+    assert (extra["merge_request_title"], extra["merge_request_web_url"]) == (
+        "docs: tagline",
+        "https://git/srtab/daiv/-/merge_requests/101",
+    )
+
+
+@pytest.mark.django_db
+def test_detail_context_has_no_publish_entries_for_a_run_that_published_nothing(member_client, member_user):
+    session = _create_session(user=member_user)
+    _create_run(session)
+
+    assert _published_turns(member_client, session) == []
+
+
+@pytest.mark.django_db
+def test_detail_renders_the_published_label_once_and_only_when_there_are_publish_entries(member_client, member_user):
+    markup = _publish_markup(member_client, _create_session(user=member_user))
+
+    assert markup.count('class="publish-rows__label"') == 1
+    assert markup.index("block.publish.length") < markup.index("publish-rows__label")
+    assert markup.index("publish-rows__label") < markup.index('x-for="(p, pi) in block.publish"')
+
+
+@pytest.mark.django_db
+def test_detail_renders_publish_rows_between_the_ending_tail_and_the_statuses(member_client, member_user):
     content = _detail_html(member_client, _create_session(user=member_user))
 
-    assert 'x-for="(p, pi) in block.publish"' in content
     assert content.index("block.endingTail") < content.index("block.publish") < content.index("block.statuses")
 
 
 @pytest.mark.django_db
-def test_detail_renders_retry_on_the_publish_line(member_client, member_user):
-    content = _detail_html(member_client, _create_session(user=member_user))
+def test_detail_renders_each_publish_entry_as_a_reminder_row(member_client, member_user):
+    markup = _publish_markup(member_client, _create_session(user=member_user))
 
-    publish_row = content[content.index('x-for="(p, pi) in block.publish"') : content.index("block.statuses")]
-    assert 'x-show="canRetry(p)"' in publish_row
-    assert 'data-testid="run-retry"' in publish_row
+    assert 'class="chat-inbox-event"' in markup
+    assert 'data-testid="publish-row"' in markup
+    assert ':data-status="p.status"' in markup
+    assert "'chat-inbox-event--failed': publishFailed(p)" in markup
+    assert "'chat-inbox-event--published': !publishFailed(p)" in markup
+    assert '<span class="chat-inbox-event__summary" :title="p.merge_request_title"' in markup
+    assert 'x-text="p.repository"' in markup
+    assert 'x-text="p.merge_request_title"' in markup
+    assert ':href="p.merge_request_web_url"' in markup
+    assert "Open ↗" in markup
+    assert "publish_files" not in markup
 
 
 @pytest.mark.django_db
-def test_detail_gives_an_unpublished_line_the_run_status_semantics(member_client, member_user):
-    content = _detail_html(member_client, _create_session(user=member_user))
+def test_detail_keeps_the_run_status_semantics_and_retry_on_the_main_repositorys_failed_row_only(
+    member_client, member_user
+):
+    markup = _publish_markup(member_client, _create_session(user=member_user))
 
-    publish_row = content[content.index('x-for="(p, pi) in block.publish"') : content.index("block.statuses")]
-    assert ":role=\"publishFailed(p) ? 'status' : null\"" in publish_row
-    assert ":aria-live=\"publishFailed(p) ? 'polite' : null\"" in publish_row
-    assert ":data-run-ending=\"publishFailed(p) && !block.items.length ? '' : false\"" in publish_row
+    assert ":role=\"publishFailed(p) && !p.sibling ? 'status' : null\"" in markup
+    assert ":aria-live=\"publishFailed(p) && !p.sibling ? 'polite' : null\"" in markup
+    assert ":data-run-ending=\"publishFailed(p) && !p.sibling && !block.items.length ? '' : false\"" in markup
+    retry = markup.index('data-testid="run-retry"')
+    assert markup.rindex('x-if="!p.sibling"', 0, retry) > markup.index('data-testid="publish-row"')
 
 
 @pytest.mark.parametrize("name", ["session_detail.html", "_run_item.html", "_up_next.html"])
