@@ -173,22 +173,7 @@ def transcript_labels() -> dict[str, str | list[str]]:
         "leg_failed": pgettext("delegated job state", "Failed"),
         "leg_cancelled": gettext("Cancelled"),
         "leg_lost": gettext("Lost"),
-        "delegations_total": [
-            ngettext("{count} delegated", "{count} delegated", 1),
-            ngettext("{count} delegated", "{count} delegated", 2),
-        ],
-        "delegations_running": [
-            ngettext("{count} running", "{count} running", 1),
-            ngettext("{count} running", "{count} running", 2),
-        ],
-        "delegations_queued": [
-            ngettext("{count} queued", "{count} queued", 1),
-            ngettext("{count} queued", "{count} queued", 2),
-        ],
-        "delegations_failed": [
-            ngettext("{count} failed", "{count} failed", 1),
-            ngettext("{count} failed", "{count} failed", 2),
-        ],
+        "details_merge_requests": [ngettext("{count} MR", "{count} MRs", 1), ngettext("{count} MR", "{count} MRs", 2)],
         "suggested_answer": gettext("Suggested answer"),
         "publish_committing": gettext("Committing changes"),
         "publish_creating": gettext("Creating merge request"),

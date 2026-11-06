@@ -9,7 +9,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from codebase.base import MergeRequest
+from codebase.base import MergeRequest, MergeRequestDiffStats
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -32,6 +32,7 @@ class RepoPublish:
     current_ref: str
     error: str | None = None
     pushed_sha: str = ""
+    diff_stats: MergeRequestDiffStats | None = None
 
     def to_state(self) -> dict[str, Any]:
         return {
@@ -41,11 +42,13 @@ class RepoPublish:
             "current_ref": self.current_ref,
             "error": self.error,
             "pushed_sha": self.pushed_sha,
+            "diff_stats": self.diff_stats.model_dump() if self.diff_stats is not None else None,
         }
 
     @classmethod
     def from_state(cls, data: Mapping[str, Any]) -> RepoPublish:
         merge_request = data.get("merge_request")
+        diff_stats = data.get("diff_stats")
         return cls(
             repo_id=data["repo_id"],
             merge_request=MergeRequest.model_validate(merge_request) if merge_request else None,
@@ -53,6 +56,7 @@ class RepoPublish:
             current_ref=data.get("current_ref") or "",
             error=data.get("error"),
             pushed_sha=data.get("pushed_sha") or "",
+            diff_stats=MergeRequestDiffStats.model_validate(diff_stats) if diff_stats else None,
         )
 
 

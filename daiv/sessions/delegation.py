@@ -406,10 +406,6 @@ def render_batch_summary(batch_id: uuid.UUID, legs: Sequence[Run]) -> str:
     return "\n".join(lines)
 
 
-RUNNING = frozenset({"running", "stopping"})
-WAITING = frozenset({"queued", "waits"})
-FAILED = frozenset({"failed", "lost"})
-
 # The word the coordinator reads for each state; "queued" is listed before "waits", which reads the same.
 _OUTCOMES = {
     "queued": "queued",

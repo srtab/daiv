@@ -1496,3 +1496,19 @@ def test_served_state_is_ignored_while_streaming(state):
 
     assert out["thread"]["merge_request"] is None
     assert (out["diffStats"], out["contextUsage"], out["waitingSince"]) == (None, None, "2026-11-02T10:00:00Z")
+
+
+DRAWER_STATS_BODY = """
+const chat = registry.chat({ endpoint: "/api/chat", diffInDetails: payload.diffInDetails });
+chat.diffStats = { added: 3, removed: 1 };
+process.stdout.write(JSON.stringify({ drawerDiffStats: chat.drawerDiffStats }));
+"""
+
+
+@pytest.mark.parametrize(
+    ("diff_in_details", "shown"), [(True, None), (False, {"added": 3, "removed": 1})], ids=["session", "new-chat"]
+)
+def test_the_drawer_shows_totals_only_where_the_page_has_no_sidebar_for_them(diff_in_details, shown):
+    out = run_chat_stream(DRAWER_STATS_BODY, {"diffInDetails": diff_in_details})
+
+    assert out["drawerDiffStats"] == shown

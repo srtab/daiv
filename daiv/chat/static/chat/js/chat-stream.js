@@ -486,6 +486,10 @@
       this.lockedAgentLabel = detail?.label || "";
     },
 
+    get drawerDiffStats() {
+      return config.diffInDetails ? null : this.diffStats;
+    },
+
     // Effort word after the model name in the composer's label. Derived rather than a
     // second stored copy of ``_agentThinkingLevel``, which drifts the moment one of the
     // two assignments is missed; the seed covers the render before the picker dispatches.
@@ -1120,7 +1124,7 @@
       const files = this.filesTouched;
       const live = this.streaming || this.resuming;
       const stopped = !live && this._lastRunAborted();
-      const stats = !live && !stopped && !config.diffInDetails ? this.diffStats : null;
+      const stats = !live && !stopped ? this.drawerDiffStats : null;
       const diff = stats && (stats.added || stats.removed) ? stats : null;
       if (!todos.length && !files.length && !diff) return null;
 

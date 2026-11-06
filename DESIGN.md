@@ -595,8 +595,7 @@ wordmark and the New split button) that is the only nav entry point on a phone.
   component (`core/js/menu-button.js`); the `session_new` chooser page stays for the
   Sessions list's New button and the empty states.
 - **Page bars and side columns.** A page that needs a bar above its scrolling `<main>` or a column beside it
-  overrides `{% block app_body %}` and renders its own single `<main>` (the session page's top bar and details
-  panel do). Keep that `<main>` the only one: chat scrolling and the sticky composer look it up.
+  overrides `{% block app_body %}` and renders its own single `<main>` (the session page's top bar and sidebar do). Keep that `<main>` the only one: chat scrolling and the sticky composer look it up.
 - **Only the `<nav>` scrolls.** The `<aside>` carries no `overflow`, so the footer
   (API docs, build info, account chip) stays pinned and the account and New menus can
   open past the rail's edge without being clipped.
@@ -607,6 +606,29 @@ wordmark and the New split button) that is the only nav entry point on a phone.
   share the one `account` section in `SECTION_URL_NAMES`.
 - **Notifications.** A nav item with the unread count from the `nav` store; the rail shows
   a dot instead, and the mobile top bar's menu button carries the same dot.
+
+### Session sidebar
+
+`sessions/_session_details.html` is the session page's home for repositories, merge requests, CI,
+environment and usage; the header (`_session_topbar.html`) keeps only title, status and the `⋯` menu.
+
+- **Column or sheet.** From 1100px (`WIDE` in `session-page.js`) it is an always-open column with
+  no title and no close button; below that it is a sheet, opened by the header's `.session-summary`
+  button (main repository slug, `+N`, `!iid` or MR count, a CI dot). The switch is `(min-width: 1100px)`
+  and the same in CSS and JS.
+- **Tabs.** Overview and Info, `.details-tabs` / `.details-tab` (`--on` is `bg-surface-3` with
+  `text-text-strong`). The tab and each fold persist per browser.
+- **Folds.** `.details-fold` with a `__head` button, a `__chevron` that turns 90deg when open, and a
+  `__summary` figure in `font-mono`: `text-text-muted` while folded, `text-text-faint` while open.
+- **Repository card.** `.repo-card`: `bg-surface-2`, `border-border`, `rounded-xl`; `--quiet`
+  (agent ran, nothing to show) drops the fill and shows `__quiet-note`. Head: icon, slug in
+  `font-mono`, the `__tag` pill ("Main", only with several repositories) and the `⋯` menu (`.session-menu`,
+  the only `shadow-overlay` here). Then the branch (`font-mono`, muted), the merge request line (`!iid` in
+  `text-accent` because it links; the title; `.draft-badge` outside the link, so a status colour never marks
+  something clickable), and a CI and diff row: `.ci-dot` tinted by `.ci-tone--attn|clear|found|fail` (the
+  `status-*` tokens), the diff as `__added` / `__removed` counts in `font-mono`. Errors use `status-fail`.
+- **Shared classes.** `.ci-dot`, `.ci-tone--<tone>` and `.draft-badge` are neutral: the header summary
+  and the cards both use them.
 
 ### Prose / Markdown Content
 

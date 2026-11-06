@@ -53,8 +53,9 @@ def test_a_thread_shows_repo_and_branch_in_its_details_not_the_dock(member_clien
     assert 'class="chat-context"' not in html
     start = html.index('data-testid="session-details"')
     details = html[start : html.index("</aside>", start)]
-    assert "group/project" in details
-    assert "thread?.ref" in details
+    assert 'x-for="(row, index) in repositoryRows"' in details
+    assert 'x-text="row.repo_id"' in details
+    assert 'x-text="row.ref"' in details
 
 
 @pytest.mark.django_db
@@ -185,7 +186,6 @@ def test_model_label_is_locked_for_an_existing_thread(member_client, member_user
     html = render_thread(member_client, session)
 
     assert "model-label--locked" in html
-    assert "Locked for this conversation" in html
     assert 'x-if="!thread"' in html
 
 
@@ -414,3 +414,27 @@ def test_the_meter_strings_reach_the_page_translated(member_client, member_user)
     assert "Contexto: {percent} de {window} usados" in html
     assert "Espaço de sobra" in html
     assert "Plenty of room" not in html
+
+
+def _options_sheet(html: str) -> str:
+    start = html.index("composer-sheet--options")
+    return html[start : html.index("</section>", html.index("composer-sheet__label", start)) + 10]
+
+
+@pytest.mark.django_db
+def test_the_options_sheet_has_no_locked_environment_on_a_session_page(member_client, member_user):
+    """The session sidebar shows the environment, so the sheet's Environment group is new-chat only."""
+    html = render_thread(member_client, create_session(member_user))
+    environment = _options_sheet(html)
+
+    assert "lockedEnvLabel" not in environment
+    assert 'x-show="!thread"' in environment
+
+
+@pytest.mark.django_db
+def test_a_new_chat_keeps_the_locked_environment_once_it_has_a_thread(member_client):
+    """A new chat's page has no session sidebar, so after the first message the sheet is the only place it shows."""
+    environment = _options_sheet(render_new_chat(member_client))
+
+    assert 'class="composer-sheet__group">' in environment
+    assert 'x-show="thread"' in environment and "lockedEnvLabel" in environment

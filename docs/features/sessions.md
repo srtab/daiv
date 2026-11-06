@@ -105,9 +105,8 @@ Sessions with in-flight runs (Queued, Pending, or Running) update automatically 
 
 Click any session to see its full detail page, which includes:
 
-- **Origin and status badges**
-- **Context** — repository, branch/ref, linked schedule or issue/MR (as a clickable link) or, for a delegated run, the session that delegated it, the agent model and thinking level, and the sandbox environment. Admins viewing another user's session also see the owning user.
-- **Delegated jobs** — on a session that delegated work, each job's current state, in the transcript, the top bar and the details panel (see [Orchestration](orchestration.md#seeing-the-batch)).
+- **Origin and status** — the session's title and status in the header, and who or what started it in the sidebar's **Info** tab.
+- **Sidebar** — repositories and merge requests, CI, the environment, usage and outputs (see [The session page](#the-session-page)).
 - **Transcript** — the full conversation transcript streams live during active runs, whatever started them (chat, job, webhook or schedule), and is replayed on return visits and mid-run refreshes — reopening the session rejoins the live stream and replays any events it missed (a fresh page load from the start of the run; an automatic reconnect only the events since it dropped).
 - **Up next** — at the end of the conversation, what the session will do next, in order: each run still to start, as whom, with the requests that start it, then the updates the next run will be told (see [The session inbox](#the-session-inbox)). A CI failure or finished delegated batch DAIV won't act on says why, such as *not fixing: out of attempts*; a request DAIV couldn't handle shows in the conversation as a *not handled* line with the reason. A run DAIV started itself opens with the message it received, and **Show request** expands the full prompt the run got.
 
@@ -194,9 +193,32 @@ Each session pins three choices, set in the hero before your first message and t
 
 These selections are fixed at session creation. To use a different model, effort level, or sandbox environment, start a new session.
 
+### The session page
+
+The header carries only the session's title (rename it from the pencil when you can run agents on the repository), its status and a **⋯** menu with **Copy session link**, the linked issue and Archive. Everything about the work itself sits in the sidebar beside the transcript.
+
+From 1100px wide the sidebar is always open. Below that it is a sheet, which a summary button in the header opens: the main repository, `+N` for the others, the merge request (`!iid`, or a count) and a CI dot. The sheet opens on the Overview tab, scrolled to the repositories with that section unfolded.
+
+The sidebar has two tabs, and remembers the tab and which sections you folded in this browser:
+
+- **Overview** — foldable sections, each with a one-line summary beside its name while folded:
+    - **Repositories** (**Repository** for a lone one) — a card per repository.
+    - **Environment** — the sandbox and the model.
+    - **Context** and **Spend** — how full the model's context window is, and what the session has cost.
+    - **Outputs** — the artifacts the session published, once there are any.
+- **Info** — status, who started the session, its owner, the number of runs, when it was created and its **Session ID** (with a copy button), then, on a session that delegated work, the **Delegated jobs** of each batch (see [Orchestration](orchestration.md#seeing-the-batch)).
+
+A repository card shows the repository, tagged **Main** when the session spans several; the branch; the merge request with its title and a **Draft** badge; the merge request's CI status, with **What DAIV found** when a run explained a failure; and the lines added and removed with the number of files changed. A repository where the agent ran but changed nothing shows as a quiet card marked *no changes*. A repository DAIV could not publish shows the reason on its card.
+
+A card's **⋯** menu, offered once the repository has a merge request, holds:
+
+- **Open on GitLab** (or **GitHub**) and **Copy link**
+- **Other sessions on !iid**, on the main repository's card: the [sessions list](#filtering) filtered to that merge request
+- **Fix CI failures**, for the people who can run agents on the repository: turns the [CI watch](pipeline-watch.md#the-session-page) on or off for that merge request
+
 ### Merge request awareness
 
-When the agent commits changes, DAIV creates or updates a merge/pull request on the session's ref. The workspace shows an MR/PR pill that links to it and flags drafts. A pre-existing open request for the ref is detected and shown even before the agent runs.
+When the agent commits changes, DAIV creates or updates a merge/pull request on the session's ref. The session's repository card links to it and flags drafts. A pre-existing open request for the ref is detected and shown even before the agent runs.
 
 The request itself links back to the session that produced it — see [Linking back to sessions](#linking-back-to-sessions), which applies to every origin, not just chat.
 

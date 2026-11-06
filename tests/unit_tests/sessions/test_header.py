@@ -231,7 +231,7 @@ class TestCiPayload:
 
         assert ci_payload(session) == [
             {
-                "repo_id": "",
+                "repo_id": session.repo_id,
                 "merge_request_iid": 7,
                 "status": status,
                 "label": label,
@@ -394,7 +394,7 @@ class TestCiSubjects:
 
         statuses = {item["repo_id"]: item["status"] for item in ci_payload(session)}
 
-        assert statuses == {"": "failing", "group/lib": "passing"}
+        assert statuses == {session.repo_id: "failing", "group/lib": "passing"}
 
 
 def test_watch_payload_is_the_first_merge_requests_ci_in_the_old_shape():
@@ -448,12 +448,11 @@ def test_header_counts_delegated_jobs_across_batches_and_lists_newest_batch_firs
 
     payload = _delegations(coordinator, admin)
 
-    counts = ("total", "running", "waiting", "failed")
-    assert tuple(payload[key] for key in counts) == (5, 1, 1, 1)
+    assert payload["total"] == 5
     assert [b["goal"] for b in payload["batches"]] == ["x" * 120, "Bump auth"]
     assert [leg["state"] for leg in payload["batches"][0]["legs"]] == ["waiting_input", "finished", "queued"]
+    assert [leg["state"] for leg in payload["batches"][1]["legs"]] == ["running", "failed"]
     assert payload["batches"][1]["created_at"]
-    assert [leg["state"] for leg in payload["legs"]] == ["waiting_input", "finished", "queued", "running", "failed"]
 
 
 @pytest.mark.django_db

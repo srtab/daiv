@@ -5,9 +5,9 @@ addresses.
 ``latest_run_payload`` and ``ci_payload`` are also what the turns endpoint returns, so what the page rendered and what
 keeps it current are built by the same code.
 
-CI is reported per merge request the session owns (``MergeRequestOwnership``), named by its ``repo_id`` (blank for the
-session's own repository) and iid, from the latest CI event of each CI subject in its inbox (one on GitLab, one per
-workflow on GitHub) on the newest one's commit: ``failing`` when any fails, else ``stopped`` (a status that needs a
+CI is reported per merge request the session owns (``MergeRequestOwnership``), named by its ``repo_id`` and iid,
+from the latest CI event of each CI subject in its inbox (one on GitLab, one per workflow on GitHub) on the newest
+one's commit: ``failing`` when any fails, else ``stopped`` (a status that needs a
 person) when any is, else ``passing``; or ``running`` while no result has arrived since DAIV last published or a run is
 looking at a failure. A failure names its failing jobs, says
 "Stopped after N attempts" when the watch ran out of them, and links the last run that looked at one
@@ -32,7 +32,7 @@ from codebase.clients.base import PLATFORM_ERRORS
 from codebase.conf import settings as codebase_settings
 from codebase.models import RepositoryCatalog
 from codebase.repo_config import RepositoryConfig
-from sessions.delegation import FAILED, RUNNING, WAITING, load_delegations
+from sessions.delegation import load_delegations
 from sessions.inbox_display import stopped_after
 from sessions.models import EventKind, MergeRequestOwnership, QuietReason, Run, RunStatus, Session, SessionOrigin
 from sessions.pipeline_watch.policy import WatchPolicy
@@ -108,7 +108,7 @@ def ci_payload(session: Session) -> list[dict[str, Any]]:
     if not ownerships:
         return []
     policies = {repo_id: _watch_policy(repo_id) for repo_id in dict.fromkeys(o.repo_id for o in ownerships)}
-    return [_ci_item(session, ownership, policies[ownership.repo_id]) for ownership in ownerships]
+    return [_ci_item(ownership, policies[ownership.repo_id]) for ownership in ownerships]
 
 
 def _watch_policy(repo_id: str) -> WatchPolicy:
@@ -123,7 +123,7 @@ def _watch_policy(repo_id: str) -> WatchPolicy:
 aci_payload = sync_to_async(ci_payload)
 
 
-def _ci_item(session: Session, ownership: MergeRequestOwnership, policy: WatchPolicy) -> dict[str, Any]:
+def _ci_item(ownership: MergeRequestOwnership, policy: WatchPolicy) -> dict[str, Any]:
     results = on_newest_commit(list(latest_ci_results(ownership)))
     woke = ci_results(ownership).filter(kind=EventKind.CI_FAILED, wake=True, run__isnull=False).order_by("-created_at")
     looking = woke.exclude(run__status__in=RunStatus.terminal()).exists()
@@ -140,7 +140,7 @@ def _ci_item(session: Session, ownership: MergeRequestOwnership, policy: WatchPo
     else:
         label = _ci_label(status)
     return {
-        "repo_id": "" if ownership.repo_id == session.repo_id else ownership.repo_id,
+        "repo_id": ownership.repo_id,
         "merge_request_iid": ownership.merge_request_iid,
         "status": status,
         "label": label,
@@ -193,7 +193,7 @@ def delegations_for(turns: list[dict[str, Any]], session: Session, user: User) -
     cannot delegate, so it costs no query.
 
     A batch's ``goal`` is the one its call in ``turns`` gave, else the first line of the prompt of its first leg the
-    viewer may see. ``legs`` holds every batch's legs in one list.
+    viewer may see.
     """
     if session.parent_id:
         return None
@@ -210,16 +210,7 @@ def delegations_for(turns: list[dict[str, Any]], session: Session, user: User) -
         }
         for batch_id, legs in reversed(delegations.batches.items())
     ]
-    legs = [leg for batch in batches for leg in batch["legs"]]
-    states = [leg["state"] for leg in legs]
-    return {
-        "total": len(states),
-        "running": sum(state in RUNNING for state in states),
-        "waiting": sum(state in WAITING for state in states),
-        "failed": sum(state in FAILED for state in states),
-        "batches": batches,
-        "legs": legs,
-    }
+    return {"total": sum(len(batch["legs"]) for batch in batches), "batches": batches}
 
 
 def _prompt_goals(delegations: Delegations, goals: Mapping[uuid.UUID, str]) -> dict[uuid.UUID, str]:

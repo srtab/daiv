@@ -731,6 +731,7 @@ async def _apublish_extra_repo(
             published=outcome.published,
             current_ref=branch,
             pushed_sha=outcome.pushed_sha,
+            diff_stats=outcome.diff_stats,
         )
     return RepoPublish(repo_id=handle.repo_id, merge_request=target, published=False, current_ref=branch, error=error)
 

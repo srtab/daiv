@@ -29,14 +29,17 @@ ever mean "MCP server selection differs from the defaults".
     {% include "core/_sheet_head.html" with title=_("Options") close_expr="closeSheet()" surface="composer-sheet" %}
 
     <div class="composer-sheet__body scrollbar-thin">
-      <section class="composer-sheet__group">
+      <section class="composer-sheet__group"{% if session %} x-show="!thread" x-cloak{% endif %}>
         <h3 class="composer-sheet__label">{% translate "Environment" %}</h3>
-        <div x-show="thread" x-cloak>
-          {% include "sandbox_envs/_env_picker.html" with variant="sheet" disabled=True selected_env=selected_sandbox_env dynamic_label_expr="lockedEnvLabel" dynamic_scope_expr="lockedEnvScope" %}
-        </div>
+        {# A new chat has no session sidebar, so once its first message makes the thread it shows the locked row here. #}
+        {% if not session %}
+          <div x-show="thread" x-cloak>
+            {% include "sandbox_envs/_env_picker.html" with variant="sheet" disabled=True selected_env=selected_sandbox_env dynamic_label_expr="lockedEnvLabel" dynamic_scope_expr="lockedEnvScope" %}
+          </div>
+        {% endif %}
         {% comment %}
-        ``x-if``: the live picker announces its selection on the window, which in a
-        thread would fight the server-rendered locked row for the same value.
+        ``x-if``: the live picker announces its selection on the window, so it stays
+        unmounted in a thread.
         {% endcomment %}
         <template x-if="!thread">
           {% include "sandbox_envs/_env_picker.html" with variant="sheet" envs=sandbox_envs selected_id=selected_sandbox_env_id field_name="" on_change_event="daiv:env-changed" %}
