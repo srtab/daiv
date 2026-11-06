@@ -130,7 +130,7 @@ for (const [action, value] of steps) {
   else if (action === "offers-retry") seen.push(value.map((marker) => page.canRetry(marker)));
   else if (action === "read") {
     seen.push({
-      status: page.status, watch: page.watch, open: page.detailsOpen, runs: page.runCount,
+      status: page.status, open: page.detailsOpen, runs: page.runCount,
       scrolled: scrolled.length, title: page.title, editing: page.editingTitle, titleWidth: page.titleWidth,
       docTitle: sandbox.document.title, archived: page.archived, ci: page.ci,
       notes: page.ci.map((item) => page.ciNote(item)), ciFor: page.repositoryRows.map((row) => page.ciFor(row)),
@@ -139,8 +139,7 @@ for (const [action, value] of steps) {
       summary: page.summary, repositoriesSummary: page.repositoriesSummary,
       explanations: page.ci.map((item) => page.ciExplanation(item)), upNext: page.upNext,
       ciTexts: page.ci.map((item) => page.ciText(item)),
-      delegations: page.delegations, delegationsLabel: page.delegationsBadge.label,
-      delegationsState: page.delegationsBadge.state, legs: (page.delegations?.legs ?? []).map((leg) => leg.repo_id),
+      delegations: page.delegations, legs: (page.delegations?.legs ?? []).map((leg) => leg.repo_id),
       repositories: page.repositories, repositoryRows: page.repositoryRows,
       repositoriesKept: page.repositories === lastRepositories,
       timers: timers.map((timer) => timer.ms),
@@ -210,10 +209,10 @@ def _read(**kwargs) -> dict:
     return _run([["read", None]], **kwargs)["seen"][0]
 
 
-def test_it_shows_the_server_rendered_latest_run_and_watch():
+def test_it_shows_the_server_rendered_latest_run():
     seen = _read(watch=WATCHING)
 
-    assert (seen["status"], seen["watch"], seen["runs"], seen["scrolled"]) == (DONE, WATCHING, 1, 0)
+    assert (seen["status"], seen["runs"], seen["scrolled"]) == (DONE, 1, 0)
 
 
 def test_a_session_without_runs_has_no_status():
@@ -227,10 +226,13 @@ def test_a_streamed_or_queued_run_overrides_the_status():
     assert [s["status"] for s in seen] == [RUNNING, {"variant": "queued", "label": "Queued"}]
 
 
-def test_each_poll_replaces_the_latest_run_and_the_watch():
-    seen = _run([["poll", {"latest_run": FAILED, "watch": WATCHING}], ["read", None]], watch=None)["seen"][0]
+def test_each_poll_replaces_the_latest_run_and_the_ci():
+    item = _ci()
+    seen = _run([_with_ci([item]), ["poll", {"latest_run": FAILED, "watch": None, "ci": []}], ["read", None]])["seen"][
+        0
+    ]
 
-    assert (seen["status"], seen["watch"]) == (FAILED, WATCHING)
+    assert (seen["status"], seen["ci"]) == (FAILED, [])
 
 
 def test_a_run_ending_holds_running_until_its_settled_status_arrives():
@@ -448,7 +450,7 @@ def test_unticking_turns_off_the_watch_on_the_merge_request_and_takes_the_respon
     body = {"on": False, "merge_request_iid": 7}
     assert result["requests"][0] == {"url": "/ci-watch", "method": "POST", "body": body, "csrf": "tok"}
     seen = result["seen"][0]
-    assert (seen["watch"], seen["ci"], seen["notes"]) == (WATCH_OFF, reply["ci"], ["Off for this merge request"])
+    assert (seen["ci"], seen["notes"]) == (reply["ci"], ["Off for this merge request"])
 
 
 def test_ticking_turns_the_watch_back_on():
@@ -469,7 +471,7 @@ def test_a_merge_request_the_session_no_longer_owns_leaves_the_list_and_can_be_t
     result = _run([*steps, ["ci-toggle-item", item]])
 
     seen = result["seen"][0]
-    assert (seen["watch"], seen["ci"], result["fetches"]) == (None, [], 2)
+    assert (seen["ci"], result["fetches"]) == ([], 2)
 
 
 def test_a_repository_with_the_watch_off_disables_the_item_with_the_reason():
@@ -540,18 +542,19 @@ def test_a_failure_names_its_failing_jobs_after_its_label():
 
 
 @pytest.mark.parametrize(("status", "body"), [(502, {}), (409, {"detail": "Something else"}), (422, {"detail": []})])
-def test_a_failed_toggle_keeps_the_watch_and_says_so(status, body):
+def test_a_failed_toggle_keeps_the_ci_and_says_so(status, body):
     item = _ci()
     steps = [_with_ci([item]), ["ci-toggle-item", item], ["reply", {"status": status, "body": body}], ["read", None]]
 
     seen = _run(steps)["seen"][0]
-    assert (seen["watch"], seen["ci"], seen["notes"]) == (WATCHING, [item], ["Couldn't change it"])
+    assert (seen["ci"], seen["notes"]) == ([item], ["Couldn't change it"])
 
 
-def test_a_poll_without_a_watch_keeps_the_one_the_page_has():
-    result = _run([["poll", {"latest_run": FAILED}], ["read", None]], watch=WATCHING)
+def test_a_poll_without_ci_keeps_the_ci_the_page_has():
+    item = _ci()
+    result = _run([_with_ci([item]), ["poll", {"latest_run": FAILED}], ["read", None]])
 
-    assert (result["seen"][0]["status"], result["seen"][0]["watch"]) == (FAILED, WATCHING)
+    assert (result["seen"][0]["status"], result["seen"][0]["ci"]) == (FAILED, [item])
 
 
 def test_a_poll_asked_for_before_the_toggle_answered_does_not_undo_it():
@@ -567,7 +570,7 @@ def test_a_poll_asked_for_before_the_toggle_answered_does_not_undo_it():
         watch=None,
     )
 
-    assert [(s["status"], s["watch"]) for s in result["seen"]] == [(FAILED, WATCHING), (FAILED, None)]
+    assert [(s["status"], s["ci"]) for s in result["seen"]] == [(FAILED, [_ci()]), (FAILED, [])]
 
 
 # ---------------------------------------------------------------------------
@@ -752,25 +755,10 @@ def _delegations(*, total=2, running=0, waiting=0, failed=0, legs=None) -> dict:
     return {**counts, "batches": [], "legs": legs or []}
 
 
-@pytest.mark.parametrize(
-    ("counts", "label", "state"),
-    [
-        ({"running": 2, "waiting": 1, "failed": 1}, "2 delegated · 2 running", "running"),
-        ({"waiting": 2, "failed": 1}, "2 delegated · 2 queued", "queued"),
-        ({"failed": 1}, "2 delegated · 1 failed", "failed"),
-        ({"total": 1}, "1 delegated", ""),
-    ],
-)
-def test_the_top_bar_sums_up_the_delegated_jobs(counts, label, state):
-    seen = _read(delegations=_delegations(**counts))
-
-    assert (seen["delegationsLabel"], seen["delegationsState"]) == (label, state)
-
-
 def test_a_session_that_delegated_nothing_has_no_delegations():
     seen = _read()
 
-    assert (seen["delegations"], seen["delegationsLabel"], seen["delegationsState"], seen["legs"]) == (None, "", "", [])
+    assert (seen["delegations"], seen["legs"]) == (None, [])
 
 
 def test_the_popover_lists_the_legs_in_the_servers_order():
@@ -788,7 +776,6 @@ def test_each_poll_replaces_the_delegations():
     seen = _run(steps, delegations=_delegations(running=2))["seen"][0]
 
     assert seen["delegations"] == polled
-    assert (seen["delegationsLabel"], seen["delegationsState"]) == ("2 delegated · 2 failed", "failed")
 
 
 def test_a_poll_without_delegations_keeps_the_ones_the_page_has():
@@ -796,7 +783,7 @@ def test_a_poll_without_delegations_keeps_the_ones_the_page_has():
 
     seen = _run([["poll", {"latest_run": FAILED}], ["read", None]], delegations=delegations)["seen"][0]
 
-    assert (seen["delegations"], seen["delegationsLabel"]) == (delegations, "2 delegated · 1 running")
+    assert seen["delegations"] == delegations
 
 
 def _repo(repo_id, ref, mr_iid=None) -> dict:

@@ -79,14 +79,6 @@ document.addEventListener("alpine:init", () => {
     return { groups: next, told: upNext?.told ?? [] };
   };
 
-  const delegationsSummary = (delegations) => {
-    const T = window.TranscriptLabels;
-    if (delegations.running) return { state: "running", text: T.tn("delegations_running", delegations.running) };
-    if (delegations.waiting) return { state: "queued", text: T.tn("delegations_queued", delegations.waiting) };
-    if (delegations.failed) return { state: "failed", text: T.tn("delegations_failed", delegations.failed) };
-    return { state: "", text: "" };
-  };
-
   // x-show reveals on the next animation frame, so a scroll sent from $nextTick can land on a hidden panel.
   const whenShown = (el, then, frames = 10) => {
     if (el.getClientRects().length) then();
@@ -95,9 +87,8 @@ document.addEventListener("alpine:init", () => {
 
   Alpine.data("sessionPage", (config) => ({
     latest: null,
-    // CI on each merge request the session owns (`repo_id` blank for the main repository); `watch` is the first one's.
+    // CI on each merge request the session owns (`repo_id` blank for the main repository);
     ci: [],
-    watch: null,
     // What the session will do next (``sessions.up_next``).
     upNext: null,
     runCount: 0,
@@ -197,12 +188,6 @@ document.addEventListener("alpine:init", () => {
     get busy() {
       return this._running || this.waiting;
     },
-    get delegationsBadge() {
-      if (!this.delegations) return { count: "", state: "", text: "", label: "" };
-      const count = window.TranscriptLabels.tn("delegations_total", this.delegations.total);
-      const { state, text } = delegationsSummary(this.delegations);
-      return { count, state, text, label: [count, text].filter(Boolean).join(" · ") };
-    },
     get status() {
       if (this._running) return { variant: "running", label: config.labels.running };
       if (this.waiting) return { variant: "queued", label: config.labels.queued };
@@ -270,7 +255,6 @@ document.addEventListener("alpine:init", () => {
     },
     _showCi(data) {
       this.ci = data?.ci ?? [];
-      this.watch = data?.watch ?? null;
     },
     _setCi(data) {
       this._showCi(data);
