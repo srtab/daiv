@@ -136,6 +136,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed a mention or CI result on a session that pins a model sometimes not starting its run until the inbox sweep retried it, and the run then dropping the pinned model for the default. Loading the providers, site configuration or `web_fetch` auth headers while their 5-minute cache was empty closed the database connection of the transaction it ran in, so the provider list came back empty and the run could not be created.
 - Fixed runs on OpenAI-compatible providers with their own base URL, such as a self-hosted vLLM, recording no token usage or cost when the model's reply was streamed. Chat runs on those providers never had usage, and since session pages stream every run live, no run on them did.
 - Fixed `web_fetch` returning its summarising model's raw output, encrypted reasoning included, instead of the answer when that model replies in content blocks, as OpenAI models on the Responses API do. On production about 70% of each summary was reasoning the agent could not read.
 - Fixed the Skills pages showing a replaced custom skill's first upload date. The skill list, the skill's page and the "already exists" notice on upload now show when it was last uploaded, matching the uploader they name.
