@@ -4725,6 +4725,12 @@ html {
     @apply inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-900/30
       px-2 py-0.5 text-[11px] font-medium text-emerald-300;
   }
+  .mr-pill--merged {
+    @apply border-violet-500/30 bg-violet-900/30 text-violet-300;
+  }
+  .mr-pill--closed {
+    @apply border-red-500/30 bg-red-900/30 text-red-300;
+  }
   .session-num { @apply font-mono text-[12px] tabular-nums text-gray-400; }
   .results--loading {
     @apply pointer-events-none opacity-50 transition-opacity duration-150;

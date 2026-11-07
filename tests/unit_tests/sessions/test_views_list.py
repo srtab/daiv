@@ -9,7 +9,15 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 import pytest
-from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin
+from sessions.models import (
+    HiddenSession,
+    MergeRequestOwnership,
+    MergeRequestState,
+    Run,
+    RunStatus,
+    Session,
+    SessionOrigin,
+)
 
 from accounts.models import User
 from schedules.models import Frequency, ScheduledJob
@@ -391,6 +399,46 @@ class TestSessionListView:
         html = logged_in_client.get(reverse("session_list")).content.decode()
 
         assert re.search(r'<a href="https://git\.example/mr/31"[^>]*class="mr-pill[^"]*">.*?!31</a>', html, re.DOTALL)
+
+    @pytest.mark.parametrize(
+        ("state", "cls"),
+        [(MergeRequestState.MERGED, "mr-pill--merged"), (MergeRequestState.CLOSED, "mr-pill--closed")],
+        ids=["merged", "closed"],
+    )
+    def test_row_marks_the_pill_when_the_owned_merge_request_is_terminal(self, logged_in_client, user, state, cls):
+        from django.utils import timezone
+
+        session = _create_session(user=user, origin=SessionOrigin.API_JOB)
+        _create_run(session, merge_request_iid=31, merge_request_web_url="https://git.example/mr/31")
+        MergeRequestOwnership.objects.create(
+            session=session,
+            repo_id=session.repo_id,
+            merge_request_iid=31,
+            source_branch=session.ref,
+            state=state,
+            closed_at=timezone.now(),
+        )
+
+        html = logged_in_client.get(reverse("session_list")).content.decode()
+
+        assert cls in html
+        assert re.search(rf'class="mr-pill[^"]*{cls}[^"]*".*?!31</a>', html, re.DOTALL)
+
+    def test_row_leaves_the_pill_unmarked_when_the_merge_request_is_open(self, logged_in_client, user):
+        session = _create_session(user=user, origin=SessionOrigin.API_JOB)
+        _create_run(session, merge_request_iid=31, merge_request_web_url="https://git.example/mr/31")
+        MergeRequestOwnership.objects.create(
+            session=session,
+            repo_id=session.repo_id,
+            merge_request_iid=31,
+            source_branch=session.ref,
+            state=MergeRequestState.OPEN,
+        )
+
+        html = logged_in_client.get(reverse("session_list")).content.decode()
+
+        assert "mr-pill--merged" not in html
+        assert "mr-pill--closed" not in html
 
     def test_row_shows_the_model_the_latest_run_ran_on(self, logged_in_client, user):
         session = _create_session(user=user, origin=SessionOrigin.API_JOB)
