@@ -638,11 +638,11 @@ status and the `⋯` menu.
   something clickable), and a CI and diff row: `.ci-dot` tinted by `.ci-tone--attn|clear|found|fail` (the
   `status-*` tokens), the diff as `__added` / `__removed` counts in `font-mono`. Errors use `status-fail`.
 - **Reference card.** `.ref-card`, the last Overview fold: same fill, border and radius as the repository
-  card, one per external reference. The provider's icon (`ref_icon`: GitLab, GitHub, Sentry, Jira, else
-  `link`) in `text-text-muted`, the key in `font-mono` (`text-accent` when it links), a `__source` line
-  (provider · host, truncating, then a "closes" that never does) in `text-text-faint`, and a trailing
-  open-in-new-tab icon. The card is an
-  `<a>` with an `href` only when the reference has a URL, so the hover and the accent mark only real links.
+  card, one per external reference, from the header's `references` so it stays current. The provider's
+  icon (GitLab, GitHub, Sentry, Jira, else `link`; a `--ref-icon` mask) in `text-text-muted`, the key in
+  `font-mono` (`#42` for a platform issue), a `__source` line (provider · host, truncating, then a
+  "closes" that never does) in `text-text-faint`. A reference with a URL is an `<a>` with `--link`: the
+  key in `text-accent`, a hover fill and a trailing open-in-new-tab icon. One without is a plain `<div>`.
 - **Shared classes.** `.ci-dot`, `.ci-tone--<tone>` and `.draft-badge` are neutral: the header summary
   and the cards both use them.
 

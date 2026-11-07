@@ -147,7 +147,7 @@ for (const [action, value] of steps) {
       heading: page.repositoriesHeading, quiet: page.repositoryRows.map((row) => page.isQuiet(row)),
       explanations: page.ci.map((item) => page.ciExplanation(item)), upNext: page.upNext,
       ciTexts: page.ci.map((item) => page.ciText(item)),
-      delegations: page.delegations,
+      delegations: page.delegations, references: page.references,
       repositories: page.repositories, repositoryRows: page.repositoryRows,
       repositoriesKept: page.repositories === lastRepositories,
       timers: timers.map((timer) => timer.ms),
@@ -346,6 +346,19 @@ def test_polls_and_a_settled_run_update_the_run_count():
     ])
 
     assert [s["runs"] for s in result["seen"]] == [2, 3]
+
+
+def test_a_poll_replaces_the_references():
+    card = {"key": "PROJ-12", "url": "", "icon_url": "/static/jira.svg", "source": "Jira", "closing": ""}
+    result = _run([
+        ["read", None],
+        ["poll", {"latest_run": DONE, "watch": None, "run_count": 1, "references": [card]}],
+        ["read", None],
+        ["poll", {"latest_run": DONE, "watch": None, "run_count": 1}],
+        ["read", None],
+    ])
+
+    assert [s["references"] for s in result["seen"]] == [[], [card], [card]]
 
 
 def test_the_page_creates_no_timers():

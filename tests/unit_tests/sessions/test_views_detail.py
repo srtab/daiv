@@ -1353,30 +1353,29 @@ def test_detail_overview_lists_the_sessions_external_references_last(member_clie
         user=member_user,
         external_refs=[
             {"key": "PROJ-12", "url": jira_url, "provider": "jira", "relation": "closes"},
-            {"key": "RT-7", "provider": "rt", "relation": "relates"},
             {"key": "bad key with spaces"},
         ],
     )
 
-    details = _details(_get_detail(member_client, session))
+    resp = _get_detail(member_client, session)
+    details = _details(resp)
     refs = BeautifulSoup(_section(details, "session-details-references"), "html.parser")
 
     order = [details.index(f'id="session-details-{part}"') for part in ("outputs", "references", "info")]
     assert order == sorted(order)
-    items = refs.select("li")
-    assert [li.get_text(" ", strip=True) for li in items] == ["PROJ-12 Jira · jira.example.com · closes", "RT-7 rt"]
-    link = items[0].a
-    assert link["href"] == jira_url and link["target"] == "_blank"
-    assert "icons/jira.svg" in str(link)
-    assert not items[1].a.has_attr("href")
-    assert refs.select_one(".details-fold__summary")["x-text"] == "2"
+    assert [card["key"] for card in resp.context["header"]["references"]] == ["PROJ-12"]
+    assert 'id="session-details-references" x-show="references.length"' in details
+    assert refs.select_one(".details-fold__summary")["x-text"] == "references.length"
+    link = refs.select_one("a.ref-card--link")
+    assert link["target"] == "_blank" and link["rel"] == ["noopener", "noreferrer"]
+    assert refs.select_one("div.ref-card") is not None
 
 
 @pytest.mark.django_db
-def test_detail_overview_has_no_references_section_without_references(member_client, member_user):
-    details = _details(_get_detail(member_client, _create_session(user=member_user)))
+def test_detail_header_has_no_references_without_references(member_client, member_user):
+    resp = _get_detail(member_client, _create_session(user=member_user))
 
-    assert 'id="session-details-references"' not in details
+    assert resp.context["header"]["references"] == []
 
 
 @pytest.mark.django_db

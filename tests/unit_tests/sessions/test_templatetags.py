@@ -22,16 +22,12 @@ from sessions.templatetags.session_tags import (
     format_cost,
     format_tokens,
     origin_icon,
-    ref_icon,
-    ref_source,
     session_cost,
     session_merge_request,
     session_title,
     short_timestamp,
     status_variant,
 )
-
-from automation.agent.references import ExternalRef
 
 
 @pytest.mark.parametrize(
@@ -141,39 +137,6 @@ def test_short_timestamp_is_relative_today_and_a_date_before():
 @pytest.mark.parametrize("kind", [*ArtifactKind.values, "unknown-kind"])
 def test_artifact_icon_resolves_to_a_shipped_icon(kind):
     assert finders.find(f"core/img/icons/{artifact_icon(kind)}.svg")
-
-
-@pytest.mark.parametrize(
-    ("provider", "expected"),
-    [
-        ("gitlab-issue", "gitlab"),
-        ("github-issue", "github"),
-        ("sentry", "sentry"),
-        ("jira", "jira"),
-        ("generic", "link"),
-        ("rt", "link"),
-    ],
-)
-def test_ref_icon_resolves_to_a_shipped_icon(provider, expected):
-    assert ref_icon(provider) == expected
-    assert finders.find(f"core/img/icons/{expected}.svg")
-
-
-@pytest.mark.parametrize(
-    ("ref", "expected"),
-    [
-        (
-            ExternalRef(key="PROJ-12", provider="jira", url="https://jira.example.com/browse/1", relation="closes"),
-            "Jira · jira.example.com",
-        ),
-        (ExternalRef(key="42", provider="gitlab-issue", relation="closes"), "GitLab issue"),
-        (ExternalRef(key="X-1", url="https://tracker.example.com/X-1"), "tracker.example.com"),
-        (ExternalRef(key="RT-7", provider="rt"), "rt"),
-        (ExternalRef(key="A1"), ""),
-    ],
-)
-def test_ref_source_names_the_provider_and_host(ref, expected):
-    assert ref_source(ref) == expected
 
 
 def test_date_bucket_exact_window_edges(monkeypatch):

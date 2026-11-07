@@ -1,0 +1,11 @@
+{% comment %}
+Inside ``x-for="ref in references"`` (``sessions.header.references_payload``): a reference card's icon, key and source.
+{% endcomment %}
+<span class="ref-card__icon" :style="{ '--ref-icon': `url('${ref.icon_url}')` }" aria-hidden="true"></span>
+<span class="ref-card__body">
+  <span class="ref-card__key" x-text="ref.key"></span>
+  <span class="ref-card__source" x-show="ref.source || ref.closing">
+    <span class="truncate" x-show="ref.source" x-text="ref.source"></span>
+    <span class="shrink-0" x-show="ref.closing" x-text="ref.closing"></span>
+  </span>
+</span>

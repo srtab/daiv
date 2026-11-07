@@ -1240,11 +1240,13 @@ html {
   .ref-card {
     @apply flex min-w-0 items-start gap-2.5 rounded-xl border border-border bg-surface-2 py-2 pr-2.5 pl-3;
   }
-  .ref-card[href] {
+  .ref-card--link {
     @apply transition-colors hover:bg-surface-3;
   }
   .ref-card__icon {
-    @apply mt-px h-3.5 w-3.5 shrink-0 text-text-muted;
+    @apply mt-px inline-block h-3.5 w-3.5 shrink-0 bg-current text-text-muted;
+    -webkit-mask: var(--ref-icon) no-repeat center / contain;
+    mask: var(--ref-icon) no-repeat center / contain;
   }
   .ref-card__body {
     @apply flex min-w-0 flex-1 flex-col gap-0.5;
@@ -1252,10 +1254,10 @@ html {
   .ref-card__key {
     @apply truncate font-mono text-[12px] leading-4 text-text;
   }
-  .ref-card[href] .ref-card__key {
+  .ref-card--link .ref-card__key {
     @apply text-accent;
   }
-  .ref-card[href]:hover .ref-card__key {
+  .ref-card--link:hover .ref-card__key {
     @apply text-accent-bright;
   }
   .ref-card__source {

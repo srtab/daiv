@@ -101,6 +101,7 @@ document.addEventListener("alpine:init", () => {
     runCount: 0,
     delegations: null,
     repositories: null,
+    references: [],
     title: config.title || "",
     titleDraft: "",
     titleWidth: 0,
@@ -218,6 +219,7 @@ document.addEventListener("alpine:init", () => {
       if ("up_next" in data) this._applyUpNext(data.up_next ?? null, data.requestedAt ?? -Infinity);
       if ("delegations" in data) this.delegations = data.delegations ?? null;
       if ("repositories" in data) this._applyRepositories(data.repositories ?? null);
+      if ("references" in data) this.references = data.references ?? [];
       if (data.title && !this.editingTitle) this._showTitle(data.title);
     },
     // An unchanged card is left alone, as rewriting its errors would have them announced again.

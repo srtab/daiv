@@ -1,7 +1,7 @@
-{% load humanize i18n icon_tags session_tags %}
+{% load humanize i18n icon_tags %}
 {% comment %}
 A column beside the transcript from 1100px, a bottom sheet below it. Must sit inside ``sessionPage`` inside
-``chat({…})``: the repositories, usage, spend and outputs read the chat component's live state.
+``chat({…})``: the repositories, usage, spend, outputs and references read the chat component's live state.
 {% endcomment %}
 {% include "core/_sheet_backdrop.html" with show_expr="detailsOpen && !wide" %}
 <aside id="session-details" class="session-details" x-show="detailsOpen" x-cloak
@@ -76,37 +76,27 @@ A column beside the transcript from 1100px, a bottom sheet below it. Must sit in
         </div>
       </section>
 
-      {% with references=session.external_references %}
-        {% if references %}
-          <section class="details-fold" id="session-details-references">
-            {% translate "References" context "external work-item references card" as references_heading %}
-            {% include "sessions/_details_fold_head.html" with section="references" label=references_heading summary_expr=references|length %}
-            <div class="details-fold__body" id="session-details-references-body" x-show="!isFolded('references')">
-              <ul class="ref-list">
-                {% for ref in references %}
-                  <li>
-                    <a class="ref-card"{% if ref.url %} href="{{ ref.url }}" title="{{ ref.url }}" target="_blank" rel="noopener noreferrer"{% endif %}>
-                      {% icon ref.provider|ref_icon "ref-card__icon" %}
-                      <span class="ref-card__body">
-                        <span class="ref-card__key">{{ ref.key }}</span>
-                        {% with source=ref|ref_source %}
-                          {% if source or ref.relation == "closes" %}
-                            <span class="ref-card__source">
-                              {% if source %}<span class="truncate">{{ source }}</span>{% endif %}
-                              {% if ref.relation == "closes" %}<span class="shrink-0">{% if source %}· {% endif %}{% translate "closes" context "an external reference the merge request closes" %}</span>{% endif %}
-                            </span>
-                          {% endif %}
-                        {% endwith %}
-                      </span>
-                      {% if ref.url %}{% icon "arrow-top-right-on-square" "ref-card__open" %}{% endif %}
-                    </a>
-                  </li>
-                {% endfor %}
-              </ul>
-            </div>
-          </section>
-        {% endif %}
-      {% endwith %}
+      <section class="details-fold" id="session-details-references" x-show="references.length" x-cloak>
+        {% translate "References" context "external work-item references card" as references_heading %}
+        {% include "sessions/_details_fold_head.html" with section="references" label=references_heading summary_expr="references.length" %}
+        <div class="details-fold__body" id="session-details-references-body" x-show="!isFolded('references')">
+          <ul class="ref-list">
+            <template x-for="(ref, index) in references" :key="index">
+              <li>
+                <template x-if="ref.url">
+                  <a class="ref-card ref-card--link" :href="ref.url" :title="ref.url" target="_blank" rel="noopener noreferrer">
+                    {% include "sessions/_reference_card_body.html" %}
+                    {% icon "arrow-top-right-on-square" "ref-card__open" %}
+                  </a>
+                </template>
+                <template x-if="!ref.url">
+                  <div class="ref-card">{% include "sessions/_reference_card_body.html" %}</div>
+                </template>
+              </li>
+            </template>
+          </ul>
+        </div>
+      </section>
     </div>
 
     <div id="session-details-info" class="details-info" role="tabpanel" aria-labelledby="session-details-tab-info"
