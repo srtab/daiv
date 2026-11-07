@@ -37,7 +37,7 @@ from django.utils import timezone
 
 from asgiref.sync import async_to_sync, sync_to_async
 from sandbox_envs.models import SandboxEnvironment
-from sandbox_envs.selection import resolve_env_for_run_sync
+from sandbox_envs.selection import resolve_env_for_run
 
 from automation.agent.references import merge_stored_refs
 from sessions.admission import RepoAccessError, assert_repo_access
@@ -379,7 +379,7 @@ class _Take:
         env_id = self.session.sandbox_environment_id
         if env_id is None or visible.filter(pk=env_id).exists():
             return env_id
-        env = resolve_env_for_run_sync(user=user, repo_id=self.session.repo_id)
+        env = async_to_sync(resolve_env_for_run)(user=user, repo_id=self.session.repo_id)
         return None if env is None else env.pk
 
     def _promote_or_create(
