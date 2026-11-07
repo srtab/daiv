@@ -4,7 +4,14 @@
 document.addEventListener("alpine:init", () => {
   const WIDE = "(min-width: 1100px)";
   const TABS = ["overview", "info"];
-  const FOLDED = { repositories: false, environment: true, context: false, spend: true, outputs: true };
+  const FOLDED = {
+    repositories: false,
+    environment: true,
+    context: false,
+    spend: true,
+    outputs: true,
+    references: false,
+  };
   const CI_TONES_WORST_FIRST = ["fail", "found", "attn", "clear"];
 
   const stored = (key) => {

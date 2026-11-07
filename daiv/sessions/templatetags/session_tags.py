@@ -1,9 +1,12 @@
 from decimal import Decimal
+from urllib.parse import urlsplit
 
 from django import template
 from django.contrib.humanize.templatetags.humanize import naturaltime
 from django.utils import formats, timezone
 from django.utils.translation import gettext
+
+from automation.agent.references import RefProvider
 
 register = template.Library()
 
@@ -130,6 +133,35 @@ _ARTIFACT_ICONS = {"markdown": "document-text", "html": "code-bracket", "image":
 def artifact_icon(kind) -> str:
     """Map an ArtifactKind value to an icon name; anything else is a generic file."""
     return _ARTIFACT_ICONS.get(kind, "paper-clip")
+
+
+_REF_ICONS = {
+    RefProvider.GITLAB_ISSUE: "gitlab",
+    RefProvider.GITHUB_ISSUE: "github",
+    RefProvider.SENTRY: "sentry",
+    RefProvider.JIRA: "jira",
+}
+
+
+@register.filter
+def ref_icon(provider) -> str:
+    """Map an external reference's provider to an icon name; one DAIV does not know is a plain link."""
+    return _REF_ICONS.get(provider, "link")
+
+
+@register.filter
+def ref_source(ref) -> str:
+    """An external reference's provider and its URL's host, each when there is one, for its card's second line.
+    ``generic`` names no provider; one DAIV does not know shows as given."""
+    providers = {
+        RefProvider.GENERIC: "",
+        RefProvider.GITLAB_ISSUE: gettext("GitLab issue"),
+        RefProvider.GITHUB_ISSUE: gettext("GitHub issue"),
+        RefProvider.SENTRY: "Sentry",
+        RefProvider.JIRA: "Jira",
+    }
+    parts = (providers.get(ref.provider, ref.provider), urlsplit(ref.url).hostname or "")
+    return " · ".join(part for part in parts if part)
 
 
 @register.simple_tag

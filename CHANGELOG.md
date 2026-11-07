@@ -135,6 +135,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed the session page never showing the external references a session was given (Jira, Sentry or RT tickets, issues) through the Jobs API, the MCP `submit_job` tool or a delegated job: its details panel now lists them in a **References** section at the end of the **Overview** tab, one card each with its provider's icon (GitLab, GitHub, Sentry or Jira), a link to it, its provider and host, and whether its merge request closes it.
 - Fixed runs on OpenAI-compatible providers with their own base URL, such as a self-hosted vLLM, recording no token usage or cost when the model's reply was streamed. Chat runs on those providers never had usage, and since session pages stream every run live, no run on them did.
 - Fixed `web_fetch` returning its summarising model's raw output, encrypted reasoning included, instead of the answer when that model replies in content blocks, as OpenAI models on the Responses API do. On production about 70% of each summary was reasoning the agent could not read.
 - Fixed the Skills pages showing a replaced custom skill's first upload date. The skill list, the skill's page and the "already exists" notice on upload now show when it was last uploaded, matching the uploader they name.

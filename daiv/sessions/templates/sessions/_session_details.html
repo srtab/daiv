@@ -1,4 +1,4 @@
-{% load humanize i18n icon_tags %}
+{% load humanize i18n icon_tags session_tags %}
 {% comment %}
 A column beside the transcript from 1100px, a bottom sheet below it. Must sit inside ``sessionPage`` inside
 ``chat({…})``: the repositories, usage, spend and outputs read the chat component's live state.
@@ -75,6 +75,38 @@ A column beside the transcript from 1100px, a bottom sheet below it. Must sit in
           </ul>
         </div>
       </section>
+
+      {% with references=session.external_references %}
+        {% if references %}
+          <section class="details-fold" id="session-details-references">
+            {% translate "References" context "external work-item references card" as references_heading %}
+            {% include "sessions/_details_fold_head.html" with section="references" label=references_heading summary_expr=references|length %}
+            <div class="details-fold__body" id="session-details-references-body" x-show="!isFolded('references')">
+              <ul class="ref-list">
+                {% for ref in references %}
+                  <li>
+                    <a class="ref-card"{% if ref.url %} href="{{ ref.url }}" title="{{ ref.url }}" target="_blank" rel="noopener noreferrer"{% endif %}>
+                      {% icon ref.provider|ref_icon "ref-card__icon" %}
+                      <span class="ref-card__body">
+                        <span class="ref-card__key">{{ ref.key }}</span>
+                        {% with source=ref|ref_source %}
+                          {% if source or ref.relation == "closes" %}
+                            <span class="ref-card__source">
+                              {% if source %}<span class="truncate">{{ source }}</span>{% endif %}
+                              {% if ref.relation == "closes" %}<span class="shrink-0">{% if source %}· {% endif %}{% translate "closes" context "an external reference the merge request closes" %}</span>{% endif %}
+                            </span>
+                          {% endif %}
+                        {% endwith %}
+                      </span>
+                      {% if ref.url %}{% icon "arrow-top-right-on-square" "ref-card__open" %}{% endif %}
+                    </a>
+                  </li>
+                {% endfor %}
+              </ul>
+            </div>
+          </section>
+        {% endif %}
+      {% endwith %}
     </div>
 
     <div id="session-details-info" class="details-info" role="tabpanel" aria-labelledby="session-details-tab-info"

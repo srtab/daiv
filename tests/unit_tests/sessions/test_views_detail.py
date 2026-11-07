@@ -1347,6 +1347,39 @@ def test_detail_info_tab_shows_origin_owner_runs_and_session_id(member_client, m
 
 
 @pytest.mark.django_db
+def test_detail_overview_lists_the_sessions_external_references_last(member_client, member_user):
+    jira_url = "https://jira.example.com/browse/PROJ-12"
+    session = _create_session(
+        user=member_user,
+        external_refs=[
+            {"key": "PROJ-12", "url": jira_url, "provider": "jira", "relation": "closes"},
+            {"key": "RT-7", "provider": "rt", "relation": "relates"},
+            {"key": "bad key with spaces"},
+        ],
+    )
+
+    details = _details(_get_detail(member_client, session))
+    refs = BeautifulSoup(_section(details, "session-details-references"), "html.parser")
+
+    order = [details.index(f'id="session-details-{part}"') for part in ("outputs", "references", "info")]
+    assert order == sorted(order)
+    items = refs.select("li")
+    assert [li.get_text(" ", strip=True) for li in items] == ["PROJ-12 Jira · jira.example.com · closes", "RT-7 rt"]
+    link = items[0].a
+    assert link["href"] == jira_url and link["target"] == "_blank"
+    assert "icons/jira.svg" in str(link)
+    assert not items[1].a.has_attr("href")
+    assert refs.select_one(".details-fold__summary")["x-text"] == "2"
+
+
+@pytest.mark.django_db
+def test_detail_overview_has_no_references_section_without_references(member_client, member_user):
+    details = _details(_get_detail(member_client, _create_session(user=member_user)))
+
+    assert 'id="session-details-references"' not in details
+
+
+@pytest.mark.django_db
 def test_detail_panel_falls_back_to_the_platform_username_without_an_owner(member_client, member_user):
     session = _create_session(origin=SessionOrigin.MR_WEBHOOK, external_username="octocat")
     grant_read_access(member_user, session.repo_id)
@@ -1549,9 +1582,10 @@ def test_detail_sidebar_has_overview_and_info_tabs(member_client, member_user):
 
 @pytest.mark.django_db
 def test_detail_overview_sections_fold(member_client, member_user):
-    details = _details(_get_detail(member_client, _create_session(user=member_user)))
+    session = _create_session(user=member_user, external_refs=[{"key": "PROJ-1"}])
+    details = _details(_get_detail(member_client, session))
 
-    for section in ("repositories", "environment", "context", "spend", "outputs"):
+    for section in ("repositories", "environment", "context", "spend", "outputs", "references"):
         assert f"toggleFold('{section}')" in details
         assert f":aria-expanded=\"(!isFolded('{section}')).toString()\"" in details
         assert f"x-show=\"!isFolded('{section}')\"" in details
