@@ -5,6 +5,8 @@ from django.contrib.humanize.templatetags.humanize import naturaltime
 from django.utils import formats, timezone
 from django.utils.translation import gettext
 
+from sessions.models import MergeRequestState
+
 register = template.Library()
 
 _CENT = Decimal("0.01")
@@ -135,9 +137,7 @@ def artifact_icon(kind) -> str:
 @register.filter
 def mr_state_title(state) -> str:
     """Human label for a ``MergeRequestState`` value, for the MR pill's ``title``."""
-    return {"open": gettext("Open"), "merged": gettext("Merged"), "closed": gettext("Closed")}.get(
-        state, gettext("Open")
-    )
+    return MergeRequestState(state).label if state in MergeRequestState.values else MergeRequestState.OPEN.label
 
 
 @register.simple_tag

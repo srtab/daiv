@@ -282,7 +282,8 @@ class TestMergeRequestState:
         with self._failing_post(), pytest.raises(RuntimeError):
             await self._close(merged=True)
 
-        assert (await MergeRequestOwnership.objects.aget()).state == MergeRequestState.OPEN
+        ownership = await MergeRequestOwnership.objects.aget()
+        assert (ownership.state, ownership.closed_at) == (MergeRequestState.OPEN, None)
 
     async def test_a_close_after_a_reopen_is_remembered_again(self):
         session_id = await self._owner_session_id()
