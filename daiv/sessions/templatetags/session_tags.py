@@ -137,7 +137,8 @@ def artifact_icon(kind) -> str:
 @register.filter
 def mr_state_title(state) -> str:
     """Human label for a ``MergeRequestState`` value, for the MR pill's ``title``."""
-    return MergeRequestState(state).label if state in MergeRequestState.values else MergeRequestState.OPEN.label
+    label = MergeRequestState(state).label if state in MergeRequestState.values else MergeRequestState.OPEN.label
+    return str(label)
 
 
 @register.simple_tag
