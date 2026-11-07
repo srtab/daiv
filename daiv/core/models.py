@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from django.core.cache import cache
 from django.core.validators import MinValueValidator
-from django.db import models, transaction
+from django.db import connections, models, transaction
 from django.utils.translation import gettext_lazy as _
 
 if TYPE_CHECKING:
@@ -28,6 +28,14 @@ WEB_FETCH_AUTH_HEADERS_CACHE_TIMEOUT = 60 * 5  # 5 minutes
 
 PROVIDERS_CACHE_KEY = "providers"
 PROVIDERS_CACHE_TIMEOUT = 60 * 5  # 5 minutes
+
+
+def _close_old_connections_outside_transactions() -> None:
+    """``close_old_connections`` for the cache loaders, which may run inside a caller's transaction: closing that
+    connection hands it back to the pool mid-transaction, and the caller's next query fails."""
+    for conn in connections.all(initialized_only=True):
+        if not conn.in_atomic_block:
+            conn.close_if_unusable_or_obsolete()
 
 
 @dataclass(frozen=True)
@@ -750,17 +758,15 @@ class SiteConfiguration(models.Model):
             # path below, which re-caches a fresh instance.
             return cached
 
-        from django.db import close_old_connections
-
         try:
-            close_old_connections()
+            _close_old_connections_outside_transactions()
             instance = cls.objects.get_instance()
         except Exception:  # noqa: BLE001 — DB/cache may fail during startup or degraded state
             logger.exception("SiteConfiguration not available; falling back to defaults")
             return None
         finally:
             with contextlib.suppress(Exception):
-                close_old_connections()
+                _close_old_connections_outside_transactions()
 
         cache.set(SITE_CONFIGURATION_CACHE_KEY, instance, SITE_CONFIGURATION_CACHE_TIMEOUT)
         return instance
@@ -940,17 +946,15 @@ class WebFetchAuthHeader(models.Model):
         rather than crash the tool. The exception is logged so operators can
         diagnose the underlying failure.
         """
-        from django.db import close_old_connections
-
         try:
-            close_old_connections()
+            _close_old_connections_outside_transactions()
             out = cls._build_from_db()
         except Exception:  # noqa: BLE001 — degrade gracefully on DB/migration/encryption errors
             logger.exception("WebFetchAuthHeader rows not available; falling back to empty dict")
             return {}
         finally:
             with contextlib.suppress(Exception):
-                close_old_connections()
+                _close_old_connections_outside_transactions()
 
         cache.set(WEB_FETCH_AUTH_HEADERS_CACHE_KEY, out, WEB_FETCH_AUTH_HEADERS_CACHE_TIMEOUT)
         return out
@@ -1130,17 +1134,15 @@ class Provider(models.Model):
 
     @classmethod
     def _load_and_cache(cls) -> list[Cached]:
-        from django.db import close_old_connections
-
         try:
-            close_old_connections()
+            _close_old_connections_outside_transactions()
             out = cls._build_from_db()
         except Exception:  # noqa: BLE001
             logger.exception("Provider rows not available; falling back to empty list")
             return []
         finally:
             with contextlib.suppress(Exception):
-                close_old_connections()
+                _close_old_connections_outside_transactions()
 
         cache.set(PROVIDERS_CACHE_KEY, out, PROVIDERS_CACHE_TIMEOUT)
         return out
