@@ -51,6 +51,18 @@ async def _acandidates(user) -> _Candidates:
     return _Candidates(user_envs, global_envs, await SandboxEnvironment.objects.aglobal_default())
 
 
+def _candidates(user) -> _Candidates:
+    # Synchronous counterpart of ``_acandidates`` for callers already inside a ``transaction.atomic``
+    # block (the inbox drain): ``async_to_sync`` would cross the thread boundary and, with the connection
+    # pool, drop the block's connection before its row is written
+    # (``ProgrammingError: Cannot open a new connection in an atomic block``).
+    user_envs: list[SandboxEnvironment] = []
+    if user is not None and getattr(user, "is_authenticated", False):
+        user_envs = list(SandboxEnvironment.objects.user_envs(user))
+    global_envs = list(SandboxEnvironment.objects.global_envs().filter(is_default=False))
+    return _Candidates(user_envs, global_envs, SandboxEnvironment.objects.global_default())
+
+
 async def aresolve_repo_envs(*, user, repos: list[RepoTarget], explicit_env_id: str | None) -> list[RepoTarget]:
     """Stamp ``sandbox_environment_id`` on each :class:`sessions.services.RepoTarget`.
 
@@ -112,3 +124,10 @@ async def resolve_env_for_run(*, user, repo_id: str | None) -> SandboxEnvironmen
     ``user`` may be ``None`` (webhook callbacks pass it), which skips step 2.
     """
     return (await _acandidates(user)).match(repo_id)
+
+
+def resolve_env_for_run_sync(*, user, repo_id: str | None) -> SandboxEnvironment | None:
+    """Synchronous :func:`resolve_env_for_run` for callers inside a ``transaction.atomic`` block, where
+    ``async_to_sync`` would cross the thread boundary and drop the pooled connection mid-transaction
+    (``ProgrammingError: Cannot open a new connection in an atomic block``)."""
+    return _candidates(user).match(repo_id)
