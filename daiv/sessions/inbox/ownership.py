@@ -43,7 +43,7 @@ from core.utils import build_absolute_url
 from sessions.inbox import kinds
 from sessions.inbox.post import Inbox
 from sessions.live.notify import asession_changed, session_changed
-from sessions.models import EventKind, MergeRequestOwnership, Run, Session, SessionOrigin
+from sessions.models import EventKind, MergeRequestOwnership, MergeRequestState, Run, Session, SessionOrigin
 from sessions.repo_state import mr_to_payload
 from sessions.templatetags.session_tags import session_title
 from sessions.titling import MAX_TITLE_LENGTH
@@ -340,15 +340,16 @@ class Ownerships:
         if (owned := await self.afind_open(merge_request_iid)) is None:
             return False
         closed_at = timezone.now()
+        state = MergeRequestState.MERGED if merged else MergeRequestState.CLOSED
         if not await MergeRequestOwnership.objects.filter(pk=owned.pk, closed_at__isnull=True).aupdate(
-            closed_at=closed_at
+            closed_at=closed_at, state=state
         ):
             return False
-        state = "merged" if merged else "closed"
+        state_key = "merged" if merged else "closed"
         try:
             await Inbox(owned.session.thread_id).apost(
                 kind=EventKind.MR_MERGED if merged else EventKind.MR_CLOSED,
-                source_key=f"{kinds.SourceKey.mr_state(merge_request_iid, state)}:{closed_at.timestamp():.6f}",
+                source_key=f"{kinds.SourceKey.mr_state(merge_request_iid, state_key)}:{closed_at.timestamp():.6f}",
                 payload={"target_branch": target_branch, "by_username": by_username},
                 wake=False,
                 subject=kinds.Subject.mr_state(merge_request_iid),
@@ -356,7 +357,9 @@ class Ownerships:
                 repo_id=self.repo_id,
             )
         except Exception:
-            await MergeRequestOwnership.objects.filter(pk=owned.pk, closed_at=closed_at).aupdate(closed_at=None)
+            await MergeRequestOwnership.objects.filter(pk=owned.pk, closed_at=closed_at).aupdate(
+                closed_at=None, state=MergeRequestState.OPEN
+            )
             raise
         await asession_changed(owned.session_id)
         return True
@@ -366,12 +369,12 @@ class Ownerships:
         closed = await (
             MergeRequestOwnership.objects
             .filter(repo_id=self.repo_id, merge_request_iid=merge_request_iid, closed_at__isnull=False)
-            .only("pk", "closed_at")
+            .only("pk", "closed_at", "state")
             .afirst()
         )
         if closed is None or not await MergeRequestOwnership.objects.filter(
             pk=closed.pk, closed_at=closed.closed_at
-        ).aupdate(closed_at=None):
+        ).aupdate(closed_at=None, state=MergeRequestState.OPEN):
             return False
         try:
             if (owned := await self.afind_open(merge_request_iid)) is None:
@@ -392,7 +395,7 @@ class Ownerships:
             )
         except Exception:
             await MergeRequestOwnership.objects.filter(pk=closed.pk, closed_at__isnull=True).aupdate(
-                closed_at=closed.closed_at
+                closed_at=closed.closed_at, state=closed.state
             )
             raise
         await asession_changed(owned.session_id)

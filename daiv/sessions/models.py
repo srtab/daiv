@@ -761,6 +761,18 @@ class SessionArchive(models.Model):
         return f"Context {self.epoch} of session {self.session_id}"
 
 
+class MergeRequestState(models.TextChoices):
+    """Lifecycle of a merge request DAIV owns, as the ownership row records it.
+
+    ``closed_at`` is the terminal timestamp; ``state`` distinguishes ``merged`` from ``closed`` so the
+    session-row / "Your week" MR pill can show it without re-reading the platform.
+    """
+
+    OPEN = "open", _("Open")
+    MERGED = "merged", _("Merged")
+    CLOSED = "closed", _("Closed")
+
+
 class MergeRequestOwnership(models.Model):
     """Which session owns a merge request DAIV published, and that merge request's CI watch.
 
@@ -794,6 +806,9 @@ class MergeRequestOwnership(models.Model):
     last_pipeline_id = models.BigIntegerField(_("last pipeline judged"), null=True, blank=True)
     last_pipeline_status = models.CharField(_("last pipeline status judged"), max_length=32, blank=True, default="")
     last_reconciled_at = models.DateTimeField(_("CI last re-read"), null=True, blank=True)
+    state = models.CharField(
+        _("merge request state"), max_length=10, choices=MergeRequestState.choices, default=MergeRequestState.OPEN
+    )
     closed_at = models.DateTimeField(_("closed at"), null=True, blank=True)
     created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
     updated_at = models.DateTimeField(_("updated at"), auto_now=True)

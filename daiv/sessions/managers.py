@@ -157,7 +157,7 @@ class SessionQuerySet(models.QuerySet["Session"]):
 
         Add a field here if ``sessions/_session_row.html`` starts reading it, or it becomes a deferred-field N+1.
         """
-        from sessions.models import Run
+        from sessions.models import MergeRequestOwnership, Run
 
         runs = Run.objects.only(
             "id",
@@ -171,7 +171,10 @@ class SessionQuerySet(models.QuerySet["Session"]):
             "agent_model",
             "created_at",
         ).order_by(*_NEWEST_FIRST)
-        return self.select_related("user", "scheduled_job").prefetch_related(models.Prefetch("runs", queryset=runs))
+        ownerships = MergeRequestOwnership.objects.only("merge_request_iid", "state", "closed_at")
+        return self.select_related("user", "scheduled_job").prefetch_related(
+            models.Prefetch("runs", queryset=runs), models.Prefetch("owned_merge_requests", queryset=ownerships)
+        )
 
 
 # ``by_owner``/``visible_to``/``with_latest_status`` live on the QuerySet so they chain

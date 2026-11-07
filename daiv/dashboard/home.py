@@ -13,7 +13,7 @@ from django.utils.translation import gettext_lazy as _
 from notifications.choices import EnvelopeStatus
 from notifications.outcomes import CANT_RUN, CI_STILL_FAILING, ENVELOPE_OUTCOMES, Outcome
 from sessions.filters import SCOPE_MINE
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
 from sessions.pipeline_watch.store import gave_up
 
 from codebase.base import GitPlatform
@@ -210,6 +210,18 @@ def _merge_requests(runs: QuerySet[Run]) -> list[dict]:
     ):
         merge_request = merge_requests.setdefault((repo_id, iid), {"repo_id": repo_id, "iid": iid, "title": title})
         merge_request["url"] = merge_request.get("url") or url
+    states = (
+        {
+            (o.repo_id, o.merge_request_iid): o.state
+            for o in MergeRequestOwnership.objects.filter(
+                repo_id__in=[k[0] for k in merge_requests], merge_request_iid__in=[k[1] for k in merge_requests]
+            ).only("repo_id", "merge_request_iid", "state")
+        }
+        if merge_requests
+        else {}
+    )
+    for key, merge_request in merge_requests.items():
+        merge_request["state"] = states.get(key, "open")
     return list(merge_requests.values())
 
 

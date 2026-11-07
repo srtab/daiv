@@ -132,16 +132,31 @@ def artifact_icon(kind) -> str:
     return _ARTIFACT_ICONS.get(kind, "paper-clip")
 
 
+@register.filter
+def mr_state_title(state) -> str:
+    """Human label for a ``MergeRequestState`` value, for the MR pill's ``title``."""
+    return {"open": gettext("Open"), "merged": gettext("Merged"), "closed": gettext("Closed")}.get(
+        state, gettext("Open")
+    )
+
+
 @register.simple_tag
 def session_merge_request(session) -> dict | None:
     """The merge request a session row links: the one the session is scoped to, else the newest one recorded on its
-    runs. Expects ``runs`` prefetched newest first, as ``SessionListView`` does."""
+    runs. Expects ``runs`` prefetched newest first, as ``SessionListView`` does; ``owned_merge_requests`` (prefetched
+    by ``with_row_runs``) supplies its state when the session owns it, else ``open``."""
     runs = [r for r in session.runs.all() if r.merge_request_iid]
     iid = session.merge_request_iid or (runs[0].merge_request_iid if runs else None)
     if iid is None:
         return None
     url = next((r.merge_request_web_url for r in runs if r.merge_request_iid == iid and r.merge_request_web_url), "")
-    return {"iid": iid, "url": url}
+    ownerships = getattr(session, "owned_merge_requests", None)
+    state = (
+        next((o.state for o in ownerships.all() if o.merge_request_iid == iid), "open")
+        if ownerships is not None
+        else "open"
+    )
+    return {"iid": iid, "url": url, "state": state}
 
 
 @register.simple_tag

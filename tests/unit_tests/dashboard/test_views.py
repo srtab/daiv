@@ -12,7 +12,17 @@ from dashboard.home import INBOX_LIMIT
 from dashboard.tasks import BOT_USERNAME_CACHE_KEY, BOT_USERNAME_PENDING_KEY
 from notifications.choices import EnvelopeStatus
 from notifications.models import RunEnvelope
-from sessions.models import EventKind, HiddenSession, QuietReason, Run, RunStatus, Session, SessionOrigin
+from sessions.models import (
+    EventKind,
+    HiddenSession,
+    MergeRequestOwnership,
+    MergeRequestState,
+    QuietReason,
+    Run,
+    RunStatus,
+    Session,
+    SessionOrigin,
+)
 
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
@@ -794,6 +804,33 @@ class TestYourWeek:
         assert [mr["iid"] for mr in week["merge_requests"]] == [4, 3, 2]
         assert (week["merge_requests_total"], week["merge_requests_more"]) == (4, 1)
         assert week["merge_requests"][0]["title"] == "Change 4"
+
+    @pytest.mark.parametrize(
+        ("state", "expected"),
+        [(MergeRequestState.MERGED, "merged"), (MergeRequestState.CLOSED, "closed")],
+        ids=["merged", "closed"],
+    )
+    def test_a_merge_request_carries_its_terminal_state(self, member_user, member_client, state, expected):
+        from django.utils import timezone
+
+        session = _bare_session(member_user, title="Change 7")
+        _week_run(session, merge_request_iid=7, merge_request_web_url="https://x/7")
+        MergeRequestOwnership.objects.create(
+            session=session,
+            repo_id=session.repo_id,
+            merge_request_iid=7,
+            source_branch="chore/x",
+            state=state,
+            closed_at=timezone.now(),
+        )
+
+        assert _week(member_client)["merge_requests"][0]["state"] == expected
+
+    def test_a_merge_request_without_an_ownership_defaults_to_open(self, member_user, member_client):
+        session = _bare_session(member_user, title="Change 7")
+        _week_run(session, merge_request_iid=7, merge_request_web_url="https://x/7")
+
+        assert _week(member_client)["merge_requests"][0]["state"] == "open"
 
     def test_started_from_groups_triggers(self, member_user, member_client):
         session = _bare_session(member_user, SessionOrigin.ISSUE_WEBHOOK)
