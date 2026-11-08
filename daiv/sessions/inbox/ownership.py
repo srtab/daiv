@@ -341,7 +341,7 @@ class Ownerships:
             return False
         closed_at = timezone.now()
         if not await MergeRequestOwnership.objects.filter(pk=owned.pk, closed_at__isnull=True).aupdate(
-            closed_at=closed_at
+            closed_at=closed_at, merged=merged
         ):
             return False
         state = "merged" if merged else "closed"

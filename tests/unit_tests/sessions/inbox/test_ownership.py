@@ -6,7 +6,16 @@ from django.utils import timezone
 import pytest
 from sessions.inbox.ownership import Ownerships
 from sessions.inbox.post import Inbox
-from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
+from sessions.models import (
+    EventKind,
+    InboxEvent,
+    MergeRequestOwnership,
+    MergeRequestState,
+    Run,
+    RunStatus,
+    Session,
+    SessionOrigin,
+)
 
 from accounts.models import User
 
@@ -251,6 +260,18 @@ class TestMergeRequestState:
         run = await _publishing_run(await _user("alice"))
         await _claim(run)
         return run.session_id
+
+    async def test_a_close_records_whether_it_merged_and_a_reopen_opens_it(self):
+        await self._owner_session_id()
+
+        await self._close(merged=True)
+        assert (await MergeRequestOwnership.objects.aget()).state == MergeRequestState.MERGED
+
+        await Ownerships(REPO).areopen(9, by_username="sfr")
+        assert (await MergeRequestOwnership.objects.aget()).state == MergeRequestState.OPEN
+
+        await self._close(merged=False)
+        assert (await MergeRequestOwnership.objects.aget()).state == MergeRequestState.CLOSED
 
     async def test_a_close_after_a_reopen_is_remembered_again(self):
         session_id = await self._owner_session_id()
