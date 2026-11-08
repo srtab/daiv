@@ -7,6 +7,7 @@ from django.db import connection
 from django.test import Client
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone
 
 import pytest
 from sessions.models import (
@@ -70,6 +71,17 @@ def _create_run(session: Session, **kwargs) -> Run:
     }
     defaults.update(kwargs)
     return Run.objects.create(**defaults)
+
+
+def _own(session: Session, iid: int, state: str = MergeRequestState.OPEN, *, repo_id: str = "") -> None:
+    MergeRequestOwnership.objects.create(
+        session=session,
+        repo_id=repo_id or session.repo_id,
+        merge_request_iid=iid,
+        source_branch=f"branch-{iid}",
+        merged=state == MergeRequestState.MERGED,
+        closed_at=None if state == MergeRequestState.OPEN else timezone.now(),
+    )
 
 
 @pytest.mark.django_db
@@ -400,99 +412,33 @@ class TestSessionListView:
 
         assert re.search(r'<a href="https://git\.example/mr/31"[^>]*class="mr-pill[^"]*">.*?!31</a>', html, re.DOTALL)
 
-    @pytest.mark.parametrize(
-        ("state", "cls"),
-        [(MergeRequestState.MERGED, "mr-pill--merged"), (MergeRequestState.CLOSED, "mr-pill--closed")],
-        ids=["merged", "closed"],
-    )
-    def test_row_marks_the_pill_when_the_owned_merge_request_is_terminal(self, logged_in_client, user, state, cls):
-        from django.utils import timezone
-
+    @pytest.mark.parametrize("state", MergeRequestState)
+    def test_row_pill_shows_the_merge_request_state(self, logged_in_client, user, state):
         session = _create_session(user=user, origin=SessionOrigin.API_JOB)
         _create_run(session, merge_request_iid=31, merge_request_web_url="https://git.example/mr/31")
-        MergeRequestOwnership.objects.create(
-            session=session,
-            repo_id=session.repo_id,
-            merge_request_iid=31,
-            source_branch=session.ref,
-            state=state,
-            closed_at=timezone.now(),
-        )
+        _own(session, 31, state)
 
         html = logged_in_client.get(reverse("session_list")).content.decode()
 
-        assert cls in html
-        assert re.search(rf'class="mr-pill[^"]*{cls}[^"]*".*?!31</a>', html, re.DOTALL)
+        assert re.search(rf'title="{state.label}"\s+class="mr-pill mr-pill--{state} [^"]*">.*?!31</a>', html, re.DOTALL)
 
-    def test_row_leaves_the_pill_unmarked_when_the_merge_request_is_open(self, logged_in_client, user):
+    def test_row_pill_shows_the_state_when_another_session_owns_it(self, logged_in_client, user):
         session = _create_session(user=user, origin=SessionOrigin.API_JOB)
         _create_run(session, merge_request_iid=31, merge_request_web_url="https://git.example/mr/31")
-        MergeRequestOwnership.objects.create(
-            session=session,
-            repo_id=session.repo_id,
-            merge_request_iid=31,
-            source_branch=session.ref,
-            state=MergeRequestState.OPEN,
-        )
+        _own(_create_session(user=user), 31, MergeRequestState.MERGED)
+
+        html = logged_in_client.get(reverse("session_list")).content.decode()
+
+        assert html.count("mr-pill--merged") == 1
+
+    def test_row_pill_ignores_a_same_numbered_merge_request_in_another_repository(self, logged_in_client, user):
+        session = _create_session(user=user, origin=SessionOrigin.API_JOB)
+        _create_run(session, merge_request_iid=31, merge_request_web_url="https://git.example/mr/31")
+        _own(session, 31, MergeRequestState.MERGED, repo_id="group/other")
 
         html = logged_in_client.get(reverse("session_list")).content.decode()
 
         assert "mr-pill--merged" not in html
-        assert "mr-pill--closed" not in html
-
-    def test_row_reads_the_state_of_a_merge_request_another_session_owns(self, logged_in_client, user):
-        from django.utils import timezone
-
-        session = _create_session(user=user, origin=SessionOrigin.API_JOB)
-        _create_run(session, merge_request_iid=31, merge_request_web_url="https://git.example/mr/31")
-        MergeRequestOwnership.objects.create(
-            session=_create_session(user=user),
-            repo_id=session.repo_id,
-            merge_request_iid=31,
-            source_branch=session.ref,
-            state=MergeRequestState.MERGED,
-            closed_at=timezone.now(),
-        )
-
-        html = logged_in_client.get(reverse("session_list")).content.decode()
-
-        assert re.search(r'class="mr-pill[^"]*mr-pill--merged[^"]*".*?!31</a>', html, re.DOTALL)
-
-    def test_row_ignores_a_same_numbered_merge_request_in_another_repository(self, logged_in_client, user):
-        from django.utils import timezone
-
-        session = _create_session(user=user, origin=SessionOrigin.API_JOB)
-        _create_run(session, merge_request_iid=31, merge_request_web_url="https://git.example/mr/31")
-        MergeRequestOwnership.objects.create(
-            session=session,
-            repo_id="group/other",
-            merge_request_iid=31,
-            source_branch=session.ref,
-            state=MergeRequestState.MERGED,
-            closed_at=timezone.now(),
-        )
-
-        html = logged_in_client.get(reverse("session_list")).content.decode()
-
-        assert "mr-pill--merged" not in html
-
-    def test_row_reads_a_closed_ownership_without_a_state_as_closed(self, logged_in_client, user):
-        from django.utils import timezone
-
-        session = _create_session(user=user, origin=SessionOrigin.API_JOB)
-        _create_run(session, merge_request_iid=31, merge_request_web_url="https://git.example/mr/31")
-        MergeRequestOwnership.objects.create(
-            session=session,
-            repo_id=session.repo_id,
-            merge_request_iid=31,
-            source_branch=session.ref,
-            state=MergeRequestState.OPEN,
-            closed_at=timezone.now(),
-        )
-
-        html = logged_in_client.get(reverse("session_list")).content.decode()
-
-        assert re.search(r'class="mr-pill[^"]*mr-pill--closed[^"]*".*?!31</a>', html, re.DOTALL)
 
     def test_row_shows_the_model_the_latest_run_ran_on(self, logged_in_client, user):
         session = _create_session(user=user, origin=SessionOrigin.API_JOB)
@@ -505,19 +451,17 @@ class TestSessionListView:
     def test_more_rows_cost_no_more_queries(self, logged_in_client, user, django_assert_num_queries):
         """A run field the row reads but ``.only()`` leaves out costs a query per row."""
 
-        def published(iid):
+        def publish(iid):
             session = _create_session(user=user)
             _create_run(session, merge_request_iid=iid, merge_request_web_url=f"https://git/{iid}")
-            MergeRequestOwnership.objects.create(
-                session=session, repo_id=session.repo_id, merge_request_iid=iid, source_branch=f"b{iid}"
-            )
+            _own(session, iid, MergeRequestState.MERGED)
 
-        published(1)
+        publish(1)
         logged_in_client.get(reverse("session_list"))  # the first render also warms per-process caches
         with CaptureQueriesContext(connection) as baseline:
             logged_in_client.get(reverse("session_list"))
         for iid in (2, 3, 4):
-            published(iid)
+            publish(iid)
 
         with django_assert_num_queries(len(baseline.captured_queries)):
             logged_in_client.get(reverse("session_list"))

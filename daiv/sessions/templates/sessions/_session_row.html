@@ -37,14 +37,12 @@ Context:
             <span class="session-branch min-w-0" title="{{ session.ref }}">{% icon "branch" "h-3 w-3 shrink-0" %}<span class="truncate">{{ session.ref }}</span></span>
             {% endif %}
             {% if merge_request %}
-                {% with mr_state_title=merge_request.state|mr_state_title %}
                 {% if merge_request.url %}
-                <a href="{{ merge_request.url }}" target="_blank" rel="noopener" title="{{ mr_state_title }}"
-                   class="mr-pill relative z-10 shrink-0{% if merge_request.state != 'open' %} mr-pill--{{ merge_request.state }}{% endif %}">{% icon "merge-request" "h-3 w-3" %}!{{ merge_request.iid }}</a>
+                <a href="{{ merge_request.url }}" target="_blank" rel="noopener" title="{{ merge_request.state.label }}"
+                   class="mr-pill mr-pill--{{ merge_request.state }} relative z-10 shrink-0">{% icon "merge-request" "h-3 w-3" %}!{{ merge_request.iid }}</a>
                 {% else %}
-                <span class="mr-pill shrink-0{% if merge_request.state != 'open' %} mr-pill--{{ merge_request.state }}{% endif %}" title="{{ mr_state_title }}">{% icon "merge-request" "h-3 w-3" %}!{{ merge_request.iid }}</span>
+                <span class="mr-pill mr-pill--{{ merge_request.state }} shrink-0" title="{{ merge_request.state.label }}">{% icon "merge-request" "h-3 w-3" %}!{{ merge_request.iid }}</span>
                 {% endif %}
-                {% endwith %}
             {% endif %}
         </div>
         {% endif %}

@@ -13,8 +13,9 @@ from django.utils.translation import gettext_lazy as _
 from notifications.choices import EnvelopeStatus
 from notifications.outcomes import CANT_RUN, CI_STILL_FAILING, ENVELOPE_OUTCOMES, Outcome
 from sessions.filters import SCOPE_MINE
-from sessions.models import MergeRequestOwnership, MergeRequestState, Run, RunStatus, Session, SessionOrigin
+from sessions.models import MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
 from sessions.pipeline_watch.store import gave_up
+from sessions.templatetags.session_tags import attach_merge_request_states
 
 from codebase.base import GitPlatform
 from codebase.conf import settings as codebase_settings
@@ -168,9 +169,11 @@ def inbox(user: User) -> dict:
 
 
 def recent_sessions(user: User) -> list[Session]:
-    return list(
+    sessions = list(
         Session.objects.listed_for(user, mine=True).with_row_runs().order_by("-last_active_at")[:RECENT_SESSIONS_LIMIT]
     )
+    attach_merge_request_states(sessions)
+    return sessions
 
 
 def in_flight_run_ids(sessions: list[Session]) -> str:
@@ -210,19 +213,6 @@ def _merge_requests(runs: QuerySet[Run]) -> list[dict]:
     ):
         merge_request = merge_requests.setdefault((repo_id, iid), {"repo_id": repo_id, "iid": iid, "title": title})
         merge_request["url"] = merge_request.get("url") or url
-    states = (
-        {
-            (repo_id, iid): state
-            for repo_id, iid, state in MergeRequestOwnership.objects
-            .filter(reduce(or_, (Q(repo_id=repo_id, merge_request_iid=iid) for repo_id, iid in merge_requests)))
-            .annotate(shown=MergeRequestOwnership.shown_state())
-            .values_list("repo_id", "merge_request_iid", "shown")
-        }
-        if merge_requests
-        else {}
-    )
-    for key, merge_request in merge_requests.items():
-        merge_request["state"] = states.get(key, MergeRequestState.OPEN)
     return list(merge_requests.values())
 
 
@@ -240,6 +230,10 @@ def your_week(user: User) -> dict:
     )
     sessions = counted.aggregate(n=Count("session", distinct=True))["n"]
     merge_requests = _merge_requests(in_window)
+    shown_merge_requests = merge_requests[:MR_LIST_LIMIT]
+    states = MergeRequestOwnership.states_of((mr["repo_id"], mr["iid"]) for mr in shown_merge_requests)
+    for mr in shown_merge_requests:
+        mr["state"] = states[mr["repo_id"], mr["iid"]]
     triggers = counted.order_by().values("trigger_type").annotate(n=Count("pk"))
     by_trigger = dict(triggers.values_list("trigger_type", "n"))
     started_from = [
@@ -252,7 +246,7 @@ def your_week(user: User) -> dict:
         "chart": chart,
         "runs": sum(by_trigger.values()),
         "sessions": sessions,
-        "merge_requests": merge_requests[:MR_LIST_LIMIT],
+        "merge_requests": shown_merge_requests,
         "merge_requests_total": len(merge_requests),
         "merge_requests_more": max(len(merge_requests) - MR_LIST_LIMIT, 0),
         "merge_requests_more_url": my_sessions_url(**window.list_params()),

@@ -15,13 +15,14 @@ from django.utils import timezone
 
 import pytest
 from sessions.artifacts import ArtifactKind
+from sessions.models import MergeRequestState
 from sessions.templatetags.session_tags import (
     artifact_icon,
     date_bucket,
     duration,
     format_cost,
     format_tokens,
-    mr_state_title,
+    linked_merge_request,
     origin_icon,
     session_cost,
     session_merge_request,
@@ -200,40 +201,19 @@ def _mr_run(iid=None, url=""):
     ],
     ids=["newest-run-that-published", "session-scope-wins", "older-run-url", "never-another-mrs-url", "no-url"],
 )
-def test_session_merge_request(scoped_iid, runs, expected):
-    session = types.SimpleNamespace(merge_request_iid=scoped_iid, runs=_Runs(runs), merge_request_state=None)
-    assert session_merge_request(session) == {"iid": expected[0], "url": expected[1], "state": "open"}
+def test_linked_merge_request(scoped_iid, runs, expected):
+    session = types.SimpleNamespace(merge_request_iid=scoped_iid, runs=_Runs(runs))
+    assert linked_merge_request(session) == {"iid": expected[0], "url": expected[1]}
 
 
-@pytest.mark.parametrize(
-    ("state", "expected_state"),
-    [("merged", "merged"), ("closed", "closed"), ("open", "open")],
-    ids=["merged", "closed", "open"],
-)
-def test_session_merge_request_state_from_ownership(state, expected_state):
-    runs = [_mr_run(5, "https://git/mr/5")]
-    session = types.SimpleNamespace(merge_request_iid=5, runs=_Runs(runs), merge_request_state=state)
-    assert session_merge_request(session) == {"iid": 5, "url": "https://git/mr/5", "state": expected_state}
-
-
-def test_session_merge_request_state_open_when_ownership_missing():
-    session = types.SimpleNamespace(
-        merge_request_iid=5, runs=_Runs([_mr_run(5, "https://git/mr/5")]), merge_request_state=None
-    )
-    assert session_merge_request(session) == {"iid": 5, "url": "https://git/mr/5", "state": "open"}
-
-
-@pytest.mark.parametrize(
-    ("state", "expected"),
-    [("open", "Open"), ("merged", "Merged"), ("closed", "Closed"), (None, "Open"), ("unknown", "Open")],
-    ids=["open", "merged", "closed", "none", "unknown"],
-)
-def test_mr_state_title(state, expected):
-    assert mr_state_title(state) == expected
+def test_session_merge_request_carries_the_attached_state():
+    runs = _Runs([_mr_run(5, "https://git/mr/5")])
+    session = types.SimpleNamespace(merge_request_iid=None, runs=runs, merge_request_state=MergeRequestState.MERGED)
+    assert session_merge_request(session) == {"iid": 5, "url": "https://git/mr/5", "state": MergeRequestState.MERGED}
 
 
 def test_session_merge_request_none_when_nothing_published():
-    session = types.SimpleNamespace(merge_request_iid=None, runs=_Runs([_mr_run()]))
+    session = types.SimpleNamespace(merge_request_iid=None, runs=_Runs([_mr_run()]), merge_request_state=None)
     assert session_merge_request(session) is None
 
 

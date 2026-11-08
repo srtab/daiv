@@ -261,29 +261,17 @@ class TestMergeRequestState:
         await _claim(run)
         return run.session_id
 
-    async def test_a_close_records_state_and_a_reopen_resets_it(self):
+    async def test_a_close_records_whether_it_merged_and_a_reopen_opens_it(self):
         await self._owner_session_id()
 
         await self._close(merged=True)
-        ownership = await MergeRequestOwnership.objects.aget()
-        assert (ownership.state, ownership.closed_at is not None) == (MergeRequestState.MERGED, True)
+        assert (await MergeRequestOwnership.objects.aget()).state == MergeRequestState.MERGED
 
         await Ownerships(REPO).areopen(9, by_username="sfr")
-        ownership = await MergeRequestOwnership.objects.aget()
-        assert (ownership.state, ownership.closed_at) == (MergeRequestState.OPEN, None)
+        assert (await MergeRequestOwnership.objects.aget()).state == MergeRequestState.OPEN
 
         await self._close(merged=False)
-        ownership = await MergeRequestOwnership.objects.aget()
-        assert (ownership.state, ownership.closed_at is not None) == (MergeRequestState.CLOSED, True)
-
-    async def test_a_failed_close_leaves_state_open(self):
-        await self._owner_session_id()
-
-        with self._failing_post(), pytest.raises(RuntimeError):
-            await self._close(merged=True)
-
-        ownership = await MergeRequestOwnership.objects.aget()
-        assert (ownership.state, ownership.closed_at) == (MergeRequestState.OPEN, None)
+        assert (await MergeRequestOwnership.objects.aget()).state == MergeRequestState.CLOSED
 
     async def test_a_close_after_a_reopen_is_remembered_again(self):
         session_id = await self._owner_session_id()

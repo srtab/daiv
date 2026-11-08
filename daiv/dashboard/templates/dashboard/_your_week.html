@@ -1,4 +1,4 @@
-{% load i18n session_tags %}
+{% load i18n %}
 {% comment %}
 What the runs in the viewer's own sessions came to over the last 7 days.
 
@@ -48,7 +48,7 @@ Context:
             <li>
                 <a href="{{ mr.url|default:'#' }}" {% if mr.url %}target="_blank" rel="noopener"{% endif %}
                    class="flex items-center gap-2.5 py-1 text-[13px] text-text hover:text-text-strong">
-                    <span class="mr-pill shrink-0{% if mr.state and mr.state != 'open' %} mr-pill--{{ mr.state }}{% endif %}" title="{{ mr.state|mr_state_title }}">!{{ mr.iid }}</span>
+                    <span class="mr-pill mr-pill--{{ mr.state }} shrink-0" title="{{ mr.state.label }}">!{{ mr.iid }}</span>
                     <span class="min-w-0 flex-1 truncate">{{ mr.title|default:mr.repo_id }}</span>
                     <span class="hidden shrink-0 font-mono text-[11.5px] text-text-faint sm:inline">{{ mr.repo_id }}</span>
                 </a>

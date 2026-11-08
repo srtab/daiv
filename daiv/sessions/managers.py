@@ -4,7 +4,6 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 
 from django.db import close_old_connections, models, transaction
-from django.db.models.functions import Coalesce
 from django.tasks import TaskResultStatus
 from django.utils import timezone
 
@@ -154,12 +153,11 @@ class SessionQuerySet(models.QuerySet["Session"]):
         return self.annotate(latest_run_status=models.Subquery(latest.values("status")[:1]))
 
     def with_row_runs(self) -> models.QuerySet[Session]:
-        """Prefetch each session's runs, newest first, with only the columns a session row reads, and annotate
-        ``merge_request_state``: the shown state of the merge request the row links, ``None`` when DAIV owns none.
+        """Prefetch each session's runs, newest first, with only the columns a session row reads.
 
         Add a field here if ``sessions/_session_row.html`` starts reading it, or it becomes a deferred-field N+1.
         """
-        from sessions.models import MergeRequestOwnership, Run
+        from sessions.models import Run
 
         runs = Run.objects.only(
             "id",
@@ -173,26 +171,7 @@ class SessionQuerySet(models.QuerySet["Session"]):
             "agent_model",
             "created_at",
         ).order_by(*_NEWEST_FIRST)
-        # The same merge request ``session_tags.session_merge_request`` picks: the scoped one, else the newest run's.
-        newest_run_iid = (
-            _session_runs_newest_first(models.OuterRef("pk"))
-            .filter(merge_request_iid__isnull=False)
-            .values("merge_request_iid")[:1]
-        )
-        ownership = MergeRequestOwnership.objects.filter(
-            repo_id=models.OuterRef("repo_id"), merge_request_iid=models.OuterRef("row_merge_request_iid")
-        )
-        return (
-            self
-            .select_related("user", "scheduled_job")
-            .prefetch_related(models.Prefetch("runs", queryset=runs))
-            .annotate(row_merge_request_iid=Coalesce("merge_request_iid", models.Subquery(newest_run_iid)))
-            .annotate(
-                merge_request_state=models.Subquery(
-                    ownership.annotate(shown=MergeRequestOwnership.shown_state()).values("shown")[:1]
-                )
-            )
-        )
+        return self.select_related("user", "scheduled_job").prefetch_related(models.Prefetch("runs", queryset=runs))
 
 
 # ``by_owner``/``visible_to``/``with_latest_status`` live on the QuerySet so they chain

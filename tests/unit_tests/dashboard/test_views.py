@@ -805,55 +805,25 @@ class TestYourWeek:
         assert (week["merge_requests_total"], week["merge_requests_more"]) == (4, 1)
         assert week["merge_requests"][0]["title"] == "Change 4"
 
-    @pytest.mark.parametrize(
-        ("state", "expected"),
-        [(MergeRequestState.MERGED, "merged"), (MergeRequestState.CLOSED, "closed")],
-        ids=["merged", "closed"],
-    )
-    def test_a_merge_request_carries_its_terminal_state(self, member_user, member_client, state, expected):
-        from django.utils import timezone
-
-        session = _bare_session(member_user, title="Change 7")
-        _week_run(session, merge_request_iid=7, merge_request_web_url="https://x/7")
+    @pytest.mark.parametrize("state", [MergeRequestState.MERGED, MergeRequestState.CLOSED])
+    def test_a_merge_request_carries_its_state(self, member_user, member_client, state):
+        session = _bare_session(member_user)
+        _week_run(session, merge_request_iid=7)
         MergeRequestOwnership.objects.create(
             session=session,
             repo_id=session.repo_id,
             merge_request_iid=7,
             source_branch="chore/x",
-            state=state,
+            merged=state == MergeRequestState.MERGED,
             closed_at=timezone.now(),
         )
 
-        assert _week(member_client)["merge_requests"][0]["state"] == expected
+        assert _week(member_client)["merge_requests"][0]["state"] == state
 
-    def test_a_closed_ownership_without_a_state_reads_as_closed(self, member_user, member_client):
-        from django.utils import timezone
+    def test_a_merge_request_daiv_does_not_own_is_open(self, member_user, member_client):
+        _week_run(_bare_session(member_user), merge_request_iid=7)
 
-        session = _bare_session(member_user, title="Change 7")
-        _week_run(session, merge_request_iid=7, merge_request_web_url="https://x/7")
-        MergeRequestOwnership.objects.create(
-            session=session,
-            repo_id=session.repo_id,
-            merge_request_iid=7,
-            source_branch="chore/x",
-            closed_at=timezone.now(),
-        )
-        MergeRequestOwnership.objects.create(
-            session=session,
-            repo_id="group/other",
-            merge_request_iid=7,
-            source_branch="chore/x",
-            state=MergeRequestState.MERGED,
-            closed_at=timezone.now(),
-        )
-
-        assert _week(member_client)["merge_requests"][0]["state"] == "closed"
-
-    def test_a_merge_request_without_an_ownership_defaults_to_open(self, member_user, member_client):
-        session = _bare_session(member_user, title="Change 7")
-        _week_run(session, merge_request_iid=7, merge_request_web_url="https://x/7")
-
-        assert _week(member_client)["merge_requests"][0]["state"] == "open"
+        assert _week(member_client)["merge_requests"][0]["state"] == MergeRequestState.OPEN
 
     def test_started_from_groups_triggers(self, member_user, member_client):
         session = _bare_session(member_user, SessionOrigin.ISSUE_WEBHOOK)
