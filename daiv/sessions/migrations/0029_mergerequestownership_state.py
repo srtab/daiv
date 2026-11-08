@@ -1,5 +1,3 @@
-# Generated for MergeRequestOwnership.state
-
 from django.db import migrations, models
 
 

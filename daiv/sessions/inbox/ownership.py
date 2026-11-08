@@ -345,11 +345,10 @@ class Ownerships:
             closed_at=closed_at, state=state
         ):
             return False
-        state_key = "merged" if merged else "closed"
         try:
             await Inbox(owned.session.thread_id).apost(
                 kind=EventKind.MR_MERGED if merged else EventKind.MR_CLOSED,
-                source_key=f"{kinds.SourceKey.mr_state(merge_request_iid, state_key)}:{closed_at.timestamp():.6f}",
+                source_key=f"{kinds.SourceKey.mr_state(merge_request_iid, state)}:{closed_at.timestamp():.6f}",
                 payload={"target_branch": target_branch, "by_username": by_username},
                 wake=False,
                 subject=kinds.Subject.mr_state(merge_request_iid),

@@ -185,20 +185,6 @@ def _mr_run(iid=None, url=""):
     return types.SimpleNamespace(merge_request_iid=iid, merge_request_web_url=url)
 
 
-def _ownership(iid, state="open"):
-    return types.SimpleNamespace(merge_request_iid=iid, state=state)
-
-
-class _Ownerships:
-    """Minimal stand-in for session.owned_merge_requests.all() over a fixed list."""
-
-    def __init__(self, ownerships):
-        self._ownerships = ownerships
-
-    def all(self):
-        return self._ownerships
-
-
 @pytest.mark.parametrize(
     ("scoped_iid", "runs", "expected"),
     [
@@ -215,7 +201,7 @@ class _Ownerships:
     ids=["newest-run-that-published", "session-scope-wins", "older-run-url", "never-another-mrs-url", "no-url"],
 )
 def test_session_merge_request(scoped_iid, runs, expected):
-    session = types.SimpleNamespace(merge_request_iid=scoped_iid, runs=_Runs(runs))
+    session = types.SimpleNamespace(merge_request_iid=scoped_iid, runs=_Runs(runs), merge_request_state=None)
     assert session_merge_request(session) == {"iid": expected[0], "url": expected[1], "state": "open"}
 
 
@@ -226,15 +212,14 @@ def test_session_merge_request(scoped_iid, runs, expected):
 )
 def test_session_merge_request_state_from_ownership(state, expected_state):
     runs = [_mr_run(5, "https://git/mr/5")]
-    session = types.SimpleNamespace(
-        merge_request_iid=5, runs=_Runs(runs), owned_merge_requests=_Ownerships([_ownership(5, state)])
-    )
+    session = types.SimpleNamespace(merge_request_iid=5, runs=_Runs(runs), merge_request_state=state)
     assert session_merge_request(session) == {"iid": 5, "url": "https://git/mr/5", "state": expected_state}
 
 
 def test_session_merge_request_state_open_when_ownership_missing():
-    # An MR the session is scoped to but does not own (e.g. a chat/MCP session) has no ownership row.
-    session = types.SimpleNamespace(merge_request_iid=5, runs=_Runs([_mr_run(5, "https://git/mr/5")]))
+    session = types.SimpleNamespace(
+        merge_request_iid=5, runs=_Runs([_mr_run(5, "https://git/mr/5")]), merge_request_state=None
+    )
     assert session_merge_request(session) == {"iid": 5, "url": "https://git/mr/5", "state": "open"}
 
 

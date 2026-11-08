@@ -830,6 +830,17 @@ class MergeRequestOwnership(models.Model):
     def __str__(self) -> str:
         return f"{self.repo_id}!{self.merge_request_iid} owned by session {self.session_id}"
 
+    @staticmethod
+    def shown_state() -> models.Case:
+        """``state`` as an expression, reading a row closed without one (by a writer that predates it) as ``closed``."""
+        return models.Case(
+            models.When(
+                closed_at__isnull=False, state=MergeRequestState.OPEN, then=models.Value(MergeRequestState.CLOSED)
+            ),
+            default=models.F("state"),
+            output_field=models.CharField(),
+        )
+
 
 class EventKind(models.TextChoices):
     """What an ``InboxEvent`` reports; ``sessions.inbox.kinds`` holds each kind's payload and precedence."""

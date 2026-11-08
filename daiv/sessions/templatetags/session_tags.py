@@ -144,20 +144,14 @@ def mr_state_title(state) -> str:
 @register.simple_tag
 def session_merge_request(session) -> dict | None:
     """The merge request a session row links: the one the session is scoped to, else the newest one recorded on its
-    runs. Expects ``runs`` prefetched newest first, as ``SessionListView`` does; ``owned_merge_requests`` (prefetched
-    by ``with_row_runs``) supplies its state when the session owns it, else ``open``."""
+    runs. Expects the session from ``with_row_runs``: ``runs`` prefetched newest first and ``merge_request_state``
+    annotated."""
     runs = [r for r in session.runs.all() if r.merge_request_iid]
     iid = session.merge_request_iid or (runs[0].merge_request_iid if runs else None)
     if iid is None:
         return None
     url = next((r.merge_request_web_url for r in runs if r.merge_request_iid == iid and r.merge_request_web_url), "")
-    ownerships = getattr(session, "owned_merge_requests", None)
-    state = (
-        next((o.state for o in ownerships.all() if o.merge_request_iid == iid), "open")
-        if ownerships is not None
-        else "open"
-    )
-    return {"iid": iid, "url": url, "state": state}
+    return {"iid": iid, "url": url, "state": session.merge_request_state or MergeRequestState.OPEN}
 
 
 @register.simple_tag

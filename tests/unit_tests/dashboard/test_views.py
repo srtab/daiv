@@ -826,6 +826,29 @@ class TestYourWeek:
 
         assert _week(member_client)["merge_requests"][0]["state"] == expected
 
+    def test_a_closed_ownership_without_a_state_reads_as_closed(self, member_user, member_client):
+        from django.utils import timezone
+
+        session = _bare_session(member_user, title="Change 7")
+        _week_run(session, merge_request_iid=7, merge_request_web_url="https://x/7")
+        MergeRequestOwnership.objects.create(
+            session=session,
+            repo_id=session.repo_id,
+            merge_request_iid=7,
+            source_branch="chore/x",
+            closed_at=timezone.now(),
+        )
+        MergeRequestOwnership.objects.create(
+            session=session,
+            repo_id="group/other",
+            merge_request_iid=7,
+            source_branch="chore/x",
+            state=MergeRequestState.MERGED,
+            closed_at=timezone.now(),
+        )
+
+        assert _week(member_client)["merge_requests"][0]["state"] == "closed"
+
     def test_a_merge_request_without_an_ownership_defaults_to_open(self, member_user, member_client):
         session = _bare_session(member_user, title="Change 7")
         _week_run(session, merge_request_iid=7, merge_request_web_url="https://x/7")
