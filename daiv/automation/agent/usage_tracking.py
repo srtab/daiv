@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import math
 from collections import defaultdict
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -30,6 +31,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.usage")
 
 REPORTED_COST_KEY = "provider_cost_usd"
+
+
+def usd_amount(value: Any) -> float | None:
+    """``value`` when it is a finite, non-negative number of dollars, else None."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return value if math.isfinite(value) and value >= 0 else None
 
 
 def _resolve_mtok_rate(field_mtok: Decimal | TieredPrices | None, total_input_tokens: int) -> Decimal | None:
@@ -250,8 +258,8 @@ class CostAwareUsageMetadataCallbackHandler(UsageMetadataCallbackHandler):
         Preferred over :func:`_calc_model_cost`, which prices every call at one list rate for the
         model however the provider routed it.
         """
-        cost = message.response_metadata.get(REPORTED_COST_KEY)
-        return Decimal(str(cost)) if isinstance(cost, int | float) and not isinstance(cost, bool) else None
+        cost = usd_amount(message.response_metadata.get(REPORTED_COST_KEY))
+        return None if cost is None else Decimal(str(cost))
 
 
 # Registered once at import time. Upstream ``get_usage_metadata_callback`` creates a new

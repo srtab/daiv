@@ -460,6 +460,13 @@ class TestReportedCost:
 
         assert build_usage_summary(handler).cost_usd == "0.05"
 
+    @pytest.mark.parametrize("cost", [float("nan"), float("inf"), -0.05])
+    def test_a_stamped_cost_that_is_not_a_usd_amount_is_ignored(self, cost):
+        handler = CostAwareUsageMetadataCallbackHandler()
+        handler.on_llm_end(self._reported("deepseek/deepseek-v4-pro-0813", cost))
+
+        assert build_usage_summary(handler).cost_usd is None
+
     def test_an_openrouter_stream_reaches_the_run_total_at_its_billed_cost(self):
         chunks = finishing_chunks(MODEL, 1)
         chunks[-1]["usage"] = {"prompt_tokens": 90_000, "completion_tokens": 2_000, "cost": 0.0021}

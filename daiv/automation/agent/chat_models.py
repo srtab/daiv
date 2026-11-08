@@ -65,14 +65,13 @@ names.
 from __future__ import annotations
 
 import logging
-import math
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
 from langchain_openai import ChatOpenAI
 
 from automation.agent.provider_clients import OPENROUTER_BASE_URL
-from automation.agent.usage_tracking import REPORTED_COST_KEY
+from automation.agent.usage_tracking import REPORTED_COST_KEY, usd_amount
 from core.models import ProviderType
 
 if TYPE_CHECKING:
@@ -117,19 +116,19 @@ class ChatOpenRouter(ChatOpenAI):
         return self.model_name.startswith(ProviderType.ANTHROPIC.value)
 
     def _stream(self, *args: Any, **kwargs: Any) -> Iterator[ChatGenerationChunk]:
-        seen: dict[str, str] = {}
+        seen: dict[str, Any] = {}
         for chunk in super()._stream(*args, **kwargs):
             self._drop_restamped_keys(chunk, seen)
             yield chunk
 
     async def _astream(self, *args: Any, **kwargs: Any) -> AsyncIterator[ChatGenerationChunk]:
-        seen: dict[str, str] = {}
+        seen: dict[str, Any] = {}
         async for chunk in super()._astream(*args, **kwargs):
             self._drop_restamped_keys(chunk, seen)
             yield chunk
 
     @staticmethod
-    def _drop_restamped_keys(chunk: ChatGenerationChunk, seen: dict[str, str]) -> None:
+    def _drop_restamped_keys(chunk: ChatGenerationChunk, seen: dict[str, Any]) -> None:
         """Drop the finish-stamped keys this stream already emitted, first occurrence winning.
 
         Mutates both arguments. ``seen`` belongs to the calling generator's frame, never to the
@@ -229,20 +228,15 @@ class ChatOpenRouter(ChatOpenAI):
         ``cost`` is what OpenRouter charged at the upstream provider it routed to, which is what
         makes it the spend: a price looked up by model name is one provider's list rate. On a
         BYOK call ``cost`` is only OpenRouter's fee, and the provider bills
-        ``cost_details.upstream_inference_cost`` to the operator's own key, so the two add up.
+        ``cost_details.upstream_inference_cost`` to the operator's own key, so the two add up. A
+        BYOK call without that charge reports None, so the call falls back to the list-price estimate
+        rather than recording the fee alone.
         """
         usage = usage or {}
-        if (cost := ChatOpenRouter._usd(usage.get("cost"))) is None:
-            return None
-        if usage.get("is_byok"):
-            cost += ChatOpenRouter._usd((usage.get("cost_details") or {}).get("upstream_inference_cost")) or 0
-        return cost
-
-    @staticmethod
-    def _usd(value: Any) -> float | None:
-        if isinstance(value, bool) or not isinstance(value, int | float):
-            return None
-        return value if math.isfinite(value) and value >= 0 else None
+        if (cost := usd_amount(usage.get("cost"))) is None or not usage.get("is_byok"):
+            return cost
+        upstream = usd_amount((usage.get("cost_details") or {}).get("upstream_inference_cost"))
+        return None if upstream is None else cost + upstream
 
     @staticmethod
     def _delta(chunk: dict) -> dict:

@@ -449,6 +449,16 @@ class TestChatOpenRouterReportedCost:
 
         assert message.response_metadata[REPORTED_COST_KEY] == pytest.approx(0.0105)
 
+    def test_a_byok_call_without_the_upstream_charge_reports_none(self):
+        usage = _openrouter_usage(0.0005, byok=True)
+        usage["cost_details"] = None
+
+        assert REPORTED_COST_KEY not in self._streamed(usage).response_metadata
+
+    @pytest.mark.parametrize("cost", [True, -0.01, float("nan"), float("inf"), "0.002"])
+    def test_a_cost_that_is_not_a_usd_amount_reports_none(self, cost):
+        assert REPORTED_COST_KEY not in self._streamed(_openrouter_usage(cost)).response_metadata
+
     def test_a_repeated_usage_chunk_keeps_the_first_cost_instead_of_crashing_the_merge(self):
         message = self._streamed(_openrouter_usage(0.002), _openrouter_usage(0.003))
 
