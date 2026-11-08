@@ -1,6 +1,7 @@
 <p align="center">
   <img src="docs/assets/logo.svg" alt="DAIV" width="400">
 </p>
+<h1 align="center">Issues in. Merge requests out. On your infrastructure.</h1>
 <p align="center"><strong>Open-source, self-hosted SWE agents for GitLab &amp; GitHub</strong></p>
 <p align="center">
   Turn issues into merge requests, answer review comments, and fix failing CI —
@@ -64,7 +65,7 @@ DAIV is powered by [Deep Agents](https://github.com/langchain-ai/deepagents), a 
 - **[MCP Tools](https://srtab.github.io/daiv/dev/customization/mcp-tools/)** — external integrations over the [Model Context Protocol](https://modelcontextprotocol.io/), such as Sentry for error tracking.
 - **[Monitoring](https://srtab.github.io/daiv/dev/reference/monitoring/)** — trace every agent execution with [LangSmith](https://www.langchain.com/langsmith) to analyze performance and spot issues.
 - **Scalable Workers** — background workers scale horizontally by adding replicas, with a dedicated scheduler for recurring jobs.
-- **[LLM Providers](https://srtab.github.io/daiv/dev/getting-started/llm-providers/)** — run on OpenRouter, Anthropic, OpenAI, or Google — your keys, your choice.
+- **[LLM Providers](https://srtab.github.io/daiv/dev/getting-started/llm-providers/)** — run on OpenRouter, Anthropic, OpenAI, or Google, or on your own OpenAI-compatible server (vLLM, llama.cpp, LiteLLM) — your keys, your choice.
 
 ## Technology Stack
 
@@ -99,7 +100,7 @@ docker compose up --build  # db, redis, app, worker, worker-interactive, schedul
 - [x] Custom MCP servers — user-defined MCP servers via a JSON config file following the Claude Code `.mcp.json` standard.
 - [x] Scheduled maintenance tasks — run DAIV on a cron schedule for tasks like dependency updates, security scans, or documentation drift detection.
 - [x] Notifications — in-app, email, and Rocket Chat delivery shipped; Slack, Discord, and Microsoft Teams planned.
-- [ ] Self-hosted LLM support — enable local model inference via Ollama or vLLM for air-gapped or cost-sensitive environments.
+- [x] Self-hosted LLM support — register any OpenAI-compatible server, such as vLLM, llama.cpp, or LiteLLM, as a provider for air-gapped or cost-sensitive environments.
 
 
 ## Contributing
@@ -112,4 +113,4 @@ This project is licensed under the [Apache 2.0 License](LICENSE).
 
 ## Support & Community
 
-For questions or support, [open an issue](https://github.com/srtab/daiv/issues). See the [Community page](https://srtab.github.io/daiv/dev/community/) for contribution paths and project links.
+Ask questions and share ideas in [Discussions](https://github.com/srtab/daiv/discussions), and report bugs in [Issues](https://github.com/srtab/daiv/issues). Report security vulnerabilities privately, as described in [SECURITY.md](SECURITY.md). Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md). See the [Community page](https://srtab.github.io/daiv/dev/community/) for contribution paths and project links.
