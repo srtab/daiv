@@ -1806,6 +1806,15 @@
 <p>The login page lives at <code>/accounts/login/</code>. Two sign-in methods are available, depending on how the deployment is configured.</p>
 <h3 id="git-platform-login-oauth">Git platform login (OAuth)</h3>
 <p>When OAuth login is enabled, users can sign in with the same Git platform DAIV is connected to — <strong>GitHub</strong> or <strong>GitLab</strong> (including self-hosted GitLab). DAIV offers the provider that matches your configured platform; it does not offer both at once.</p>
+<p>With social signup closed, create each permitted account under <strong>Accounts → Users</strong>
+using the email address confirmed by its Git platform. For GitLab, DAIV uses the
+authenticated profile's <code>confirmed_at</code> to verify that exact primary email before
+allauth looks up an existing account. Matching is case-insensitive and preserves
+the existing user's role. Missing or invalid confirmation does not authorize
+email-based linking. An already-linked platform user ID continues to identify
+the same DAIV account when its platform email changes.</p>
+<p>Closed signup is checked again before saving a new account. A pending signup
+form cannot create another user by replacing an email that already exists.</p>
 <p>OAuth is configured by an admin in <strong>Site Configuration</strong> under the <strong>Authentication</strong> section, not in code. The relevant settings are:</p>
 <table>
 <thead>
@@ -1970,7 +1979,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 30, 2026 18:33:53 UTC">October 30, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 7, 2026 00:16:50 UTC">November 7, 2026</span>
   </span>
 
     

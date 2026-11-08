@@ -48,6 +48,10 @@ The login page lives at `/accounts/login/`. Two sign-in methods are available, d
 
 When OAuth login is enabled, users can sign in with the same Git platform DAIV is connected to — **GitHub** or **GitLab** (including self-hosted GitLab). DAIV offers the provider that matches your configured platform; it does not offer both at once.
 
+With social signup closed, create each permitted account under **Accounts → Users** using the email address confirmed by its Git platform. For GitLab, DAIV uses the authenticated profile's `confirmed_at` to verify that exact primary email before allauth looks up an existing account. Matching is case-insensitive and preserves the existing user's role. Missing or invalid confirmation does not authorize email-based linking. An already-linked platform user ID continues to identify the same DAIV account when its platform email changes.
+
+Closed signup is checked again before saving a new account. A pending signup form cannot create another user by replacing an email that already exists.
+
 OAuth is configured by an admin in **Site Configuration** under the **Authentication** section, not in code. The relevant settings are:
 
 | Setting                                       | Purpose                                                                                                                    |
