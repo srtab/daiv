@@ -253,11 +253,7 @@ class CostAwareUsageMetadataCallbackHandler(UsageMetadataCallbackHandler):
 
     @staticmethod
     def _reported_cost(message: AIMessage) -> Decimal | None:
-        """What the provider billed for this call, when it said (see ``ChatOpenRouter._reported_cost``).
-
-        Preferred over :func:`_calc_model_cost`, which prices every call at one list rate for the
-        model however the provider routed it.
-        """
+        """What the provider billed for this call, when it said (see ``ChatOpenRouter._reported_cost``)."""
         cost = usd_amount(message.response_metadata.get(REPORTED_COST_KEY))
         return None if cost is None else Decimal(str(cost))
 

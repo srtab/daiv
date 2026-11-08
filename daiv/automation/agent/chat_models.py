@@ -86,6 +86,7 @@ logger = logging.getLogger("daiv.automation")
 # Stamped by ``langchain_openai._convert_chunk_to_generation_chunk`` inside its
 # ``if finish_reason := choice.get("finish_reason")`` block — see the module docstring.
 FINISH_STAMPED_KEYS = ("finish_reason", "model_name", "system_fingerprint", "service_tier")
+_FIRST_WINS_KEYS = (*FINISH_STAMPED_KEYS, REPORTED_COST_KEY)
 
 # ``parsed`` may hold arbitrary Pydantic models from structured output; dumping it
 # is both wasteful and failure-prone, and upstream excludes it for the same reason.
@@ -129,21 +130,23 @@ class ChatOpenRouter(ChatOpenAI):
 
     @staticmethod
     def _drop_restamped_keys(chunk: ChatGenerationChunk, seen: dict[str, Any]) -> None:
-        """Drop the finish-stamped keys this stream already emitted, first occurrence winning.
+        """Drop the finish-stamped keys and reported cost this stream already emitted, first
+        occurrence winning.
 
         Mutates both arguments. ``seen`` belongs to the calling generator's frame, never to the
         model instance, which is shared across concurrent requests. Per key rather than
-        all-or-nothing, so a key only a later chunk carries is still a first occurrence.
+        all-or-nothing, so a key only a later chunk carries is still a first occurrence. The cost
+        is here because ``merge_dicts`` raises on two different floats under one key.
 
-        A repeat carrying a *different* value is a real mid-stream routing switch, not the
-        re-stamping this exists for: first-wins still applies (the alternative concatenation
-        resolves to no model at all) but it is logged, since otherwise nothing records that a
-        second model ran. ``finish_reason`` is exempt — ``tool_calls`` then ``stop`` is
+        A repeat carrying a *different* value is not the re-stamping this exists for (for
+        ``model_name``, a real mid-stream routing switch): first-wins still applies (the
+        alternative concatenation resolves to no model at all) but it is logged, since otherwise
+        nothing records it. ``finish_reason`` is exempt — ``tool_calls`` then ``stop`` is
         legitimate, and nothing in DAIV reads it.
         """
         if not (info := chunk.generation_info):
             return
-        for key in (*FINISH_STAMPED_KEYS, REPORTED_COST_KEY):
+        for key in _FIRST_WINS_KEYS:
             if key not in info:
                 continue
             if key not in seen:
@@ -161,8 +164,7 @@ class ChatOpenRouter(ChatOpenAI):
             return None
         self._store_reasoning(self._delta(chunk), generation_chunk.message.additional_kwargs)
         if (cost := self._reported_cost(chunk.get("usage"))) is not None:
-            # In ``generation_info`` rather than on the message, so ``_drop_restamped_keys`` sees a
-            # repeat: two different floats make ``merge_dicts`` raise mid-stream.
+            # In ``generation_info`` rather than on the message, so ``_drop_restamped_keys`` sees a repeat.
             generation_chunk.generation_info = {**(generation_chunk.generation_info or {}), REPORTED_COST_KEY: cost}
         return generation_chunk
 

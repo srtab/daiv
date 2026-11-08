@@ -23,7 +23,13 @@ from automation.agent.usage_tracking import (
     resolve_window_by_name,
     track_usage_metadata,
 )
-from tests.unit_tests.automation.agent.openai_stream import MODEL, fake_stream, finishing_chunks, stream_message
+from tests.unit_tests.automation.agent.openai_stream import (
+    MODEL,
+    finishing_chunks,
+    openrouter_usage,
+    stream_chunks,
+    stream_message,
+)
 
 
 def _usage_metadata(
@@ -435,17 +441,11 @@ class TestServiceTierUsage:
 
 
 class TestReportedCost:
-    """A cost the provider reported for the call is what it billed; the genai-prices lookup is
-    only an estimate at one list rate."""
-
     @staticmethod
     def _reported(model_name: str, cost: float) -> LLMResult:
-        message = AIMessage(
-            content="",
-            usage_metadata=_usage_metadata(input_tokens=100_000, output_tokens=1_000),
-            response_metadata={"model_name": model_name, REPORTED_COST_KEY: cost},
-        )
-        return LLMResult(generations=[[ChatGeneration(message=message)]])
+        result = _llm_result(model_name, _usage_metadata(input_tokens=100_000, output_tokens=1_000))
+        result.generations[0][0].message.response_metadata[REPORTED_COST_KEY] = cost
+        return result
 
     def test_the_reported_cost_replaces_the_list_price_estimate(self):
         handler = CostAwareUsageMetadataCallbackHandler()
@@ -469,12 +469,10 @@ class TestReportedCost:
 
     def test_an_openrouter_stream_reaches_the_run_total_at_its_billed_cost(self):
         chunks = finishing_chunks(MODEL, 1)
-        chunks[-1]["usage"] = {"prompt_tokens": 90_000, "completion_tokens": 2_000, "cost": 0.0021}
-        llm = ChatOpenRouter(model=MODEL, api_key="test")
-        llm.client = mock.Mock(create=lambda **_: fake_stream(chunks))
+        chunks[-1]["usage"] = openrouter_usage(0.0021)
 
         with track_usage_metadata() as handler:
-            list(llm.stream("go"))
+            stream_chunks(ChatOpenRouter(model=MODEL, api_key="test"), chunks)
 
         assert build_usage_summary(handler).cost_usd == "0.0021"
 
