@@ -18,8 +18,25 @@ _FILLER_PREFIXES = re.compile(
 )
 
 _SYSTEM_PROMPT = (
-    "Generate a concise 3-6 word title for the following coding task.\n"
-    "Plain text only — no quotes, markdown, or trailing punctuation."
+    "You title sessions in DAIV, an AI coding agent. People find a session again by scanning a list of titles or "
+    "searching them, so the title must say what this task is and tell it apart from every other session.\n\n"
+    "- Start with the action and its subject, using the request's key terms. A question becomes what it asks "
+    "about.\n"
+    "- Keep what a person would search for, copied exactly: ticket, issue and merge request references, error "
+    "and Sentry issue IDs, versions, and names from the code such as files, classes, functions and settings. "
+    'Put identifiers after the subject: "Fix 503 from the payments API (SHOP-API-1F2)".\n'
+    "- Prefer the name a person would remember over a raw value such as an IP address, URL, or hash.\n"
+    "- The repository and branch are shown next to the title, so do not repeat them.\n"
+    "- Leave out boilerplate around the request and words that fit any task, such as task, request, handling, "
+    "processing, or review.\n"
+    '- A slash command such as "/qa-run-suite 4521 mode=dry-run" names the task: write its name as words, '
+    'keeping every part, then its arguments: "QA run suite 4521 (dry run)". When text follows the command, '
+    "title what the text asks. Do not guess what a referenced item is about.\n"
+    "- A message with no task in it, like a greeting or a test, is titled for what it is, such as "
+    '"Greeting" or "Test message". Never invent a task.\n\n'
+    "2 to 12 words, the most telling ones first, since the list cuts long titles off. Write in the request's "
+    "language. Sentence case with acronyms in capitals and identifiers in their own casing. Plain text: no "
+    "quotes, markdown, or trailing punctuation."
 )
 
 _GENERIC_REFS = frozenset({"main", "master", "dev", "develop", "trunk", "staging", "production", "prod"})
@@ -48,7 +65,7 @@ class GeneratedTitle(BaseModel):
     title: str = Field(
         min_length=3,
         max_length=MAX_TITLE_LENGTH,
-        description="3-6 words. Plain text only — no quotes, markdown, or trailing punctuation.",
+        description="2-12 words, sentence case, plain text: no quotes, markdown, or trailing punctuation.",
     )
 
 
@@ -84,7 +101,7 @@ def _invoke_titler(structured_llm, *, prompt: str, repo_id: str = "", ref: str =
         user_text += f"Repository: {repo_id}\n"
     if _ref_is_informative(ref):
         user_text += f"Branch: {ref}\n"
-    user_text += f"Task: {prompt[:500]}"
+    user_text += f"Request: {prompt[:500]}"
 
     run_name = "Titling"
     tags = [run_name]
@@ -101,7 +118,7 @@ def _invoke_titler(structured_llm, *, prompt: str, repo_id: str = "", ref: str =
 
 
 def generate_title(prompt: str, *, repo_id: str = "", ref: str = "", run_metadata: dict[str, str]) -> str:
-    """A 3-6 word title for ``prompt``, its trace tagged with ``run_metadata``.
+    """A title of up to 12 words for ``prompt``, its trace tagged with ``run_metadata``.
 
     Raises :class:`TitlerNotConfiguredError` when no titling model can be built; an error from the model call itself
     propagates unchanged.
