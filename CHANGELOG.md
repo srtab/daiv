@@ -136,6 +136,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- GitLab OAuth now links a confirmed primary email to an admin-created account when social signup is closed. Existing emails no longer unlock account creation, and pending signup forms cannot bypass closed registration by changing the email.
 - Fixed the session page never showing the external references a session was given (Jira, Sentry or RT tickets, issues) through the Jobs API, the MCP `submit_job` tool or a delegated job: its details panel now lists them in a **References** section at the end of the **Overview** tab, one card each with its provider's icon (GitLab, GitHub, Sentry or Jira), a link to it, its provider and host, and whether its merge request closes it.
 - Fixed a mention or CI result on a session that pins a model sometimes not starting its run until the inbox sweep retried it, and the run then dropping the pinned model for the default. Loading the providers, site configuration or `web_fetch` auth headers while their 5-minute cache was empty closed the database connection of the transaction it ran in, so the provider list came back empty and the run could not be created.
 - Fixed runs on OpenAI-compatible providers with their own base URL, such as a self-hosted vLLM, recording no token usage or cost when the model's reply was streamed. Chat runs on those providers never had usage, and since session pages stream every run live, no run on them did.
