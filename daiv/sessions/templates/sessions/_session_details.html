@@ -1,7 +1,7 @@
 {% load humanize i18n icon_tags %}
 {% comment %}
 A column beside the transcript from 1100px, a bottom sheet below it. Must sit inside ``sessionPage`` inside
-``chat({…})``: the repositories, usage, spend and outputs read the chat component's live state.
+``chat({…})``: the repositories, usage, spend, outputs and references read the chat component's live state.
 {% endcomment %}
 {% include "core/_sheet_backdrop.html" with show_expr="detailsOpen && !wide" %}
 <aside id="session-details" class="session-details" x-show="detailsOpen" x-cloak
@@ -71,6 +71,30 @@ A column beside the transcript from 1100px, a bottom sheet below it. Must sit in
           <ul class="session-details__list">
             <template x-for="item in [...latestArtifactsById.values()]" :key="item.id">
               <li><a :href="item.url" x-text="item.title || item.filename" target="_blank" rel="noopener noreferrer"></a></li>
+            </template>
+          </ul>
+        </div>
+      </section>
+
+      <section class="details-fold" id="session-details-references" x-show="references.length" x-cloak>
+        {% translate "References" context "external work-item references card" as references_heading %}
+        {% include "sessions/_details_fold_head.html" with section="references" label=references_heading summary_expr="references.length" %}
+        <div class="details-fold__body" id="session-details-references-body" x-show="!isFolded('references')">
+          <ul class="session-details__list">
+            <template x-for="(ref, index) in references" :key="index">
+              <li>
+                <a class="ref-card" :href="ref.url || null" :title="ref.url || null" target="_blank" rel="noopener noreferrer">
+                  <span class="ref-card__icon" x-html="TranscriptLabels.iconHTML(ref.icon)" aria-hidden="true"></span>
+                  <span class="ref-card__body">
+                    <span class="ref-card__key" x-text="ref.key"></span>
+                    <span class="ref-card__source" x-show="ref.source || ref.closing">
+                      <span class="truncate" x-show="ref.source" x-text="ref.source"></span>
+                      <span class="shrink-0" x-show="ref.closing" x-text="ref.closing"></span>
+                    </span>
+                  </span>
+                  <span class="contents" x-show="ref.url">{% icon "arrow-top-right-on-square" "ref-card__open" %}</span>
+                </a>
+              </li>
             </template>
           </ul>
         </div>

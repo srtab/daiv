@@ -1263,6 +1263,20 @@ msgctxt "delegated jobs card"
 msgid "Delegated jobs"
 msgstr "Tarefas delegadas"
 
+msgctxt "external work-item references card"
+msgid "References"
+msgstr "Referências"
+
+msgctxt "an external reference the merge request closes"
+msgid "closes"
+msgstr "fecha"
+
+msgid "GitLab issue"
+msgstr "Issue do GitLab"
+
+msgid "GitHub issue"
+msgstr "Issue do GitHub"
+
 msgid "Delegated {count} job"
 msgstr "Delegou {count} tarefa"
 

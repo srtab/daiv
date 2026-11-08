@@ -290,3 +290,14 @@ async def test_the_payload_carries_what_a_turn_did_to_each_repository(member_use
     }
     assert before["repositories"] == {"rows": [main, {**lib, "errors": []}], "ran": True}
     assert after["repositories"] == {"rows": [main, published], "ran": True}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_fetch_shows_references_added_after_the_session_was_loaded(member_user):
+    session = await _session(member_user, in_flight=False)
+    await Session.objects.filter(pk=session.pk).aupdate(external_refs=[{"key": "PROJ-12", "provider": "jira"}])
+
+    with patch("sessions.page_state.ahydrate_thread", _hydration()):
+        state = await aload_session_state(session, member_user, always_look_up_merge_request=False)
+
+    assert [card["key"] for card in turns_payload(state, session)["references"]] == ["PROJ-12"]
