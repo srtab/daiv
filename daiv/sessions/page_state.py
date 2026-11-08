@@ -3,10 +3,10 @@ that keeps an open page current (``session_turns``), so the two cannot drift.
 
 The session's revision (``core.ui_events``) is read before anything else, so a change that lands while the state is
 built costs the page one extra fetch, never a missed one. The caller's ``Session`` row is re-read after it for the same
-reason: a slot claim or release, or a rename, changes only that row. A merge request the checkpoint does not carry is
-looked up on the git platform on every render, but on a fetch only once nothing is in flight, and then from the answer
-cached per branch for a minute, which each render refreshes. A fetch while a run goes never calls the platform; it, like
-a lookup the platform failed, leaves ``merge_request`` out rather than report none.
+reason: a slot claim or release, a rename, or a follow-up job's references change only that row. A merge request the
+checkpoint does not carry is looked up on the git platform on every render, but on a fetch only once nothing is in
+flight, and then from the answer cached per branch for a minute, which each render refreshes. A fetch while a run goes
+never calls the platform; it, like a lookup the platform failed, leaves ``merge_request`` out rather than report none.
 """
 
 from __future__ import annotations
@@ -52,8 +52,8 @@ logger = logging.getLogger("daiv.sessions")
 
 MERGE_REQUEST_CACHE_TIMEOUT = 60
 
-_HEADER_KEYS = ("latest_run", "run_count", "delegations", "ci", "watch", "up_next", "repositories")
-_ROW_FIELDS = ["active_run_id", "last_active_at", "title", "ref"]
+_HEADER_KEYS = ("latest_run", "run_count", "delegations", "ci", "watch", "up_next", "repositories", "references")
+_ROW_FIELDS = ["active_run_id", "last_active_at", "title", "ref", "external_refs"]
 
 
 @dataclass(frozen=True)

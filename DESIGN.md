@@ -619,7 +619,8 @@ wordmark and the New split button) that is the only nav entry point on a phone.
 ### Session sidebar
 
 `sessions/_session_details.html` is the session page's home for repositories, merge requests, CI,
-environment and usage; the header (`_session_topbar.html`) keeps only title, status and the `⋯` menu.
+external references, environment and usage; the header (`_session_topbar.html`) keeps only title,
+status and the `⋯` menu.
 
 - **Column or sheet.** From 1100px (`WIDE` in `session-page.js`) it is an always-open column with
   no title and no close button; below that it is a sheet, opened by the header's `.session-summary`
@@ -636,6 +637,13 @@ environment and usage; the header (`_session_topbar.html`) keeps only title, sta
   `text-accent` because it links; the title; `.draft-badge` outside the link, so a status colour never marks
   something clickable), and a CI and diff row: `.ci-dot` tinted by `.ci-tone--attn|clear|found|fail` (the
   `status-*` tokens), the diff as `__added` / `__removed` counts in `font-mono`. Errors use `status-fail`.
+- **Reference card.** `.ref-card`, the last Overview fold: same fill, border and radius as the repository
+  card, one per external reference, from the header's `references` so it stays current. The provider's
+  icon (GitLab, GitHub, Sentry, Jira, else `link`; drawn by `TranscriptLabels.iconHTML`) in
+  `text-text-muted`, the key in `font-mono` (`#42` for a platform issue), a `__source` line (provider ·
+  host, truncating, then a "closes" that never does) in `text-text-faint`. A reference with a URL is a
+  link (`.ref-card[href]`): the key in `text-accent`, a hover fill and a trailing open-in-new-tab icon.
+  One without has no `href`, so it is not a link.
 - **Shared classes.** `.ci-dot`, `.ci-tone--<tone>` and `.draft-badge` are neutral: the header summary
   and the cards both use them.
 

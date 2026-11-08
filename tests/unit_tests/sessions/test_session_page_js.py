@@ -26,7 +26,7 @@ const {
   src, labelsSrc, initial, watch, delegations, repositories, thread, wide, storedTab, storedFolds, storageBlocked,
   archived, steps,
 } = JSON.parse(readFileSync(0, "utf8"));
-const SECTIONS = ["repositories", "environment", "context", "spend", "outputs"];
+const SECTIONS = ["repositories", "environment", "context", "spend", "outputs", "references"];
 const components = {};
 const fetches = [];
 const pending = [];
@@ -147,7 +147,7 @@ for (const [action, value] of steps) {
       heading: page.repositoriesHeading, quiet: page.repositoryRows.map((row) => page.isQuiet(row)),
       explanations: page.ci.map((item) => page.ciExplanation(item)), upNext: page.upNext,
       ciTexts: page.ci.map((item) => page.ciText(item)),
-      delegations: page.delegations,
+      delegations: page.delegations, references: page.references,
       repositories: page.repositories, repositoryRows: page.repositoryRows,
       repositoriesKept: page.repositories === lastRepositories,
       timers: timers.map((timer) => timer.ms),
@@ -167,7 +167,14 @@ FAILED = {"label": "Failed", "variant": "failed"}
 RUNNING = {"variant": "running", "label": "Running"}
 WATCHING = {"state": "running", "label": "Waiting for CI", "tone": "attn", "open": True}
 WATCH_OFF = {"state": "failing", "label": "Failing", "tone": "fail", "open": False}
-DEFAULT_FOLDS = {"repositories": False, "environment": True, "context": False, "spend": True, "outputs": True}
+DEFAULT_FOLDS = {
+    "repositories": False,
+    "environment": True,
+    "context": False,
+    "spend": True,
+    "outputs": True,
+    "references": False,
+}
 
 
 def _ci(status="running", *, explanation=None, iid=7) -> dict:
@@ -296,9 +303,10 @@ def test_tab_and_folds_are_remembered():
 
 
 def test_a_reload_restores_the_tab_and_folds():
-    seen = _read(stored_tab="info", stored_folds=json.dumps({"spend": False, "context": True}))
+    stored = {"spend": False, "context": True, "references": True}
+    seen = _read(stored_tab="info", stored_folds=json.dumps(stored))
 
-    assert (seen["tab"], seen["folds"]) == ("info", {**DEFAULT_FOLDS, "spend": False, "context": True})
+    assert (seen["tab"], seen["folds"]) == ("info", {**DEFAULT_FOLDS, **stored})
 
 
 def test_garbage_or_blocked_storage_falls_back_to_the_defaults():
@@ -338,6 +346,19 @@ def test_polls_and_a_settled_run_update_the_run_count():
     ])
 
     assert [s["runs"] for s in result["seen"]] == [2, 3]
+
+
+def test_a_poll_replaces_the_references():
+    card = {"key": "PROJ-12", "url": "", "icon": "jira", "source": "Jira", "closing": ""}
+    result = _run([
+        ["read", None],
+        ["poll", {"latest_run": DONE, "watch": None, "run_count": 1, "references": [card]}],
+        ["read", None],
+        ["poll", {"latest_run": DONE, "watch": None, "run_count": 1}],
+        ["read", None],
+    ])
+
+    assert [s["references"] for s in result["seen"]] == [[], [card], [card]]
 
 
 def test_the_page_creates_no_timers():

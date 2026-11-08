@@ -1234,6 +1234,34 @@ html {
     @apply text-[12px] text-status-fail;
   }
 
+  .ref-card {
+    @apply flex min-w-0 items-start gap-2.5 rounded-xl border border-border bg-surface-2 py-2 pr-2.5 pl-3;
+  }
+  .ref-card[href] {
+    @apply transition-colors hover:bg-surface-3;
+  }
+  .ref-card__icon {
+    @apply mt-px flex shrink-0 text-text-muted;
+  }
+  .ref-card__body {
+    @apply flex min-w-0 flex-1 flex-col gap-0.5;
+  }
+  .ref-card__key {
+    @apply truncate font-mono text-[12px] leading-4 text-text;
+  }
+  .ref-card[href] .ref-card__key {
+    @apply text-accent;
+  }
+  .ref-card[href]:hover .ref-card__key {
+    @apply text-accent-bright;
+  }
+  .ref-card__source {
+    @apply flex min-w-0 gap-1 text-[12px] leading-4 text-text-faint;
+  }
+  .ref-card__open {
+    @apply mt-px h-3.5 w-3.5 shrink-0 text-text-faint;
+  }
+
   /* Transcript */
 
   .chat-transcript {
