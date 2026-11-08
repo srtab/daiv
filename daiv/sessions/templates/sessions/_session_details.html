@@ -80,18 +80,20 @@ A column beside the transcript from 1100px, a bottom sheet below it. Must sit in
         {% translate "References" context "external work-item references card" as references_heading %}
         {% include "sessions/_details_fold_head.html" with section="references" label=references_heading summary_expr="references.length" %}
         <div class="details-fold__body" id="session-details-references-body" x-show="!isFolded('references')">
-          <ul class="ref-list">
+          <ul class="session-details__list">
             <template x-for="(ref, index) in references" :key="index">
               <li>
-                <template x-if="ref.url">
-                  <a class="ref-card ref-card--link" :href="ref.url" :title="ref.url" target="_blank" rel="noopener noreferrer">
-                    {% include "sessions/_reference_card_body.html" %}
-                    {% icon "arrow-top-right-on-square" "ref-card__open" %}
-                  </a>
-                </template>
-                <template x-if="!ref.url">
-                  <div class="ref-card">{% include "sessions/_reference_card_body.html" %}</div>
-                </template>
+                <a class="ref-card" :href="ref.url || null" :title="ref.url || null" target="_blank" rel="noopener noreferrer">
+                  <span class="ref-card__icon" x-html="TranscriptLabels.iconHTML(ref.icon)" aria-hidden="true"></span>
+                  <span class="ref-card__body">
+                    <span class="ref-card__key" x-text="ref.key"></span>
+                    <span class="ref-card__source" x-show="ref.source || ref.closing">
+                      <span class="truncate" x-show="ref.source" x-text="ref.source"></span>
+                      <span class="shrink-0" x-show="ref.closing" x-text="ref.closing"></span>
+                    </span>
+                  </span>
+                  <span class="contents" x-show="ref.url">{% icon "arrow-top-right-on-square" "ref-card__open" %}</span>
+                </a>
               </li>
             </template>
           </ul>

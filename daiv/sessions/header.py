@@ -21,11 +21,10 @@ import logging
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
-from django.templatetags.static import static
 from django.urls import reverse
 from django.utils.text import capfirst
 from django.utils.translation import gettext as _
-from django.utils.translation import gettext_lazy, pgettext
+from django.utils.translation import gettext_lazy, pgettext_lazy
 
 from asgiref.sync import sync_to_async
 
@@ -249,30 +248,31 @@ _REF_PROVIDERS = {
     RefProvider.GITHUB_ISSUE: ("github", gettext_lazy("GitHub issue")),
     RefProvider.SENTRY: ("sentry", "Sentry"),
     RefProvider.JIRA: ("jira", "Jira"),
+    RefProvider.GENERIC: ("link", ""),
 }
+_CLOSES = pgettext_lazy("an external reference the merge request closes", "closes")
 
 
 def references_payload(session: Session) -> list[dict[str, str]]:
     """``session``'s external references as the details panel's cards show them.
 
-    ``icon_url`` is the provider's icon, ``link`` for ``generic`` and any provider DAIV does not know. ``key`` gets a
-    ``#`` when it is a bare platform issue number. ``source`` is the provider (none for ``generic``, an unknown one as
-    given) and the URL's host, which may truncate; ``closing`` is the "closes" note after it, which never does.
+    ``icon`` names a ``TRANSCRIPT_ICONS`` icon: the provider's, ``link`` for ``generic`` and any provider DAIV does not
+    know. ``key`` gets a ``#`` when it is a bare platform issue number. ``source`` is the provider (none for
+    ``generic``, an unknown one as given) and the URL's host, which may truncate; ``closing`` is the "closes" note after
+    it, which never does.
     """
-    closes = pgettext("an external reference the merge request closes", "closes")
     cards = []
     for ref in session.external_references():
-        generic = ("link", "") if ref.provider == RefProvider.GENERIC else ("link", ref.provider)
-        icon, provider = _REF_PROVIDERS.get(ref.provider, generic)
+        icon, provider = _REF_PROVIDERS.get(ref.provider, ("link", ref.provider))
         source = " · ".join(part for part in (str(provider), urlsplit(ref.url).hostname or "") if part)
         closing = ""
         if ref.relation == "closes":
-            closing = f"· {closes}" if source else closes
+            closing = f"· {_CLOSES}" if source else str(_CLOSES)
         bare_issue = ref.provider in PLATFORM_ISSUE_PROVIDERS and ref.key.isdigit()
         cards.append({
             "key": f"#{ref.key}" if bare_issue else ref.key,
             "url": ref.url,
-            "icon_url": static(f"core/img/icons/{icon}.svg"),
+            "icon": icon,
             "source": source,
             "closing": closing,
         })

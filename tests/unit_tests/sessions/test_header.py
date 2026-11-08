@@ -5,8 +5,6 @@ from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from django.conf import settings
-from django.contrib.staticfiles import finders
 from django.urls import reverse
 from django.utils import timezone
 
@@ -24,6 +22,7 @@ from sessions.header import (
 )
 from sessions.models import EventKind, MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
 from sessions.transcript import annotate_transcript
+from sessions.transcript_labels import TRANSCRIPT_ICONS
 
 from accounts.models import Role, User
 from codebase.base import GitPlatform
@@ -605,15 +604,6 @@ def test_references_name_their_provider_host_and_whether_they_close():
         ("PROJ-9", "", "closes"),
         ("OPS-3", "tracker.example.com", ""),
     ]
-    icons = [card["icon_url"].removeprefix(settings.STATIC_URL) for card in cards]
-    assert [icon.rsplit("/", 1)[1] for icon in icons] == [
-        "jira.svg",
-        "gitlab.svg",
-        "github.svg",
-        "sentry.svg",
-        "link.svg",
-        "link.svg",
-        "link.svg",
-    ]
-    assert all(finders.find(icon) for icon in icons)
+    assert [card["icon"] for card in cards] == ["jira", "gitlab", "github", "sentry", "link", "link", "link"]
+    assert {card["icon"] for card in cards} <= TRANSCRIPT_ICONS
     assert cards[0]["url"] == "https://jira.example.com/browse/PROJ-12"

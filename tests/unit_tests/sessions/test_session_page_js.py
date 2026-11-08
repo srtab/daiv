@@ -349,7 +349,7 @@ def test_polls_and_a_settled_run_update_the_run_count():
 
 
 def test_a_poll_replaces_the_references():
-    card = {"key": "PROJ-12", "url": "", "icon_url": "/static/jira.svg", "source": "Jira", "closing": ""}
+    card = {"key": "PROJ-12", "url": "", "icon": "jira", "source": "Jira", "closing": ""}
     result = _run([
         ["read", None],
         ["poll", {"latest_run": DONE, "watch": None, "run_count": 1, "references": [card]}],

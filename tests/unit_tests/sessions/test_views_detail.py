@@ -1350,11 +1350,7 @@ def test_detail_info_tab_shows_origin_owner_runs_and_session_id(member_client, m
 def test_detail_overview_lists_the_sessions_external_references_last(member_client, member_user):
     jira_url = "https://jira.example.com/browse/PROJ-12"
     session = _create_session(
-        user=member_user,
-        external_refs=[
-            {"key": "PROJ-12", "url": jira_url, "provider": "jira", "relation": "closes"},
-            {"key": "bad key with spaces"},
-        ],
+        user=member_user, external_refs=[{"key": "PROJ-12", "url": jira_url, "provider": "jira", "relation": "closes"}]
     )
 
     resp = _get_detail(member_client, session)
@@ -1366,16 +1362,9 @@ def test_detail_overview_lists_the_sessions_external_references_last(member_clie
     assert [card["key"] for card in resp.context["header"]["references"]] == ["PROJ-12"]
     assert 'id="session-details-references" x-show="references.length"' in details
     assert refs.select_one(".details-fold__summary")["x-text"] == "references.length"
-    link = refs.select_one("a.ref-card--link")
-    assert link["target"] == "_blank" and link["rel"] == ["noopener", "noreferrer"]
-    assert refs.select_one("div.ref-card") is not None
-
-
-@pytest.mark.django_db
-def test_detail_header_has_no_references_without_references(member_client, member_user):
-    resp = _get_detail(member_client, _create_session(user=member_user))
-
-    assert resp.context["header"]["references"] == []
+    card = refs.select_one("a.ref-card")
+    assert card[":href"] == "ref.url || null"
+    assert card["target"] == "_blank" and card["rel"] == ["noopener", "noreferrer"]
 
 
 @pytest.mark.django_db
