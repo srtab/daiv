@@ -65,7 +65,7 @@ DAIV is powered by [Deep Agents](https://github.com/langchain-ai/deepagents), a 
 - **[MCP Tools](customization/mcp-tools.md)** — external integrations over the [Model Context Protocol](https://modelcontextprotocol.io/), such as Sentry for error tracking.
 - **[Monitoring](reference/monitoring.md)** — trace every agent execution with [LangSmith](https://www.langchain.com/langsmith) to analyze performance and spot issues.
 - **Scalable Workers** — background workers scale horizontally by adding replicas, with a dedicated scheduler for recurring jobs.
-- **[LLM Providers](getting-started/llm-providers.md)** — run on OpenRouter, Anthropic, OpenAI, or Google — your keys, your choice.
+- **[LLM Providers](getting-started/llm-providers.md)** — run on OpenRouter, Anthropic, OpenAI, or Google, or on your own OpenAI-compatible server (vLLM, llama.cpp, LiteLLM) — your keys, your choice.
 
 For how these pieces fit together — the middleware stack, skill loading, and how a single run is assembled — see [Agent Architecture](reference/agent-architecture.md).
 
