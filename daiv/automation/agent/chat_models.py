@@ -65,12 +65,14 @@ names.
 from __future__ import annotations
 
 import logging
+import math
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
 from langchain_openai import ChatOpenAI
 
 from automation.agent.provider_clients import OPENROUTER_BASE_URL
+from automation.agent.usage_tracking import REPORTED_COST_KEY
 from core.models import ProviderType
 
 if TYPE_CHECKING:
@@ -142,7 +144,7 @@ class ChatOpenRouter(ChatOpenAI):
         """
         if not (info := chunk.generation_info):
             return
-        for key in FINISH_STAMPED_KEYS:
+        for key in (*FINISH_STAMPED_KEYS, REPORTED_COST_KEY):
             if key not in info:
                 continue
             if key not in seen:
@@ -159,6 +161,10 @@ class ChatOpenRouter(ChatOpenAI):
         if generation_chunk is None:
             return None
         self._store_reasoning(self._delta(chunk), generation_chunk.message.additional_kwargs)
+        if (cost := self._reported_cost(chunk.get("usage"))) is not None:
+            # In ``generation_info`` rather than on the message, so ``_drop_restamped_keys`` sees a
+            # repeat: two different floats make ``merge_dicts`` raise mid-stream.
+            generation_chunk.generation_info = {**(generation_chunk.generation_info or {}), REPORTED_COST_KEY: cost}
         return generation_chunk
 
     def _create_chat_result(self, response: dict | openai.BaseModel, generation_info: dict | None = None) -> ChatResult:
@@ -167,8 +173,11 @@ class ChatOpenRouter(ChatOpenAI):
             raw = response
         else:
             raw = response.model_dump(exclude=_RESPONSE_DUMP_EXCLUDE, warnings=False)
+        cost = self._reported_cost(raw.get("usage"))
         for choice, generation in zip(raw.get("choices") or [], result.generations, strict=True):
             self._store_reasoning((choice or {}).get("message") or {}, generation.message.additional_kwargs)
+            if cost is not None:
+                generation.message.response_metadata[REPORTED_COST_KEY] = cost
         return result
 
     def _get_request_payload(self, input_: LanguageModelInput, *, stop: list[str] | None = None, **kwargs: Any) -> dict:
@@ -212,6 +221,28 @@ class ChatOpenRouter(ChatOpenAI):
             # deltas accumulate into the final message.
             additional_kwargs[DISPLAY_KEY] = reasoning
             additional_kwargs[FALLBACK_KEY] = reasoning
+
+    @staticmethod
+    def _reported_cost(usage: dict | None) -> float | None:
+        """The USD the call cost, from OpenRouter's ``usage``, or None when it reported none.
+
+        ``cost`` is what OpenRouter charged at the upstream provider it routed to, which is what
+        makes it the spend: a price looked up by model name is one provider's list rate. On a
+        BYOK call ``cost`` is only OpenRouter's fee, and the provider bills
+        ``cost_details.upstream_inference_cost`` to the operator's own key, so the two add up.
+        """
+        usage = usage or {}
+        if (cost := ChatOpenRouter._usd(usage.get("cost"))) is None:
+            return None
+        if usage.get("is_byok"):
+            cost += ChatOpenRouter._usd((usage.get("cost_details") or {}).get("upstream_inference_cost")) or 0
+        return cost
+
+    @staticmethod
+    def _usd(value: Any) -> float | None:
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            return None
+        return value if math.isfinite(value) and value >= 0 else None
 
     @staticmethod
     def _delta(chunk: dict) -> dict:

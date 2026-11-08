@@ -29,6 +29,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.usage")
 
+REPORTED_COST_KEY = "provider_cost_usd"
+
 
 def _resolve_mtok_rate(field_mtok: Decimal | TieredPrices | None, total_input_tokens: int) -> Decimal | None:
     """Resolve the per-million-token rate that applies at ``total_input_tokens``.
@@ -227,11 +229,12 @@ class CostAwareUsageMetadataCallbackHandler(UsageMetadataCallbackHandler):
         with self._lock:
             self.usage_metadata[model_name] = add_usage(self.usage_metadata.get(model_name), usage_metadata)
 
-        # Skip the pricing lookup (and its per-call warning) for models we already know are unpriced.
-        if self.priced_by_model.get(model_name) is False:
-            return
-
-        cost = _calc_model_cost(model_name, usage_metadata)
+        cost = self._reported_cost(message)
+        if cost is None:
+            # Skip the pricing lookup (and its per-call warning) for models we already know are unpriced.
+            if self.priced_by_model.get(model_name) is False:
+                return
+            cost = _calc_model_cost(model_name, usage_metadata)
 
         with self._lock:
             if cost is None:
@@ -239,6 +242,16 @@ class CostAwareUsageMetadataCallbackHandler(UsageMetadataCallbackHandler):
                 return
             self.priced_by_model.setdefault(model_name, True)
             self.cost_by_model[model_name] += cost
+
+    @staticmethod
+    def _reported_cost(message: AIMessage) -> Decimal | None:
+        """What the provider billed for this call, when it said (see ``ChatOpenRouter._reported_cost``).
+
+        Preferred over :func:`_calc_model_cost`, which prices every call at one list rate for the
+        model however the provider routed it.
+        """
+        cost = message.response_metadata.get(REPORTED_COST_KEY)
+        return Decimal(str(cost)) if isinstance(cost, int | float) and not isinstance(cost, bool) else None
 
 
 # Registered once at import time. Upstream ``get_usage_metadata_callback`` creates a new

@@ -12,15 +12,18 @@ from langchain_core.outputs import ChatGeneration, LLMResult
 from langchain_openai import ChatOpenAI
 from langchain_openai.chat_models.base import _create_usage_metadata
 
+from automation.agent.chat_models import ChatOpenRouter
 from automation.agent.usage_tracking import (
+    REPORTED_COST_KEY,
     CostAwareUsageMetadataCallbackHandler,
     _calc_model_cost,
     build_usage_summary,
     message_model_name,
     resolve_context_window,
     resolve_window_by_name,
+    track_usage_metadata,
 )
-from tests.unit_tests.automation.agent.openai_stream import stream_message
+from tests.unit_tests.automation.agent.openai_stream import MODEL, fake_stream, finishing_chunks, stream_message
 
 
 def _usage_metadata(
@@ -429,6 +432,44 @@ class TestServiceTierUsage:
 
         assert tiered["input_token_details"].get("cache_read") is None
         assert _calc_model_cost("claude-sonnet-4-6", tiered) == _calc_model_cost("claude-sonnet-4-6", untiered)
+
+
+class TestReportedCost:
+    """A cost the provider reported for the call is what it billed; the genai-prices lookup is
+    only an estimate at one list rate."""
+
+    @staticmethod
+    def _reported(model_name: str, cost: float) -> LLMResult:
+        message = AIMessage(
+            content="",
+            usage_metadata=_usage_metadata(input_tokens=100_000, output_tokens=1_000),
+            response_metadata={"model_name": model_name, REPORTED_COST_KEY: cost},
+        )
+        return LLMResult(generations=[[ChatGeneration(message=message)]])
+
+    def test_the_reported_cost_replaces_the_list_price_estimate(self):
+        handler = CostAwareUsageMetadataCallbackHandler()
+        handler.on_llm_end(self._reported("z-ai/glm-5.2", 0.0123))
+        handler.on_llm_end(self._reported("z-ai/glm-5.2", 0.0001))
+
+        assert build_usage_summary(handler).cost_usd == "0.0124"
+
+    def test_a_model_genai_prices_does_not_know_is_priced_from_its_report(self):
+        handler = CostAwareUsageMetadataCallbackHandler()
+        handler.on_llm_end(self._reported("deepseek/deepseek-v4-pro-0813", 0.05))
+
+        assert build_usage_summary(handler).cost_usd == "0.05"
+
+    def test_an_openrouter_stream_reaches_the_run_total_at_its_billed_cost(self):
+        chunks = finishing_chunks(MODEL, 1)
+        chunks[-1]["usage"] = {"prompt_tokens": 90_000, "completion_tokens": 2_000, "cost": 0.0021}
+        llm = ChatOpenRouter(model=MODEL, api_key="test")
+        llm.client = mock.Mock(create=lambda **_: fake_stream(chunks))
+
+        with track_usage_metadata() as handler:
+            list(llm.stream("go"))
+
+        assert build_usage_summary(handler).cost_usd == "0.0021"
 
 
 class TestEmptyMetadataWarning:
