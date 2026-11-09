@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import math
 from collections import defaultdict
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -28,6 +29,15 @@ if TYPE_CHECKING:
     from langchain_core.outputs import LLMResult
 
 logger = logging.getLogger("daiv.usage")
+
+REPORTED_COST_KEY = "provider_cost_usd"
+
+
+def usd_amount(value: Any) -> float | None:
+    """``value`` when it is a finite, non-negative number of dollars, else None."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return value if math.isfinite(value) and value >= 0 else None
 
 
 def _resolve_mtok_rate(field_mtok: Decimal | TieredPrices | None, total_input_tokens: int) -> Decimal | None:
@@ -227,11 +237,12 @@ class CostAwareUsageMetadataCallbackHandler(UsageMetadataCallbackHandler):
         with self._lock:
             self.usage_metadata[model_name] = add_usage(self.usage_metadata.get(model_name), usage_metadata)
 
-        # Skip the pricing lookup (and its per-call warning) for models we already know are unpriced.
-        if self.priced_by_model.get(model_name) is False:
-            return
-
-        cost = _calc_model_cost(model_name, usage_metadata)
+        cost = self._reported_cost(message)
+        if cost is None:
+            # Skip the pricing lookup (and its per-call warning) for models we already know are unpriced.
+            if self.priced_by_model.get(model_name) is False:
+                return
+            cost = _calc_model_cost(model_name, usage_metadata)
 
         with self._lock:
             if cost is None:
@@ -239,6 +250,12 @@ class CostAwareUsageMetadataCallbackHandler(UsageMetadataCallbackHandler):
                 return
             self.priced_by_model.setdefault(model_name, True)
             self.cost_by_model[model_name] += cost
+
+    @staticmethod
+    def _reported_cost(message: AIMessage) -> Decimal | None:
+        """What the provider billed for this call, when it said (see ``ChatOpenRouter._reported_cost``)."""
+        cost = usd_amount(message.response_metadata.get(REPORTED_COST_KEY))
+        return None if cost is None else Decimal(str(cost))
 
 
 # Registered once at import time. Upstream ``get_usage_metadata_callback`` creates a new
