@@ -65,7 +65,7 @@ Each `.md` file contains YAML frontmatter with the subagent's metadata, followed
 ---
 name: database-migration
 description: Specialized agent for planning and reviewing database migrations. Use when the task involves schema changes, data migrations, or ORM model modifications.
-model: openrouter:anthropic/claude-sonnet-4.6  # optional
+model: openrouter:anthropic/claude-sonnet-5.5  # optional
 ---
 
 You are a database migration specialist. When given a task:
@@ -90,7 +90,7 @@ The markdown body (after the frontmatter) is **required** and becomes the subage
 
 | Field | Description |
 |-------|-------------|
-| `model` | Override the model used by this subagent. Use the `provider:model-name` format (e.g., `openrouter:anthropic/claude-haiku-4.5`). If not specified, the main agent's model is used. |
+| `model` | Override the model used by this subagent. Use the `provider:model-name` format (e.g., `openrouter:anthropic/claude-haiku-5.5`). If not specified, the main agent's model is used. |
 
 ### Capabilities
 

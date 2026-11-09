@@ -126,14 +126,7 @@ class SessionJobDelegator:
             raise DelegationError(
                 "Sub-jobs run as the DAIV user who triggered this run, and it has none, so it cannot delegate."
             )
-        if not goal:
-            raise DelegationError("`goal` must name the overall objective.")
-        if not targets:
-            raise DelegationError("Give at least one target.")
-        if len(targets) > MAX_DELEGATED_TARGETS:
-            raise DelegationError(f"At most {MAX_DELEGATED_TARGETS} targets per call; split the work across calls.")
-        if any(not target.repo_id or not target.prompt for target in targets):
-            raise DelegationError("Every target needs a `repo_id` and a prompt of its own.")
+        check_delegation(goal, targets)
 
         user = run.user
         denied: set[str] = set()
@@ -237,6 +230,18 @@ class SessionJobDelegator:
         raise DelegationError(f"This session delegated no batch {batch_id}.")
 
 
+def check_delegation(goal: str, targets: Sequence[DelegatedTarget]) -> None:
+    """Raise :class:`DelegationError` for a ``delegate_jobs`` call without a goal or with targets it cannot start."""
+    if not goal:
+        raise DelegationError("`goal` must name the overall objective.")
+    if not targets:
+        raise DelegationError("Give at least one target.")
+    if len(targets) > MAX_DELEGATED_TARGETS:
+        raise DelegationError(f"At most {MAX_DELEGATED_TARGETS} targets per call; split the work across calls.")
+    if any(not target.repo_id or not target.prompt for target in targets):
+        raise DelegationError("Every target needs a `repo_id` and a prompt of its own.")
+
+
 async def _aactive_run(thread_id: str) -> Run | None:
     if (run := await aresolve_active_run(thread_id)) is None:
         return None
@@ -314,6 +319,18 @@ def _resume_batch(batch_id: uuid.UUID) -> bool:
     if coordinator is None:
         logger.info("resume_coordinator: batch %s has no coordinator session left to resume", batch_id)
         return False
+    result = Inbox(coordinator.pk).post(
+        kind=EventKind.DELEGATION_FINISHED,
+        source_key=kinds.SourceKey.batch(batch_id),
+        payload=delegation_finished_payload(batch_id, legs),
+        wake=True,
+        author=legs[0].user,
+    )
+    return result.created
+
+
+def delegation_finished_payload(batch_id: uuid.UUID, legs: Sequence[Run]) -> dict:
+    """The payload of ``batch_id``'s ``delegation_finished`` event, from its finished ``legs``."""
     payload: dict = {
         "batch_id": str(batch_id),
         "summary": render_batch_summary(batch_id, legs),
@@ -322,14 +339,7 @@ def _resume_batch(batch_id: uuid.UUID) -> bool:
     }
     if legs[0].muted is not None:
         payload["muted"] = legs[0].muted
-    result = Inbox(coordinator.pk).post(
-        kind=EventKind.DELEGATION_FINISHED,
-        source_key=kinds.SourceKey.batch(batch_id),
-        payload=payload,
-        wake=True,
-        author=legs[0].user,
-    )
-    return result.created
+    return payload
 
 
 def resume_stalled_batches() -> int:
