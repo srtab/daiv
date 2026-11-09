@@ -1971,6 +1971,50 @@
     return mcp ? mcpBody(mcp.readOnly) : defaultBody;
   };
 
+  const MEDIA_ERRORS = new Set(["not_saved", "too_large", "run_limit", "unsupported_type", "failed"]);
+
+  const mediaKindLabel = (item) => {
+    if (item.kind === "image") return t("media_image");
+    if (item.kind === "audio") return t("media_audio");
+    if (item.kind === "video") return t("media_video");
+    return item.mime_type === "application/pdf" ? t("media_pdf") : t("media_file");
+  };
+
+  // A server-built URL is same-origin; anything else must be plain http(s), never a script or data URL.
+  const safeMediaUrl = (url) => (/^\/(?!\/)/.test(url) || /^https?:\/\//i.test(url) ? url : null);
+
+  const urlHost = (url) => {
+    try {
+      return new URL(url).host;
+    } catch {
+      return "";
+    }
+  };
+
+  const mediaLink = (url, cls, inner) =>
+    `<a class="${cls}" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${inner}</a>`;
+
+  const mediaItemHTML = (item) => {
+    const label = mediaKindLabel(item);
+    const url = item.error ? null : safeMediaUrl(String(item.url ?? ""));
+    if (!url) {
+      const reason = MEDIA_ERRORS.has(item.error) ? item.error : item.error ? "failed" : "unsupported_type";
+      return `<span class="body-media-missing">${escapeHtml(`${label} · ${t(`media_${reason}`)}`)}</span>`;
+    }
+    if (item.external) return mediaLink(url, "body-media-chip", escapeHtml(`${label} · ${urlHost(url)}`));
+    if (item.kind === "image") {
+      const img = `<img class="body-media-thumb" src="${escapeHtml(url)}" alt="${escapeHtml(label)}" loading="lazy">`;
+      return mediaLink(url, "body-media-item", img);
+    }
+    const size = Number.isFinite(item.size) ? ` · ${kbSize(item.size)}` : "";
+    return mediaLink(url, "body-media-chip", escapeHtml(`${label}${size}`));
+  };
+
+  const mediaHTML = (media) => {
+    if (!Array.isArray(media) || !media.length) return "";
+    return section("body_media", `<div class="body-media">${media.map(mediaItemHTML).join("")}</div>`);
+  };
+
   window.toolBodyHTML = (seg, ctx) => {
     if (!seg) return "";
     const name = String(seg.name ?? "");
@@ -1983,6 +2027,6 @@
       html = contextSection(seg.result, textHTML);
     }
     const wrong = wentWrong(seg);
-    return (wrong ? wrongHTML(wrong) : "") + html + rawHTML(seg);
+    return (wrong ? wrongHTML(wrong) : "") + html + mediaHTML(seg.media) + rawHTML(seg);
   };
 })();

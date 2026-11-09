@@ -2385,6 +2385,54 @@ html {
     color: var(--color-text-faint);
   }
 
+  .body-media {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .body-media-item {
+    display: block;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  .body-media-item:hover {
+    border-color: var(--color-accent);
+  }
+
+  .body-media-thumb {
+    display: block;
+    max-width: min(100%, 360px);
+    max-height: 240px;
+    object-fit: contain;
+  }
+
+  .body-media-chip,
+  .body-media-missing {
+    padding: 4px 9px;
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  .body-media-chip {
+    color: var(--color-text);
+  }
+
+  .body-media-chip:hover {
+    border-color: var(--color-accent);
+    color: var(--color-text-strong);
+  }
+
+  .body-media-missing {
+    border-style: dashed;
+    color: var(--color-text-muted);
+  }
+
   .body-offload {
     padding: 6px 8px;
     border: 1px solid rgba(251, 191, 36, 0.2);
