@@ -25,7 +25,7 @@ Validation:
   delegator (#1780):
   - `MAX_DELEGATED_TARGETS` (10) counts new legs and leg follow-ups together (FR-006);
   - one `thread_id` given more than once refuses the whole call (FR-010) with:
-  `{"error": "Name each leg once per call: <thread_id> appears more than once."}`
+    `{"error": "Name each leg once per call: <thread_id> appears more than once."}`
 
 ## `delegate_jobs`: description changes
 
