@@ -37,7 +37,7 @@ from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
 from core.ui_events import redis_connections
 from core.utils import is_htmx
 from sessions.admission import RepoAccessError
-from sessions.artifacts import ArtifactKind, open_artifact_file
+from sessions.artifacts import ArtifactKind, guess_content_type, open_artifact_file
 from sessions.conf import settings as sessions_settings
 from sessions.delegation import outcome_states
 from sessions.filters import (
@@ -522,11 +522,12 @@ class ToolResultMediaRawView(LoginRequiredMixin, SingleObjectMixin, View):
                 media.file.name,
             )
             raise Http404("Tool media file is missing.") from None
+        content_type = guess_content_type(media.file.name)
         # The sandbox CSP stops browsers' PDF and media viewers, so only images open inline.
         return FileResponse(
             fh,
-            content_type=media.content_type,
-            as_attachment=not media.content_type.startswith("image/"),
+            content_type=content_type,
+            as_attachment=not content_type.startswith("image/"),
             filename=PurePosixPath(media.file.name).name,
             headers=ARTIFACT_RAW_HEADERS,
         )

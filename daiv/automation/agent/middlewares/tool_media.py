@@ -4,25 +4,28 @@ import base64
 import logging
 from typing import TYPE_CHECKING, Any
 
+from deepagents.middleware.filesystem import _is_read_file_media_result
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.messages import ToolMessage
-from langgraph.types import Command
 
 from automation.agent.events import TOOL_MEDIA_EVENT
 from automation.agent.tool_media import (
     DAIV_MEDIA_KEY,
     FAILED,
+    TOO_LARGE,
     UNSUPPORTED_TYPE,
     ToolMediaError,
     ToolMediaStore,
     media_blocks,
+    result_messages,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from langgraph.prebuilt.tool_node import ToolCallRequest
+    from langgraph.types import Command
 
 logger = logging.getLogger("daiv.tools")
 
@@ -43,10 +46,7 @@ class ToolMediaMiddleware(AgentMiddleware):
     ) -> ToolMessage | Command:
         result = await handler(request)
         thread_id = _thread_id(request)
-        for message in _tool_messages(result):
-            blocks = media_blocks(message)
-            if not blocks:
-                continue
+        for message, blocks in _media_by_tool_message(result):
             entries = [
                 await self._entry(block, ordinal, thread_id=thread_id, tool_call_id=message.tool_call_id)
                 for ordinal, block in enumerate(blocks)
@@ -71,7 +71,10 @@ class ToolMediaMiddleware(AgentMiddleware):
         try:
             if not isinstance(data, str):
                 raise TypeError(type(data).__name__)
-            content = base64.b64decode("".join(data.split()), validate=True)
+            encoded = "".join(data.split())
+            if (size := len(encoded) * 3 // 4 - encoded[-2:].count("=")) > self._store.max_bytes:
+                return {**entry, "size": size, "error": TOO_LARGE}
+            content = base64.b64decode(encoded, validate=True)
         except ValueError, TypeError:
             logger.warning("Media %d of tool call %s is not valid base64; not keeping it", ordinal, tool_call_id)
             return {**entry, "error": FAILED}
@@ -100,12 +103,21 @@ def _thread_id(request: ToolCallRequest) -> str:
     return (config.get("configurable") or {}).get("thread_id") or ""
 
 
-def _tool_messages(result: ToolMessage | Command) -> list[ToolMessage]:
-    if isinstance(result, ToolMessage):
-        return [result]
-    if isinstance(result, Command) and isinstance(result.update, dict):
-        return [m for m in result.update.get("messages") or [] if isinstance(m, ToolMessage)]
-    return []
+def _media_by_tool_message(result: ToolMessage | Command) -> list[tuple[ToolMessage, list[dict[str, Any]]]]:
+    """Each tool message of ``result`` that has media, with its blocks followed by those of the frames message
+    deepagents' video ``read_file`` returns beside it."""
+    messages = result_messages(result)
+    frames = {
+        message.additional_kwargs.get("read_file_tool_call_id"): media_blocks(message)
+        for message in messages
+        if _is_read_file_media_result(message)
+    }
+    return [
+        (message, blocks)
+        for message in messages
+        if isinstance(message, ToolMessage)
+        and (blocks := [*media_blocks(message), *frames.get(message.tool_call_id, [])])
+    ]
 
 
 async def _dispatch(payload: dict[str, Any]) -> None:

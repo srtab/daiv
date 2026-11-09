@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import uuid
+from unittest.mock import patch
 
-from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
+from django.core.files.storage import FileSystemStorage, Storage, default_storage
 from django.urls import reverse
 
 import pytest
@@ -11,7 +13,14 @@ from langchain_core.messages import ToolMessage
 from sessions.artifacts import bind_active_run
 from sessions.conf import settings as sessions_settings
 from sessions.models import Run, RunStatus, Session, SessionOrigin, ToolResultMedia
-from sessions.tool_media import RunToolMediaStore, media_items, message_media, stored_content_type, tool_text
+from sessions.tool_media import (
+    RunToolMediaStore,
+    delete_media_file,
+    media_items,
+    message_media,
+    stored_content_type,
+    tool_text,
+)
 
 from automation.agent.tool_media import ToolMediaError
 
@@ -93,7 +102,8 @@ async def test_astore_enforces_the_per_run_cap(monkeypatch):
     run = await sync_to_async(_mk_run)()
     kept = await ToolResultMedia.objects.aget(pk=await _astore(run))
 
-    assert await _rejection(run, ordinal=1) == "run_limit"
+    with patch.object(Storage, "save", side_effect=AssertionError("wrote the file")):
+        assert await _rejection(run, ordinal=1) == "run_limit"
     _, files = default_storage.listdir(f"tool-media/{run.pk}")
     assert files == [kept.file.name.rsplit("/", 1)[1]]
 
@@ -107,6 +117,27 @@ async def test_astore_without_a_bound_run_fails():
         )
 
     assert exc_info.value.code == "failed"
+
+
+async def test_astore_rejects_a_type_before_looking_up_the_run():
+    with pytest.raises(ToolMediaError) as exc_info:
+        await RunToolMediaStore().astore(
+            thread_id="t1", tool_call_id="call_1", ordinal=0, mime_type="text/html", content=b"<p>"
+        )
+
+    assert exc_info.value.code == "unsupported_type"
+
+
+def test_delete_media_file_removes_the_run_directory_once_empty(tmp_path):
+    storage = FileSystemStorage(location=tmp_path)
+    first = storage.save("tool-media/run/a.png", ContentFile(b"a"))
+    second = storage.save("tool-media/run/b.png", ContentFile(b"b"))
+
+    delete_media_file(storage, first)
+    assert storage.exists("tool-media/run")
+
+    delete_media_file(storage, second)
+    assert not storage.exists("tool-media/run")
 
 
 async def test_deleting_the_run_removes_the_file():
@@ -151,6 +182,7 @@ def test_untagged_message_shows_not_saved_placeholders():
             {"type": "text", "text": "x"},
             {"type": "image", "base64": "AAAA", "mime_type": "image/png"},
             {"type": "image", "url": "https://x.test/a.png", "mime_type": "image/png"},
+            {"type": "image", "url": "data:image/png;base64,AAAA", "mime_type": "image/png"},
         ],
         tool_call_id="c1",
     )
@@ -158,6 +190,7 @@ def test_untagged_message_shows_not_saved_placeholders():
     assert message_media(message, thread_id="t1") == [
         {"kind": "image", "mime_type": "image/png", "error": "not_saved"},
         {"kind": "image", "mime_type": "image/png", "url": "https://x.test/a.png", "external": True},
+        {"kind": "image", "mime_type": "image/png", "error": "not_saved"},
     ]
 
 
@@ -176,8 +209,10 @@ def test_text_only_message_has_no_media():
     assert message_media(ToolMessage(content="ok", tool_call_id="c1"), thread_id="t1") == []
 
 
-def test_tool_text_keeps_only_text():
-    assert tool_text([{"type": "text", "text": "a"}, {"type": "image", "base64": "AAAA"}, "b"]) == "a\nb"
+def test_tool_text_joins_the_text_of_each_block():
+    content = [{"type": "text", "text": "a"}, {"type": "image", "base64": "AAAA"}, "b", {"text": "c"}]
+
+    assert tool_text(content) == "a\nb\nc"
     assert tool_text("plain") == "plain"
 
 

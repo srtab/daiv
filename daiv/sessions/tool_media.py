@@ -3,13 +3,15 @@
 ``RunToolMediaStore`` is the agent's ``automation.agent.tool_media.ToolMediaStore`` for executor runs: a media block
 goes to the ``Run`` that :func:`sessions.artifacts.bind_active_run` names, within the ``sessions.conf`` limits. The
 content type comes from an MCP server or ``mimetypes``, so only types a browser can't run script from are kept, and
-the endpoint serves them under the artifact sandbox CSP.
+the endpoint serves them under the artifact sandbox CSP, with the content type its stored extension maps to.
 """
 
 from __future__ import annotations
 
 import logging
 import re
+from contextlib import suppress
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
@@ -32,6 +34,8 @@ from sessions.artifacts import aresolve_active_run, delete_stored_file
 from sessions.conf import settings
 
 if TYPE_CHECKING:
+    from django.core.files.storage import Storage
+
     from sessions.models import Run, ToolResultMedia
 
 logger = logging.getLogger("daiv.sessions")
@@ -61,14 +65,18 @@ def stored_content_type(mime_type: str) -> str | None:
 class RunToolMediaStore:
     """The executor's ``ToolMediaStore``: a media block goes to the run that ``bind_active_run`` names."""
 
+    @property
+    def max_bytes(self) -> int:
+        return settings.TOOL_MEDIA_MAX_BYTES
+
     async def astore(self, *, thread_id: str, tool_call_id: str, ordinal: int, mime_type: str, content: bytes) -> str:
+        if (content_type := stored_content_type(mime_type)) is None:
+            raise ToolMediaError(UNSUPPORTED_TYPE)
+        if len(content) > self.max_bytes:
+            raise ToolMediaError(TOO_LARGE)
         if (run := await aresolve_active_run(thread_id)) is None:
             logger.warning("Tool media of call %s: no active run on thread %s", tool_call_id, thread_id)
             raise ToolMediaError(FAILED)
-        if (content_type := stored_content_type(mime_type)) is None:
-            raise ToolMediaError(UNSUPPORTED_TYPE)
-        if len(content) > settings.TOOL_MEDIA_MAX_BYTES:
-            raise ToolMediaError(TOO_LARGE)
         media = await sync_to_async(_store_media)(run, tool_call_id, ordinal, content_type, content)
         logger.info(
             "Tool media: run=%s kept %s #%d of call %s (%s, %d bytes)",
@@ -85,6 +93,11 @@ class RunToolMediaStore:
 def _store_media(run: Run, tool_call_id: str, ordinal: int, content_type: str, content: bytes) -> ToolResultMedia:
     from sessions.models import Run, ToolResultMedia
 
+    def at_run_limit() -> bool:
+        return ToolResultMedia.objects.filter(run=run).count() >= settings.TOOL_MEDIA_PER_RUN_MAX
+
+    if at_run_limit():
+        raise ToolMediaError(RUN_LIMIT)
     media = ToolResultMedia(
         run=run, tool_call_id=tool_call_id, ordinal=ordinal, content_type=content_type, size=len(content)
     )
@@ -93,26 +106,33 @@ def _store_media(run: Run, tool_call_id: str, ordinal: int, content_type: str, c
         with transaction.atomic():
             # Parallel tool calls in one model turn store concurrently; the lock serialises the budget check.
             Run.objects.select_for_update().only("pk").get(pk=run.pk)
-            if ToolResultMedia.objects.filter(run=run).count() >= settings.TOOL_MEDIA_PER_RUN_MAX:
+            if at_run_limit():
                 raise ToolMediaError(RUN_LIMIT)
             media.save()
     except BaseException:
-        name = media.file.name or media.file.field.generate_filename(media, "media")
-        delete_stored_file(media.file.storage, name)
+        delete_media_file(media.file.storage, media.file.name or media.file.field.generate_filename(media, "media"))
         raise
     return media
 
 
+def delete_media_file(storage: Storage, name: str) -> None:
+    """Delete ``name`` and then its run's directory, once that holds nothing else."""
+    delete_stored_file(storage, name)
+    with suppress(NotImplementedError, OSError):
+        Path(storage.path(str(PurePosixPath(name).parent))).rmdir()
+
+
 def tool_text(content: Any) -> str:
-    """The text of a tool result's ``content``: its text blocks and bare strings, one per line."""
+    """The text of a tool result's ``content``, one block per line: each dict block's ``text`` and every other block
+    as a string; a block without text, such as an image, adds no line."""
     if isinstance(content, str):
         return content
     if not isinstance(content, list):
         return str(content or "")
     return "\n".join(
-        block if isinstance(block, str) else str(block.get("text", ""))
+        str(block["text"]) if isinstance(block, dict) else str(block)
         for block in content
-        if isinstance(block, str) or (isinstance(block, dict) and block.get("type") == "text")
+        if not isinstance(block, dict) or "text" in block
     )
 
 
@@ -148,7 +168,7 @@ def _item(entry: dict[str, Any], thread_id: str) -> dict[str, Any]:
 
 def _legacy_item(block: dict[str, Any]) -> dict[str, Any]:
     item = {"kind": block["type"], "mime_type": block.get("mime_type") or ""}
-    if url := block.get("url"):
+    if (url := block.get("url")) and not url.startswith("data:"):
         return {**item, **_external(url)}
     return {**item, "error": NOT_SAVED}
 

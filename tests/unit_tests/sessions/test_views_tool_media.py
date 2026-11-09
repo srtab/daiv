@@ -70,6 +70,15 @@ def test_a_pdf_downloads_instead_of_opening(member_client, member_user):
     assert response["Content-Disposition"].startswith("attachment")
 
 
+def test_the_content_type_follows_the_stored_extension(member_client, member_user):
+    media = _media(_create_run(_create_session(user=member_user)), content=b"x", content_type="audio/x-unknown")
+
+    response = member_client.get(_url(media))
+
+    assert response["Content-Type"] == "application/octet-stream"
+    assert response["Content-Disposition"].startswith("attachment")
+
+
 def test_an_image_opens_inline(member_client, member_user):
     response = member_client.get(_url(_own_media(member_user)))
 

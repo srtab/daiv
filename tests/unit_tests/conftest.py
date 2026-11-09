@@ -320,6 +320,7 @@ class FakeToolMediaStore:
 
     error: Exception | None = None
     stored: list[dict[str, Any]] = field(default_factory=list)
+    max_bytes: int = 10 * 1024 * 1024
 
     async def astore(self, *, thread_id: str, tool_call_id: str, ordinal: int, mime_type: str, content: bytes) -> str:
         if self.error is not None:

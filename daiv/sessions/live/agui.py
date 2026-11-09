@@ -17,10 +17,9 @@ from ag_ui.core.events import (
 from ag_ui_langgraph.utils import normalize_tool_content
 from copilotkit import LangGraphAGUIAgent
 from langchain_core.messages import ToolMessage
-from langgraph.types import Command
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT, TOOL_MEDIA_EVENT, parse_assistant_message
-from automation.agent.tool_media import media_blocks
+from automation.agent.tool_media import media_blocks, result_messages
 from sessions.tool_media import media_items, tool_text
 
 if TYPE_CHECKING:
@@ -262,11 +261,7 @@ def _source_tool_message(event: Any, tool_call_id: str) -> ToolMessage | None:
     if not isinstance(event, dict):
         return None
     output = (event.get("data") or {}).get("output")
-    if isinstance(output, ToolMessage):
-        return output
-    if not isinstance(output, Command) or not isinstance(output.update, dict):
-        return None
-    messages = [m for m in output.update.get("messages") or [] if isinstance(m, ToolMessage)]
+    messages = [m for m in result_messages(output) if isinstance(m, ToolMessage)]
     matching = [m for m in messages if m.tool_call_id == tool_call_id]
     if matching:
         return matching[0]

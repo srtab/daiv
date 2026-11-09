@@ -14,7 +14,7 @@ from langgraph.types import Command
 
 from automation.agent.events import TOOL_MEDIA_EVENT
 from automation.agent.middlewares.tool_media import ToolMediaMiddleware
-from automation.agent.tool_media import RUN_LIMIT, ToolMediaError, media_blocks
+from automation.agent.tool_media import RUN_LIMIT, ToolMediaError
 from tests.unit_tests.conftest import FakeToolMediaStore
 
 RAW = b"\x89PNG-bytes"
@@ -165,20 +165,33 @@ async def test_no_thread_id_records_failed_without_storing(dispatch):
     assert store.stored == []
 
 
-async def test_refs_still_match_after_an_offload_rewrite(dispatch):
-    message = ToolMessage(
-        content=[_image(), {"type": "text", "text": "big"}, _image("QUJD", "image/jpeg")], tool_call_id="call_1"
+async def test_video_frames_beside_the_tool_message_are_tagged_on_it(dispatch):
+    message = ToolMessage(content="Read video a.mp4: sampled 1 frame.", tool_call_id="call_1", name="read_file")
+    frames = HumanMessage(
+        content=[{"type": "text", "text": "t=0s"}, _image(mime="image/jpeg")],
+        additional_kwargs={"read_file_media_result": True, "read_file_tool_call_id": "call_1"},
     )
-    result = await ToolMediaMiddleware(store=FakeToolMediaStore()).awrap_tool_call(_request(), _returns(message))
+    store = FakeToolMediaStore()
 
-    rewritten = ToolMessage(
-        content=[{"type": "text", "text": "preview"}, *media_blocks(result)],
-        tool_call_id="call_1",
-        additional_kwargs=dict(result.additional_kwargs),
+    await ToolMediaMiddleware(store=store).awrap_tool_call(
+        _request(), _returns(Command(update={"messages": [message, frames]}))
     )
 
-    blocks = media_blocks(rewritten)
-    assert [blocks[entry["ordinal"]]["mime_type"] for entry in _tagged(rewritten)] == ["image/png", "image/jpeg"]
+    assert [entry["mime_type"] for entry in _tagged(message)] == ["image/jpeg"]
+    assert store.stored[0]["content"] == RAW
+
+
+async def test_an_oversized_block_is_rejected_before_decoding(dispatch):
+    store = FakeToolMediaStore(max_bytes=len(RAW) - 1)
+
+    result = await ToolMediaMiddleware(store=store).awrap_tool_call(
+        _request(), _returns(ToolMessage(content=[_image()], tool_call_id="call_1"))
+    )
+
+    assert _tagged(result) == [
+        {"ordinal": 0, "kind": "image", "mime_type": "image/png", "size": len(RAW), "error": "too_large"}
+    ]
+    assert store.stored == []
 
 
 @pytest.mark.parametrize(

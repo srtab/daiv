@@ -188,7 +188,7 @@ def delete_artifact_file(sender: type, instance: Any, **kwargs: Any) -> None:
 @receiver(post_delete, sender="agent_sessions.ToolResultMedia", dispatch_uid="sessions.delete_tool_media_file")
 def delete_tool_media_file(sender: type, instance: Any, **kwargs: Any) -> None:
     """Remove the stored bytes once the row's deletion commits (Django never deletes FileField content itself)."""
-    from sessions.artifacts import delete_stored_file
+    from sessions.tool_media import delete_media_file
 
     if instance.file.name:
-        transaction.on_commit(partial(delete_stored_file, instance.file.storage, instance.file.name))
+        transaction.on_commit(partial(delete_media_file, instance.file.storage, instance.file.name))
