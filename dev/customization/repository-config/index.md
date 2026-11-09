@@ -42,12 +42,12 @@ orchestration:
 # Model overrides
 models:
   agent:
-    model: "openrouter:anthropic/claude-sonnet-4.6"
-    fallback_model: "openrouter:openai/gpt-5.3-codex"
+    model: "openrouter:anthropic/claude-sonnet-5.5"
+    fallback_model: "openrouter:openai/gpt-6.1-sol"
     thinking_level: "medium"
   diff_to_metadata:
-    model: "openrouter:anthropic/claude-sonnet-4.6"
-    fallback_model: "openrouter:openai/gpt-5.3-codex"
+    model: "openrouter:anthropic/claude-sonnet-5.5"
+    fallback_model: "openrouter:openai/gpt-6.1-sol"
 ```
 
 ## Repository settings

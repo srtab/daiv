@@ -1274,12 +1274,12 @@ You can mix providers — for example, use OpenRouter for the main agent and a d
 
 Models use a **prefix system** to identify the provider:
 
-| Prefix                 | Provider               | Example                                  |
-| ---------------------- | ---------------------- | ---------------------------------------- |
-| `openrouter:`          | OpenRouter             | `openrouter:anthropic/claude-sonnet-4.6` |
-| `claude`               | Anthropic (direct)     | `claude-sonnet-4.6`                      |
-| `gpt-4`, `gpt-5`, `o4` | OpenAI (direct)        | `gpt-5.3-codex`                          |
-| `gemini`               | Google Gemini (direct) | `gemini-2.5-pro-preview-05-06`           |
+| Prefix                          | Provider               | Example                                  |
+| ------------------------------- | ---------------------- | ---------------------------------------- |
+| `openrouter:`                   | OpenRouter             | `openrouter:anthropic/claude-sonnet-5.5` |
+| `claude`                        | Anthropic (direct)     | `claude-sonnet-5-5`                      |
+| `gpt-4`, `gpt-5`, `gpt-6`, `o4` | OpenAI (direct)        | `gpt-6.1-sol`                            |
+| `gemini`                        | Google Gemini (direct) | `gemini-3.8-flash`                       |
 
 DAIV resolves the provider automatically from the model name. No extra configuration is needed beyond setting the API key for the provider you want to use.
 
@@ -1289,14 +1289,13 @@ In the dashboard, the agent picker offers a live model dropdown built from each 
 
 ### Default models
 
-| Role             | Model             | Provider   |
-| ---------------- | ----------------- | ---------- |
-| Main agent       | Claude Sonnet 4.6 | OpenRouter |
-| Max mode         | Claude Opus 4.6   | OpenRouter |
-| Explore subagent | Claude Haiku 4.5  | OpenRouter |
-| Fallback         | GPT 5.3 Codex     | OpenRouter |
+| Role             | Model             | Fallback                |
+| ---------------- | ----------------- | ----------------------- |
+| Main agent       | Claude Sonnet 5.5 | GPT-6.1 Sol             |
+| Max mode         | Claude Opus 5.5   | The main agent's models |
+| Explore subagent | Claude Haiku 5.5  | GPT-6 Luna              |
 
-All defaults route through OpenRouter, so only `OPENROUTER_API_KEY` is required for a basic setup. Override models per repository in `.daiv.yml` — see [Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/#model-overrides).
+Smaller tasks such as titling, merge request metadata and memory have their own defaults, listed in [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/index.md). All defaults route through OpenRouter, so only `OPENROUTER_API_KEY` is required for a basic setup. Override models per repository in `.daiv.yml` — see [Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/#model-overrides).
 
 ______________________________________________________________________
 
@@ -1319,8 +1318,8 @@ OpenRouter is the **default provider** for DAIV. It provides access to models fr
 Use the `openrouter:` prefix followed by the [model name from OpenRouter](https://openrouter.ai/models):
 
 ```
-openrouter:anthropic/claude-sonnet-4.6
-openrouter:openai/gpt-5.3-codex
+openrouter:anthropic/claude-sonnet-5.5
+openrouter:openai/gpt-6.1-sol
 ```
 
 **Per-repository override** (`.daiv.yml`):
@@ -1328,7 +1327,7 @@ openrouter:openai/gpt-5.3-codex
 ```
 models:
   agent:
-    model: "openrouter:anthropic/claude-sonnet-4.6"
+    model: "openrouter:anthropic/claude-sonnet-5.5"
 ```
 
 ______________________________________________________________________
@@ -1350,8 +1349,8 @@ ______________________________________________________________________
 Use the [model name from OpenAI](https://platform.openai.com/docs/models) directly (no prefix needed):
 
 ```
-gpt-5.3-codex
-o4-mini
+gpt-6.1-sol
+gpt-6-luna
 ```
 
 **Per-repository override** (`.daiv.yml`):
@@ -1359,7 +1358,7 @@ o4-mini
 ```
 models:
   agent:
-    model: "gpt-5.3-codex"
+    model: "gpt-6.1-sol"
 ```
 
 ______________________________________________________________________
@@ -1381,8 +1380,8 @@ ______________________________________________________________________
 Use the [model name from Anthropic](https://docs.anthropic.com/en/docs/about-claude/models/all-models#model-names) directly (no prefix needed):
 
 ```
-claude-sonnet-4.6
-claude-opus-4.6
+claude-sonnet-5-5
+claude-opus-5-5
 ```
 
 **Per-repository override** (`.daiv.yml`):
@@ -1390,7 +1389,7 @@ claude-opus-4.6
 ```
 models:
   agent:
-    model: "claude-sonnet-4.6"
+    model: "claude-sonnet-5-5"
 ```
 
 Warning
@@ -1416,8 +1415,7 @@ ______________________________________________________________________
 Use the [model name from Gemini](https://ai.google.dev/gemini-api/docs/models) directly (no prefix needed):
 
 ```
-gemini-2.5-pro-preview-05-06
-gemini-2.4-flash-preview-04-17
+gemini-3.8-flash
 ```
 
 **Per-repository override** (`.daiv.yml`):
@@ -1425,7 +1423,7 @@ gemini-2.4-flash-preview-04-17
 ```
 models:
   agent:
-    model: "gemini-2.5-pro-preview-05-06"
+    model: "gemini-3.8-flash"
 ```
 
 ______________________________________________________________________
@@ -3059,7 +3057,7 @@ The paginated listing tools (`list_jobs`, `list_scheduled_jobs`, `list_environme
 
 `submit_job` also accepts these optional parameters:
 
-- `agent_model` — override the default model as a `provider_slug:model_name` string (e.g. `openrouter:anthropic/claude-sonnet-4.6`); the provider slug must match an enabled provider. Omit to use the repository's `models.agent` model, else the system default.
+- `agent_model` — override the default model as a `provider_slug:model_name` string (e.g. `openrouter:anthropic/claude-sonnet-5.5`); the provider slug must match an enabled provider. Omit to use the repository's `models.agent` model, else the system default.
 - `agent_thinking_level` — control reasoning effort: one of `minimal`, `low`, `medium`, `high`, or `xhigh`. Omit to inherit the repository's `models.agent` thinking level, else the system default.
 - `muted` — mute this run's notifications; default false. `notify_on` is no longer accepted (removed); sending it returns an unknown-argument error.
 - `environment` — the [sandbox environment](https://srtab.github.io/daiv/dev/features/sandbox/index.md) to run every job in, given as its name or UUID (discover names via `list_environments`). Omit to auto-resolve a runtime per repository.
@@ -3565,7 +3563,7 @@ Each `.md` file contains YAML frontmatter with the subagent's metadata, followed
 ---
 name: database-migration
 description: Specialized agent for planning and reviewing database migrations. Use when the task involves schema changes, data migrations, or ORM model modifications.
-model: openrouter:anthropic/claude-sonnet-4.6  # optional
+model: openrouter:anthropic/claude-sonnet-5.5  # optional
 ---
 
 You are a database migration specialist. When given a task:
@@ -3590,7 +3588,7 @@ The markdown body (after the frontmatter) is **required** and becomes the subage
 
 | Field   | Description                                                                                                                                                                       |
 | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `model` | Override the model used by this subagent. Use the `provider:model-name` format (e.g., `openrouter:anthropic/claude-haiku-4.5`). If not specified, the main agent's model is used. |
+| `model` | Override the model used by this subagent. Use the `provider:model-name` format (e.g., `openrouter:anthropic/claude-haiku-5.5`). If not specified, the main agent's model is used. |
 
 ### Capabilities
 
@@ -4057,12 +4055,12 @@ orchestration:
 # Model overrides
 models:
   agent:
-    model: "openrouter:anthropic/claude-sonnet-4.6"
-    fallback_model: "openrouter:openai/gpt-5.3-codex"
+    model: "openrouter:anthropic/claude-sonnet-5.5"
+    fallback_model: "openrouter:openai/gpt-6.1-sol"
     thinking_level: "medium"
   diff_to_metadata:
-    model: "openrouter:anthropic/claude-sonnet-4.6"
-    fallback_model: "openrouter:openai/gpt-5.3-codex"
+    model: "openrouter:anthropic/claude-sonnet-5.5"
+    fallback_model: "openrouter:openai/gpt-6.1-sol"
 ```
 
 ## Repository settings
@@ -5407,7 +5405,7 @@ A typical labelled-issue run therefore carries the tags `gitlab`, `group/project
   "issue_id": 42,
   "labels": ["daiv", "bug"],
   "scope": "Issue",
-  "model": "openrouter:anthropic/claude-sonnet-4.6",
+  "model": "openrouter:anthropic/claude-sonnet-5.5",
   "thinking_level": "medium"
 }
 ```
@@ -5423,7 +5421,7 @@ A typical labelled-issue run therefore carries the tags `gitlab`, `group/project
   "git_platform": "gitlab",
   "merge_request_id": 123,
   "scope": "Merge Request",
-  "model": "openrouter:anthropic/claude-sonnet-4.6",
+  "model": "openrouter:anthropic/claude-sonnet-5.5",
   "thinking_level": "medium"
 }
 ```
@@ -5436,7 +5434,7 @@ A typical labelled-issue run therefore carries the tags `gitlab`, `group/project
   "git_platform": "gitlab",
   "scope": "Global",
   "trigger": "job",
-  "model": "openrouter:anthropic/claude-sonnet-4.6",
+  "model": "openrouter:anthropic/claude-sonnet-5.5",
   "thinking_level": "medium",
   "ref": "main",
   "override_source": "explicit"
@@ -5507,7 +5505,7 @@ python manage.py setup_langsmith_dashboard --recreate
 
 - **By trigger type** — filter by `scope` or by metadata key `issue_id` vs `merge_request_id`
 - **By user** — filter or group by `author`
-- **By model** — group by `model` to compare performance across models (the value is the full configured model identifier, e.g. `openrouter:anthropic/claude-sonnet-4.6` vs `openrouter:anthropic/claude-opus-4.6`)
+- **By model** — group by `model` to compare performance across models (the value is the full configured model identifier, e.g. `openrouter:anthropic/claude-sonnet-5.5` vs `openrouter:anthropic/claude-opus-5.5`)
 - **Performance** — monitor execution time and token usage per run
 
 ______________________________________________________________________

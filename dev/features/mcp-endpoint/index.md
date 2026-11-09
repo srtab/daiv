@@ -93,7 +93,7 @@ The paginated listing tools (`list_jobs`, `list_scheduled_jobs`, `list_environme
 
 `submit_job` also accepts these optional parameters:
 
-- `agent_model` — override the default model as a `provider_slug:model_name` string (e.g. `openrouter:anthropic/claude-sonnet-4.6`); the provider slug must match an enabled provider. Omit to use the repository's `models.agent` model, else the system default.
+- `agent_model` — override the default model as a `provider_slug:model_name` string (e.g. `openrouter:anthropic/claude-sonnet-5.5`); the provider slug must match an enabled provider. Omit to use the repository's `models.agent` model, else the system default.
 - `agent_thinking_level` — control reasoning effort: one of `minimal`, `low`, `medium`, `high`, or `xhigh`. Omit to inherit the repository's `models.agent` thinking level, else the system default.
 - `muted` — mute this run's notifications; default false. `notify_on` is no longer accepted (removed); sending it returns an unknown-argument error.
 - `environment` — the [sandbox environment](https://srtab.github.io/daiv/dev/features/sandbox/index.md) to run every job in, given as its name or UUID (discover names via `list_environments`). Omit to auto-resolve a runtime per repository.
