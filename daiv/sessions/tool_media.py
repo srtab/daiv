@@ -3,15 +3,15 @@
 ``RunToolMediaStore`` is the agent's ``automation.agent.tool_media.ToolMediaStore`` for executor runs: a media block
 goes to the ``Run`` that :func:`sessions.artifacts.bind_active_run` names, within the ``sessions.conf`` limits. The
 content type comes from an MCP server or ``mimetypes``, so only types a browser can't run script from are kept, and
-the endpoint serves them under the artifact sandbox CSP, with the content type its stored extension maps to.
+the endpoint serves them under the artifact sandbox CSP. A kept type has a known file extension, so the content type
+the endpoint derives from the stored name is the one kept.
 """
 
 from __future__ import annotations
 
 import logging
+import mimetypes
 import re
-from contextlib import suppress
-from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
@@ -34,8 +34,6 @@ from sessions.artifacts import aresolve_active_run, delete_stored_file
 from sessions.conf import settings
 
 if TYPE_CHECKING:
-    from django.core.files.storage import Storage
-
     from sessions.models import Run, ToolResultMedia
 
 logger = logging.getLogger("daiv.sessions")
@@ -57,7 +55,11 @@ def stored_content_type(mime_type: str) -> str | None:
     content_type = _IMAGE_ALIASES.get(content_type, content_type)
     if content_type in _IMAGE_TYPES or content_type == "application/pdf":
         return content_type
-    if len(content_type) <= _CONTENT_TYPE_MAX_LENGTH and _MEDIA_TYPE.fullmatch(content_type):
+    if (
+        len(content_type) <= _CONTENT_TYPE_MAX_LENGTH
+        and _MEDIA_TYPE.fullmatch(content_type)
+        and mimetypes.guess_extension(content_type)
+    ):
         return content_type
     return None
 
@@ -110,30 +112,20 @@ def _store_media(run: Run, tool_call_id: str, ordinal: int, content_type: str, c
                 raise ToolMediaError(RUN_LIMIT)
             media.save()
     except BaseException:
-        delete_media_file(media.file.storage, media.file.name or media.file.field.generate_filename(media, "media"))
+        delete_stored_file(media.file.storage, media.file.name or media.file.field.generate_filename(media, "media"))
         raise
     return media
 
 
-def delete_media_file(storage: Storage, name: str) -> None:
-    """Delete ``name`` and then its run's directory, once that holds nothing else."""
-    delete_stored_file(storage, name)
-    with suppress(NotImplementedError, OSError):
-        Path(storage.path(str(PurePosixPath(name).parent))).rmdir()
-
-
 def tool_text(content: Any) -> str:
-    """The text of a tool result's ``content``, one block per line: each dict block's ``text`` and every other block
-    as a string; a block without text, such as an image, adds no line."""
+    """The text of a tool result's ``content``, one block per line: each dict block's string ``text`` and every other
+    block as a string; a block without text, such as an image, adds no line."""
     if isinstance(content, str):
         return content
     if not isinstance(content, list):
         return str(content or "")
-    return "\n".join(
-        str(block["text"]) if isinstance(block, dict) else str(block)
-        for block in content
-        if not isinstance(block, dict) or "text" in block
-    )
+    texts = (block.get("text") if isinstance(block, dict) else str(block) for block in content)
+    return "\n".join(text for text in texts if isinstance(text, str))
 
 
 def media_items(entries: list[dict[str, Any]], *, thread_id: str) -> list[dict[str, Any]]:

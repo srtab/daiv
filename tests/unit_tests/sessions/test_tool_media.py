@@ -3,8 +3,7 @@ from __future__ import annotations
 import uuid
 from unittest.mock import patch
 
-from django.core.files.base import ContentFile
-from django.core.files.storage import FileSystemStorage, Storage, default_storage
+from django.core.files.storage import Storage, default_storage
 from django.urls import reverse
 
 import pytest
@@ -13,14 +12,7 @@ from langchain_core.messages import ToolMessage
 from sessions.artifacts import bind_active_run
 from sessions.conf import settings as sessions_settings
 from sessions.models import Run, RunStatus, Session, SessionOrigin, ToolResultMedia
-from sessions.tool_media import (
-    RunToolMediaStore,
-    delete_media_file,
-    media_items,
-    message_media,
-    stored_content_type,
-    tool_text,
-)
+from sessions.tool_media import RunToolMediaStore, media_items, message_media, stored_content_type, tool_text
 
 from automation.agent.tool_media import ToolMediaError
 
@@ -57,6 +49,7 @@ async def _rejection(run: Run, **kwargs) -> str:
         ("image/webp", "image/webp"),
         ("audio/x-wav", "audio/x-wav"),
         ("video/mp4", "video/mp4"),
+        ("video/x-unknown", None),
         ("application/pdf", "application/pdf"),
         ("image/svg+xml", None),
         ("text/html", None),
@@ -76,7 +69,7 @@ async def test_astore_saves_the_bytes_on_the_bound_run():
     row = await ToolResultMedia.objects.aget(pk=media_id)
     assert (row.run_id, row.tool_call_id, row.ordinal) == (run.pk, "call_1", 2)
     assert (row.content_type, row.size) == ("image/png", 3)
-    assert row.file.name == f"tool-media/{run.pk}/{row.pk}.png"
+    assert row.file.name == f"tool-media/{row.pk}.png"
     with row.file.open("rb") as fh:
         assert fh.read() == b"png"
 
@@ -94,7 +87,6 @@ async def test_astore_enforces_the_size_cap(monkeypatch):
 
     assert await _rejection(run) == "too_large"
     assert not await ToolResultMedia.objects.aexists()
-    assert not default_storage.exists(f"tool-media/{run.pk}")
 
 
 async def test_astore_enforces_the_per_run_cap(monkeypatch):
@@ -104,8 +96,7 @@ async def test_astore_enforces_the_per_run_cap(monkeypatch):
 
     with patch.object(Storage, "save", side_effect=AssertionError("wrote the file")):
         assert await _rejection(run, ordinal=1) == "run_limit"
-    _, files = default_storage.listdir(f"tool-media/{run.pk}")
-    assert files == [kept.file.name.rsplit("/", 1)[1]]
+    assert default_storage.exists(kept.file.name)
 
 
 async def test_astore_without_a_bound_run_fails():
@@ -126,18 +117,6 @@ async def test_astore_rejects_a_type_before_looking_up_the_run():
         )
 
     assert exc_info.value.code == "unsupported_type"
-
-
-def test_delete_media_file_removes_the_run_directory_once_empty(tmp_path):
-    storage = FileSystemStorage(location=tmp_path)
-    first = storage.save("tool-media/run/a.png", ContentFile(b"a"))
-    second = storage.save("tool-media/run/b.png", ContentFile(b"b"))
-
-    delete_media_file(storage, first)
-    assert storage.exists("tool-media/run")
-
-    delete_media_file(storage, second)
-    assert not storage.exists("tool-media/run")
 
 
 async def test_deleting_the_run_removes_the_file():
@@ -210,7 +189,7 @@ def test_text_only_message_has_no_media():
 
 
 def test_tool_text_joins_the_text_of_each_block():
-    content = [{"type": "text", "text": "a"}, {"type": "image", "base64": "AAAA"}, "b", {"text": "c"}]
+    content = [{"type": "text", "text": "a"}, {"type": "image", "base64": "AAAA"}, "b", {"text": "c"}, {"text": None}]
 
     assert tool_text(content) == "a\nb\nc"
     assert tool_text("plain") == "plain"

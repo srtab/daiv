@@ -4,12 +4,12 @@ import base64
 import logging
 from typing import TYPE_CHECKING, Any
 
-from deepagents.middleware.filesystem import _is_read_file_media_result
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.messages import ToolMessage
 
 from automation.agent.events import TOOL_MEDIA_EVENT
+from automation.agent.synthetic import SYNTHETIC_KWARG, TOOL_MEDIA_KIND
 from automation.agent.tool_media import (
     DAIV_MEDIA_KEY,
     FAILED,
@@ -46,7 +46,7 @@ class ToolMediaMiddleware(AgentMiddleware):
     ) -> ToolMessage | Command:
         result = await handler(request)
         thread_id = _thread_id(request)
-        for message, blocks in _media_by_tool_message(result):
+        for message, blocks in _media_by_tool_message(result, request.tool_call.get("id")):
             entries = [
                 await self._entry(block, ordinal, thread_id=thread_id, tool_call_id=message.tool_call_id)
                 for ordinal, block in enumerate(blocks)
@@ -72,7 +72,7 @@ class ToolMediaMiddleware(AgentMiddleware):
             if not isinstance(data, str):
                 raise TypeError(type(data).__name__)
             encoded = "".join(data.split())
-            if (size := len(encoded) * 3 // 4 - encoded[-2:].count("=")) > self._store.max_bytes:
+            if (size := _decoded_size(encoded)) > self._store.max_bytes:
                 return {**entry, "size": size, "error": TOO_LARGE}
             content = base64.b64decode(encoded, validate=True)
         except ValueError, TypeError:
@@ -103,21 +103,31 @@ def _thread_id(request: ToolCallRequest) -> str:
     return (config.get("configurable") or {}).get("thread_id") or ""
 
 
-def _media_by_tool_message(result: ToolMessage | Command) -> list[tuple[ToolMessage, list[dict[str, Any]]]]:
-    """Each tool message of ``result`` that has media, with its blocks followed by those of the frames message
-    deepagents' video ``read_file`` returns beside it."""
+def _decoded_size(encoded: str) -> int:
+    return len(encoded) * 3 // 4 - encoded[-2:].count("=")
+
+
+def _media_by_tool_message(
+    result: ToolMessage | Command, call_id: str | None
+) -> list[tuple[ToolMessage, list[dict[str, Any]]]]:
+    """Each tool message of ``result`` that has media, with its blocks.
+
+    Media a ``Command`` returns in another message (the frames of deepagents' video ``read_file``) go to the call's
+    own tool message, and the other message is marked synthetic so the transcript doesn't show it as a person's turn.
+    """
     messages = result_messages(result)
-    frames = {
-        message.additional_kwargs.get("read_file_tool_call_id"): media_blocks(message)
-        for message in messages
-        if _is_read_file_media_result(message)
-    }
-    return [
-        (message, blocks)
-        for message in messages
-        if isinstance(message, ToolMessage)
-        and (blocks := [*media_blocks(message), *frames.get(message.tool_call_id, [])])
-    ]
+    tool_messages = [m for m in messages if isinstance(m, ToolMessage)]
+    media = {id(m): media_blocks(m) for m in tool_messages}
+    owner = next((m for m in tool_messages if m.tool_call_id == call_id), None)
+    if owner is None and len(tool_messages) == 1:
+        owner = tool_messages[0]
+    for message in messages:
+        if owner is None or isinstance(message, ToolMessage):
+            continue
+        if blocks := media_blocks(message):
+            media[id(owner)] += blocks
+            message.additional_kwargs[SYNTHETIC_KWARG] = TOOL_MEDIA_KIND
+    return [(m, media[id(m)]) for m in tool_messages if media[id(m)]]
 
 
 async def _dispatch(payload: dict[str, Any]) -> None:

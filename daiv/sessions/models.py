@@ -715,9 +715,9 @@ class RunArtifact(models.Model):
 
 
 def tool_media_upload_to(instance: ToolResultMedia, filename: str) -> str:
-    """Storage name ``tool-media/<run_id>/<media_id><ext>``, the extension derived from the stored content type."""
+    """Storage name ``tool-media/<media_id><ext>``, the extension derived from the stored content type."""
     ext = mimetypes.guess_extension(instance.content_type) or ""
-    return f"tool-media/{instance.run_id}/{instance.id}{ext}"
+    return f"tool-media/{instance.id}{ext}"
 
 
 class ToolResultMedia(models.Model):
