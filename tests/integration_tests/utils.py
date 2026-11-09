@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
     from automation.agent.agent_settings import AgentSettings
     from automation.agent.context import RuntimeCtx
+    from automation.agent.delegation import JobDelegator
     from automation.agent.mcp.schemas import UserMcpServer
 
 INTERRUPT_ALL_TOOLS_CONFIG = {
@@ -165,6 +166,7 @@ WEB_SEARCH_MODELS = _models_from_env("DAIV_EVAL_WEB_SEARCH_MODELS", [EVAL_MODEL]
 SUBAGENTS_MODELS = _models_from_env("DAIV_EVAL_SUBAGENTS_MODELS", [EVAL_MODEL])
 CODE_REVIEW_MODELS = _models_from_env("DAIV_EVAL_CODE_REVIEW_MODELS", [EVAL_MODEL])
 INBOX_MODELS = _models_from_env("DAIV_EVAL_INBOX_MODELS", [EVAL_MODEL])
+DELEGATION_MODELS = _models_from_env("DAIV_EVAL_DELEGATION_MODELS", [EVAL_MODEL])
 
 
 def _is_frozen_tools_model(model_spec: str) -> bool:
@@ -230,9 +232,10 @@ async def run_agent_once(
     *,
     interrupt_on: dict[str, bool] | None = None,
     ask_user_enabled: bool = True,
+    delegator: JobDelegator | None = None,
 ) -> dict:
     """One fresh agent run on a disk clone of srtab/daiv ``main``; returns the run's final state. ``prompt`` is the
-    user's message, or the run's whole input."""
+    user's message, or the run's whole input; ``delegator`` binds the ``delegate_jobs`` tools."""
     from langgraph.checkpoint.memory import InMemorySaver
     from sandbox_envs.services import build_sandbox_spec
 
@@ -253,6 +256,7 @@ async def run_agent_once(
             workspace=DiskWorkspace(ctx),
             mcp_servers=await default_mcp_servers(),
             ask_user_enabled=ask_user_enabled,
+            delegator=delegator,
         )
         messages = [{"role": "user", "content": prompt}] if isinstance(prompt, str) else list(prompt)
         return await agent.ainvoke({"messages": messages}, context=ctx, config={"configurable": {"thread_id": "1"}})
