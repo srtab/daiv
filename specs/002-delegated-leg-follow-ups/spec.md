@@ -34,6 +34,7 @@
 - Q: Archiving hides a session from one person's list only. Whose archive should block a follow-up? → A: The archive of the person the follow-up runs as, the one who triggered the coordinator's run, as chat refuses today. The refusal says to unarchive the leg's session or delegate a new leg. Recorded in FR-008, FR-009 and the Edge Cases.
 - Q: When a follow-up's run fails, should the inbox retry it as it retries other inbox events, or should it end as failed the first time? → A: It is not retried. The first failed run ends the follow-up as failed, as a new leg fails today, and the coordinator decides whether to send another. Recorded in FR-011a and the Edge Cases.
 - Q: The glossary already calls a person's jobs-API request that continues a session a "follow-up job". Should the coordinator's request get a distinct term? → A: Yes, "leg follow-up", in the spec, glossary, docs and UI. The glossary adds coordinator, leg, batch and leg follow-up, with "follow-up job" as what a leg follow-up is not. Recorded in Terms, throughout the spec, and in FR-022.
+- Q: A leg follow-up whose leg's merge request was merged or closed while it waited stops when it starts. What outcome should the coordinator see for that leg? → A: An outcome of its own, "not run: its merge request was merged" (or "closed"), counted as not succeeded and followed by the advice to delegate a new leg. Not failed, which misreports a merged leg, and not cancelled, which would skip the resume. Recorded in FR-008a and the Edge Cases.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -139,7 +140,7 @@ The resume summary and the batch status name each leg's session id, so the coord
 - **A coordinator that keeps sending leg follow-ups that fail.** It is bounded by the existing limit of three runs in a row nobody asked for on the coordinator's session. After that, a finished batch is only remembered, and its owner is told.
 - **A leg follow-up sent to a leg that is itself waiting to start after the coordinator's turn ends.** It is refused as still working.
 - **A person's own requests on the leg's session waiting at the same time.** The leg follow-up runs in a run of its own, never combined with them, so it stays unattended and answers only the coordinator.
-- **The leg's merge request merged or closed while the leg follow-up was waiting.** The leg follow-up stops when it starts, without changes, and the batch's summary tells the coordinator to delegate a new leg (FR-008a).
+- **The leg's merge request merged or closed while the leg follow-up was waiting.** The leg follow-up stops when it starts, without changes. The batch's summary reports it as "not run: its merge request was merged" (or closed), not as failed, and tells the coordinator to delegate a new leg (FR-008a).
 - **More than the per-call target limit.** Leg follow-ups count toward the same limit as new legs, and the call is refused as today.
 
 ## Requirements *(mandatory)*
@@ -169,7 +170,7 @@ The resume summary and the batch status name each leg's session id, so the coord
   - the leg's merge request is merged or closed;
   - the target names a branch;
   - the target's repository is not the leg's.
-- **FR-008a**: A leg follow-up whose leg's merge request merged or closed after it was sent MUST stop when it starts, without changing the leg's branch or opening a merge request. It finishes in a way the batch's summary reports as not done, and it MUST say to delegate a new leg for the work.
+- **FR-008a**: A leg follow-up whose leg's merge request merged or closed after it was sent MUST stop when it starts, without changing the leg's branch or opening a merge request. Its outcome MUST be one of its own, "not run: its merge request was merged" or "not run: its merge request was closed", never failed or cancelled. It counts as not succeeded, still resumes the coordinator, and MUST say to delegate a new leg for the work.
 - **FR-009**: Each refusal MUST say what to do instead (wait for the resume, check the leg's session, unarchive the leg's session, delegate a new leg, omit the branch, use the leg's repository), and MUST NOT include DAIV's internal error text.
 - **FR-010**: A call that names the same leg more than once MUST be refused as a whole, and nothing in it starts.
 
@@ -193,7 +194,7 @@ The resume summary and the batch status name each leg's session id, so the coord
 - **FR-019**: The coordinator's session page MUST list and count each leg session once in its top-level delegations, with its latest state. Its batch details MUST show a leg under every batch it served.
 - **FR-020**: A delegate call's card MUST match each leg follow-up target to its leg by session id, and mark it as a leg follow-up.
 - **FR-021**: The orchestration documentation and the changelog MUST describe leg follow-ups, their limits and refusals, and the longer leg replies.
-- **FR-022**: The glossary MUST define coordinator, leg, batch and leg follow-up, listing "follow-up job" as what a leg follow-up is not. Docs, UI labels and inbox event names MUST say "leg follow-up", never a bare "follow-up".
+- **FR-022**: The glossary MUST define coordinator, leg, batch and leg follow-up, listing "follow-up job" as what a leg follow-up is not. Docs, UI labels and inbox event labels MUST say "leg follow-up", never a bare "follow-up".
 
 ### Key Entities
 
