@@ -32,6 +32,7 @@
 - Q: Should follow-ups be checked for the person's repository access when sent, as new legs are, or only when their run starts? → A: Only when the run starts, by the inbox's existing check. A start refused for access ends the follow-up as failed, and the batch's summary reports it. Recorded in FR-005a and the Edge Cases.
 - Q: When a leg's session has already hit the inbox's limit of three DAIV-started runs in a row, should a follow-up still wake it? → A: Yes. A follow-up always wakes the leg's session, as a person's request does. Its run still counts as DAIV-started, so CI fixes after it stay limited. Recorded in FR-004a and the Edge Cases.
 - Q: Archiving hides a session from one person's list only. Whose archive should block a follow-up? → A: The archive of the person the follow-up runs as, the one who triggered the coordinator's run, as chat refuses today. The refusal says to unarchive the leg's session or delegate a new leg. Recorded in FR-008, FR-009 and the Edge Cases.
+- Q: When a follow-up's run fails, should the inbox retry it as it retries other inbox events, or should it end as failed the first time? → A: It is not retried. The first failed run ends the follow-up as failed, as a new leg fails today, and the coordinator decides whether to send another. Recorded in FR-011a and the Edge Cases.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -133,6 +134,7 @@ The resume summary and the batch status name each leg's session id, so the coord
 - **A leg whose earlier conversation is no longer available.** The follow-up still runs, from its request and the state of the leg's branch.
 - **A leg session that was archived.** When the person the follow-up runs as archived it, the follow-up is refused, saying to unarchive the session or delegate a new leg. Another person's archive only hides the session from their own list, and the follow-up goes ahead.
 - **A leg session at its limit of DAIV-started runs in a row**, for example after its first run and two CI fixes. The follow-up still wakes it and runs (FR-004a). A CI failure after that follow-up is still only remembered.
+- **A follow-up whose run fails partway**, for example on a model or sandbox error. It is not retried (FR-011a). It ends as failed, and the batch resumes the coordinator once its other runs have ended.
 - **A coordinator that keeps sending follow-ups that fail.** It is bounded by the existing limit of three runs in a row nobody asked for on the coordinator's session. After that, a finished batch is only remembered, and its owner is told.
 - **A follow-up sent to a leg that is itself waiting to start after the coordinator's turn ends.** It is refused as still working.
 - **A person's own requests on the leg's session waiting at the same time.** The follow-up runs in a run of its own, never combined with them, so it stays unattended and answers only the coordinator.
@@ -173,6 +175,7 @@ The resume summary and the batch status name each leg's session id, so the coord
 **Batch, resume and cancel**
 
 - **FR-011**: A batch MUST count a follow-up from the moment it is sent until its run ends. The coordinator MUST NOT be resumed while a follow-up in the batch is waiting or running.
+- **FR-011a**: A follow-up MUST NOT be retried. It gets one run, and that run's end, whether success or failure, ends the follow-up, unlike other inbox events, which are retried up to three times. A failed follow-up is reported in the batch's summary, and the coordinator may send another.
 - **FR-012**: The coordinator MUST be resumed exactly once per batch, after every leg and follow-up in it has finished, under the same rules as today: none when nothing started or everything was cancelled, and the limit on runs in a row nobody asked for.
 - **FR-013**: Cancelling a follow-up that has not started MUST withdraw only that follow-up, leaving any other request waiting on the leg's session in place. Cancelling a running follow-up MUST stop it as a running leg stops today.
 - **FR-014**: Batch status MUST list a follow-up as a leg of the batch that sent it. It MUST report the leg's current branch whenever the leg has a branch of its own, including when the follow-up started on that branch.
