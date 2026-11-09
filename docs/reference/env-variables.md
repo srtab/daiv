@@ -326,6 +326,8 @@ The `publish_artifact` tool stores files the agent generates (reports, datasets,
 |---------------------------------|----------------------------------------------------------------|:--------------:|---------|
 | `DAIV_ARTIFACT_MAX_BYTES`       | Maximum size of one published file, in bytes (at most 64 MiB, the sandbox download limit) | `10485760` (10 MiB) | `52428800` |
 | `DAIV_ARTIFACTS_PER_RUN_MAX`    | Maximum number of files one run may publish                    | `20`           | `50` |
+| `DAIV_TOOL_MEDIA_MAX_BYTES`     | Maximum size of one image or file kept from a tool result for the transcript, in bytes | `10485760` (10 MiB) | `20971520` |
+| `DAIV_TOOL_MEDIA_PER_RUN_MAX`   | Maximum number of images and files kept from one run's tool results | `100`  | `200` |
 
 ### Session Transcript
 
