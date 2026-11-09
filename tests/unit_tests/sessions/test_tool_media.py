@@ -3,13 +3,15 @@ from __future__ import annotations
 import uuid
 
 from django.core.files.storage import default_storage
+from django.urls import reverse
 
 import pytest
 from asgiref.sync import sync_to_async
+from langchain_core.messages import ToolMessage
 from sessions.artifacts import bind_active_run
 from sessions.conf import settings as sessions_settings
 from sessions.models import Run, RunStatus, Session, SessionOrigin, ToolResultMedia
-from sessions.tool_media import RunToolMediaStore, stored_content_type
+from sessions.tool_media import RunToolMediaStore, media_items, message_media, stored_content_type, tool_text
 
 from automation.agent.tool_media import ToolMediaError
 
@@ -115,3 +117,65 @@ async def test_deleting_the_run_removes_the_file():
     await run.adelete()
 
     assert not default_storage.exists(row.file.name)
+
+
+STORED_ID = "11111111-1111-1111-1111-111111111111"
+
+
+def test_media_items_maps_each_entry_kind():
+    entries = [
+        {"ordinal": 0, "kind": "image", "mime_type": "image/png", "id": STORED_ID, "size": 3},
+        {"ordinal": 1, "kind": "image", "mime_type": "image/png", "url": "https://x.test/a.png"},
+        {"ordinal": 2, "kind": "file", "mime_type": "application/pdf", "error": "too_large", "size": 99},
+        {"ordinal": 3, "kind": "image", "mime_type": "image/png", "url": "javascript:alert(1)"},
+        {"ordinal": 4, "kind": "image", "mime_type": "image/png", "url": "data:image/png;base64,AAAA"},
+    ]
+
+    assert media_items(entries, thread_id="t1") == [
+        {
+            "kind": "image",
+            "mime_type": "image/png",
+            "size": 3,
+            "url": reverse("session_tool_media", kwargs={"thread_id": "t1", "pk": STORED_ID}),
+        },
+        {"kind": "image", "mime_type": "image/png", "url": "https://x.test/a.png", "external": True},
+        {"kind": "file", "mime_type": "application/pdf", "size": 99, "error": "too_large"},
+        {"kind": "image", "mime_type": "image/png", "error": "unsupported_type"},
+        {"kind": "image", "mime_type": "image/png", "error": "unsupported_type"},
+    ]
+
+
+def test_untagged_message_shows_not_saved_placeholders():
+    message = ToolMessage(
+        content=[
+            {"type": "text", "text": "x"},
+            {"type": "image", "base64": "AAAA", "mime_type": "image/png"},
+            {"type": "image", "url": "https://x.test/a.png", "mime_type": "image/png"},
+        ],
+        tool_call_id="c1",
+    )
+
+    assert message_media(message, thread_id="t1") == [
+        {"kind": "image", "mime_type": "image/png", "error": "not_saved"},
+        {"kind": "image", "mime_type": "image/png", "url": "https://x.test/a.png", "external": True},
+    ]
+
+
+def test_tagged_message_uses_its_entries():
+    entries = [{"ordinal": 0, "kind": "image", "mime_type": "image/png", "error": "run_limit"}]
+    message = ToolMessage(
+        content=[{"type": "image", "base64": "AAAA", "mime_type": "image/png"}],
+        tool_call_id="c1",
+        additional_kwargs={"daiv_media": entries},
+    )
+
+    assert message_media(message, thread_id="t1") == [{"kind": "image", "mime_type": "image/png", "error": "run_limit"}]
+
+
+def test_text_only_message_has_no_media():
+    assert message_media(ToolMessage(content="ok", tool_call_id="c1"), thread_id="t1") == []
+
+
+def test_tool_text_keeps_only_text():
+    assert tool_text([{"type": "text", "text": "a"}, {"type": "image", "base64": "AAAA"}, "b"]) == "a\nb"
+    assert tool_text("plain") == "plain"

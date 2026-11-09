@@ -9,14 +9,24 @@ the endpoint serves them under the artifact sandbox CSP.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 from django.core.files.base import ContentFile
 from django.db import transaction
+from django.urls import NoReverseMatch, reverse
 
 from asgiref.sync import sync_to_async
 
-from automation.agent.tool_media import FAILED, RUN_LIMIT, TOO_LARGE, UNSUPPORTED_TYPE, ToolMediaError
+from automation.agent.tool_media import (
+    DAIV_MEDIA_KEY,
+    FAILED,
+    RUN_LIMIT,
+    TOO_LARGE,
+    UNSUPPORTED_TYPE,
+    ToolMediaError,
+    media_blocks,
+)
 from sessions.artifacts import aresolve_active_run, delete_stored_file
 from sessions.conf import settings
 
@@ -26,6 +36,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.sessions")
 
 _IMAGE_TYPES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
+_LINK_SCHEMES = ("http", "https")
+
+NOT_SAVED = "not_saved"
 
 
 def stored_content_type(mime_type: str) -> str | None:
@@ -80,3 +93,59 @@ def _store_media(run: Run, tool_call_id: str, ordinal: int, content_type: str, c
         delete_stored_file(media.file.storage, name)
         raise
     return media
+
+
+def tool_text(content: Any) -> str:
+    """The text of a tool result's ``content``: its text blocks and bare strings, one per line."""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return str(content or "")
+    return "\n".join(
+        block if isinstance(block, str) else str(block.get("text", ""))
+        for block in content
+        if isinstance(block, str) or (isinstance(block, dict) and block.get("type") == "text")
+    )
+
+
+def media_items(entries: list[dict[str, Any]], *, thread_id: str) -> list[dict[str, Any]]:
+    """What the chat renders for each entry the tool-media middleware recorded: a media URL, an external link, or the
+    reason it was not kept. Only ``http``/``https`` external links survive."""
+    return [_item(entry, thread_id) for entry in entries]
+
+
+def message_media(message: Any, *, thread_id: str) -> list[dict[str, Any]]:
+    """The :func:`media_items` of a checkpointed tool message; a message from before tool media was kept gets a
+    ``not_saved`` placeholder per media block instead."""
+    entries = (getattr(message, "additional_kwargs", None) or {}).get(DAIV_MEDIA_KEY)
+    if entries is not None:
+        return media_items(entries, thread_id=thread_id)
+    return [_legacy_item(block) for block in media_blocks(message)]
+
+
+def _item(entry: dict[str, Any], thread_id: str) -> dict[str, Any]:
+    item: dict[str, Any] = {"kind": entry.get("kind") or "file", "mime_type": entry.get("mime_type") or ""}
+    if "size" in entry:
+        item["size"] = entry["size"]
+    if media_id := entry.get("id"):
+        try:
+            return {**item, "url": reverse("session_tool_media", kwargs={"thread_id": thread_id, "pk": media_id})}
+        except NoReverseMatch:
+            logger.warning("Tool media %r on thread %r has no URL", media_id, thread_id)
+            return {**item, "error": FAILED}
+    if url := entry.get("url"):
+        return {**item, **_external(url)}
+    return {**item, "error": entry.get("error") or FAILED}
+
+
+def _legacy_item(block: dict[str, Any]) -> dict[str, Any]:
+    item = {"kind": block["type"], "mime_type": block.get("mime_type") or ""}
+    if url := block.get("url"):
+        return {**item, **_external(url)}
+    return {**item, "error": NOT_SAVED}
+
+
+def _external(url: str) -> dict[str, Any]:
+    if urlsplit(url).scheme in _LINK_SCHEMES:
+        return {"url": url, "external": True}
+    return {"error": UNSUPPORTED_TYPE}

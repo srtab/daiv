@@ -97,7 +97,9 @@ async def aload_session_state(session: Session, user: User, *, always_look_up_me
     if merge_request is None and look_up and session.repo_id and session.ref:
         merge_request, merge_request_known = await _alook_up_merge_request(session, fresh=always_look_up_merge_request)
 
-    annotated = annotate_transcript(build_turns(hydrated.messages, in_flight=activity.in_flight), runs, activity)
+    annotated = annotate_transcript(
+        build_turns(hydrated.messages, in_flight=activity.in_flight, thread_id=session.thread_id), runs, activity
+    )
     expired_banner = hydrated.expired and not activity.in_flight and not annotated
     extra_repositories = await aload_extra_repos(session.thread_id)
     # The pill is the working branch, as the live stream's ``_applyRepoState`` couples it to the merge request;
