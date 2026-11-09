@@ -31,6 +31,7 @@
 - Q: Should the coordinator be allowed to send a follow-up to a leg DAIV started but lost track of? → A: No. It is refused, saying the leg may still be working and to check its session; the coordinator can delegate a new leg if the work is needed. Recorded in FR-008, and in the Assumptions on which outcomes can be followed up.
 - Q: Should follow-ups be checked for the person's repository access when sent, as new legs are, or only when their run starts? → A: Only when the run starts, by the inbox's existing check. A start refused for access ends the follow-up as failed, and the batch's summary reports it. Recorded in FR-005a and the Edge Cases.
 - Q: When a leg's session has already hit the inbox's limit of three DAIV-started runs in a row, should a follow-up still wake it? → A: Yes. A follow-up always wakes the leg's session, as a person's request does. Its run still counts as DAIV-started, so CI fixes after it stay limited. Recorded in FR-004a and the Edge Cases.
+- Q: Archiving hides a session from one person's list only. Whose archive should block a follow-up? → A: The archive of the person the follow-up runs as, the one who triggered the coordinator's run, as chat refuses today. The refusal says to unarchive the leg's session or delegate a new leg. Recorded in FR-008, FR-009 and the Edge Cases.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -130,7 +131,7 @@ The resume summary and the batch status name each leg's session id, so the coord
 
 - **A leg on a repository whose access the person lost.** The follow-up is accepted when sent, because access is checked only when its run starts (FR-005a). The run is then refused, ends as failed, and the batch's summary reports it without DAIV's internal error text. The batch still resumes the coordinator.
 - **A leg whose earlier conversation is no longer available.** The follow-up still runs, from its request and the state of the leg's branch.
-- **A leg session that was archived.** It is refused as a leg that cannot be continued, saying to delegate a new leg.
+- **A leg session that was archived.** When the person the follow-up runs as archived it, the follow-up is refused, saying to unarchive the session or delegate a new leg. Another person's archive only hides the session from their own list, and the follow-up goes ahead.
 - **A leg session at its limit of DAIV-started runs in a row**, for example after its first run and two CI fixes. The follow-up still wakes it and runs (FR-004a). A CI failure after that follow-up is still only remembered.
 - **A coordinator that keeps sending follow-ups that fail.** It is bounded by the existing limit of three runs in a row nobody asked for on the coordinator's session. After that, a finished batch is only remembered, and its owner is told.
 - **A follow-up sent to a leg that is itself waiting to start after the coordinator's turn ends.** It is refused as still working.
@@ -158,7 +159,7 @@ The resume summary and the batch status name each leg's session id, so the coord
 
 - **FR-008**: A follow-up target MUST be refused, without affecting the call's other targets, when:
   - the session is not a leg this coordinator delegated;
-  - the session is archived;
+  - the person the follow-up runs as has archived the session (another person's archive does not count);
   - the leg's earlier delegated work has not finished;
   - DAIV started the leg's work but lost track of it, so it may still be running;
   - the leg already has a follow-up that has not finished;
@@ -166,7 +167,7 @@ The resume summary and the batch status name each leg's session id, so the coord
   - the target names a branch;
   - the target's repository is not the leg's.
 - **FR-008a**: A follow-up whose leg's merge request merged or closed after it was sent MUST stop when it starts, without changing the leg's branch or opening a merge request. It finishes in a way the batch's summary reports as not done, and it MUST say to delegate a new leg for the work.
-- **FR-009**: Each refusal MUST say what to do instead (wait for the resume, check the leg's session, delegate a new leg, omit the branch, use the leg's repository), and MUST NOT include DAIV's internal error text.
+- **FR-009**: Each refusal MUST say what to do instead (wait for the resume, check the leg's session, unarchive the leg's session, delegate a new leg, omit the branch, use the leg's repository), and MUST NOT include DAIV's internal error text.
 - **FR-010**: A call that names the same leg more than once MUST be refused as a whole, and nothing in it starts.
 
 **Batch, resume and cancel**
