@@ -18,11 +18,13 @@ DelegateTarget
 `thread_id` description: "A leg's session id, from a resume or from `check_delegated_jobs`, to continue that leg in its
 own session, on its branch and merge request, instead of starting a new one. Omit `ref`, and give the leg's `repo_id`."
 
-Validation in the tool layer:
+Validation:
 
-- `thread_id` is stripped, and blank means none.
-- `MAX_DELEGATED_TARGETS` (10) counts new legs and leg follow-ups together (FR-006).
-- One `thread_id` given more than once refuses the whole call (FR-010) with:
+- In the tool layer, `thread_id` is stripped, and blank means none.
+- In `sessions.delegation.check_delegation`, the call validation shared with the `delegation` eval suite's recording
+  delegator (#1780):
+  - `MAX_DELEGATED_TARGETS` (10) counts new legs and leg follow-ups together (FR-006);
+  - one `thread_id` given more than once refuses the whole call (FR-010) with:
   `{"error": "Name each leg once per call: <thread_id> appears more than once."}`
 
 ## `delegate_jobs`: description changes

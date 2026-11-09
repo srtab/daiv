@@ -262,7 +262,7 @@ description: "Task list for the Delegated Leg Follow-ups feature"
   - when several apply, the earliest in the contract's order wins;
   - a refused follow-up beside a valid one: the valid one starts, and the result lists both;
   - a race where `LegFollowUps.apost` raises `LegFollowUpRefused` maps to the busy or merged text;
-  - the same `thread_id` twice raises `DelegationError` with the FR-010 text, and nothing is posted or submitted.
+  - the same `thread_id` twice raises `DelegationError` with the FR-010 text from `check_delegation`, and nothing is posted or submitted.
 - [ ] T037 [P] [US2] Extend `tests/unit_tests/sessions/inbox/test_leg_follow_ups.py` and `tests/unit_tests/sessions/inbox/test_drain.py`. Cover:
   - `LegFollowUps.stop_reason` returns `MR_MERGED`, `MR_CLOSED` or `None`;
   - when the drain's first split is a follow-up whose leg's merge request was closed through `Ownerships.aclose` after posting (merged and not merged):
@@ -289,7 +289,7 @@ description: "Task list for the Delegated Leg Follow-ups feature"
 
 - [ ] T041 [US2] In `daiv/sessions/inbox/leg_follow_ups.py`, add `stop_reason` and `stop` per contracts/sessions-services.md. In `daiv/sessions/inbox/drain.py` `_Take.take`, call them before promoting a follow-up's run, then return `None` and schedule `Drain(...).start_logged` on commit. Makes T037 pass.
 - [ ] T042 [US2] In `daiv/sessions/delegation.py` `adelegate`:
-  - check for duplicate `thread_id`s first and raise `DelegationError` with the FR-010 text;
+  - add the duplicate-`thread_id` check to `check_delegation`, the call validation the eval suite's recording delegator shares since #1780, raising `DelegationError` with the FR-010 text;
   - apply refusals 2–7 in contract order after refusal 1, using `Leg`;
   - map `LegFollowUpRefused.reason` to the busy or merged/closed text.
   Makes T036 pass.
@@ -404,7 +404,7 @@ description: "Task list for the Delegated Leg Follow-ups feature"
   - follow-up rows show the `leg_follow_up` label.
   Add `leg_follow_up: "Leg follow-up"` to `daiv/sessions/transcript_labels.py` and `daiv/chat/static/chat/js/transcript-labels.js`. Makes T056 pass.
 - [ ] T060 [US5] In `daiv/automation/agent/middlewares/delegate_jobs.py` `DELEGATE_JOBS_SYSTEM_PROMPT`, replace step 5 and add the leg follow-up paragraph after the `ref` paragraph, both from contracts/delegate-jobs-tool.md "System prompt" (FR-018).
-- [ ] T061 [US5] In `tests/integration_tests/test_delegation.py`, extend `RecordingDelegator` to record each target's `thread_id`, returning a `StartedLeg(leg_follow_up=True, …)` for one. Add two cases built with the suite's `_resumed()`:
+- [ ] T061 [US5] In `tests/integration_tests/test_delegation.py`, extend `RecordingDelegator`, which puts each leg in the database since #1780. For a target with `thread_id`, it creates a QUEUED `delegated_job` run with the call's `batch_id` on that leg's existing session, creating no session, and returns `StartedLeg(leg_follow_up=True, …)`. Reword case 5's failure message, which names `LEG_REPLY_MAX_CHARS` as the cap the coordinator sees. Add two cases built with the suite's `_resumed()`:
   - `test_a_leg_that_reports_its_work_incomplete_gets_a_leg_follow_up` (SC-001): one leg's reply says its tests still fail. Assert one `delegate_jobs` call whose only target names that leg's `thread_id` and no `ref`.
   - `test_an_independent_second_part_gets_a_new_leg` (SC-002): every leg succeeded, and the original request has an independent second part. Assert a `delegate_jobs` call with a target without `thread_id`.
   Give the legs `DBTaskResult.return_value` responses, so replies come from `response_text`. Check with `uv run pytest --collect-only -m delegation tests/integration_tests`: seven cases.

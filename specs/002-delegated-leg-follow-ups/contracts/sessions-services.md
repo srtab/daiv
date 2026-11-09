@@ -96,7 +96,8 @@ async def asubmit_batch_runs(*, ..., batch_id: uuid.UUID | None = None) -> Batch
 
 | Name | Change |
 |---|---|
-| `SessionJobDelegator.adelegate` | splits targets; FR-010 check; refusal order per [the tool contract](delegate-jobs-tool.md#refusals); mints `batch_id`; validates new legs' admission; posts follow-ups with `drain=False`; submits new legs with `batch_id`; drains the follow-up sessions; returns `StartedLeg(leg_follow_up=True)` and `FailedLeg(thread_id=…)` |
+| `check_delegation(goal, targets)` | the FR-010 duplicate-`thread_id` check joins the existing call validation, which the eval suite's recording delegator also runs |
+| `SessionJobDelegator.adelegate` | splits targets; refusal order per [the tool contract](delegate-jobs-tool.md#refusals); mints `batch_id`; validates new legs' admission; posts follow-ups with `drain=False`; submits new legs with `batch_id`; drains the follow-up sessions; returns `StartedLeg(leg_follow_up=True)` and `FailedLeg(thread_id=…)` |
 | `LEG_REPLY_MAX_CHARS` | 4000 |
 | `LEG_OVERVIEW_REPLY_MAX_CHARS` | new, 1000; used by `_status(batch_id=None)` |
 | `_leg_status(leg, *, reply_limit)` | `ref` = `Leg.base_ref`; `branch` when `Leg.has_own_branch()`; `merge_request_url` = `Leg.merge_request()`; `reply` from `response_text`, cut with the marker; `leg_follow_up` |
