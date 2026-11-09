@@ -81,7 +81,7 @@ sequencing step (R17), not an unknown.
 | III. Platform and provider neutrality | Merge and close state comes from `MergeRequestOwnership`, which the GitLab and GitHub callbacks both maintain. Nothing depends on a provider or model. The reply limit is in characters. | Tests: a merge request closed through `Ownerships.aclose` (merged and not merged), the call both platforms' merge and close callbacks make, stops a follow-up |
 | IV. Tests prove project behaviour | Each slice ships unit tests mirroring its modules (`test_legs.py`, `inbox/test_leg_follow_ups.py`, and updates to drain, complete, policy, queue, delegation, header, transcript, delegate_jobs and tool renderers), with no real LLM or network. | `make test` output |
 | V. Measured agent behaviour | The tool description, system prompt and resume input change. The `delegation` suite is measured before (on `main`) and after, plus two new cases for SC-001 and SC-002 (R17). | `evals/compare_runs.py` output in the pull request |
-| VI. Honest failure handling | Every follow-up outcome is reported as what happened: succeeded, failed (the run failed, or access was denied), not run (merge request merged or closed), or cancelled. Nothing is retried in a way that would hide the first failure (R7), and the failure labels are true (`run_failed`, not `retries_exhausted`). The cases below are logged at ERROR. | Tests for each outcome path; the logged cases below |
+| VI. Honest failure handling | Every follow-up outcome is reported as what happened: succeeded, failed (the run failed, or access was denied), not run (merge request merged or closed, classified `all-clear` with its label so nobody is notified of a failure, R16), or cancelled. Nothing is retried in a way that would hide the first failure (R7), and the failure labels are true (`run_failed`, not `retries_exhausted`). The cases below are logged at ERROR. | Tests for each outcome path; the logged cases below |
 
 The cases logged at ERROR:
 - a follow-up whose run could not be enqueued (as for every inbox run);
@@ -97,7 +97,7 @@ The cases logged at ERROR:
   breaking change.
 - The glossary companion change (FR-022), classified MINOR.
 
-**Result**: PASS. The one tracked deviation is under Complexity Tracking.
+**Result**: PASS, with one exception to `patterns/errors.md` rule 4 recorded under Complexity Tracking for the approving maintainer.
 
 **Post-design re-check (after Phase 1)**: PASS.
 - The data model adds no table, column or endpoint.
@@ -148,11 +148,13 @@ daiv/
 │   ├── transcript_labels.py        # leg_not_run_*, leg_follow_up
 │   └── inbox_display.py            # bubble text for the kind
 ├── automation/agent/
-│   ├── delegation.py               # DelegatedTarget.thread_id; StartedLeg.follow_up; FailedLeg.thread_id; LegStatus.follow_up
+│   ├── delegation.py               # DelegatedTarget.thread_id; StartedLeg.leg_follow_up; FailedLeg.thread_id; LegStatus.leg_follow_up
 │   └── middlewares/delegate_jobs.py  # schema, descriptions, system prompt, duplicate check
-└── chat/static/chat/js/
-    ├── tool-renderers.js           # match by thread_id; leg follow-up label; not-run states
-    └── transcript-labels.js        # label fallbacks
+├── chat/static/chat/js/
+│   ├── tool-renderers.js           # match by thread_id; leg follow-up label; not-run states
+│   ├── chat-stream.js              # the leg follow-up bubble's label
+│   └── transcript-labels.js        # label fallbacks
+└── notifications/tasks.py          # a not-run leg follow-up is classified all-clear
 
 tests/unit_tests/
 ├── sessions/test_legs.py                         # NEW
@@ -161,7 +163,8 @@ tests/unit_tests/
 ├── sessions/inbox/test_{kinds,drain,render,complete,policy,post}.py
 ├── sessions/test_{delegation,queue,services,header,transcript,transcript_labels,inbox_display,migrations}.py
 ├── automation/agent/middlewares/test_delegate_jobs.py
-└── chat/test_tool_renderers_js.py
+├── chat/test_{tool_renderers,chat_stream}_js.py
+└── notifications/test_{tasks,run_notifiers}.py
 tests/integration_tests/test_delegation.py        # + two cases (SC-001, SC-002), RecordingDelegator records thread_id
 docs/features/orchestration.md, docs/features/sessions.md
 constitutions/glossary/README.md
@@ -195,6 +198,6 @@ together are the MVP for follow-ups.
 
 | Deviation | Why needed | Simpler alternative rejected because |
 |---|---|---|
-| A not-run follow-up is stored as `FAILED` with a fixed label, and its notification is a "failed" envelope whose summary says "Not run: its merge request was merged" | There is no `RunStatus` for "not run". Cancelled and lost legs already work this way, and the coordinator reads its own word (R5, R16) | A new `RunStatus` or envelope status touches every terminal-status reader, for one rare outcome. Proposed as a follow-up if people find the failed envelope misleading |
+| **Exception to `patterns/errors.md` rule 4** (run status reflects what happened). A not-run leg follow-up's run is stored `FAILED`, with the label "Not run: its merge request was merged" (or "closed"). **Owner**: the maintainer who approves this plan. **Expiry**: the release after this feature ships, by when a neutral finished status is added or this exception is confirmed. **Residual gap**: run lists and status filters show "Failed" for it | `RunStatus` has no "not run". Everything else says "not run": the coordinator's outcome word, the transcript marker, and the notification envelope (`all-clear`, so nobody is notified of a failure; R16). Cancelled and lost legs are stored the same way | A new `RunStatus` touches every reader of terminal statuses (queue, recovery, notifications, filters, badges), for one rare outcome |
 | A follow-up never waits for the coordinator's turn (`starts_after_this_turn` is always false) | `waits_for` holds plain QUEUED runs, which the inbox drain does not honour. The only case it would serve is a leg with no branch of its own, on the coordinator's branch, followed up in the same turn the coordinator pushes (refinement 3) | Teaching the drain `waits_for` is a second hold mechanism for one rare case. The coordinator can follow up after its push lands, in the next turn |
 | `LINK_FAILED_PREFIX` moves from `sessions/queue.py` to `sessions/models.py` | `sessions.queue` imports `Leg`, which needs the prefix to tell a lost leg | A deferred import in `legs.py` would hide a cycle that the move removes |

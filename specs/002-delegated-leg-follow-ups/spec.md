@@ -170,7 +170,7 @@ The resume summary and the batch status name each leg's session id, so the coord
   - the leg's merge request is merged or closed;
   - the target names a branch;
   - the target's repository is not the leg's.
-- **FR-008a**: A leg follow-up whose leg's merge request merged or closed after it was sent MUST stop when it starts, without changing the leg's branch or opening a merge request. Its outcome MUST be one of its own, "not run: its merge request was merged" or "not run: its merge request was closed", never failed or cancelled. It counts as not succeeded, still resumes the coordinator, and MUST say to delegate a new leg for the work.
+- **FR-008a**: A leg follow-up whose leg's merge request merged or closed after it was sent MUST stop when it starts, without changing the leg's branch or opening a merge request. The outcome the coordinator reads MUST be one of its own, "not run: its merge request was merged" or "not run: its merge request was closed", never "failed" or "cancelled". Nobody is notified of it as a failure. It counts as not succeeded, still resumes the coordinator, and MUST say to delegate a new leg for the work.
 - **FR-009**: Each refusal MUST say what to do instead (wait for the resume, check the leg's session, unarchive the leg's session, delegate a new leg, omit the branch, use the leg's repository), and MUST NOT include DAIV's internal error text.
 - **FR-010**: A call that names the same leg more than once MUST be refused as a whole, and nothing in it starts.
 

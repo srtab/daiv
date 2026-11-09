@@ -121,9 +121,9 @@ its runs are terminal. It resumes its coordinator when it is finished and:
 | Dataclass | Change |
 |---|---|
 | `DelegatedTarget` | `+ thread_id: str = ""`: a leg's session id; when set, the target is a leg follow-up |
-| `StartedLeg` | `+ follow_up: bool = False`; for a follow-up, `ref` is the branch it works on and `starts_after_this_turn` is false |
+| `StartedLeg` | `+ leg_follow_up: bool = False`; for a follow-up, `ref` is the branch it works on and `starts_after_this_turn` is false |
 | `FailedLeg` | `+ thread_id: str = ""`, set on a follow-up's refusal |
-| `LegStatus` | `+ follow_up: bool = False`; `ref` is where the leg started, `branch` its own branch whenever it has one, `merge_request_url` the leg's; `reply` is cut at the caller's limit with the cut marker |
+| `LegStatus` | `+ leg_follow_up: bool = False`; `ref` is where the leg started, `branch` its own branch whenever it has one, `merge_request_url` the leg's; `reply` is cut at the caller's limit with the cut marker |
 
 Constants in `sessions/delegation.py`: `LEG_REPLY_MAX_CHARS = 4000` (was 1000) and
 `LEG_OVERVIEW_REPLY_MAX_CHARS = 1000` (new).

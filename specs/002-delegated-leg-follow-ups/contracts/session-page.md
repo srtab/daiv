@@ -27,7 +27,7 @@ scenario 2).
   "merge_request_url": str,  # "" unless the viewer may see the session
   "session_url": str,        # "" unless the viewer may see the session
   "thread_id": str,          # NEW: "" unless the viewer may see the session
-  "follow_up": bool          # NEW: this entry is a leg follow-up's run
+  "leg_follow_up": bool      # NEW: this entry is a leg follow-up's run
 }
 ```
 
@@ -58,7 +58,9 @@ faint dot a cancelled leg also gets (`static_src/css/input.css`). No new design 
 ## The leg's own session page
 
 - **Inbox panel**: a `leg_follow_up` event is listed under "Leg follow-up", with its prompt as text
-  (`inbox_display.bubble`), and the waiting state is shown as for other waiting requests.
+  (`inbox_display.bubble`) and as its one-line summary (`EventText.summary`). The waiting state is shown as for other
+  waiting requests. The chat bubble is labelled "Leg follow-up" (`bubbleKindLabel` in `chat-stream.js`, with the
+  fallback `inbox_leg_follow_up` in `transcript-labels.js`; the server builds that label from the event kind).
 - **Transcript**: the follow-up's run shows its prompt as the user turn that opens the run, like the leg's first run.
   While it waits, that turn is shown as pending (`_prompt_turns(run, pending=True)`, as today for QUEUED runs).
 - **Run marker**: a not-run follow-up gets the neutral "aborted" marker with "Not run: its merge request was merged"

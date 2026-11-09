@@ -267,17 +267,17 @@ the two steps would decide which half of the batch the summary covers.
   (FR-014).
 - `LegStatus.ref` is the ref the leg started from.
 - `merge_request_url` is the leg's merge request, not this run's, so a follow-up that pushed nothing still shows it.
-- `LegStatus` gains `follow_up: bool`.
+- `LegStatus` gains `leg_follow_up: bool`.
 
 ## R15. The coordinator's session page
 
 **Decision**:
 - `delegations_for` returns `total` as the number of distinct leg sessions, with batches still listing per-batch legs
   (FR-019).
-- `_leg_payload` adds `follow_up` and, for a session the viewer may see, `thread_id`.
+- `_leg_payload` adds `leg_follow_up` and, for a session the viewer may see, `thread_id`.
 - On the call card, `tool-renderers.js` (`mergedLegs`, `delegatedTable`) matches a target that has a `thread_id` to
   the leg with that `thread_id` before trying repository and branch, and labels the row "leg follow-up" (FR-020).
-- `StartedLeg` and `FailedLeg` carry `thread_id` and `follow_up` in the tool result, so the card can match before the
+- `StartedLeg` and `FailedLeg` carry `thread_id` and `leg_follow_up` in the tool result, so the card can match before the
   server legs arrive.
 - New `transcript_labels` entries: `leg_not_run_merged`, `leg_not_run_closed`, `leg_follow_up`.
 
@@ -292,12 +292,19 @@ jobs" count is the only top-level surface left, so "listed once" applies to that
   The inbox panel shows the event under its label "Leg follow-up", with the prompt as its text (`inbox_display.bubble`).
 - **Run marker**: a not-run follow-up's marker (`transcript._marker`) is the neutral "aborted" marker with
   its label, as a cancelled leg's is.
-- **Notifications**: unchanged. Every terminal non-chat run is classified, and a FAILED one gets a failed envelope whose
-  summary is the first line of `error_message`. A not-run follow-up's notification therefore reads "Not run: its merge
-  request was merged", as a cancelled leg's reads its cancel message (spec Assumption).
+- **Notifications**: `classify_run_task` gives a not-run follow-up an `all-clear` envelope with its label as summary,
+  before its FAILED gate. Nothing failed and nobody but the coordinator has to act, and the coordinator reads its own
+  outcome word and reports to the person. As `all-clear` it is neither a failure nor worth notifying in a batch's
+  rollup (`_handle_batch_completion`), which counts every `failed` envelope. Every other outcome of a leg follow-up is
+  classified as a leg run's is today (spec Assumption).
+- **The run's status** stays `FAILED`, as a cancelled or lost leg's does. That residual is the exception recorded under
+  the plan's Complexity Tracking.
 
-**Alternatives considered**: A new envelope status for "not run". Rejected for now and listed under Complexity
-Tracking: today's failed envelope with an honest summary is how cancelled legs are reported too.
+**Alternatives considered**:
+- Leaving the `failed` envelope with an honest summary, as cancelled legs have. Rejected because the batch rollup
+  would still count and notify it as a failure (`patterns/errors.md` rule 4).
+- A new `not-run` envelope status. Rejected because it needs a migration of the envelope status check constraint and a
+  rollup row of its own, for one rare outcome.
 
 ## R17. Measuring it
 

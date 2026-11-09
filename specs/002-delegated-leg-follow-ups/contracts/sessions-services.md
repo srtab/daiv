@@ -67,7 +67,7 @@ matching refusal text.
 |---|---|
 | `kinds.py` | `LegFollowUpPayload`; `PAYLOADS`, `PRECEDENCE` (ranked with `FOLLOW_UP_JOB`; it never shares a run, so its rank never decides); not in `GATED_KINDS` or `PERSON_KINDS`; `follows_session()` true; `run_trigger_type()` → `DELEGATED_JOB`; `SourceKey.leg_follow_up(batch_id)` |
 | `splits.py` | `RequestSplits.runs_alone()` is true for a leg follow-up; new `RequestSplits.takes_context(event)`, false only for a slash command |
-| `drain.py` (`_Take.take`) | when the first split is a leg follow-up: check `LegFollowUps.stop_reason` and stop it if set; take it with the branch's remembered events; promote the event's own run (`ref`, `status=READY`, requester fields, `prompt`, `agent_model` pinned, sandbox env). `_fail` also finishes the follow-up's own run FAILED with the `access_denied` label |
+| `drain.py` (`_Take.take`) | when the first split is a leg follow-up: check `LegFollowUps.stop_reason` and stop it if set; take it with the branch's remembered events; promote the event's own run (`ref`, `status=READY`, requester fields, `prompt`, `agent_model` pinned, sandbox env). `_fail` also finishes the follow-up's own run FAILED with the `access_denied` label. `_merge_references` merges a taken leg follow-up's `references` too |
 | `render.py` | `RunInput.request()` and the HumanMessage use `payload["prompt"]` for a leg follow-up |
 | `complete.py` | `RunEnd.settle_events` calls `LegFollowUps.end_with_run(run)` before the shared paths, and leg follow-ups are excluded from `FailedAttempt`; `FailedAttempt.record` fails a leg follow-up on its first attempt with `run_failed` |
 | `policy.py` | `WakePolicy`'s "DAIV-started run" expression: `daiv_authored()` triggers, or a `DELEGATED_JOB` run with a `leg_follow_up` event linked; used by `system_runs_in_a_row` and `_last_person_run_at` |
@@ -96,15 +96,15 @@ async def asubmit_batch_runs(*, ..., batch_id: uuid.UUID | None = None) -> Batch
 
 | Name | Change |
 |---|---|
-| `SessionJobDelegator.adelegate` | splits targets; FR-010 check; refusal order per [the tool contract](delegate-jobs-tool.md#refusals); mints `batch_id`; validates new legs' admission; posts follow-ups with `drain=False`; submits new legs with `batch_id`; drains the follow-up sessions; returns `StartedLeg(follow_up=True)` and `FailedLeg(thread_id=…)` |
+| `SessionJobDelegator.adelegate` | splits targets; FR-010 check; refusal order per [the tool contract](delegate-jobs-tool.md#refusals); mints `batch_id`; validates new legs' admission; posts follow-ups with `drain=False`; submits new legs with `batch_id`; drains the follow-up sessions; returns `StartedLeg(leg_follow_up=True)` and `FailedLeg(thread_id=…)` |
 | `LEG_REPLY_MAX_CHARS` | 4000 |
 | `LEG_OVERVIEW_REPLY_MAX_CHARS` | new, 1000; used by `_status(batch_id=None)` |
-| `_leg_status(leg, *, reply_limit)` | `ref` = `Leg.base_ref`; `branch` when `Leg.has_own_branch()`; `merge_request_url` = `Leg.merge_request()`; `reply` from `response_text`, cut with the marker; `follow_up` |
-| `_legs()` | `select_related("session", "task_result")`, annotated `is_follow_up` (an `Exists` on `leg_follow_up` events) |
+| `_leg_status(leg, *, reply_limit)` | `ref` = `Leg.base_ref`; `branch` when `Leg.has_own_branch()`; `merge_request_url` = `Leg.merge_request()`; `reply` from `response_text`, cut with the marker; `leg_follow_up` |
+| `_legs()` | `select_related("session", "task_result")`, annotated `is_leg_follow_up` (an `Exists` on `leg_follow_up` events) |
 | `_resumes(legs)` | a leg follow-up's run counts as started |
 | `render_batch_summary` | session id line, `(leg follow-up)` marker, not-run "Next" line, new closing paragraph ([contract](delegate-jobs-tool.md#resume-summary)) |
 | `leg_state` / `_OUTCOMES` | `not_run_merged`, `not_run_closed` from the `NOT_RUN_*` labels |
-| `_leg_payload` | adds `follow_up`, and `thread_id` when the session is visible |
+| `_leg_payload` | adds `leg_follow_up`, and `thread_id` when the session is visible |
 | module docstring | rewritten: "a leg's first run is its whole answer" no longer holds; it says how follow-ups join a batch |
 
 ## `sessions/header.py`
@@ -115,6 +115,12 @@ async def asubmit_batch_runs(*, ..., batch_id: uuid.UUID | None = None) -> Batch
 
 `_marker(run)`: a delegated run whose `error_message` is a `NOT_RUN_*` label gets the neutral "aborted" marker with
 that label.
+
+## `notifications/tasks.py`
+
+`classify_run_task`: before its FAILED gate, a run whose `error_message` is `NOT_RUN_MERGED` or `NOT_RUN_CLOSED`
+(`sessions.legs`) gets an `all-clear` envelope with that label as its summary, no actionable items and no model call.
+Every other run is classified as today.
 
 ## Signals
 

@@ -46,7 +46,7 @@ uv run pytest tests/unit_tests/sessions/test_legs.py tests/unit_tests/sessions/t
 | A follow-up waiting while a push is remembered | US3-2 | the run's input carries the `branch_pushed` context |
 | Cancel a waiting follow-up with a CI failure also waiting | US3-4, FR-013, SC-006 | its event `dismissed`, its run cancelled; the CI event is still `pending` and still wakes |
 | A batch of only follow-ups, all cancelled before starting | US3-6 | no `delegation_finished` event |
-| The merge request merged between send and take | FR-008a, R5 | event `failed` (`mr_merged`); run FAILED, `never_started`; status word "not run: its merge request was merged"; the batch resumes; the summary has the "delegate a new leg" line |
+| The merge request merged between send and take | FR-008a, R5 | event `failed` (`mr_merged`); run FAILED, `never_started`; status word "not run: its merge request was merged"; the batch resumes; the summary has the "delegate a new leg" line; its notification envelope is `all-clear` with that label, not a failure |
 | A leg at three DAIV-started runs in a row | FR-004a, R8 | the follow-up still runs; afterwards a CI failure is remembered with `run_limit` |
 | A reply of 2,600, 4,000 and 4,500 characters | US4, FR-016, SC-007 | whole, whole, cut plus the marker, in the resume and in `check_delegated_jobs(batch_id)`; 1,000 in the overview |
 | The batch status of a follow-up that started on the leg's own branch | FR-014 | `branch` is the leg's branch; `ref` is where the leg started |

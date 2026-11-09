@@ -36,13 +36,22 @@ description: "Task list for the Delegated Leg Follow-ups feature"
   - Check that srtab/daiv#1780 is merged to `main`.
   - Run `git fetch origin main && git merge origin/main` on `claude/delegated-leg-follow-ups`: a merge, not a rebase, because the branch has an open PR.
   - Confirm `uv run pytest --collect-only -m delegation tests/integration_tests` collects five cases.
-  - If #1780 is not merged, report that and continue with the other phases. Only T066–T067 and SC-003 wait for it.
+  - If #1780 is not merged, report that and continue with the other phases. Only T061–T062 and SC-003 wait for it.
 - [ ] T002 Record the baseline on `main` (research R17, `patterns/agent-evals.md` rule 4).
   - On a clean checkout of `origin/main` that includes the suite, run `make eval-prompts SUITES=delegation OUT=eval-runs/delegation-before.jsonl`. It needs `docker/local/app/config.secrets.env` with an LLM key.
   - If no key is available, note "baseline not run" for the PR description (rule 2). Do not claim results later.
 - [ ] T003 [P] Add four rows to the table in `constitutions/glossary/README.md`: "Coordinator", "Leg", "Batch" and "Leg follow-up".
   - Take each row's Meaning and Not columns exactly from data-model.md "Glossary additions".
   - Add "a leg follow-up" to the "Inbox event" row's list of examples.
+  - Write into the PR #1781 description the impact report Governance requires for a companion change:
+    - changed clauses: four glossary rows added, and the "Inbox event" row extended;
+    - reason: FR-022;
+    - compatibility: none (terms are added, none redefined);
+    - enforcement: review only;
+    - remaining gaps: none;
+    - classification: MINOR, with the reasoning.
+
+    The version stays "1.0.0, proposed" until ratification.
 
 ---
 
@@ -97,7 +106,9 @@ description: "Task list for the Delegated Leg Follow-ups feature"
   - when the requester may no longer run on the repository:
     - the follow-up event becomes `failed` with `access_denied`;
     - its own run finishes FAILED, `never_started`, with `error_message` equal to the `access_denied` label;
-    - `run_finished` is emitted for that run.
+    - `run_finished` is emitted for that run;
+  - the promoted run keeps `trigger_type=delegated_job` and takes `muted` from the payload (FR-005);
+  - a taken leg follow-up's `references` are merged into `session.external_refs`.
 - [ ] T011 [P] Extend `tests/unit_tests/sessions/inbox/test_complete.py`. Cover:
   - a follow-up's run ending SUCCESSFUL leaves its event `handled`;
   - ending FAILED (not cancelled) leaves its event `failed` with `run_failed`. Its `attempts` are not bumped back to `pending`, and no new run is ever created for it;
@@ -113,7 +124,8 @@ description: "Task list for the Delegated Leg Follow-ups feature"
   - `fork_branch=True` for a leg's first run;
   - `fork_branch=True` for a follow-up run on a leg whose `session.ref == base_ref`;
   - `fork_branch=False` for a follow-up run on a leg with a branch of its own (research R9);
-  - `fork_branch=False` for non-delegated runs.
+  - `fork_branch=False` for non-delegated runs;
+  - `ask_user_enabled=False` for a leg follow-up's run, as for every delegated run (FR-005).
 - [ ] T014 [P] Extend `tests/unit_tests/sessions/test_services.py`: `asubmit_batch_runs(batch_id=X)` stamps `X` on every created run and returns it in `BatchSubmitResult.batch_id`. Without `batch_id`, a fresh one is minted, as today.
 
 ### Implementation for the foundation
@@ -147,12 +159,13 @@ description: "Task list for the Delegated Leg Follow-ups feature"
   - `post` locks the leg session row (`select_for_update`) and re-checks `Leg.is_busy()` and `merge_request_state()` under the lock;
   - it creates the event, keyed by `SourceKey.leg_follow_up(batch_id)`, and its QUEUED run, then links them and calls `session_changed`;
   - with `drain=True`, it schedules the drain with `transaction.on_commit(Drain(...).start_logged, robust=True)`.
-  Leave `stop_reason`/`stop` to T040. Makes T007 pass. Depends on T017 and T018.
+  Leave `stop_reason`/`stop` to T041. Makes T007 pass. Depends on T017 and T018.
 - [ ] T022 In `daiv/sessions/inbox/post.py`, `Inbox.post` raises `ValueError("a leg_follow_up is posted with LegFollowUps.post")` for that kind, before any write. Makes T008 pass.
 - [ ] T023 In `daiv/sessions/inbox/drain.py` (`_Take.take`, `_promote_or_create`, `_fail`):
   - when `splits.splits[0]` starts with a leg follow-up, take it plus every remembered event for the branch, using `RequestSplits.takes_context`;
   - promote that event's own run (`event.run`) instead of a next run, setting `status=READY`, `ref=branch`, `requester.run_fields(...)`, `prompt` and the pinned `agent_model`/`agent_thinking_level`, `sandbox_environment_id` from `_sandbox_env_id` and `muted` from the payload;
   - `_fail` also finishes the run of each failed leg follow-up FAILED (`never_started=True`, `skip_dispatch=True`, `error_message=str(EventFailure.ACCESS_DENIED.label)`);
+  - `_merge_references` also merges a taken `leg_follow_up`'s `references` into the session;
   - update the module docstring.
   Makes T010 pass. Depends on T018, T020 and T021.
 - [ ] T024 In `daiv/sessions/inbox/complete.py`:
@@ -166,9 +179,9 @@ description: "Task list for the Delegated Leg Follow-ups feature"
 - [ ] T028 [P] In `daiv/sessions/services.py`, add `batch_id: uuid.UUID | None = None` to `asubmit_batch_runs`, using it in place of `uuid.uuid4()` when given, and document it in the docstring. Makes T014 pass.
 - [ ] T029 [P] In `daiv/automation/agent/delegation.py`, add the fields from data-model.md "Agent-facing dataclasses":
   - `DelegatedTarget.thread_id: str = ""`;
-  - `StartedLeg.follow_up: bool = False`;
+  - `StartedLeg.leg_follow_up: bool = False`;
   - `FailedLeg.thread_id: str = ""`;
-  - `LegStatus.follow_up: bool = False`.
+  - `LegStatus.leg_follow_up: bool = False`.
   Update the `JobDelegator.adelegate` docstring: "a target with `thread_id` continues that leg in its own session, branch and merge request".
 
 **Checkpoint**: the foundation is in place. `uv run pytest tests/unit_tests/sessions/ -q` is green, and a leg follow-up can be posted, drained, run and settled in tests. No agent can send one yet.
@@ -184,7 +197,7 @@ description: "Task list for the Delegated Leg Follow-ups feature"
 ### Tests for User Story 1 ⚠️
 
 - [ ] T030 [P] [US1] Extend `tests/unit_tests/sessions/test_delegation.py` (use the module's `_delegate`, `_target`, `_checkout` helpers). Cover:
-  - **One follow-up**: a target with `thread_id` of a finished leg posts one leg follow-up through `LegFollowUps`. It has the call's `batch_id`, the coordinator run's `user` and `effective_muted`, and the target's prompt and references. No new `Session` is created. The result's `StartedLeg` has `follow_up=True`, the leg's `thread_id` and `session_url`, `ref` equal to the leg session's `ref`, and `starts_after_this_turn=False`;
+  - **One follow-up**: a target with `thread_id` of a finished leg posts one leg follow-up through `LegFollowUps`. It has the call's `batch_id`, the coordinator run's `user` and `effective_muted`, and the target's prompt and references. No new `Session` is created. The result's `StartedLeg` has `leg_follow_up=True`, the leg's `thread_id` and `session_url`, `ref` equal to the leg session's `ref`, and `starts_after_this_turn=False`;
   - **Mixed call**: one new leg and one follow-up share one `batch_id`. A call with only follow-ups never calls `asubmit_batch_runs`;
   - **Order** (research R11): the follow-up's run exists QUEUED before `asubmit_batch_runs` is called, and its leg session is drained only after it returns;
   - **Access**: `aassert_repo_access` is called with the new legs' repositories only (FR-005a);
@@ -192,12 +205,12 @@ description: "Task list for the Delegated Leg Follow-ups feature"
   - **Posting fails**: an unexpected exception posting a follow-up gives a `FailedLeg` with today's "DAIV could not start this leg" text, and `logger.exception` is called;
   - **`_resumes`**: true for a batch whose only run is a follow-up's FAILED `access_denied` run, and false when every run is cancelled;
   - **Resume once**: after the follow-up's run ends SUCCESSFUL (and the new leg's, in a mixed batch), exactly one `delegation_finished` event is posted to the coordinator;
-  - **`_leg_status` for a follow-up** (FR-014): `ref` is the leg's `base_ref`; `branch` is the leg's branch even though the follow-up run's `ref` equals it; `merge_request_url` is the leg's merge request when the follow-up run has none; `follow_up=True`;
+  - **`_leg_status` for a follow-up** (FR-014): `ref` is the leg's `base_ref`; `branch` is the leg's branch even though the follow-up run's `ref` equals it; `merge_request_url` is the leg's merge request when the follow-up run has none; `leg_follow_up=True`;
   - **Summary**: `render_batch_summary` shows `(leg follow-up)` after that leg's status.
 - [ ] T031 [P] [US1] Extend `tests/unit_tests/automation/agent/middlewares/test_delegate_jobs.py`. Cover:
   - `DelegateTarget` accepts an optional `thread_id`: stripped, and blank means none;
   - `_adelegate` passes it to `DelegatedTarget.thread_id`;
-  - the returned JSON carries `follow_up` on started entries and `thread_id` on failed entries;
+  - the returned JSON carries `leg_follow_up` on started entries and `thread_id` on failed entries;
   - more than `MAX_DELEGATED_TARGETS` targets, counting follow-ups, is refused as today.
 
 ### Implementation for User Story 1
@@ -216,12 +229,12 @@ description: "Task list for the Delegated Leg Follow-ups feature"
   - post each follow-up with `LegFollowUps(leg).apost(..., drain=False)`, catching `LegFollowUpRefused` into a `FailedLeg` and any other exception with `logger.exception` into `FailedLeg(_UNSTARTED_LEG)`;
   - submit the new legs with `asubmit_batch_runs(..., batch_id=batch_id)` when there are any;
   - drain each posted follow-up's session (`Drain(thread_id).astart` via `start_logged`);
-  - return `StartedLeg(follow_up=True, …)` entries in target order.
+  - return `StartedLeg(leg_follow_up=True, …)` entries in target order.
   Makes the follow-up, mixed, order, access, not-a-leg and posting-fails parts of T030 pass.
 - [ ] T034 [US1] In `daiv/sessions/delegation.py`:
-  - `_legs()` uses `select_related("session", "task_result")`, annotated `is_follow_up=Exists(InboxEvent(kind=LEG_FOLLOW_UP, run=OuterRef("pk")))`;
+  - `_legs()` uses `select_related("session", "task_result")`, annotated `is_leg_follow_up=Exists(InboxEvent(kind=LEG_FOLLOW_UP, run=OuterRef("pk")))`;
   - `_resumes` counts a follow-up run as started;
-  - `_leg_status` builds `ref`, `branch` and `merge_request_url` from `Leg` (research R14) and sets `follow_up`;
+  - `_leg_status` builds `ref`, `branch` and `merge_request_url` from `Leg` (research R14) and sets `leg_follow_up`;
   - `render_batch_summary` appends ` (leg follow-up)` to a follow-up's heading line.
   Makes the remaining T030 parts pass.
 - [ ] T035 [US1] Rewrite the module docstring of `daiv/sessions/delegation.py`. "A leg's first run is its whole answer" no longer holds. State how a leg follow-up joins its call's batch, why the follow-ups are posted before the new legs are submitted and drained after (R11), and that `_resumes` counts follow-up runs.
@@ -267,20 +280,27 @@ description: "Task list for the Delegated Leg Follow-ups feature"
   - `_marker` gives a not-run run the "aborted" status with its label as message;
   - `leg_not_run_merged` and `leg_not_run_closed` exist with the texts from contracts/session-page.md "Labels".
 
+- [ ] T040 [P] [US2] Extend `tests/unit_tests/notifications/test_tasks.py` and `tests/unit_tests/notifications/test_run_notifiers.py`. Cover:
+  - `classify_run_task` gives a FAILED run whose `error_message` is `NOT_RUN_MERGED` or `NOT_RUN_CLOSED` an `all-clear` envelope with that label as its summary, without calling the classification model;
+  - any other FAILED run still gets a `failed` envelope, as today;
+  - in a batch with another run, `_handle_batch_completion` counts the not-run run neither in `failed` nor in `notable`.
+
 ### Implementation for User Story 2
 
-- [ ] T040 [US2] In `daiv/sessions/inbox/leg_follow_ups.py`, add `stop_reason` and `stop` per contracts/sessions-services.md. In `daiv/sessions/inbox/drain.py` `_Take.take`, call them before promoting a follow-up's run, then return `None` and schedule `Drain(...).start_logged` on commit. Makes T037 pass.
-- [ ] T041 [US2] In `daiv/sessions/delegation.py` `adelegate`:
+- [ ] T041 [US2] In `daiv/sessions/inbox/leg_follow_ups.py`, add `stop_reason` and `stop` per contracts/sessions-services.md. In `daiv/sessions/inbox/drain.py` `_Take.take`, call them before promoting a follow-up's run, then return `None` and schedule `Drain(...).start_logged` on commit. Makes T037 pass.
+- [ ] T042 [US2] In `daiv/sessions/delegation.py` `adelegate`:
   - check for duplicate `thread_id`s first and raise `DelegationError` with the FR-010 text;
   - apply refusals 2–7 in contract order after refusal 1, using `Leg`;
   - map `LegFollowUpRefused.reason` to the busy or merged/closed text.
   Makes T036 pass.
-- [ ] T042 [US2] In `daiv/sessions/delegation.py`:
+- [ ] T043 [US2] In `daiv/sessions/delegation.py`:
   - `leg_state` recognises `NOT_RUN_MERGED` and `NOT_RUN_CLOSED` in `error_message`, before the generic `failed`;
   - add the two words to `_OUTCOMES`;
   - `render_batch_summary` writes the "Next" line for them.
   In `daiv/automation/agent/middlewares/delegate_jobs.py`, add the two words to `CHECK_DELEGATED_JOBS_DESCRIPTION`'s status list. Makes T038 pass.
-- [ ] T043 [P] [US2] In `daiv/sessions/transcript.py` `_marker`, a FAILED delegated run whose `error_message` is `NOT_RUN_MERGED` or `NOT_RUN_CLOSED` gets `status="aborted"` with that label. Add `leg_not_run_merged` and `leg_not_run_closed` to `daiv/sessions/transcript_labels.py`, and the fallbacks to `daiv/chat/static/chat/js/transcript-labels.js`. Makes T039 pass.
+- [ ] T044 [P] [US2] In `daiv/sessions/transcript.py` `_marker`, a FAILED delegated run whose `error_message` is `NOT_RUN_MERGED` or `NOT_RUN_CLOSED` gets `status="aborted"` with that label. Add `leg_not_run_merged` and `leg_not_run_closed` to `daiv/sessions/transcript_labels.py`, and the fallbacks to `daiv/chat/static/chat/js/transcript-labels.js`. Makes T039 pass.
+
+- [ ] T045 [P] [US2] In `daiv/notifications/tasks.py` `classify_run_task`, before the FAILED gate, give a run whose `error_message` is `sessions.legs.NOT_RUN_MERGED` or `NOT_RUN_CLOSED` an `all-clear` envelope with that label as its summary and no actionable items (research R16). Notifications sit above `sessions` in `.importlinter`, so the import is allowed. Add the rule to the docstring's list of invariants. Makes T040 pass. Depends on T017, which defines the labels.
 
 **Checkpoint**: US1 and US2 together are the follow-up MVP. Every refusal and the not-run stop are covered.
 
@@ -294,21 +314,30 @@ description: "Task list for the Delegated Leg Follow-ups feature"
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T044 [P] [US3] Extend `tests/unit_tests/sessions/inbox/test_drain.py` (after T037, same file). Cover:
+- [ ] T046 [P] [US3] Extend `tests/unit_tests/sessions/inbox/test_drain.py` (after T037, same file). Cover:
   - with the leg's slot held by a CI-fix run, posting a follow-up starts nothing;
   - once the slot is released, the drain starts the follow-up alone, and its `RunInput` context lists a `branch_pushed` event remembered meanwhile;
   - a CI failure and a chat message waiting beside it each get later runs of their own, in arrival order.
-- [ ] T045 [US3] Extend `tests/unit_tests/sessions/test_delegation.py` (after T038, same file). Cover:
+- [ ] T047 [US3] Extend `tests/unit_tests/sessions/test_delegation.py` (after T038, same file). Cover:
   - a batch with a finished new leg and a waiting follow-up posts no `delegation_finished` until the follow-up's run ends;
   - `acancel` on a waiting follow-up cancels its run, leaves its event `dismissed`, and leaves a CI failure waiting on the same leg `pending` and waking (SC-006);
   - a batch of only follow-ups, all cancelled before starting, posts no resume and `CancelResult.resumes` is false;
   - cancelling a running follow-up sets `cancel_requested_at`, and its status word is `stopping`.
-- [ ] T046 [P] [US3] Extend `tests/unit_tests/sessions/test_inbox_display.py`: `bubble()` for a `leg_follow_up` has the prompt as `text`, the kind `leg_follow_up`, and `received=False`.
+- [ ] T048 [P] [US3] Extend `tests/unit_tests/sessions/test_inbox_display.py`, `tests/unit_tests/sessions/inbox/test_render.py` and `tests/unit_tests/chat/test_chat_stream_js.py`. Cover:
+  - `bubble()` for a `leg_follow_up` has the prompt as `text`, the kind `leg_follow_up`, and `received=False`;
+  - `EventText(event).summary()` for a leg follow-up is its prompt;
+  - `bubbleKindLabel` gives "Leg follow-up" for a `leg_follow_up` bubble.
 
 ### Implementation for User Story 3
 
-- [ ] T047 [P] [US3] In `daiv/sessions/inbox_display.py` `bubble`, add a `case EventKind.LEG_FOLLOW_UP: text = payload["prompt"]`. Makes T046 pass.
-- [ ] T048 [US3] Make T044 and T045 pass, fixing any gap they show in `daiv/sessions/delegation.py` (`_cancel`) or `daiv/sessions/inbox/leg_follow_ups.py` (`end_with_run`). In `daiv/automation/agent/middlewares/delegate_jobs.py`, add to `CANCEL_DELEGATED_JOBS_DESCRIPTION` that `thread_ids` may name a leg follow-up: a waiting one never starts, and a running one stops as a leg does.
+- [ ] T049 [P] [US3] Show the leg follow-up on the leg's page:
+  - in `daiv/sessions/inbox_display.py` `bubble`, add `case EventKind.LEG_FOLLOW_UP: text = payload["prompt"]`;
+  - in `daiv/sessions/inbox/render.py` `EventText.summary`, add the same case;
+  - in `daiv/chat/static/chat/js/chat-stream.js` `bubbleKindLabel`, return `T.t("inbox_leg_follow_up")` for a `leg_follow_up` bubble;
+  - add the fallback `inbox_leg_follow_up: "Leg follow-up"` to `daiv/chat/static/chat/js/transcript-labels.js`. The server already builds that label from the event kind.
+
+  Makes T048 pass.
+- [ ] T050 [US3] Make T046 and T047 pass, fixing any gap they show in `daiv/sessions/delegation.py` (`_cancel`) or `daiv/sessions/inbox/leg_follow_ups.py` (`end_with_run`). In `daiv/automation/agent/middlewares/delegate_jobs.py`, add to `CANCEL_DELEGATED_JOBS_DESCRIPTION` that `thread_ids` may name a leg follow-up: a waiting one never starts, and a running one stops as a leg does.
 
 **Checkpoint**: Follow-ups behave on busy legs, and cancel is precise.
 
@@ -322,7 +351,7 @@ description: "Task list for the Delegated Leg Follow-ups feature"
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T049 [US4] Extend `tests/unit_tests/sessions/test_delegation.py`, ordered against the US1–US3 edits to that file. Build legs whose `DBTaskResult.return_value["response"]` is the full reply and whose `result_summary` is cut at 2,000, as `run_job_task` leaves them. Cover:
+- [ ] T051 [US4] Extend `tests/unit_tests/sessions/test_delegation.py`, ordered against the US1–US3 edits to that file. Build legs whose `DBTaskResult.return_value["response"]` is the full reply and whose `result_summary` is cut at 2,000, as `run_job_task` leaves them. Cover:
   - a 2,600-character reply is whole in `render_batch_summary` and in `astatus(batch_id=…)`;
   - a 4,000-character reply is whole;
   - a 4,500-character reply is its first 4,000 characters, then the cut marker `[cut at 4,000 characters: the rest is in the leg's session, <session_url>]`;
@@ -331,13 +360,13 @@ description: "Task list for the Delegated Leg Follow-ups feature"
 
 ### Implementation for User Story 4
 
-- [ ] T050 [US4] In `daiv/sessions/delegation.py`:
+- [ ] T052 [US4] In `daiv/sessions/delegation.py`:
   - set `LEG_REPLY_MAX_CHARS = 4000` and add `LEG_OVERVIEW_REPLY_MAX_CHARS = 1000`;
   - `_leg_status(leg, *, reply_limit)` reads `leg.response_text.strip()`, cuts it at `reply_limit`, and appends the cut marker from contracts/delegate-jobs-tool.md "Cut marker";
   - `_status` passes 4,000 for a named batch and 1,000 for the overview, and `render_batch_summary` and `_cancel` pass 4,000;
   - `_legs()` and `_resume_batch`'s query `select_related("task_result")`, if T034 has not already.
-  Makes T049 pass.
-- [ ] T051 [P] [US4] In `daiv/automation/agent/middlewares/delegate_jobs.py` `CHECK_DELEGATED_JOBS_DESCRIPTION`, say that `reply` is up to 4,000 characters for a named batch and 1,000 for the overview, and that a cut reply names the leg's session.
+  Makes T051 pass.
+- [ ] T053 [P] [US4] In `daiv/automation/agent/middlewares/delegate_jobs.py` `CHECK_DELEGATED_JOBS_DESCRIPTION`, say that `reply` is up to 4,000 characters for a named batch and 1,000 for the overview, and that a cut reply names the leg's session.
 
 **Checkpoint**: SC-007 holds. Eval case 5 (`test_a_finding_deep_in_a_legs_reply_reaches_the_report`) is expected to pass after this phase.
 
@@ -351,39 +380,39 @@ description: "Task list for the Delegated Leg Follow-ups feature"
 
 ### Tests for User Story 5 ⚠️
 
-- [ ] T052 [US5] Extend `tests/unit_tests/sessions/test_delegation.py` (after T049, same file). Cover:
+- [ ] T054 [US5] Extend `tests/unit_tests/sessions/test_delegation.py` (after T051, same file). Cover:
   - every leg section of `render_batch_summary` has `- Session id: <thread_id>`;
   - the closing paragraph is the one from contracts/delegate-jobs-tool.md "Resume summary";
-  - `_leg_payload` carries `follow_up`, and `thread_id` only for a session the viewer may see (`""` otherwise).
-- [ ] T053 [P] [US5] Extend `tests/unit_tests/sessions/test_header.py`: a leg session with runs in two batches appears in both `batches[].legs`, and `total` counts it once.
-- [ ] T054 [P] [US5] Extend `tests/unit_tests/chat/test_tool_renderers_js.py`. Cover:
+  - `_leg_payload` carries `leg_follow_up`, and `thread_id` only for a session the viewer may see (`""` otherwise).
+- [ ] T055 [P] [US5] Extend `tests/unit_tests/sessions/test_header.py`: a leg session with runs in two batches appears in both `batches[].legs`, and `total` counts it once.
+- [ ] T056 [P] [US5] Extend `tests/unit_tests/chat/test_tool_renderers_js.py`. Cover:
   - a call whose target has `thread_id` matches the server leg with that `thread_id`, even when another leg shares its repository and branch;
   - the row is labelled "Leg follow-up";
   - a failed entry with `thread_id` and no matching server leg is a row of its own with its error.
 
 ### Implementation for User Story 5
 
-- [ ] T055 [US5] In `daiv/sessions/delegation.py`:
+- [ ] T057 [US5] In `daiv/sessions/delegation.py`:
   - `render_batch_summary` writes `- Session id: <thread_id>` after `- Session:`, and replaces the closing paragraph with the contract's text;
-  - `_leg_payload` adds `follow_up`, and `thread_id` when visible;
-  - `load_delegations` annotates `is_follow_up` alongside `_LEG_FIELDS`.
-  Makes T052 pass.
-- [ ] T056 [P] [US5] In `daiv/sessions/header.py` `delegations_for`, set `total` to the number of distinct `session_id`s across `delegations.batches`, and update the docstring. Makes T053 pass.
-- [ ] T057 [P] [US5] In `daiv/chat/static/chat/js/tool-renderers.js`:
+  - `_leg_payload` adds `leg_follow_up`, and `thread_id` when visible;
+  - `load_delegations` annotates `is_leg_follow_up` alongside `_LEG_FIELDS`.
+  Makes T054 pass.
+- [ ] T058 [P] [US5] In `daiv/sessions/header.py` `delegations_for`, set `total` to the number of distinct `session_id`s across `delegations.batches`, and update the docstring. Makes T055 pass.
+- [ ] T059 [P] [US5] In `daiv/chat/static/chat/js/tool-renderers.js`:
   - `mergedLegs` and `claimTarget`/`delegatedTable` match on `thread_id` first and fall back to today's repository-and-branch matching;
-  - `resultLegs` keeps `follow_up` and `thread_id`;
+  - `resultLegs` keeps `leg_follow_up` and `thread_id`;
   - follow-up rows show the `leg_follow_up` label.
-  Add `leg_follow_up: "Leg follow-up"` to `daiv/sessions/transcript_labels.py` and `daiv/chat/static/chat/js/transcript-labels.js`. Makes T054 pass.
-- [ ] T058 [US5] In `daiv/automation/agent/middlewares/delegate_jobs.py` `DELEGATE_JOBS_SYSTEM_PROMPT`, replace step 5 and add the leg follow-up paragraph after the `ref` paragraph, both from contracts/delegate-jobs-tool.md "System prompt" (FR-018).
-- [ ] T059 [US5] In `tests/integration_tests/test_delegation.py`, extend `RecordingDelegator` to record each target's `thread_id`, returning a `StartedLeg(follow_up=True, …)` for one. Add two cases built with the suite's `_resumed()`:
+  Add `leg_follow_up: "Leg follow-up"` to `daiv/sessions/transcript_labels.py` and `daiv/chat/static/chat/js/transcript-labels.js`. Makes T056 pass.
+- [ ] T060 [US5] In `daiv/automation/agent/middlewares/delegate_jobs.py` `DELEGATE_JOBS_SYSTEM_PROMPT`, replace step 5 and add the leg follow-up paragraph after the `ref` paragraph, both from contracts/delegate-jobs-tool.md "System prompt" (FR-018).
+- [ ] T061 [US5] In `tests/integration_tests/test_delegation.py`, extend `RecordingDelegator` to record each target's `thread_id`, returning a `StartedLeg(leg_follow_up=True, …)` for one. Add two cases built with the suite's `_resumed()`:
   - `test_a_leg_that_reports_its_work_incomplete_gets_a_leg_follow_up` (SC-001): one leg's reply says its tests still fail. Assert one `delegate_jobs` call whose only target names that leg's `thread_id` and no `ref`.
   - `test_an_independent_second_part_gets_a_new_leg` (SC-002): every leg succeeded, and the original request has an independent second part. Assert a `delegate_jobs` call with a target without `thread_id`.
   Give the legs `DBTaskResult.return_value` responses, so replies come from `response_text`. Check with `uv run pytest --collect-only -m delegation tests/integration_tests`: seven cases.
-- [ ] T060 [US5] Run the after-pass and compare. Depends on T001, T002 and every agent-facing task: T032, T042, T048, T051, T055, T058, T059.
+- [ ] T062 [US5] Run the after-pass and compare. Depends on T001, T002 and every agent-facing task: T032, T043, T050, T053, T057, T060, T061.
   - `make eval-prompts SUITES=delegation OUT=eval-runs/delegation-after.jsonl`, with the same `EVAL_MODEL` as T002.
   - `uv run evals/compare_runs.py eval-runs/delegation-before.jsonl eval-runs/delegation-after.jsonl`, then confirm any `unconfirmed` verdict with the printed `CASES=` re-runs and `--confirm`.
   - Expected: no confirmed regression among the five baseline cases; case 5 flips to passing (SC-003); each new case passes a majority of three votes (SC-001, SC-002).
-  - Keep the output for the PR (T065). If evals cannot run, record that as T002 does.
+  - Keep the output for the PR (T067). If evals cannot run, record that as T002 does.
 
 **Checkpoint**: Every user story is complete, and the agent-behaviour change is measured.
 
@@ -391,24 +420,24 @@ description: "Task list for the Delegated Leg Follow-ups feature"
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T061 [P] Update `docs/features/orchestration.md` per contracts/session-page.md "Docs":
+- [ ] T063 [P] Update `docs/features/orchestration.md` per contracts/session-page.md "Docs":
   - add a "How it works" paragraph;
   - add a "Following up a leg" section after "Where a leg's work lands";
   - add the "Rules and limits" rows: one leg follow-up outstanding per leg; follow-ups count toward the 10-target limit; the refusals; a follow-up always wakes the leg; replies up to 4,000 characters, 1,000 in the overview;
   - in "Seeing the batch", say a leg is counted once, list the two "not run" states, and describe the "Leg follow-up" label on the card.
-- [ ] T062 [P] Update `docs/features/sessions.md`: the inbox section lists the "Leg follow-up" event, and the delegated-batch paragraph says a leg follow-up runs in the leg's session as a Delegated Run.
-- [ ] T063 [P] Update `CHANGELOG.md` under `Unreleased`:
+- [ ] T064 [P] Update `docs/features/sessions.md`: the inbox section lists the "Leg follow-up" event, and the delegated-batch paragraph says a leg follow-up runs in the leg's session as a Delegated Run.
+- [ ] T065 [P] Update `CHANGELOG.md` under `Unreleased`:
   - under **Added**, an entry for leg follow-ups (continue a leg in its own session, branch and merge request; per-target refusals; never retried) and the longer leg replies (up to 4,000 characters, from the full answer);
   - in the existing **Orchestration** entry, remove the stale "in the top bar (how many run, wait or failed)" (research refinement 4).
   Common Changelog form, no Upgrade note.
-- [ ] T064 [P] In `AGENTS.md`'s `daiv/jobs/` repo-map line, add "leg follow-ups (`sessions.inbox.leg_follow_ups`)" to the list of what `sessions.inbox.drain` starts runs from. Note that `delegate_jobs` can now continue a leg (`sessions.delegation`).
-- [ ] T065 Run the gates and record what ran (`patterns/tests.md` rule 5):
+- [ ] T066 [P] In `AGENTS.md`'s `daiv/jobs/` repo-map line, add "leg follow-ups (`sessions.inbox.leg_follow_ups`)" to the list of what `sessions.inbox.drain` starts runs from. Note that `delegate_jobs` can now continue a leg (`sessions.delegation`).
+- [ ] T067 Run the gates and record what ran (`patterns/tests.md` rule 5):
   - `make lint-fix && make lint`, then `rm -rf .ruff_cache` and `uv run --only-group=dev ruff check --no-cache .`, if lint looks suspiciously clean;
   - `make lint-typing`;
   - `make test`;
   - `uv run --only-group=docs mkdocs build --clean --strict`.
-  Then update the PR #1781 description: the Test plan with these results, and the T060 `compare_runs.py` table or the "evals not run" statement.
-- [ ] T066 Walk quickstart.md section 3 (manual end-to-end on `make up`) and record which scenarios ran and their outcome in the PR. Report any scenario not run as not run.
+  Then update the PR #1781 description: the Test plan with these results, and the T062 `compare_runs.py` table or the "evals not run" statement.
+- [ ] T068 Walk quickstart.md section 3 (manual end-to-end on `make up`) and record which scenarios ran and their outcome in the PR. Report any scenario not run as not run.
 
 ---
 
@@ -422,7 +451,7 @@ description: "Task list for the Delegated Leg Follow-ups feature"
 - **US2 (Phase 4)**: depends on US1 (T033's refusal plumbing in `adelegate`).
 - **US3 (Phase 5)**: depends on Foundational and US1 (a follow-up must be sendable to exercise the batch and cancel paths).
 - **US4 (Phase 6)**: depends on nothing but the shared file order below. It can ship first, as plan slice 1.
-- **US5 (Phase 7)**: T052–T058 depend on US1. T059–T060 depend on T001–T002 and on every agent-facing task (listed in T060).
+- **US5 (Phase 7)**: T054–T060 depend on US1. T061–T062 depend on T001–T002 and on every agent-facing task (listed in T062).
 - **Polish (Phase 8)**: after the stories in the release.
 
 ### Within each story
@@ -432,14 +461,17 @@ description: "Task list for the Delegated Leg Follow-ups feature"
 
 | File | Tasks, in order |
 |---|---|
-| `daiv/sessions/delegation.py` | T033, T034, T035, T041, T042, T048, T050, T055 (T050 may go first if US4 ships first; then T034 only adds the annotation) |
-| `tests/unit_tests/sessions/test_delegation.py` | T030, T036, T038, T045, T049, T052 (T049 may go first with T050) |
-| `daiv/automation/agent/middlewares/delegate_jobs.py` | T032, T042, T048, T051, T058 |
-| `daiv/sessions/inbox/drain.py` | T023, T040 |
-| `tests/unit_tests/sessions/inbox/test_drain.py` | T010, T037, T044 |
-| `daiv/sessions/inbox/leg_follow_ups.py` | T021, T040, T048 |
+| `daiv/sessions/delegation.py` | T033, T034, T035, T042, T043, T050, T052, T057 (T052 may go first if US4 ships first; then T034 only adds the annotation) |
+| `tests/unit_tests/sessions/test_delegation.py` | T030, T036, T038, T047, T051, T054 (T051 may go first with T052) |
+| `daiv/automation/agent/middlewares/delegate_jobs.py` | T032, T043, T050, T053, T060 |
+| `daiv/sessions/inbox/drain.py` | T023, T041 |
+| `tests/unit_tests/sessions/inbox/test_drain.py` | T010, T037, T046 |
+| `daiv/sessions/inbox/leg_follow_ups.py` | T021, T041, T050 |
 | `tests/unit_tests/sessions/inbox/test_leg_follow_ups.py` | T007, T037 |
-| `daiv/sessions/transcript_labels.py`, `chat/static/chat/js/transcript-labels.js` | T043, T057 |
+| `daiv/sessions/transcript_labels.py` | T044, T059 |
+| `daiv/chat/static/chat/js/transcript-labels.js` | T044, T049, T059 |
+| `daiv/sessions/inbox/render.py` | T019, T049 |
+| `tests/unit_tests/sessions/inbox/test_render.py` | T009, T048 |
 | `daiv/sessions/models.py` | T015 (then T016 generates the migration) |
 
 ### Parallel opportunities
@@ -448,11 +480,11 @@ description: "Task list for the Delegated Leg Follow-ups feature"
 - Foundational tests: T004–T014 all touch different files.
 - Foundational implementation: T015, then T016 and T017. T018, T019, T020, T025, T026 and T028 go together; T029 runs anytime. T021 waits for T017 and T018; T027 for T017; T022 after T021; T023 after T018, T020 and T021; T024 after T021.
 - US1: T030 and T031 together, then T032 alongside T033.
-- US2: T037 and T039 alongside T036, and T043 alongside T040–T042.
-- US3: T044 and T046 alongside T045, and T047 alongside T048.
+- US2: T037, T039 and T040 alongside T036, and T044 and T045 alongside T041–T043.
+- US3: T046 and T048 alongside T047, and T049 alongside T050.
 - US4: in full alongside Phase 2, given the shared-file order.
-- US5: T053 and T054 alongside T052, and T056 and T057 alongside T055.
-- Polish: T061–T064 together.
+- US5: T055 and T056 alongside T054, and T058 and T059 alongside T057.
+- Polish: T063–T066 together.
 
 ## Parallel Example: Foundation
 
@@ -476,11 +508,11 @@ Task: "T029 dataclass fields in daiv/automation/agent/delegation.py"
 ## Parallel Example: User Story 5
 
 ```bash
-Task: "T053 distinct total in tests/unit_tests/sessions/test_header.py"
-Task: "T054 thread_id matching in tests/unit_tests/chat/test_tool_renderers_js.py"
+Task: "T055 distinct total in tests/unit_tests/sessions/test_header.py"
+Task: "T056 thread_id matching in tests/unit_tests/chat/test_tool_renderers_js.py"
 # then
-Task: "T056 distinct total in daiv/sessions/header.py"
-Task: "T057 thread_id matching in daiv/chat/static/chat/js/tool-renderers.js"
+Task: "T058 distinct total in daiv/sessions/header.py"
+Task: "T059 thread_id matching in daiv/chat/static/chat/js/tool-renderers.js"
 ```
 
 ## Implementation Strategy
@@ -495,7 +527,7 @@ Task: "T057 thread_id matching in daiv/chat/static/chat/js/tool-renderers.js"
 1. US4 → release.
 2. Foundation + US1 + US2 → release (the follow-up MVP).
 3. US3 → release, with busy legs and precise cancel verified. Most of its behaviour already ships with the foundation; this phase proves it and finishes the leg's inbox display.
-4. US5 → release, with the coordinator's guidance, the session page, and the eval comparison (T060) in the PR.
+4. US5 → release, with the coordinator's guidance, the session page, and the eval comparison (T062) in the PR.
 5. Polish rides with whichever release it documents. The CHANGELOG entry lands with the first release that changes behaviour users see.
 
 ## Notes
@@ -504,4 +536,4 @@ Task: "T057 thread_id matching in daiv/chat/static/chat/js/tool-renderers.js"
 - Each user story is testable on its own at its checkpoint.
 - Confirm tests fail before implementing (Constitution IV).
 - Commit after each task or logical group, with the repository's commit style, and push. PR #1781 is watched.
-- Never claim an eval result without T060's comparison (`patterns/agent-evals.md` rule 3).
+- Never claim an eval result without T062's comparison (`patterns/agent-evals.md` rule 3).

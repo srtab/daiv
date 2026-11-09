@@ -34,18 +34,18 @@ Changes to the existing text:
   request."
 - The `targets` entry shape becomes `{repo_id, ref?, prompt, references?, thread_id?}`.
 - The return line becomes:
-  `{"batch_id", "started": [{repo_id, ref, thread_id, session_url, starts_after_this_turn, follow_up}], "failed": [{repo_id, ref, error, still_runs, thread_id}]}`
+  `{"batch_id", "started": [{repo_id, ref, thread_id, session_url, starts_after_this_turn, leg_follow_up}], "failed": [{repo_id, ref, error, still_runs, thread_id}]}`
 
 ## `delegate_jobs`: result
 
-The shape is unchanged, plus `follow_up` on started entries and `thread_id` on failed entries.
+The shape is unchanged, plus `leg_follow_up` on started entries and `thread_id` on failed entries.
 
 | Entry | For a new leg | For a leg follow-up |
 |---|---|---|
 | `started[].ref` | the ref it starts from | the branch it works on (the leg's current branch) |
 | `started[].thread_id` | the new session | the leg's session |
 | `started[].starts_after_this_turn` | as today | always `false` |
-| `started[].follow_up` | `false` | `true` |
+| `started[].leg_follow_up` | `false` | `true` |
 | `failed[].thread_id` | `""` | the leg's session |
 
 `batch_id` is set whenever anything started, for new legs and leg follow-ups alike.
@@ -70,9 +70,9 @@ A target whose session does not exist at all gets reason 1. Repository access is
 
 ## `check_delegated_jobs`
 
-The JSON shape is unchanged, plus `follow_up` on each leg:
+The JSON shape is unchanged, plus `leg_follow_up` on each leg:
 
-`{"batches": [{batch_id, finished, legs: [{repo_id, ref, thread_id, session_url, status, branch, merge_request_url, reply, follow_up}]}]}`
+`{"batches": [{batch_id, finished, legs: [{repo_id, ref, thread_id, session_url, status, branch, merge_request_url, reply, leg_follow_up}]}]}`
 
 | Field | Meaning |
 |---|---|
