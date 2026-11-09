@@ -52,6 +52,7 @@ INTERRUPT_ALL_TOOLS_CONFIG = {
     "github": True,
     "gitlab": True,
 }
+WRITE_INTERRUPTS = {"edit_file": True, "write_file": True, "bash": True, "task": True}
 
 CODING_MODEL_NAMES = [
     ModelName.CLAUDE_SONNET_5_5,

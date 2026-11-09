@@ -13,7 +13,15 @@ from sessions.inbox.render import RunInput
 from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
 
 from .prompt_leak import assert_no_prompt_leak
-from .utils import INBOX_MODELS, extract_tool_calls, final_text, measure, require_provider_for_model, run_agent_once
+from .utils import (
+    INBOX_MODELS,
+    WRITE_INTERRUPTS,
+    extract_tool_calls,
+    final_text,
+    measure,
+    require_provider_for_model,
+    run_agent_once,
+)
 
 pytestmark = [
     pytest.mark.inbox,
@@ -34,7 +42,6 @@ ADD_FLAG = (
 
 assert_no_prompt_leak([RUNNER_OUT_OF_DISK, WHICH_COMMAND, ADD_FLAG])
 
-WRITE_INTERRUPTS = {"edit_file": True, "write_file": True, "bash": True, "task": True}
 WRITES = {"edit_file", "write_file"}
 GIT_SYNC = re.compile(r"\bgit\s+(pull|fetch|reset|rebase|merge|checkout)\b")
 CI_FAILURE = {

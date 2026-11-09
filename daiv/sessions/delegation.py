@@ -126,14 +126,7 @@ class SessionJobDelegator:
             raise DelegationError(
                 "Sub-jobs run as the DAIV user who triggered this run, and it has none, so it cannot delegate."
             )
-        if not goal:
-            raise DelegationError("`goal` must name the overall objective.")
-        if not targets:
-            raise DelegationError("Give at least one target.")
-        if len(targets) > MAX_DELEGATED_TARGETS:
-            raise DelegationError(f"At most {MAX_DELEGATED_TARGETS} targets per call; split the work across calls.")
-        if any(not target.repo_id or not target.prompt for target in targets):
-            raise DelegationError("Every target needs a `repo_id` and a prompt of its own.")
+        check_delegation(goal, targets)
 
         user = run.user
         denied: set[str] = set()
@@ -235,6 +228,18 @@ class SessionJobDelegator:
         if legs := list(self._legs().filter(batch_id=batch).order_by("created_at", "id")):
             return legs
         raise DelegationError(f"This session delegated no batch {batch_id}.")
+
+
+def check_delegation(goal: str, targets: Sequence[DelegatedTarget]) -> None:
+    """Raise :class:`DelegationError` for a ``delegate_jobs`` call without a goal or with targets it cannot start."""
+    if not goal:
+        raise DelegationError("`goal` must name the overall objective.")
+    if not targets:
+        raise DelegationError("Give at least one target.")
+    if len(targets) > MAX_DELEGATED_TARGETS:
+        raise DelegationError(f"At most {MAX_DELEGATED_TARGETS} targets per call; split the work across calls.")
+    if any(not target.repo_id or not target.prompt for target in targets):
+        raise DelegationError("Every target needs a `repo_id` and a prompt of its own.")
 
 
 async def _aactive_run(thread_id: str) -> Run | None:

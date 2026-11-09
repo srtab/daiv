@@ -1,7 +1,8 @@
 """The coordinator workflow of ``delegate_jobs``: fanning legs out, ending the turn, and the run a batch resumes.
 
 Each case runs the agent on a disk clone of srtab/daiv ``main`` with a delegator that records what it is asked to start
-instead of starting it; its status and cancel are the real ones, over the legs a case puts in the database. A resumed
+and puts those legs in the database instead of starting them; its status and cancel are the real ones, over the legs in
+the database. A resumed
 run gets what a real ``delegation_finished`` event renders: ``render_batch_summary`` over those legs, after the turn
 that delegated them.
 """
@@ -18,10 +19,19 @@ from asgiref.sync import sync_to_async
 from django_tasks_db.models import DBTaskResult, get_date_max
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langsmith import testing as t
-from sessions.delegation import _UNTRACKED_LEG, SessionJobDelegator, _session_url, render_batch_summary
+from sessions.delegation import (
+    _UNTRACKED_LEG,
+    LEG_REPLY_MAX_CHARS,
+    SessionJobDelegator,
+    _on_own_branch,
+    _session_url,
+    check_delegation,
+    render_batch_summary,
+)
 from sessions.inbox.kinds import SourceKey
 from sessions.inbox.render import RunInput
 from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
+from sessions.queue import LINK_FAILED_PREFIX
 
 from automation.agent.delegation import (
     DELEGATE_JOBS_TOOL_NAME,
@@ -36,6 +46,7 @@ from automation.agent.middlewares.delegate_jobs import NO_CHANGE_CONVENTION
 from .prompt_leak import assert_no_prompt_leak
 from .utils import (
     DELEGATION_MODELS,
+    WRITE_INTERRUPTS,
     extract_tool_calls,
     final_text,
     measure,
@@ -98,7 +109,11 @@ ENDPOINT_REPORT = (
 
 assert_no_prompt_leak([RENAME_HEADER, BUMP_REQUESTS, PIN_HTTPX, RENAME_SETTING, FIND_500, STILL_FAILING])
 
-TOOL_INTERRUPTS = {"edit_file": True, "write_file": True, "bash": True, "task": True}
+LOST_LEG_WORDING = re.compile(
+    r"\blost\b|untracked|(?:may|might|could) still (?:open|run|publish)"
+    r"|(?:can|could)(?:not|n['’]t| not) (?:track|follow)",
+    re.IGNORECASE,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -107,33 +122,53 @@ def _require_provider(model_name):
 
 
 class RecordingDelegator(SessionJobDelegator):
-    """Starts nothing: records every ``delegate_jobs`` call and answers it as if each target started, except those on
-    ``lost`` repositories, which come back the way a leg DAIV started but lost track of does."""
+    """Starts nothing: records every ``delegate_jobs`` call it accepts and puts each leg in the database as queued,
+    except those on ``lost`` repositories, which fail the way a leg DAIV started but lost track of does."""
 
-    def __init__(self, thread_id: str, *, lost: frozenset[str] = frozenset()):
-        super().__init__(thread_id)
+    def __init__(self, coordinator: Session, *, lost: frozenset[str] = frozenset()):
+        super().__init__(coordinator.thread_id)
+        self.coordinator = coordinator
         self.lost = lost
         self.calls: list[list[DelegatedTarget]] = []
 
     async def adelegate(self, *, checkout: Checkout, goal: str, targets: list[DelegatedTarget]) -> DelegationResult:
+        check_delegation(goal, targets)
         self.calls.append(list(targets))
+        batch_id = uuid.uuid4()
         started: list[StartedLeg] = []
         failed: list[FailedLeg] = []
         for target in targets:
-            if target.repo_id in self.lost:
+            lost = target.repo_id in self.lost
+            session = await Session.objects.acreate(
+                thread_id=str(uuid.uuid4()),
+                origin=SessionOrigin.DELEGATED_JOB,
+                repo_id=target.repo_id,
+                ref=target.ref,
+                parent=self.coordinator,
+            )
+            await Run.objects.acreate(
+                session=session,
+                trigger_type=SessionOrigin.DELEGATED_JOB,
+                batch_id=batch_id,
+                repo_id=target.repo_id,
+                ref=target.ref,
+                prompt=target.prompt,
+                status=RunStatus.FAILED if lost else RunStatus.QUEUED,
+                error_message=LINK_FAILED_PREFIX if lost else "",
+            )
+            if lost:
                 failed.append(FailedLeg(target.repo_id, target.ref, _UNTRACKED_LEG, still_runs=True))
                 continue
-            thread_id = str(uuid.uuid4())
             started.append(
                 StartedLeg(
                     target.repo_id,
                     target.ref,
-                    thread_id,
-                    _session_url(thread_id),
-                    starts_after_this_turn=target.repo_id == checkout.repo_id and target.ref == checkout.ref != "",
+                    session.thread_id,
+                    await sync_to_async(_session_url)(session.thread_id),
+                    starts_after_this_turn=_on_own_branch(checkout, target),
                 )
             )
-        return DelegationResult(batch_id=str(uuid.uuid4()), started=started, failed=failed)
+        return DelegationResult(batch_id=str(batch_id), started=started, failed=failed)
 
     def targets(self) -> list[DelegatedTarget]:
         return [target for call in self.calls for target in call]
@@ -185,12 +220,7 @@ def _finished_batch(coordinator: Session, batch_id: uuid.UUID, legs: tuple[Finis
                 finished_at=timezone.now(),
             )
         )
-    return list(
-        Run.objects
-        .filter(pk__in=[run.pk for run in runs])
-        .select_related("session", "task_result")
-        .order_by("created_at", "id")
-    )
+    return runs
 
 
 def _delegating_turn(request: str, batch_id: uuid.UUID, legs: list[Run]) -> list:
@@ -208,7 +238,7 @@ def _delegating_turn(request: str, batch_id: uuid.UUID, legs: list[Run]) -> list
                 {
                     "name": DELEGATE_JOBS_TOOL_NAME,
                     "args": {
-                        "goal": request.split(".")[0],
+                        "goal": request.split(". ")[0],
                         "targets": [{"repo_id": leg.repo_id, "prompt": leg.prompt} for leg in legs],
                     },
                     "id": call_id,
@@ -220,11 +250,15 @@ def _delegating_turn(request: str, batch_id: uuid.UUID, legs: list[Run]) -> list
     ]
 
 
-async def _resumed(request: str, *legs: FinishedLeg) -> tuple[RecordingDelegator, list]:
-    """The delegator and input of the run a finished batch resumes, as the inbox renders it for the coordinator."""
-    coordinator = await Session.objects.acreate(
+async def _acoordinator() -> Session:
+    return await Session.objects.acreate(
         thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="srtab/daiv", ref="main"
     )
+
+
+async def _resumed(request: str, *legs: FinishedLeg) -> tuple[RecordingDelegator, list]:
+    """The delegator and input of the run a finished batch resumes, as the inbox renders it for the coordinator."""
+    coordinator = await _acoordinator()
     batch_id = uuid.uuid4()
     runs = await sync_to_async(_finished_batch)(coordinator, batch_id, legs)
     summary = await sync_to_async(render_batch_summary)(batch_id, runs)
@@ -246,26 +280,29 @@ async def _resumed(request: str, *legs: FinishedLeg) -> tuple[RecordingDelegator
         payload={"batch_id": str(batch_id), "summary": summary, "succeeded": len(runs), "total": len(runs)},
     )
     rendered = (await RunInput.aof_run(resume)).render(resume).messages
-    return RecordingDelegator(coordinator.thread_id), [*_delegating_turn(request, batch_id, runs), *rendered]
+    return RecordingDelegator(coordinator), [*_delegating_turn(request, batch_id, runs), *rendered]
 
 
 async def _run(model_name: str, messages, delegator: RecordingDelegator, request: pytest.FixtureRequest):
+    """The tool calls the agent made in this run, without those of the input's seeded turns, and its final reply."""
     t.log_inputs({"model_name": model_name, "messages": [message.text for message in messages]})
     with measure(request) as metrics:
         result = await run_agent_once(
-            model_name, messages, interrupt_on=TOOL_INTERRUPTS, ask_user_enabled=False, delegator=delegator
+            model_name, messages, interrupt_on=WRITE_INTERRUPTS, ask_user_enabled=False, delegator=delegator
         )
     metrics.messages = result["messages"]
     t.log_outputs(result)
-    return extract_tool_calls(result["messages"]), final_text(result["messages"])
+    seeded = {call["id"] for call in extract_tool_calls(messages)}
+    tool_calls = [call for call in extract_tool_calls(result["messages"]) if call["id"] not in seeded]
+    return tool_calls, final_text(result["messages"])
 
 
-def _fresh_delegator(**kwargs) -> RecordingDelegator:
-    return RecordingDelegator(str(uuid.uuid4()), **kwargs)
+async def _afresh_delegator(**kwargs) -> RecordingDelegator:
+    return RecordingDelegator(await _acoordinator(), **kwargs)
 
 
 async def test_a_change_in_two_other_repositories_is_delegated_as_one_leg_each(model_name, eval_request):
-    delegator = _fresh_delegator()
+    delegator = await _afresh_delegator()
 
     await _run(model_name, [HumanMessage(RENAME_HEADER)], delegator, eval_request)
 
@@ -276,13 +313,13 @@ async def test_a_change_in_two_other_repositories_is_delegated_as_one_leg_each(m
 
 
 async def test_after_delegating_it_ends_the_turn_without_checking_on_the_legs(model_name, eval_request):
-    delegator = _fresh_delegator()
+    delegator = await _afresh_delegator()
 
     tool_calls, _reply = await _run(model_name, [HumanMessage(BUMP_REQUESTS)], delegator, eval_request)
 
     names = [call["name"] for call in tool_calls]
     assert DELEGATE_JOBS_TOOL_NAME in names, names
-    after = names[names.index(DELEGATE_JOBS_TOOL_NAME) + 1 :]
+    after = [name for name in names[names.index(DELEGATE_JOBS_TOOL_NAME) + 1 :] if name != "write_todos"]
     assert not after, f"kept working after delegating instead of ending the turn: {after}"
 
 
@@ -316,13 +353,14 @@ async def test_a_resumed_run_reports_every_merge_request_without_delegating_agai
 
 
 async def test_a_leg_that_started_but_was_lost_is_not_delegated_again(model_name, eval_request):
-    delegator = _fresh_delegator(lost=frozenset({NOTIFIER}))
+    delegator = await _afresh_delegator(lost=frozenset({NOTIFIER}))
 
     _tool_calls, reply = await _run(model_name, [HumanMessage(RENAME_SETTING)], delegator, eval_request)
 
     notifier_legs = [target for target in delegator.targets() if target.repo_id == NOTIFIER]
     assert len(notifier_legs) == 1, f"the lost {NOTIFIER} leg was delegated {len(notifier_legs)} times"
     assert "notifier" in reply.lower(), reply
+    assert LOST_LEG_WORDING.search(reply), f"the reply does not say the {NOTIFIER} leg was lost: {reply}"
 
 
 async def test_a_finding_deep_in_a_legs_reply_reaches_the_report(model_name, eval_request):
@@ -339,4 +377,6 @@ async def test_a_finding_deep_in_a_legs_reply_reaches_the_report(model_name, eva
 
     _tool_calls, reply = await _run(model_name, messages, delegator, eval_request)
 
-    assert re.search(r"invoices/\{id\}/pdf|pdf_blob_key", reply), reply
+    assert re.search(r"invoices/\{id\}/pdf|pdf_blob_key", reply), (
+        f"expected to fail while the coordinator sees only a reply's first {LEG_REPLY_MAX_CHARS} characters: {reply}"
+    )
