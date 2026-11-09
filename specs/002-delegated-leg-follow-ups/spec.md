@@ -30,6 +30,7 @@
 - Q: When a follow-up arrives at a leg's session that already has other requests waiting on the same branch, should it share that run or run alone? → A: Always alone. Other waiting requests get runs of their own, before or after it, and the follow-up still sees remembered events as context. Recorded in FR-004.
 - Q: Should the coordinator be allowed to send a follow-up to a leg DAIV started but lost track of? → A: No. It is refused, saying the leg may still be working and to check its session; the coordinator can delegate a new leg if the work is needed. Recorded in FR-008, and in the Assumptions on which outcomes can be followed up.
 - Q: Should follow-ups be checked for the person's repository access when sent, as new legs are, or only when their run starts? → A: Only when the run starts, by the inbox's existing check. A start refused for access ends the follow-up as failed, and the batch's summary reports it. Recorded in FR-005a and the Edge Cases.
+- Q: When a leg's session has already hit the inbox's limit of three DAIV-started runs in a row, should a follow-up still wake it? → A: Yes. A follow-up always wakes the leg's session, as a person's request does. Its run still counts as DAIV-started, so CI fixes after it stay limited. Recorded in FR-004a and the Edge Cases.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -130,6 +131,7 @@ The resume summary and the batch status name each leg's session id, so the coord
 - **A leg on a repository whose access the person lost.** The follow-up is accepted when sent, because access is checked only when its run starts (FR-005a). The run is then refused, ends as failed, and the batch's summary reports it without DAIV's internal error text. The batch still resumes the coordinator.
 - **A leg whose earlier conversation is no longer available.** The follow-up still runs, from its request and the state of the leg's branch.
 - **A leg session that was archived.** It is refused as a leg that cannot be continued, saying to delegate a new leg.
+- **A leg session at its limit of DAIV-started runs in a row**, for example after its first run and two CI fixes. The follow-up still wakes it and runs (FR-004a). A CI failure after that follow-up is still only remembered.
 - **A coordinator that keeps sending follow-ups that fail.** It is bounded by the existing limit of three runs in a row nobody asked for on the coordinator's session. After that, a finished batch is only remembered, and its owner is told.
 - **A follow-up sent to a leg that is itself waiting to start after the coordinator's turn ends.** It is refused as still working.
 - **A person's own requests on the leg's session waiting at the same time.** The follow-up runs in a run of its own, never combined with them, so it stays unattended and answers only the coordinator.
@@ -146,6 +148,7 @@ The resume summary and the batch status name each leg's session id, so the coord
 - **FR-002**: A follow-up MUST run in the leg's existing session, with the leg's earlier conversation available to it.
 - **FR-003**: A follow-up MUST push its changes to the leg's own branch and merge request when the leg has published one. When the leg has not, it MUST open a branch and merge request of its own, and MUST NOT push to the branch or merge request the leg started from.
 - **FR-004**: A follow-up MUST reach the leg's session as an inbox event. It waits while the session is busy and receives the session's remembered events as context. It always runs alone: it never shares a run with another waiting request, whether DAIV's own (such as a CI failure) or a person's. Those requests get runs of their own, before or after it, in the order the inbox serves them.
+- **FR-004a**: A follow-up MUST wake the leg's session even when the session has reached the limit of three DAIV-started runs in a row, as a person's request does. Its run MUST still count as DAIV-started in that session's streak, so CI failures after it stay subject to the limit.
 - **FR-005**: A follow-up MUST run unattended: it never stops to ask a question. It runs as the person who triggered the coordinator's run, with the coordinator's mute.
 - **FR-005a**: A follow-up's repository access MUST be checked when its run starts, by the check every inbox run gets. It is not checked when the coordinator sends it. A start refused for access MUST end the follow-up as failed, so the batch still finishes and its summary reports that leg as failed, without DAIV's internal error text.
 - **FR-006**: One delegate call MAY mix new legs and follow-ups. All of them belong to the one batch the call creates, and they count toward the same per-call target limit.
