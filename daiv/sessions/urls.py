@@ -9,6 +9,7 @@ from sessions.views import (
     SessionMergeRequestRedirectView,
     SessionNewView,
     SessionStreamView,
+    ToolResultMediaRawView,
 )
 
 urlpatterns = [
@@ -26,4 +27,5 @@ urlpatterns = [
     ),
     path("<slug:thread_id>/artifacts/<uuid:pk>/", RunArtifactDetailView.as_view(), name="session_artifact_detail"),
     path("<slug:thread_id>/artifacts/<uuid:pk>/raw/", RunArtifactRawView.as_view(), name="session_artifact_raw"),
+    path("<slug:thread_id>/tool-media/<uuid:pk>/", ToolResultMediaRawView.as_view(), name="session_tool_media"),
 ]

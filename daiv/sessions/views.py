@@ -49,7 +49,7 @@ from sessions.filters import (
     resolve_scope,
 )
 from sessions.forms import AgentRunCreateForm
-from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
+from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin, ToolResultMedia
 from sessions.multi_repo import MAX_REPOS_PER_SESSION
 from sessions.page_state import aload_session_state
 from sessions.services import RepoTarget, submit_batch_runs
@@ -501,6 +501,27 @@ class RunArtifactRawView(RunArtifactMixin, SingleObjectMixin, View):
             filename=artifact.filename,
             headers=ARTIFACT_RAW_HEADERS,
         )
+
+
+@method_decorator(xframe_options_sameorigin, name="dispatch")
+class ToolResultMediaRawView(LoginRequiredMixin, SingleObjectMixin, View):
+    """Stream an image or file a tool result carried, for the session transcript, under the artifact headers."""
+
+    def get_queryset(self) -> QuerySet[ToolResultMedia]:
+        return ToolResultMedia.objects.visible_to(self.request.user).filter(run__session_id=self.kwargs["thread_id"])
+
+    def get(self, request, *args, **kwargs):
+        media: ToolResultMedia = self.get_object()
+        try:
+            fh = media.file.open("rb")
+        except FileNotFoundError:
+            logger.error(
+                "Tool media %s: stored file %s is missing; is MEDIA_ROOT shared between the web and worker containers?",
+                media.pk,
+                media.file.name,
+            )
+            raise Http404("Tool media file is missing.") from None
+        return FileResponse(fh, content_type=media.content_type, headers=ARTIFACT_RAW_HEADERS)
 
 
 class ArtifactListView(LoginRequiredMixin, FilterView):
