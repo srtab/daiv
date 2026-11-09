@@ -97,7 +97,7 @@ A typical labelled-issue run therefore carries the tags `gitlab`, `group/project
   "issue_id": 42,
   "labels": ["daiv", "bug"],
   "scope": "Issue",
-  "model": "openrouter:anthropic/claude-sonnet-4.6",
+  "model": "openrouter:anthropic/claude-sonnet-5.5",
   "thinking_level": "medium"
 }
 ```
@@ -113,7 +113,7 @@ A typical labelled-issue run therefore carries the tags `gitlab`, `group/project
   "git_platform": "gitlab",
   "merge_request_id": 123,
   "scope": "Merge Request",
-  "model": "openrouter:anthropic/claude-sonnet-4.6",
+  "model": "openrouter:anthropic/claude-sonnet-5.5",
   "thinking_level": "medium"
 }
 ```
@@ -126,7 +126,7 @@ A typical labelled-issue run therefore carries the tags `gitlab`, `group/project
   "git_platform": "gitlab",
   "scope": "Global",
   "trigger": "job",
-  "model": "openrouter:anthropic/claude-sonnet-4.6",
+  "model": "openrouter:anthropic/claude-sonnet-5.5",
   "thinking_level": "medium",
   "ref": "main",
   "override_source": "explicit"
@@ -197,7 +197,7 @@ python manage.py setup_langsmith_dashboard --recreate
 
 - **By trigger type** — filter by `scope` or by metadata key `issue_id` vs `merge_request_id`
 - **By user** — filter or group by `author`
-- **By model** — group by `model` to compare performance across models (the value is the full configured model identifier, e.g. `openrouter:anthropic/claude-sonnet-4.6` vs `openrouter:anthropic/claude-opus-4.6`)
+- **By model** — group by `model` to compare performance across models (the value is the full configured model identifier, e.g. `openrouter:anthropic/claude-sonnet-5.5` vs `openrouter:anthropic/claude-opus-5.5`)
 - **Performance** — monitor execution time and token usage per run
 
 ---
