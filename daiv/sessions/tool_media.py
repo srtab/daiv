@@ -9,6 +9,7 @@ the endpoint serves them under the artifact sandbox CSP.
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
@@ -36,7 +37,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.sessions")
 
 _IMAGE_TYPES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
+_IMAGE_ALIASES = {"image/jpg": "image/jpeg", "image/pjpeg": "image/jpeg"}
+_MEDIA_TYPE = re.compile(r"(audio|video)/[a-z0-9][a-z0-9!#$&^_.+-]*")
+_CONTENT_TYPE_MAX_LENGTH = 100
 _LINK_SCHEMES = ("http", "https")
+# RFC 3986 characters only: a quote, angle bracket or space could break out of the HTML attribute it lands in.
+_PLAIN_URL = re.compile(r"[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+")
 
 NOT_SAVED = "not_saved"
 
@@ -44,10 +50,12 @@ NOT_SAVED = "not_saved"
 def stored_content_type(mime_type: str) -> str | None:
     """``mime_type`` normalised (no parameters, lower case) if it may be kept, else ``None``."""
     content_type = mime_type.split(";", 1)[0].strip().lower()
+    content_type = _IMAGE_ALIASES.get(content_type, content_type)
     if content_type in _IMAGE_TYPES or content_type == "application/pdf":
         return content_type
-    major, _, minor = content_type.partition("/")
-    return content_type if major in ("audio", "video") and minor else None
+    if len(content_type) <= _CONTENT_TYPE_MAX_LENGTH and _MEDIA_TYPE.fullmatch(content_type):
+        return content_type
+    return None
 
 
 class RunToolMediaStore:
@@ -146,6 +154,6 @@ def _legacy_item(block: dict[str, Any]) -> dict[str, Any]:
 
 
 def _external(url: str) -> dict[str, Any]:
-    if urlsplit(url).scheme in _LINK_SCHEMES:
+    if _PLAIN_URL.fullmatch(url) and urlsplit(url).scheme in _LINK_SCHEMES:
         return {"url": url, "external": True}
     return {"error": UNSUPPORTED_TYPE}

@@ -12,8 +12,8 @@ from tests.unit_tests.sessions.test_views_artifacts import _create_run, _create_
 pytestmark = pytest.mark.django_db
 
 
-def _media(run: Run, content: bytes = b"png") -> ToolResultMedia:
-    media = ToolResultMedia(run=run, tool_call_id="call_1", ordinal=0, content_type="image/png", size=len(content))
+def _media(run: Run, content: bytes = b"png", content_type: str = "image/png") -> ToolResultMedia:
+    media = ToolResultMedia(run=run, tool_call_id="call_1", ordinal=0, content_type=content_type, size=len(content))
     media.file.save("media", ContentFile(content), save=True)
     return media
 
@@ -60,3 +60,17 @@ def test_missing_file_404s_and_logs(member_client, member_user, caplog):
 
     assert member_client.get(_url(media)).status_code == 404
     assert "MEDIA_ROOT" in caplog.text
+
+
+def test_a_pdf_downloads_instead_of_opening(member_client, member_user):
+    media = _media(_create_run(_create_session(user=member_user)), content=b"%PDF", content_type="application/pdf")
+
+    response = member_client.get(_url(media))
+
+    assert response["Content-Disposition"].startswith("attachment")
+
+
+def test_an_image_opens_inline(member_client, member_user):
+    response = member_client.get(_url(_own_media(member_user)))
+
+    assert "attachment" not in response.get("Content-Disposition", "")

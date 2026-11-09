@@ -204,3 +204,38 @@ def test_the_tag_never_reaches_the_provider(model):
 
     assert "call_1" in payload
     assert "SENTINEL" not in payload
+
+
+async def test_a_non_string_payload_records_failed(dispatch):
+    block = {"type": "image", "base64": 123, "mime_type": "image/png"}
+
+    result = await ToolMediaMiddleware(store=FakeToolMediaStore()).awrap_tool_call(
+        _request(), _returns(ToolMessage(content=[block], tool_call_id="call_1"))
+    )
+
+    assert _tagged(result)[0]["error"] == "failed"
+
+
+async def test_mime_wrapped_base64_is_stored(dispatch):
+    wrapped = "\n".join(PNG[i : i + 4] for i in range(0, len(PNG), 4))
+    store = FakeToolMediaStore()
+
+    await ToolMediaMiddleware(store=store).awrap_tool_call(
+        _request(), _returns(ToolMessage(content=[_image(wrapped)], tool_call_id="call_1"))
+    )
+
+    assert store.stored[0]["content"] == RAW
+
+
+async def test_a_data_url_block_is_stored_as_bytes(dispatch):
+    block = {"type": "image", "url": f"data:image/png;base64,{PNG}"}
+    store = FakeToolMediaStore()
+
+    result = await ToolMediaMiddleware(store=store).awrap_tool_call(
+        _request(), _returns(ToolMessage(content=[block], tool_call_id="call_1"))
+    )
+
+    assert _tagged(result) == [
+        {"ordinal": 0, "kind": "image", "mime_type": "image/png", "id": str(uuid.UUID(int=1)), "size": len(RAW)}
+    ]
+    assert (store.stored[0]["mime_type"], store.stored[0]["content"]) == ("image/png", RAW)

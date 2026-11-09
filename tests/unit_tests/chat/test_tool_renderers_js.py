@@ -1634,3 +1634,24 @@ def test_mcp_text_and_image_show_together():
 
     assert "taken" in html
     assert "<img" in html
+
+
+def test_a_quote_in_a_media_url_cannot_break_out_of_the_attribute():
+    external = _media_body([
+        {
+            "kind": "image",
+            "mime_type": "image/png",
+            "url": 'https://x.test/a.png" onmouseover="alert(1)',
+            "external": True,
+        }
+    ])
+    stored = _media_body([{"kind": "image", "mime_type": "image/png", "url": '/dashboard/x.png" onerror="alert(1)'}])
+
+    assert 'onmouseover="' not in external
+    assert 'onerror="' not in stored
+
+
+def test_a_backslash_path_is_not_treated_as_same_origin():
+    html = _media_body([{"kind": "image", "mime_type": "image/png", "url": "/\\evil.test/a.png"}])
+
+    assert "evil.test" not in html

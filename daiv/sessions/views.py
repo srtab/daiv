@@ -5,6 +5,7 @@ import logging
 import time
 import uuid
 from functools import cached_property
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
@@ -521,7 +522,14 @@ class ToolResultMediaRawView(LoginRequiredMixin, SingleObjectMixin, View):
                 media.file.name,
             )
             raise Http404("Tool media file is missing.") from None
-        return FileResponse(fh, content_type=media.content_type, headers=ARTIFACT_RAW_HEADERS)
+        # The sandbox CSP stops browsers' PDF and media viewers, so only images open inline.
+        return FileResponse(
+            fh,
+            content_type=media.content_type,
+            as_attachment=not media.content_type.startswith("image/"),
+            filename=PurePosixPath(media.file.name).name,
+            headers=ARTIFACT_RAW_HEADERS,
+        )
 
 
 class ArtifactListView(LoginRequiredMixin, FilterView):

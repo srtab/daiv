@@ -1981,7 +1981,7 @@
   };
 
   // A server-built URL is same-origin; anything else must be plain http(s), never a script or data URL.
-  const safeMediaUrl = (url) => (/^\/(?!\/)/.test(url) || /^https?:\/\//i.test(url) ? url : null);
+  const safeMediaUrl = (url) => (/^\/(?![\/\\])/.test(url) || /^https?:\/\//i.test(url) ? url : null);
 
   const urlHost = (url) => {
     try {
@@ -1992,7 +1992,7 @@
   };
 
   const mediaLink = (url, cls, inner) =>
-    `<a class="${cls}" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${inner}</a>`;
+    `<a class="${cls}" href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${inner}</a>`;
 
   const mediaItemHTML = (item) => {
     const label = mediaKindLabel(item);
@@ -2003,7 +2003,7 @@
     }
     if (item.external) return mediaLink(url, "body-media-chip", escapeHtml(`${label} · ${urlHost(url)}`));
     if (item.kind === "image") {
-      const img = `<img class="body-media-thumb" src="${escapeHtml(url)}" alt="${escapeHtml(label)}" loading="lazy">`;
+      const img = `<img class="body-media-thumb" src="${escapeAttr(url)}" alt="${escapeAttr(label)}" loading="lazy">`;
       return mediaLink(url, "body-media-item", img);
     }
     const size = Number.isFinite(item.size) ? ` · ${kbSize(item.size)}` : "";

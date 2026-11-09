@@ -179,3 +179,28 @@ def test_text_only_message_has_no_media():
 def test_tool_text_keeps_only_text():
     assert tool_text([{"type": "text", "text": "a"}, {"type": "image", "base64": "AAAA"}, "b"]) == "a\nb"
     assert tool_text("plain") == "plain"
+
+
+@pytest.mark.parametrize(
+    "url", ['https://x.test/a.png" onmouseover="x', "https://x.test/a b.png", "https://x.test/<a>.png"]
+)
+def test_media_items_rejects_urls_that_are_not_plain(url):
+    entry = {"ordinal": 0, "kind": "image", "mime_type": "image/png", "url": url}
+
+    assert media_items([entry], thread_id="t1") == [
+        {"kind": "image", "mime_type": "image/png", "error": "unsupported_type"}
+    ]
+
+
+@pytest.mark.parametrize(
+    ("mime", "expected"),
+    [
+        ("image/jpg", "image/jpeg"),
+        ("image/pjpeg", "image/jpeg"),
+        ("audio/x, text/html", None),
+        ("video/mp4\r\nx-y: z", None),
+        ("audio/" + "a" * 120, None),
+    ],
+)
+def test_stored_content_type_normalises_and_validates(mime, expected):
+    assert stored_content_type(mime) == expected

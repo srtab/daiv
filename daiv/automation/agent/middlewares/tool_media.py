@@ -58,13 +58,21 @@ class ToolMediaMiddleware(AgentMiddleware):
     async def _entry(self, block: dict[str, Any], ordinal: int, *, thread_id: str, tool_call_id: str) -> dict[str, Any]:
         entry: dict[str, Any] = {"ordinal": ordinal, "kind": block["type"], "mime_type": block.get("mime_type") or ""}
         data = block.get("base64")
-        if data is None:
-            if url := block.get("url"):
+        url = block.get("url")
+        if data is None and isinstance(url, str) and url.startswith("data:"):
+            header, _, data = url.partition(",")
+            if not header.endswith(";base64"):
+                return {**entry, "error": UNSUPPORTED_TYPE}
+            entry["mime_type"] = header.removeprefix("data:").removesuffix(";base64") or entry["mime_type"]
+        elif data is None:
+            if url:
                 return {**entry, "url": url}
             return {**entry, "error": UNSUPPORTED_TYPE}
         try:
-            content = base64.b64decode(data, validate=True)
-        except ValueError:
+            if not isinstance(data, str):
+                raise TypeError(type(data).__name__)
+            content = base64.b64decode("".join(data.split()), validate=True)
+        except ValueError, TypeError:
             logger.warning("Media %d of tool call %s is not valid base64; not keeping it", ordinal, tool_call_id)
             return {**entry, "error": FAILED}
         entry["size"] = len(content)
