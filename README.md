@@ -13,6 +13,9 @@
   <a href="https://github.com/srtab/daiv/blob/main/LICENSE"><img src="https://img.shields.io/github/license/srtab/daiv" alt="License"></a>
   <a href="https://github.com/srtab/daiv/actions"><img src="https://github.com/srtab/daiv/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/e94eecc0-9180-468b-8ccf-b8fe27bab302" alt="A GitLab issue is labelled daiv; DAIV posts a plan; the author replies @daiv proceed; DAIV opens a merge request whose pipeline passes" width="800">
+</p>
 
 ---
 
