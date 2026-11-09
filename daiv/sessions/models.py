@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.sessions")
 
 CHAT_PROMPT_MAX_LENGTH = 2000
+RESULT_SUMMARY_MAX_CHARS = 2000
 
 _INBOX_TRIGGER_LITERALS = ["chat", "mr_webhook", "api_job", "mcp_job", "delegation_resume", "pipeline_webhook"]
 
@@ -635,7 +636,7 @@ class Run(models.Model):
 
         if parsed is not None:
             if parsed["response"] and not self.result_summary:
-                self.result_summary = parsed["response"][:2000]
+                self.result_summary = parsed["response"][:RESULT_SUMMARY_MAX_CHARS]
                 changed.append("result_summary")
             for field, value in agent_result_field_updates(parsed).items():
                 if not getattr(self, field):

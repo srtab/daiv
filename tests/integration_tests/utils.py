@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from langchain.messages import AIMessage
+from langsmith import testing as t
 
 from automation.agent.agent_settings import RunOverrides, resolve_agent_settings
 from automation.agent.deferred.conf import settings as deferred_settings
@@ -298,6 +299,23 @@ def measure(request: pytest.FixtureRequest) -> Generator[RunMetrics]:
                 ),
                 "cost": float(summary.cost_usd) if summary.cost_usd is not None else None,
             }
+
+
+async def run_eval_case(
+    model_name: str, messages: Sequence[BaseMessage], request: pytest.FixtureRequest, **agent_kwargs: Any
+) -> tuple[list[ToolCall], str]:
+    """One measured, LangSmith-logged run on ``messages`` with ``WRITE_INTERRUPTS`` and no ``ask_user``: the tool
+    calls the agent made, without those already in ``messages``, and its final reply."""
+    t.log_inputs({"model_name": model_name, "messages": [message.text for message in messages]})
+    with measure(request) as metrics:
+        result = await run_agent_once(
+            model_name, messages, interrupt_on=WRITE_INTERRUPTS, ask_user_enabled=False, **agent_kwargs
+        )
+    metrics.messages = result["messages"]
+    t.log_outputs(result)
+    seeded = {call["id"] for call in extract_tool_calls(list(messages))}
+    tool_calls = [call for call in extract_tool_calls(result["messages"]) if call["id"] not in seeded]
+    return tool_calls, final_text(result["messages"])
 
 
 @cache

@@ -319,6 +319,18 @@ def _resume_batch(batch_id: uuid.UUID) -> bool:
     if coordinator is None:
         logger.info("resume_coordinator: batch %s has no coordinator session left to resume", batch_id)
         return False
+    result = Inbox(coordinator.pk).post(
+        kind=EventKind.DELEGATION_FINISHED,
+        source_key=kinds.SourceKey.batch(batch_id),
+        payload=delegation_finished_payload(batch_id, legs),
+        wake=True,
+        author=legs[0].user,
+    )
+    return result.created
+
+
+def delegation_finished_payload(batch_id: uuid.UUID, legs: Sequence[Run]) -> dict:
+    """The payload of ``batch_id``'s ``delegation_finished`` event, from its finished ``legs``."""
     payload: dict = {
         "batch_id": str(batch_id),
         "summary": render_batch_summary(batch_id, legs),
@@ -327,14 +339,7 @@ def _resume_batch(batch_id: uuid.UUID) -> bool:
     }
     if legs[0].muted is not None:
         payload["muted"] = legs[0].muted
-    result = Inbox(coordinator.pk).post(
-        kind=EventKind.DELEGATION_FINISHED,
-        source_key=kinds.SourceKey.batch(batch_id),
-        payload=payload,
-        wake=True,
-        author=legs[0].user,
-    )
-    return result.created
+    return payload
 
 
 def resume_stalled_batches() -> int:
