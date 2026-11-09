@@ -11,9 +11,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from django.core.cache import cache
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import connections, models, transaction
 from django.utils.translation import gettext_lazy as _
+
+from core.validators import validate_searxng_url
 
 if TYPE_CHECKING:
     from pydantic import SecretStr
@@ -79,6 +81,7 @@ THINKING_OFF = "off"
 class WebSearchEngineChoices(models.TextChoices):
     DUCKDUCKGO = "duckduckgo", _("DuckDuckGo")
     TAVILY = "tavily", _("Tavily")
+    SEARXNG = "searxng", _("SearXNG")
 
 
 class ProviderType(models.TextChoices):
@@ -427,6 +430,24 @@ class SiteConfiguration(models.Model):
         null=True,
         choices=WebSearchEngineChoices.choices,
         help_text=_("Search engine to use. Tavily requires an API key."),
+    )
+    web_search_searxng_url = models.CharField(
+        _("SearXNG search URL"),
+        max_length=2048,
+        blank=True,
+        null=True,
+        validators=[validate_searxng_url],
+        help_text=_(
+            "Complete SearXNG search endpoint, including /search and any path prefix. "
+            "Use http or https without credentials, query parameters or a fragment. JSON output must be enabled."
+        ),
+    )
+    web_search_searxng_timeout_seconds = models.PositiveIntegerField(
+        _("SearXNG request timeout"),
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(1), MaxValueValidator(120)],
+        help_text=_("Timeout for SearXNG requests in seconds (1–120; default 15)."),
     )
 
     # -- Web Fetch --

@@ -14,6 +14,17 @@ def site_config(db):
 
 
 class TestSingletonBehavior:
+    def test_searxng_settings_survive_singleton_reload(self, db):
+        config = SiteConfiguration.objects.get_instance()
+        config.web_search_engine = "searxng"
+        config.web_search_searxng_url = "http://searxng:8080/prefix/search"
+        config.web_search_searxng_timeout_seconds = 25
+        config.save()
+        config = SiteConfiguration.objects.get_instance()
+        assert config.web_search_engine == "searxng"
+        assert config.web_search_searxng_url == "http://searxng:8080/prefix/search"
+        assert config.web_search_searxng_timeout_seconds == 25
+
     def test_get_instance_creates_singleton(self, db):
         instance = SiteConfiguration.objects.get_instance()
         assert instance.pk == 1

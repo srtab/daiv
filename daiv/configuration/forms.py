@@ -214,6 +214,7 @@ class SiteConfigurationForm(forms.ModelForm):
 
     class Meta:
         model = SiteConfiguration
+        widgets = {"web_search_searxng_timeout_seconds": forms.NumberInput(attrs={"min": 1, "max": 120})}
         fields = [
             "agent_model_name",
             "agent_thinking_level",
@@ -244,6 +245,8 @@ class SiteConfigurationForm(forms.ModelForm):
             "web_search_enabled",
             "web_search_max_results",
             "web_search_engine",
+            "web_search_searxng_url",
+            "web_search_searxng_timeout_seconds",
             "web_fetch_enabled",
             "web_fetch_model_name",
             "web_fetch_cache_ttl_seconds",
@@ -467,6 +470,7 @@ class SiteConfigurationForm(forms.ModelForm):
         cleaned_data = super().clean()
         self._validate_model_api_keys(cleaned_data)
         self._validate_web_search_api_key(cleaned_data)
+        self._validate_searxng_url(cleaned_data)
         self._validate_auth_credentials(cleaned_data)
         self._validate_telegram_token(cleaned_data)
         return cleaned_data
@@ -508,6 +512,17 @@ class SiteConfigurationForm(forms.ModelForm):
                 "web_search_engine",
                 _("Tavily requires an API key. Set the web search API key below or via environment variable."),
             )
+
+    def _validate_searxng_url(self, cleaned_data: dict[str, Any]) -> None:
+        """Require an endpoint for SearXNG while allowing other engines to leave it unset."""
+        from core.models import WebSearchEngineChoices
+
+        if (
+            cleaned_data.get("web_search_engine") == WebSearchEngineChoices.SEARXNG
+            and not cleaned_data.get("web_search_searxng_url")
+            and "web_search_searxng_url" not in self.errors
+        ):
+            self.add_error("web_search_searxng_url", _("SearXNG requires a search endpoint URL."))
 
     def _validate_auth_credentials(self, cleaned_data: dict[str, Any]) -> None:
         """Validate that OAuth client ID and secret are configured as a pair."""
