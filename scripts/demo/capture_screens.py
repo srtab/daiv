@@ -5,7 +5,8 @@
     uv run ... capture_screens.py session --daiv-url ... --session <thread id> --wait-running
     uv run ... capture_screens.py egress --daiv-url ... --env <sandbox environment id>
 
-``plan`` scrolls to DAIV's first note on the issue, ``code-review`` to its latest note on the merge request.
+``plan`` scrolls to DAIV's first note on the issue, ``code-review`` to the heading of its latest review on the merge
+request, ``metrics`` to Insights' code velocity.
 ``--wait-running`` reloads the session until a run is in progress, then lets the stream fill before the shot.
 Alex signs in to DAIV through GitLab, so DAIV shows only what Alex can see.
 """
@@ -16,7 +17,7 @@ import time
 from pathlib import Path
 
 import gitlab
-from playwright.async_api import BrowserContext, Page, async_playwright
+from playwright.async_api import BrowserContext, Locator, Page, async_playwright
 
 GITLAB_URL = "http://127.0.0.1:8929"
 STATE_DIR = Path.home() / ".cache" / "daiv-demo"
@@ -40,23 +41,20 @@ async def sign_in(context: BrowserContext, daiv_url: str) -> None:
             await button.first.click()
             await page.wait_for_load_state("networkidle")
     await page.close()
+    await context.add_cookies([{"name": "super_sidebar_collapsed", "value": "true", "url": GITLAB_URL}])
 
 
 async def open_gitlab(page: Page, path: str) -> None:
     await page.goto(f"{GITLAB_URL}/{PROJECT}/-/{path}")
     await page.wait_for_load_state("networkidle")
-    toggle = page.get_by_test_id("super-sidebar-collapse-button")
-    if await toggle.is_visible():
-        await toggle.click()
-    await page.mouse.move(0, VIEWPORT["height"] - 1)
+    await page.mouse.move(VIEWPORT["width"] - 5, VIEWPORT["height"] - 5)
 
 
-async def scroll_to(page: Page, selector: str, offset: int) -> None:
+async def scroll_to(target: Locator, offset: int) -> None:
     """GitLab scrolls an inner pane, not the document, so scroll whichever element holds the target."""
-    await page.locator(selector).first.wait_for()
-    await page.evaluate(
-        """([selector, offset]) => {
-          const el = document.querySelector(selector);
+    await target.first.wait_for()
+    await target.first.evaluate(
+        """(el, offset) => {
           const scrolls = (e) =>
             e.scrollHeight > e.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(e).overflowY);
           let pane = el.parentElement;
@@ -64,7 +62,7 @@ async def scroll_to(page: Page, selector: str, offset: int) -> None:
           pane = pane || document.scrollingElement;
           pane.scrollTop += el.getBoundingClientRect().top - pane.getBoundingClientRect().top - offset;
         }""",
-        [selector, offset],
+        offset,
     )
     await asyncio.sleep(1)
 
@@ -77,23 +75,27 @@ async def shoot(page: Page, args: argparse.Namespace, shot: str, project) -> Non
     if shot == "plan":
         plan = bot_notes(project.issues.get(args.issue))[0]
         await open_gitlab(page, f"issues/{args.issue}")
-        await scroll_to(page, f"#note_{plan.id}", 120)
+        await scroll_to(page.locator(f"#note_{plan.id}"), 120)
     elif shot == "merge-request":
         await open_gitlab(page, f"merge_requests/{args.mr}")
     elif shot == "code-review":
-        review = bot_notes(project.mergerequests.get(args.mr))[-1]
+        review = [n for n in bot_notes(project.mergerequests.get(args.mr)) if "daiv:code-review" in n.body][-1]
         await open_gitlab(page, f"merge_requests/{args.mr}")
-        await scroll_to(page, f"#note_{review.id}", 80)
+        heading = page.locator(f"#note_{review.id} h2")
+        details = page.locator(f"#note_{review.id} details")
+        if await details.count():
+            await details.first.evaluate("(d) => { d.open = true; }")
+        await scroll_to(heading if await heading.count() else page.locator(f"#note_{review.id}"), 80)
     elif shot == "session":
         await open_session(page, args)
     elif shot == "egress":
         await page.goto(f"{args.daiv_url}/dashboard/sandbox-envs/{args.env}/edit/")
         await page.wait_for_load_state("networkidle")
-        await scroll_to(page, "fieldset[x-data^=egressEditor]", 140)
+        await scroll_to(page.locator("fieldset[x-data^=egressEditor]"), 140)
     elif shot == "metrics":
         await page.goto(f"{args.daiv_url}/dashboard/insights/?period={args.period}")
         await page.wait_for_load_state("networkidle")
-        await asyncio.sleep(1.5)
+        await scroll_to(page.get_by_role("heading", name="Code velocity"), 40)
     out = args.out / f"{shot}.png"
     await page.screenshot(path=str(out))
     print(out)
