@@ -4765,18 +4765,134 @@ html {
   }
 }
 
-/* -- Public landing page feature cards -----------------------------------
-   Templates must also carry `animate-fade-up group`: the first is a plain
-   class (not a utility) and the second is a variant marker, so neither can
-   be @applied. */
+/* -- Public homepage (dashboard/homepage.html) ----------------------------
+   `animate-fade-up` is a plain class, not a utility, so templates add it themselves. */
 
 @layer components {
+  .landing-nav {
+    @apply sticky top-0 z-40 border-b border-border bg-ground/80 backdrop-blur-md;
+  }
+  .landing-container {
+    @apply mx-auto max-w-5xl px-4 sm:px-6;
+  }
+  .landing-link {
+    @apply text-[14px] text-text-muted transition-colors duration-200 hover:text-text;
+  }
+  .landing-signin {
+    @apply rounded-lg border border-border bg-surface-2 px-3.5 py-1.5 text-[14px] font-medium
+      text-text-muted transition-colors duration-200 hover:bg-surface-3 hover:text-text;
+  }
+
+  .landing-hero {
+    @apply relative flex min-h-[85vh] items-center justify-center overflow-hidden px-4;
+  }
+  .landing-hero__spotlight {
+    @apply pointer-events-none absolute inset-0;
+    background: radial-gradient(ellipse 60% 50% at 50% 40%,
+      color-mix(in srgb, var(--color-text-strong) 2.5%, transparent) 0%, transparent 100%);
+  }
+  .landing-hero__grid {
+    @apply pointer-events-none absolute inset-0 opacity-30;
+    background-image: radial-gradient(circle at 1px 1px,
+      color-mix(in srgb, var(--color-text-strong) 7%, transparent) 1px, transparent 0);
+    background-size: 32px 32px;
+  }
+  .landing-hero__line {
+    @apply absolute h-px rotate-[28deg] bg-gradient-to-r from-transparent via-surface-3 to-transparent;
+  }
+  .landing-hero__line--faint {
+    @apply via-surface-2;
+  }
+  .landing-badge {
+    @apply inline-flex items-center gap-2 rounded-full border border-border bg-surface-2 px-4 py-1.5
+      text-[13px] text-text-muted;
+  }
+  .landing-badge__dot {
+    @apply h-1 w-1 rounded-full bg-text-faint;
+  }
+  .landing-display {
+    @apply text-4xl font-bold leading-[1.1] tracking-tight sm:text-6xl;
+  }
+
+  .landing-button {
+    @apply inline-flex w-full items-center justify-center gap-2.5 rounded-xl px-6 py-3 text-[15px]
+      transition-all duration-200 active:scale-[0.98] sm:w-auto;
+  }
+  .landing-button--primary {
+    @apply bg-accent font-semibold tracking-tight text-accent-ink hover:bg-accent-bright;
+  }
+  .landing-button--secondary {
+    @apply border border-border bg-surface-2 font-medium text-text hover:bg-surface-3 hover:text-text-strong;
+  }
+
+  .landing-section {
+    @apply border-t border-border py-24;
+  }
+  .landing-eyebrow {
+    @apply font-mono text-[11px] font-semibold tracking-[0.14em] text-text-muted uppercase;
+  }
+  .landing-heading {
+    @apply mt-3 text-3xl font-bold tracking-tight sm:text-4xl;
+  }
+  .landing-lede {
+    @apply mt-4 max-w-2xl text-[16px] font-light text-text-muted;
+  }
+  .landing-item-title {
+    @apply text-[15px] font-semibold text-text-strong;
+  }
+  .landing-item-body {
+    @apply mt-1.5 text-[14px] text-text-muted;
+  }
+
+  .landing-step {
+    @apply flex gap-6;
+  }
+  .landing-step__track {
+    @apply flex flex-col items-center;
+  }
+  .landing-step__number {
+    @apply flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border
+      bg-surface-2 font-mono text-[14px] font-semibold tabular-nums text-text-strong;
+  }
+  .landing-step__rail {
+    @apply mt-3 h-full w-px bg-gradient-to-b from-border to-transparent;
+  }
+  .landing-step__card {
+    @apply flex-1 rounded-2xl border border-border bg-surface-2 p-6 pb-8;
+  }
+  .landing-mock {
+    @apply mt-5 rounded-xl border border-border bg-surface-3 px-4 py-3;
+  }
+  .landing-mock__meta {
+    @apply font-mono text-[12px] text-text-muted;
+  }
+  .landing-mock__text {
+    @apply mt-1 text-[14px] text-text;
+  }
+  .landing-mock__chip {
+    @apply rounded-md border border-border bg-surface-2 px-2 py-0.5 font-mono text-[11px] text-text-muted;
+  }
+  .landing-mock__status {
+    @apply rounded-md border border-border bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-status-clear;
+  }
+
   .landing-card {
-    @apply rounded-2xl border border-white/[0.06] bg-white/[0.02]
-      p-6 transition-all duration-200 hover:border-white/[0.1] hover:bg-white/[0.04];
+    @apply rounded-2xl border border-border bg-surface-2 p-6;
   }
   .landing-card__icon {
-    @apply mb-3 flex h-10 w-10 items-center justify-center rounded-xl
-      border border-white/[0.08] bg-white/[0.03];
+    @apply mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-surface-3;
+  }
+  .landing-point__rule {
+    @apply mb-5 h-px w-8 bg-border;
+  }
+  .landing-cta {
+    @apply rounded-2xl border border-border bg-surface-2 px-6 py-12 text-center sm:p-16;
+  }
+
+  .landing-footer {
+    @apply border-t border-border py-8;
+  }
+  .landing-footer__link {
+    @apply text-[13px] text-text-muted transition-colors duration-200 hover:text-text;
   }
 }

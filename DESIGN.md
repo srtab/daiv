@@ -463,6 +463,18 @@ in the hero, not inserted by Alpine, so HTMX processes the pickers at load. It c
 transform, so the popovers it hosts are not trapped in a stacking context. On phones a row's branch button
 wraps under the repository name.
 
+### Public homepage
+
+`dashboard/homepage.html` is on the tokens, through its own `landing-*` classes in `input.css`.
+What is particular to it:
+
+- **Display sizes.** The hero `<h1>` (`.landing-display`, 36px, 60px from `sm:`) and the section
+  `<h2>`s (`.landing-heading`, 30px, 36px from `sm:`) sit above `heading-page`. No other page uses them.
+- **Static cards.** `.landing-card`, `.landing-step__card` and the Why points are not links, so they
+  carry no hover state.
+- **Actions.** `.landing-button--primary` is the teal `accent`; `.btn-primary` stays white on legacy pages.
+- **Logo.** The nav keeps `accounts/img/logo.svg`, as the sign-in pages do, not the app shell's `brand-mark`.
+
 ### Empty State
 
 Centered card for "nothing here yet" and "can't show this" states, classes in `input.css`:
