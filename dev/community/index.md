@@ -20,6 +20,10 @@ Report security vulnerabilities privately, as described in the [security policy]
 
 Everyone taking part in the project is expected to follow the [Code of Conduct](https://github.com/srtab/daiv/blob/main/CODE_OF_CONDUCT.md).
 
+## License and funding
+
+DAIV is [Apache-2.0](https://github.com/srtab/daiv/blob/main/LICENSE) and will stay that way. There is no paid tier today; if paid support or hosting is ever offered, it will run the same open-source code, not a separately licensed edition. It is maintained by Sandro Rodrigues.
+
 ## Resources
 
 - [GitHub Repository](https://github.com/srtab/daiv)
