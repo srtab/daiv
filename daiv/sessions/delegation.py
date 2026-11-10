@@ -68,8 +68,8 @@ from sessions.admission import AdmissionError, RepoAccessError, aassert_repo_acc
 from sessions.artifacts import aresolve_active_run
 from sessions.inbox import kinds
 from sessions.inbox.post import Inbox
-from sessions.models import EventKind, InboxEvent, Run, RunStatus, Session, SessionOrigin
-from sessions.queue import LINK_FAILED_PREFIX, release_orphan_queued_runs
+from sessions.models import LINK_FAILED_PREFIX, EventKind, InboxEvent, Run, RunStatus, Session, SessionOrigin
+from sessions.queue import release_orphan_queued_runs
 from sessions.services import RepoTarget, asubmit_batch_runs
 
 if TYPE_CHECKING:

@@ -71,9 +71,12 @@ class Inbox:
         (:meth:`sessions.inbox.next_runs.NextRuns.branch_of`). ``author_provider``/``author_uid``: the platform account
         of an author no DAIV user is linked to.
 
-        Raises ``ValueError`` for an invalid payload, or ``wake`` on a kind that never wakes, and
+        Raises ``ValueError`` for an invalid payload, ``wake`` on a kind that never wakes, or a leg follow-up, which
+        :meth:`sessions.inbox.leg_follow_ups.LegFollowUps.post` posts with its own run, and
         ``Session.DoesNotExist`` when there is no such session.
         """
+        if kind == EventKind.LEG_FOLLOW_UP:
+            raise ValueError("a leg_follow_up is posted with LegFollowUps.post")
         EventContent(kind, payload).validate_payload()
         if wake and kind not in WAKING_KINDS:
             raise ValueError(f"a {kind} event never wakes the agent")

@@ -29,6 +29,8 @@ logger = logging.getLogger("daiv.sessions")
 
 CHAT_PROMPT_MAX_LENGTH = 2000
 RESULT_SUMMARY_MAX_CHARS = 2000
+# The agent may still push a commit or open an MR while the row shows FAILED.
+LINK_FAILED_PREFIX = "link_failed (agent task will run but its result cannot be captured)"
 
 _INBOX_TRIGGER_LITERALS = ["chat", "mr_webhook", "api_job", "mcp_job", "delegation_resume", "pipeline_webhook"]
 
@@ -867,6 +869,7 @@ class EventKind(models.TextChoices):
     COMMENT = "comment", _("Comment")
     DELEGATED_CI_OUTCOME = "delegated_ci_outcome", _("Delegated session CI")
     NOTICE = "notice", _("Notice")
+    LEG_FOLLOW_UP = "leg_follow_up", _("Leg follow-up")
 
 
 class EventState(models.TextChoices):
@@ -894,6 +897,9 @@ class EventFailure(models.TextChoices):
     ACCESS_DENIED = "access_denied", _("The person it would run as can no longer run on this repository")
     RETRIES_EXHAUSTED = "retries_exhausted", _("The runs that took it kept failing")
     SESSION_GONE = "session_gone", _("The session no longer exists")
+    RUN_FAILED = "run_failed", _("The run that took it failed")
+    MR_MERGED = "mr_merged", _("Its merge request was merged")
+    MR_CLOSED = "mr_closed", _("Its merge request was closed")
 
 
 class InboxEvent(models.Model):

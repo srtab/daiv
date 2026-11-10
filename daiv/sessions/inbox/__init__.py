@@ -2,7 +2,8 @@
 
 A CI result, a mention on a merge request the session owns, a chat message sent while it is busy, a follow-up job,
 a delegated batch finishing: each becomes an ``InboxEvent`` on that session, posted through
-:meth:`sessions.inbox.post.Inbox.apost`, the only way in. The rules:
+:meth:`sessions.inbox.post.Inbox.apost`, the only way in but for a coordinator's leg follow-up, which
+:meth:`sessions.inbox.leg_follow_ups.LegFollowUps.post` posts together with its run. The rules:
 
 - **An event wakes the agent or is only remembered.** ``wake`` is fixed when the event is posted. A remembered event
   starts no run; the next run on its branch takes it as context. Only CI and delegation events can be turned into
@@ -37,6 +38,9 @@ a delegated batch finishing: each becomes an ``InboxEvent`` on that session, pos
   ``HumanMessage`` with people's words, or a DAIV-written prompt when only CI or a delegation woke the run.
 - **The run's end settles its events** (:mod:`sessions.inbox.complete`): handled when it succeeds or asks a question,
   dismissed when its owner stopped it, retried up to three times when it fails, then failed. Then the next drain runs.
+- **A leg follow-up** (:mod:`sessions.inbox.leg_follow_ups`) has its own run from the moment it is posted, runs alone
+  with the branch's remembered events, is never retried, and stops at its start when its leg's merge request was merged
+  or closed. It always wakes the leg, but its run counts toward the leg's streak of runs DAIV started itself.
 
 A chat message sent while the session is busy runs as a task-backed ``chat`` run the drain starts. The chat-specific
 paths tell such a run from an inline turn by whether it has a ``task_result``, not by its trigger type:

@@ -242,6 +242,12 @@ class TestRequest:
 
         assert RunInput([superseded, quiet, chat]).request() == "hi"
 
+    def test_a_leg_follow_up_is_its_prompt(self):
+        follow_up = _event(EventKind.LEG_FOLLOW_UP, {"prompt": "Make the failing test pass", "batch_id": "b"})
+        quiet = _event(EventKind.CI_FAILED, ci_payload(2), wake=False)
+
+        assert RunInput([quiet, follow_up]).request() == "Make the failing test pass"
+
 
 class TestEventText:
     def test_a_finished_delegation_says_how_many_jobs_succeeded(self):
@@ -279,6 +285,32 @@ class TestRenderInput:
         assert synthetic_kind(rendered.context) == "inbox"
         assert "!9 was merged into main" in rendered.context.content
         assert rendered.request.id == "msg-7"
+        assert rendered.messages == (rendered.context, rendered.request)
+
+    async def test_a_leg_follow_up_is_the_request_after_the_remembered_events(self):
+        session = await amake_session()
+        run = await Run.objects.acreate(session=session, trigger_type=SessionOrigin.DELEGATED_JOB, repo_id="r")
+        await amake_event(
+            session,
+            EventKind.BRANCH_PUSHED,
+            run=run,
+            state=EventState.TAKEN,
+            payload={"before": "a" * 8, "after": "b" * 8, "commit_count": 1, "pusher_username": "bob"},
+        )
+        await amake_event(
+            session,
+            EventKind.LEG_FOLLOW_UP,
+            run=run,
+            state=EventState.TAKEN,
+            payload={"prompt": "Make the failing test pass", "batch_id": "b"},
+        )
+
+        input_ = await RunInput.aof_run(run)
+        rendered = input_.render(run)
+
+        assert input_.request() == "Make the failing test pass"
+        assert rendered.request.content == "Make the failing test pass"
+        assert "bob pushed 1 commit" in rendered.context.content
         assert rendered.messages == (rendered.context, rendered.request)
 
     async def test_no_context_is_sent_when_there_is_nothing_to_report(self):

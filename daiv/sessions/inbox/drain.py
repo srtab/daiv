@@ -3,20 +3,23 @@
 :meth:`Drain.start` locks the session row and, unless a live holder has the slot or a job run is active, takes its
 pending events in one transaction: it moves the requests that follow the session to its branch, supersedes all but the
 newest event per subject, turns the CI and delegation wakes the policy blocks into remembered events, and drops a QUEUED
-next run left with nothing to wake it. When a waking event survives, it picks the branch and requester of the oldest
-one (an event about another of the session's repositories is on the session's branch,
+next run left with nothing to wake it. When a waking event survives, it picks the branch and requester of the oldest one
+(an event about another of the session's repositories is on the session's branch,
 :meth:`sessions.inbox.next_runs.NextRuns.branch_of`), checks that requester may still run on the repository (a mention
 is gated where it is made, FR-026), and takes their waking events for the branch with every remembered one, up to their
-first builtin slash command
-(:meth:`sessions.inbox.splits.RequestSplits.runs_alone`). A command that comes first is taken alone, with nothing
-remembered: the slash-command middleware answers it only as the whole request, and ends the run. The requester's next
-run for the branch is promoted to READY to run what was taken, unless requests it holds stay behind; it then keeps
-waiting for them, and a READY run is created instead. The drain claims the slot for that run and marks its events
-``taken``. A CI failure among them spends one of its merge request's attempts on the commit it reports in that same
-transaction, so a crash before the enqueue still counts it. A denied requester's events fail, their next run ends FAILED
-with the ``access_denied`` label (a follow-up job's id still resolves), and the drain goes on to the next requester. The
-run is enqueued once the take commits; a failed enqueue frees the slot, puts the events back and refunds the attempt,
-for the sweep to retry.
+first request that runs alone (:meth:`sessions.inbox.splits.RequestSplits.runs_alone`). A builtin slash command that
+comes first is taken alone, with nothing remembered: the slash-command middleware answers it only as the whole request,
+and ends the run. A leg follow-up that comes first is taken alone with every remembered event, and its own run, posted
+with it, is promoted to READY to run it; when its leg's merge request was merged or closed meanwhile it is stopped
+instead, its run finishing FAILED with its not-run label (:meth:`sessions.inbox.leg_follow_ups.LegFollowUps.stop`), and
+the drain runs again once that commits. Otherwise the requester's next run for the branch is promoted to READY to run
+what was taken, unless requests it holds stay behind; it then keeps waiting for them, and a READY run is created
+instead. The drain claims the slot for that run and marks its events ``taken``. A CI failure among them spends one of
+its merge request's attempts on the commit it reports in that same transaction, so a crash before the enqueue still
+counts it. A denied requester's events fail, their next run and their leg follow-ups' runs end FAILED with the
+``access_denied`` label (a follow-up job's id still resolves, a leg follow-up's batch finishes), and the drain goes on
+to the next requester. The run is enqueued once the take commits; a failed enqueue frees the slot, puts the events back
+and refunds the attempt, for the sweep to retry.
 
 A next run is a QUEUED run with an inbox trigger type, no task yet, and events linked to it. ``sessions.queue`` leaves
 such runs alone: only this module starts them, because only it claims the slot for them.
@@ -43,6 +46,7 @@ from automation.agent.references import merge_stored_refs
 from sessions.admission import RepoAccessError, assert_repo_access
 from sessions.executor.lock import SessionLock, stale_cutoff
 from sessions.inbox.kinds import PERSON_KINDS, PRECEDENCE, EventContent
+from sessions.inbox.leg_follow_ups import LegFollowUps
 from sessions.inbox.next_runs import NextRuns
 from sessions.inbox.pending import PendingEvents
 from sessions.inbox.policy import WakePolicy
@@ -220,16 +224,26 @@ class _Take:
         ]
         splits = RequestSplits(requested)
         asked = splits.splits[0]
-        if RequestSplits.runs_alone(asked[0]):
-            taken = asked
-        else:
+        follow_up = asked[0] if asked[0].kind == EventKind.LEG_FOLLOW_UP else None
+        if follow_up is not None and (stop := LegFollowUps.stop_reason(session)) is not None:
+            LegFollowUps.stop(follow_up, stop)
+            transaction.on_commit(Drain(session.thread_id).start_logged, robust=True)
+            return None
+        if RequestSplits.takes_context(asked[0]):
             taken = [
                 event
                 for event in survivors
                 if branches[event.pk] in ("", branch) and (not event.wake or event in asked)
             ]
+        else:
+            taken = asked
         waiting_run = queued.get((branch, requester))
-        next_run = waiting_run if waiting_run is not None and splits.holding(waiting_run.pk) == 0 else None
+        if follow_up is not None:
+            next_run = Run.objects.get(pk=follow_up.run_id)
+        elif waiting_run is not None and splits.holding(waiting_run.pk) == 0:
+            next_run = waiting_run
+        else:
+            next_run = None
         user = requester.user(session, requested)
         checked = any(event.kind != EventKind.MENTION for event in requested)
         if user is not None and checked and not self._may_run(user, session.repo_ids()):
@@ -281,12 +295,13 @@ class _Take:
         ).update(run=run)
 
     def _merge_references(self, taken: list[InboxEvent]) -> None:
-        """Add the references the follow-up jobs the run took declared to the session, which the run reads them from."""
+        """Add the references the follow-up jobs and leg follow-ups the run took declared to the session, which the run
+        reads them from."""
         session = self.session
         declared = [
             ref
             for event in taken
-            if event.kind == EventKind.FOLLOW_UP_JOB
+            if event.kind in (EventKind.FOLLOW_UP_JOB, EventKind.LEG_FOLLOW_UP)
             for ref in event.payload.get("references", [])
         ]
         if declared and (merged := merge_stored_refs(session.external_refs, declared)) != session.external_refs:
@@ -336,9 +351,11 @@ class _Take:
 
     def _fail(self, asked: list[InboxEvent], next_run: Run | None) -> None:
         """Fail the events of a requester who may no longer run on the repository, and finish their QUEUED next run
-        FAILED with the ``access_denied`` label, so the id a follow-up job's caller polls still resolves.
+        and each leg follow-up's own run FAILED with the ``access_denied`` label, so the id a follow-up job's caller
+        polls still resolves and a leg follow-up's batch finishes. A leg follow-up stays linked to its run, which is
+        how its batch tells the run apart.
 
-        The finish says ``skip_dispatch``: the caller drains once this commits, and its events, already failed rather
+        The finishes say ``skip_dispatch``: the caller drains once this commits, and the events, already failed rather
         than taken, are left as they are by the run's end (:meth:`sessions.inbox.complete.RunEnd.settle_events`)."""
         logger.warning(
             "inbox: a requester on thread_id=%s may no longer run on %s; %d event(s) failed",
@@ -347,22 +364,29 @@ class _Take:
             len(asked),
         )
         now = timezone.now()
-        InboxEvent.objects.filter(pk__in=[event.pk for event in asked]).update(
+        follow_ups = [event for event in asked if event.kind == EventKind.LEG_FOLLOW_UP]
+        InboxEvent.objects.filter(pk__in=[event.pk for event in asked]).exclude(kind=EventKind.LEG_FOLLOW_UP).update(
             state=EventState.FAILED, failure=EventFailure.ACCESS_DENIED, run=None, updated_at=now
         )
-        session_changed(self.session.thread_id)
-        if next_run is None:
-            return
-        InboxEvent.objects.filter(run=next_run).update(run=None, updated_at=now)
-        Run.objects.finish(
-            next_run,
-            RunStatus.FAILED,
-            skip_dispatch=True,
-            never_started=True,
-            error_message=str(EventFailure.ACCESS_DENIED.label),
-            finished_at=now,
-            started_at=now,
+        InboxEvent.objects.filter(pk__in=[event.pk for event in follow_ups]).update(
+            state=EventState.FAILED, failure=EventFailure.ACCESS_DENIED, updated_at=now
         )
+        session_changed(self.session.thread_id)
+        if next_run is not None:
+            InboxEvent.objects.filter(run=next_run).update(run=None, updated_at=now)
+        runs = [next_run, *Run.objects.filter(pk__in=[event.run_id for event in follow_ups])]
+        for run in runs:
+            if run is None:
+                continue
+            Run.objects.finish(
+                run,
+                RunStatus.FAILED,
+                skip_dispatch=True,
+                never_started=True,
+                error_message=str(EventFailure.ACCESS_DENIED.label),
+                finished_at=now,
+                started_at=now,
+            )
 
     def _sandbox_env_id(self, user: User | None, taken: list[InboxEvent]) -> uuid.UUID | None:
         """The environment the newest follow-up job among ``taken`` was submitted with, while ``user`` still sees it.
@@ -401,6 +425,7 @@ class _Take:
         chats = [event for event in taken if event.kind == EventKind.CHAT_MESSAGE]
         fields = {
             "status": RunStatus.READY,
+            "ref": branch,
             "trigger_type": EventContent.of(top).run_trigger_type(),
             **requester.run_fields(person.author_username if person is not None else ""),
             "agent_model": agent_model,
@@ -414,7 +439,7 @@ class _Take:
             "muted": (person or top).payload.get("muted"),
         }
         if run is None:
-            return Run.objects.create(session=session, repo_id=session.repo_id, ref=branch, **fields)
+            return Run.objects.create(session=session, repo_id=session.repo_id, **fields)
         for name, value in fields.items():
             setattr(run, name, value)
         run.save(update_fields=list(fields))

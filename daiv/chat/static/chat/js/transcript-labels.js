@@ -164,6 +164,7 @@
     inbox_comment: "Comment",
     inbox_delegated_ci_outcome: "Delegated session CI",
     inbox_notice: "Notice",
+    inbox_leg_follow_up: "Leg follow-up",
     inbox_not_handled: "{kind} not handled",
     up_next: "Up next",
     up_next_info:

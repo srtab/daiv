@@ -32,15 +32,15 @@ description: "Task list for the Delegated Leg Follow-ups feature"
 
 **Purpose**: Bring in the eval suite this feature is measured with, record its baseline, and add the vocabulary.
 
-- [ ] T001 Bring the `delegation` eval suite into this branch.
+- [X] T001 Bring the `delegation` eval suite into this branch.
   - Check that srtab/daiv#1780 is merged to `main`.
   - Run `git fetch origin main && git merge origin/main` on `claude/delegated-leg-follow-ups`: a merge, not a rebase, because the branch has an open PR.
   - Confirm `uv run pytest --collect-only -m delegation tests/integration_tests` collects five cases.
   - If #1780 is not merged, report that and continue with the other phases. Only T061–T062 and SC-003 wait for it.
-- [ ] T002 Record the baseline on `main` (research R17, `patterns/agent-evals.md` rule 4).
+- [X] T002 Record the baseline on `main` (research R17, `patterns/agent-evals.md` rule 4).
   - On a clean checkout of `origin/main` that includes the suite, run `make eval-prompts SUITES=delegation OUT=eval-runs/delegation-before.jsonl`. It needs `docker/local/app/config.secrets.env` with an LLM key.
   - If no key is available, note "baseline not run" for the PR description (rule 2). Do not claim results later.
-- [ ] T003 [P] Add four rows to the table in `constitutions/glossary/README.md`: "Coordinator", "Leg", "Batch" and "Leg follow-up".
+- [X] T003 [P] Add four rows to the table in `constitutions/glossary/README.md`: "Coordinator", "Leg", "Batch" and "Leg follow-up".
   - Take each row's Meaning and Not columns exactly from data-model.md "Glossary additions".
   - Add "a leg follow-up" to the "Inbox event" row's list of examples.
   - Write into the PR #1781 description the impact report Governance requires for a companion change:
@@ -63,7 +63,7 @@ description: "Task list for the Delegated Leg Follow-ups feature"
 
 ### Tests for the foundation ⚠️ (write first, confirm they fail)
 
-- [ ] T004 [P] Write `tests/unit_tests/sessions/test_legs.py` for `Leg` (data-model.md "Leg"). Cover:
+- [X] T004 [P] Write `tests/unit_tests/sessions/test_legs.py` for `Leg` (data-model.md "Leg"). Cover:
   - `Leg.of(thread_id, coordinator=…)` returns `None` for a session whose `parent_id` is another coordinator, and for a child session with no `DELEGATED_JOB` run;
   - `base_ref` is the `ref` of the oldest `DELEGATED_JOB` run, including after a waiting leg's rebase (`sessions.queue._rebase_on_waited_branch` rewrote it);
   - `has_own_branch()` is false while `session.ref == base_ref` and true once they differ;
@@ -75,17 +75,17 @@ description: "Task list for the Delegated Leg Follow-ups feature"
   - `is_busy()` is true for a QUEUED (including one with `waits_for`), READY or RUNNING delegated run, and false when all are terminal;
   - `is_lost()` is true only when the latest delegated run is FAILED with `LINK_FAILED_PREFIX`;
   - `archived_by(user)` is true only for that user's `HiddenSession`.
-- [ ] T005 [P] Extend `tests/unit_tests/sessions/inbox/test_kinds.py`. Cover:
+- [X] T005 [P] Extend `tests/unit_tests/sessions/inbox/test_kinds.py`. Cover:
   - `leg_follow_up` requires `prompt` and `batch_id` (`EventContent.validate_payload` raises `ValueError` without either);
   - it is waking, not in `GATED_KINDS`, and not in `PERSON_KINDS`;
   - `follows_session()` is true, and `run_trigger_type()` is `SessionOrigin.DELEGATED_JOB`;
   - `SourceKey.leg_follow_up(batch_id)` is `"leg-follow-up:<batch_id>"`;
   - `INBOX_TRIGGERS` does not contain `delegated_job`.
-- [ ] T006 [P] Create `tests/unit_tests/sessions/inbox/test_splits.py`. Cover:
+- [X] T006 [P] Create `tests/unit_tests/sessions/inbox/test_splits.py`. Cover:
   - a leg follow-up is a split of its own, whether it comes before, between or after a person's chat messages from the same requester;
   - `RequestSplits.takes_context()` is false for a builtin slash command and true for a leg follow-up and for ordinary requests;
   - the existing slash-command splitting is unchanged.
-- [ ] T007 [P] Create `tests/unit_tests/sessions/inbox/test_leg_follow_ups.py` for `LegFollowUps.post` and `LegFollowUps.end_with_run` (contracts/sessions-services.md). Cover:
+- [X] T007 [P] Create `tests/unit_tests/sessions/inbox/test_leg_follow_ups.py` for `LegFollowUps.post` and `LegFollowUps.end_with_run` (contracts/sessions-services.md). Cover:
   - `post` creates one `leg_follow_up` event and one QUEUED run in one transaction, linked by `InboxEvent.run`. The run has `trigger_type=delegated_job`, the given `batch_id`, `user`, `muted` and `prompt`, `ref=session.ref`, and the leg's `repo_id`;
   - the event is waking, `author` is the given user, and its payload holds `prompt`, `batch_id`, optional `references` and optional `muted`;
   - `drain=True` schedules `Drain(thread_id).start_logged` on commit, and `drain=False` does not;
@@ -95,11 +95,11 @@ description: "Task list for the Delegated Leg Follow-ups feature"
     - a pending follow-up linked to a cancelled run becomes `dismissed`, and one linked to a FAILED, non-cancelled run becomes `failed` with `run_failed`;
     - a taken follow-up whose run failed becomes `failed` with `run_failed`;
     - every other event on the session is untouched.
-- [ ] T008 [P] Extend `tests/unit_tests/sessions/inbox/test_post.py`: `Inbox.post(kind=EventKind.LEG_FOLLOW_UP, …)` raises `ValueError` and creates nothing.
-- [ ] T009 [P] Extend `tests/unit_tests/sessions/inbox/test_render.py`: a run that took one leg follow-up and remembered events gets:
+- [X] T008 [P] Extend `tests/unit_tests/sessions/inbox/test_post.py`: `Inbox.post(kind=EventKind.LEG_FOLLOW_UP, …)` raises `ValueError` and creates nothing.
+- [X] T009 [P] Extend `tests/unit_tests/sessions/inbox/test_render.py`: a run that took one leg follow-up and remembered events gets:
   - `RunInput.request()` equal to the payload's `prompt`;
   - a `HumanMessage` with that prompt, after the hidden inbox context message that lists the remembered events.
-- [ ] T010 [P] Extend `tests/unit_tests/sessions/inbox/test_drain.py`. Cover:
+- [X] T010 [P] Extend `tests/unit_tests/sessions/inbox/test_drain.py`. Cover:
   - on an idle leg session, the drain promotes the follow-up's own run to READY. The run keeps its `batch_id` and gets `ref` set to the take's branch, the requester's user, and the session's pinned agent model. It claims the slot with that run's pk, and no other run is created;
   - the take holds the follow-up plus every remembered event for the branch, and no other waking event;
   - a person's chat message from the same user waits for a run of its own;
@@ -109,75 +109,75 @@ description: "Task list for the Delegated Leg Follow-ups feature"
     - `run_finished` is emitted for that run;
   - the promoted run keeps `trigger_type=delegated_job` and takes `muted` from the payload (FR-005);
   - a taken leg follow-up's `references` are merged into `session.external_refs`.
-- [ ] T011 [P] Extend `tests/unit_tests/sessions/inbox/test_complete.py`. Cover:
+- [X] T011 [P] Extend `tests/unit_tests/sessions/inbox/test_complete.py`. Cover:
   - a follow-up's run ending SUCCESSFUL leaves its event `handled`;
   - ending FAILED (not cancelled) leaves its event `failed` with `run_failed`. Its `attempts` are not bumped back to `pending`, and no new run is ever created for it;
   - ending cancelled leaves it `dismissed`;
   - remembered events the same run took still go through `FailedAttempt` (back to `pending`);
   - `FailedAttempt.record` (the stale-slot sweep path) fails a leg follow-up on its first attempt with `run_failed`, not `retries_exhausted`.
-- [ ] T012 [P] Extend `tests/unit_tests/sessions/inbox/test_policy.py`. Cover:
+- [X] T012 [P] Extend `tests/unit_tests/sessions/inbox/test_policy.py`. Cover:
   - with three `pipeline_webhook` runs in a row, a pending `leg_follow_up` still wakes, because `quiet_reasons_now` gives it no reason;
   - a `delegated_job` run with a `leg_follow_up` linked counts in `system_runs_in_a_row`;
   - a leg's first `delegated_job` run (no event linked) does not count;
   - `_last_person_run_at` skips follow-up runs, so `report_run_limit` names the right streak.
-- [ ] T013 [P] Extend `tests/unit_tests/sessions/test_queue.py`. `aenqueue_run` passes:
+- [X] T013 [P] Extend `tests/unit_tests/sessions/test_queue.py`. `aenqueue_run` passes:
   - `fork_branch=True` for a leg's first run;
   - `fork_branch=True` for a follow-up run on a leg whose `session.ref == base_ref`;
   - `fork_branch=False` for a follow-up run on a leg with a branch of its own (research R9);
   - `fork_branch=False` for non-delegated runs;
   - `ask_user_enabled=False` for a leg follow-up's run, as for every delegated run (FR-005).
-- [ ] T014 [P] Extend `tests/unit_tests/sessions/test_services.py`: `asubmit_batch_runs(batch_id=X)` stamps `X` on every created run and returns it in `BatchSubmitResult.batch_id`. Without `batch_id`, a fresh one is minted, as today.
+- [X] T014 [P] Extend `tests/unit_tests/sessions/test_services.py`: `asubmit_batch_runs(batch_id=X)` stamps `X` on every created run and returns it in `BatchSubmitResult.batch_id`. Without `batch_id`, a fresh one is minted, as today.
 
 ### Implementation for the foundation
 
-- [ ] T015 In `daiv/sessions/models.py`:
+- [X] T015 In `daiv/sessions/models.py`:
   - add `EventKind.LEG_FOLLOW_UP = "leg_follow_up", _("Leg follow-up")`;
   - add `EventFailure.RUN_FAILED = "run_failed", _("The run that took it failed")`;
   - add `EventFailure.MR_MERGED = "mr_merged", _("Its merge request was merged")`;
   - add `EventFailure.MR_CLOSED = "mr_closed", _("Its merge request was closed")`;
   - move `LINK_FAILED_PREFIX` here from `daiv/sessions/queue.py`. `queue.py` imports it from `sessions.models`, keeping `from sessions.queue import LINK_FAILED_PREFIX` working, and `daiv/sessions/delegation.py` imports it from `sessions.models`.
-- [ ] T016 Generate the migration: `uv run python daiv/manage.py makemigrations agent_sessions --name leg_follow_up_choices`. Check that it only alters `choices` on `InboxEvent.kind` and `InboxEvent.failure`, with no column change (research R18).
-- [ ] T017 Create `daiv/sessions/legs.py` with `Leg`, per contracts/sessions-services.md "`Leg`":
+- [X] T016 Generate the migration: `uv run python daiv/manage.py makemigrations agent_sessions --name leg_follow_up_choices`. Check that it only alters `choices` on `InboxEvent.kind` and `InboxEvent.failure`, with no column change (research R18).
+- [X] T017 Create `daiv/sessions/legs.py` with `Leg`, per contracts/sessions-services.md "`Leg`":
   - the module docstring states what a leg is and each property's definition from data-model.md "Leg";
   - it imports only `sessions.models`;
   - it defines `NOT_RUN_MERGED = "Not run: its merge request was merged"` and `NOT_RUN_CLOSED = "Not run: its merge request was closed"`.
   Makes T004 pass.
-- [ ] T018 [P] In `daiv/sessions/inbox/kinds.py`:
+- [X] T018 [P] In `daiv/sessions/inbox/kinds.py`:
   - add `LegFollowUpPayload(TypedDict)`: `prompt: str`, `batch_id: str`, `references: NotRequired[list[dict[str, Any]]]`, `muted: NotRequired[bool]`;
   - register it in `PAYLOADS`, and in `PRECEDENCE` at the same rank as `FOLLOW_UP_JOB`;
   - keep it out of `GATED_KINDS` and `PERSON_KINDS`;
   - make `follows_session()` true for it, and make `run_trigger_type()` return `SessionOrigin.DELEGATED_JOB` for it without adding to `_TRIGGERS` or `INBOX_TRIGGERS`;
   - add `SourceKey.leg_follow_up(batch_id)`.
   Makes T005 pass.
-- [ ] T019 [P] In `daiv/sessions/inbox/render.py`, make `RunInput.request()` (and the HumanMessage it feeds) use `payload["prompt"]` for `EventKind.LEG_FOLLOW_UP`, as for `FOLLOW_UP_JOB`. Makes T009 pass.
-- [ ] T020 [P] In `daiv/sessions/inbox/splits.py`:
+- [X] T019 [P] In `daiv/sessions/inbox/render.py`, make `RunInput.request()` (and the HumanMessage it feeds) use `payload["prompt"]` for `EventKind.LEG_FOLLOW_UP`, as for `FOLLOW_UP_JOB`. Makes T009 pass.
+- [X] T020 [P] In `daiv/sessions/inbox/splits.py`:
   - make `RequestSplits.runs_alone(event)` true for a waking `leg_follow_up`;
   - add `RequestSplits.takes_context(event)`, false only for a builtin slash command;
   - update the module docstring.
   Makes T006 pass.
-- [ ] T021 Create `daiv/sessions/inbox/leg_follow_ups.py` with `LegFollowUps(leg)`, `post`/`apost`, `end_with_run` and `LegFollowUpRefused(reason: str)`, per contracts/sessions-services.md:
+- [X] T021 Create `daiv/sessions/inbox/leg_follow_ups.py` with `LegFollowUps(leg)`, `post`/`apost`, `end_with_run` and `LegFollowUpRefused(reason: str)`, per contracts/sessions-services.md:
   - `post` locks the leg session row (`select_for_update`) and re-checks `Leg.is_busy()` and `merge_request_state()` under the lock;
   - it creates the event, keyed by `SourceKey.leg_follow_up(batch_id)`, and its QUEUED run, then links them and calls `session_changed`;
   - with `drain=True`, it schedules the drain with `transaction.on_commit(Drain(...).start_logged, robust=True)`.
   Leave `stop_reason`/`stop` to T041. Makes T007 pass. Depends on T017 and T018.
-- [ ] T022 In `daiv/sessions/inbox/post.py`, `Inbox.post` raises `ValueError("a leg_follow_up is posted with LegFollowUps.post")` for that kind, before any write. Makes T008 pass.
-- [ ] T023 In `daiv/sessions/inbox/drain.py` (`_Take.take`, `_promote_or_create`, `_fail`):
+- [X] T022 In `daiv/sessions/inbox/post.py`, `Inbox.post` raises `ValueError("a leg_follow_up is posted with LegFollowUps.post")` for that kind, before any write. Makes T008 pass.
+- [X] T023 In `daiv/sessions/inbox/drain.py` (`_Take.take`, `_promote_or_create`, `_fail`):
   - when `splits.splits[0]` starts with a leg follow-up, take it plus every remembered event for the branch, using `RequestSplits.takes_context`;
   - promote that event's own run (`event.run`) instead of a next run, setting `status=READY`, `ref=branch`, `requester.run_fields(...)`, `prompt` and the pinned `agent_model`/`agent_thinking_level`, `sandbox_environment_id` from `_sandbox_env_id` and `muted` from the payload;
   - `_fail` also finishes the run of each failed leg follow-up FAILED (`never_started=True`, `skip_dispatch=True`, `error_message=str(EventFailure.ACCESS_DENIED.label)`);
   - `_merge_references` also merges a taken `leg_follow_up`'s `references` into the session;
   - update the module docstring.
   Makes T010 pass. Depends on T018, T020 and T021.
-- [ ] T024 In `daiv/sessions/inbox/complete.py`:
+- [X] T024 In `daiv/sessions/inbox/complete.py`:
   - `RunEnd.settle_events` first calls `LegFollowUps.end_with_run(self.run)` and excludes leg follow-ups from the `FailedAttempt` it records;
   - `FailedAttempt.record` fails a `leg_follow_up` on its first attempt with `EventFailure.RUN_FAILED`;
   - add the leg follow-up row to the module docstring's table.
   Makes T011 pass. Depends on T021.
-- [ ] T025 [P] In `daiv/sessions/inbox/policy.py`, add one `Q` expression for "a run DAIV started", used by `system_runs_in_a_row` and `_last_person_run_at`: `trigger_type__in=SessionOrigin.daiv_authored()`, or `trigger_type=DELEGATED_JOB` with an `Exists(InboxEvent(kind=LEG_FOLLOW_UP, run=OuterRef("pk")))`. Leave `SessionOrigin.daiv_authored()` unchanged (research R8). Update the module docstring. Makes T012 pass.
-- [ ] T026 [P] In `daiv/sessions/inbox/__init__.py`, add the leg follow-up rule from contracts/sessions-services.md "`sessions/inbox` changes" to the module docstring.
-- [ ] T027 [P] In `daiv/sessions/queue.py` `aenqueue_run`, set `fork_branch=run.trigger_type == SessionOrigin.DELEGATED_JOB and not await Leg(run.session).ahas_own_branch()`, loading the session if it is not loaded. Makes T013 pass. Depends on T017.
-- [ ] T028 [P] In `daiv/sessions/services.py`, add `batch_id: uuid.UUID | None = None` to `asubmit_batch_runs`, using it in place of `uuid.uuid4()` when given, and document it in the docstring. Makes T014 pass.
-- [ ] T029 [P] In `daiv/automation/agent/delegation.py`, add the fields from data-model.md "Agent-facing dataclasses":
+- [X] T025 [P] In `daiv/sessions/inbox/policy.py`, add one `Q` expression for "a run DAIV started", used by `system_runs_in_a_row` and `_last_person_run_at`: `trigger_type__in=SessionOrigin.daiv_authored()`, or `trigger_type=DELEGATED_JOB` with an `Exists(InboxEvent(kind=LEG_FOLLOW_UP, run=OuterRef("pk")))`. Leave `SessionOrigin.daiv_authored()` unchanged (research R8). Update the module docstring. Makes T012 pass.
+- [X] T026 [P] In `daiv/sessions/inbox/__init__.py`, add the leg follow-up rule from contracts/sessions-services.md "`sessions/inbox` changes" to the module docstring.
+- [X] T027 [P] In `daiv/sessions/queue.py` `aenqueue_run`, set `fork_branch=run.trigger_type == SessionOrigin.DELEGATED_JOB and not await Leg(run.session).ahas_own_branch()`, loading the session if it is not loaded. Makes T013 pass. Depends on T017.
+- [X] T028 [P] In `daiv/sessions/services.py`, add `batch_id: uuid.UUID | None = None` to `asubmit_batch_runs`, using it in place of `uuid.uuid4()` when given, and document it in the docstring. Makes T014 pass.
+- [X] T029 [P] In `daiv/automation/agent/delegation.py`, add the fields from data-model.md "Agent-facing dataclasses":
   - `DelegatedTarget.thread_id: str = ""`;
   - `StartedLeg.leg_follow_up: bool = False`;
   - `FailedLeg.thread_id: str = ""`;

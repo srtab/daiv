@@ -147,7 +147,7 @@ class RunInput:
                 for event in events
             ]
             return "\n\n".join([*mentions, MENTION_REPLY_NOTE])
-        if kind == EventKind.FOLLOW_UP_JOB:
+        if kind in (EventKind.FOLLOW_UP_JOB, EventKind.LEG_FOLLOW_UP):
             return "\n\n".join(event.payload["prompt"] for event in events)
         if kind == EventKind.DELEGATION_FINISHED:
             return "\n\n".join(event.payload["summary"] for event in events)
