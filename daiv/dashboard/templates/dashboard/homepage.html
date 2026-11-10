@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load icon_tags static %}
 
-{% block title %}DAIV — Open-source async SWE agent for your Git platform{% endblock %}
+{% block title %}DAIV — Open-source, self-hosted SWE agents for GitLab &amp; GitHub{% endblock %}
 
 {% block head_extra %}
 <script type="application/ld+json">
@@ -9,7 +9,7 @@
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "DAIV",
-  "description": "Open-source async software engineering agent that integrates natively with GitLab and GitHub. Create an issue, get a merge request.",
+  "description": "Open-source, self-hosted SWE agents for GitLab & GitHub. Turn issues into merge requests, answer review comments, and fix failing CI, in a sandbox you control with the LLM provider you choose.",
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "Linux",
   "license": "https://github.com/srtab/daiv/blob/main/LICENSE",
@@ -26,74 +26,64 @@
 
 {% block content %}
 <!-- Navigation -->
-<nav aria-label="Main navigation" class="sticky top-0 z-40 border-b border-white/[0.06] bg-ground/80 backdrop-blur-md">
-    <div class="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
+<nav aria-label="Main navigation" class="landing-nav">
+    <div class="landing-container flex items-center justify-between py-4">
         <a href="/" class="flex items-center">
             <img src="{% static 'accounts/img/logo.svg' %}" alt="DAIV" class="h-7">
         </a>
         <div class="flex items-center gap-5">
-            <a href="{{ build_info.docs_url }}" rel="noopener noreferrer"
-               class="hidden text-[14px] text-gray-400 transition-colors duration-200 hover:text-white sm:inline">Documentation</a>
-            <a href="{% url 'account_login' %}"
-               class="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3.5 py-1.5 text-[14px] font-medium text-gray-400 transition-all duration-200 hover:border-white/[0.12] hover:text-white">
-                Sign in
-            </a>
+            <a href="{{ build_info.docs_url }}" rel="noopener noreferrer" class="landing-link hidden sm:inline">Documentation</a>
+            <a href="{% url 'account_login' %}" class="landing-signin">Sign in</a>
         </div>
     </div>
 </nav>
 
 <main>
 <!-- Hero -->
-<section class="relative flex min-h-[85vh] items-center justify-center overflow-hidden px-4">
-    <!-- Background: radial spotlight -->
-    <div class="pointer-events-none absolute inset-0"
-         style="background: radial-gradient(ellipse 60% 50% at 50% 40%, rgba(255,255,255,0.025) 0%, transparent 100%)">
-    </div>
-
-    <!-- Background: dot grid -->
-    <div class="pointer-events-none absolute inset-0 opacity-30"
-         style="background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.07) 1px, transparent 0); background-size: 32px 32px">
-    </div>
-
-    <!-- Background: geometric accent lines -->
+<section class="landing-hero">
+    <div class="landing-hero__spotlight"></div>
+    <div class="landing-hero__grid"></div>
     <div class="pointer-events-none absolute inset-0 overflow-hidden">
-        <div class="absolute -right-32 top-[20%] h-px w-[500px] rotate-[28deg] bg-gradient-to-r from-transparent via-white/[0.06] to-transparent"></div>
-        <div class="absolute -right-16 top-[28%] h-px w-[400px] rotate-[28deg] bg-gradient-to-r from-transparent via-white/[0.04] to-transparent"></div>
-        <div class="absolute -left-32 bottom-[25%] h-px w-[500px] rotate-[28deg] bg-gradient-to-r from-transparent via-white/[0.06] to-transparent"></div>
-        <div class="absolute -left-16 bottom-[18%] h-px w-[400px] rotate-[28deg] bg-gradient-to-r from-transparent via-white/[0.04] to-transparent"></div>
+        <div class="landing-hero__line -right-32 top-[20%] w-[500px]"></div>
+        <div class="landing-hero__line landing-hero__line--faint -right-16 top-[28%] w-[400px]"></div>
+        <div class="landing-hero__line -left-32 bottom-[25%] w-[500px]"></div>
+        <div class="landing-hero__line landing-hero__line--faint -left-16 bottom-[18%] w-[400px]"></div>
     </div>
 
-    <div class="relative max-w-3xl text-center">
+    <div class="relative max-w-4xl text-center">
         <!-- Badge -->
         <div class="animate-fade-up">
-            <span class="inline-flex items-center gap-2 rounded-full border border-white/[0.06] bg-white/[0.03] px-4 py-1.5 text-[13px] text-gray-400">
+            <span class="landing-badge">
                 Open-source
-                <span class="h-1 w-1 rounded-full bg-gray-600"></span>
+                <span class="landing-badge__dot"></span>
                 Apache 2.0
             </span>
         </div>
 
         <!-- Headline -->
-        <h1 class="animate-fade-up mt-8 text-4xl font-bold leading-[1.1] tracking-tight sm:text-6xl" style="animation-delay: 80ms">
-            DAIV — your async SWE agent,<br>native to your Git platform
+        <h1 class="animate-fade-up landing-display mt-8" style="animation-delay: 80ms">
+            Issues in. <span class="whitespace-nowrap">Merge requests out.</span><br>On your infrastructure.
         </h1>
 
+        <!-- Tagline -->
+        <p class="animate-fade-up mt-6 text-lg font-medium sm:text-xl" style="animation-delay: 120ms">
+            Open-source, self-hosted SWE agents for GitLab &amp; GitHub
+        </p>
+
         <!-- Subheadline -->
-        <p class="animate-fade-up mx-auto mt-6 max-w-2xl text-base font-light text-gray-400 sm:text-lg" style="animation-delay: 160ms">
-            DAIV integrates directly with GitLab and GitHub through webhooks.
-            Create an issue, get a merge request. Mention DAIV in a review, get the fix.
-            No context switching, no separate tools.
+        <p class="animate-fade-up mx-auto mt-4 max-w-2xl text-base font-light text-text-muted sm:text-lg" style="animation-delay: 160ms">
+            DAIV works inside GitLab and GitHub through webhooks, plugs into your editor over MCP,
+            and ships with an optional self-hosted dashboard. You host it, you pick the model,
+            and every task runs in an isolated sandbox whose network egress you define.
         </p>
 
         <!-- CTAs -->
         <div class="animate-fade-up mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4" style="animation-delay: 240ms">
-            <a href="{{ build_info.docs_deployment_url }}" rel="noopener noreferrer"
-               class="btn-primary w-full px-6 py-3 sm:w-auto">
+            <a href="{{ build_info.docs_deployment_url }}" rel="noopener noreferrer" class="landing-button landing-button--primary">
                 Get started
             </a>
-            <a href="https://github.com/srtab/daiv" rel="noopener noreferrer"
-               class="btn-secondary group w-full gap-2.5 px-6 py-3 text-gray-300 sm:w-auto">
-                {% icon "github" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
+            <a href="https://github.com/srtab/daiv" rel="noopener noreferrer" class="landing-button landing-button--secondary">
+                {% icon "github" "h-5 w-5" %}
                 View on GitHub
             </a>
         </div>
@@ -101,61 +91,61 @@
         <!-- Platform icons -->
         <div class="animate-fade-up mt-14 flex items-center justify-center gap-8" style="animation-delay: 320ms">
             <div class="flex flex-col items-center gap-2">
-                {% icon "github" "h-8 w-8 text-gray-400" %}
-                <span class="text-[11px] font-medium uppercase tracking-[0.15em] text-gray-400">GitHub</span>
+                {% icon "github" "h-8 w-8 text-text-muted" %}
+                <span class="landing-eyebrow">GitHub</span>
             </div>
-            <span class="text-[16px] font-light text-gray-700">+</span>
+            <span class="text-[16px] font-light text-text-faint" aria-hidden="true">+</span>
             <div class="flex flex-col items-center gap-2">
-                {% icon "gitlab" "h-8 w-8 text-gray-400" %}
-                <span class="text-[11px] font-medium uppercase tracking-[0.15em] text-gray-400">GitLab</span>
+                {% icon "gitlab" "h-8 w-8 text-text-muted" %}
+                <span class="landing-eyebrow">GitLab</span>
             </div>
         </div>
     </div>
 </section>
 
 <!-- How it Works -->
-<section class="border-t border-white/[0.06] py-24">
-    <div class="mx-auto max-w-5xl px-6">
+<section class="landing-section">
+    <div class="landing-container">
         <div class="animate-fade-up">
-            <p class="text-[12px] font-medium uppercase tracking-[0.2em] text-gray-400">How it works</p>
-            <h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">From issue to merge request, hands-free</h2>
-            <p class="mt-4 max-w-2xl text-[16px] font-light text-gray-400">
+            <p class="landing-eyebrow">How it works</p>
+            <h2 class="landing-heading">From issue to merge request, hands-free</h2>
+            <p class="landing-lede">
                 DAIV turns your issues into working code. You stay in control at every step.
             </p>
         </div>
 
         <div class="mt-16 space-y-6">
             <!-- Step 1 -->
-            <div class="animate-fade-up flex gap-6" style="animation-delay: 80ms">
-                <div class="flex flex-col items-center">
-                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.03] text-[14px] font-semibold text-white">1</span>
-                    <div class="mt-3 h-full w-px bg-gradient-to-b from-white/[0.08] to-transparent"></div>
+            <div class="animate-fade-up landing-step" style="animation-delay: 80ms">
+                <div class="landing-step__track">
+                    <span class="landing-step__number">1</span>
+                    <div class="landing-step__rail"></div>
                 </div>
-                <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 pb-8 flex-1">
-                    <h3 class="text-[15px] font-semibold text-white">You create an issue</h3>
-                    <p class="mt-1.5 text-[14px] text-gray-400">Write what you need in plain language. Add context, attach screenshots, reference files. That's all.</p>
-                    <div class="mt-5 rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3">
-                        <p class="text-[12px] font-medium text-gray-400">Issue #142</p>
-                        <p class="mt-1 text-[14px] text-gray-300">Add rate limiting to the API endpoints</p>
+                <div class="landing-step__card">
+                    <h3 class="landing-item-title">You create an issue</h3>
+                    <p class="landing-item-body">Write what you need in plain language. Add context, attach screenshots, reference files. That's all.</p>
+                    <div class="landing-mock">
+                        <p class="landing-mock__meta">Issue #142</p>
+                        <p class="landing-mock__text">Add rate limiting to the API endpoints</p>
                         <div class="mt-2 flex gap-2">
-                            <span class="rounded-md border border-white/[0.06] bg-white/[0.03] px-2 py-0.5 text-[11px] text-gray-400">daiv</span>
+                            <span class="landing-mock__chip">daiv</span>
                         </div>
                     </div>
                 </div>
             </div>
 
             <!-- Step 2 -->
-            <div class="animate-fade-up flex gap-6" style="animation-delay: 160ms">
-                <div class="flex flex-col items-center">
-                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.03] text-[14px] font-semibold text-white">2</span>
-                    <div class="mt-3 h-full w-px bg-gradient-to-b from-white/[0.08] to-transparent"></div>
+            <div class="animate-fade-up landing-step" style="animation-delay: 160ms">
+                <div class="landing-step__track">
+                    <span class="landing-step__number">2</span>
+                    <div class="landing-step__rail"></div>
                 </div>
-                <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 pb-8 flex-1">
-                    <h3 class="text-[15px] font-semibold text-white">DAIV posts a plan</h3>
-                    <p class="mt-1.5 text-[14px] text-gray-400">Analyzes your codebase, reads relevant files, and proposes implementation steps as a comment on the issue.</p>
-                    <div class="mt-5 rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3">
-                        <p class="text-[12px] font-medium text-gray-400">@daiv commented</p>
-                        <div class="mt-2 space-y-1.5 text-[13px] text-gray-400">
+                <div class="landing-step__card">
+                    <h3 class="landing-item-title">DAIV posts a plan</h3>
+                    <p class="landing-item-body">Analyzes your codebase, reads relevant files, and proposes implementation steps as a comment on the issue.</p>
+                    <div class="landing-mock">
+                        <p class="landing-mock__meta">@daiv commented</p>
+                        <div class="mt-2 space-y-1.5 text-[13px] text-text-muted">
                             <p>1. Add Redis-based rate limiter middleware</p>
                             <p>2. Configure per-endpoint limits in settings</p>
                             <p>3. Return 429 with Retry-After header</p>
@@ -165,35 +155,35 @@
             </div>
 
             <!-- Step 3 -->
-            <div class="animate-fade-up flex gap-6" style="animation-delay: 240ms">
-                <div class="flex flex-col items-center">
-                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.03] text-[14px] font-semibold text-white">3</span>
-                    <div class="mt-3 h-full w-px bg-gradient-to-b from-white/[0.08] to-transparent"></div>
+            <div class="animate-fade-up landing-step" style="animation-delay: 240ms">
+                <div class="landing-step__track">
+                    <span class="landing-step__number">3</span>
+                    <div class="landing-step__rail"></div>
                 </div>
-                <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 pb-8 flex-1">
-                    <h3 class="text-[15px] font-semibold text-white">You approve</h3>
-                    <p class="mt-1.5 text-[14px] text-gray-400">Review the plan. Comment when ready. Or update the issue and DAIV re-plans. Human-in-the-loop by default.</p>
-                    <div class="mt-5 rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3">
-                        <p class="text-[12px] font-medium text-gray-400">You commented</p>
-                        <p class="mt-1 text-[14px] text-gray-300">@daiv proceed</p>
+                <div class="landing-step__card">
+                    <h3 class="landing-item-title">You approve</h3>
+                    <p class="landing-item-body">Review the plan. Comment when ready. Or update the issue and DAIV re-plans. Human-in-the-loop by default.</p>
+                    <div class="landing-mock">
+                        <p class="landing-mock__meta">You commented</p>
+                        <p class="landing-mock__text font-mono">@daiv proceed</p>
                     </div>
                 </div>
             </div>
 
             <!-- Step 4 -->
-            <div class="animate-fade-up flex gap-6" style="animation-delay: 320ms">
-                <div class="flex flex-col items-center">
-                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.03] text-[14px] font-semibold text-white">4</span>
+            <div class="animate-fade-up landing-step" style="animation-delay: 320ms">
+                <div class="landing-step__track">
+                    <span class="landing-step__number">4</span>
                 </div>
-                <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 pb-8 flex-1">
-                    <h3 class="text-[15px] font-semibold text-white">Code lands in a merge request</h3>
-                    <p class="mt-1.5 text-[14px] text-gray-400">DAIV implements the plan and opens a merge request. If reviewers request changes, just mention DAIV in a comment.</p>
-                    <div class="mt-5 rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3">
+                <div class="landing-step__card">
+                    <h3 class="landing-item-title">Code lands in a merge request</h3>
+                    <p class="landing-item-body">DAIV implements the plan and opens a merge request. If reviewers request changes, just mention DAIV in a comment.</p>
+                    <div class="landing-mock">
                         <div class="flex items-center gap-2">
-                            <span class="rounded-md border border-emerald-800/50 bg-emerald-950/60 px-2 py-0.5 text-[11px] text-emerald-300">Ready for review</span>
+                            <span class="landing-mock__status">Ready for review</span>
                         </div>
-                        <p class="mt-2 text-[14px] text-gray-300">Add rate limiting to API endpoints</p>
-                        <p class="mt-1 text-[12px] text-gray-400">feat/142-rate-limiting &rarr; main</p>
+                        <p class="landing-mock__text mt-2">Add rate limiting to API endpoints</p>
+                        <p class="landing-mock__meta mt-1">feat/142-rate-limiting &rarr; main</p>
                     </div>
                 </div>
             </div>
@@ -202,205 +192,179 @@
 </section>
 
 <!-- Capabilities -->
-<section class="border-t border-white/[0.06] py-24">
-    <div class="mx-auto max-w-5xl px-6">
+<section class="landing-section">
+    <div class="landing-container">
         <div class="animate-fade-up">
-            <p class="text-[12px] font-medium uppercase tracking-[0.2em] text-gray-400">Capabilities</p>
-            <h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">More than just code generation</h2>
-            <p class="mt-4 max-w-2xl text-[16px] font-light text-gray-400">
+            <p class="landing-eyebrow">Capabilities</p>
+            <h2 class="landing-heading">More than just code generation</h2>
+            <p class="landing-lede">
                 A complete engineering assistant that fits into your existing workflow.
             </p>
         </div>
 
         <div class="mt-12 grid gap-4 sm:grid-cols-2">
             <!-- Slash Commands -->
-            <div class="animate-fade-up group landing-card" style="animation-delay: 80ms">
-                <div class="landing-card__icon">
-                    {% icon "command-line" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
-                </div>
-                <h3 class="text-[15px] font-semibold text-white">Slash Commands & Skills</h3>
-                <p class="mt-1 text-[14px] text-gray-400">Invoke <code class="text-gray-400">/plan</code>, <code class="text-gray-400">/code-review</code>, <code class="text-gray-400">/security-audit</code> from any issue or MR. Built-in skills cover common tasks. Create your own for anything else.</p>
+            <div class="animate-fade-up landing-card" style="animation-delay: 80ms">
+                <div class="landing-card__icon">{% icon "command-line" "h-5 w-5 text-text-muted" %}</div>
+                <h3 class="landing-item-title">Slash Commands & Skills</h3>
+                <p class="landing-item-body">Invoke <code class="text-text">/plan</code>, <code class="text-text">/code-review</code>, <code class="text-text">/security-audit</code> from any issue or MR. Built-in skills cover common tasks. Create your own for anything else.</p>
             </div>
 
             <!-- Sandbox -->
-            <div class="animate-fade-up group landing-card" style="animation-delay: 120ms">
-                <div class="landing-card__icon">
-                    {% icon "cube" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
-                </div>
-                <h3 class="text-[15px] font-semibold text-white">Secure Sandbox</h3>
-                <p class="mt-1 text-[14px] text-gray-400">Tests, builds, and linters run in isolated Docker containers. Full shell access for the agent, strict safety policies for you.</p>
+            <div class="animate-fade-up landing-card" style="animation-delay: 120ms">
+                <div class="landing-card__icon">{% icon "cube" "h-5 w-5 text-text-muted" %}</div>
+                <h3 class="landing-item-title">Secure Sandbox</h3>
+                <p class="landing-item-body">Tests, builds, and linters run in isolated Docker containers. Full shell access for the agent, strict safety policies for you.</p>
             </div>
 
             <!-- MCP -->
-            <div class="animate-fade-up group landing-card" style="animation-delay: 160ms">
-                <div class="landing-card__icon">
-                    {% icon "puzzle-piece" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
-                </div>
-                <h3 class="text-[15px] font-semibold text-white">MCP Tool Integrations</h3>
-                <p class="mt-1 text-[14px] text-gray-400">Connect external services via Model Context Protocol. Sentry error tracking, documentation lookup, or your own custom servers.</p>
+            <div class="animate-fade-up landing-card" style="animation-delay: 160ms">
+                <div class="landing-card__icon">{% icon "puzzle-piece" "h-5 w-5 text-text-muted" %}</div>
+                <h3 class="landing-item-title">MCP Tool Integrations</h3>
+                <p class="landing-item-body">Connect external services via Model Context Protocol. Sentry error tracking, documentation lookup, or your own custom servers.</p>
             </div>
 
             <!-- Subagents -->
-            <div class="animate-fade-up group landing-card" style="animation-delay: 200ms">
-                <div class="landing-card__icon">
-                    {% icon "squares-2x2" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
-                </div>
-                <h3 class="text-[15px] font-semibold text-white">Subagents</h3>
-                <p class="mt-1 text-[14px] text-gray-400">Specialized agents for exploration vs. execution. The main agent delegates automatically — fast read-only lookups or complex multi-step work.</p>
+            <div class="animate-fade-up landing-card" style="animation-delay: 200ms">
+                <div class="landing-card__icon">{% icon "squares-2x2" "h-5 w-5 text-text-muted" %}</div>
+                <h3 class="landing-item-title">Subagents</h3>
+                <p class="landing-item-body">Specialized agents for exploration vs. execution. The main agent delegates automatically — fast read-only lookups or complex multi-step work.</p>
             </div>
 
             <!-- Multi-provider -->
-            <div class="animate-fade-up group landing-card" style="animation-delay: 240ms">
-                <div class="landing-card__icon">
-                    {% icon "cpu-chip" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
-                </div>
-                <h3 class="text-[15px] font-semibold text-white">Multi-provider LLMs</h3>
-                <p class="mt-1 text-[14px] text-gray-400">OpenRouter, Anthropic, OpenAI, Google Gemini. Mix providers, swap models, no vendor lock-in.</p>
+            <div class="animate-fade-up landing-card" style="animation-delay: 240ms">
+                <div class="landing-card__icon">{% icon "cpu-chip" "h-5 w-5 text-text-muted" %}</div>
+                <h3 class="landing-item-title">Multi-provider LLMs</h3>
+                <p class="landing-item-body">OpenRouter, Anthropic, OpenAI, Google Gemini. Mix providers, swap models, no vendor lock-in.</p>
             </div>
 
             <!-- Jobs API -->
-            <div class="animate-fade-up group landing-card" style="animation-delay: 280ms">
-                <div class="landing-card__icon">
-                    {% icon "bolt" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
-                </div>
-                <h3 class="text-[15px] font-semibold text-white">Jobs API</h3>
-                <p class="mt-1 text-[14px] text-gray-400">Trigger agents programmatically via REST. Chain tasks from CI/CD, or integrate with Slack bots.</p>
+            <div class="animate-fade-up landing-card" style="animation-delay: 280ms">
+                <div class="landing-card__icon">{% icon "bolt" "h-5 w-5 text-text-muted" %}</div>
+                <h3 class="landing-item-title">Jobs API</h3>
+                <p class="landing-item-body">Trigger agents programmatically via REST. Chain tasks from CI/CD, or integrate with Slack bots.</p>
             </div>
 
             <!-- MCP Endpoint -->
-            <div class="animate-fade-up group landing-card" style="animation-delay: 320ms">
-                <div class="landing-card__icon">
-                    {% icon "link" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
-                </div>
-                <h3 class="text-[15px] font-semibold text-white">MCP Endpoint</h3>
-                <p class="mt-1 text-[14px] text-gray-400">The inverse direction: DAIV itself is an MCP server. Delegate tasks to it from Claude Code, Cursor, or Codex CLI without leaving your editor.</p>
+            <div class="animate-fade-up landing-card" style="animation-delay: 320ms">
+                <div class="landing-card__icon">{% icon "link" "h-5 w-5 text-text-muted" %}</div>
+                <h3 class="landing-item-title">MCP Endpoint</h3>
+                <p class="landing-item-body">The inverse direction: DAIV itself is an MCP server. Delegate tasks to it from Claude Code, Cursor, or Codex CLI without leaving your editor.</p>
             </div>
 
             <!-- Scheduled Jobs -->
-            <div class="animate-fade-up group landing-card" style="animation-delay: 360ms">
-                <div class="landing-card__icon">
-                    {% icon "clock" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
-                </div>
-                <h3 class="text-[15px] font-semibold text-white">Scheduled Jobs</h3>
-                <p class="mt-1 text-[14px] text-gray-400">Run agents on a recurring basis — hourly, daily, weekly, or custom cron. Automate dependency audits, code scans, and maintenance tasks.</p>
+            <div class="animate-fade-up landing-card" style="animation-delay: 360ms">
+                <div class="landing-card__icon">{% icon "clock" "h-5 w-5 text-text-muted" %}</div>
+                <h3 class="landing-item-title">Scheduled Jobs</h3>
+                <p class="landing-item-body">Run agents on a recurring basis — hourly, daily, weekly, or custom cron. Automate dependency audits, code scans, and maintenance tasks.</p>
             </div>
         </div>
     </div>
 </section>
 
 <!-- Dashboard -->
-<section class="border-t border-white/[0.06] py-24">
-    <div class="mx-auto max-w-5xl px-6">
+<section class="landing-section">
+    <div class="landing-container">
         <div class="animate-fade-up">
-            <p class="text-[12px] font-medium uppercase tracking-[0.2em] text-gray-400">Dashboard</p>
-            <h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">A self-hosted control plane</h2>
-            <p class="mt-4 max-w-2xl text-[16px] font-light text-gray-400">
+            <p class="landing-eyebrow">Dashboard</p>
+            <h2 class="landing-heading">A self-hosted control plane</h2>
+            <p class="landing-lede">
                 Every run lands in one place — whether it started from a webhook, the API, your editor, a schedule, or by hand. Pick the model and thinking effort per run.
             </p>
         </div>
 
         <div class="mt-12 grid gap-4 sm:grid-cols-2">
             <!-- Sessions -->
-            <div class="animate-fade-up group landing-card" style="animation-delay: 80ms">
-                <div class="landing-card__icon">
-                    {% icon "chat-bubble" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
-                </div>
-                <h3 class="text-[15px] font-semibold text-white">Sessions</h3>
-                <p class="mt-1 text-[14px] text-gray-400">Chat with the agent live, start background runs, and browse the full history in one list — with retries when something needs another pass.</p>
+            <div class="animate-fade-up landing-card" style="animation-delay: 80ms">
+                <div class="landing-card__icon">{% icon "chat-bubble" "h-5 w-5 text-text-muted" %}</div>
+                <h3 class="landing-item-title">Sessions</h3>
+                <p class="landing-item-body">Chat with the agent live, start background runs, and browse the full history in one list — with retries when something needs another pass.</p>
             </div>
 
             <!-- Sandbox Environments -->
-            <div class="animate-fade-up group landing-card" style="animation-delay: 120ms">
-                <div class="landing-card__icon">
-                    {% icon "sandbox" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
-                </div>
-                <h3 class="text-[15px] font-semibold text-white">Sandbox Environments</h3>
-                <p class="mt-1 text-[14px] text-gray-400">Define a runtime once and reuse it: base image, CPU and memory, network egress policy, and encrypted secrets — scoped to the repositories you choose.</p>
+            <div class="animate-fade-up landing-card" style="animation-delay: 120ms">
+                <div class="landing-card__icon">{% icon "sandbox" "h-5 w-5 text-text-muted" %}</div>
+                <h3 class="landing-item-title">Sandbox Environments</h3>
+                <p class="landing-item-body">Define a runtime once and reuse it: base image, CPU and memory, network egress policy, and encrypted secrets — scoped to the repositories you choose.</p>
             </div>
 
             <!-- Notifications -->
-            <div class="animate-fade-up group landing-card" style="animation-delay: 160ms">
-                <div class="landing-card__icon">
-                    {% icon "bell" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
-                </div>
-                <h3 class="text-[15px] font-semibold text-white">Notifications</h3>
-                <p class="mt-1 text-[14px] text-gray-400">Know the moment work finishes, in the app, by email, or in Rocket Chat.</p>
+            <div class="animate-fade-up landing-card" style="animation-delay: 160ms">
+                <div class="landing-card__icon">{% icon "bell" "h-5 w-5 text-text-muted" %}</div>
+                <h3 class="landing-item-title">Notifications</h3>
+                <p class="landing-item-body">Know the moment work finishes, in the app, by email, or in Rocket Chat.</p>
             </div>
 
             <!-- Merge Metrics -->
-            <div class="animate-fade-up group landing-card" style="animation-delay: 200ms">
-                <div class="landing-card__icon">
-                    {% icon "chart-bar" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
-                </div>
-                <h3 class="text-[15px] font-semibold text-white">Merge Metrics</h3>
-                <p class="mt-1 text-[14px] text-gray-400">Track code velocity with commit-level attribution — what DAIV wrote versus what your team wrote.</p>
+            <div class="animate-fade-up landing-card" style="animation-delay: 200ms">
+                <div class="landing-card__icon">{% icon "chart-bar" "h-5 w-5 text-text-muted" %}</div>
+                <h3 class="landing-item-title">Merge Metrics</h3>
+                <p class="landing-item-body">Track code velocity with commit-level attribution — what DAIV wrote versus what your team wrote.</p>
             </div>
         </div>
     </div>
 </section>
 
 <!-- Why DAIV -->
-<section class="border-t border-white/[0.06] py-24">
-    <div class="mx-auto max-w-5xl px-6">
+<section class="landing-section">
+    <div class="landing-container">
         <div class="animate-fade-up">
-            <p class="text-[12px] font-medium uppercase tracking-[0.2em] text-gray-400">Why DAIV</p>
-            <h2 class="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">Built different</h2>
-            <p class="mt-4 max-w-2xl text-[16px] font-light text-gray-400">
+            <p class="landing-eyebrow">Why DAIV</p>
+            <h2 class="landing-heading">Built different</h2>
+            <p class="landing-lede">
                 AI coding tools that require a separate app break your flow. DAIV meets you where you already work.
             </p>
         </div>
 
         <div class="mt-12 grid gap-x-8 gap-y-10 sm:grid-cols-3">
             <div class="animate-fade-up" style="animation-delay: 80ms">
-                <div class="mb-5 h-px w-8 bg-white/[0.15]"></div>
-                <h3 class="text-[15px] font-semibold text-white">Native to your Git platform</h3>
-                <p class="mt-2 text-[14px] font-light text-gray-400">No new UI to learn. DAIV works inside GitLab and GitHub issues and merge requests.</p>
+                <div class="landing-point__rule"></div>
+                <h3 class="landing-item-title">It lives where you already work</h3>
+                <p class="landing-item-body">Issue to plan to merge request, replies to review comments, and CI fixes all happen inside GitLab and GitHub threads, self-managed GitLab included.</p>
             </div>
             <div class="animate-fade-up" style="animation-delay: 120ms">
-                <div class="mb-5 h-px w-8 bg-white/[0.15]"></div>
-                <h3 class="text-[15px] font-semibold text-white">Human-in-the-loop</h3>
-                <p class="mt-2 text-[14px] font-light text-gray-400">Plans require approval before execution. You review, you decide, DAIV implements.</p>
+                <div class="landing-point__rule"></div>
+                <h3 class="landing-item-title">Your infrastructure, your model, your network rules</h3>
+                <p class="landing-item-body">Run it on your own servers, with any of the built-in LLM providers or your own OpenAI-compatible server, in a sandbox whose egress you define.</p>
             </div>
             <div class="animate-fade-up" style="animation-delay: 160ms">
-                <div class="mb-5 h-px w-8 bg-white/[0.15]"></div>
-                <h3 class="text-[15px] font-semibold text-white">Fully extensible</h3>
-                <p class="mt-2 text-[14px] font-light text-gray-400">Custom skills, subagents, MCP servers, per-repo config. Shape DAIV to your team's needs.</p>
+                <div class="landing-point__rule"></div>
+                <h3 class="landing-item-title">Open source, no per-seat pricing</h3>
+                <p class="landing-item-body">Apache-2.0, with nothing to buy per developer. Read the code, modify it, no black boxes.</p>
             </div>
             <div class="animate-fade-up" style="animation-delay: 200ms">
-                <div class="mb-5 h-px w-8 bg-white/[0.15]"></div>
-                <h3 class="text-[15px] font-semibold text-white">No vendor lock-in</h3>
-                <p class="mt-2 text-[14px] font-light text-gray-400">Choose your LLM provider. Switch models without changing anything else. Self-host the entire stack.</p>
+                <div class="landing-point__rule"></div>
+                <h3 class="landing-item-title">Human-in-the-loop</h3>
+                <p class="landing-item-body">Plans require approval before execution. You review, you decide, DAIV implements.</p>
             </div>
             <div class="animate-fade-up" style="animation-delay: 240ms">
-                <div class="mb-5 h-px w-8 bg-white/[0.15]"></div>
-                <h3 class="text-[15px] font-semibold text-white">Secure by default</h3>
-                <p class="mt-2 text-[14px] font-light text-gray-400">Sandboxed execution with command policies. Git history mutation is always blocked.</p>
+                <div class="landing-point__rule"></div>
+                <h3 class="landing-item-title">Secure by default</h3>
+                <p class="landing-item-body">Sandboxed execution with command policies. Git history mutation is always blocked.</p>
             </div>
             <div class="animate-fade-up" style="animation-delay: 280ms">
-                <div class="mb-5 h-px w-8 bg-white/[0.15]"></div>
-                <h3 class="text-[15px] font-semibold text-white">Open-source, Apache 2.0</h3>
-                <p class="mt-2 text-[14px] font-light text-gray-400">Read the code, modify it, deploy it on your infrastructure. No black boxes.</p>
+                <div class="landing-point__rule"></div>
+                <h3 class="landing-item-title">Fully extensible</h3>
+                <p class="landing-item-body">Custom skills, subagents, MCP servers, per-repo config. Shape DAIV to your team's needs.</p>
             </div>
         </div>
     </div>
 </section>
 
 <!-- CTA Banner -->
-<section class="border-t border-white/[0.06] py-24">
-    <div class="mx-auto max-w-5xl px-6">
-        <div class="animate-fade-up rounded-2xl border border-white/[0.06] bg-white/[0.02] p-12 text-center sm:p-16">
+<section class="landing-section">
+    <div class="landing-container">
+        <div class="animate-fade-up landing-cta">
             <h2 class="text-3xl font-bold tracking-tight sm:text-4xl">Deploy DAIV in minutes</h2>
-            <p class="mx-auto mt-4 max-w-xl text-[16px] font-light text-gray-400">
+            <p class="mx-auto mt-4 max-w-xl text-[16px] font-light text-text-muted">
                 Self-host with Docker Compose or Docker Swarm. Connect your GitLab or GitHub instance and start automating.
             </p>
             <div class="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4">
-                <a href="{{ build_info.docs_deployment_url }}" rel="noopener noreferrer"
-                   class="btn-primary w-full px-6 py-3 sm:w-auto">
+                <a href="{{ build_info.docs_deployment_url }}" rel="noopener noreferrer" class="landing-button landing-button--primary">
                     Read the docs
                 </a>
-                <a href="https://github.com/srtab/daiv" rel="noopener noreferrer"
-                   class="btn-secondary group w-full gap-2.5 px-6 py-3 text-gray-300 sm:w-auto">
-                    {% icon "github" "h-5 w-5 text-gray-400 transition-colors group-hover:text-white" %}
+                <a href="https://github.com/srtab/daiv" rel="noopener noreferrer" class="landing-button landing-button--secondary">
+                    {% icon "github" "h-5 w-5" %}
                     View on GitHub
                 </a>
             </div>
@@ -410,13 +374,13 @@
 </main>
 
 <!-- Footer -->
-<footer class="border-t border-white/[0.06] py-8">
-    <div class="mx-auto flex max-w-5xl flex-col items-center justify-between gap-4 px-6 sm:flex-row">
-        <p class="text-[13px] text-gray-400">DAIV &mdash; Open-source async SWE agent</p>
+<footer class="landing-footer">
+    <div class="landing-container flex flex-col items-center justify-between gap-4 sm:flex-row">
+        <p class="text-center text-[13px] text-text-muted sm:text-left">DAIV &mdash; Open-source, self-hosted SWE agents for GitLab &amp; GitHub</p>
         <div class="flex items-center gap-6">
-            <a href="{{ build_info.docs_url }}" rel="noopener noreferrer" class="text-[13px] text-gray-400 transition-colors duration-200 hover:text-white">Documentation</a>
-            <a href="https://github.com/srtab/daiv" rel="noopener noreferrer" class="text-[13px] text-gray-400 transition-colors duration-200 hover:text-white">GitHub</a>
-            <a href="https://github.com/srtab/daiv/blob/main/LICENSE" rel="noopener noreferrer" class="text-[13px] text-gray-400 transition-colors duration-200 hover:text-white">License</a>
+            <a href="{{ build_info.docs_url }}" rel="noopener noreferrer" class="landing-footer__link">Documentation</a>
+            <a href="https://github.com/srtab/daiv" rel="noopener noreferrer" class="landing-footer__link">GitHub</a>
+            <a href="https://github.com/srtab/daiv/blob/main/LICENSE" rel="noopener noreferrer" class="landing-footer__link">License</a>
         </div>
     </div>
 </footer>
