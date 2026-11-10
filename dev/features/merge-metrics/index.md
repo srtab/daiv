@@ -83,7 +83,7 @@ If you already have DAIV connected to repositories, existing webhooks need to be
 **GitLab** — Run the setup command with the `--update` flag:
 
 ```
-uv run manage.py setup_webhooks --update
+django-admin setup_webhooks --update
 ```
 
 The periodic webhook setup cron task does **not** pass `--update` by default, so this one-time manual step is needed after deploying the update.

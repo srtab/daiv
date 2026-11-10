@@ -360,6 +360,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../deployment/" class="md-nav__link">
         
   
@@ -1741,7 +1769,7 @@
     
     
       <li class="md-path__item">
-        <a href="../deployment/" class="md-path__link">
+        <a href="../quickstart/" class="md-path__link">
           
   <span class="md-ellipsis">
     Getting Started
@@ -1896,9 +1924,9 @@ form cannot create another user by replacing an email that already exists.</p>
 <p>On a fresh install with OAuth enabled, the <strong>first user to sign in via a social provider is automatically promoted to admin</strong>. The trigger is the <em>absence of any admin user</em> (not the absence of any user), so if two people happen to sign in at the same moment, the result is multiple admins (safe) rather than none.</p>
 <h3 id="bootstrap-command-headless">Bootstrap command (headless)</h3>
 <p>When OAuth is not yet configured, create the initial admin from a shell:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-it<span class="w"> </span>daiv-app<span class="w"> </span>python<span class="w"> </span>manage.py<span class="w"> </span>bootstrap_admin<span class="w"> </span>admin@example.com
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>app<span class="w"> </span>django-admin<span class="w"> </span>bootstrap_admin<span class="w"> </span>admin@example.com
 </code></pre></div></td></tr></table></div>
-<p>The <code>bootstrap_admin</code> command creates an admin user and prints how to sign in. It is a one-shot bootstrap: it refuses to run if an admin already exists, and refuses if a user with that email already exists (promote that user via the dashboard instead). The new admin signs in via login-by-code (the one-time email code).</p>
+<p>The <code>bootstrap_admin</code> command creates an admin user and prints how to sign in. It is a one-shot bootstrap: it refuses to run if an admin already exists, and refuses if a user with that email already exists (promote that user via the dashboard instead). The new admin signs in via login-by-code (the one-time email code). Without an SMTP server, set <code>EMAIL_BACKEND</code> to <code>django.core.mail.backends.console.EmailBackend</code> and read the code from the app's log (<code>docker compose logs app</code>).</p>
 <div class="admonition info">
 <p class="admonition-title">Info</p>
 <p>For end-to-end first-run setup including OAuth credentials and email, see the first-admin notes in <a href="../deployment/">Deployment</a>.</p>
@@ -2007,7 +2035,7 @@ form cannot create another user by replacing an email that already exists.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 7, 2026 00:16:50 UTC">November 7, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 10, 2026 17:23:40 UTC">November 10, 2026</span>
   </span>
 
     

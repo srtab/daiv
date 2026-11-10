@@ -7,6 +7,7 @@ DAIV is an open-source async software engineering agent that integrates natively
 
 ## Getting Started
 
+- [Quickstart](https://srtab.github.io/daiv/dev/getting-started/quickstart/index.md): Try DAIV in about 15 minutes: run it on one Linux machine with Docker Compose, connect a GitLab project, and turn a labelled issue into a merge request.
 - [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md): Deploy a self-hosted DAIV instance with Docker Swarm or Docker Compose: PostgreSQL, Redis, the DAIV app and worker, plus the optional scheduler and sandbox.
 - [Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/index.md): Connect DAIV to GitLab (GitLab.com or self-hosted) or GitHub so it can address issues, review merge and pull requests, and react to webhooks.
 - [Accounts & Roles](https://srtab.github.io/daiv/dev/getting-started/accounts/index.md): How sign-in works in the DAIV dashboard: admin and member roles, Git platform OAuth or one-time email codes, the first admin, and managing users.

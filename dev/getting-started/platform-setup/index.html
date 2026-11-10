@@ -360,6 +360,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../deployment/" class="md-nav__link">
         
   
@@ -471,10 +499,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#step-1-create-gitlab-personal-access-token" class="md-nav__link">
+  <a href="#step-1-create-a-gitlab-user-and-token-for-daiv" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 1: Create GitLab Personal Access Token
+        Step 1: Create a GitLab User and Token for DAIV
       
     </span>
   </a>
@@ -1739,10 +1767,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#step-1-create-gitlab-personal-access-token" class="md-nav__link">
+  <a href="#step-1-create-a-gitlab-user-and-token-for-daiv" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 1: Create GitLab Personal Access Token
+        Step 1: Create a GitLab User and Token for DAIV
       
     </span>
   </a>
@@ -2041,7 +2069,7 @@
     
     
       <li class="md-path__item">
-        <a href="../deployment/" class="md-path__link">
+        <a href="../quickstart/" class="md-path__link">
           
   <span class="md-ellipsis">
     Getting Started
@@ -2085,15 +2113,22 @@
 <ul>
 <li><strong>DAIV installed and running</strong> - Follow the <a href="../deployment/">Deployment</a> guide first</li>
 <li><strong>GitLab repository access</strong> - Admin or maintainer permissions on the repository you want to connect</li>
-<li><strong>GitLab personal access token</strong> - With <code>api</code> scope permissions</li>
+<li><strong>A GitLab account for DAIV</strong> - A separate user that DAIV acts as, created in Step 1</li>
 </ul>
-<h3 id="step-1-create-gitlab-personal-access-token">Step 1: Create GitLab Personal Access Token</h3>
-<p>DAIV needs a GitLab personal access token to interact with your repositories.</p>
+<h3 id="step-1-create-a-gitlab-user-and-token-for-daiv">Step 1: Create a GitLab User and Token for DAIV</h3>
+<p>DAIV works as a GitLab user: it comments, pushes and opens merge requests as the user its token belongs to, and it ignores comments written by that user. Give DAIV its own account. With a token from your own account, DAIV ignores your comments, including the one that approves its plan.</p>
 <ol>
 <li>
-<p><strong>Navigate to GitLab Settings</strong>:</p>
+<p><strong>Create the user</strong>:</p>
 <ul>
-<li>Go to your GitLab instance (e.g., <code>https://gitlab.com</code>)</li>
+<li>Create a GitLab user for DAIV, for example <code>daiv</code>. Its username is how you mention DAIV (<code>@daiv</code>). On GitLab.com, sign up a separate account; on a self-managed instance, an admin creates it under <strong>Admin → Users → New user</strong></li>
+<li>Add it to each project DAIV should work on with the <strong>Maintainer</strong> role. DAIV only sets up webhooks on projects where its user is a Maintainer or Owner</li>
+</ul>
+</li>
+<li>
+<p><strong>Navigate to the user's settings</strong>:</p>
+<ul>
+<li>Sign in to your GitLab instance (e.g., <code>https://gitlab.com</code>) as the DAIV user</li>
 <li>Click your avatar → <strong>Edit profile</strong> → <strong>Access Tokens</strong></li>
 </ul>
 </li>
@@ -2152,7 +2187,12 @@
 </div>
 <h3 id="step-3-repository-webhooks">Step 3: Repository Webhooks</h3>
 <p>DAIV uses webhooks to receive real-time notifications from GitLab about repository events.</p>
-<p>DAIV automatically creates webhooks on all accessible repositories via a background task that runs every 5 minutes. No manual setup is required — once DAIV is running with valid GitLab credentials, webhooks are created automatically for new repositories. To update existing webhooks, run <code>django-admin setup_webhooks --update</code>.</p>
+<p>DAIV's scheduler adds a webhook to every repository its user maintains, every 5 minutes. No manual setup is required — once DAIV is running with valid GitLab credentials, webhooks are created automatically for new repositories. To add them right away, or to update existing ones after changing <code>DAIV_EXTERNAL_URL</code> or the webhook secret, run the command in the app container:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span>
+<span class="normal"><a href="#__codelineno-3-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>app<span class="w"> </span>django-admin<span class="w"> </span>setup_webhooks<span class="w">           </span><span class="c1"># add missing webhooks now</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>app<span class="w"> </span>django-admin<span class="w"> </span>setup_webhooks<span class="w"> </span>--update<span class="w">  </span><span class="c1"># also update existing ones</span>
+</code></pre></div></td></tr></table></div>
+<p>GitLab sends each event to <code>DAIV_EXTERNAL_URL</code>, so that URL must be reachable from your GitLab. A self-managed GitLab refuses webhooks to private network addresses by default (<code>Url is blocked: Requests to the local network are not allowed</code>); an admin allows them under <strong>Admin → Settings → Network → Outbound requests</strong>.</p>
 <div class="admonition tip">
 <p class="admonition-title">Verifying webhook setup</p>
 <p>To confirm webhooks are configured, go to your GitLab repository → <strong>Settings</strong> → <strong>Webhooks</strong>. You should see a webhook pointing to <code>https://your-daiv-instance.com/api/codebase/callbacks/gitlab/</code> with the following trigger events:</p>
@@ -2176,14 +2216,21 @@
 <ul>
 <li>Go to your GitLab repository</li>
 <li>Create a new issue with title: "Add hello world function"</li>
-<li>Add the <code>daiv</code> label to the issue</li>
+<li>Add the <code>daiv</code> label to the issue. If the project has no <code>daiv</code> label yet, create it from the label picker</li>
 </ul>
 </li>
 <li>
 <p><strong>Wait for DAIV Response</strong>:</p>
 <ul>
-<li>DAIV should automatically comment with a plan to address the issue</li>
+<li>DAIV reacts with 👀 within seconds, then comments with a plan to address the issue</li>
 <li>Check the issue comments for DAIV's response</li>
+</ul>
+</li>
+<li>
+<p><strong>Approve the Plan</strong>:</p>
+<ul>
+<li>From your own account, comment on the issue mentioning DAIV's user, for example <code>@daiv proceed</code></li>
+<li>DAIV implements the plan and opens a merge request</li>
 </ul>
 </li>
 </ol>
@@ -2197,12 +2244,23 @@
 <li>Verify the webhook URL is accessible from GitLab</li>
 <li>Check SSL certificate validity</li>
 <li>Review firewall settings</li>
+<li>On a self-managed GitLab, allow requests to the local network if DAIV has a private address (see <a href="#step-3-repository-webhooks">Step 3</a>)</li>
 </ul>
 <p><strong>Issues not being processed</strong>:</p>
 <ul>
 <li>Ensure the <code>daiv</code> label is added to issues</li>
+<li>Check that the project has a webhook: DAIV's user must be a Maintainer or Owner of it</li>
 <li>Verify <code>issue_addressing.enabled: true</code> in <code>.daiv.yml</code> (enabled by default)</li>
 <li>Check DAIV logs for errors</li>
+</ul>
+<p><strong>DAIV ignores your comments</strong>:</p>
+<ul>
+<li>Comment from an account other than DAIV's own: DAIV ignores what its own user writes</li>
+<li>Mention DAIV's username, for example <code>@daiv</code></li>
+</ul>
+<p><strong>DAIV comments "An unexpected error occurred"</strong>:</p>
+<ul>
+<li>The run failed. The worker and sandbox logs show why, for example <code>docker compose logs worker sandbox</code></li>
 </ul>
 <p><strong>No response to merge request comments</strong>:</p>
 <ul>
@@ -2236,7 +2294,7 @@
 - <strong>Homepage URL</strong>: Your DAIV instance URL (e.g., <code>https://daiv.example.com</code>)
 - <strong>Webhook URL</strong>: <code>https://your-daiv-instance.com/api/codebase/callbacks/github/</code>
 - <strong>Webhook secret</strong>: Generate a secure random secret (save this for later)
-  <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a>openssl<span class="w"> </span>rand<span class="w"> </span>-hex<span class="w"> </span><span class="m">32</span>
+  <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a>openssl<span class="w"> </span>rand<span class="w"> </span>-hex<span class="w"> </span><span class="m">32</span>
 </code></pre></div></td></tr></table></div></p>
 <p><strong>Permissions:</strong>
 - <strong>Repository permissions:</strong>
@@ -2312,56 +2370,56 @@
 <p>Add your GitHub App credentials to DAIV's environment configuration.</p>
 <h4 id="for-docker-compose-setup_1">For Docker Compose Setup</h4>
 <p>Edit your <code>docker-compose.yml</code> file:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1"> 1</a></span>
-<span class="normal"><a href="#__codelineno-4-2"> 2</a></span>
-<span class="normal"><a href="#__codelineno-4-3"> 3</a></span>
-<span class="normal"><a href="#__codelineno-4-4"> 4</a></span>
-<span class="normal"><a href="#__codelineno-4-5"> 5</a></span>
-<span class="normal"><a href="#__codelineno-4-6"> 6</a></span>
-<span class="normal"><a href="#__codelineno-4-7"> 7</a></span>
-<span class="normal"><a href="#__codelineno-4-8"> 8</a></span>
-<span class="normal"><a href="#__codelineno-4-9"> 9</a></span>
-<span class="normal"><a href="#__codelineno-4-10">10</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a><span class="nt">x-app-defaults</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;x_app_default</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2"></a><span class="w">  </span><span class="c1"># ...</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3"></a><span class="w">  </span><span class="nt">environment</span><span class="p">:</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4"></a><span class="w">    </span><span class="nt">CODEBASE_CLIENT</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5"></a><span class="w">    </span><span class="nt">CODEBASE_GITHUB_APP_ID</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">123456</span><span class="w"> </span><span class="c1"># Your GitHub App ID</span>
-<a id="__codelineno-4-6" name="__codelineno-4-6"></a><span class="w">    </span><span class="nt">CODEBASE_GITHUB_INSTALLATION_ID</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">789012</span><span class="w"> </span><span class="c1"># Your Installation ID</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7"></a><span class="w">    </span><span class="nt">CODEBASE_GITHUB_WEBHOOK_SECRET</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your-webhook-secret-here</span><span class="w"> </span><span class="c1"># The secret you generated</span>
-<a id="__codelineno-4-8" name="__codelineno-4-8"></a><span class="w">    </span><span class="c1"># For GitHub Enterprise, also set:</span>
-<a id="__codelineno-4-9" name="__codelineno-4-9"></a><span class="w">    </span><span class="c1"># CODEBASE_GITHUB_URL: https://github.your-company.com</span>
-<a id="__codelineno-4-10" name="__codelineno-4-10"></a><span class="w">  </span><span class="c1"># ...</span>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-5-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-5-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-5-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-5-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-5-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-5-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-5-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-5-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-5-10">10</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a><span class="nt">x-app-defaults</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;x_app_default</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2"></a><span class="w">  </span><span class="c1"># ...</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3"></a><span class="w">  </span><span class="nt">environment</span><span class="p">:</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4"></a><span class="w">    </span><span class="nt">CODEBASE_CLIENT</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5"></a><span class="w">    </span><span class="nt">CODEBASE_GITHUB_APP_ID</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">123456</span><span class="w"> </span><span class="c1"># Your GitHub App ID</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6"></a><span class="w">    </span><span class="nt">CODEBASE_GITHUB_INSTALLATION_ID</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">789012</span><span class="w"> </span><span class="c1"># Your Installation ID</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7"></a><span class="w">    </span><span class="nt">CODEBASE_GITHUB_WEBHOOK_SECRET</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your-webhook-secret-here</span><span class="w"> </span><span class="c1"># The secret you generated</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8"></a><span class="w">    </span><span class="c1"># For GitHub Enterprise, also set:</span>
+<a id="__codelineno-5-9" name="__codelineno-5-9"></a><span class="w">    </span><span class="c1"># CODEBASE_GITHUB_URL: https://github.your-company.com</span>
+<a id="__codelineno-5-10" name="__codelineno-5-10"></a><span class="w">  </span><span class="c1"># ...</span>
 </code></pre></div></td></tr></table></div>
 <p>For the private key, you have two options:</p>
 <p><strong>Option 1: Use Docker secrets (recommended)</strong></p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1">1</a></span>
-<span class="normal"><a href="#__codelineno-5-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a><span class="c1"># Create secret from the downloaded .pem file</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2"></a>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>codebase_github_private_key<span class="w"> </span>/path/to/your-private-key.pem
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span>
+<span class="normal"><a href="#__codelineno-6-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a><span class="c1"># Create secret from the downloaded .pem file</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2"></a>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>codebase_github_private_key<span class="w"> </span>/path/to/your-private-key.pem
 </code></pre></div></td></tr></table></div>
 <p><strong>Option 2: Set as environment variable</strong></p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span>
-<span class="normal"><a href="#__codelineno-6-2">2</a></span>
-<span class="normal"><a href="#__codelineno-6-3">3</a></span>
-<span class="normal"><a href="#__codelineno-6-4">4</a></span>
-<span class="normal"><a href="#__codelineno-6-5">5</a></span>
-<span class="normal"><a href="#__codelineno-6-6">6</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a><span class="nt">x-app-defaults</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;x_app_default</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2"></a><span class="w">  </span><span class="nt">environment</span><span class="p">:</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3"></a><span class="w">    </span><span class="nt">CODEBASE_GITHUB_PRIVATE_KEY</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4"></a><span class="w">      </span><span class="no">-----BEGIN RSA PRIVATE KEY-----</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5"></a><span class="w">      </span><span class="no">Your private key content here...</span>
-<a id="__codelineno-6-6" name="__codelineno-6-6"></a><span class="w">      </span><span class="no">-----END RSA PRIVATE KEY-----</span>
-</code></pre></div></td></tr></table></div>
-<h4 id="for-docker-swarm-setup_1">For Docker Swarm Setup</h4>
-<p>Create Docker secrets:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span>
 <span class="normal"><a href="#__codelineno-7-2">2</a></span>
 <span class="normal"><a href="#__codelineno-7-3">3</a></span>
 <span class="normal"><a href="#__codelineno-7-4">4</a></span>
-<span class="normal"><a href="#__codelineno-7-5">5</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a><span class="c1"># Create secrets for GitHub integration</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">"123456"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>codebase_github_app_id<span class="w"> </span>-
-<a id="__codelineno-7-3" name="__codelineno-7-3"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">"789012"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>codebase_github_installation_id<span class="w"> </span>-
-<a id="__codelineno-7-4" name="__codelineno-7-4"></a>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>codebase_github_private_key<span class="w"> </span>/path/to/your-private-key.pem
-<a id="__codelineno-7-5" name="__codelineno-7-5"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">"your-webhook-secret-here"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>codebase_github_webhook_secret<span class="w"> </span>-
+<span class="normal"><a href="#__codelineno-7-5">5</a></span>
+<span class="normal"><a href="#__codelineno-7-6">6</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a><span class="nt">x-app-defaults</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;x_app_default</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2"></a><span class="w">  </span><span class="nt">environment</span><span class="p">:</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3"></a><span class="w">    </span><span class="nt">CODEBASE_GITHUB_PRIVATE_KEY</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4"></a><span class="w">      </span><span class="no">-----BEGIN RSA PRIVATE KEY-----</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5"></a><span class="w">      </span><span class="no">Your private key content here...</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6"></a><span class="w">      </span><span class="no">-----END RSA PRIVATE KEY-----</span>
+</code></pre></div></td></tr></table></div>
+<h4 id="for-docker-swarm-setup_1">For Docker Swarm Setup</h4>
+<p>Create Docker secrets:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1">1</a></span>
+<span class="normal"><a href="#__codelineno-8-2">2</a></span>
+<span class="normal"><a href="#__codelineno-8-3">3</a></span>
+<span class="normal"><a href="#__codelineno-8-4">4</a></span>
+<span class="normal"><a href="#__codelineno-8-5">5</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1"></a><span class="c1"># Create secrets for GitHub integration</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">"123456"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>codebase_github_app_id<span class="w"> </span>-
+<a id="__codelineno-8-3" name="__codelineno-8-3"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">"789012"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>codebase_github_installation_id<span class="w"> </span>-
+<a id="__codelineno-8-4" name="__codelineno-8-4"></a>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>codebase_github_private_key<span class="w"> </span>/path/to/your-private-key.pem
+<a id="__codelineno-8-5" name="__codelineno-8-5"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">"your-webhook-secret-here"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>codebase_github_webhook_secret<span class="w"> </span>-
 </code></pre></div></td></tr></table></div>
 <div class="admonition warning">
 <p class="admonition-title">Private Key Format</p>
@@ -2499,7 +2557,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 31, 2026 03:36:00 UTC">October 31, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 10, 2026 17:23:40 UTC">November 10, 2026</span>
   </span>
 
     

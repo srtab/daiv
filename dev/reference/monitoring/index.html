@@ -358,6 +358,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../getting-started/deployment/" class="md-nav__link">
         
   
@@ -2433,7 +2461,7 @@
 <h2 id="custom-dashboard">Custom dashboard</h2>
 <p>DAIV includes a management command to create a pre-configured LangSmith custom dashboard with charts covering all key metrics.</p>
 <h3 id="setup_1">Setup</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a>python<span class="w"> </span>manage.py<span class="w"> </span>setup_langsmith_dashboard<span class="w"> </span>--project<span class="w"> </span>&lt;project-name&gt;
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a>django-admin<span class="w"> </span>setup_langsmith_dashboard<span class="w"> </span>--project<span class="w"> </span>&lt;project-name&gt;
 </code></pre></div></td></tr></table></div>
 <p>The command creates a single dashboard named <strong>DAIV Monitoring</strong> with 27 charts organized into 8 groups:</p>
 <table>
@@ -2508,7 +2536,7 @@
 </table>
 <h3 id="recreating-the-dashboard">Recreating the dashboard</h3>
 <p>To update the dashboard after upgrading DAIV (which may add new charts):</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1"></a>python<span class="w"> </span>manage.py<span class="w"> </span>setup_langsmith_dashboard<span class="w"> </span>--recreate
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1"></a>django-admin<span class="w"> </span>setup_langsmith_dashboard<span class="w"> </span>--recreate
 </code></pre></div></td></tr></table></div>
 <h3 id="dashboard-tips">Dashboard tips</h3>
 <ul>
@@ -2581,7 +2609,7 @@
 <hr />
 <h2 id="session-archive">Session archive</h2>
 <p>DAIV keeps a copy of each session's conversation in its database, written when each run ends, so transcripts outlive the checkpointer TTL and LangSmith's retention. Export them for offline analysis:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-9-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1"></a>python<span class="w"> </span>manage.py<span class="w"> </span>export_session_archives<span class="w"> </span>./session-exports<span class="w"> </span>--since<span class="w"> </span><span class="m">2026</span>-10-01<span class="w"> </span>--repo<span class="w"> </span>group/project
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-9-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1"></a>django-admin<span class="w"> </span>export_session_archives<span class="w"> </span>./session-exports<span class="w"> </span>--since<span class="w"> </span><span class="m">2026</span>-10-01<span class="w"> </span>--repo<span class="w"> </span>group/project
 </code></pre></div></td></tr></table></div>
 <p>Each archived session becomes <code>&lt;thread_id&gt;.json</code>. It holds the session's repository, origin and title, every context in order (a <code>/clear</code> closes one and starts the next; <code>closed_at</code> says when) with its messages in LangChain's <code>messages_to_dict</code> format, and its runs' status, model, tokens and cost. The archive holds the session's messages, not each model request: system prompts, tool schemas, summaries and subagent internals stay in LangSmith. A session that fails to export is logged and named, and the command exits with an error once the rest are written.</p>
 <p>Exports contain full conversations and run prompts, so treat the output directory as sensitive.</p>
@@ -2706,7 +2734,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 9, 2026 23:11:21 UTC">November 9, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 10, 2026 17:23:40 UTC">November 10, 2026</span>
   </span>
 
     

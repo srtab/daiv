@@ -7,6 +7,244 @@ DAIV is an open-source async software engineering agent that integrates natively
 
 # Getting Started
 
+# Quickstart
+
+This page gets you from a clean machine to a first merge request in about 15 minutes: you run DAIV on one Linux host with Docker Compose, connect a GitLab project, and let DAIV turn an issue into a merge request.
+
+It is a trial setup: one worker, no email, no single sign-on. For a production install, or to connect GitHub, follow [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md) and [Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/index.md).
+
+## Before you start
+
+You need:
+
+- **A Linux host with Docker Engine and Docker Compose v2.** About 3 GB of free disk: the DAIV images are about 1.1 GB, and the image the sandbox runs the agent in is another 1.1 GB, pulled on the first run.
+- **An [OpenRouter API key](https://openrouter.ai/settings/keys).** To use another provider, see [LLM Providers](https://srtab.github.io/daiv/dev/getting-started/llm-providers/index.md).
+- **A GitLab project** on GitLab.com or a self-managed GitLab, where you are a Maintainer or Owner.
+- **A URL GitLab can reach DAIV at.** GitLab tells DAIV about new issues and comments with webhooks, so it must be able to open DAIV's port 8000:
+  - **Self-managed GitLab on your network:** the host's address, such as `http://192.168.1.10:8000`, is enough.
+  - **GitLab.com:** a public URL, such as a server with a domain behind a reverse proxy, or an HTTPS tunnel to port 8000 on your machine.
+
+## 1. Create a GitLab account for DAIV
+
+DAIV works as a GitLab user: it comments, pushes and opens merge requests as that user, and it ignores comments written by that user. Give DAIV its own account; if it uses your token, it ignores your comments, including the one that approves its plan.
+
+1. **Create a user for DAIV**, for example `daiv`. On GitLab.com, sign up a second account; on a self-managed GitLab, an admin creates it under **Admin → Users → New user**.
+1. **Add that user to your project** with the **Maintainer** role (**Manage → Members → Invite members**). DAIV only sets up webhooks on projects where its user is a Maintainer or Owner.
+1. **Sign in as that user and create a personal access token** with the `api` scope (avatar → **Edit profile** → **Access tokens**). Copy it; GitLab shows it once.
+
+Can't create a second account?
+
+Use a token from your own account, and label issues `daiv-auto` instead of `daiv` in step 6: DAIV then plans and implements without waiting for an approval comment. You won't be able to talk to DAIV in comments.
+
+## 2. Create the configuration
+
+Create a directory for DAIV, and in it a certificate authority for the sandbox's egress proxy. DAIV runs git inside the [sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md); the proxy is what lets those commands reach GitLab, adding the credentials so the token never enters the sandbox.
+
+```
+mkdir daiv && cd daiv
+mkdir certs
+openssl req -x509 -newkey rsa:4096 -nodes -days 3650 -subj "/CN=daiv-sandbox-egress" \
+  -addext "keyUsage=critical,keyCertSign,cRLSign" \
+  -keyout certs/egress-ca.key -out certs/egress-ca.crt
+chmod 644 certs/egress-ca.key
+```
+
+The sandbox service runs as UID 1001, so it needs read access to the key.
+
+Create the `.env` file. The command fills in the random secrets and the Docker socket's group for you:
+
+```
+cat > .env <<EOF
+DAIV_EXTERNAL_URL=http://192.168.1.10:8000
+CODEBASE_GITLAB_URL=https://gitlab.com
+CODEBASE_GITLAB_AUTH_TOKEN=glpat-replace-me
+OPENROUTER_API_KEY=sk-or-replace-me
+DJANGO_SECRET_KEY=$(openssl rand -hex 32)
+DB_PASSWORD=$(openssl rand -hex 16)
+CODEBASE_GITLAB_WEBHOOK_SECRET=$(openssl rand -hex 32)
+DAIV_SANDBOX_API_KEY=$(openssl rand -hex 32)
+DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)
+EOF
+chmod 600 .env
+```
+
+Then edit the first four lines:
+
+| Variable                     | Set it to                                                                                                                                                                |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `DAIV_EXTERNAL_URL`          | The URL GitLab can reach DAIV at, without a trailing slash (see [Before you start](#before-you-start))                                                                   |
+| `CODEBASE_GITLAB_URL`        | Your GitLab's URL, as DAIV's containers reach it                                                                                                                         |
+| `CODEBASE_GITLAB_AUTH_TOKEN` | The token of DAIV's GitLab user, from step 1                                                                                                                             |
+| `OPENROUTER_API_KEY`         | Your OpenRouter API key. DAIV copies it into its database on the first start; to change it later, edit the provider under **Configuration → Providers** in the dashboard |
+
+Create `docker-compose.yml` next to it:
+
+```
+x-daiv: &daiv
+  image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main}
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    DJANGO_SETTINGS_MODULE: daiv.settings.production
+    DJANGO_REDIS_URL: redis://redis:6379/0
+    DB_HOST: db
+    DB_NAME: daiv
+    DB_USER: daiv
+    DB_SSLMODE: prefer
+    CODEBASE_CLIENT: gitlab
+    EMAIL_BACKEND: django.core.mail.backends.console.EmailBackend # (1)!
+  volumes:
+    - media:/home/daiv/data/media
+  ulimits:
+    nofile:
+      soft: 65536
+      hard: 524288
+
+x-background: &background
+  <<: *daiv
+  healthcheck:
+    test: ["CMD-SHELL", "grep -q -e db_worker -e crontask /proc/*/cmdline 2>/dev/null"]
+    interval: 30s
+  depends_on:
+    app:
+      condition: service_healthy
+
+services:
+  db:
+    image: postgres:17.6
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: daiv
+      POSTGRES_USER: daiv
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U daiv -d daiv"]
+      interval: 10s
+      retries: 5
+
+  redis:
+    image: redis:8.6-alpine # (2)!
+    restart: unless-stopped
+    volumes:
+      - redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      retries: 5
+
+  app:
+    <<: *daiv
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    <<: *background
+    command: sh /home/daiv/start-worker # (3)!
+
+  scheduler:
+    <<: *background
+    command: sh /home/daiv/start-crontask # (4)!
+
+  sandbox:
+    image: ghcr.io/srtab/daiv-sandbox:latest
+    restart: unless-stopped
+    group_add:
+      - ${DOCKER_GID}
+    environment:
+      DAIV_SANDBOX_API_KEY: ${DAIV_SANDBOX_API_KEY}
+      DAIV_SANDBOX_EGRESS_CA_CERT_FILE: /home/app/certs/egress-ca.crt
+      DAIV_SANDBOX_EGRESS_CA_KEY_FILE: /home/app/certs/egress-ca.key
+      DAIV_SANDBOX_REDIS_URL: redis://redis:6379/1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock # (5)!
+      - ./certs:/home/app/certs:ro
+
+volumes:
+  db:
+  redis:
+  media:
+```
+
+1. Prints sign-in emails to the app's log instead of sending them, so you need no mail server. [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md) shows how to configure SMTP.
+1. DAIV needs Redis 8 or later: the agent's checkpoints use its search commands, which Redis 7 does not have.
+1. One worker that serves every queue. [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md) splits agent runs and short interactive tasks across two.
+1. Runs DAIV's periodic tasks, among them adding the webhook to your GitLab projects.
+1. The sandbox starts a container for each agent run through the Docker socket.
+
+## 3. Start DAIV
+
+```
+docker compose up -d --wait
+```
+
+The first start pulls about 1.2 GB of images and runs the database migrations; the command returns once every service is healthy, usually within three minutes. If it reports an unhealthy service, `docker compose logs app` shows why.
+
+## 4. Sign in
+
+Signing in is optional for the first merge request, but the dashboard is where you watch DAIV work. Create the first admin:
+
+```
+docker compose exec app django-admin bootstrap_admin you@example.com
+```
+
+Open <http://localhost:8000> on the DAIV host, enter that email address, and read the one-time code from the log:
+
+```
+docker compose logs app | grep -A2 "sign-in code"
+```
+
+Sign in over HTTPS or on localhost
+
+DAIV's session cookie, which also carries the CSRF token, is a secure cookie, so a browser keeps it only on `https://` URLs and on `localhost`. Over plain `http://` to any other address, sign-in fails with **CSRF verification failed**. If DAIV runs on another machine, forward the port with `ssh -L 8000:localhost:8000 <host>` and open <http://localhost:8000>, or put DAIV behind HTTPS.
+
+## 5. Connect your GitLab project
+
+DAIV adds a webhook to every project its user maintains within five minutes. To add it now:
+
+```
+docker compose exec app django-admin setup_webhooks
+```
+
+In your project, **Settings → Webhooks** now lists `<DAIV_EXTERNAL_URL>/api/codebase/callbacks/gitlab/`. **Test → Push events** should answer with HTTP 204.
+
+Self-managed GitLab and private addresses
+
+A self-managed GitLab refuses webhooks to private network addresses by default (`Url is blocked: Requests to the local network are not allowed`). An admin allows them under **Admin → Settings → Network → Outbound requests**.
+
+## 6. Get your first merge request
+
+1. **Create an issue** in the project, for example *Add a `hello_world()` function that returns "Hello, world!"*, and add the `daiv` label. If the project has no `daiv` label yet, create it from the label picker.
+1. **Wait for the plan.** DAIV reacts with 👀 within seconds and posts an implementation plan as a comment, usually within a minute.
+1. **Approve it** with a comment that mentions DAIV's user, for example `@daiv proceed`.
+1. **Wait for the merge request.** DAIV implements the plan and opens a merge request, usually within a few minutes. The first run takes longer while the sandbox pulls its image.
+
+See [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md) for what else you can do on an issue.
+
+## If something goes wrong
+
+| Symptom                                       | Likely cause                                                         | Fix                                                                                                                                                                      |
+| --------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Nothing happens after you add the label       | The webhook is missing, or GitLab can't reach `DAIV_EXTERNAL_URL`    | Run `setup_webhooks` (step 5) and check that DAIV's user is a Maintainer. Under **Settings → Webhooks → Edit → Recent events**, GitLab shows each delivery and its error |
+| DAIV ignores your comment                     | You commented as DAIV's own user, or didn't mention its username     | Comment from your own account and mention DAIV's user                                                                                                                    |
+| DAIV comments *An unexpected error occurred*  | The run failed                                                       | `docker compose logs worker sandbox` shows the error                                                                                                                     |
+| Sign-in fails with *Server Error (500)*       | DAIV couldn't send the sign-in email                                 | Keep `EMAIL_BACKEND` as above, or configure SMTP as in [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md)                                |
+| Sign-in fails with *CSRF verification failed* | You opened DAIV over plain HTTP on an address other than `localhost` | See [Sign in](#4-sign-in)                                                                                                                                                |
+
+To remove everything, including the database, run `docker compose down -v`, then delete the containers the sandbox started: `docker rm -f $(docker ps -aq --filter label=daiv.sandbox.type)`.
+
+## Next steps
+
+- **[Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md)** — a production install: Docker Swarm, a reverse proxy with HTTPS, email and single sign-on
+- **[Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/index.md)** — tune DAIV per repository with `.daiv.yml`
+- **[Pull Request Assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md)** — mention DAIV on a merge request to get a review or a fix
+
 # Deployment
 
 This guide walks you through deploying DAIV using Docker Swarm or Docker Compose. After completing this guide, you'll have a fully functional DAIV instance ready to connect to your codebase.
@@ -15,17 +253,16 @@ This guide walks you through deploying DAIV using Docker Swarm or Docker Compose
 
 **DAIV requires several core services to function properly**. You'll deploy these services using container orchestration:
 
-**Required services:**
-
 - **[PostgreSQL](https://www.postgresql.org/)** — stores application data
-- **[Redis](https://redis.io/)** — handles caching
-- **[DAIV Application](https://github.com/srtab/daiv)** — main API
+- **[Redis](https://redis.io/) 8 or later** — caching, sessions and the agent's checkpoints, which use the search commands Redis 7 lacks
+- **[DAIV Application](https://github.com/srtab/daiv)** — web dashboard and API
 - **[DAIV Worker](https://docs.djangoproject.com/en/6.0/topics/tasks/)** — background task processor
+- **[DAIV Scheduler](https://pypi.org/project/django-crontask/)** — periodic tasks, among them adding webhooks to your GitLab projects and syncing repository access
+- **[DAIV Sandbox](https://github.com/srtab/daiv-sandbox)** — isolated containers where the agent runs commands and git, through an egress proxy that holds the git credentials (see [Sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md))
 
-**Optional services:**
+Just trying DAIV?
 
-- **[DAIV Scheduler](https://pypi.org/project/django-crontask/)** — periodic task scheduler
-- **[DAIV Sandbox](https://github.com/srtab/daiv-sandbox)** — isolated environment for running commands (see [Sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md))
+The [Quickstart](https://srtab.github.io/daiv/dev/getting-started/quickstart/index.md) runs the smallest working setup on one machine and gets you to a first merge request in about 15 minutes.
 
 ______________________________________________________________________
 
@@ -54,11 +291,22 @@ ______________________________________________________________________
 - **`openrouter_api_key`** - [OpenRouter API key](https://openrouter.ai/settings/keys) for LLM access
 - **`allauth_client_id`** - OAuth client ID for the configured Git platform (see [Authentication](https://srtab.github.io/daiv/dev/reference/env-variables/#authentication))
 - **`allauth_client_secret`** - OAuth client secret for the configured Git platform
+- **`daiv_sandbox_egress_ca_cert`** and **`daiv_sandbox_egress_ca_key`** - the certificate authority the sandbox's egress proxy signs with, created below
 
 **Create each secret using this command** (see [Docker Secrets documentation](https://docs.docker.com/reference/cli/docker/secret/create/) for more details):
 
 ```
 docker secret create django_secret_key <secret_key>
+```
+
+**Create the egress CA and store it as two secrets.** DAIV runs git inside the sandbox, and the sandbox reaches your Git platform only through a per-session proxy that adds the credentials, so the token never enters the sandbox. The proxy needs this CA:
+
+```
+openssl req -x509 -newkey rsa:4096 -nodes -days 3650 -subj "/CN=daiv-sandbox-egress" \
+  -addext "keyUsage=critical,keyCertSign,cRLSign" \
+  -keyout egress-ca.key -out egress-ca.crt
+docker secret create daiv_sandbox_egress_ca_cert egress-ca.crt
+docker secret create daiv_sandbox_egress_ca_key egress-ca.key
 ```
 
 Additional Secrets May Be Required
@@ -91,11 +339,10 @@ then restart Docker (e.g. `systemctl restart docker`).
 x-app-environment-defaults: &app_environment_defaults
   # DJANGO
   DJANGO_SETTINGS_MODULE: daiv.settings.production
-  DJANGO_ALLOWED_HOSTS: your-hostname.com,app,127.0.0.1 (1)
+  DJANGO_ALLOWED_HOSTS: your-hostname.com,app,127.0.0.1 # (1)!
   DJANGO_REDIS_URL: redis://daiv_redis:6379/0
   DJANGO_REDIS_SESSION_URL: redis://daiv_redis:6379/1
-  DJANGO_REDIS_CHECKPOINT_URL: redis://daiv_redis:6379/2
-  DAIV_EXTERNAL_URL: https://your-hostname.com (2)
+  DAIV_EXTERNAL_URL: https://your-hostname.com # (2)!
   # DATABASE
   DB_NAME: daiv
   DB_USER: daiv_admin
@@ -103,13 +350,13 @@ x-app-environment-defaults: &app_environment_defaults
   DB_SSLMODE: prefer
   # CODEBASE
   CODEBASE_CLIENT: gitlab
-  CODEBASE_GITLAB_URL: https://gitlab.com (3)
+  CODEBASE_GITLAB_URL: https://gitlab.com # (3)!
   # EMAIL
   EMAIL_HOST: smtp.example.com
   EMAIL_PORT: 587
   EMAIL_USE_TLS: true
   # SANDBOX
-  DAIV_SANDBOX_URL: http://sandbox:8000 (4)
+  DAIV_SANDBOX_URL: http://sandbox:8000 # (4)!
 
 x-deploy-defaults: &deploy_defaults
   replicas: 1
@@ -153,7 +400,7 @@ services:
         window: 120s
 
   redis:
-    image: redis:7-alpine
+    image: redis:8.6-alpine # (12)!
     networks:
       - internal
     volumes:
@@ -166,7 +413,7 @@ services:
       <<: *deploy_defaults
 
   app:
-    image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main} (5)
+    image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main} # (5)!
     environment:
       <<: *app_environment_defaults
     secrets:
@@ -185,12 +432,12 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - media-volume:/home/daiv/data/media (11)
+      - media-volume:/home/daiv/data/media # (11)!
     deploy:
       <<: *deploy_defaults
 
   worker:
-    image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main} (5)
+    image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main} # (5)!
     command: sh /home/daiv/start-worker default
     environment:
       <<: *app_environment_defaults
@@ -205,7 +452,7 @@ services:
     networks:
       - internal
     volumes:
-      - media-volume:/home/daiv/data/media (11)
+      - media-volume:/home/daiv/data/media # (11)!
       # - ./custom-skills:/home/daiv/data/skills:ro  (10)
     healthcheck:
       test: grep -q 'db_worker' /proc/*/cmdline 2>/dev/null
@@ -215,10 +462,10 @@ services:
       start_period: 30s
     deploy:
       <<: *deploy_defaults
-      replicas: 1 (9)
+      replicas: 1 # (9)!
 
   worker-interactive:
-    image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main} (5)
+    image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main} # (5)!
     command: sh /home/daiv/start-worker interactive
     environment:
       <<: *app_environment_defaults
@@ -233,7 +480,7 @@ services:
     networks:
       - internal
     volumes:
-      - media-volume:/home/daiv/data/media (11)
+      - media-volume:/home/daiv/data/media # (11)!
     healthcheck:
       test: grep -q 'db_worker' /proc/*/cmdline 2>/dev/null
       interval: 30s
@@ -245,7 +492,7 @@ services:
       replicas: 1
 
   scheduler:
-    image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main} (5)
+    image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main} # (5)!
     command: sh /home/daiv/start-crontask
     environment:
       <<: *app_environment_defaults
@@ -268,16 +515,21 @@ services:
       <<: *deploy_defaults
 
   sandbox:
-    image: ghcr.io/srtab/daiv-sandbox:latest (5)
+    image: ghcr.io/srtab/daiv-sandbox:latest # (5)!
     environment:
-      DAIV_SANDBOX_KEEP_TEMPLATE: true (6)
+      DAIV_SANDBOX_KEEP_TEMPLATE: true # (6)!
+      DAIV_SANDBOX_EGRESS_CA_CERT_FILE: /run/secrets/daiv_sandbox_egress_ca_cert # (13)!
+      DAIV_SANDBOX_EGRESS_CA_KEY_FILE: /run/secrets/daiv_sandbox_egress_ca_key
+      DAIV_SANDBOX_REDIS_URL: redis://daiv_redis:6379/3
     networks:
       - internal
     secrets:
       - daiv_sandbox_api_key
+      - daiv_sandbox_egress_ca_cert
+      - daiv_sandbox_egress_ca_key
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock (7)
-      - $HOME/.docker/config.json:/home/app/.docker/config.json (8)
+      - /var/run/docker.sock:/var/run/docker.sock # (7)!
+      - $HOME/.docker/config.json:/home/app/.docker/config.json # (8)!
     deploy:
       <<: *deploy_defaults
 
@@ -314,10 +566,14 @@ secrets:
     external: true
   allauth_client_secret:
     external: true
+  daiv_sandbox_egress_ca_cert:
+    external: true
+  daiv_sandbox_egress_ca_key:
+    external: true
 ```
 
 1. Replace `your-hostname.com` with your domain name. Don't include the schema (e.g., use `daiv.com` not `https://daiv.com`). Keep `app` and `127.0.0.1` for internal service communication.
-1. Replace with your full domain URL including schema (e.g., `https://your-hostname.com`)
+1. Replace with your full domain URL including schema (e.g., `https://your-hostname.com`). Your GitLab sends webhooks to this URL, so it must be able to reach it
 1. Set to your GitLab instance URL (e.g., `https://gitlab.com` for GitLab.com)
 1. Points to the Sandbox service. Use `http://sandbox:8000` when deploying Sandbox in the same stack
 1. Continuous deploys track the `main` tag; keep the `${DAIV_IMAGE_TAG:-main}` form on every service so the Deploy workflow can roll back to a pinned per-commit tag (e.g. `DAIV_IMAGE_TAG=sha-XXXXXXX`)
@@ -327,6 +583,8 @@ secrets:
 1. **Scaling**: Increase `replicas` to handle more concurrent agent runs (e.g., `replicas: 3`). A worker runs one task to completion before claiming the next, so concurrency is the number of worker containers; each claims independently from the queues named in its command, and adding replicas scales DAIV's throughput with no architecture changes
 1. **Optional**: Uncomment to mount [custom global skills](https://srtab.github.io/daiv/dev/customization/agent-skills/#custom-global-skills) that are available across all repositories
 1. **Required**: The web and worker containers must share this directory. It holds the [artifacts](https://srtab.github.io/daiv/dev/features/sessions/#artifacts) (reports and other files) the agent publishes: `app` writes them for chat turns and serves them, and `worker` writes them for jobs and webhook runs. Any shared filesystem works; on a multi-node swarm use a network-backed volume driver
+1. **Redis 8 or later**: the agent's checkpoints use Redis search commands, which Redis 7 does not have, and they must stay on database `0`, the only one Redis can index
+1. **Required**: the egress CA you stored as secrets in [Step 1](#step-1-create-docker-secrets). The sandbox's egress proxy signs with it; without it, every agent run fails when the sandbox rejects the session
 
 Task queues
 
@@ -371,7 +629,21 @@ ______________________________________________________________________
 - [Docker installed](https://docs.docker.com/engine/install/) with [Compose](https://docs.docker.com/compose/install/)
 - Internet connection to pull container images
 
-### Step 1: Create `docker-compose.yml` file
+### Step 1: Create the sandbox egress CA
+
+**Create a certificate authority for the sandbox's egress proxy.** DAIV runs git inside the sandbox, and the sandbox reaches your Git platform only through a per-session proxy that adds the credentials, so the token never enters the sandbox. The proxy needs this CA. In the directory that will hold your `docker-compose.yml`, run:
+
+```
+mkdir certs
+openssl req -x509 -newkey rsa:4096 -nodes -days 3650 -subj "/CN=daiv-sandbox-egress" \
+  -addext "keyUsage=critical,keyCertSign,cRLSign" \
+  -keyout certs/egress-ca.key -out certs/egress-ca.crt
+chmod 644 certs/egress-ca.key
+```
+
+The sandbox service runs as UID 1001, so it needs read access to the key.
+
+### Step 2: Create `docker-compose.yml` file
 
 **Create your Docker Compose configuration**. This file defines all services and their configurations in a single place.
 
@@ -384,51 +656,49 @@ x-app-defaults: &x_app_default
   image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main}
   restart: unless-stopped
   volumes:
-    - media-volume:/home/daiv/data/media (19)
-  ulimits: # (18)!
+    - media-volume:/home/daiv/data/media # (1)!
+  ulimits: # (2)!
     nofile:
       soft: 65536
       hard: 524288
   environment:
     DJANGO_SETTINGS_MODULE: daiv.settings.production
-    DJANGO_SECRET_KEY: secret-key (1)
-    DJANGO_ALLOWED_HOSTS: your-hostname.com,app,127.0.0.1 (2)
+    DJANGO_SECRET_KEY: secret-key # (3)!
+    DJANGO_ALLOWED_HOSTS: your-hostname.com,app,127.0.0.1 # (4)!
     DJANGO_REDIS_URL: redis://redis:6379/0
     DJANGO_REDIS_SESSION_URL: redis://redis:6379/1
-    DJANGO_REDIS_CHECKPOINT_URL: redis://redis:6379/2
-    DAIV_EXTERNAL_URL: https://your-hostname.com (12)
+    DAIV_EXTERNAL_URL: https://your-hostname.com # (5)!
     # Database settings
     DB_HOST: db
     DB_NAME: daiv
     DB_USER: daiv
-    DB_PASSWORD: daivpass (3)
+    DB_PASSWORD: daivpass # (6)!
     DB_SSLMODE: prefer
     # Codebase settings
     CODEBASE_CLIENT: gitlab
-    CODEBASE_GITLAB_URL: https://gitlab.com (4)
-    CODEBASE_GITLAB_AUTH_TOKEN: gitlab-auth-token (5)
-    CODEBASE_GITLAB_WEBHOOK_SECRET: gitlab-webhook-secret (6)
+    CODEBASE_GITLAB_URL: https://gitlab.com # (7)!
+    CODEBASE_GITLAB_AUTH_TOKEN: gitlab-auth-token # (8)!
+    CODEBASE_GITLAB_WEBHOOK_SECRET: gitlab-webhook-secret # (9)!
     # LLM Providers settings
-    OPENROUTER_API_KEY: openrouter-api-key (8)
+    OPENROUTER_API_KEY: openrouter-api-key # (10)!
     # Email settings
-    EMAIL_HOST: smtp.example.com
+    EMAIL_HOST: smtp.example.com # (11)!
     EMAIL_PORT: 587
     EMAIL_USE_TLS: true
     # Sandbox settings
-    DAIV_SANDBOX_API_KEY: daiv-sandbox-api-key (9)
-    # Authentication (configure via UI at /dashboard/configuration/ or via env vars)
-    ALLAUTH_CLIENT_ID: oauth-client-id
-    ALLAUTH_CLIENT_SECRET: oauth-client-secret
+    DAIV_SANDBOX_API_KEY: daiv-sandbox-api-key # (12)!
+    # Optional: Git platform sign-in (OAuth), also configurable at /dashboard/configuration/
+    # ALLAUTH_CLIENT_ID: oauth-client-id
+    # ALLAUTH_CLIENT_SECRET: oauth-client-secret
 
 services:
   db:
     image: postgres:17.6
-    container_name: daiv-db
     restart: unless-stopped
     environment:
       POSTGRES_DB: daiv
       POSTGRES_USER: daiv
-      POSTGRES_PASSWORD: daivpass (10)
+      POSTGRES_PASSWORD: daivpass # (13)!
     volumes:
       - db-volume:/var/lib/postgresql/data
     healthcheck:
@@ -439,9 +709,8 @@ services:
       retries: 5
 
   redis:
-    image: redis:latest
+    image: redis:8.6-alpine # (14)!
     restart: unless-stopped
-    container_name: daiv-redis
     volumes:
       - redis-volume:/data
     healthcheck:
@@ -452,7 +721,6 @@ services:
 
   app:
     <<: *x_app_default
-    container_name: daiv-app
     ports:
       - "8000:8000"
     depends_on:
@@ -479,7 +747,7 @@ services:
       start_period: 30s
     ports: []
     deploy:
-      replicas: 1 (14)
+      replicas: 1 # (16)!
     depends_on:
       app:
         condition: service_healthy
@@ -504,7 +772,6 @@ services:
 
   scheduler:
     <<: *x_app_default
-    container_name: daiv-scheduler
     command: sh /home/daiv/start-crontask
     healthcheck:
       test: ["CMD-SHELL", "grep -q 'crontask' /proc/*/cmdline 2>/dev/null"]
@@ -521,13 +788,16 @@ services:
   sandbox:
     image: ghcr.io/srtab/daiv-sandbox:latest
     restart: unless-stopped
-    container_name: daiv-sandbox
     group_add:
-      - 987 (13)
+      - 987 # (17)!
     environment:
-      DAIV_SANDBOX_API_KEY: daiv-sandbox-api-key (11)
+      DAIV_SANDBOX_API_KEY: daiv-sandbox-api-key # (18)!
+      DAIV_SANDBOX_EGRESS_CA_CERT_FILE: /home/app/certs/egress-ca.crt
+      DAIV_SANDBOX_EGRESS_CA_KEY_FILE: /home/app/certs/egress-ca.key
+      DAIV_SANDBOX_REDIS_URL: redis://redis:6379/3
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./certs:/home/app/certs:ro # (19)!
 
 volumes:
   db-volume:
@@ -538,22 +808,25 @@ volumes:
     driver: local
 ```
 
-1. **[Generate a Django secret key](https://djecrety.ir/)** - Use a cryptographically secure random string
-1. **Replace with your domain name** - Don't include schema (e.g., `daiv.com`)
-1. **Generate a secure random password** for the database
+1. **Required**: every service built from this anchor shares this directory. It holds the [artifacts](https://srtab.github.io/daiv/dev/features/sessions/#artifacts) the agent publishes: `app` writes them for chat turns and serves them, and `worker` writes them for jobs and webhook runs
+1. **Raise the open-file limit**: each agent run holds many concurrent sockets (sandbox, LLM API, tracing, database, Redis, git-over-HTTPS). Docker's default soft limit of 1024 open files is too low and surfaces under load as `[Errno 24] Too many open files`. This raises `nofile` for every service built from this anchor
+1. **Generate a Django secret key**, a long random string such as the output of `openssl rand -hex 32`
+1. **Replace with your domain name**, without the scheme (e.g., `daiv.com`). Keep `app` and `127.0.0.1` for internal service communication
+1. **Include the full URL with scheme** (e.g., `https://your-hostname.com`). Your GitLab sends webhooks to this URL, so it must be able to reach it
+1. **Generate a secure random password** for the database, such as the output of `openssl rand -hex 16`
 1. **Set your GitLab instance URL** (e.g., `https://gitlab.com`)
-1. **Create a GitLab personal access token** with `api` scope permissions (see [Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/#gitlab-configuration))
-1. **Generate a random webhook secret** for GitLab webhook validation
-1. **Get an OpenRouter API key** for LLM model access
-1. **Generate a random API key** for Sandbox service authentication
-1. **Use the same password** as defined in annotation 3
-1. **Use the same API key** as defined in annotation 9
-1. **Include the full URL with schema** (e.g., `https://your-hostname.com`)
-1. **Add the docker group** to the sandbox container (`stat -c '%g' /var/run/docker.sock`)
-1. **Scaling**: Increase `replicas` to handle more concurrent agent runs (e.g., `replicas: 3`). A worker runs one task to completion before claiming the next, so concurrency is the number of worker containers; each claims independently from the queues named in its command, and adding replicas scales DAIV's throughput with no architecture changes
+1. **The personal access token of DAIV's own GitLab user**, with the `api` scope and the Maintainer role on your projects. Use a dedicated account: DAIV ignores comments written by the account its token belongs to (see [Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/#gitlab-configuration))
+1. **Generate a random webhook secret** for GitLab webhook validation, such as the output of `openssl rand -hex 32`
+1. **Get an OpenRouter API key** for LLM model access. DAIV copies it into its database on the first start; to change it later, edit the provider under **Configuration → Providers** in the dashboard (see [LLM Providers](https://srtab.github.io/daiv/dev/getting-started/llm-providers/index.md))
+1. **The SMTP server DAIV sends sign-in codes through.** Without one, replace the three `EMAIL_*` lines with `EMAIL_BACKEND: django.core.mail.backends.console.EmailBackend` and read the codes from `docker compose logs app`
+1. **Generate a random API key** for Sandbox service authentication, such as the output of `openssl rand -hex 32`
+1. **Use the same password** as defined in annotation 6
+1. **Redis 8 or later**: the agent's checkpoints use Redis search commands, which Redis 7 does not have, and they must stay on database `0`, the only one Redis can index
 1. **Optional**: Uncomment to mount [custom global skills](https://srtab.github.io/daiv/dev/customization/agent-skills/#custom-global-skills) that are available across all repositories. A service-level `volumes:` replaces the anchor's list instead of merging with it, so keep the `media-volume` line
-1. **Raise the open-file limit**: each agent run holds many concurrent sockets (sandbox, LLM API, tracing, database, Redis, git-over-HTTPS). Docker's default soft limit of 1024 open files is too low and surfaces under load as `[Errno 24] Too many open files`. This raises `nofile` for the `app`, `worker`, and `scheduler` services (which share this anchor)
-1. **Required**: Every service built from this anchor shares this directory. It holds the [artifacts](https://srtab.github.io/daiv/dev/features/sessions/#artifacts) the agent publishes: `app` writes them for chat turns and serves them, and `worker` writes them for jobs and webhook runs
+1. **Scaling**: Increase `replicas` to handle more concurrent agent runs (e.g., `replicas: 3`). A worker runs one task to completion before claiming the next, so concurrency is the number of worker containers; each claims independently from the queues named in its command, and adding replicas scales DAIV's throughput with no architecture changes
+1. **Replace `987` with the group of the Docker socket**, the output of `stat -c '%g' /var/run/docker.sock`. The sandbox starts a container for each agent run through it
+1. **Use the same API key** as defined in annotation 12
+1. **The egress CA** from [Step 1](#step-1-create-the-sandbox-egress-ca)
 
 Task queues
 
@@ -561,21 +834,27 @@ Background work is split in two: `default` carries agent runs, which hold a work
 
 MCP tools are configured from the dashboard at `/dashboard/mcp-servers/` — see [MCP Tools](https://srtab.github.io/daiv/dev/customization/mcp-tools/index.md).
 
-### Step 2: Run the compose file
+### Step 3: Run the compose file
 
 **Start all DAIV services** by running this command from the directory containing your `docker-compose.yml`:
 
 ```
-docker compose up -d
+docker compose up -d --wait
 ```
 
-**Check service status** to ensure everything is running correctly:
+The command returns once every service is healthy. If one isn't, `docker compose logs <service>` shows why.
+
+### Step 4: Create the first admin
+
+**Create an admin account** to sign in to the dashboard:
 
 ```
-docker compose ps
+docker compose exec app django-admin bootstrap_admin admin@example.com
 ```
 
-### Step 3: Next steps
+Sign in at `/accounts/login/` with a one-time code DAIV emails to that address. See [Accounts & Roles](https://srtab.github.io/daiv/dev/getting-started/accounts/index.md) for Git platform sign-in and for adding users.
+
+### Step 5: Next steps
 
 Your DAIV instance is running. Continue with the [Reverse Proxy](#reverse-proxy) configuration below, then proceed to [Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/index.md) to connect your first repository.
 
@@ -605,7 +884,7 @@ Contributions Welcome
 
 ```
 upstream daiv-instance {
-  server internal-ip:8000;  (1)
+  server internal-ip:8000; # (1)!
 }
 
 server {
@@ -614,13 +893,13 @@ server {
 
   http2               on;
 
-  server_name         your-hostname.com;  (2)
+  server_name         your-hostname.com; # (2)!
 
   # SSL Configuration.
   # You can use this https://ssl-config.mozilla.org/ to generate
   # the correct ssl configuration for your server.
-  ssl_certificate      /etc/pki/tls/certs/ssl.crt;  (3)
-  ssl_certificate_key  /etc/pki/tls/private/ssl.key;  (4)
+  ssl_certificate      /etc/pki/tls/certs/ssl.crt; # (3)!
+  ssl_certificate_key  /etc/pki/tls/private/ssl.key; # (4)!
 
   ssl_protocols TLSv1.3;
   ssl_ecdh_curve X25519:prime256v1:secp384r1;
@@ -665,6 +944,10 @@ systemctl restart nginx
 
 **Verify the configuration** by accessing your domain in a web browser. You should see the DAIV login page at `https://your-domain/accounts/login/`.
 
+Sign-in needs HTTPS
+
+DAIV's session cookie, which also carries the CSRF token, is a secure cookie, so a browser keeps it only on `https://` URLs and on `localhost`. Over plain `http://` to any other address, sign-in fails with **CSRF verification failed**.
+
 ______________________________________________________________________
 
 ## Next steps
@@ -678,10 +961,16 @@ Your DAIV instance is now running and accessible. Continue with:
 
 First Login & User Management
 
-On a fresh install with OAuth enabled, the first user to sign in via a social provider (GitHub or GitLab) is automatically assigned the **admin** role. Alternatively, you can bootstrap the initial admin via the management command:
+On a fresh install with OAuth enabled, the first user to sign in via a social provider (GitHub or GitLab) is automatically assigned the **admin** role. Alternatively, you can bootstrap the initial admin via the management command, from the directory of your `docker-compose.yml`:
 
 ```
-docker exec -it daiv-app python manage.py bootstrap_admin admin@example.com
+docker compose exec app django-admin bootstrap_admin admin@example.com
+```
+
+On Docker Swarm, run it in the app's container:
+
+```
+docker exec -it $(docker ps -q -f name=daiv_app | head -n 1) django-admin bootstrap_admin admin@example.com
 ```
 
 This creates an admin user who can sign in using login-by-code (a one-time code sent by email) — useful when OAuth is not yet configured.
@@ -709,15 +998,20 @@ Before configuring a GitLab repository, ensure you have:
 
 - **DAIV installed and running** - Follow the [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md) guide first
 - **GitLab repository access** - Admin or maintainer permissions on the repository you want to connect
-- **GitLab personal access token** - With `api` scope permissions
+- **A GitLab account for DAIV** - A separate user that DAIV acts as, created in Step 1
 
-### Step 1: Create GitLab Personal Access Token
+### Step 1: Create a GitLab User and Token for DAIV
 
-DAIV needs a GitLab personal access token to interact with your repositories.
+DAIV works as a GitLab user: it comments, pushes and opens merge requests as the user its token belongs to, and it ignores comments written by that user. Give DAIV its own account. With a token from your own account, DAIV ignores your comments, including the one that approves its plan.
 
-1. **Navigate to GitLab Settings**:
+1. **Create the user**:
 
-   - Go to your GitLab instance (e.g., `https://gitlab.com`)
+   - Create a GitLab user for DAIV, for example `daiv`. Its username is how you mention DAIV (`@daiv`). On GitLab.com, sign up a separate account; on a self-managed instance, an admin creates it under **Admin → Users → New user**
+   - Add it to each project DAIV should work on with the **Maintainer** role. DAIV only sets up webhooks on projects where its user is a Maintainer or Owner
+
+1. **Navigate to the user's settings**:
+
+   - Sign in to your GitLab instance (e.g., `https://gitlab.com`) as the DAIV user
    - Click your avatar → **Edit profile** → **Access Tokens**
 
 1. **Create New Token**:
@@ -776,7 +1070,14 @@ openssl rand -hex 32
 
 DAIV uses webhooks to receive real-time notifications from GitLab about repository events.
 
-DAIV automatically creates webhooks on all accessible repositories via a background task that runs every 5 minutes. No manual setup is required — once DAIV is running with valid GitLab credentials, webhooks are created automatically for new repositories. To update existing webhooks, run `django-admin setup_webhooks --update`.
+DAIV's scheduler adds a webhook to every repository its user maintains, every 5 minutes. No manual setup is required — once DAIV is running with valid GitLab credentials, webhooks are created automatically for new repositories. To add them right away, or to update existing ones after changing `DAIV_EXTERNAL_URL` or the webhook secret, run the command in the app container:
+
+```
+docker compose exec app django-admin setup_webhooks           # add missing webhooks now
+docker compose exec app django-admin setup_webhooks --update  # also update existing ones
+```
+
+GitLab sends each event to `DAIV_EXTERNAL_URL`, so that URL must be reachable from your GitLab. A self-managed GitLab refuses webhooks to private network addresses by default (`Url is blocked: Requests to the local network are not allowed`); an admin allows them under **Admin → Settings → Network → Outbound requests**.
 
 Verifying webhook setup
 
@@ -804,12 +1105,17 @@ Verify that DAIV is properly connected to your repository.
 
    - Go to your GitLab repository
    - Create a new issue with title: "Add hello world function"
-   - Add the `daiv` label to the issue
+   - Add the `daiv` label to the issue. If the project has no `daiv` label yet, create it from the label picker
 
 1. **Wait for DAIV Response**:
 
-   - DAIV should automatically comment with a plan to address the issue
+   - DAIV reacts with 👀 within seconds, then comments with a plan to address the issue
    - Check the issue comments for DAIV's response
+
+1. **Approve the Plan**:
+
+   - From your own account, comment on the issue mentioning DAIV's user, for example `@daiv proceed`
+   - DAIV implements the plan and opens a merge request
 
 Tip
 
@@ -822,12 +1128,23 @@ For more on how issue addressing works, see [Issue Addressing](https://srtab.git
 - Verify the webhook URL is accessible from GitLab
 - Check SSL certificate validity
 - Review firewall settings
+- On a self-managed GitLab, allow requests to the local network if DAIV has a private address (see [Step 3](#step-3-repository-webhooks))
 
 **Issues not being processed**:
 
 - Ensure the `daiv` label is added to issues
+- Check that the project has a webhook: DAIV's user must be a Maintainer or Owner of it
 - Verify `issue_addressing.enabled: true` in `.daiv.yml` (enabled by default)
 - Check DAIV logs for errors
+
+**DAIV ignores your comments**:
+
+- Comment from an account other than DAIV's own: DAIV ignores what its own user writes
+- Mention DAIV's username, for example `@daiv`
+
+**DAIV comments "An unexpected error occurred"**:
+
+- The run failed. The worker and sandbox logs show why, for example `docker compose logs worker sandbox`
 
 **No response to merge request comments**:
 
@@ -1181,10 +1498,10 @@ On a fresh install with OAuth enabled, the **first user to sign in via a social 
 When OAuth is not yet configured, create the initial admin from a shell:
 
 ```
-docker exec -it daiv-app python manage.py bootstrap_admin admin@example.com
+docker compose exec app django-admin bootstrap_admin admin@example.com
 ```
 
-The `bootstrap_admin` command creates an admin user and prints how to sign in. It is a one-shot bootstrap: it refuses to run if an admin already exists, and refuses if a user with that email already exists (promote that user via the dashboard instead). The new admin signs in via login-by-code (the one-time email code).
+The `bootstrap_admin` command creates an admin user and prints how to sign in. It is a one-shot bootstrap: it refuses to run if an admin already exists, and refuses if a user with that email already exists (promote that user via the dashboard instead). The new admin signs in via login-by-code (the one-time email code). Without an SMTP server, set `EMAIL_BACKEND` to `django.core.mail.backends.console.EmailBackend` and read the code from the app's log (`docker compose logs app`).
 
 Info
 
@@ -1281,7 +1598,7 @@ Models use a **prefix system** to identify the provider:
 | `gpt-4`, `gpt-5`, `gpt-6`, `o4` | OpenAI (direct)        | `gpt-6.1-sol`                            |
 | `gemini`                        | Google Gemini (direct) | `gemini-3.8-flash`                       |
 
-DAIV resolves the provider automatically from the model name. No extra configuration is needed beyond setting the API key for the provider you want to use.
+DAIV resolves the provider automatically from the model name. No extra configuration is needed beyond setting the API key for the provider you want to use, before DAIV's first start: DAIV copies the keys into its database then, and from there on you change them under **Configuration → Providers** in the dashboard, not in the environment (see [Provider keys are seed-only](https://srtab.github.io/daiv/dev/reference/env-variables/#automation-llm-providers)).
 
 Tip
 
@@ -1868,7 +2185,7 @@ Pipeline watch needs a CI event to react to, and enabling that event is a differ
 GitLab webhooks are per repository, and `setup_webhooks` only creates hooks that do not exist yet; it skips repositories already onboarded. Adding `pipeline_events` to those existing hooks requires:
 
 ```
-python manage.py setup_webhooks --update
+django-admin setup_webhooks --update
 ```
 
 Repositories onboarded after the upgrade get `pipeline_events` automatically.
@@ -2289,7 +2606,7 @@ The Jobs API uses **API key authentication** via Bearer tokens — the same mech
 ### Creating an API key
 
 ```
-python manage.py create_api_key <username> --name "my-key"
+django-admin create_api_key <username> --name "my-key"
 ```
 
 This outputs a key in the format `prefix.secret`. Store it securely — it cannot be retrieved later.
@@ -3339,7 +3656,7 @@ If you already have DAIV connected to repositories, existing webhooks need to be
 **GitLab** — Run the setup command with the `--update` flag:
 
 ```
-uv run manage.py setup_webhooks --update
+django-admin setup_webhooks --update
 ```
 
 The periodic webhook setup cron task does **not** pass `--update` by default, so this one-time manual step is needed after deploying the update.
@@ -3934,7 +4251,7 @@ The Scrip is fire-and-forget: it submits the job with a 5-second socket timeout 
 - A DAIV API key for a dedicated service user:
 
 ```
-python manage.py create_api_key rt-triage --name rt-scrip
+django-admin create_api_key rt-triage --name rt-scrip
 ```
 
 Store the emitted `prefix.secret` string; it cannot be retrieved later.
@@ -3994,7 +4311,7 @@ daiv-triage: submitted job <uuid> (batch <uuid>) for ticket <id> (queue=... repo
 | No log line at all after ticket create                         | Scrip not attached to the queue, or condition/stage is wrong                           | Re-check the Scrip's **Applies To** list and confirm Condition=`On Create`, Stage=`TransactionCreate`                                                                    |
 | `DAIV_URL or DAIV_API_KEY not set` in `rt.log`                 | `RT_SiteConfig.pm` not reloaded                                                        | `apache2ctl graceful`                                                                                                                                                    |
 | `queue '<name>' in Applies-To but missing from QUEUE_REPO_MAP` | "Applies To" and the inline map drifted apart                                          | Add the queue to `%QUEUE_REPO_MAP` with its repo, or remove it from "Applies To"                                                                                         |
-| `failed to submit job … 401`                                   | Wrong or expired DAIV API key                                                          | Rotate via `python manage.py create_api_key` and update `RT_SiteConfig.pm`                                                                                               |
+| `failed to submit job … 401`                                   | Wrong or expired DAIV API key                                                          | Rotate via `django-admin create_api_key` and update `RT_SiteConfig.pm`                                                                                                   |
 | `rate-limited for ticket … 429` (warning)                      | Jobs API rate limit exceeded (default 20/hour per user)                                | Raise the jobs throttle rate in Site Configuration (`jobs_throttle_rate`), or use a separate API-key user per queue. Logged at `warning` — safe to alert on `error` only |
 | `failed to submit job … <non-2xx, non-429>`                    | DAIV returned 4xx/5xx other than rate-limit                                            | Check the DAIV sessions list and access log; the status line + body are captured                                                                                         |
 | `exception in triage scrip: daiv-triage timeout`               | The 10-second hard ceiling tripped — usually DNS resolution or a stalled TLS handshake | Check DNS/network from the RT host to `$DAIV_URL`; confirm cert chain if using HTTPS                                                                                     |
@@ -4623,7 +4940,7 @@ The `DJANGO_ALLOWED_HOSTS` variable is used to specify the hosts that are allowe
 | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | ---------------------- |
 | `DJANGO_REDIS_URL`                    | Redis connection URL for cache (DB 0)                                                                                                                                                                                                                                        | *(none)*                    | `redis://redis:6379/0` |
 | `DJANGO_REDIS_SESSION_URL`            | Redis connection URL for sessions (DB 1)                                                                                                                                                                                                                                     | Value of `DJANGO_REDIS_URL` | `redis://redis:6379/1` |
-| `DJANGO_REDIS_CHECKPOINT_URL`         | Redis connection URL for LangGraph checkpoints (DB 2)                                                                                                                                                                                                                        | Value of `DJANGO_REDIS_URL` | `redis://redis:6379/2` |
+| `DJANGO_REDIS_CHECKPOINT_URL`         | Redis connection URL for LangGraph checkpoints. Needs Redis 8 or later and database `0`, the only one Redis search can index                                                                                                                                                 | Value of `DJANGO_REDIS_URL` | `redis://redis:6379/0` |
 | `DJANGO_REDIS_CHECKPOINT_TTL_MINUTES` | TTL in minutes for LangGraph checkpoint data, the agent's working copy; an expired session resumes from its database archive. Each write expires on its own, so the agent no longer sees the oldest messages of a thread active for longer than this; the archive keeps them | `10080` (7 days)            | `1440`                 |
 
 ### Sentry
@@ -4682,7 +4999,7 @@ Both policy settings take a JSON array; a plain string such as `curl wget` (or a
 
 ### Authentication
 
-DAIV uses [django-allauth](https://docs.allauth.org/) for web authentication. Users are created by admins and sign in via social providers (GitHub, GitLab) or passwordless login-by-code. Social signup is restricted to pre-existing accounts — users must be created by an admin first via the user management interface at `/accounts/users/`. On a fresh install, the first social login bootstraps the initial admin account, or you can use `python manage.py bootstrap_admin <email>` to create one via login-by-code (see [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md)).
+DAIV uses [django-allauth](https://docs.allauth.org/) for web authentication. Users are created by admins and sign in via social providers (GitHub, GitLab) or passwordless login-by-code. Social signup is restricted to pre-existing accounts — users must be created by an admin first via the user management interface at `/accounts/users/`. On a fresh install, the first social login bootstraps the initial admin account, or you can use `django-admin bootstrap_admin <email>` to create one via login-by-code (see [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md)).
 
 OAuth credentials can be configured via environment variables (shown below) or through the **Configuration** page at `/dashboard/configuration/` under the **Authentication** section. The UI also provides an **enable OAuth login** toggle to turn social login on or off without removing credentials.
 
@@ -5505,7 +5822,7 @@ DAIV includes a management command to create a pre-configured LangSmith custom d
 ### Setup
 
 ```
-python manage.py setup_langsmith_dashboard --project <project-name>
+django-admin setup_langsmith_dashboard --project <project-name>
 ```
 
 The command creates a single dashboard named **DAIV Monitoring** with 27 charts organized into 8 groups:
@@ -5533,7 +5850,7 @@ The command creates a single dashboard named **DAIV Monitoring** with 27 charts 
 To update the dashboard after upgrading DAIV (which may add new charts):
 
 ```
-python manage.py setup_langsmith_dashboard --recreate
+django-admin setup_langsmith_dashboard --recreate
 ```
 
 ### Dashboard tips
@@ -5595,7 +5912,7 @@ ______________________________________________________________________
 DAIV keeps a copy of each session's conversation in its database, written when each run ends, so transcripts outlive the checkpointer TTL and LangSmith's retention. Export them for offline analysis:
 
 ```
-python manage.py export_session_archives ./session-exports --since 2026-10-01 --repo group/project
+django-admin export_session_archives ./session-exports --since 2026-10-01 --repo group/project
 ```
 
 Each archived session becomes `<thread_id>.json`. It holds the session's repository, origin and title, every context in order (a `/clear` closes one and starts the next; `closed_at` says when) with its messages in LangChain's `messages_to_dict` format, and its runs' status, model, tokens and cost. The archive holds the session's messages, not each model request: system prompts, tool schemas, summaries and subagent internals stay in LangSmith. A session that fails to export is logged and named, and the command exits with an error once the rest are written.

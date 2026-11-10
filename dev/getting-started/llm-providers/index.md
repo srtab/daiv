@@ -20,7 +20,7 @@ Models use a **prefix system** to identify the provider:
 | `gpt-4`, `gpt-5`, `gpt-6`, `o4` | OpenAI (direct)        | `gpt-6.1-sol`                            |
 | `gemini`                        | Google Gemini (direct) | `gemini-3.8-flash`                       |
 
-DAIV resolves the provider automatically from the model name. No extra configuration is needed beyond setting the API key for the provider you want to use.
+DAIV resolves the provider automatically from the model name. No extra configuration is needed beyond setting the API key for the provider you want to use, before DAIV's first start: DAIV copies the keys into its database then, and from there on you change them under **Configuration → Providers** in the dashboard, not in the environment (see [Provider keys are seed-only](https://srtab.github.io/daiv/dev/reference/env-variables/#automation-llm-providers)).
 
 Tip
 

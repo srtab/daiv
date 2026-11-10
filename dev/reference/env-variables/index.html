@@ -358,6 +358,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../getting-started/deployment/" class="md-nav__link">
         
   
@@ -2521,9 +2549,9 @@
 </tr>
 <tr>
 <td><code>DJANGO_REDIS_CHECKPOINT_URL</code>  <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
-<td>Redis connection URL for LangGraph checkpoints (DB 2)</td>
+<td>Redis connection URL for LangGraph checkpoints. Needs Redis 8 or later and database <code>0</code>, the only one Redis search can index</td>
 <td style="text-align: center;">Value of <code>DJANGO_REDIS_URL</code></td>
-<td><code>redis://redis:6379/2</code></td>
+<td><code>redis://redis:6379/0</code></td>
 </tr>
 <tr>
 <td><code>DJANGO_REDIS_CHECKPOINT_TTL_MINUTES</code></td>
@@ -2710,7 +2738,7 @@
 <p>Both policy settings take a JSON array; a plain string such as <code>curl wget</code> (or an empty value) fails to parse and DAIV will not start. The outer single quotes in the examples are YAML or shell quoting, not part of the value. For how entries are matched and which rules are built in, see <a href="../../features/sandbox/#global-rules">Sandbox</a>.</p>
 </div>
 <h3 id="authentication">Authentication</h3>
-<p>DAIV uses <a href="https://docs.allauth.org/">django-allauth</a> for web authentication. Users are created by admins and sign in via social providers (GitHub, GitLab) or passwordless login-by-code. Social signup is restricted to pre-existing accounts — users must be created by an admin first via the user management interface at <code>/accounts/users/</code>. On a fresh install, the first social login bootstraps the initial admin account, or you can use <code>python manage.py bootstrap_admin &lt;email&gt;</code> to create one via login-by-code (see <a href="../../getting-started/deployment/">Deployment</a>).</p>
+<p>DAIV uses <a href="https://docs.allauth.org/">django-allauth</a> for web authentication. Users are created by admins and sign in via social providers (GitHub, GitLab) or passwordless login-by-code. Social signup is restricted to pre-existing accounts — users must be created by an admin first via the user management interface at <code>/accounts/users/</code>. On a fresh install, the first social login bootstraps the initial admin account, or you can use <code>django-admin bootstrap_admin &lt;email&gt;</code> to create one via login-by-code (see <a href="../../getting-started/deployment/">Deployment</a>).</p>
 <p>OAuth credentials can be configured via environment variables (shown below) or through the <strong>Configuration</strong> page at <code>/dashboard/configuration/</code> under the <strong>Authentication</strong> section. The UI also provides an <strong>enable OAuth login</strong> toggle to turn social login on or off without removing credentials.</p>
 <table>
 <thead>
@@ -3619,7 +3647,7 @@ server-side JSON format setting and endpoint contract.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 10, 2026 09:54:22 UTC">November 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 10, 2026 17:23:40 UTC">November 10, 2026</span>
   </span>
 
     
