@@ -267,7 +267,7 @@ class SessionJobDelegator:
 
         ordered = [outcomes[index] for index in sorted(outcomes)]
         return DelegationResult(
-            batch_id=str(batch_id),
+            batch_id=str(batch_id) if posted or repos else None,
             started=[outcome for outcome in ordered if isinstance(outcome, StartedLeg)],
             failed=[outcome for outcome in ordered if isinstance(outcome, FailedLeg)],
         )

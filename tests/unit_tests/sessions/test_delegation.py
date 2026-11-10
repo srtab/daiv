@@ -1086,9 +1086,10 @@ class TestLegFollowUpRefusals:
         _, run, leg = await _coordinated(admin_user)
 
         with patch("sessions.delegation.LegFollowUps.apost", new=AsyncMock(side_effect=LegFollowUpRefused(reason))):
-            [failed] = (await _delegate(run, [_follow_up(leg)])).failed
+            result = await _delegate(run, [_follow_up(leg)])
 
-        assert failed.error.startswith(text)
+        assert result.batch_id is None
+        assert result.failed[0].error.startswith(text)
 
 
 @pytest.mark.django_db(transaction=True)
