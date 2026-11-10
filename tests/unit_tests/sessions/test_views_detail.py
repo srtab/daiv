@@ -1362,7 +1362,10 @@ def test_detail_overview_lists_the_sessions_external_references_last(member_clie
     assert [card["key"] for card in resp.context["header"]["references"]] == ["PROJ-12"]
     assert 'id="session-details-references" x-show="references.length"' in details
     assert refs.select_one(".details-fold__summary")["x-text"] == "references.length"
-    card = refs.select_one("a.ref-card")
+    # soupsieve 4 no longer descends into <template> from an ancestor; the ref-card
+    # lives inside the Alpine <template x-for>, so query the template element directly
+    # (select still reaches a template's contents when called on the template itself).
+    card = refs.select_one("template").select_one("a.ref-card")
     assert card[":href"] == "ref.url || null"
     assert card["target"] == "_blank" and card["rel"] == ["noopener", "noreferrer"]
 
