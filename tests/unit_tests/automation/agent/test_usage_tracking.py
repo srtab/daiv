@@ -456,14 +456,14 @@ class TestReportedCost:
 
     def test_a_model_genai_prices_does_not_know_is_priced_from_its_report(self):
         handler = CostAwareUsageMetadataCallbackHandler()
-        handler.on_llm_end(self._reported("deepseek/deepseek-v4-pro-0813", 0.05))
+        handler.on_llm_end(self._reported("acme/no-such-model", 0.05))
 
         assert build_usage_summary(handler).cost_usd == "0.05"
 
     @pytest.mark.parametrize("cost", [float("nan"), float("inf"), -0.05])
     def test_a_stamped_cost_that_is_not_a_usd_amount_is_ignored(self, cost):
         handler = CostAwareUsageMetadataCallbackHandler()
-        handler.on_llm_end(self._reported("deepseek/deepseek-v4-pro-0813", cost))
+        handler.on_llm_end(self._reported("acme/no-such-model", cost))
 
         assert build_usage_summary(handler).cost_usd is None
 

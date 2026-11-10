@@ -444,3 +444,75 @@ class TestTelegramForm:
         group = SiteConfiguration.get_group_by_key("telegram")
         form = SiteConfigurationForm(instance=SiteConfiguration.objects.get_instance(), group=group)
         assert set(form.fields) == {"telegram_enabled", "telegram_bot_token"}
+
+
+@pytest.mark.django_db
+class TestSearXNGForm:
+    def form(self, data, **kwargs):
+        return SiteConfigurationForm(
+            data=data,
+            instance=SiteConfiguration.objects.get_instance(),
+            group=SiteConfiguration.get_group_by_key("web_search"),
+            **kwargs,
+        )
+
+    @pytest.mark.parametrize("host", ["searxng", "my_searxng"])
+    def test_saves_complete_internal_endpoint_without_an_api_key(self, host):
+        endpoint = f"http://{host}:8080/prefix/search"
+        form = self.form({
+            "web_search_engine": "searxng",
+            "web_search_searxng_url": endpoint,
+            "web_search_searxng_timeout_seconds": "25",
+        })
+        assert form.is_valid(), form.errors
+        saved = form.save()
+        saved.refresh_from_db()
+        assert saved.web_search_engine == "searxng"
+        assert saved.web_search_searxng_url == endpoint
+        assert saved.web_search_searxng_timeout_seconds == 25
+        assert saved.web_search_api_key is None
+
+    def test_requires_endpoint_when_searxng_is_selected(self):
+        form = self.form({"web_search_engine": "searxng"})
+        assert not form.is_valid()
+        assert "web_search_searxng_url" in form.errors
+
+    @pytest.mark.parametrize("engine", ["duckduckgo", "tavily"])
+    def test_other_engines_do_not_require_a_searxng_endpoint(self, engine):
+        form = self.form({"web_search_engine": engine, "web_search_api_key": "test-key"})
+        assert form.is_valid(), form.errors
+
+    @pytest.mark.parametrize("url", ["file:///search", "https://user:secret@search.example.com/search"])
+    def test_rejects_invalid_endpoint(self, url):
+        form = self.form({"web_search_engine": "searxng", "web_search_searxng_url": url})
+        assert not form.is_valid()
+        assert "web_search_searxng_url" in form.errors
+
+    def test_environment_locked_endpoint_is_used_instead_of_submitted_value(self, monkeypatch):
+        monkeypatch.setenv("DAIV_WEB_SEARCH_SEARXNG_URL", "http://searxng:8080/prefix/search")
+        form = self.form(
+            {"web_search_engine": "searxng", "web_search_searxng_url": "https://ignored.example.com/search"},
+            env_locked_fields={"web_search_searxng_url"},
+        )
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["web_search_searxng_url"] == "http://searxng:8080/prefix/search"
+        assert form["web_search_searxng_url"].field.disabled
+
+
+@pytest.mark.django_db
+class TestSiteConfigurationNumericWidgets:
+    def test_model_validator_bounds_reach_the_numeric_widgets(self):
+        form = SiteConfigurationForm(instance=SiteConfiguration.objects.get_instance())
+        timeout = form.fields["web_search_searxng_timeout_seconds"].widget
+        assert timeout.attrs["min"] == 1
+        assert timeout.attrs["max"] == 120
+        assert form.fields["agent_recursion_limit"].widget.attrs["min"] == 1
+
+    def test_stricter_widget_bounds_and_unrelated_attributes_are_preserved(self, monkeypatch):
+        field = SiteConfigurationForm.base_fields["web_search_searxng_timeout_seconds"]
+        monkeypatch.setattr(field.widget, "attrs", {"min": "2", "max": "60", "data-bound": "custom"})
+        form = SiteConfigurationForm(instance=SiteConfiguration.objects.get_instance())
+        attrs = form.fields["web_search_searxng_timeout_seconds"].widget.attrs
+        assert attrs["min"] == "2"
+        assert attrs["max"] == "60"
+        assert attrs["data-bound"] == "custom"

@@ -106,6 +106,8 @@ def _build_field_defaults() -> dict[str, Any]:
         "web_search_enabled": True,
         "web_search_max_results": 5,
         "web_search_engine": WebSearchEngineChoices.DUCKDUCKGO,
+        "web_search_searxng_url": None,
+        "web_search_searxng_timeout_seconds": 15,
         # Web Fetch
         "web_fetch_enabled": True,
         "web_fetch_model_name": ModelName.CLAUDE_HAIKU_5_5,
@@ -185,6 +187,8 @@ class SiteSnapshot:
     web_search_enabled: bool
     web_search_max_results: int
     web_search_engine: str
+    web_search_searxng_url: str | None
+    web_search_searxng_timeout_seconds: int
     web_fetch_enabled: bool
     web_fetch_model_name: str
     web_fetch_cache_ttl_seconds: int

@@ -6,13 +6,13 @@
     {# Before first paint, or a collapsed sidebar flashes open; core/js/sidebar.js owns it from here. #}
     <script>try { if (localStorage.getItem("daiv.sidebar") === "rail") document.documentElement.dataset.sidebar = "rail"; } catch (e) {}</script>
     <title>{% block title %}DAIV{% endblock %}</title>
-    {% block meta_description %}<meta name="description" content="DAIV is an open-source async SWE agent that integrates natively with GitLab and GitHub. Create an issue, get a merge request.">{% endblock %}
+    {% block meta_description %}<meta name="description" content="DAIV: open-source, self-hosted SWE agents for GitLab &amp; GitHub. Turn issues into merge requests, answer review comments, and fix failing CI on your infrastructure.">{% endblock %}
     {% block meta_robots %}{% endblock %}
     {% block canonical %}{% endblock %}
     {% block open_graph %}
     <meta property="og:type" content="website">
-    <meta property="og:title" content="DAIV — Open-source async SWE agent for your Git platform">
-    <meta property="og:description" content="DAIV integrates directly with GitLab and GitHub through webhooks. Create an issue, get a merge request. No context switching, no separate tools.">
+    <meta property="og:title" content="DAIV — Open-source, self-hosted SWE agents for GitLab &amp; GitHub">
+    <meta property="og:description" content="Issues in. Merge requests out. On your infrastructure. DAIV turns issues into merge requests, answers review comments, and fixes failing CI, in a sandbox you control with the LLM provider you choose.">
     <meta property="og:site_name" content="DAIV">
     {% endblock open_graph %}
     <meta name="twitter:card" content="summary">

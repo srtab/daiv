@@ -24,6 +24,12 @@ class TestDefaults:
         with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(web_search_enabled=None)):
             assert ss.web_search_enabled is True
 
+    def test_searxng_is_opt_in_with_a_bounded_default_timeout(self, ss):
+        with patch.object(SiteConfiguration, "get_cached", return_value=SiteConfiguration()):
+            assert ss.web_search_engine == "duckduckgo"
+            assert ss.web_search_searxng_url is None
+            assert ss.web_search_searxng_timeout_seconds == 15
+
     def test_returns_default_for_string(self, ss):
         with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(web_search_engine=None)):
             assert ss.web_search_engine == "duckduckgo"
@@ -275,6 +281,23 @@ def _value_from(source: str, name: str, default):
 
 
 class TestSnapshot:
+    def test_searxng_environment_overrides_database_in_snapshot(self, ss, monkeypatch):
+        monkeypatch.setenv("DAIV_WEB_SEARCH_ENGINE", "searxng")
+        monkeypatch.setenv("DAIV_WEB_SEARCH_SEARXNG_URL", "http://searxng:8080/prefix/search")
+        monkeypatch.setenv("DAIV_WEB_SEARCH_SEARXNG_TIMEOUT_SECONDS", "25")
+        config = SiteConfiguration(
+            web_search_engine="duckduckgo",
+            web_search_searxng_url="https://old.example.com/search",
+            web_search_searxng_timeout_seconds=10,
+        )
+        with patch.object(SiteConfiguration, "get_cached", return_value=config):
+            snapshot = ss.snapshot()
+        assert snapshot.web_search_engine == "searxng"
+        assert snapshot.web_search_searxng_url == "http://searxng:8080/prefix/search"
+        assert snapshot.web_search_searxng_timeout_seconds == 25
+        assert ss.is_env_locked("web_search_searxng_url")
+        assert ss.is_env_locked("web_search_searxng_timeout_seconds")
+
     @pytest.mark.parametrize("source", ["default", "database", "environment"])
     def test_agrees_with_attribute_access_from_one_configuration_read(self, ss, monkeypatch, source):
         db_values = {}
