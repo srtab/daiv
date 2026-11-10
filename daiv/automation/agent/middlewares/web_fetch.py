@@ -14,7 +14,6 @@ from django.core.cache import cache
 import markdownify
 from bs4 import BeautifulSoup, Tag
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
-from langchain.agents.middleware.internal_call_transformer import internal_call_metadata
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 
@@ -474,7 +473,7 @@ async def _web_fetch(url: str, prompt: str) -> tuple[str, str]:
         HumanMessage(content=f"URL: {url}\n\n<PageContent>\n{content}\n</PageContent>\n\nPrompt:\n{prompt}"),
     ]
     try:
-        response = await model.ainvoke(messages, config={"metadata": internal_call_metadata()})
+        response = await model.ainvoke(messages)
         response_text = str(response.text)
         if not response_text.strip():
             logger.warning("web_fetch model returned no answer text; returning content instead.")

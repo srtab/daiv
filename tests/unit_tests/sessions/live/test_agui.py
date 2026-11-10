@@ -268,30 +268,6 @@ class TestReasoningProvenance:
         survivors = await self._survivors(produced)
         assert "my own thought" in "".join(getattr(ev, "delta", "") for ev in survivors)
 
-    async def test_internal_model_call_thinking_never_reaches_the_client(self):
-        """A summariser running inside a tool shares the top-level namespace, so only its marker silences it."""
-        agent = self._agent()
-        event = self._thinking_event(self.TOP_NS, "summariser thought")
-        event["metadata"] |= internal_call_metadata()
-
-        assert await self._survivors(await self._emit(agent, event)) == []
-
-    async def test_an_internal_call_left_thinking_does_not_swallow_the_agents_thinking(self):
-        """Upstream keeps one reasoning slot for the run: a silenced call's still-open reasoning would otherwise
-        carry the agent's next thought under a message the client never saw start."""
-        agent = self._agent()
-        summariser = self._thinking_event(self.TOP_NS, "summariser thought")
-        summariser["metadata"] |= internal_call_metadata()
-
-        produced = await self._emit(agent, summariser)
-        produced += await self._emit(agent, self._thinking_event(self.TOP_NS, "my own thought"))
-        survivors = await self._survivors(produced)
-
-        started = {e.message_id for e in survivors if e.type == EventType.REASONING_MESSAGE_START}
-        content = [e for e in survivors if e.type == EventType.REASONING_MESSAGE_CONTENT]
-        assert [e.delta for e in content] == ["my own thought"]
-        assert content[0].message_id in started
-
     async def test_stamping_preserves_existing_raw_event(self):
         """Events upstream already tagged (text, tool calls) must pass through untouched."""
         agent = self._agent()
@@ -403,29 +379,57 @@ _SUMMARY = "the summariser's answer"
 _SUMMARY_THOUGHT = "the summariser's thought"
 
 
-class _ThinkingSummariser(BaseChatModel):
+class _ThinkingModel(BaseChatModel):
     """Streams a thought then its answer, yielding between chunks so parallel calls interleave."""
+
+    thought: str = _SUMMARY_THOUGHT
+    answer: str = _SUMMARY
 
     @property
     def _llm_type(self) -> str:
-        return "thinking-summariser"
+        return "thinking"
+
+    def bind_tools(self, tools, **kwargs):
+        return self
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):
         raise NotImplementedError
 
     async def _astream(self, messages, stop=None, run_manager=None, **kwargs):
-        for content in ([{"type": "thinking", "thinking": _SUMMARY_THOUGHT, "index": 0}], _SUMMARY):
+        for content in ([{"type": "thinking", "thinking": self.thought, "index": 0}], self.answer):
             await asyncio.sleep(0)
             yield ChatGenerationChunk(message=AIMessageChunk(content=content))
 
 
+async def test_a_marked_model_call_leaves_the_agents_own_stream_intact():
+    """Compaction marks its summary call internal and makes it in the agent's own model node, just before the agent:
+    its open thought must not carry the agent's next one under a message the client never saw start."""
+
+    class CompactingMiddleware(AgentMiddleware):
+        async def awrap_model_call(self, request, handler):
+            await _ThinkingModel().ainvoke("compact", config={"metadata": internal_call_metadata()})
+            return await handler(request)
+
+    stream = _run_graph(
+        _ThinkingModel(thought="my own thought", answer="done"), content="hi", middleware=[CompactingMiddleware()]
+    )
+
+    events = [e async for e in SubagentEventFilter().apply(stream) if e is not None]
+
+    started = {e.message_id for e in events if e.type == EventType.REASONING_MESSAGE_START}
+    thoughts = [e for e in events if e.type == EventType.REASONING_MESSAGE_CONTENT]
+    assert [e.delta for e in thoughts] == ["my own thought"]
+    assert thoughts[0].message_id in started
+    assert [e.delta for e in events if e.type == EventType.TEXT_MESSAGE_CONTENT] == ["done"]
+
+
 async def test_parallel_model_calls_made_inside_tools_never_reach_the_chat():
-    """web_fetch's summariser runs under the agent's event stream, unmarked here: being inside a tool is enough."""
+    """web_fetch's summariser runs under the agent's event stream, unmarked: being inside a tool is enough."""
 
     @tool
     async def fetch_page() -> str:
         """Fetch a page."""
-        return (await _ThinkingSummariser().ainvoke("summarise")).text
+        return (await _ThinkingModel().ainvoke("summarise")).text
 
     calls = [{"name": "fetch_page", "args": {}, "id": f"call_{i}"} for i in (1, 2)]
     stream = _run_graph(

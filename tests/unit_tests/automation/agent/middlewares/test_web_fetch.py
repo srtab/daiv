@@ -6,7 +6,6 @@ from unittest.mock import patch
 from django.core.cache import cache
 
 import pytest
-from langchain.agents.middleware.internal_call_transformer import INTERNAL_CALL_METADATA_KEY
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 from langchain_core.messages import AIMessage
 from pydantic import SecretStr
@@ -231,38 +230,6 @@ async def test_summary_keeps_only_the_answer_text_of_content_blocks(httpx_mock, 
 
     assert result == expected
     assert web_fetch_module._get_cached_response(url="https://example.com/page", prompt="P") == cached
-
-
-async def test_summary_model_call_is_marked_internal(httpx_mock):
-    """Unmarked, the summariser's tokens stream into the chat as the agent's own reply."""
-    httpx_mock.add_response(
-        url="https://example.com/page",
-        status_code=200,
-        headers={"content-type": "text/html"},
-        text="<html><body><p>Body</p></body></html>",
-    )
-    with (
-        patch.object(web_fetch_module, "get_model") as mock_get_model,
-        patch.object(web_fetch_module, "site_settings") as mock_site_settings,
-        patch.object(web_fetch_module, "automation_env_settings") as mock_env_settings,
-    ):
-        mock_site_settings.web_fetch_cache_ttl_seconds = 15 * 60
-        mock_site_settings.web_fetch_timeout_seconds = 1
-        mock_env_settings.WEB_FETCH_PROXY_URL = None
-        mock_site_settings.web_fetch_max_content_chars = 999_999
-        mock_site_settings.web_fetch_model_name = "openai:gpt-6-luna"
-        mock_get_model.return_value = _fake_model("ANSWER")
-
-        model_starts = [
-            event
-            async for event in web_fetch_module.web_fetch_tool.astream_events(
-                {"url": "https://example.com/page", "prompt": "P"}, version="v2"
-            )
-            if event["event"] == "on_chat_model_start"
-        ]
-
-    assert len(model_starts) == 1
-    assert INTERNAL_CALL_METADATA_KEY in model_starts[0]["metadata"]
 
 
 async def test_cache_key_changes_with_prompt(httpx_mock):
@@ -637,7 +604,7 @@ async def test_fetch_url_text_injects_auth_headers(httpx_mock):
 
 async def test_model_failure_returns_contents(httpx_mock):
     class _FailingModel:
-        async def ainvoke(self, _messages, config=None):
+        async def ainvoke(self, _messages):
             raise RuntimeError("Boom")
 
     httpx_mock.add_response(
