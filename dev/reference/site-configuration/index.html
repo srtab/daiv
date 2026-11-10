@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="The admin-only DAIV Site Configuration UI: tune agent models, tools, LLM providers and OAuth login at runtime, overriding environment variables.">
+        <meta name="description" content="The admin-only DAIV Site Configuration UI: tune agent models, tools, LLM providers and OAuth login at runtime, with environment variables taking precedence.">
       
       
         <meta name="author" content="Sandro Rodrigues">
@@ -25,7 +25,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.1">
     
     
   
@@ -37,10 +37,10 @@
   
 
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
       
         
-        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
       
       
 
@@ -1302,6 +1302,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#searxng-web-search" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SearXNG web search
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#relationship-to-environment-variables" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1532,6 +1543,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#searxng-web-search" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SearXNG web search
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#relationship-to-environment-variables" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1660,7 +1682,7 @@
 
 
 <h1 id="site-configuration">Site Configuration</h1>
-<p>Site Configuration is the <strong>admin-only</strong> web UI for tuning DAIV's runtime behavior without redeploying. Settings are grouped by area, stored in the database, and <strong>override the matching environment-variable defaults</strong> — so you can pick agent models, toggle agent tools, register LLM providers, and switch OAuth login on or off, all from the dashboard.</p>
+<p>Site Configuration is the <strong>admin-only</strong> web UI for tuning DAIV's runtime behavior without redeploying. Settings are grouped by area and stored in the database. You can pick agent models, toggle agent tools, register LLM providers, and switch OAuth login on or off from the dashboard, unless an environment variable or Docker secret overrides the matching field.</p>
 <p>It lives at <code>/dashboard/configuration/</code> and is reachable only by users with the <strong>admin</strong> role. Members do not see it.</p>
 <div class="admonition info">
 <p class="admonition-title">Admin only</p>
@@ -1703,7 +1725,7 @@
 <tr>
 <td><strong>Web Search</strong></td>
 <td>Agent tools</td>
-<td>Enable/disable the web search tool, pick the engine (DuckDuckGo or Tavily), set max results, and store the Tavily API key.</td>
+<td>Enable/disable the web search tool, pick DuckDuckGo, Tavily or SearXNG, set max results, store the Tavily API key, and configure the SearXNG search endpoint and timeout.</td>
 </tr>
 <tr>
 <td><strong>Web Fetch</strong></td>
@@ -1741,6 +1763,24 @@
 <p class="admonition-title">Model pickers and providers</p>
 <p>The model fields in <strong>Agent</strong>, <strong>Commit &amp; PR Writer</strong>, <strong>Titling</strong>, and <strong>Web Fetch</strong> only offer models from providers you configure under <strong>Providers</strong>. Selecting a model whose provider is disabled or has no API key is rejected on save with a message pointing you to the Providers section.</p>
 </div>
+<h2 id="searxng-web-search">SearXNG web search</h2>
+<p>Open <strong>Web Search</strong>, select <strong>SearXNG</strong> and enter the complete search endpoint,
+for example <code>https://search.example.com/search</code> or
+<code>https://search.example.com/searxng/search</code> when deployed under a prefix.
+The endpoint must be reachable from the DAIV app and workers without additional
+authentication and allow JSON search responses (<code>search.formats: [html, json]</code>
+in the SearXNG settings). Leave the Tavily API key unchanged; SearXNG does not use it.</p>
+<p>The SearXNG timeout defaults to 15 seconds and accepts 1–120 seconds. Existing
+maximum-result and web-search enablement settings also apply to SearXNG.
+Search is available to GitLab/GitHub-triggered runs as well as chat. A failed
+search is reported to the agent as a tool failure, rather than an empty result.</p>
+<p>DAIV sends <code>Accept-Language: en</code>, but an enabled SearXNG limiter may still return
+HTTP 429. Configure a narrow <code>botdetection.ip_lists.pass_ip</code> entry in
+<code>limiter.toml</code> for trusted DAIV app/worker source IPs; see the
+<a href="../env-variables/#web-search">deployment example</a>.</p>
+<p>SearXNG still forwards query text to its configured upstream engines. Queries
+may include repository code, so self-hosting alone does not keep that text local.</p>
+<p>For environment-based deployment, see <a href="../env-variables/#web-search">Web Search variables</a>.</p>
 <h2 id="relationship-to-environment-variables">Relationship to environment variables</h2>
 <p>Site Configuration shares a value space with DAIV's environment variables. Each configurable field resolves through a three-tier priority chain (highest to lowest):</p>
 <ol>
@@ -1863,7 +1903,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 30, 2026 23:11:35 UTC">October 30, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 10, 2026 09:54:22 UTC">November 10, 2026</span>
   </span>
 
     
@@ -1919,10 +1959,10 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["search.highlight", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.preview", "navigation.instant.progress", "navigation.tracking", "navigation.path", "content.code.annotate", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["search.highlight", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.preview", "navigation.instant.progress", "navigation.tracking", "navigation.path", "content.code.annotate", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
     
     
-      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../../assets/javascripts/bundle.a5f9d56c.min.js"></script>
       
     
   </body>

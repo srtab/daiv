@@ -96,7 +96,7 @@ Commands are evaluated against a [command policy](https://srtab.github.io/daiv/d
 
 | Tool         | Description                                                             |
 | ------------ | ----------------------------------------------------------------------- |
-| `web_search` | Search the web (DuckDuckGo or Tavily)                                   |
+| `web_search` | Search the web (DuckDuckGo, Tavily or SearXNG)                          |
 | `web_fetch`  | Fetch a URL, convert to markdown, and answer a prompt about its content |
 
 ### Skills

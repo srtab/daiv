@@ -4857,12 +4857,33 @@ This section documents the environment variables for each tool configuration use
 
 ### Web Search
 
-| Variable                      | Description                                         | Default      | Example  |
-| ----------------------------- | --------------------------------------------------- | ------------ | -------- |
-| `DAIV_WEB_SEARCH_ENABLED`     | Enable/disable the `web_search` tool                | `true`       | `false`  |
-| `DAIV_WEB_SEARCH_MAX_RESULTS` | Maximum number of results to return from web search | `5`          |          |
-| `DAIV_WEB_SEARCH_ENGINE`      | Web search engine to use (`duckduckgo`, `tavily`)   | `duckduckgo` | `tavily` |
-| `DAIV_WEB_SEARCH_API_KEY`     | Web search API key (required if engine is `tavily`) | *(none)*     |          |
+| Variable                                  | Description                                                                     | Default      | Example                             |
+| ----------------------------------------- | ------------------------------------------------------------------------------- | ------------ | ----------------------------------- |
+| `DAIV_WEB_SEARCH_ENABLED`                 | Enable/disable the `web_search` tool                                            | `true`       | `false`                             |
+| `DAIV_WEB_SEARCH_MAX_RESULTS`             | Maximum number of results to return from web search                             | `5`          |                                     |
+| `DAIV_WEB_SEARCH_ENGINE`                  | Web search engine to use (`duckduckgo`, `tavily`, `searxng`)                    | `duckduckgo` | `searxng`                           |
+| `DAIV_WEB_SEARCH_API_KEY`                 | Web search API key (required if engine is `tavily`)                             | *(none)*     |                                     |
+| `DAIV_WEB_SEARCH_SEARXNG_URL`             | Complete SearXNG search endpoint, including `/search` and any deployment prefix | *(none)*     | `https://search.example.com/search` |
+| `DAIV_WEB_SEARCH_SEARXNG_TIMEOUT_SECONDS` | SearXNG HTTP timeout in seconds (1–120); does not change other engines          | `15`         | `30`                                |
+
+Select `searxng` and set its endpoint either here or in **Site Configuration → Web Search**. The endpoint must use HTTP or HTTPS and contain no credentials, query string or fragment. DAIV sends a GET request with `q` and `format=json`; enable `json` in the SearXNG instance's `search.formats`. No SearXNG API key is required or sent. The initial integration supports endpoints reachable without additional authentication.
+
+Requests include `Accept-Language: en` for SearXNG's HTTP header checks. If `server.limiter` is enabled, it can still return HTTP 429 for automated requests. For a trusted DAIV client, configure its source IP in `/etc/searxng/limiter.toml`:
+
+```
+[botdetection.ip_lists]
+pass_ip = ["192.0.2.10"]
+```
+
+Replace the example with the actual DAIV app/worker egress IP as seen by SearXNG, or a narrowly scoped trusted subnet. This list exempts those clients from bot detection; keep it restricted rather than disabling the limiter for everyone. See the [SearXNG limiter documentation](https://docs.searxng.org/admin/searx.limiter) for pass lists and reverse-proxy client-IP handling.
+
+SearXNG forwards queries to its configured upstream search engines. Self-hosting does not keep query text local; search queries can contain repository code or other private information.
+
+Web search is shared by chat, GitLab/GitHub-triggered runs and other agent entry points; the model decides when to call it. The DAIV app and workers must be able to reach the endpoint. The request is made by DAIV itself, so it does not require opening the sandbox's egress policy. HTTPS certificate verification remains enabled.
+
+Environment variables and Docker secrets override stored UI values and lock the corresponding fields. Leave a variable **unset**, rather than explicitly empty, to keep its field editable. DuckDuckGo and Tavily retain their existing behavior.
+
+See the [SearXNG Search API](https://docs.searxng.org/dev/search_api.html) for the server-side JSON format setting and endpoint contract.
 
 ### Web Fetch
 
@@ -4978,7 +4999,7 @@ Generates short titles for sessions and runs from the user's initial prompt.
 
 # Site Configuration
 
-Site Configuration is the **admin-only** web UI for tuning DAIV's runtime behavior without redeploying. Settings are grouped by area, stored in the database, and **override the matching environment-variable defaults** — so you can pick agent models, toggle agent tools, register LLM providers, and switch OAuth login on or off, all from the dashboard.
+Site Configuration is the **admin-only** web UI for tuning DAIV's runtime behavior without redeploying. Settings are grouped by area and stored in the database. You can pick agent models, toggle agent tools, register LLM providers, and switch OAuth login on or off from the dashboard, unless an environment variable or Docker secret overrides the matching field.
 
 It lives at `/dashboard/configuration/` and is reachable only by users with the **admin** role. Members do not see it.
 
@@ -5002,7 +5023,7 @@ The configuration is split into the following groups, organized by category.
 | **Commit & PR Writer** | AI tasks     | Primary and fallback models that generate commit messages and pull/merge request descriptions from diffs.                                                                                                                                                                           |
 | **Titling**            | AI tasks     | Primary and fallback models that generate session and run titles from prompts.                                                                                                                                                                                                      |
 | **Providers**          | Models       | LLM provider records — slug, wire protocol, base URL, API key, and extra headers — that every model field draws from.                                                                                                                                                               |
-| **Web Search**         | Agent tools  | Enable/disable the web search tool, pick the engine (DuckDuckGo or Tavily), set max results, and store the Tavily API key.                                                                                                                                                          |
+| **Web Search**         | Agent tools  | Enable/disable the web search tool, pick DuckDuckGo, Tavily or SearXNG, set max results, store the Tavily API key, and configure the SearXNG search endpoint and timeout.                                                                                                           |
 | **Web Fetch**          | Agent tools  | Enable/disable the web fetch tool, choose the model that processes fetched pages, set cache TTL / timeout / max content size, and define per-domain auth headers.                                                                                                                   |
 | **Sandbox**            | Runtime      | Sandbox request timeout and the sandbox API key.                                                                                                                                                                                                                                    |
 | **Jobs**               | Runtime      | Per-user rate limit for [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) submissions (e.g. `20/hour`).                                                                                                                                                       |
@@ -5013,6 +5034,18 @@ The configuration is split into the following groups, organized by category.
 Model pickers and providers
 
 The model fields in **Agent**, **Commit & PR Writer**, **Titling**, and **Web Fetch** only offer models from providers you configure under **Providers**. Selecting a model whose provider is disabled or has no API key is rejected on save with a message pointing you to the Providers section.
+
+## SearXNG web search
+
+Open **Web Search**, select **SearXNG** and enter the complete search endpoint, for example `https://search.example.com/search` or `https://search.example.com/searxng/search` when deployed under a prefix. The endpoint must be reachable from the DAIV app and workers without additional authentication and allow JSON search responses (`search.formats: [html, json]` in the SearXNG settings). Leave the Tavily API key unchanged; SearXNG does not use it.
+
+The SearXNG timeout defaults to 15 seconds and accepts 1–120 seconds. Existing maximum-result and web-search enablement settings also apply to SearXNG. Search is available to GitLab/GitHub-triggered runs as well as chat. A failed search is reported to the agent as a tool failure, rather than an empty result.
+
+DAIV sends `Accept-Language: en`, but an enabled SearXNG limiter may still return HTTP 429. Configure a narrow `botdetection.ip_lists.pass_ip` entry in `limiter.toml` for trusted DAIV app/worker source IPs; see the [deployment example](https://srtab.github.io/daiv/dev/reference/env-variables/#web-search).
+
+SearXNG still forwards query text to its configured upstream engines. Queries may include repository code, so self-hosting alone does not keep that text local.
+
+For environment-based deployment, see [Web Search variables](https://srtab.github.io/daiv/dev/reference/env-variables/#web-search).
 
 ## Relationship to environment variables
 
@@ -5208,7 +5241,7 @@ Commands are evaluated against a [command policy](https://srtab.github.io/daiv/d
 
 | Tool         | Description                                                             |
 | ------------ | ----------------------------------------------------------------------- |
-| `web_search` | Search the web (DuckDuckGo or Tavily)                                   |
+| `web_search` | Search the web (DuckDuckGo, Tavily or SearXNG)                          |
 | `web_fetch`  | Fetch a URL, convert to markdown, and answer a prompt about its content |
 
 ### Skills

@@ -293,12 +293,33 @@ This section documents the environment variables for each tool configuration use
 
 ### Web Search
 
-| Variable                      | Description                                         | Default      | Example  |
-| ----------------------------- | --------------------------------------------------- | ------------ | -------- |
-| `DAIV_WEB_SEARCH_ENABLED`     | Enable/disable the `web_search` tool                | `true`       | `false`  |
-| `DAIV_WEB_SEARCH_MAX_RESULTS` | Maximum number of results to return from web search | `5`          |          |
-| `DAIV_WEB_SEARCH_ENGINE`      | Web search engine to use (`duckduckgo`, `tavily`)   | `duckduckgo` | `tavily` |
-| `DAIV_WEB_SEARCH_API_KEY`     | Web search API key (required if engine is `tavily`) | *(none)*     |          |
+| Variable                                  | Description                                                                     | Default      | Example                             |
+| ----------------------------------------- | ------------------------------------------------------------------------------- | ------------ | ----------------------------------- |
+| `DAIV_WEB_SEARCH_ENABLED`                 | Enable/disable the `web_search` tool                                            | `true`       | `false`                             |
+| `DAIV_WEB_SEARCH_MAX_RESULTS`             | Maximum number of results to return from web search                             | `5`          |                                     |
+| `DAIV_WEB_SEARCH_ENGINE`                  | Web search engine to use (`duckduckgo`, `tavily`, `searxng`)                    | `duckduckgo` | `searxng`                           |
+| `DAIV_WEB_SEARCH_API_KEY`                 | Web search API key (required if engine is `tavily`)                             | *(none)*     |                                     |
+| `DAIV_WEB_SEARCH_SEARXNG_URL`             | Complete SearXNG search endpoint, including `/search` and any deployment prefix | *(none)*     | `https://search.example.com/search` |
+| `DAIV_WEB_SEARCH_SEARXNG_TIMEOUT_SECONDS` | SearXNG HTTP timeout in seconds (1–120); does not change other engines          | `15`         | `30`                                |
+
+Select `searxng` and set its endpoint either here or in **Site Configuration → Web Search**. The endpoint must use HTTP or HTTPS and contain no credentials, query string or fragment. DAIV sends a GET request with `q` and `format=json`; enable `json` in the SearXNG instance's `search.formats`. No SearXNG API key is required or sent. The initial integration supports endpoints reachable without additional authentication.
+
+Requests include `Accept-Language: en` for SearXNG's HTTP header checks. If `server.limiter` is enabled, it can still return HTTP 429 for automated requests. For a trusted DAIV client, configure its source IP in `/etc/searxng/limiter.toml`:
+
+```
+[botdetection.ip_lists]
+pass_ip = ["192.0.2.10"]
+```
+
+Replace the example with the actual DAIV app/worker egress IP as seen by SearXNG, or a narrowly scoped trusted subnet. This list exempts those clients from bot detection; keep it restricted rather than disabling the limiter for everyone. See the [SearXNG limiter documentation](https://docs.searxng.org/admin/searx.limiter) for pass lists and reverse-proxy client-IP handling.
+
+SearXNG forwards queries to its configured upstream search engines. Self-hosting does not keep query text local; search queries can contain repository code or other private information.
+
+Web search is shared by chat, GitLab/GitHub-triggered runs and other agent entry points; the model decides when to call it. The DAIV app and workers must be able to reach the endpoint. The request is made by DAIV itself, so it does not require opening the sandbox's egress policy. HTTPS certificate verification remains enabled.
+
+Environment variables and Docker secrets override stored UI values and lock the corresponding fields. Leave a variable **unset**, rather than explicitly empty, to keep its field editable. DuckDuckGo and Tavily retain their existing behavior.
+
+See the [SearXNG Search API](https://docs.searxng.org/dev/search_api.html) for the server-side JSON format setting and endpoint contract.
 
 ### Web Fetch
 
