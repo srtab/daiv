@@ -81,6 +81,7 @@ plugins:
         Apache 2.0.
       sections:
         Getting Started:
+        - getting-started/quickstart.md
         - getting-started/deployment.md
         - getting-started/platform-setup.md
         - getting-started/accounts.md
@@ -146,6 +147,7 @@ extra:
 nav:
   - Home: index.md
   - Getting Started:
+    - Quickstart: getting-started/quickstart.md
     - Deployment: getting-started/deployment.md
     - Platform Setup: getting-started/platform-setup.md
     - Accounts & Roles: getting-started/accounts.md
