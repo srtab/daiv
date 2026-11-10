@@ -6,7 +6,8 @@ from ag_ui.core import RunAgentInput
 from ag_ui.core.events import EventType, RawEvent, ToolCallStartEvent
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
-from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+from langchain.agents.middleware.internal_call_transformer import internal_call_metadata
+from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel, GenericFakeChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
@@ -264,6 +265,14 @@ class TestReasoningProvenance:
         survivors = await self._survivors(produced)
         assert "my own thought" in "".join(getattr(ev, "delta", "") for ev in survivors)
 
+    async def test_internal_model_call_thinking_never_reaches_the_client(self):
+        """A summariser running inside a tool shares the top-level namespace, so only its marker silences it."""
+        agent = self._agent()
+        event = self._thinking_event(self.TOP_NS, "summariser thought")
+        event["metadata"] |= internal_call_metadata()
+
+        assert await self._survivors(await self._emit(agent, event)) == []
+
     async def test_stamping_preserves_existing_raw_event(self):
         """Events upstream already tagged (text, tool calls) must pass through untouched."""
         agent = self._agent()
@@ -368,6 +377,40 @@ async def test_every_streamed_tool_call_gets_one_result_even_when_middleware_ans
     results = [(e.tool_call_id, e.content) for e in events if e.type == EventType.TOOL_CALL_RESULT]
     assert sorted(started) == ["call_1", "call_2"]
     assert sorted(results) == [("call_1", "edited"), ("call_2", "Error: rejected")]
+
+
+async def test_a_model_call_made_inside_a_tool_never_reaches_the_chat():
+    """web_fetch's summariser runs under the agent's event stream, so upstream renders its tokens as the
+    assistant's own text unless the call is marked internal."""
+
+    class _ToolModel(FakeMessagesListChatModel):
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+    @tool
+    async def fetch_page() -> str:
+        """Fetch a page."""
+        summariser = GenericFakeChatModel(messages=iter([AIMessage(content="the summariser's answer")]))
+        summary = await summariser.ainvoke("summarise", config={"metadata": internal_call_metadata()})
+        return summary.text
+
+    stream = _run_graph(
+        _ToolModel(
+            responses=[
+                AIMessage(content="", tool_calls=[{"name": "fetch_page", "args": {}, "id": "call_1"}]),
+                AIMessage(content="done"),
+            ]
+        ),
+        content="fetch",
+        tools=[fetch_page],
+    )
+
+    events = [e async for e in SubagentEventFilter().apply(stream) if e is not None]
+
+    assert ("call_1", "the summariser's answer") in [
+        (e.tool_call_id, e.content) for e in events if e.type == EventType.TOOL_CALL_RESULT
+    ]
+    assert "summariser" not in "".join(getattr(e, "delta", None) or "" for e in events)
 
 
 def _tools_node_end(*messages: ToolMessage) -> dict:
