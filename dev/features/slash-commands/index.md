@@ -72,6 +72,8 @@ DAIV explores the codebase without making any changes and posts a detailed imple
 
 Reviews the current merge/pull request diff for correctness, security, performance, structure, and your repository's [custom review rules](https://srtab.github.io/daiv/dev/features/pull-request-assistant/#custom-review-rules). Posts numbered findings grouped by severity, as a single report comment.
 
+How it scores on the ReviewBench benchmark, and at what cost, is on the [Benchmarks](https://srtab.github.io/daiv/dev/reference/benchmarks/index.md) page.
+
 ### /security-audit
 
 ```

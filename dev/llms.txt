@@ -45,6 +45,7 @@ DAIV is an open-source async software engineering agent that integrates natively
 - [Site Configuration](https://srtab.github.io/daiv/dev/reference/site-configuration/index.md): The admin-only DAIV Site Configuration UI: tune agent models, tools, LLM providers and OAuth login at runtime, overriding environment variables.
 - [Agent Architecture](https://srtab.github.io/daiv/dev/reference/agent-architecture/index.md): Technical architecture of the DAIV agent, built on LangChain Deep Agents and LangGraph, with subagents, middleware and a virtual filesystem.
 - [Monitoring](https://srtab.github.io/daiv/dev/reference/monitoring/index.md): Trace DAIV agent executions with LangSmith: setup, trace tags and metadata, dashboards, usage and cost tracking, and troubleshooting.
+- [Benchmarks](https://srtab.github.io/daiv/dev/reference/benchmarks/index.md): How DAIV's /code-review scores on the ReviewBench test set: precision and recall by category and severity, cost and time per review, the method and its limits.
 
 ## Community
 
