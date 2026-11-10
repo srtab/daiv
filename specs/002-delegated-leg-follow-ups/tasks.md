@@ -408,7 +408,7 @@ description: "Task list for the Delegated Leg Follow-ups feature"
   - `test_a_leg_that_reports_its_work_incomplete_gets_a_leg_follow_up` (SC-001): one leg's reply says its tests still fail. Assert one `delegate_jobs` call whose only target names that leg's `thread_id` and no `ref`.
   - `test_an_independent_second_part_gets_a_new_leg` (SC-002): every leg succeeded, and the original request has an independent second part. Assert a `delegate_jobs` call with a target without `thread_id`.
   Give the legs `DBTaskResult.return_value` responses, so replies come from `response_text`. Check with `uv run pytest --collect-only -m delegation tests/integration_tests`: seven cases.
-- [ ] T062 [US5] Run the after-pass and compare. Depends on T001, T002 and every agent-facing task: T032, T043, T050, T053, T057, T060, T061.
+- [X] T062 [US5] Run the after-pass and compare. Depends on T001, T002 and every agent-facing task: T032, T043, T050, T053, T057, T060, T061.
   - `make eval-prompts SUITES=delegation OUT=eval-runs/delegation-after.jsonl`, with the same `EVAL_MODEL` as T002.
   - `uv run evals/compare_runs.py eval-runs/delegation-before.jsonl eval-runs/delegation-after.jsonl`, then confirm any `unconfirmed` verdict with the printed `CASES=` re-runs and `--confirm`.
   - Expected: no confirmed regression among the five baseline cases; case 5 flips to passing (SC-003); each new case passes a majority of three votes (SC-001, SC-002).
@@ -431,7 +431,7 @@ description: "Task list for the Delegated Leg Follow-ups feature"
   - in the existing **Orchestration** entry, remove the stale "in the top bar (how many run, wait or failed)" (research refinement 4).
   Common Changelog form, no Upgrade note.
 - [X] T066 [P] In `AGENTS.md`'s `daiv/jobs/` repo-map line, add "leg follow-ups (`sessions.inbox.leg_follow_ups`)" to the list of what `sessions.inbox.drain` starts runs from. Note that `delegate_jobs` can now continue a leg (`sessions.delegation`).
-- [ ] T067 Run the gates and record what ran (`patterns/tests.md` rule 5):
+- [X] T067 Run the gates and record what ran (`patterns/tests.md` rule 5):
   - `make lint-fix && make lint`, then `rm -rf .ruff_cache` and `uv run --only-group=dev ruff check --no-cache .`, if lint looks suspiciously clean;
   - `make lint-typing`;
   - `make test`;
