@@ -111,6 +111,7 @@ plugins:
         - reference/site-configuration.md
         - reference/agent-architecture.md
         - reference/monitoring.md
+        - reference/benchmarks.md
         Community:
         - community.md
 
@@ -175,4 +176,5 @@ nav:
     - Site Configuration: reference/site-configuration.md
     - Agent Architecture: reference/agent-architecture.md
     - Monitoring: reference/monitoring.md
+    - Benchmarks: reference/benchmarks.md
   - Community: community.md

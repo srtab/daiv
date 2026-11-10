@@ -97,7 +97,7 @@ PROMPT
             # effort to the repository's models.agent model, else the system
             # default model. To force the most capable model, also pass an
             # explicit agent_model, e.g.:
-            #   agent_model => 'openrouter:anthropic/claude-opus-4.6',
+            #   agent_model => 'openrouter:anthropic/claude-opus-5.5',
             agent_thinking_level => 'high',
         });
 

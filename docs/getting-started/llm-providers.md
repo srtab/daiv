@@ -19,10 +19,10 @@ Models use a **prefix system** to identify the provider:
 
 | Prefix | Provider | Example |
 |--------|----------|---------|
-| `openrouter:` | OpenRouter | `openrouter:anthropic/claude-sonnet-4.6` |
-| `claude` | Anthropic (direct) | `claude-sonnet-4.6` |
-| `gpt-4`, `gpt-5`, `o4` | OpenAI (direct) | `gpt-5.3-codex` |
-| `gemini` | Google Gemini (direct) | `gemini-2.5-pro-preview-05-06` |
+| `openrouter:` | OpenRouter | `openrouter:anthropic/claude-sonnet-5.5` |
+| `claude` | Anthropic (direct) | `claude-sonnet-5-5` |
+| `gpt-4`, `gpt-5`, `gpt-6`, `o4` | OpenAI (direct) | `gpt-6.1-sol` |
+| `gemini` | Google Gemini (direct) | `gemini-3.8-flash` |
 
 DAIV resolves the provider automatically from the model name. No extra configuration is needed beyond setting the API key for the provider you want to use.
 
@@ -31,14 +31,13 @@ DAIV resolves the provider automatically from the model name. No extra configura
 
 ### Default models
 
-| Role | Model | Provider |
+| Role | Model | Fallback |
 |------|-------|----------|
-| Main agent | Claude Sonnet 4.6 | OpenRouter |
-| Max mode | Claude Opus 4.6 | OpenRouter |
-| Explore subagent | Claude Haiku 4.5 | OpenRouter |
-| Fallback | GPT 5.3 Codex | OpenRouter |
+| Main agent | Claude Sonnet 5.5 | GPT-6.1 Sol |
+| Max mode | Claude Opus 5.5 | The main agent's models |
+| Explore subagent | Claude Haiku 5.5 | GPT-6 Luna |
 
-All defaults route through OpenRouter, so only `OPENROUTER_API_KEY` is required for a basic setup. Override models per repository in `.daiv.yml` — see [Repository Config](../customization/repository-config.md#model-overrides).
+Smaller tasks such as titling, merge request metadata and memory have their own defaults, listed in [Environment Variables](../reference/env-variables.md). All defaults route through OpenRouter, so only `OPENROUTER_API_KEY` is required for a basic setup. Override models per repository in `.daiv.yml` — see [Repository Config](../customization/repository-config.md#model-overrides).
 
 ---
 
@@ -59,8 +58,8 @@ OpenRouter is the **default provider** for DAIV. It provides access to models fr
 Use the `openrouter:` prefix followed by the [model name from OpenRouter](https://openrouter.ai/models):
 
 ```
-openrouter:anthropic/claude-sonnet-4.6
-openrouter:openai/gpt-5.3-codex
+openrouter:anthropic/claude-sonnet-5.5
+openrouter:openai/gpt-6.1-sol
 ```
 
 **Per-repository override** (`.daiv.yml`):
@@ -68,7 +67,7 @@ openrouter:openai/gpt-5.3-codex
 ```yaml
 models:
   agent:
-    model: "openrouter:anthropic/claude-sonnet-4.6"
+    model: "openrouter:anthropic/claude-sonnet-5.5"
 ```
 
 ---
@@ -88,8 +87,8 @@ models:
 Use the [model name from OpenAI](https://platform.openai.com/docs/models) directly (no prefix needed):
 
 ```
-gpt-5.3-codex
-o4-mini
+gpt-6.1-sol
+gpt-6-luna
 ```
 
 **Per-repository override** (`.daiv.yml`):
@@ -97,7 +96,7 @@ o4-mini
 ```yaml
 models:
   agent:
-    model: "gpt-5.3-codex"
+    model: "gpt-6.1-sol"
 ```
 
 ---
@@ -117,8 +116,8 @@ models:
 Use the [model name from Anthropic](https://docs.anthropic.com/en/docs/about-claude/models/all-models#model-names) directly (no prefix needed):
 
 ```
-claude-sonnet-4.6
-claude-opus-4.6
+claude-sonnet-5-5
+claude-opus-5-5
 ```
 
 **Per-repository override** (`.daiv.yml`):
@@ -126,7 +125,7 @@ claude-opus-4.6
 ```yaml
 models:
   agent:
-    model: "claude-sonnet-4.6"
+    model: "claude-sonnet-5-5"
 ```
 
 !!! warning
@@ -150,8 +149,7 @@ models:
 Use the [model name from Gemini](https://ai.google.dev/gemini-api/docs/models) directly (no prefix needed):
 
 ```
-gemini-2.5-pro-preview-05-06
-gemini-2.4-flash-preview-04-17
+gemini-3.8-flash
 ```
 
 **Per-repository override** (`.daiv.yml`):
@@ -159,7 +157,7 @@ gemini-2.4-flash-preview-04-17
 ```yaml
 models:
   agent:
-    model: "gemini-2.5-pro-preview-05-06"
+    model: "gemini-3.8-flash"
 ```
 
 ---

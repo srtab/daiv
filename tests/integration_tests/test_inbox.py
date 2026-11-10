@@ -8,12 +8,11 @@ import re
 import uuid
 
 import pytest
-from langsmith import testing as t
 from sessions.inbox.render import RunInput
 from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
 
 from .prompt_leak import assert_no_prompt_leak
-from .utils import INBOX_MODELS, extract_tool_calls, final_text, measure, require_provider_for_model, run_agent_once
+from .utils import INBOX_MODELS, require_provider_for_model, run_eval_case
 
 pytestmark = [
     pytest.mark.inbox,
@@ -34,7 +33,6 @@ ADD_FLAG = (
 
 assert_no_prompt_leak([RUNNER_OUT_OF_DISK, WHICH_COMMAND, ADD_FLAG])
 
-WRITE_INTERRUPTS = {"edit_file": True, "write_file": True, "bash": True, "task": True}
 WRITES = {"edit_file", "write_file"}
 GIT_SYNC = re.compile(r"\bgit\s+(pull|fetch|reset|rebase|merge|checkout)\b")
 CI_FAILURE = {
@@ -79,15 +77,6 @@ async def _inbox_input(*events: dict, fast_forward: str | None = None):
     return (await RunInput.aof_run(run)).render(run, fast_forward=fast_forward).messages
 
 
-async def _run(model_name: str, messages, request: pytest.FixtureRequest) -> tuple[list, str]:
-    t.log_inputs({"model_name": model_name, "messages": [message.text for message in messages]})
-    with measure(request) as metrics:
-        result = await run_agent_once(model_name, messages, interrupt_on=WRITE_INTERRUPTS, ask_user_enabled=False)
-    metrics.messages = result["messages"]
-    t.log_outputs(result)
-    return extract_tool_calls(result["messages"]), final_text(result["messages"])
-
-
 def _remembered_comment(body: str) -> dict:
     return {
         "kind": EventKind.COMMENT,
@@ -101,7 +90,7 @@ def _remembered_comment(body: str) -> dict:
 async def test_a_ci_failure_the_code_did_not_cause_is_explained_without_a_change(model_name, eval_request):
     messages = await _inbox_input(_remembered_comment(RUNNER_OUT_OF_DISK), CI_FAILURE)
 
-    tool_calls, reply = await _run(model_name, messages, eval_request)
+    tool_calls, reply = await run_eval_case(model_name, messages, eval_request)
 
     assert not [call for call in tool_calls if call["name"] in WRITES], "edited the code for a runner failure"
     assert re.search(r"disk|space|runner|infrastructure", reply, re.IGNORECASE), reply
@@ -122,7 +111,7 @@ async def test_a_mention_and_a_ci_failure_are_both_answered(model_name, eval_req
     }
     messages = await _inbox_input(_remembered_comment(RUNNER_OUT_OF_DISK), CI_FAILURE, mention)
 
-    tool_calls, reply = await _run(model_name, messages, eval_request)
+    tool_calls, reply = await run_eval_case(model_name, messages, eval_request)
 
     assert not [call for call in tool_calls if call["name"] in WRITES], "edited the code for a question"
     assert "release_orphan_queued_sessions" in reply, reply
@@ -138,7 +127,7 @@ async def test_after_the_branch_moved_it_works_from_the_new_head(model_name, eva
     chat = {"kind": EventKind.CHAT_MESSAGE, "wake": True, "payload": {"text": ADD_FLAG, "agui_message_id": "m-1"}}
     messages = await _inbox_input(pushed, chat, fast_forward="advanced")
 
-    tool_calls, _reply = await _run(model_name, messages, eval_request)
+    tool_calls, _reply = await run_eval_case(model_name, messages, eval_request)
 
     syncs = [call for call in tool_calls if call["name"] == "bash" and GIT_SYNC.search(str(call["args"]))]
     assert not syncs, f"re-synced a working copy that was already fast-forwarded: {syncs}"

@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
     from langchain.agents.middleware import ModelRequest, ModelResponse
 
-    from automation.agent.delegation import CancelResult, JobDelegator
+    from automation.agent.delegation import CancelResult, DelegationResult, JobDelegator
 
 logger = logging.getLogger("daiv.tools")
 
@@ -226,10 +226,7 @@ class DelegateJobsMiddleware(AgentMiddleware):
                 for t in targets
             ],
         )
-        payload = asdict(result)
-        if not result.started:
-            payload["note"] = _UNTRACKED_NOTE if any(leg.still_runs for leg in result.failed) else _NOTHING_STARTED_NOTE
-        return json.dumps(payload, ensure_ascii=False)
+        return delegation_payload(result)
 
     async def _acheck(self, batch_id: str) -> str:
         batches = await self._delegator.astatus(batch_id=batch_id or None)
@@ -250,6 +247,14 @@ class DelegateJobsMiddleware(AgentMiddleware):
     ) -> ModelResponse:
         system_prompt = f"{request.system_prompt}\n\n" if request.system_prompt else ""
         return await handler(request.override(system_prompt=system_prompt + DELEGATE_JOBS_SYSTEM_PROMPT))
+
+
+def delegation_payload(result: DelegationResult) -> str:
+    """What the ``delegate_jobs`` tool answers for ``result``."""
+    payload = asdict(result)
+    if not result.started:
+        payload["note"] = _UNTRACKED_NOTE if any(leg.still_runs for leg in result.failed) else _NOTHING_STARTED_NOTE
+    return json.dumps(payload, ensure_ascii=False)
 
 
 async def _guarded(tool_name: str, call: Awaitable[str]) -> str:

@@ -16,6 +16,7 @@ from ag_ui.core.events import (
 )
 from ag_ui_langgraph.utils import normalize_tool_content
 from copilotkit import LangGraphAGUIAgent
+from langchain.agents.middleware.internal_call_transformer import INTERNAL_CALL_METADATA_KEY
 from langchain_core.messages import ToolMessage
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT, TOOL_MEDIA_EVENT, parse_assistant_message
@@ -23,7 +24,7 @@ from automation.agent.tool_media import media_blocks, result_messages
 from sessions.tool_media import media_items, tool_text
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
+    from collections.abc import AsyncGenerator, AsyncIterator
 
     from ag_ui.core import RunAgentInput
     from ag_ui_langgraph.agent import PreparedStream
@@ -40,6 +41,22 @@ STREAMED_STATE_KEYS = ("merge_request", "diff_stats")
 _FILTERED_DATA = {"on_chat_model_stream": "chunk", "on_chat_model_end": "output"}
 
 _ERROR_PREFIX = re.compile(r"\s*error\b", re.IGNORECASE)
+
+
+def _is_internal_model_call(event: dict[str, Any]) -> bool:
+    """A model call that is not the agent speaking: one marked internal (compaction's summary, made in the agent's own
+    model node) or any made inside a tool (``web_fetch``'s summariser), which shares the agent's namespace."""
+    metadata = event.get("metadata") or {}
+    return event.get("event", "").startswith("on_chat_model_") and (
+        INTERNAL_CALL_METADATA_KEY in metadata or metadata.get("langgraph_node") == "tools"
+    )
+
+
+async def _without_internal_model_calls(stream: AsyncIterator[dict[str, Any]]) -> AsyncGenerator[dict[str, Any]]:
+    # Never closes ``stream``: callers close or drain ``graph_stream`` themselves, even after upstream abandons this.
+    async for event in stream:
+        if not _is_internal_model_call(event):
+            yield event
 
 
 def _filter_view(event: Any) -> Any:
@@ -80,6 +97,8 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
             agent_state = agent_state._replace(tasks=())
         prepared = await super().prepare_stream(input=input, agent_state=agent_state, config=config)
         self.graph_stream = prepared["stream"]
+        if self.graph_stream is not None:
+            prepared["stream"] = _without_internal_model_calls(self.graph_stream)
         return prepared
 
     def get_stream_kwargs(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
