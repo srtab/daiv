@@ -111,6 +111,11 @@ DAIV is powered by [Deep Agents](https://github.com/langchain-ai/deepagents), a 
 
 ## Getting Started
 
+To try DAIV, follow the [Quickstart](https://srtab.github.io/daiv/dev/getting-started/quickstart/): it runs DAIV on one
+machine with Docker Compose and turns a GitLab issue into a merge request in about 15 minutes, no clone needed.
+
+To run the development stack from a clone instead:
+
 ```bash
 git clone https://github.com/srtab/daiv.git && cd daiv
 make setup                 # creates config files from templates

@@ -162,7 +162,7 @@ DAIV includes a management command to create a pre-configured LangSmith custom d
 ### Setup
 
 ```bash
-python manage.py setup_langsmith_dashboard --project <project-name>
+django-admin setup_langsmith_dashboard --project <project-name>
 ```
 
 The command creates a single dashboard named **DAIV Monitoring** with 27 charts organized into 8 groups:
@@ -190,7 +190,7 @@ The command creates a single dashboard named **DAIV Monitoring** with 27 charts 
 To update the dashboard after upgrading DAIV (which may add new charts):
 
 ```bash
-python manage.py setup_langsmith_dashboard --recreate
+django-admin setup_langsmith_dashboard --recreate
 ```
 
 ### Dashboard tips
@@ -252,7 +252,7 @@ LangSmith remains the recommended tool for detailed **trace-level** observabilit
 DAIV keeps a copy of each session's conversation in its database, written when each run ends, so transcripts outlive the checkpointer TTL and LangSmith's retention. Export them for offline analysis:
 
 ```bash
-python manage.py export_session_archives ./session-exports --since 2026-10-01 --repo group/project
+django-admin export_session_archives ./session-exports --since 2026-10-01 --repo group/project
 ```
 
 Each archived session becomes `<thread_id>.json`. It holds the session's repository, origin and title, every context in order (a `/clear` closes one and starts the next; `closed_at` says when) with its messages in LangChain's `messages_to_dict` format, and its runs' status, model, tokens and cost. The archive holds the session's messages, not each model request: system prompts, tool schemas, summaries and subagent internals stay in LangSmith. A session that fails to export is logged and named, and the command exits with an error once the rest are written.
