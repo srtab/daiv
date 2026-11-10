@@ -136,6 +136,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed `web_fetch` page summaries, and the summariser's thinking, streaming into a live session as if the agent had written them. Two fetches at once mixed their text mid-sentence. The agent still receives the summary as the tool's result.
 - Fixed run and session costs for OpenRouter models being overstated, about twice OpenRouter's bill for GLM-5.2. Every call was priced at one list rate for the model, while OpenRouter routes each call to the cheapest available provider. Costs now come from the charge OpenRouter reports for each call, including the provider's charge on bring-your-own-key calls, and a model missing from the price list no longer leaves a run unpriced. Other providers' costs are still estimated from list prices, and runs from before this release keep their recorded cost.
 - GitLab OAuth now links a confirmed primary email to an admin-created account when social signup is closed. Existing emails no longer unlock account creation, and pending signup forms cannot bypass closed registration by changing the email.
 - Fixed the session page never showing the external references a session was given (Jira, Sentry or RT tickets, issues) through the Jobs API, the MCP `submit_job` tool or a delegated job: its details panel now lists them in a **References** section at the end of the **Overview** tab, one card each with its provider's icon (GitLab, GitHub, Sentry or Jira), a link to it, its provider and host, and whether its merge request closes it.
