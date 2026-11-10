@@ -59,18 +59,14 @@ def up_next_payload(
         .select_related("author")
         .order_by("created_at", "id")
     )
+    queued = {run.pk: run for run in runs if run.status == RunStatus.QUEUED}
     follow_ups = {
-        event.run_id: run
+        event.run_id: queued[event.run_id]
         for event in events
-        if event.kind == EventKind.LEG_FOLLOW_UP
-        for run in runs
-        if run.pk == event.run_id and run.status == RunStatus.QUEUED
+        if event.kind == EventKind.LEG_FOLLOW_UP and event.run_id in queued
     }
-    jobs = [
-        run
-        for run in runs
-        if run.status == RunStatus.QUEUED and run.pk not in inbox_ids | follow_ups.keys() and run not in waiting
-    ]
+    not_jobs = inbox_ids | follow_ups.keys()
+    jobs = [run for run in queued.values() if run.pk not in not_jobs and run not in waiting]
 
     groups = [_starting_group(run, events, viewer) for run in starting]
 

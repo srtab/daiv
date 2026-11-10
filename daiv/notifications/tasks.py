@@ -193,7 +193,7 @@ async def classify_run_task(run_id: str) -> None:
         await sync_to_async(_notify_classified, thread_sensitive=True)(run, envelope)
 
     if run.status == RunStatus.FAILED and run.error_message in NOT_RUN_LABELS:
-        await _persist(status=EnvelopeStatus.ALL_CLEAR, summary=run.error_message, actionable=[])
+        await _persist(status=EnvelopeStatus.ALL_CLEAR, summary=gettext(run.error_message), actionable=[])
         return
 
     # Deterministic FAILED gating (AC5): a failed run is a tooling problem, decided before — and

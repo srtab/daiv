@@ -148,6 +148,31 @@ class TestMergeRequest:
         assert Leg(leg_run.session).merge_request_state() == MergeRequestState.OPEN
 
 
+@pytest.mark.django_db
+class TestMany:
+    def test_it_reads_what_each_leg_reads_on_its_own_in_three_queries(self, admin_user, django_assert_num_queries):
+        coordinator = make_coordinator(admin_user)
+        pushed = make_leg(coordinator, uuid.uuid4(), status=RunStatus.SUCCESSFUL, ref="", session_ref="daiv/a")
+        Run.objects.filter(pk=pushed.pk).update(pushed_sha="abc123")
+        published = make_leg(
+            coordinator, uuid.uuid4(), status=RunStatus.SUCCESSFUL, ref="release", session_ref="daiv/b",
+            merge_request_iid=4, merge_request_web_url="https://gitlab.example/acme/api/-/merge_requests/4",
+        )  # fmt: skip
+        _follow_up_run(published, status=RunStatus.SUCCESSFUL, merge_request_iid=7)
+        untouched = make_leg(coordinator, uuid.uuid4(), status=RunStatus.SUCCESSFUL, ref="", session_ref="main")
+        sessions = [run.session for run in (pushed, published, untouched)]
+        expected = {
+            leg.session.pk: (leg.base_ref, leg.has_own_branch(), leg.merge_request()) for leg in map(Leg, sessions)
+        }
+
+        with django_assert_num_queries(3):
+            legs = Leg.many(sessions)
+            loaded = {pk: (leg.base_ref, leg.has_own_branch(), leg.merge_request()) for pk, leg in legs.items()}
+
+        assert loaded == expected
+        assert expected[published.session_id][2] == LegMergeRequest("acme/api", 7, "")
+
+
 @pytest.mark.django_db(transaction=True)
 class TestMergeRequestState:
     def _owned_leg(self, admin_user) -> Run:

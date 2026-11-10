@@ -21,15 +21,21 @@ A leg follow-up that does not run because its leg's merge request was merged or 
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 from functools import cached_property
 from typing import TYPE_CHECKING
+
+from django.db.models import Exists, OuterRef
+from django.utils.translation import gettext_noop
 
 from asgiref.sync import sync_to_async
 
 from sessions.models import (
     LINK_FAILED_PREFIX,
+    EventKind,
     HiddenSession,
+    InboxEvent,
     MergeRequestOwnership,
     MergeRequestState,
     Run,
@@ -39,13 +45,20 @@ from sessions.models import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from django.db.models import QuerySet
 
     from accounts.models import User
 
-NOT_RUN_MERGED = "Not run: its merge request was merged"
-NOT_RUN_CLOSED = "Not run: its merge request was closed"
+NOT_RUN_MERGED = gettext_noop("Not run: its merge request was merged")
+NOT_RUN_CLOSED = gettext_noop("Not run: its merge request was closed")
 NOT_RUN_LABELS = frozenset({NOT_RUN_MERGED, NOT_RUN_CLOSED})
+
+
+def is_leg_follow_up_run() -> Exists:
+    """For a query on runs: whether the run is a leg follow-up's, whose ``leg_follow_up`` event is linked to it."""
+    return Exists(InboxEvent.objects.filter(kind=EventKind.LEG_FOLLOW_UP, run=OuterRef("pk")))
 
 
 @dataclass(frozen=True)
@@ -60,6 +73,35 @@ class Leg:
 
     def __init__(self, session: Session):
         self.session = session
+        self._pushed: bool | None = None
+        self._published: list[tuple[int, str]] | None = None
+
+    @classmethod
+    def many(cls, sessions: Iterable[Session]) -> dict[str, Leg]:
+        """A leg for each of ``sessions``, by thread id, with what :attr:`base_ref`, :meth:`has_own_branch` and
+        :meth:`merge_request` read loaded in three queries for all of them. SYNC ONLY."""
+        legs: dict[str, Leg] = {session.pk: cls(session) for session in sessions}
+        runs = Run.objects.filter(session_id__in=list(legs))
+        first_refs: dict[str, str] = {}
+        delegated = runs.filter(trigger_type=SessionOrigin.DELEGATED_JOB).order_by("created_at", "id")
+        for thread_id, ref in delegated.values_list("session_id", "ref"):
+            first_refs.setdefault(thread_id, ref)
+        pushed = set(runs.that_pushed().values_list("session_id", flat=True))
+        published: defaultdict[str, list[tuple[int, str]]] = defaultdict(list)
+        rows = (
+            runs
+            .filter(merge_request_iid__isnull=False)
+            .order_by("-created_at", "-id")
+            .values_list("session_id", "repo_id", "merge_request_iid", "merge_request_web_url")
+        )
+        for thread_id, repo_id, iid, web_url in rows:
+            if repo_id == legs[thread_id].session.repo_id:
+                published[thread_id].append((iid, web_url))
+        for thread_id, leg in legs.items():
+            leg.base_ref = first_refs.get(thread_id, leg.session.ref)
+            leg._pushed = thread_id in pushed
+            leg._published = published[thread_id]
+        return legs
 
     @classmethod
     def of(cls, thread_id: str, *, coordinator: str) -> Leg | None:
@@ -89,18 +131,24 @@ class Leg:
         ref = self.session.ref
         if not ref or ref == self.base_ref:
             return False
-        return bool(self.base_ref) or Run.objects.filter(session=self.session).that_pushed().exists()
+        if self.base_ref:
+            return True
+        if self._pushed is not None:
+            return self._pushed
+        return Run.objects.filter(session=self.session).that_pushed().exists()
 
     async def ahas_own_branch(self) -> bool:
         return await sync_to_async(self.has_own_branch)()
 
     def merge_request(self) -> LegMergeRequest | None:
-        published = list(
-            Run.objects
-            .filter(session=self.session, repo_id=self.session.repo_id, merge_request_iid__isnull=False)
-            .order_by("-created_at", "-id")
-            .values_list("merge_request_iid", "merge_request_web_url")
-        )
+        published = self._published
+        if published is None:
+            published = list(
+                Run.objects
+                .filter(session=self.session, repo_id=self.session.repo_id, merge_request_iid__isnull=False)
+                .order_by("-created_at", "-id")
+                .values_list("merge_request_iid", "merge_request_web_url")
+            )
         if not published:
             return None
         iid = published[0][0]

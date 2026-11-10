@@ -136,6 +136,17 @@ class LegFollowUps:
         )
 
     @staticmethod
+    def settle_unstartable(event: InboxEvent, run: Run | None) -> None:
+        """Settle the pending leg follow-up ``event`` whose own ``run`` is gone or no longer QUEUED, so the drain moves
+        on: as :meth:`end_with_run` settles it, else failed (``run_failed``). SYNC ONLY."""
+        if run is not None:
+            LegFollowUps.end_with_run(run)
+        InboxEvent.objects.filter(pk=event.pk, state=EventState.PENDING).update(
+            state=EventState.FAILED, failure=EventFailure.RUN_FAILED, updated_at=timezone.now()
+        )
+        session_changed(event.session_id)
+
+    @staticmethod
     def end_with_run(run: Run) -> None:
         """Settle the leg follow-up linked to ``run`` once it ended, whether the drain took it or not: dismissed when
         the run was cancelled, failed (``run_failed``) when it failed. A run that succeeded leaves its taken event to

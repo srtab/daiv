@@ -7,6 +7,7 @@ from django.utils import timezone
 import pytest
 from asgiref.sync import sync_to_async
 from django_tasks_db.models import DBTaskResult
+from sessions.admission import AdmissionError
 from sessions.artifacts import bind_active_run
 from sessions.delegation import (
     _NOT_A_LEG,
@@ -964,6 +965,26 @@ class TestLegFollowUp:
 
         assert [(failed.thread_id, failed.error) for failed in result.failed] == [(leg.session_id, _UNSTARTED_LEG)]
         assert any(record.levelname == "ERROR" and record.exc_info for record in caplog.records)
+
+    @pytest.mark.parametrize(
+        ("error", "reason"),
+        [(AdmissionError("Pick an environment you may use."), "Pick an environment you may use."),
+         (RuntimeError("db-internal"), _UNSTARTED_LEG)],
+        ids=["admission", "unexpected"],
+    )  # fmt: skip
+    async def test_new_legs_that_cannot_be_submitted_fail_beside_a_posted_follow_up(self, admin_user, error, reason):
+        _, run, leg = await _coordinated(admin_user)
+
+        with (
+            patch("sessions.delegation.asubmit_batch_runs", new=AsyncMock(side_effect=error)),
+            patch.object(Drain, "start_logged", autospec=True) as drained,
+        ):
+            result = await _delegate(run, [_target("acme/web"), _follow_up(leg)])
+
+        assert [(started.thread_id, started.leg_follow_up) for started in result.started] == [(leg.session_id, True)]
+        assert [(failed.repo_id, failed.error) for failed in result.failed] == [("acme/web", reason)]
+        assert result.batch_id is not None
+        assert [call.args[0].thread_id for call in drained.call_args_list] == [leg.session_id]
 
     async def test_follow_ups_count_toward_the_target_limit(self, admin_user):
         _, run, leg = await _coordinated(admin_user)

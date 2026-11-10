@@ -1698,7 +1698,6 @@
     error,
   });
 
-
   const LOST_OR_FAILED = new Set(["failed", "lost"]);
 
   const resultLegs = (data) => [

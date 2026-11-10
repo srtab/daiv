@@ -1090,3 +1090,39 @@ class TestLegFollowUp:
         assert (await _state(follow_up)).state == EventState.DISMISSED
         assert (await Run.objects.aget(pk=run.pk)).status == RunStatus.FAILED
         enqueue.assert_not_awaited()
+
+    async def test_a_follow_up_left_without_its_run_fails_and_the_drain_moves_on(self, enqueue, admin_user):
+        _, follow_up = await _leg_follow_up(admin_user)
+        await InboxEvent.objects.filter(pk=follow_up.pk).aupdate(run=None)
+
+        with patch.object(Drain, "start_logged", autospec=True):
+            assert await Drain(follow_up.session_id).astart() is None
+
+        stored = await _state(follow_up)
+        assert (stored.state, stored.failure) == (EventState.FAILED, EventFailure.RUN_FAILED)
+        enqueue.assert_not_awaited()
+
+    async def test_a_follow_up_whose_run_succeeded_is_failed_so_the_drain_stops_retaking_it(self, enqueue, admin_user):
+        run, follow_up = await _leg_follow_up(admin_user)
+        await Run.objects.filter(pk=run.pk).aupdate(status=RunStatus.SUCCESSFUL)
+
+        with patch.object(Drain, "start_logged", autospec=True):
+            assert await Drain(follow_up.session_id).astart() is None
+
+        stored = await _state(follow_up)
+        assert (stored.state, stored.failure, stored.run_id) == (EventState.FAILED, EventFailure.RUN_FAILED, run.pk)
+        enqueue.assert_not_awaited()
+
+    async def test_a_failed_enqueue_ends_it_with_its_run_and_keeps_it_linked(self, admin_user):
+        run, follow_up = await _leg_follow_up(admin_user)
+
+        async def fail(started, **kwargs):
+            await Run.objects.filter(pk=started.pk).aupdate(status=RunStatus.FAILED)
+            started.status = RunStatus.FAILED
+            return EnqueueFailure(task_enqueued=False)
+
+        with patch("sessions.inbox.drain.aenqueue_run", new=AsyncMock(side_effect=fail)):
+            assert await Drain(follow_up.session_id).astart() is None
+
+        stored = await _state(follow_up)
+        assert (stored.state, stored.failure, stored.run_id) == (EventState.FAILED, EventFailure.RUN_FAILED, run.pk)

@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
 from django.urls import reverse
+from django.utils.translation import gettext
 
 from skills.models import GlobalSkill, SkillInvocation
 
@@ -86,7 +87,7 @@ def _marker(run: Run) -> dict[str, Any] | None:
         # persisted distinguishes them from a genuine failure except these shared messages.
         aborted = message in (CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE)
     elif run.trigger_type == SessionOrigin.DELEGATED_JOB and run.error_message in NOT_RUN_LABELS:
-        message, aborted = run.error_message, True
+        message, aborted = gettext(run.error_message), True
     elif run.is_cancelled:
         # Only a delegated leg is cancelled by its coordinator; any other run, by its owner from the session page.
         delegated = run.trigger_type == SessionOrigin.DELEGATED_JOB

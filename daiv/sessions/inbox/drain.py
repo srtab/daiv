@@ -155,7 +155,8 @@ class Drain:
         with transaction.atomic():
             Session.objects.select_for_update().filter(pk=run.session_id).exists()
             SessionLock.release_for_run(run.session_id, run.pk)
-            InboxEvent.objects.filter(run=run, state=EventState.TAKEN).update(
+            LegFollowUps.end_with_run(run)
+            InboxEvent.objects.filter(run=run, state=EventState.TAKEN).exclude(kind=EventKind.LEG_FOLLOW_UP).update(
                 state=EventState.PENDING, run=None, updated_at=timezone.now()
             )
             retaken = set(
@@ -225,11 +226,14 @@ class _Take:
         splits = RequestSplits(requested)
         asked = splits.splits[0]
         follow_up = asked[0] if asked[0].kind == EventKind.LEG_FOLLOW_UP else None
-        own_run = Run.objects.get(pk=follow_up.run_id) if follow_up is not None else None
-        if own_run is not None and own_run.status != RunStatus.QUEUED:
-            LegFollowUps.end_with_run(own_run)
-            transaction.on_commit(Drain(session.thread_id).start_logged, robust=True)
-            return None
+        own_run = None
+        if follow_up is not None:
+            # Locked so a coordinator's cancel can't land between this read and the promotion to READY.
+            own_run = Run.objects.select_for_update().filter(pk=follow_up.run_id).first()
+            if own_run is None or own_run.status != RunStatus.QUEUED:
+                LegFollowUps.settle_unstartable(follow_up, own_run)
+                transaction.on_commit(Drain(session.thread_id).start_logged, robust=True)
+                return None
         if follow_up is not None and (stop := LegFollowUps.stop_reason(session)) is not None:
             LegFollowUps.stop(follow_up, stop)
             transaction.on_commit(Drain(session.thread_id).start_logged, robust=True)

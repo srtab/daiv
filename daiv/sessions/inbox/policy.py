@@ -12,11 +12,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from django.db.models import BooleanField, Exists, ExpressionWrapper, OuterRef, Q
+from django.db.models import BooleanField, ExpressionWrapper, Q
 
 from asgiref.sync import sync_to_async
 
 from sessions.inbox.kinds import GATED_KINDS
+from sessions.legs import is_leg_follow_up_run
 from sessions.models import (
     EventKind,
     InboxEvent,
@@ -41,8 +42,7 @@ def daiv_started() -> Q:
     """The runs DAIV started itself: a CI fix, a delegation resume, a coordinator's leg follow-up. A leg's first
     delegated run is not one of them."""
     return Q(trigger_type__in=SessionOrigin.daiv_authored()) | Q(
-        Exists(InboxEvent.objects.filter(kind=EventKind.LEG_FOLLOW_UP, run=OuterRef("pk"))),
-        trigger_type=SessionOrigin.DELEGATED_JOB,
+        is_leg_follow_up_run(), trigger_type=SessionOrigin.DELEGATED_JOB
     )
 
 
