@@ -225,6 +225,11 @@ class _Take:
         splits = RequestSplits(requested)
         asked = splits.splits[0]
         follow_up = asked[0] if asked[0].kind == EventKind.LEG_FOLLOW_UP else None
+        own_run = Run.objects.get(pk=follow_up.run_id) if follow_up is not None else None
+        if own_run is not None and own_run.status != RunStatus.QUEUED:
+            LegFollowUps.end_with_run(own_run)
+            transaction.on_commit(Drain(session.thread_id).start_logged, robust=True)
+            return None
         if follow_up is not None and (stop := LegFollowUps.stop_reason(session)) is not None:
             LegFollowUps.stop(follow_up, stop)
             transaction.on_commit(Drain(session.thread_id).start_logged, robust=True)
@@ -238,8 +243,8 @@ class _Take:
         else:
             taken = asked
         waiting_run = queued.get((branch, requester))
-        if follow_up is not None:
-            next_run = Run.objects.get(pk=follow_up.run_id)
+        if own_run is not None:
+            next_run = own_run
         elif waiting_run is not None and splits.holding(waiting_run.pk) == 0:
             next_run = waiting_run
         else:

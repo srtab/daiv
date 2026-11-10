@@ -1079,3 +1079,14 @@ class TestLegFollowUp:
         assert stopped.started_at == stopped.finished_at
         assert follow_up.session_id in [call.args[0].thread_id for call in drained.call_args_list]
         enqueue.assert_not_awaited()
+
+    async def test_a_follow_up_whose_run_already_ended_is_settled_not_started(self, enqueue, admin_user):
+        run, follow_up = await _leg_follow_up(admin_user)
+        await Run.objects.filter(pk=run.pk).aupdate(status=RunStatus.FAILED, cancel_requested_at=timezone.now())
+
+        with patch.object(Drain, "start_logged", autospec=True):
+            assert await Drain(follow_up.session_id).astart() is None
+
+        assert (await _state(follow_up)).state == EventState.DISMISSED
+        assert (await Run.objects.aget(pk=run.pk)).status == RunStatus.FAILED
+        enqueue.assert_not_awaited()

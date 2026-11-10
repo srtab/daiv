@@ -404,7 +404,7 @@ description: "Task list for the Delegated Leg Follow-ups feature"
   - follow-up rows show the `leg_follow_up` label.
   Add `leg_follow_up: "Leg follow-up"` to `daiv/sessions/transcript_labels.py` and `daiv/chat/static/chat/js/transcript-labels.js`. Makes T056 pass.
 - [X] T060 [US5] In `daiv/automation/agent/middlewares/delegate_jobs.py` `DELEGATE_JOBS_SYSTEM_PROMPT`, replace step 5 and add the leg follow-up paragraph after the `ref` paragraph, both from contracts/delegate-jobs-tool.md "System prompt" (FR-018).
-- [ ] T061 [US5] In `tests/integration_tests/test_delegation.py`, extend `RecordingDelegator`, which puts each leg in the database since #1780. For a target with `thread_id`, it creates a QUEUED `delegated_job` run with the call's `batch_id` on that leg's existing session, creating no session, and returns `StartedLeg(leg_follow_up=True, …)`. Reword case 5's failure message, which names `LEG_REPLY_MAX_CHARS` as the cap the coordinator sees. Add two cases built with the suite's `_resumed()`:
+- [X] T061 [US5] In `tests/integration_tests/test_delegation.py`, extend `RecordingDelegator`, which puts each leg in the database since #1780. For a target with `thread_id`, it creates a QUEUED `delegated_job` run with the call's `batch_id` on that leg's existing session, creating no session, and returns `StartedLeg(leg_follow_up=True, …)`. Reword case 5's failure message, which names `LEG_REPLY_MAX_CHARS` as the cap the coordinator sees. Add two cases built with the suite's `_resumed()`:
   - `test_a_leg_that_reports_its_work_incomplete_gets_a_leg_follow_up` (SC-001): one leg's reply says its tests still fail. Assert one `delegate_jobs` call whose only target names that leg's `thread_id` and no `ref`.
   - `test_an_independent_second_part_gets_a_new_leg` (SC-002): every leg succeeded, and the original request has an independent second part. Assert a `delegate_jobs` call with a target without `thread_id`.
   Give the legs `DBTaskResult.return_value` responses, so replies come from `response_text`. Check with `uv run pytest --collect-only -m delegation tests/integration_tests`: seven cases.
@@ -420,17 +420,17 @@ description: "Task list for the Delegated Leg Follow-ups feature"
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T063 [P] Update `docs/features/orchestration.md` per contracts/session-page.md "Docs":
+- [X] T063 [P] Update `docs/features/orchestration.md` per contracts/session-page.md "Docs":
   - add a "How it works" paragraph;
   - add a "Following up a leg" section after "Where a leg's work lands";
   - add the "Rules and limits" rows: one leg follow-up outstanding per leg; follow-ups count toward the 10-target limit; the refusals; a follow-up always wakes the leg; replies up to 4,000 characters, 1,000 in the overview;
   - in "Seeing the batch", say a leg is counted once, list the two "not run" states, and describe the "Leg follow-up" label on the card.
-- [ ] T064 [P] Update `docs/features/sessions.md`: the inbox section lists the "Leg follow-up" event, and the delegated-batch paragraph says a leg follow-up runs in the leg's session as a Delegated Run.
-- [ ] T065 [P] Update `CHANGELOG.md` under `Unreleased`:
+- [X] T064 [P] Update `docs/features/sessions.md`: the inbox section lists the "Leg follow-up" event, and the delegated-batch paragraph says a leg follow-up runs in the leg's session as a Delegated Run.
+- [X] T065 [P] Update `CHANGELOG.md` under `Unreleased`:
   - under **Added**, an entry for leg follow-ups (continue a leg in its own session, branch and merge request; per-target refusals; never retried) and the longer leg replies (up to 4,000 characters, from the full answer);
   - in the existing **Orchestration** entry, remove the stale "in the top bar (how many run, wait or failed)" (research refinement 4).
   Common Changelog form, no Upgrade note.
-- [ ] T066 [P] In `AGENTS.md`'s `daiv/jobs/` repo-map line, add "leg follow-ups (`sessions.inbox.leg_follow_ups`)" to the list of what `sessions.inbox.drain` starts runs from. Note that `delegate_jobs` can now continue a leg (`sessions.delegation`).
+- [X] T066 [P] In `AGENTS.md`'s `daiv/jobs/` repo-map line, add "leg follow-ups (`sessions.inbox.leg_follow_ups`)" to the list of what `sessions.inbox.drain` starts runs from. Note that `delegate_jobs` can now continue a leg (`sessions.delegation`).
 - [ ] T067 Run the gates and record what ran (`patterns/tests.md` rule 5):
   - `make lint-fix && make lint`, then `rm -rf .ruff_cache` and `uv run --only-group=dev ruff check --no-cache .`, if lint looks suspiciously clean;
   - `make lint-typing`;
