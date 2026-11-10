@@ -73,6 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add SearXNG as a web-search backend with a configurable JSON search endpoint and bounded timeout, available through Site Configuration and environment variables for all agent entry points.
 - **Multi-repository sessions** — the Jobs API and MCP `submit_job` accept `shared_session: true` with up to 5 `repos` to run one session across several repositories. The first is the main one; each changed repository gets its own merge request, linked to the others and CI-watched in the session, whose `@daiv` mentions reach it too, and job status gains `merge_requests` and `publish_errors`. **Upgrade note:** deploy a daiv-sandbox release with path-scoped egress rules and `repos_archive` seeding first; single-repository runs are unaffected.
 - A new chat starts from a **Workspace** card: pick up to 5 repositories, each on its own branch, make any of them the main one, and see the environment Auto picks for it before sending. More than one repository opens a multi-repository session. The environment moved there from the composer's `+` sheet, which now holds only Tools.
 - `web_fetch` now honours a URL `#fragment`: on an HTML page it processes only the section that anchor names, so one section of a long page such as release notes can be read. A page too large to process now lists its section anchors to fetch instead of suggesting an anchor the tool ignored, and a section still too large lists its subsections.
