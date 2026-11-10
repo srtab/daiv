@@ -15,7 +15,7 @@
   <a href="https://github.com/srtab/daiv/stargazers"><img src="https://img.shields.io/github/stars/srtab/daiv?style=flat" alt="GitHub stars"></a>
 </p>
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/e94eecc0-9180-468b-8ccf-b8fe27bab302" alt="A GitLab issue is labelled daiv; DAIV posts a plan; the author replies @daiv proceed; DAIV opens a merge request whose pipeline passes" width="800">
+  <img src="https://github.com/user-attachments/assets/52fc593f-ab5e-4fcb-8660-1a885448c40f" alt="A GitLab issue is labelled daiv; DAIV posts a plan; the author replies @daiv proceed; DAIV opens a merge request whose pipeline passes" width="800">
 </p>
 
 ---

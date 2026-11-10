@@ -9,7 +9,7 @@ code is pushed only to an empty project. ``--reset`` deletes the project and cre
 again under a new path (``inventory-api-<n>``, still named ``inventory-api``): DAIV keys
 its sessions on project path and issue number, so a project recreated at the same path
 would resume the deleted project's conversations. The current path is kept in
-``~/.cache/daiv-demo/project`` for ``record_hero.py``.
+``~/.cache/daiv-demo/project`` for the other scripts.
 """
 
 import argparse
