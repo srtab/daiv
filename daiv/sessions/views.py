@@ -54,6 +54,7 @@ from sessions.multi_repo import MAX_REPOS_PER_SESSION
 from sessions.page_state import aload_session_state
 from sessions.services import RepoTarget, submit_batch_runs
 from sessions.spend import build_session_spend
+from sessions.templatetags.session_tags import attach_merge_request_states
 from sessions.titling import MAX_TITLE_LENGTH
 from sessions.transcript_labels import transcript_icons, transcript_labels
 from slash_commands.composer import composer_command_rows
@@ -220,6 +221,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
                 .first()
             ) or ""
 
+        attach_merge_request_states(context["sessions"])
         # In-flight RUN ids across the page's sessions, for the SSE status stream.
         page_ids = [s.pk for s in context["sessions"]]
         in_flight = Run.objects.filter(session_id__in=page_ids).exclude(status__in=RunStatus.terminal())

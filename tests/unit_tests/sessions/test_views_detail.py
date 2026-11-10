@@ -1347,6 +1347,30 @@ def test_detail_info_tab_shows_origin_owner_runs_and_session_id(member_client, m
 
 
 @pytest.mark.django_db
+def test_detail_overview_lists_the_sessions_external_references_last(member_client, member_user):
+    jira_url = "https://jira.example.com/browse/PROJ-12"
+    session = _create_session(
+        user=member_user, external_refs=[{"key": "PROJ-12", "url": jira_url, "provider": "jira", "relation": "closes"}]
+    )
+
+    resp = _get_detail(member_client, session)
+    details = _details(resp)
+    refs = BeautifulSoup(_section(details, "session-details-references"), "html.parser")
+
+    order = [details.index(f'id="session-details-{part}"') for part in ("outputs", "references", "info")]
+    assert order == sorted(order)
+    assert [card["key"] for card in resp.context["header"]["references"]] == ["PROJ-12"]
+    assert 'id="session-details-references" x-show="references.length"' in details
+    assert refs.select_one(".details-fold__summary")["x-text"] == "references.length"
+    # soupsieve 4 no longer descends into <template> from an ancestor; the ref-card
+    # lives inside the Alpine <template x-for>, so query the template element directly
+    # (select still reaches a template's contents when called on the template itself).
+    card = refs.select_one("template").select_one("a.ref-card")
+    assert card[":href"] == "ref.url || null"
+    assert card["target"] == "_blank" and card["rel"] == ["noopener", "noreferrer"]
+
+
+@pytest.mark.django_db
 def test_detail_panel_falls_back_to_the_platform_username_without_an_owner(member_client, member_user):
     session = _create_session(origin=SessionOrigin.MR_WEBHOOK, external_username="octocat")
     grant_read_access(member_user, session.repo_id)
@@ -1549,9 +1573,10 @@ def test_detail_sidebar_has_overview_and_info_tabs(member_client, member_user):
 
 @pytest.mark.django_db
 def test_detail_overview_sections_fold(member_client, member_user):
-    details = _details(_get_detail(member_client, _create_session(user=member_user)))
+    session = _create_session(user=member_user, external_refs=[{"key": "PROJ-1"}])
+    details = _details(_get_detail(member_client, session))
 
-    for section in ("repositories", "environment", "context", "spend", "outputs"):
+    for section in ("repositories", "environment", "context", "spend", "outputs", "references"):
         assert f"toggleFold('{section}')" in details
         assert f":aria-expanded=\"(!isFolded('{section}')).toString()\"" in details
         assert f"x-show=\"!isFolded('{section}')\"" in details

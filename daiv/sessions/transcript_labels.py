@@ -16,11 +16,14 @@ TRANSCRIPT_ICONS = frozenset({
     "folder",
     "github",
     "gitlab",
+    "jira",
     "light-bulb",
+    "link",
     "magnifying-glass",
     "paper-clip",
     "pencil",
     "puzzle-piece",
+    "sentry",
     "share",
     "squares-plus",
     "web-fetch",
@@ -29,7 +32,8 @@ TRANSCRIPT_ICONS = frozenset({
 
 
 def transcript_icons() -> dict[str, str]:
-    """Each icon the transcript JS draws, rendered by ``{% icon %}`` at the size of a step row."""
+    """Each icon the transcript JS and the details panel's references draw, rendered by ``{% icon %}`` at the size of a
+    step row."""
     return {name: icon(name, "h-3.5 w-3.5") for name in sorted(TRANSCRIPT_ICONS)}
 
 

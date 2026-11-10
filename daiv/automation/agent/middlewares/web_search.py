@@ -4,8 +4,10 @@ import json
 import logging
 from typing import TYPE_CHECKING, Annotated
 
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 
+import httpx
 from ddgs.exceptions import DDGSException
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_community.utilities.duckduckgo_search import DuckDuckGoSearchAPIWrapper
@@ -14,6 +16,7 @@ from langchain_core.tools import tool
 
 from core.models import WebSearchEngineChoices
 from core.site_settings import site_settings
+from core.validators import validate_searxng_url
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -32,6 +35,152 @@ class WebSearchConfigurationError(ValueError):
     Raised past the tool's catch-all so a misconfiguration, which no rephrasing fixes, fails the
     run instead of degrading into a tool result nobody reads.
     """
+
+
+class SearXNGSearchError(RuntimeError):
+    """A sanitized SearXNG failure that is safe for the model and diagnostics."""
+
+    def __init__(self, message: str, *, engine_names: tuple[str, ...] = (), http_status: int | None = None):
+        super().__init__(message)
+        self.engine_names = engine_names
+        self.http_status = http_status
+
+
+class SearXNGSearch:
+    """Own the configured SearXNG endpoint, transport and result normalization."""
+
+    def __init__(self, *, url: str, timeout_seconds: int, max_results: int):
+        if not isinstance(url, str) or not url:
+            raise WebSearchConfigurationError(
+                "SearXNG search URL is missing. Set DAIV_WEB_SEARCH_SEARXNG_URL or use the config UI."
+            )
+        try:
+            validate_searxng_url(url)
+        except ValidationError:
+            raise WebSearchConfigurationError(
+                "SearXNG search URL must be an HTTP(S) endpoint without credentials, query or fragment."
+            ) from None
+        if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, int) or not 1 <= timeout_seconds <= 120:
+            raise WebSearchConfigurationError("SearXNG search timeout must be an integer between 1 and 120 seconds.")
+        if isinstance(max_results, bool) or not isinstance(max_results, int) or max_results < 1:
+            raise WebSearchConfigurationError("Web search maximum results must be a positive integer.")
+        self.url = url
+        self.timeout_seconds = timeout_seconds
+        self.max_results = max_results
+
+    @classmethod
+    def from_settings(cls) -> SearXNGSearch:
+        try:
+            url = site_settings.web_search_searxng_url
+            timeout = site_settings.web_search_searxng_timeout_seconds
+            maximum = site_settings.web_search_max_results
+        except ValueError, TypeError:
+            # Integer environment coercion includes its raw value in the exception.
+            raise WebSearchConfigurationError(
+                "Invalid SearXNG configuration. Check its URL, timeout and web search result limit."
+            ) from None
+        return cls(url=url, timeout_seconds=timeout, max_results=maximum)
+
+    async def search(self, query: str) -> list[dict[str, str]]:
+        try:
+            # An external search bang can redirect to a result site. Keep requests
+            # scoped to the operator's endpoint; never follow that redirect.
+            async with httpx.AsyncClient(timeout=self.timeout_seconds, follow_redirects=False) as client:
+                response = await client.get(
+                    self.url, params={"q": query, "format": "json"}, headers={"Accept-Language": "en"}
+                )
+                response.raise_for_status()
+        except httpx.TimeoutException as exc:
+            raise SearXNGSearchError(
+                "SearXNG request timed out. Check service health or the configured timeout."
+            ) from exc
+        except httpx.HTTPStatusError as exc:
+            raise SearXNGSearchError(
+                self._http_error(exc.response.status_code), http_status=exc.response.status_code
+            ) from None
+        except httpx.RequestError as exc:
+            raise SearXNGSearchError(
+                "SearXNG request failed. Check network access, proxy configuration and TLS trust."
+            ) from exc
+        except OSError as exc:
+            raise SearXNGSearchError(
+                "SearXNG transport configuration failed. Check the endpoint, proxy and CA bundle."
+            ) from exc
+        except ValueError, httpx.InvalidURL:
+            raise SearXNGSearchError(
+                "SearXNG transport configuration failed. Check the endpoint, proxy and CA bundle."
+            ) from None
+        try:
+            payload = response.json()
+        except ValueError:
+            raise SearXNGSearchError(
+                "SearXNG returned invalid JSON. Check JSON output and proxy configuration."
+            ) from None
+        return self._results(payload)
+
+    def _http_error(self, status: int) -> str:
+        if status == 403:
+            return "SearXNG refused the request (HTTP 403). Enable JSON output and check access permissions."
+        if status == 401:
+            return "SearXNG authentication is required (HTTP 401). Check the search endpoint's access configuration."
+        if status == 429:
+            return "SearXNG rate limit reached (HTTP 429). Check the instance's limiter settings."
+        if 300 <= status < 400:
+            return "SearXNG redirected the request. Configure the final search endpoint; redirects are not followed."
+        return f"SearXNG returned HTTP {status}. Check the search service and its proxy."
+
+    def _results(self, payload: object) -> list[dict[str, str]]:
+        if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
+            raise SearXNGSearchError("SearXNG returned an invalid search response. Check the endpoint and JSON output.")
+        engine_errors = payload.get("unresponsive_engines", [])
+        if not isinstance(engine_errors, list):
+            raise SearXNGSearchError("SearXNG returned an invalid search response. Check the endpoint and JSON output.")
+        engine_names = tuple(
+            error[0]
+            for error in engine_errors
+            if isinstance(error, list | tuple) and error and isinstance(error[0], str)
+        )
+        results = []
+        invalid_results = False
+        for result in payload["results"]:
+            normalized = self._result(result)
+            if normalized is None:
+                invalid_results = True
+                continue
+            results.append(normalized)
+            if len(results) >= self.max_results:
+                break
+        if not results and engine_errors:
+            raise SearXNGSearchError(
+                "SearXNG returned no usable results and reported engine failures. Check engine health.",
+                engine_names=engine_names,
+            )
+        if not results and invalid_results:
+            raise SearXNGSearchError("SearXNG returned no usable result entries. Check the endpoint's response format.")
+        if results and len(results) < self.max_results and (engine_errors or invalid_results):
+            logger.warning(
+                "SearXNG returned fewer results than requested; unavailable engines=%s, invalid result entries=%s.",
+                engine_names,
+                invalid_results,
+            )
+            results[0]["content"] = (
+                "[Partial search results: some engines or result entries failed.] " + results[0]["content"]
+            )
+        return results
+
+    def _result(self, result: object) -> dict[str, str] | None:
+        if not isinstance(result, dict) or not isinstance(result.get("url"), str):
+            return None
+        try:
+            url = httpx.URL(result["url"])
+        except httpx.InvalidURL:
+            return None
+        if url.scheme not in {"http", "https"} or not url.host or url.userinfo:
+            return None
+        title, content = result.get("title"), result.get("content")
+        if title is not None and not isinstance(title, str) or content is not None and not isinstance(content, str):
+            return None
+        return {"title": title or str(url), "link": str(url), "content": content or ""}
 
 
 WEB_SEARCH_TOOL_DESCRIPTION = f"""\
@@ -83,7 +232,7 @@ Sources:
 
 async def _get_web_search_results(query: str) -> list[dict[str, str]]:
     """
-    Search the web using the DuckDuckGo or Tavily API.
+    Search the web using the configured search backend.
 
     Args:
         query (str): The search query.
@@ -95,6 +244,8 @@ async def _get_web_search_results(query: str) -> list[dict[str, str]]:
         return _get_duckduckgo_results(query)
     elif site_settings.web_search_engine == WebSearchEngineChoices.TAVILY:
         return await _get_tavily_results(query)
+    elif site_settings.web_search_engine == WebSearchEngineChoices.SEARXNG:
+        return await SearXNGSearch.from_settings().search(query)
     else:
         raise WebSearchConfigurationError(f"Invalid web search engine: {site_settings.web_search_engine}")
 
@@ -166,6 +317,25 @@ async def web_search_tool(query: Annotated[str, "The search query."]) -> str:
         results = await _get_web_search_results(query)
     except WebSearchConfigurationError:
         raise
+    except SearXNGSearchError as exc:
+        # Keep transport evidence operator-side while the model sees only the
+        # sanitized message. HTTP failures never attach response bodies/headers.
+        error_type = (
+            type(exc.__cause__).__name__
+            if exc.__cause__
+            else "HTTPStatusError"
+            if exc.http_status
+            else type(exc).__name__
+        )
+        logger.error(
+            "SearXNG web search failed (%s): %s; HTTP status=%s; unavailable engines=%s.",
+            error_type,
+            exc,
+            exc.http_status,
+            exc.engine_names,
+            exc_info=exc.__cause__,
+        )
+        return f"error: Web search failed. Details: {exc}"
     except Exception as exc:
         # Returned, not raised: the ToolNode's default handler re-raises anything that is not a
         # ToolInvocationError, which aborts the whole run and discards every completed step.

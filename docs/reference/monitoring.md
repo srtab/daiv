@@ -97,7 +97,7 @@ A typical labelled-issue run therefore carries the tags `gitlab`, `group/project
   "issue_id": 42,
   "labels": ["daiv", "bug"],
   "scope": "Issue",
-  "model": "openrouter:anthropic/claude-sonnet-4.6",
+  "model": "openrouter:anthropic/claude-sonnet-5.5",
   "thinking_level": "medium"
 }
 ```
@@ -113,7 +113,7 @@ A typical labelled-issue run therefore carries the tags `gitlab`, `group/project
   "git_platform": "gitlab",
   "merge_request_id": 123,
   "scope": "Merge Request",
-  "model": "openrouter:anthropic/claude-sonnet-4.6",
+  "model": "openrouter:anthropic/claude-sonnet-5.5",
   "thinking_level": "medium"
 }
 ```
@@ -126,7 +126,7 @@ A typical labelled-issue run therefore carries the tags `gitlab`, `group/project
   "git_platform": "gitlab",
   "scope": "Global",
   "trigger": "job",
-  "model": "openrouter:anthropic/claude-sonnet-4.6",
+  "model": "openrouter:anthropic/claude-sonnet-5.5",
   "thinking_level": "medium",
   "ref": "main",
   "override_source": "explicit"
@@ -197,7 +197,7 @@ python manage.py setup_langsmith_dashboard --recreate
 
 - **By trigger type** — filter by `scope` or by metadata key `issue_id` vs `merge_request_id`
 - **By user** — filter or group by `author`
-- **By model** — group by `model` to compare performance across models (the value is the full configured model identifier, e.g. `openrouter:anthropic/claude-sonnet-4.6` vs `openrouter:anthropic/claude-opus-4.6`)
+- **By model** — group by `model` to compare performance across models (the value is the full configured model identifier, e.g. `openrouter:anthropic/claude-sonnet-5.5` vs `openrouter:anthropic/claude-opus-5.5`)
 - **Performance** — monitor execution time and token usage per run
 
 ---
@@ -210,7 +210,7 @@ DAIV tracks token usage and estimated cost for every agent execution internally 
 
 1. Each agent invocation runs inside the `track_usage_metadata()` context manager (in `daiv/automation/agent/usage_tracking.py`), which binds a `CostAwareUsageMetadataCallbackHandler` (a subclass of LangChain's `UsageMetadataCallbackHandler` that prices each LLM call individually) to a module-level `ContextVar` registered with LangChain's `register_configure_hook`. The handler is automatically inherited by every nested `Runnable` — including subagent invocations — without needing to thread callbacks through `RunnableConfig`.
 2. The handler captures `usage_metadata` from every LLM call during graph execution — including fallback model invocations, tool-internal model calls, and subagents spawned via the `task` tool.
-3. After the run, token counts are aggregated per model and cost is calculated using [genai-prices](https://github.com/pydantic/genai-prices) (maintained by Pydantic).
+3. Each call is priced on its own. An OpenRouter call uses the charge OpenRouter reports for it, which depends on the provider it routed the call to; any other call is estimated from the model's list price in [genai-prices](https://github.com/pydantic/genai-prices) (maintained by Pydantic). After the run, token counts and costs are aggregated per model.
 4. The usage summary is stored in the `AgentResult` and denormalized onto the `Run` record for long-term retention.
 
 ### What's tracked
@@ -220,7 +220,7 @@ DAIV tracks token usage and estimated cost for every agent execution internally 
 | `input_tokens` | Total input (prompt) tokens across all model calls |
 | `output_tokens` | Total output (completion) tokens |
 | `total_tokens` | Sum of input + output |
-| `cost_usd` | Estimated USD cost from genai-prices |
+| `cost_usd` | USD cost: OpenRouter's reported charge, or a genai-prices estimate for other providers |
 | `usage_by_model` | Per-model breakdown of tokens and cost |
 
 Token detail buckets (when available from the provider):

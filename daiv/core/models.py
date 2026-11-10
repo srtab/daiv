@@ -11,9 +11,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from django.core.cache import cache
-from django.core.validators import MinValueValidator
-from django.db import models, transaction
+from django.core.validators import MaxValueValidator, MinValueValidator
+from django.db import connections, models, transaction
 from django.utils.translation import gettext_lazy as _
+
+from core.validators import validate_searxng_url
 
 if TYPE_CHECKING:
     from pydantic import SecretStr
@@ -28,6 +30,14 @@ WEB_FETCH_AUTH_HEADERS_CACHE_TIMEOUT = 60 * 5  # 5 minutes
 
 PROVIDERS_CACHE_KEY = "providers"
 PROVIDERS_CACHE_TIMEOUT = 60 * 5  # 5 minutes
+
+
+def _close_old_connections_outside_transactions() -> None:
+    """``close_old_connections`` for the cache loaders, which may run inside a caller's transaction: closing that
+    connection hands it back to the pool mid-transaction, and the caller's next query fails."""
+    for conn in connections.all(initialized_only=True):
+        if not conn.in_atomic_block:
+            conn.close_if_unusable_or_obsolete()
 
 
 @dataclass(frozen=True)
@@ -71,6 +81,7 @@ THINKING_OFF = "off"
 class WebSearchEngineChoices(models.TextChoices):
     DUCKDUCKGO = "duckduckgo", _("DuckDuckGo")
     TAVILY = "tavily", _("Tavily")
+    SEARXNG = "searxng", _("SearXNG")
 
 
 class ProviderType(models.TextChoices):
@@ -427,7 +438,25 @@ class SiteConfiguration(models.Model):
         blank=True,
         null=True,
         choices=WebSearchEngineChoices.choices,
-        help_text=_("Search engine to use. Tavily requires an API key."),
+        help_text=_("Search engine to use. Tavily requires an API key; SearXNG requires a search URL."),
+    )
+    web_search_searxng_url = models.CharField(
+        _("SearXNG search URL"),
+        max_length=2048,
+        blank=True,
+        null=True,
+        validators=[validate_searxng_url],
+        help_text=_(
+            "Complete SearXNG search endpoint, including /search and any path prefix. "
+            "Use http or https without credentials, query parameters or a fragment. JSON output must be enabled."
+        ),
+    )
+    web_search_searxng_timeout_seconds = models.PositiveIntegerField(
+        _("SearXNG request timeout"),
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(1), MaxValueValidator(120)],
+        help_text=_("Timeout for SearXNG requests in seconds (1–120; default 15)."),
     )
 
     # -- Web Fetch --
@@ -760,17 +789,15 @@ class SiteConfiguration(models.Model):
             # path below, which re-caches a fresh instance.
             return cached
 
-        from django.db import close_old_connections
-
         try:
-            close_old_connections()
+            _close_old_connections_outside_transactions()
             instance = cls.objects.get_instance()
         except Exception:  # noqa: BLE001 — DB/cache may fail during startup or degraded state
             logger.exception("SiteConfiguration not available; falling back to defaults")
             return None
         finally:
             with contextlib.suppress(Exception):
-                close_old_connections()
+                _close_old_connections_outside_transactions()
 
         cache.set(SITE_CONFIGURATION_CACHE_KEY, instance, SITE_CONFIGURATION_CACHE_TIMEOUT)
         return instance
@@ -950,17 +977,15 @@ class WebFetchAuthHeader(models.Model):
         rather than crash the tool. The exception is logged so operators can
         diagnose the underlying failure.
         """
-        from django.db import close_old_connections
-
         try:
-            close_old_connections()
+            _close_old_connections_outside_transactions()
             out = cls._build_from_db()
         except Exception:  # noqa: BLE001 — degrade gracefully on DB/migration/encryption errors
             logger.exception("WebFetchAuthHeader rows not available; falling back to empty dict")
             return {}
         finally:
             with contextlib.suppress(Exception):
-                close_old_connections()
+                _close_old_connections_outside_transactions()
 
         cache.set(WEB_FETCH_AUTH_HEADERS_CACHE_KEY, out, WEB_FETCH_AUTH_HEADERS_CACHE_TIMEOUT)
         return out
@@ -1140,17 +1165,15 @@ class Provider(models.Model):
 
     @classmethod
     def _load_and_cache(cls) -> list[Cached]:
-        from django.db import close_old_connections
-
         try:
-            close_old_connections()
+            _close_old_connections_outside_transactions()
             out = cls._build_from_db()
         except Exception:  # noqa: BLE001
             logger.exception("Provider rows not available; falling back to empty list")
             return []
         finally:
             with contextlib.suppress(Exception):
-                close_old_connections()
+                _close_old_connections_outside_transactions()
 
         cache.set(PROVIDERS_CACHE_KEY, out, PROVIDERS_CACHE_TIMEOUT)
         return out

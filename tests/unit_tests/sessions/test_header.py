@@ -16,11 +16,13 @@ from sessions.header import (
     issue_link,
     latest_run_payload,
     parent_link,
+    references_payload,
     retry_for,
     watch_payload,
 )
 from sessions.models import EventKind, MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
 from sessions.transcript import annotate_transcript
+from sessions.transcript_labels import TRANSCRIPT_ICONS
 
 from accounts.models import Role, User
 from codebase.base import GitPlatform
@@ -570,3 +572,38 @@ def test_a_render_reads_the_delegated_legs_once_for_the_transcript_and_the_heade
 
     assert [len(segment["legs"]) for segment in turns[0]["segments"]] == [2, 1]
     assert payload["total"] == 3
+
+
+@pytest.mark.django_db
+def test_references_name_their_provider_host_and_whether_they_close():
+    session = _session(
+        external_refs=[
+            {
+                "key": "PROJ-12",
+                "url": "https://jira.example.com/browse/PROJ-12",
+                "provider": "jira",
+                "relation": "closes",
+            },
+            {"key": "42", "provider": "gitlab-issue", "relation": "closes"},
+            {"key": "org/repo#7", "provider": "github-issue"},
+            {"key": "DAIV-1V", "url": "https://sentry.io/issues/1/", "provider": "sentry"},
+            {"key": "RT-7", "provider": "rt"},
+            {"key": "PROJ-9", "relation": "closes"},
+            {"key": "OPS-3", "url": "https://tracker.example.com/OPS-3"},
+        ]
+    )
+
+    cards = references_payload(session)
+
+    assert [(card["key"], card["source"], card["closing"]) for card in cards] == [
+        ("PROJ-12", "Jira · jira.example.com", "· closes"),
+        ("#42", "GitLab issue", "· closes"),
+        ("org/repo#7", "GitHub issue", ""),
+        ("DAIV-1V", "Sentry · sentry.io", ""),
+        ("RT-7", "rt", ""),
+        ("PROJ-9", "", "closes"),
+        ("OPS-3", "tracker.example.com", ""),
+    ]
+    assert [card["icon"] for card in cards] == ["jira", "gitlab", "github", "sentry", "link", "link", "link"]
+    assert {card["icon"] for card in cards} <= TRANSCRIPT_ICONS
+    assert cards[0]["url"] == "https://jira.example.com/browse/PROJ-12"

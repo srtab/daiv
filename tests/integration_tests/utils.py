@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from langchain.messages import AIMessage
+from langsmith import testing as t
 
 from automation.agent.agent_settings import RunOverrides, resolve_agent_settings
 from automation.agent.deferred.conf import settings as deferred_settings
@@ -25,6 +26,7 @@ if TYPE_CHECKING:
 
     from automation.agent.agent_settings import AgentSettings
     from automation.agent.context import RuntimeCtx
+    from automation.agent.delegation import JobDelegator
     from automation.agent.mcp.schemas import UserMcpServer
 
 INTERRUPT_ALL_TOOLS_CONFIG = {
@@ -51,6 +53,7 @@ INTERRUPT_ALL_TOOLS_CONFIG = {
     "github": True,
     "gitlab": True,
 }
+WRITE_INTERRUPTS = {"edit_file": True, "write_file": True, "bash": True, "task": True}
 
 CODING_MODEL_NAMES = [
     ModelName.CLAUDE_SONNET_5_5,
@@ -165,6 +168,7 @@ WEB_SEARCH_MODELS = _models_from_env("DAIV_EVAL_WEB_SEARCH_MODELS", [EVAL_MODEL]
 SUBAGENTS_MODELS = _models_from_env("DAIV_EVAL_SUBAGENTS_MODELS", [EVAL_MODEL])
 CODE_REVIEW_MODELS = _models_from_env("DAIV_EVAL_CODE_REVIEW_MODELS", [EVAL_MODEL])
 INBOX_MODELS = _models_from_env("DAIV_EVAL_INBOX_MODELS", [EVAL_MODEL])
+DELEGATION_MODELS = _models_from_env("DAIV_EVAL_DELEGATION_MODELS", [EVAL_MODEL])
 
 
 def _is_frozen_tools_model(model_spec: str) -> bool:
@@ -230,9 +234,10 @@ async def run_agent_once(
     *,
     interrupt_on: dict[str, bool] | None = None,
     ask_user_enabled: bool = True,
+    delegator: JobDelegator | None = None,
 ) -> dict:
     """One fresh agent run on a disk clone of srtab/daiv ``main``; returns the run's final state. ``prompt`` is the
-    user's message, or the run's whole input."""
+    user's message, or the run's whole input; ``delegator`` binds the ``delegate_jobs`` tools."""
     from langgraph.checkpoint.memory import InMemorySaver
     from sandbox_envs.services import build_sandbox_spec
 
@@ -253,6 +258,7 @@ async def run_agent_once(
             workspace=DiskWorkspace(ctx),
             mcp_servers=await default_mcp_servers(),
             ask_user_enabled=ask_user_enabled,
+            delegator=delegator,
         )
         messages = [{"role": "user", "content": prompt}] if isinstance(prompt, str) else list(prompt)
         return await agent.ainvoke({"messages": messages}, context=ctx, config={"configurable": {"thread_id": "1"}})
@@ -293,6 +299,23 @@ def measure(request: pytest.FixtureRequest) -> Generator[RunMetrics]:
                 ),
                 "cost": float(summary.cost_usd) if summary.cost_usd is not None else None,
             }
+
+
+async def run_eval_case(
+    model_name: str, messages: Sequence[BaseMessage], request: pytest.FixtureRequest, **agent_kwargs: Any
+) -> tuple[list[ToolCall], str]:
+    """One measured, LangSmith-logged run on ``messages`` with ``WRITE_INTERRUPTS`` and no ``ask_user``: the tool
+    calls the agent made, without those already in ``messages``, and its final reply."""
+    t.log_inputs({"model_name": model_name, "messages": [message.text for message in messages]})
+    with measure(request) as metrics:
+        result = await run_agent_once(
+            model_name, messages, interrupt_on=WRITE_INTERRUPTS, ask_user_enabled=False, **agent_kwargs
+        )
+    metrics.messages = result["messages"]
+    t.log_outputs(result)
+    seeded = {call["id"] for call in extract_tool_calls(list(messages))}
+    tool_calls = [call for call in extract_tool_calls(result["messages"]) if call["id"] not in seeded]
+    return tool_calls, final_text(result["messages"])
 
 
 @cache

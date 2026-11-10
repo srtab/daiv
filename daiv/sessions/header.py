@@ -1,6 +1,6 @@
 """What the session page's top bar and details panel show beyond the session's own columns: the latest run's status
 and what its Retry sends, CI on the merge requests the session owns, and the issue an issue-webhook session
-addresses.
+addresses, and its external references as the details panel's cards show them.
 
 ``latest_run_payload`` and ``ci_payload`` are also what the turns endpoint returns, so what the page rendered and what
 keeps it current are built by the same code.
@@ -19,13 +19,16 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 from django.urls import reverse
 from django.utils.text import capfirst
 from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy, pgettext_lazy
 
 from asgiref.sync import sync_to_async
 
+from automation.agent.references import PLATFORM_ISSUE_PROVIDERS, RefProvider
 from codebase.authorization import can_run
 from codebase.base import GitPlatform
 from codebase.clients.base import PLATFORM_ERRORS
@@ -240,6 +243,42 @@ def parent_link(session: Session, user: User) -> dict[str, str] | None:
     return {"title": session_title(parent), "url": reverse("session_detail", kwargs={"thread_id": parent.thread_id})}
 
 
+_REF_PROVIDERS = {
+    RefProvider.GITLAB_ISSUE: ("gitlab", gettext_lazy("GitLab issue")),
+    RefProvider.GITHUB_ISSUE: ("github", gettext_lazy("GitHub issue")),
+    RefProvider.SENTRY: ("sentry", "Sentry"),
+    RefProvider.JIRA: ("jira", "Jira"),
+    RefProvider.GENERIC: ("link", ""),
+}
+_CLOSES = pgettext_lazy("an external reference the merge request closes", "closes")
+
+
+def references_payload(session: Session) -> list[dict[str, str]]:
+    """``session``'s external references as the details panel's cards show them.
+
+    ``icon`` names a ``TRANSCRIPT_ICONS`` icon: the provider's, ``link`` for ``generic`` and any provider DAIV does not
+    know. ``key`` gets a ``#`` when it is a bare platform issue number. ``source`` is the provider (none for
+    ``generic``, an unknown one as given) and the URL's host, which may truncate; ``closing`` is the "closes" note after
+    it, which never does.
+    """
+    cards = []
+    for ref in session.external_references():
+        icon, provider = _REF_PROVIDERS.get(ref.provider, ("link", ref.provider))
+        source = " · ".join(part for part in (str(provider), urlsplit(ref.url).hostname or "") if part)
+        closing = ""
+        if ref.relation == "closes":
+            closing = f"· {_CLOSES}" if source else str(_CLOSES)
+        bare_issue = ref.provider in PLATFORM_ISSUE_PROVIDERS and ref.key.isdigit()
+        cards.append({
+            "key": f"#{ref.key}" if bare_issue else ref.key,
+            "url": ref.url,
+            "icon": icon,
+            "source": source,
+            "closing": closing,
+        })
+    return cards
+
+
 def build_session_header(
     session: Session,
     runs: list[Run],
@@ -260,4 +299,5 @@ def build_session_header(
         "run_count": len(runs),
         "delegations": delegations,
         "parent": parent_link(session, user),
+        "references": references_payload(session),
     }

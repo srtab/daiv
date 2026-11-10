@@ -12,7 +12,17 @@ from dashboard.home import INBOX_LIMIT
 from dashboard.tasks import BOT_USERNAME_CACHE_KEY, BOT_USERNAME_PENDING_KEY
 from notifications.choices import EnvelopeStatus
 from notifications.models import RunEnvelope
-from sessions.models import EventKind, HiddenSession, QuietReason, Run, RunStatus, Session, SessionOrigin
+from sessions.models import (
+    EventKind,
+    HiddenSession,
+    MergeRequestOwnership,
+    MergeRequestState,
+    QuietReason,
+    Run,
+    RunStatus,
+    Session,
+    SessionOrigin,
+)
 
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
@@ -794,6 +804,26 @@ class TestYourWeek:
         assert [mr["iid"] for mr in week["merge_requests"]] == [4, 3, 2]
         assert (week["merge_requests_total"], week["merge_requests_more"]) == (4, 1)
         assert week["merge_requests"][0]["title"] == "Change 4"
+
+    @pytest.mark.parametrize("state", [MergeRequestState.MERGED, MergeRequestState.CLOSED])
+    def test_a_merge_request_carries_its_state(self, member_user, member_client, state):
+        session = _bare_session(member_user)
+        _week_run(session, merge_request_iid=7)
+        MergeRequestOwnership.objects.create(
+            session=session,
+            repo_id=session.repo_id,
+            merge_request_iid=7,
+            source_branch="chore/x",
+            merged=state == MergeRequestState.MERGED,
+            closed_at=timezone.now(),
+        )
+
+        assert _week(member_client)["merge_requests"][0]["state"] == state
+
+    def test_a_merge_request_daiv_does_not_own_is_open(self, member_user, member_client):
+        _week_run(_bare_session(member_user), merge_request_iid=7)
+
+        assert _week(member_client)["merge_requests"][0]["state"] == MergeRequestState.OPEN
 
     def test_started_from_groups_triggers(self, member_user, member_client):
         session = _bare_session(member_user, SessionOrigin.ISSUE_WEBHOOK)

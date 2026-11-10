@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 import uuid
 from decimal import Decimal
+from functools import reduce
+from operator import or_
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any
 
@@ -19,11 +21,14 @@ from sessions.executor.result import parse_agent_result
 from sessions.managers import RunArtifactManager, RunManager, SessionManager
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from sessions.executor.result import AgentResult
 
 logger = logging.getLogger("daiv.sessions")
 
 CHAT_PROMPT_MAX_LENGTH = 2000
+RESULT_SUMMARY_MAX_CHARS = 2000
 
 _INBOX_TRIGGER_LITERALS = ["chat", "mr_webhook", "api_job", "mcp_job", "delegation_resume", "pipeline_webhook"]
 
@@ -631,7 +636,7 @@ class Run(models.Model):
 
         if parsed is not None:
             if parsed["response"] and not self.result_summary:
-                self.result_summary = parsed["response"][:2000]
+                self.result_summary = parsed["response"][:RESULT_SUMMARY_MAX_CHARS]
                 changed.append("result_summary")
             for field, value in agent_result_field_updates(parsed).items():
                 if not getattr(self, field):
@@ -761,6 +766,14 @@ class SessionArchive(models.Model):
         return f"Context {self.epoch} of session {self.session_id}"
 
 
+class MergeRequestState(models.TextChoices):
+    """What an MR pill shows for a merge request: ``MergeRequestOwnership.state``, ``open`` for one DAIV doesn't own."""
+
+    OPEN = "open", _("Open")
+    MERGED = "merged", _("Merged")
+    CLOSED = "closed", _("Closed")
+
+
 class MergeRequestOwnership(models.Model):
     """Which session owns a merge request DAIV published, and that merge request's CI watch.
 
@@ -794,6 +807,7 @@ class MergeRequestOwnership(models.Model):
     last_pipeline_id = models.BigIntegerField(_("last pipeline judged"), null=True, blank=True)
     last_pipeline_status = models.CharField(_("last pipeline status judged"), max_length=32, blank=True, default="")
     last_reconciled_at = models.DateTimeField(_("CI last re-read"), null=True, blank=True)
+    merged = models.BooleanField(_("merged"), default=False)
     closed_at = models.DateTimeField(_("closed at"), null=True, blank=True)
     created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
     updated_at = models.DateTimeField(_("updated at"), auto_now=True)
@@ -814,6 +828,26 @@ class MergeRequestOwnership(models.Model):
 
     def __str__(self) -> str:
         return f"{self.repo_id}!{self.merge_request_iid} owned by session {self.session_id}"
+
+    @property
+    def state(self) -> MergeRequestState:
+        if self.closed_at is None:
+            return MergeRequestState.OPEN
+        return MergeRequestState.MERGED if self.merged else MergeRequestState.CLOSED
+
+    @classmethod
+    def states_of(cls, merge_requests: Iterable[tuple[str, int]]) -> dict[tuple[str, int], MergeRequestState]:
+        """The state of each ``(repo_id, iid)`` in ``merge_requests``, in one query."""
+        keys = set(merge_requests)
+        if not keys:
+            return {}
+        owned = {
+            (row.repo_id, row.merge_request_iid): row.state
+            for row in cls.objects.filter(
+                reduce(or_, (models.Q(repo_id=repo_id, merge_request_iid=iid) for repo_id, iid in keys))
+            ).only("repo_id", "merge_request_iid", "merged", "closed_at")
+        }
+        return {key: owned.get(key, MergeRequestState.OPEN) for key in keys}
 
 
 class EventKind(models.TextChoices):
