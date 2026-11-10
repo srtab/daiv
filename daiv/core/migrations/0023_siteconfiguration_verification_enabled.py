@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("core", "0021_sandbox_timeout_help_text")]
+    dependencies = [("core", "0022_searxng_web_search")]
 
     operations = [
         migrations.AddField(
