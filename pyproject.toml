@@ -108,7 +108,7 @@ sources.parable = { git = "https://github.com/ldayton/Parable.git", rev = "9f7e1
 
 [tool.ruff]
 line-length = 120
-extend-exclude = [ "*/node_modules/*", "*/static/*" ]
+extend-exclude = [ "*/node_modules/*", "*/static/*", "scripts/demo/demo-repo/*" ]
 force-exclude = true
 preview = true
 unsafe-fixes = true
@@ -154,6 +154,7 @@ lint.select = [
 ]
 lint.ignore = [ "N812", "S101" ]
 lint.per-file-ignores."*/migrations/*" = [ "E501" ]
+lint.per-file-ignores."scripts/*" = [ "S404", "S603", "S607", "T201" ]
 lint.isort.known-first-party = [
   "accounts",
   "automation",
@@ -310,6 +311,7 @@ ini_options.markers = [
   "code_review: scored recall eval of the /code-review skill on planted bugs, in a sandbox (paid model calls)",
   "deferred_cache: integration probe of prompt-cache hits across a deferred-tool load (paid model calls)",
   "deferred_frozen: integration test asserting deferred-tool schemas are frozen",
+  "delegation: integration eval of delegating sub-jobs and of the resumed run (paid model calls)",
   "diff_to_metadata: scored eval of the diff-to-metadata agent (paid model calls)",
   "inbox: integration eval of runs built from session inbox events (paid model calls)",
   "memory: scored eval of repository-memory extraction and consolidation (paid model calls)",
