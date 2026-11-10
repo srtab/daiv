@@ -22,6 +22,19 @@
   }
 }
 </script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [{% for faq in faqs %}
+    {
+      "@type": "Question",
+      "name": "{{ faq.question|escapejs }}",
+      "acceptedAnswer": {"@type": "Answer", "text": "{{ faq.answer|escapejs }}"}
+    }{% if not forloop.last %},{% endif %}{% endfor %}
+  ]
+}
+</script>
 {% endblock head_extra %}
 
 {% block content %}
@@ -32,6 +45,8 @@
             <img src="{% static 'accounts/img/logo.svg' %}" alt="DAIV" class="h-7">
         </a>
         <div class="flex items-center gap-5">
+            <a href="#security" class="landing-link hidden md:inline">Security</a>
+            <a href="#faq" class="landing-link hidden md:inline">FAQ</a>
             <a href="{{ build_info.docs_url }}" rel="noopener noreferrer" class="landing-link hidden sm:inline">Documentation</a>
             <a href="{% url 'account_login' %}" class="landing-signin">Sign in</a>
         </div>
@@ -79,12 +94,12 @@
 
         <!-- CTAs -->
         <div class="animate-fade-up mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4" style="animation-delay: 240ms">
-            <a href="{{ build_info.docs_deployment_url }}" rel="noopener noreferrer" class="landing-button landing-button--primary">
-                Get started
+            <a href="{{ quickstart_url }}" rel="noopener noreferrer" class="landing-button landing-button--primary">
+                Deploy in 15 min
             </a>
             <a href="https://github.com/srtab/daiv" rel="noopener noreferrer" class="landing-button landing-button--secondary">
                 {% icon "github" "h-5 w-5" %}
-                View on GitHub
+                Star on GitHub
             </a>
         </div>
 
@@ -103,90 +118,293 @@
     </div>
 </section>
 
+<!-- Demo -->
+<section id="demo" class="landing-demo" aria-label="Demo">
+    <div class="landing-container">
+        <figure class="animate-fade-up">
+            <div class="landing-demo__frame">
+                {% if demo_video_url %}
+                <video class="landing-demo__media" controls muted playsinline preload="none" width="1280" height="720"
+                       poster="{% static 'dashboard/img/demo-poster.webp' %}">
+                    <source src="{{ demo_video_url }}" type="video/mp4">
+                    <a href="{{ demo_video_url }}">Download the demo video</a>
+                </video>
+                {% else %}
+                <img class="landing-demo__media" src="{% static 'dashboard/img/demo-poster.webp' %}" width="1280" height="720"
+                     alt="A GitLab issue, Add rate limiting to the API endpoints, about to be labelled daiv" loading="lazy">
+                {% endif %}
+            </div>
+            <figcaption class="landing-demo__caption">
+                70 seconds on GitLab: label an issue, approve the plan, get a merge request with a passing pipeline, then ask for a change on a line.
+            </figcaption>
+        </figure>
+    </div>
+</section>
+
 <!-- How it Works -->
 <section class="landing-section">
     <div class="landing-container">
         <div class="animate-fade-up">
             <p class="landing-eyebrow">How it works</p>
-            <h2 class="landing-heading">From issue to merge request, hands-free</h2>
+            <h2 class="landing-heading">From issue to merge request, inside GitLab and GitHub</h2>
             <p class="landing-lede">
-                DAIV turns your issues into working code. You stay in control at every step.
+                You label an issue and approve a plan. DAIV writes the code, opens the merge request,
+                watches its CI and fixes failures, and answers review comments.
             </p>
         </div>
 
-        <div class="mt-16 space-y-6">
-            <!-- Step 1 -->
-            <div class="animate-fade-up landing-step" style="animation-delay: 80ms">
-                <div class="landing-step__track">
-                    <span class="landing-step__number">1</span>
-                    <div class="landing-step__rail"></div>
-                </div>
-                <div class="landing-step__card">
-                    <h3 class="landing-item-title">You create an issue</h3>
-                    <p class="landing-item-body">Write what you need in plain language. Add context, attach screenshots, reference files. That's all.</p>
-                    <div class="landing-mock">
-                        <p class="landing-mock__meta">Issue #142</p>
-                        <p class="landing-mock__text">Add rate limiting to the API endpoints</p>
-                        <div class="mt-2 flex gap-2">
-                            <span class="landing-mock__chip">daiv</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
+        <figure class="animate-fade-up mt-12" style="animation-delay: 80ms">
+            <ol class="sr-only">
+                <li>You label an issue <code>daiv</code>.</li>
+                <li>DAIV posts a plan on the issue.</li>
+                <li>You approve it by commenting <code>@daiv proceed</code>.</li>
+                <li>DAIV opens a merge request with the code.</li>
+                <li>DAIV watches the merge request's CI and fixes failures.</li>
+                <li>You review and mention <code>@daiv</code>; DAIV answers the review comments and pushes, which runs CI again.</li>
+            </ol>
 
-            <!-- Step 2 -->
-            <div class="animate-fade-up landing-step" style="animation-delay: 160ms">
-                <div class="landing-step__track">
-                    <span class="landing-step__number">2</span>
-                    <div class="landing-step__rail"></div>
-                </div>
-                <div class="landing-step__card">
-                    <h3 class="landing-item-title">DAIV posts a plan</h3>
-                    <p class="landing-item-body">Analyzes your codebase, reads relevant files, and proposes implementation steps as a comment on the issue.</p>
-                    <div class="landing-mock">
-                        <p class="landing-mock__meta">@daiv commented</p>
-                        <div class="mt-2 space-y-1.5 text-[13px] text-text-muted">
-                            <p>1. Add Redis-based rate limiter middleware</p>
-                            <p>2. Configure per-endpoint limits in settings</p>
-                            <p>3. Return 429 with Retry-After header</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <svg class="landing-flow hidden lg:block" viewBox="0 0 1024 328" aria-hidden="true" focusable="false">
+                <defs>
+                    <marker id="flow-arrow-wide" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8"
+                            markerUnits="userSpaceOnUse" orient="auto">
+                        <path class="landing-flow__arrowhead" d="M0,0 L8,4 L0,8 z"/>
+                    </marker>
+                </defs>
 
-            <!-- Step 3 -->
-            <div class="animate-fade-up landing-step" style="animation-delay: 240ms">
-                <div class="landing-step__track">
-                    <span class="landing-step__number">3</span>
-                    <div class="landing-step__rail"></div>
-                </div>
-                <div class="landing-step__card">
-                    <h3 class="landing-item-title">You approve</h3>
-                    <p class="landing-item-body">Review the plan. Comment when ready. Or update the issue and DAIV re-plans. Human-in-the-loop by default.</p>
-                    <div class="landing-mock">
-                        <p class="landing-mock__meta">You commented</p>
-                        <p class="landing-mock__text font-mono">@daiv proceed</p>
-                    </div>
-                </div>
-            </div>
+                <rect class="landing-flow__lane" x="0.5" y="0.5" width="1023" height="135" rx="16"/>
+                <text class="landing-flow__lane-label" x="24" y="30">YOU · IN GITLAB OR GITHUB</text>
+                <rect class="landing-flow__lane landing-flow__lane--daiv" x="0.5" y="155.5" width="1023" height="172" rx="16"/>
+                <text class="landing-flow__lane-label" x="24" y="186">DAIV · ON YOUR SERVERS</text>
 
-            <!-- Step 4 -->
-            <div class="animate-fade-up landing-step" style="animation-delay: 320ms">
-                <div class="landing-step__track">
-                    <span class="landing-step__number">4</span>
-                </div>
-                <div class="landing-step__card">
-                    <h3 class="landing-item-title">Code lands in a merge request</h3>
-                    <p class="landing-item-body">DAIV implements the plan and opens a merge request. If reviewers request changes, just mention DAIV in a comment.</p>
-                    <div class="landing-mock">
-                        <div class="flex items-center gap-2">
-                            <span class="landing-mock__status">Ready for review</span>
-                        </div>
-                        <p class="landing-mock__text mt-2">Add rate limiting to API endpoints</p>
-                        <p class="landing-mock__meta mt-1">feat/142-rate-limiting &rarr; main</p>
-                    </div>
-                </div>
+                <g class="landing-flow__edge" marker-end="url(#flow-arrow-wide)">
+                    <path d="M164,82 H174 V240 H182"/>
+                    <path d="M332,240 H342 V82 H350"/>
+                    <path d="M500,82 H510 V240 H518"/>
+                    <path d="M668,240 H686"/>
+                    <path d="M836,240 H846 V82 H854"/>
+                    <path d="M930,114 V206"/>
+                </g>
+                <path class="landing-flow__edge landing-flow__edge--loop" d="M930,272 C930,306 762,306 762,274" marker-end="url(#flow-arrow-wide)"/>
+                <text class="landing-flow__note" x="846" y="318" text-anchor="middle">each push runs CI again</text>
+
+                <g>
+                    <rect class="landing-flow__node" x="16" y="50" width="148" height="64" rx="12"/>
+                    <circle class="landing-flow__badge" cx="36" cy="50" r="10"/>
+                    <text class="landing-flow__num" x="36" y="50">1</text>
+                    <text class="landing-flow__title" x="32" y="82">Issue labelled</text>
+                    <text class="landing-flow__detail" x="32" y="102">daiv</text>
+                </g>
+                <g>
+                    <rect class="landing-flow__node landing-flow__node--daiv" x="184" y="208" width="148" height="64" rx="12"/>
+                    <circle class="landing-flow__badge landing-flow__badge--daiv" cx="204" cy="208" r="10"/>
+                    <text class="landing-flow__num" x="204" y="208">2</text>
+                    <text class="landing-flow__title" x="200" y="240">Plan posted</text>
+                    <text class="landing-flow__detail" x="200" y="260">on the issue</text>
+                </g>
+                <g>
+                    <rect class="landing-flow__node" x="352" y="50" width="148" height="64" rx="12"/>
+                    <circle class="landing-flow__badge" cx="372" cy="50" r="10"/>
+                    <text class="landing-flow__num" x="372" y="50">3</text>
+                    <text class="landing-flow__title" x="368" y="82">Plan approved</text>
+                    <text class="landing-flow__detail" x="368" y="102">@daiv proceed</text>
+                </g>
+                <g>
+                    <rect class="landing-flow__node landing-flow__node--daiv" x="520" y="208" width="148" height="64" rx="12"/>
+                    <circle class="landing-flow__badge landing-flow__badge--daiv" cx="540" cy="208" r="10"/>
+                    <text class="landing-flow__num" x="540" y="208">4</text>
+                    <text class="landing-flow__title" x="536" y="240">Merge request</text>
+                    <text class="landing-flow__detail" x="536" y="260">opened</text>
+                </g>
+                <g>
+                    <rect class="landing-flow__node landing-flow__node--daiv" x="688" y="208" width="148" height="64" rx="12"/>
+                    <circle class="landing-flow__badge landing-flow__badge--daiv" cx="708" cy="208" r="10"/>
+                    <text class="landing-flow__num" x="708" y="208">5</text>
+                    <text class="landing-flow__title" x="704" y="240">CI watched</text>
+                    <text class="landing-flow__detail" x="704" y="260">failures fixed</text>
+                </g>
+                <g>
+                    <rect class="landing-flow__node" x="856" y="50" width="148" height="64" rx="12"/>
+                    <text class="landing-flow__title" x="872" y="82">You review</text>
+                    <text class="landing-flow__detail" x="872" y="102">mention @daiv</text>
+                </g>
+                <g>
+                    <rect class="landing-flow__node landing-flow__node--daiv" x="856" y="208" width="148" height="64" rx="12"/>
+                    <circle class="landing-flow__badge landing-flow__badge--daiv" cx="876" cy="208" r="10"/>
+                    <text class="landing-flow__num" x="876" y="208">6</text>
+                    <text class="landing-flow__title" x="872" y="240">Comments</text>
+                    <text class="landing-flow__detail" x="872" y="260">answered</text>
+                </g>
+            </svg>
+
+            <svg class="landing-flow mx-auto max-w-md lg:hidden" viewBox="0 0 384 560" aria-hidden="true" focusable="false">
+                <defs>
+                    <marker id="flow-arrow-tall" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8"
+                            markerUnits="userSpaceOnUse" orient="auto">
+                        <path class="landing-flow__arrowhead" d="M0,0 L8,4 L0,8 z"/>
+                    </marker>
+                </defs>
+
+                <rect class="landing-flow__lane" x="0.5" y="0.5" width="178" height="559" rx="16"/>
+                <text class="landing-flow__lane-label" x="89" y="28" text-anchor="middle">YOU</text>
+                <rect class="landing-flow__lane landing-flow__lane--daiv" x="186.5" y="0.5" width="197" height="559" rx="16"/>
+                <text class="landing-flow__lane-label" x="276" y="28" text-anchor="middle">DAIV</text>
+
+                <g class="landing-flow__edge" marker-end="url(#flow-arrow-tall)">
+                    <path d="M89,104 V114 H276 V122"/>
+                    <path d="M276,184 V194 H89 V202"/>
+                    <path d="M89,264 V274 H276 V282"/>
+                    <path d="M276,344 V362"/>
+                    <path d="M276,424 V434 H89 V442"/>
+                    <path d="M163,474 H200"/>
+                </g>
+                <path class="landing-flow__edge landing-flow__edge--loop" d="M350,474 C374,474 374,394 352,394" marker-end="url(#flow-arrow-tall)"/>
+                <text class="landing-flow__note" x="276" y="534" text-anchor="middle">each push runs CI again</text>
+
+                <g>
+                    <rect class="landing-flow__node" x="15" y="44" width="148" height="60" rx="12"/>
+                    <circle class="landing-flow__badge" cx="35" cy="44" r="10"/>
+                    <text class="landing-flow__num" x="35" y="44">1</text>
+                    <text class="landing-flow__title" x="31" y="74">Issue labelled</text>
+                    <text class="landing-flow__detail" x="31" y="93">daiv</text>
+                </g>
+                <g>
+                    <rect class="landing-flow__node landing-flow__node--daiv" x="202" y="124" width="148" height="60" rx="12"/>
+                    <circle class="landing-flow__badge landing-flow__badge--daiv" cx="222" cy="124" r="10"/>
+                    <text class="landing-flow__num" x="222" y="124">2</text>
+                    <text class="landing-flow__title" x="218" y="154">Plan posted</text>
+                    <text class="landing-flow__detail" x="218" y="173">on the issue</text>
+                </g>
+                <g>
+                    <rect class="landing-flow__node" x="15" y="204" width="148" height="60" rx="12"/>
+                    <circle class="landing-flow__badge" cx="35" cy="204" r="10"/>
+                    <text class="landing-flow__num" x="35" y="204">3</text>
+                    <text class="landing-flow__title" x="31" y="234">Plan approved</text>
+                    <text class="landing-flow__detail" x="31" y="253">@daiv proceed</text>
+                </g>
+                <g>
+                    <rect class="landing-flow__node landing-flow__node--daiv" x="202" y="284" width="148" height="60" rx="12"/>
+                    <circle class="landing-flow__badge landing-flow__badge--daiv" cx="222" cy="284" r="10"/>
+                    <text class="landing-flow__num" x="222" y="284">4</text>
+                    <text class="landing-flow__title" x="218" y="314">Merge request</text>
+                    <text class="landing-flow__detail" x="218" y="333">opened</text>
+                </g>
+                <g>
+                    <rect class="landing-flow__node landing-flow__node--daiv" x="202" y="364" width="148" height="60" rx="12"/>
+                    <circle class="landing-flow__badge landing-flow__badge--daiv" cx="222" cy="364" r="10"/>
+                    <text class="landing-flow__num" x="222" y="364">5</text>
+                    <text class="landing-flow__title" x="218" y="394">CI watched</text>
+                    <text class="landing-flow__detail" x="218" y="413">failures fixed</text>
+                </g>
+                <g>
+                    <rect class="landing-flow__node" x="15" y="444" width="148" height="60" rx="12"/>
+                    <text class="landing-flow__title" x="31" y="474">You review</text>
+                    <text class="landing-flow__detail" x="31" y="493">mention @daiv</text>
+                </g>
+                <g>
+                    <rect class="landing-flow__node landing-flow__node--daiv" x="202" y="444" width="148" height="60" rx="12"/>
+                    <circle class="landing-flow__badge landing-flow__badge--daiv" cx="222" cy="444" r="10"/>
+                    <text class="landing-flow__num" x="222" y="444">6</text>
+                    <text class="landing-flow__title" x="218" y="474">Comments</text>
+                    <text class="landing-flow__detail" x="218" y="493">answered</text>
+                </g>
+            </svg>
+        </figure>
+    </div>
+</section>
+
+<!-- Why DAIV -->
+<section class="landing-section">
+    <div class="landing-container">
+        <div class="animate-fade-up">
+            <p class="landing-eyebrow">Why DAIV</p>
+            <h2 class="landing-heading">Built different</h2>
+            <p class="landing-lede">
+                AI coding tools that require a separate app break your flow. DAIV meets you where you already work.
+            </p>
+        </div>
+
+        <div class="mt-12 grid gap-x-8 gap-y-10 sm:grid-cols-3">
+            <div class="animate-fade-up" style="animation-delay: 80ms">
+                <div class="landing-point__rule"></div>
+                <h3 class="landing-item-title">It lives where you already work</h3>
+                <p class="landing-item-body">Issue to plan to merge request, replies to review comments, and CI fixes all happen inside GitLab and GitHub threads, self-managed GitLab included.</p>
             </div>
+            <div class="animate-fade-up" style="animation-delay: 120ms">
+                <div class="landing-point__rule"></div>
+                <h3 class="landing-item-title">Your infrastructure, your model, your network rules</h3>
+                <p class="landing-item-body">Run it on your own servers, with any of the built-in LLM providers or your own OpenAI-compatible server, in a sandbox whose egress you define.</p>
+            </div>
+            <div class="animate-fade-up" style="animation-delay: 160ms">
+                <div class="landing-point__rule"></div>
+                <h3 class="landing-item-title">Open source, no per-seat pricing</h3>
+                <p class="landing-item-body">Apache-2.0, with nothing to buy per developer. Read the code, modify it, no black boxes.</p>
+            </div>
+            <div class="animate-fade-up" style="animation-delay: 200ms">
+                <div class="landing-point__rule"></div>
+                <h3 class="landing-item-title">Human-in-the-loop</h3>
+                <p class="landing-item-body">Plans require approval before execution. You review, you decide, DAIV implements.</p>
+            </div>
+            <div class="animate-fade-up" style="animation-delay: 240ms">
+                <div class="landing-point__rule"></div>
+                <h3 class="landing-item-title">Secure by default</h3>
+                <p class="landing-item-body">Sandboxed execution with command policies. Git history mutation is always blocked.</p>
+            </div>
+            <div class="animate-fade-up" style="animation-delay: 280ms">
+                <div class="landing-point__rule"></div>
+                <h3 class="landing-item-title">Fully extensible</h3>
+                <p class="landing-item-body">Custom skills, subagents, MCP servers, per-repo config. Shape DAIV to your team's needs.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Security -->
+<section id="security" class="landing-section">
+    <div class="landing-container">
+        <div class="animate-fade-up">
+            <p class="landing-eyebrow">Security model</p>
+            <h2 class="landing-heading">Each layer limits what a run can reach</h2>
+            <p class="landing-lede">
+                DAIV acts on issues, comments and code that other people wrote. So the agent works in a sandbox,
+                behind a network allow-list, without holding the credentials it uses.
+            </p>
+        </div>
+
+        <div class="mt-12 grid gap-4 sm:grid-cols-2">
+            <div class="animate-fade-up landing-card" style="animation-delay: 80ms">
+                <div class="landing-card__icon">{% icon "sandbox" "h-5 w-5 text-text-muted" %}</div>
+                <h3 class="landing-item-title">A sandbox per session</h3>
+                <p class="landing-item-body">Every command the agent runs executes in a Docker container managed by <a href="https://github.com/srtab/daiv-sandbox" rel="noopener noreferrer" class="landing-inline-link">daiv-sandbox</a>, optionally under gVisor for a stronger boundary against container escape.</p>
+            </div>
+            <div class="animate-fade-up landing-card" style="animation-delay: 120ms">
+                <div class="landing-card__icon">{% icon "lock-closed" "h-5 w-5 text-text-muted" %}</div>
+                <h3 class="landing-item-title">No network unless you allow it</h3>
+                <p class="landing-item-body">The sandbox has no network by default. A sandbox environment can open it with an egress allow-list that blocks every other host; if the egress proxy is unavailable, the run aborts rather than falling back to an open network.</p>
+            </div>
+            <div class="animate-fade-up landing-card" style="animation-delay: 160ms">
+                <div class="landing-card__icon">{% icon "key" "h-5 w-5 text-text-muted" %}</div>
+                <h3 class="landing-item-title">Credentials stay outside the container</h3>
+                <p class="landing-item-body">A credential for an allowed host, such as a private registry token, is stored encrypted and added to matching requests by the egress proxy, so the agent never sees it.</p>
+            </div>
+            <div class="animate-fade-up landing-card" style="animation-delay: 200ms">
+                <div class="landing-card__icon">{% icon "clock" "h-5 w-5 text-text-muted" %}</div>
+                <h3 class="landing-item-title">Short-lived, scoped git tokens</h3>
+                <p class="landing-item-body">On GitLab, DAIV clones and pushes with a short-lived token scoped to one project (on GitLab.com this needs Premium or Ultimate, otherwise it uses its main token). On GitHub, it uses a short-lived installation token scoped to the one repository.</p>
+            </div>
+        </div>
+
+        <div class="animate-fade-up landing-note mt-8" style="animation-delay: 240ms">
+            <p>
+                <strong class="font-semibold text-text">People stay in charge.</strong>
+                On an issue, DAIV writes code only after someone approves its plan, and <code>allowed_usernames</code> in
+                <code>.daiv.yml</code> limits who can trigger it. Prompt injection through an issue, a comment or repository
+                content is still possible: these layers limit what an injected instruction could reach, not whether the agent reads one.
+            </p>
+            <p class="mt-3">
+                <a href="https://github.com/srtab/daiv#security-model" rel="noopener noreferrer" class="landing-inline-link">Read the security model</a>
+                <span aria-hidden="true" class="text-text-faint">·</span>
+                <a href="https://github.com/srtab/daiv/blob/main/SECURITY.md" rel="noopener noreferrer" class="landing-inline-link">Report a vulnerability</a>
+            </p>
         </div>
     </div>
 </section>
@@ -305,48 +523,24 @@
     </div>
 </section>
 
-<!-- Why DAIV -->
-<section class="landing-section">
+<!-- FAQ -->
+<section id="faq" class="landing-section">
     <div class="landing-container">
         <div class="animate-fade-up">
-            <p class="landing-eyebrow">Why DAIV</p>
-            <h2 class="landing-heading">Built different</h2>
-            <p class="landing-lede">
-                AI coding tools that require a separate app break your flow. DAIV meets you where you already work.
-            </p>
+            <p class="landing-eyebrow">FAQ</p>
+            <h2 class="landing-heading">Questions teams ask first</h2>
         </div>
 
-        <div class="mt-12 grid gap-x-8 gap-y-10 sm:grid-cols-3">
-            <div class="animate-fade-up" style="animation-delay: 80ms">
-                <div class="landing-point__rule"></div>
-                <h3 class="landing-item-title">It lives where you already work</h3>
-                <p class="landing-item-body">Issue to plan to merge request, replies to review comments, and CI fixes all happen inside GitLab and GitHub threads, self-managed GitLab included.</p>
-            </div>
-            <div class="animate-fade-up" style="animation-delay: 120ms">
-                <div class="landing-point__rule"></div>
-                <h3 class="landing-item-title">Your infrastructure, your model, your network rules</h3>
-                <p class="landing-item-body">Run it on your own servers, with any of the built-in LLM providers or your own OpenAI-compatible server, in a sandbox whose egress you define.</p>
-            </div>
-            <div class="animate-fade-up" style="animation-delay: 160ms">
-                <div class="landing-point__rule"></div>
-                <h3 class="landing-item-title">Open source, no per-seat pricing</h3>
-                <p class="landing-item-body">Apache-2.0, with nothing to buy per developer. Read the code, modify it, no black boxes.</p>
-            </div>
-            <div class="animate-fade-up" style="animation-delay: 200ms">
-                <div class="landing-point__rule"></div>
-                <h3 class="landing-item-title">Human-in-the-loop</h3>
-                <p class="landing-item-body">Plans require approval before execution. You review, you decide, DAIV implements.</p>
-            </div>
-            <div class="animate-fade-up" style="animation-delay: 240ms">
-                <div class="landing-point__rule"></div>
-                <h3 class="landing-item-title">Secure by default</h3>
-                <p class="landing-item-body">Sandboxed execution with command policies. Git history mutation is always blocked.</p>
-            </div>
-            <div class="animate-fade-up" style="animation-delay: 280ms">
-                <div class="landing-point__rule"></div>
-                <h3 class="landing-item-title">Fully extensible</h3>
-                <p class="landing-item-body">Custom skills, subagents, MCP servers, per-repo config. Shape DAIV to your team's needs.</p>
-            </div>
+        <div class="animate-fade-up landing-faq mt-10" style="animation-delay: 80ms">
+            {% for faq in faqs %}
+            <details class="landing-faq__item group">
+                <summary class="landing-faq__question">
+                    <h3>{{ faq.question }}</h3>
+                    {% icon "chevron-down" "h-4 w-4 shrink-0 text-text-faint transition-transform duration-200 group-open:rotate-180" %}
+                </summary>
+                <div class="landing-faq__answer">{{ faq.answer_html }}</div>
+            </details>
+            {% endfor %}
         </div>
     </div>
 </section>
@@ -355,17 +549,17 @@
 <section class="landing-section">
     <div class="landing-container">
         <div class="animate-fade-up landing-cta">
-            <h2 class="text-3xl font-bold tracking-tight sm:text-4xl">Deploy DAIV in minutes</h2>
+            <h2 class="text-3xl font-bold tracking-tight sm:text-4xl">Try DAIV in 15 minutes</h2>
             <p class="mx-auto mt-4 max-w-xl text-[16px] font-light text-text-muted">
-                Self-host with Docker Compose or Docker Swarm. Connect your GitLab or GitHub instance and start automating.
+                The Quickstart runs DAIV on one machine with Docker Compose and turns a GitLab issue into a merge request.
+                For a production install, follow the deployment guide.
             </p>
             <div class="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4">
-                <a href="{{ build_info.docs_deployment_url }}" rel="noopener noreferrer" class="landing-button landing-button--primary">
-                    Read the docs
+                <a href="{{ quickstart_url }}" rel="noopener noreferrer" class="landing-button landing-button--primary">
+                    Deploy in 15 min
                 </a>
-                <a href="https://github.com/srtab/daiv" rel="noopener noreferrer" class="landing-button landing-button--secondary">
-                    {% icon "github" "h-5 w-5" %}
-                    View on GitHub
+                <a href="{{ build_info.docs_deployment_url }}" rel="noopener noreferrer" class="landing-button landing-button--secondary">
+                    Deployment guide
                 </a>
             </div>
         </div>

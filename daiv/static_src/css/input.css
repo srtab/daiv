@@ -4844,36 +4844,111 @@ html {
     @apply mt-1.5 text-[14px] text-text-muted;
   }
 
-  .landing-step {
-    @apply flex gap-6;
+  .landing-inline-link,
+  .landing-faq__answer a {
+    @apply text-accent underline-offset-2 hover:text-accent-bright hover:underline;
   }
-  .landing-step__track {
-    @apply flex flex-col items-center;
+
+  .landing-demo {
+    @apply pb-24;
   }
-  .landing-step__number {
-    @apply flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border
-      bg-surface-2 font-mono text-[14px] font-semibold tabular-nums text-text-strong;
+  .landing-demo__frame {
+    @apply overflow-hidden rounded-2xl border border-border bg-surface-2;
   }
-  .landing-step__rail {
-    @apply mt-3 h-full w-px bg-gradient-to-b from-border to-transparent;
+  .landing-demo__media {
+    @apply block aspect-video h-auto w-full;
   }
-  .landing-step__card {
-    @apply flex-1 rounded-2xl border border-border bg-surface-2 p-6 pb-8;
+  .landing-demo__caption {
+    @apply mx-auto mt-4 max-w-2xl text-center text-[13px] text-text-muted;
   }
-  .landing-mock {
-    @apply mt-5 rounded-xl border border-border bg-surface-3 px-4 py-3;
+
+  /* SVG text sizes are in viewBox units, so they scale with the drawing. */
+  .landing-flow {
+    @apply h-auto w-full;
   }
-  .landing-mock__meta {
-    @apply font-mono text-[12px] text-text-muted;
+  .landing-flow__lane {
+    fill: var(--color-surface-1);
+    stroke: var(--color-border);
   }
-  .landing-mock__text {
-    @apply mt-1 text-[14px] text-text;
+  .landing-flow__lane--daiv {
+    fill: var(--color-surface-2);
   }
-  .landing-mock__chip {
-    @apply rounded-md border border-border bg-surface-2 px-2 py-0.5 font-mono text-[11px] text-text-muted;
+  .landing-flow__lane-label {
+    @apply font-mono;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    fill: var(--color-text-muted);
   }
-  .landing-mock__status {
-    @apply rounded-md border border-border bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-status-clear;
+  .landing-flow__node {
+    fill: var(--color-surface-3);
+    stroke: var(--color-border);
+  }
+  .landing-flow__node--daiv {
+    stroke: var(--color-brand);
+  }
+  .landing-flow__badge {
+    fill: var(--color-ground);
+    stroke: var(--color-border);
+  }
+  .landing-flow__badge--daiv {
+    stroke: var(--color-brand);
+  }
+  .landing-flow__num {
+    @apply font-mono;
+    font-size: 11px;
+    font-weight: 600;
+    fill: var(--color-text-strong);
+    text-anchor: middle;
+    dominant-baseline: central;
+  }
+  .landing-flow__title {
+    font-size: 15px;
+    font-weight: 600;
+    fill: var(--color-text-strong);
+  }
+  .landing-flow__detail {
+    @apply font-mono;
+    font-size: 12.5px;
+    fill: var(--color-text-muted);
+  }
+  .landing-flow__note {
+    @apply font-mono;
+    font-size: 12px;
+    fill: var(--color-text-faint);
+  }
+  .landing-flow__edge {
+    fill: none;
+    stroke: var(--color-text-faint);
+    stroke-width: 1.5;
+  }
+  .landing-flow__edge--loop {
+    stroke-dasharray: 4 4;
+  }
+  .landing-flow__arrowhead {
+    fill: var(--color-text-faint);
+  }
+
+  .landing-note {
+    @apply max-w-3xl text-[14px] text-text-muted;
+  }
+  .landing-note code,
+  .landing-faq__answer code {
+    @apply rounded bg-surface-3 px-1 py-0.5 font-mono text-[13px] text-text;
+  }
+
+  .landing-faq {
+    @apply max-w-3xl border-t border-border;
+  }
+  .landing-faq__item {
+    @apply border-b border-border;
+  }
+  .landing-faq__question {
+    @apply flex cursor-pointer list-none items-center justify-between gap-4 py-5 text-[16px] font-semibold
+      text-text-strong transition-colors duration-200 hover:text-text [&::-webkit-details-marker]:hidden;
+  }
+  .landing-faq__answer {
+    @apply pb-6 text-[14px] leading-relaxed text-text-muted;
   }
 
   .landing-card {

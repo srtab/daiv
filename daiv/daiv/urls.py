@@ -2,7 +2,7 @@ from django.contrib.sitemaps import Sitemap
 from django.contrib.sitemaps.views import sitemap
 from django.urls import include, path, reverse
 
-from dashboard.views import homepage
+from dashboard.views import HomepageView
 from mcp_api.oauth import oauth_metadata
 from notifications.views import UserChannelsView
 
@@ -21,7 +21,7 @@ class StaticSitemap(Sitemap):
 
 
 urlpatterns = [
-    path("", homepage, name="homepage"),
+    path("", HomepageView.as_view(), name="homepage"),
     path("accounts/", include("accounts.urls.allauth")),
     path("accounts/api-keys/", include("accounts.urls.api_keys")),
     path("accounts/channels/", UserChannelsView.as_view(), name="user_channels"),

@@ -1,3 +1,5 @@
+import json
+import re
 import uuid
 from datetime import datetime, time, timedelta
 from unittest.mock import patch
@@ -8,6 +10,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 import pytest
+from dashboard import landing
 from dashboard.home import INBOX_LIMIT
 from dashboard.tasks import BOT_USERNAME_CACHE_KEY, BOT_USERNAME_PENDING_KEY
 from notifications.choices import EnvelopeStatus
@@ -59,6 +62,39 @@ class TestHomepage:
         response = member_client.get(reverse("homepage"))
         assert response.status_code == 302
         assert response.url == reverse("dashboard")
+
+    def test_faq_json_ld_repeats_the_visible_faq(self):
+        content = Client().get(reverse("homepage")).content.decode()
+
+        blocks = re.findall(r'<script type="application/ld\+json">(.*?)</script>', content, re.DOTALL)
+        faq_page = next(data for data in map(json.loads, blocks) if data["@type"] == "FAQPage")
+        assert [(q["name"], q["acceptedAnswer"]["text"]) for q in faq_page["mainEntity"]] == [
+            (faq.question, faq.answer) for faq in landing.FAQS
+        ]
+        for faq in landing.FAQS:
+            assert faq.answer in content
+
+    def test_hero_deploy_link_is_the_quickstart(self):
+        content = Client().get(reverse("homepage")).content.decode()
+
+        assert f'href="{landing.QUICKSTART_URL}"' in content
+
+    def test_without_a_video_url_only_the_poster_shows(self, monkeypatch):
+        monkeypatch.setattr(landing, "DEMO_VIDEO_URL", "")
+
+        content = Client().get(reverse("homepage")).content.decode()
+
+        assert "<video" not in content
+        assert "dashboard/img/demo-poster.webp" in content
+
+    def test_with_a_video_url_the_player_streams_it(self, monkeypatch):
+        monkeypatch.setattr(landing, "DEMO_VIDEO_URL", "https://example.com/demo.mp4")
+
+        content = Client().get(reverse("homepage")).content.decode()
+
+        assert re.search(r"<video[^>]*\bmuted\b[^>]*\bplaysinline\b", content)
+        assert "autoplay" not in content
+        assert '<source src="https://example.com/demo.mp4" type="video/mp4">' in content
 
 
 @pytest.mark.django_db

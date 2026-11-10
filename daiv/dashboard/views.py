@@ -1,15 +1,27 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.shortcuts import redirect, render
+from django.shortcuts import redirect
 from django.views.generic import TemplateView
 
-from dashboard import home, insights
+from dashboard import home, insights, landing
 from dashboard.context_processors import running_jobs_count
 
 
-def homepage(request):
-    if request.user.is_authenticated:
-        return redirect("dashboard")
-    return render(request, "dashboard/homepage.html")
+class HomepageView(TemplateView):
+    template_name = "dashboard/homepage.html"
+
+    def get(self, request, *args, **kwargs):
+        if request.user.is_authenticated:
+            return redirect("dashboard")
+        return super().get(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update({
+            "faqs": landing.FAQS,
+            "demo_video_url": landing.DEMO_VIDEO_URL,
+            "quickstart_url": landing.QUICKSTART_URL,
+        })
+        return context
 
 
 class DashboardView(LoginRequiredMixin, TemplateView):

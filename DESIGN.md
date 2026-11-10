@@ -470,8 +470,13 @@ What is particular to it:
 
 - **Display sizes.** The hero `<h1>` (`.landing-display`, 36px, 60px from `sm:`) and the section
   `<h2>`s (`.landing-heading`, 30px, 36px from `sm:`) sit above `heading-page`. No other page uses them.
-- **Static cards.** `.landing-card`, `.landing-step__card` and the Why points are not links, so they
-  carry no hover state.
+- **Static cards.** `.landing-card` and the Why points are not links, so they carry no hover state.
+- **Flow diagram.** "How it works" is inline SVG (`.landing-flow*`), painted with the color tokens:
+  a wide drawing from `lg:` and a tall one below it, since SVG text scales with the drawing. DAIV's
+  steps carry the violet `brand` stroke, yours stay neutral. Screen readers get the `sr-only` list
+  beside it.
+- **FAQ.** `<details>` rows (`.landing-faq*`), no Alpine. The questions and answers live in
+  `dashboard/landing.py`, which the `FAQPage` JSON-LD repeats.
 - **Actions.** `.landing-button--primary` is the teal `accent`; `.btn-primary` stays white on legacy pages.
 - **Logo.** The nav keeps `accounts/img/logo.svg`, as the sign-in pages do, not the app shell's `brand-mark`.
 
