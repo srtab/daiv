@@ -85,7 +85,6 @@ from sessions.inbox.post import Inbox
 from sessions.legs import NOT_RUN_CLOSED, NOT_RUN_MERGED, Leg, is_leg_follow_up_run
 from sessions.models import (
     LINK_FAILED_PREFIX,
-    RESULT_SUMMARY_MAX_CHARS,
     EventKind,
     InboxEvent,
     MergeRequestState,
@@ -240,6 +239,7 @@ class SessionJobDelegator:
                 posted.append(leg.session.pk)
 
         if repos:
+            reason = None
             try:
                 result = await asubmit_batch_runs(
                     user=user,
@@ -253,19 +253,19 @@ class SessionJobDelegator:
             except AdmissionError as err:
                 if not posted:
                     raise DelegationError(str(err)) from err
-                outcomes.update({
-                    index: FailedLeg(targets[index].repo_id, targets[index].ref, str(err)) for index in new_legs
-                })
+                reason = str(err)
             except Exception:
                 if not posted:
                     raise
                 logger.exception("delegate_jobs: the new legs of batch %s could not be submitted", batch_id)
-                outcomes.update({
-                    index: FailedLeg(targets[index].repo_id, targets[index].ref, _UNSTARTED_LEG) for index in new_legs
-                })
+                reason = _UNSTARTED_LEG
             else:
                 started = await sync_to_async(_started_legs)(result.outcomes)
                 outcomes.update(zip(new_legs, started, strict=True))
+            if reason is not None:
+                outcomes.update({
+                    index: FailedLeg(targets[index].repo_id, targets[index].ref, reason) for index in new_legs
+                })
 
         for thread_id in posted:
             await sync_to_async(Drain(thread_id).start_logged)()
@@ -341,7 +341,7 @@ class SessionJobDelegator:
             .values_list("batch_id", flat=True)[:MAX_STATUS_BATCHES]
         )
         by_batch = _by_batch(_with_leg_follow_up(self._legs().filter(batch_id__in=latest)))
-        return [_batch_status(by_batch[batch], reply_limit=LEG_OVERVIEW_REPLY_MAX_CHARS) for batch in latest]
+        return _batch_statuses([by_batch[batch] for batch in latest], reply_limit=LEG_OVERVIEW_REPLY_MAX_CHARS)
 
     def _cancel(self, batch_id: str, thread_ids: set[str]) -> CancelResult:
         legs = self._batch_legs(batch_id)
@@ -427,21 +427,27 @@ def _session_url(thread_id: str) -> str:
 
 
 def _batch_status(legs: Sequence[Run], *, reply_limit: int) -> BatchStatus:
-    leg_of = Leg.many(run.session for run in legs)
-    return BatchStatus(
-        batch_id=str(legs[0].batch_id),
-        finished=all(leg.status in RunStatus.terminal() for leg in legs),
-        legs=[_leg_status(run, leg_of[run.session_id], reply_limit=reply_limit) for run in legs],
-    )
+    return _batch_statuses([legs], reply_limit=reply_limit)[0]
+
+
+def _batch_statuses(batches: Sequence[Sequence[Run]], *, reply_limit: int) -> list[BatchStatus]:
+    """Each of ``batches``' status, the legs of all of them loaded at once (:meth:`Leg.many`). SYNC ONLY."""
+    leg_of = Leg.many(run.session for runs in batches for run in runs)
+    return [
+        BatchStatus(
+            batch_id=str(runs[0].batch_id),
+            finished=all(run.status in RunStatus.terminal() for run in runs),
+            legs=[_leg_status(run, leg_of[run.session_id], reply_limit=reply_limit) for run in runs],
+        )
+        for runs in batches
+    ]
 
 
 def _leg_status(run: Run, leg: Leg, *, reply_limit: int) -> LegStatus:
     """The ``leg`` ``run`` is a run of, as its coordinator sees it: where the leg started, its own branch and merge
-    request even when this run published nothing, and this run's reply, cut at ``reply_limit``. A limit within
-    ``RESULT_SUMMARY_MAX_CHARS`` reads the stored summary, so its caller need not load the task result. SYNC ONLY."""
+    request even when this run published nothing, and this run's reply, cut at ``reply_limit``. SYNC ONLY."""
     session_url = _session_url(run.session_id)
     merge_request = leg.merge_request()
-    reply = run.result_summary if reply_limit <= RESULT_SUMMARY_MAX_CHARS else run.response_text
     return LegStatus(
         repo_id=run.repo_id,
         ref=leg.base_ref,
@@ -450,7 +456,7 @@ def _leg_status(run: Run, leg: Leg, *, reply_limit: int) -> LegStatus:
         status=_OUTCOMES[leg_state(run)],
         branch=run.session.ref if leg.has_own_branch() else "",
         merge_request_url=(merge_request.web_url if merge_request is not None else "") or run.merge_request_web_url,
-        reply=_cut_reply(reply.strip(), reply_limit, session_url),
+        reply=_cut_reply(run.response_text_within(reply_limit).strip(), reply_limit, session_url),
         leg_follow_up=_is_leg_follow_up(run),
     )
 
@@ -567,9 +573,7 @@ def render_batch_summary(batch_id: uuid.UUID, legs: Sequence[Run]) -> str:
     """The continuation's prompt: each leg's outcome, session and its id, branch, merge request and reply."""
     succeeded = sum(leg.status == RunStatus.SUCCESSFUL for leg in legs)
     lines = [f"The sub-jobs you delegated (batch {batch_id}) have finished: {succeeded} of {len(legs)} succeeded.", ""]
-    leg_of = Leg.many(leg.session for leg in legs)
-    for leg in legs:
-        info = _leg_status(leg, leg_of[leg.session_id], reply_limit=LEG_REPLY_MAX_CHARS)
+    for leg, info in zip(legs, _batch_status(legs, reply_limit=LEG_REPLY_MAX_CHARS).legs, strict=True):
         where = f"{info.repo_id} on {info.ref}" if info.ref else info.repo_id
         lines.append(f"## {where}: {info.status}{' (leg follow-up)' if info.leg_follow_up else ''}")
         lines.append(f"- Session: {info.session_url}")

@@ -598,6 +598,11 @@ class Run(models.Model):
                 return parsed["response"]
         return self.result_summary
 
+    def response_text_within(self, chars: int) -> str:
+        """:attr:`response_text` as far as its first ``chars`` characters: the stored summary when it holds them, so
+        the task result is read only for more."""
+        return self.result_summary if chars < RESULT_SUMMARY_MAX_CHARS else self.response_text
+
     def sync_and_save(self) -> bool:
         """Sync from the linked DBTaskResult and persist changed fields.
 

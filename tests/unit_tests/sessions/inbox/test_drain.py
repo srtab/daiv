@@ -1117,8 +1117,11 @@ class TestLegFollowUp:
         run, follow_up = await _leg_follow_up(admin_user)
 
         async def fail(started, **kwargs):
-            await Run.objects.filter(pk=started.pk).aupdate(status=RunStatus.FAILED)
-            started.status = RunStatus.FAILED
+            now = timezone.now()
+            await Run.objects.afinish(
+                started, RunStatus.FAILED, skip_dispatch=True, never_started=True, error_message="enqueue_failed: x",
+                finished_at=now, started_at=now,
+            )  # fmt: skip
             return EnqueueFailure(task_enqueued=False)
 
         with patch("sessions.inbox.drain.aenqueue_run", new=AsyncMock(side_effect=fail)):

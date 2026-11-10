@@ -13,7 +13,7 @@ from django.utils.translation import gettext
 
 from asgiref.sync import sync_to_async
 from crontask import cron
-from sessions.legs import NOT_RUN_LABELS
+from sessions.legs import not_run_label
 from sessions.models import Run, RunStatus, SessionOrigin
 
 from core.constants import TASK_PRIORITY_NOTIFICATION, TASK_QUEUE_INTERACTIVE
@@ -192,8 +192,8 @@ async def classify_run_task(run_id: str) -> None:
         # synchronous ORM, so they run in the shared sync executor rather than on the event loop.
         await sync_to_async(_notify_classified, thread_sensitive=True)(run, envelope)
 
-    if run.status == RunStatus.FAILED and run.error_message in NOT_RUN_LABELS:
-        await _persist(status=EnvelopeStatus.ALL_CLEAR, summary=gettext(run.error_message), actionable=[])
+    if run.status == RunStatus.FAILED and (label := not_run_label(run)) is not None:
+        await _persist(status=EnvelopeStatus.ALL_CLEAR, summary=label, actionable=[])
         return
 
     # Deterministic FAILED gating (AC5): a failed run is a tooling problem, decided before — and

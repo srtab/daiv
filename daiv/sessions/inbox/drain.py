@@ -145,7 +145,8 @@ class Drain:
     def _undo_take(self, run: Run, charges: list[_Charge]) -> None:
         """Free the slot claimed for ``run``, put its events back and refund the CI attempts its take spent, after its
         enqueue failed. The slot and events are usually back already: the failed run's ``run_ended`` did both
-        (:meth:`sessions.inbox.complete.RunEnd.on_run_ended`), unless its finish did not land.
+        (:meth:`sessions.inbox.complete.RunEnd.on_run_ended`), unless its finish did not land. A leg follow-up stays
+        with its run, whose end settles it.
 
         A refund leaves the merge request's examined commit blank, as the one before is not kept. That commit is older
         than the failure's, so it is no longer the head DAIV pushed, the only commit whose failure wakes the session. A
@@ -155,7 +156,6 @@ class Drain:
         with transaction.atomic():
             Session.objects.select_for_update().filter(pk=run.session_id).exists()
             SessionLock.release_for_run(run.session_id, run.pk)
-            LegFollowUps.end_with_run(run)
             InboxEvent.objects.filter(run=run, state=EventState.TAKEN).exclude(kind=EventKind.LEG_FOLLOW_UP).update(
                 state=EventState.PENDING, run=None, updated_at=timezone.now()
             )
@@ -232,12 +232,13 @@ class _Take:
             own_run = Run.objects.select_for_update().filter(pk=follow_up.run_id).first()
             if own_run is None or own_run.status != RunStatus.QUEUED:
                 LegFollowUps.settle_unstartable(follow_up, own_run)
+                own_run = None
+            elif (stop := LegFollowUps.stop_reason(session)) is not None:
+                LegFollowUps.stop(follow_up, stop, own_run)
+                own_run = None
+            if own_run is None:
                 transaction.on_commit(Drain(session.thread_id).start_logged, robust=True)
                 return None
-        if follow_up is not None and (stop := LegFollowUps.stop_reason(session)) is not None:
-            LegFollowUps.stop(follow_up, stop)
-            transaction.on_commit(Drain(session.thread_id).start_logged, robust=True)
-            return None
         if RequestSplits.takes_context(asked[0]):
             taken = [
                 event

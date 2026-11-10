@@ -152,8 +152,9 @@ class TestMergeRequest:
 class TestMany:
     def test_it_reads_what_each_leg_reads_on_its_own_in_three_queries(self, admin_user, django_assert_num_queries):
         coordinator = make_coordinator(admin_user)
-        pushed = make_leg(coordinator, uuid.uuid4(), status=RunStatus.SUCCESSFUL, ref="", session_ref="daiv/a")
-        Run.objects.filter(pk=pushed.pk).update(pushed_sha="abc123")
+        pushed = make_leg(
+            coordinator, uuid.uuid4(), status=RunStatus.SUCCESSFUL, ref="", session_ref="daiv/a", pushed_sha="abc123"
+        )
         published = make_leg(
             coordinator, uuid.uuid4(), status=RunStatus.SUCCESSFUL, ref="release", session_ref="daiv/b",
             merge_request_iid=4, merge_request_web_url="https://gitlab.example/acme/api/-/merge_requests/4",

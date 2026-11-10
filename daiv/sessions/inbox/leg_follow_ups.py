@@ -38,6 +38,8 @@ from sessions.models import (
 if TYPE_CHECKING:
     import uuid
 
+    from django.db.models import QuerySet
+
     from accounts.models import User
 
 BUSY = "busy"
@@ -119,14 +121,14 @@ class LegFollowUps:
         return None if stop is None else stop[0]
 
     @staticmethod
-    def stop(event: InboxEvent, failure: EventFailure) -> None:
-        """Fail the leg follow-up ``event`` with ``failure`` and finish its run FAILED, never started, with the
+    def stop(event: InboxEvent, failure: EventFailure, run: Run) -> None:
+        """Fail the leg follow-up ``event`` with ``failure`` and finish its ``run`` FAILED, never started, with the
         matching not-run label. The finish says ``skip_dispatch``: the caller drains once this commits."""
         now = timezone.now()
         InboxEvent.objects.filter(pk=event.pk).update(state=EventState.FAILED, failure=failure, updated_at=now)
         session_changed(event.session_id)
         Run.objects.finish(
-            Run.objects.get(pk=event.run_id),
+            run,
             RunStatus.FAILED,
             skip_dispatch=True,
             never_started=True,
@@ -138,13 +140,11 @@ class LegFollowUps:
     @staticmethod
     def settle_unstartable(event: InboxEvent, run: Run | None) -> None:
         """Settle the pending leg follow-up ``event`` whose own ``run`` is gone or no longer QUEUED, so the drain moves
-        on: as :meth:`end_with_run` settles it, else failed (``run_failed``). SYNC ONLY."""
-        if run is not None:
+        on: as :meth:`end_with_run` settles it when that run failed, else failed (``run_failed``). SYNC ONLY."""
+        if run is not None and run.status == RunStatus.FAILED:
             LegFollowUps.end_with_run(run)
-        InboxEvent.objects.filter(pk=event.pk, state=EventState.PENDING).update(
-            state=EventState.FAILED, failure=EventFailure.RUN_FAILED, updated_at=timezone.now()
-        )
-        session_changed(event.session_id)
+        else:
+            _settle(InboxEvent.objects.filter(pk=event.pk, state=EventState.PENDING), event.session_id)
 
     @staticmethod
     def end_with_run(run: Run) -> None:
@@ -156,11 +156,14 @@ class LegFollowUps:
         follow_ups = InboxEvent.objects.filter(
             run=run, kind=EventKind.LEG_FOLLOW_UP, state__in=(EventState.PENDING, EventState.TAKEN)
         )
-        if run.is_cancelled:
-            moved = follow_ups.update(state=EventState.DISMISSED, updated_at=timezone.now())
-        else:
-            moved = follow_ups.update(
-                state=EventState.FAILED, failure=EventFailure.RUN_FAILED, updated_at=timezone.now()
-            )
-        if moved:
-            session_changed(run.session_id)
+        _settle(follow_ups, run.session_id, dismissed=run.is_cancelled)
+
+
+def _settle(follow_ups: QuerySet[InboxEvent], thread_id: str, *, dismissed: bool = False) -> None:
+    """Dismiss ``follow_ups``, or fail them (``run_failed``), telling the session's page when any moved."""
+    if dismissed:
+        moved = follow_ups.update(state=EventState.DISMISSED, updated_at=timezone.now())
+    else:
+        moved = follow_ups.update(state=EventState.FAILED, failure=EventFailure.RUN_FAILED, updated_at=timezone.now())
+    if moved:
+        session_changed(thread_id)

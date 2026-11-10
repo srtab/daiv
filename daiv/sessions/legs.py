@@ -26,8 +26,8 @@ from dataclasses import dataclass
 from functools import cached_property
 from typing import TYPE_CHECKING
 
-from django.db.models import Exists, OuterRef
-from django.utils.translation import gettext_noop
+from django.db.models import Exists, F, OuterRef
+from django.utils.translation import gettext, gettext_noop
 
 from asgiref.sync import sync_to_async
 
@@ -56,9 +56,24 @@ NOT_RUN_CLOSED = gettext_noop("Not run: its merge request was closed")
 NOT_RUN_LABELS = frozenset({NOT_RUN_MERGED, NOT_RUN_CLOSED})
 
 
+def not_run_label(run: Run) -> str | None:
+    """The translated not-run label ``run`` finished with, or ``None`` when it finished otherwise."""
+    return gettext(run.error_message) if run.error_message in NOT_RUN_LABELS else None
+
+
 def is_leg_follow_up_run() -> Exists:
     """For a query on runs: whether the run is a leg follow-up's, whose ``leg_follow_up`` event is linked to it."""
     return Exists(InboxEvent.objects.filter(kind=EventKind.LEG_FOLLOW_UP, run=OuterRef("pk")))
+
+
+def _delegated_runs(runs: QuerySet[Run]) -> QuerySet[Run]:
+    """``runs`` that are delegated, oldest first."""
+    return runs.filter(trigger_type=SessionOrigin.DELEGATED_JOB).order_by("created_at", "id")
+
+
+def _published_runs(runs: QuerySet[Run]) -> QuerySet[Run]:
+    """``runs`` that published a merge request on their session's main repository, newest first."""
+    return runs.filter(repo_id=F("session__repo_id"), merge_request_iid__isnull=False).order_by("-created_at", "-id")
 
 
 @dataclass(frozen=True)
@@ -73,8 +88,6 @@ class Leg:
 
     def __init__(self, session: Session):
         self.session = session
-        self._pushed: bool | None = None
-        self._published: list[tuple[int, str]] | None = None
 
     @classmethod
     def many(cls, sessions: Iterable[Session]) -> dict[str, Leg]:
@@ -83,20 +96,13 @@ class Leg:
         legs: dict[str, Leg] = {session.pk: cls(session) for session in sessions}
         runs = Run.objects.filter(session_id__in=list(legs))
         first_refs: dict[str, str] = {}
-        delegated = runs.filter(trigger_type=SessionOrigin.DELEGATED_JOB).order_by("created_at", "id")
-        for thread_id, ref in delegated.values_list("session_id", "ref"):
+        for thread_id, ref in _delegated_runs(runs).values_list("session_id", "ref"):
             first_refs.setdefault(thread_id, ref)
         pushed = set(runs.that_pushed().values_list("session_id", flat=True))
         published: defaultdict[str, list[tuple[int, str]]] = defaultdict(list)
-        rows = (
-            runs
-            .filter(merge_request_iid__isnull=False)
-            .order_by("-created_at", "-id")
-            .values_list("session_id", "repo_id", "merge_request_iid", "merge_request_web_url")
-        )
-        for thread_id, repo_id, iid, web_url in rows:
-            if repo_id == legs[thread_id].session.repo_id:
-                published[thread_id].append((iid, web_url))
+        rows = _published_runs(runs).values_list("session_id", "merge_request_iid", "merge_request_web_url")
+        for thread_id, iid, web_url in rows:
+            published[thread_id].append((iid, web_url))
         for thread_id, leg in legs.items():
             leg.base_ref = first_refs.get(thread_id, leg.session.ref)
             leg._pushed = thread_id in pushed
@@ -118,9 +124,7 @@ class Leg:
 
     def delegated_runs(self) -> QuerySet[Run]:
         """Its delegated runs, oldest first."""
-        return Run.objects.filter(session=self.session, trigger_type=SessionOrigin.DELEGATED_JOB).order_by(
-            "created_at", "id"
-        )
+        return _delegated_runs(Run.objects.filter(session=self.session))
 
     @cached_property
     def base_ref(self) -> str:
@@ -131,25 +135,22 @@ class Leg:
         ref = self.session.ref
         if not ref or ref == self.base_ref:
             return False
-        if self.base_ref:
-            return True
-        if self._pushed is not None:
-            return self._pushed
-        return Run.objects.filter(session=self.session).that_pushed().exists()
+        return bool(self.base_ref) or self._pushed
 
     async def ahas_own_branch(self) -> bool:
         return await sync_to_async(self.has_own_branch)()
 
+    @cached_property
+    def _pushed(self) -> bool:
+        return Run.objects.filter(session=self.session).that_pushed().exists()
+
+    @cached_property
+    def _published(self) -> list[tuple[int, str]]:
+        runs = _published_runs(Run.objects.filter(session=self.session))
+        return list(runs.values_list("merge_request_iid", "merge_request_web_url"))
+
     def merge_request(self) -> LegMergeRequest | None:
-        published = self._published
-        if published is None:
-            published = list(
-                Run.objects
-                .filter(session=self.session, repo_id=self.session.repo_id, merge_request_iid__isnull=False)
-                .order_by("-created_at", "-id")
-                .values_list("merge_request_iid", "merge_request_web_url")
-            )
-        if not published:
+        if not (published := self._published):
             return None
         iid = published[0][0]
         web_url = next((url for run_iid, url in published if run_iid == iid and url), "")
