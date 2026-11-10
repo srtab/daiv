@@ -91,6 +91,14 @@ For how these pieces fit together — the middleware stack, skill loading, and h
 
 <div class="grid cards" markdown>
 
+-   **Try it in 15 minutes**
+
+    ---
+
+    Run DAIV on one machine and turn a GitLab issue into a merge request.
+
+    [:octicons-arrow-right-24: Quickstart](getting-started/quickstart.md)
+
 -   **Deploy DAIV**
 
     ---
