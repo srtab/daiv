@@ -4954,6 +4954,9 @@ html {
   .landing-card {
     @apply rounded-2xl border border-border bg-surface-2 p-6;
   }
+  .landing-card--link {
+    @apply block transition-colors duration-200 hover:border-text-faint hover:bg-surface-3;
+  }
   .landing-card__icon {
     @apply mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-surface-3;
   }
@@ -4962,6 +4965,31 @@ html {
   }
   .landing-cta {
     @apply rounded-2xl border border-border bg-surface-2 px-6 py-12 text-center sm:p-16;
+  }
+
+  .landing-page {
+    @apply pt-16 pb-24;
+  }
+  .landing-subheading {
+    @apply text-xl font-semibold tracking-tight text-text-strong;
+  }
+  .landing-compare {
+    @apply border-t border-border;
+  }
+  .landing-compare__row {
+    @apply grid gap-x-8 gap-y-3 border-b border-border py-5 sm:grid-cols-[10rem_1fr_1fr];
+  }
+  .landing-compare__aspect {
+    @apply text-[14px] font-semibold text-text-strong;
+  }
+  .landing-compare__cell {
+    @apply text-[14px] text-text-muted;
+  }
+  .landing-compare__who {
+    @apply mb-1 block font-mono text-[11px] font-semibold tracking-[0.14em] text-text-faint uppercase;
+  }
+  .landing-compare__sources {
+    @apply mt-1.5 text-[12px] text-text-faint;
   }
 
   .landing-footer {

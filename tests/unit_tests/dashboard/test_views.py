@@ -11,6 +11,7 @@ from django.utils import timezone
 
 import pytest
 from dashboard import landing
+from dashboard.comparisons import COMPARISONS
 from dashboard.home import INBOX_LIMIT
 from dashboard.tasks import BOT_USERNAME_CACHE_KEY, BOT_USERNAME_PENDING_KEY
 from notifications.choices import EnvelopeStatus
@@ -85,6 +86,38 @@ class TestHomepage:
         assert re.search(r"<video[^>]*\bmuted\b[^>]*\bplaysinline\b[^>]*\bpreload=\"none\"", content)
         assert "autoplay" not in content
         assert '<source src="/static/dashboard/video/demo.mp4" type="video/mp4">' in content
+
+    def test_links_every_comparison(self):
+        content = Client().get(reverse("homepage")).content.decode()
+
+        for comparison in COMPARISONS:
+            assert f'href="{reverse("comparison", args=[comparison.slug])}"' in content
+
+
+@pytest.mark.django_db
+class TestComparison:
+    @pytest.mark.parametrize("comparison", COMPARISONS, ids=lambda comparison: comparison.slug)
+    def test_page_shows_both_sides_with_their_sources(self, comparison):
+        response = Client().get(reverse("comparison", args=[comparison.slug]))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert f"DAIV and {comparison.name}</h1>" in content
+        for row in comparison.rows:
+            for source in (*row.daiv.sources, *row.theirs.sources):
+                assert f'href="{source}"' in content
+
+    def test_unknown_comparison_is_not_found(self):
+        assert Client().get("/compare/nothing-like-this/").status_code == 404
+
+    def test_signed_in_user_can_read_it(self, member_client):
+        assert member_client.get(reverse("comparison", args=[COMPARISONS[0].slug])).status_code == 200
+
+    def test_sitemap_lists_every_comparison(self):
+        content = Client().get(reverse("sitemap")).content.decode()
+
+        for comparison in COMPARISONS:
+            assert reverse("comparison", args=[comparison.slug]) in content
 
 
 @pytest.mark.django_db

@@ -38,20 +38,7 @@
 {% endblock head_extra %}
 
 {% block content %}
-<!-- Navigation -->
-<nav aria-label="Main navigation" class="landing-nav">
-    <div class="landing-container flex items-center justify-between py-4">
-        <a href="/" class="flex items-center">
-            <img src="{% static 'accounts/img/logo.svg' %}" alt="DAIV" class="h-7">
-        </a>
-        <div class="flex items-center gap-5">
-            <a href="#security" class="landing-link hidden md:inline">Security</a>
-            <a href="#faq" class="landing-link hidden md:inline">FAQ</a>
-            <a href="{{ build_info.docs_url }}" rel="noopener noreferrer" class="landing-link hidden sm:inline">Documentation</a>
-            <a href="{% url 'account_login' %}" class="landing-signin">Sign in</a>
-        </div>
-    </div>
-</nav>
+{% include "dashboard/_landing_nav.html" %}
 
 <main>
 <!-- Hero -->
@@ -518,6 +505,32 @@
     </div>
 </section>
 
+<!-- Compare -->
+<section id="compare" class="landing-section">
+    <div class="landing-container">
+        <div class="animate-fade-up">
+            <p class="landing-eyebrow">How it compares</p>
+            <h2 class="landing-heading">Pick the tool that fits your team</h2>
+            <p class="landing-lede">
+                DAIV is for teams that want one agent in their GitLab or GitHub threads, running on their own servers,
+                with the model and network rules they choose, and a dashboard, MCP endpoint and scheduled jobs in the same deployment.
+            </p>
+        </div>
+
+        <div class="mt-12 grid gap-4 sm:grid-cols-2">
+            {% for comparison in comparisons %}
+            <a href="{% url 'comparison' comparison.slug %}" class="animate-fade-up landing-card landing-card--link group">
+                <h3 class="landing-item-title flex items-center justify-between gap-3">
+                    DAIV and {{ comparison.name }}
+                    {% icon "arrow-right" "h-4 w-4 shrink-0 text-text-faint transition-colors duration-200 group-hover:text-accent" %}
+                </h3>
+                <p class="landing-item-body">{{ comparison.choose_them }}</p>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+
 <!-- FAQ -->
 <section id="faq" class="landing-section">
     <div class="landing-container">
@@ -562,15 +575,5 @@
 </section>
 </main>
 
-<!-- Footer -->
-<footer class="landing-footer">
-    <div class="landing-container flex flex-col items-center justify-between gap-4 sm:flex-row">
-        <p class="text-center text-[13px] text-text-muted sm:text-left">DAIV &mdash; Open-source, self-hosted SWE agents for GitLab &amp; GitHub</p>
-        <div class="flex items-center gap-6">
-            <a href="{{ build_info.docs_url }}" rel="noopener noreferrer" class="landing-footer__link">Documentation</a>
-            <a href="https://github.com/srtab/daiv" rel="noopener noreferrer" class="landing-footer__link">GitHub</a>
-            <a href="https://github.com/srtab/daiv/blob/main/LICENSE" rel="noopener noreferrer" class="landing-footer__link">License</a>
-        </div>
-    </div>
-</footer>
+{% include "dashboard/_landing_footer.html" %}
 {% endblock content %}
