@@ -98,7 +98,7 @@ DAIV is powered by [Deep Agents](https://github.com/langchain-ai/deepagents), a 
 - **[MCP Tools](https://srtab.github.io/daiv/dev/customization/mcp-tools/)** — external integrations over the [Model Context Protocol](https://modelcontextprotocol.io/), such as Sentry for error tracking.
 - **[Monitoring](https://srtab.github.io/daiv/dev/reference/monitoring/)** — trace every agent execution with [LangSmith](https://www.langchain.com/langsmith) to analyze performance and spot issues.
 - **Scalable Workers** — background workers scale horizontally by adding replicas, with a dedicated scheduler for recurring jobs.
-- **[LLM Providers](https://srtab.github.io/daiv/dev/getting-started/llm-providers/)** — run on OpenRouter, Anthropic, OpenAI, or Google, or on your own OpenAI-compatible server (vLLM, llama.cpp, LiteLLM) — your keys, your choice. Tested with Claude Sonnet 5.5, Opus 5.5 and Haiku 5.5, GPT-6.1 Sol and GPT-6 Luna, GLM-5.2 through OpenRouter, and Qwen on a self-hosted vLLM server.
+- **[LLM Providers](https://srtab.github.io/daiv/dev/getting-started/llm-providers/)** — run on OpenRouter, Anthropic, OpenAI, or Google, or on your own OpenAI-compatible server (vLLM, llama.cpp, LiteLLM) — your keys, your choice. Tested with Claude Sonnet 5.5, Opus 5.5 and Haiku 5.5, GPT-6.1 Sol and GPT-6 Luna, GLM-5.2 through OpenRouter, and Qwen3.8 on a self-hosted vLLM server.
 
 ## Technology Stack
 
@@ -142,7 +142,7 @@ We welcome contributions! Whether you want to fix a bug, add a new feature, or i
 
 ## License
 
-This project is licensed under the [Apache 2.0 License](LICENSE).
+DAIV is [Apache-2.0](LICENSE) and will stay that way. There is no paid tier today; if paid support or hosting is ever offered, it will run the same open-source code, not a separately licensed edition. It is maintained by Sandro Rodrigues.
 
 ## Support & Community
 
