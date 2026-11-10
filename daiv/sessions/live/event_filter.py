@@ -4,11 +4,27 @@ import json
 from typing import TYPE_CHECKING, Any
 
 from ag_ui.core.events import EventType, ToolCallArgsEvent, ToolCallEndEvent, ToolCallStartEvent
+from langchain.agents.middleware.internal_call_transformer import INTERNAL_CALL_METADATA_KEY
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Iterable
 
     from ag_ui.core.events import BaseEvent
+
+
+def is_internal_model_call(event: Any) -> bool:
+    """Whether a LangGraph event belongs to a model call that is not the agent speaking.
+
+    That is a call marked internal (compaction's summary, which runs in the agent's own model node) or any call made
+    inside a tool, such as ``web_fetch``'s summariser: it shares the agent's namespace, so nothing else tells it apart.
+    """
+    if not isinstance(event, dict) or not str(event.get("event", "")).startswith("on_chat_model_"):
+        return False
+    metadata = event.get("metadata")
+    if not isinstance(metadata, dict):
+        return False
+    return INTERNAL_CALL_METADATA_KEY in metadata or metadata.get("langgraph_node") == "tools"
+
 
 # ``ag_ui_langgraph`` honors ``emit-messages: False`` for text frames only: the
 # reasoning branch returns before upstream reaches that gate, so a subagent
@@ -67,7 +83,8 @@ class SubagentEventFilter:
       STATE_SNAPSHOT events, and ``on_chat_model_end`` RAW events. The latter
       is required because the ``tools`` node's STATE_SNAPSHOTs only carry the
       freshly-appended ToolMessages — never the parent AIMessage — so the
-      snapshot path alone cannot recover parallel siblings,
+      snapshot path alone cannot recover parallel siblings; an
+      ``is_internal_model_call`` end event is skipped, as its calls are not the agent's,
     * drops misrouted natural ``TOOL_CALL_ARGS`` events whose underlying
       chunk's ``tool_call_chunks[0].index`` doesn't match the chunk index
       recorded when its natural TOOL_CALL_START fired. When case #1 drops
@@ -270,7 +287,7 @@ class SubagentEventFilter:
         if event.type != EventType.RAW:
             return
         raw = getattr(event, "event", None)
-        if not isinstance(raw, dict) or raw.get("event") != "on_chat_model_end":
+        if not isinstance(raw, dict) or raw.get("event") != "on_chat_model_end" or is_internal_model_call(raw):
             return
         output = (raw.get("data") or {}).get("output")
         if output is not None:

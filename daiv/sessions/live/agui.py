@@ -15,10 +15,10 @@ from ag_ui.core.events import (
 )
 from ag_ui_langgraph.utils import normalize_tool_content
 from copilotkit import LangGraphAGUIAgent
-from langchain.agents.middleware.internal_call_transformer import INTERNAL_CALL_METADATA_KEY
 from langchain_core.messages import ToolMessage
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT, parse_assistant_message
+from sessions.live.event_filter import is_internal_model_call
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -129,14 +129,13 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
         ends can therefore emit a stray unmatched END under the parent's namespace —
         a dangling frame, never readable content.
         """
+        # Kept from upstream entirely, not just silenced: its reasoning and tool-call state is shared with the
+        # agent's, so a silenced call left open there would swallow the agent's next frames.
+        if is_internal_model_call(event):
+            return
         metadata = event.get("metadata") if isinstance(event, dict) else None
         if not isinstance(metadata, dict):
             metadata = {}
-        # A model call made inside a tool or middleware (web_fetch's summariser, compaction) shares the agent's
-        # namespace, and upstream would render its tokens as the agent's reply.
-        if INTERNAL_CALL_METADATA_KEY in metadata:
-            metadata = {**metadata, "emit-messages": False}
-            event = {**event, "metadata": metadata}
         provenance = {k: metadata[k] for k in ("langgraph_checkpoint_ns", "emit-messages") if k in metadata}
 
         async for agui_event in super()._handle_single_event(event, state):

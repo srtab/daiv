@@ -7,6 +7,7 @@ TOOL_CALL_START is delivered late (via the OnToolEnd re-emit) *after* the
 subagent has already streamed events.
 """
 
+import pytest
 from ag_ui.core.events import (
     EventType,
     RawEvent,
@@ -21,6 +22,7 @@ from ag_ui.core.events import (
     ToolCallResultEvent,
     ToolCallStartEvent,
 )
+from langchain.agents.middleware.internal_call_transformer import INTERNAL_CALL_METADATA_KEY
 from sessions.live.event_filter import REASONING_EVENT_TYPES, SubagentEventFilter
 
 
@@ -539,6 +541,21 @@ async def test_filter_synthesizes_from_chat_model_end_for_parallel_siblings():
     # Synthesized siblings carry their finalized args; the natural tc1 had no
     # ARGS event in this minimal sequence so it doesn't appear here.
     assert args == [("tc2", '{"path": "b.md"}'), ("tc3", '{"path": "c.md"}')]
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [{"langgraph_node": "tools"}, {"langgraph_node": "model", INTERNAL_CALL_METADATA_KEY: "token"}],
+    ids=["inside-a-tool", "marked-internal"],
+)
+async def test_filter_synthesizes_no_tool_card_for_an_internal_model_call(metadata):
+    """A structured-output call inside a tool or middleware forces a tool call the agent never made."""
+    model_end = _chat_model_end(output={"type": "ai", "tool_calls": [{"id": "tc-s", "name": "Summary", "args": {}}]})
+    model_end.event["metadata"] |= metadata
+
+    out = await _drain(_filter([model_end]))
+
+    assert [e.type for e in out] == [EventType.RAW]
 
 
 async def test_filter_chat_model_end_dedupes_late_reemit():

@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from dataclasses import dataclass
 
@@ -7,8 +8,10 @@ from ag_ui.core.events import EventType, RawEvent, ToolCallStartEvent
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.internal_call_transformer import internal_call_metadata
-from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel, GenericFakeChatModel
+from langchain_core.language_models import BaseChatModel
+from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
+from langchain_core.outputs import ChatGenerationChunk
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
 from sessions.live.agui import RuntimeContextLangGraphAGUIAgent
@@ -273,6 +276,22 @@ class TestReasoningProvenance:
 
         assert await self._survivors(await self._emit(agent, event)) == []
 
+    async def test_an_internal_call_left_thinking_does_not_swallow_the_agents_thinking(self):
+        """Upstream keeps one reasoning slot for the run: a silenced call's still-open reasoning would otherwise
+        carry the agent's next thought under a message the client never saw start."""
+        agent = self._agent()
+        summariser = self._thinking_event(self.TOP_NS, "summariser thought")
+        summariser["metadata"] |= internal_call_metadata()
+
+        produced = await self._emit(agent, summariser)
+        produced += await self._emit(agent, self._thinking_event(self.TOP_NS, "my own thought"))
+        survivors = await self._survivors(produced)
+
+        started = {e.message_id for e in survivors if e.type == EventType.REASONING_MESSAGE_START}
+        content = [e for e in survivors if e.type == EventType.REASONING_MESSAGE_CONTENT]
+        assert [e.delta for e in content] == ["my own thought"]
+        assert content[0].message_id in started
+
     async def test_stamping_preserves_existing_raw_event(self):
         """Events upstream already tagged (text, tool calls) must pass through untouched."""
         agent = self._agent()
@@ -287,6 +306,11 @@ class TestReasoningProvenance:
 @dataclass
 class _Ctx:
     pass
+
+
+class _ToolModel(FakeMessagesListChatModel):
+    def bind_tools(self, tools, **kwargs):
+        return self
 
 
 def _run_graph(model, *, content: str, tools=(), middleware=()):
@@ -346,10 +370,6 @@ async def test_every_streamed_tool_call_gets_one_result_even_when_middleware_ans
     """A real graph whose middleware answers one call without running the tool, through the real agent class and
     filter: pins that the tools node's output reaches the hook, which sends the result upstream never emits."""
 
-    class _ToolModel(FakeMessagesListChatModel):
-        def bind_tools(self, tools, **kwargs):
-            return self
-
     @tool
     def edit_file(file_path: str) -> str:
         """Edit a file."""
@@ -379,38 +399,49 @@ async def test_every_streamed_tool_call_gets_one_result_even_when_middleware_ans
     assert sorted(results) == [("call_1", "edited"), ("call_2", "Error: rejected")]
 
 
-async def test_a_model_call_made_inside_a_tool_never_reaches_the_chat():
-    """web_fetch's summariser runs under the agent's event stream, so upstream renders its tokens as the
-    assistant's own text unless the call is marked internal."""
+_SUMMARY = "the summariser's answer"
+_SUMMARY_THOUGHT = "the summariser's thought"
 
-    class _ToolModel(FakeMessagesListChatModel):
-        def bind_tools(self, tools, **kwargs):
-            return self
+
+class _ThinkingSummariser(BaseChatModel):
+    """Streams a thought then its answer, yielding between chunks so parallel calls interleave."""
+
+    @property
+    def _llm_type(self) -> str:
+        return "thinking-summariser"
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        raise NotImplementedError
+
+    async def _astream(self, messages, stop=None, run_manager=None, **kwargs):
+        for content in ([{"type": "thinking", "thinking": _SUMMARY_THOUGHT, "index": 0}], _SUMMARY):
+            await asyncio.sleep(0)
+            yield ChatGenerationChunk(message=AIMessageChunk(content=content))
+
+
+async def test_parallel_model_calls_made_inside_tools_never_reach_the_chat():
+    """web_fetch's summariser runs under the agent's event stream, unmarked here: being inside a tool is enough."""
 
     @tool
     async def fetch_page() -> str:
         """Fetch a page."""
-        summariser = GenericFakeChatModel(messages=iter([AIMessage(content="the summariser's answer")]))
-        summary = await summariser.ainvoke("summarise", config={"metadata": internal_call_metadata()})
-        return summary.text
+        return (await _ThinkingSummariser().ainvoke("summarise")).text
 
+    calls = [{"name": "fetch_page", "args": {}, "id": f"call_{i}"} for i in (1, 2)]
     stream = _run_graph(
-        _ToolModel(
-            responses=[
-                AIMessage(content="", tool_calls=[{"name": "fetch_page", "args": {}, "id": "call_1"}]),
-                AIMessage(content="done"),
-            ]
-        ),
+        _ToolModel(responses=[AIMessage(content="", tool_calls=calls), AIMessage(content="done")]),
         content="fetch",
         tools=[fetch_page],
     )
 
     events = [e async for e in SubagentEventFilter().apply(stream) if e is not None]
 
-    assert ("call_1", "the summariser's answer") in [
-        (e.tool_call_id, e.content) for e in events if e.type == EventType.TOOL_CALL_RESULT
-    ]
-    assert "summariser" not in "".join(getattr(e, "delta", None) or "" for e in events)
+    results = [(e.tool_call_id, e.content) for e in events if e.type == EventType.TOOL_CALL_RESULT]
+    assert sorted(results) == [("call_1", _SUMMARY), ("call_2", _SUMMARY)]
+    deltas = [e.delta for e in events if getattr(e, "delta", None)]
+    assert _SUMMARY not in deltas
+    assert _SUMMARY_THOUGHT not in deltas
+    assert not [e for e in events if e.type in REASONING_EVENT_TYPES]
 
 
 def _tools_node_end(*messages: ToolMessage) -> dict:
