@@ -50,7 +50,7 @@ from .utils import (
 DATA_DIR = Path(__file__).parent / "data" / "code_review"
 TEST_SUITE = "DAIV: Code review recall"
 REVIEW_REQUEST = "/code-review"
-# The seeded GLOBAL default, python:3.12-alpine, has no git, so the review would never see the patch.
+# Pinned so a change to the seeded GLOBAL default never leaves the review without git.
 SANDBOX_IMAGE = "ghcr.io/astral-sh/uv:python3.14-bookworm"
 RECALL_REPO_URL = "https://github.com/srtab/daiv.git"
 
