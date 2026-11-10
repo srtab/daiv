@@ -69,24 +69,33 @@ class DelegateTarget(BaseModel):
             "`closes` resolves it on merge where the provider supports it."
         ),
     )
+    thread_id: str | None = Field(
+        default=None,
+        description=(
+            "A leg's session id, from a resume or from `check_delegated_jobs`, to continue that leg in its own "
+            "session, on its branch and merge request, instead of starting a new one. Omit `ref`, and give the leg's "
+            "`repo_id`."
+        ),
+    )
 
 
 DELEGATE_JOBS_DESCRIPTION = f"""\
 Delegate tailored sub-jobs, on this repository or on others, and return without waiting.
 
 Each target runs as an independent job in a session of its own, sees only its `prompt`, and publishes to a new \
-branch and merge request of its own. Once every started leg has finished, you are resumed with a summary of all of \
-them.
+branch and merge request of its own. A target with a `thread_id` is a leg follow-up instead: it continues that leg \
+in its own session, with its earlier conversation, and pushes to its branch and merge request. Once every started \
+leg has finished, you are resumed with a summary of all of them.
 
 - `goal`: one line naming the overall objective; it titles the batch and is never sent to a leg.
-- `targets`: 1-{MAX_DELEGATED_TARGETS} entries of `{{repo_id, ref?, prompt, references?}}`. `ref` is the branch \
-the leg starts from and its merge request targets: omit it for the default branch, or give your current branch to \
-build on your work, and that leg starts once your turn ends. `references` link issues or tickets into the leg's \
-merge request.
+- `targets`: 1-{MAX_DELEGATED_TARGETS} entries of `{{repo_id, ref?, prompt, references?, thread_id?}}`. `ref` is \
+the branch the leg starts from and its merge request targets: omit it for the default branch, or give your current \
+branch to build on your work, and that leg starts once your turn ends. `references` link issues or tickets into the \
+leg's merge request.
 
-Returns JSON: `{{"batch_id", "started": [{{repo_id, ref, thread_id, session_url, starts_after_this_turn}}], \
-"failed": [{{repo_id, ref, error, still_runs}}]}}`. A failed leg with `still_runs` started but cannot be followed: \
-it may still open a merge request, so never redo its work."""
+Returns JSON: `{{"batch_id", "started": [{{repo_id, ref, thread_id, session_url, starts_after_this_turn, \
+leg_follow_up}}], "failed": [{{repo_id, ref, error, still_runs, thread_id}}]}}`. A failed leg with `still_runs` \
+started but cannot be followed: it may still open a merge request, so never redo its work."""
 
 CHECK_DELEGATED_JOBS_DESCRIPTION = f"""\
 Report where the sub-jobs you delegated with `{DELEGATE_JOBS_TOOL_NAME}` stand: each leg's status, session, branch, \
@@ -95,9 +104,12 @@ merge request and reply.
 - `batch_id`: the batch `{DELEGATE_JOBS_TOOL_NAME}` returned; omit it for this session's latest batches.
 
 Returns JSON: `{{"batches": [{{batch_id, finished, legs: [{{repo_id, ref, thread_id, session_url, status, branch, \
-merge_request_url, reply}}]}}]}}`. A leg's `status` is `queued`, `running`, `stopping` (cancelled, but still \
-running), `succeeded`, `failed`, `cancelled`, or `started, but DAIV lost track of it`, which may still open a merge \
-request.
+merge_request_url, reply, leg_follow_up}}]}}]}}`. A leg's `status` is `queued`, `running`, `stopping` (cancelled, \
+but still running), `succeeded`, `failed`, `cancelled`, `started, but DAIV lost track of it`, which may still open a \
+merge request, or `not run: its merge request was merged` or `not run: its merge request was closed`, a leg \
+follow-up that stopped at its start. A leg that served several batches appears under each, once per run. `reply` \
+is up to 4,000 characters when you name a `batch_id` and 1,000 for the latest batches; a reply cut short ends by \
+saying so and naming the leg's session.
 
 Check when the user asks how the work is going, or when you need a finished leg's result before the batch resumes \
 you. Never call it to wait for legs: you are resumed once every leg of a batch has finished."""
@@ -107,7 +119,8 @@ Cancel sub-jobs you delegated with `{DELEGATE_JOBS_TOOL_NAME}` that have not fin
 and a running one is `stopping` until it stops, within seconds.
 
 - `batch_id`: the batch `{DELEGATE_JOBS_TOOL_NAME}` returned.
-- `thread_ids`: the `thread_id` of each leg to cancel; omit them to cancel every unfinished leg of the batch.
+- `thread_ids`: the `thread_id` of each leg to cancel; omit them to cancel every unfinished leg of the batch. It may \
+name a leg follow-up of the batch: a waiting one never starts, and a running one stops as a leg does.
 
 Cancel only when the user asks you to, or when the work a leg does is no longer wanted. A running leg may push to \
 its branch or open a merge request before it stops, even if its `merge_request_url` stays empty: give the user its \
@@ -137,6 +150,10 @@ own. Give your current branch, even the default one, to build on your work: that
 from the branch this turn publishes to, and when you are resumed you can merge its branch into yours or leave its \
 merge request for review.
 
+A leg follow-up (a target with `thread_id`) never names `ref`: it works on the leg's own branch, or opens one when \
+the leg has none. Follow up only a leg that has finished; one still working is refused, and you are resumed when it \
+finishes.
+
 1. Decide what each leg must do. Any routing rules for this setup live in AGENTS.md.
 2. Call `{DELEGATE_JOBS_TOOL_NAME}` once, with a prompt tailored to each leg. A leg sees only its prompt, so put \
 everything it needs in it, and end it with: "{NO_CHANGE_CONVENTION}" Link the issue or ticket a leg works on with its \
@@ -145,8 +162,10 @@ everything it needs in it, and end it with: "{NO_CHANGE_CONVENTION}" Link the is
 with each leg's status, branch, merge request and reply, once they have all finished.
 4. If `started` is empty, no resume will come: deal with the failures in this turn. Never redo the work of a \
 failed leg with `still_runs`; it runs anyway.
-5. When resumed, check the outcome and report it where the request came from. If follow-up work depends on a leg's \
-result, delegate another batch; you are resumed again.
+5. When resumed, check the outcome and report it where the request came from. When a leg's own work is incomplete \
+or wrong, follow it up with its `thread_id`. It continues in its session and pushes to its merge request, and you get \
+one merge request per leg, not two. Delegate a new leg for work that stands apart from every leg's. You are resumed \
+again either way.
 
 `{CHECK_DELEGATED_JOBS_TOOL_NAME}` reports where your batches stand, when the user asks or you need a finished leg's \
 result before the resume; never call it to wait for them. `{CANCEL_DELEGATED_JOBS_TOOL_NAME}` stops legs that have \
@@ -222,6 +241,7 @@ class DelegateJobsMiddleware(AgentMiddleware):
                     ref=(t.ref or "").strip(),
                     prompt=t.prompt.strip(),
                     references=tuple(t.references),
+                    thread_id=(t.thread_id or "").strip(),
                 )
                 for t in targets
             ],

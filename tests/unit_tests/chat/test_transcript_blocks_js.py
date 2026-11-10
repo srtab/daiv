@@ -530,6 +530,20 @@ def test_a_leg_keeps_only_web_or_page_links():
     ]
 
 
+def test_a_refused_follow_up_is_a_row_of_its_own_and_a_followed_up_leg_keeps_its_mark():
+    refused = {"repo_id": "a/x", "ref": "", "error": "Still working.", "still_runs": False, "thread_id": "t-a-x"}
+    result = {"batch_id": "b", "started": [started_leg("a/y")], "failed": [refused]}
+    legs = [enriched_leg("a/x", "", state="failed"), enriched_leg("a/y", "", state="running", leg_follow_up=True)]
+    seg = delegate(result=result, legs=legs)
+    shown = _cards(_blocks([user("u1"), asst("a1", read("c1"), seg, text("done"))])[0])[0]["legs"]
+    assert [(leg["repo_id"], leg["state"], leg["error"], leg["leg_follow_up"]) for leg in shown] == [
+        ("a/x", "failed", "", False),
+        ("a/y", "running", "", True),
+        ("a/x", "failed", "Still working.", False),
+    ]
+    assert shown[2]["thread_id"] == "t-a-x"
+
+
 def test_a_started_leg_links_to_the_pages_own_session_path():
     turns = [user("u1"), asst("a1", delegate(), streaming=True)]
     labels = {"session_path": "/dashboard/sessions/{thread_id}/"}

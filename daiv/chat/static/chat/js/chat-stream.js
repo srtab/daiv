@@ -1758,6 +1758,7 @@
       const T = window.TranscriptLabels;
       if (bubble.kind === "chat_message") return T.t("bubble_chat");
       if (bubble.kind === "mention") return T.t("inbox_mention");
+      if (bubble.kind === "leg_follow_up") return T.t("inbox_leg_follow_up");
       if (bubble.kind !== "follow_up_job" && bubble.kind !== "job") return "";
       return T.t({ api_job: "bubble_api_job", mcp_job: "bubble_mcp_job" }[bubble.trigger_type] ?? "bubble_job");
     },

@@ -255,6 +255,11 @@ class TestEventText:
 
         assert EventText(_event(EventKind.DELEGATION_FINISHED, payload)).summary() == "2 of 3 succeeded"
 
+    def test_a_leg_follow_up_is_summarised_by_its_prompt(self):
+        payload = {"prompt": "Make the failing test pass", "batch_id": "b"}
+
+        assert EventText(_event(EventKind.LEG_FOLLOW_UP, payload)).summary() == "Make the failing test pass"
+
     def test_a_foreign_publish_names_the_publishing_session_and_leaves_its_link_to_the_row(self):
         payload = {
             "thread_id": "2b0c",

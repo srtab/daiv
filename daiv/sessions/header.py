@@ -196,7 +196,8 @@ def delegations_for(turns: list[dict[str, Any]], session: Session, user: User) -
     cannot delegate, so it costs no query.
 
     A batch's ``goal`` is the one its call in ``turns`` gave, else the first line of the prompt of its first leg the
-    viewer may see.
+    viewer may see. A leg session that served several batches, through leg follow-ups, is listed under each and
+    counted once in ``total``.
     """
     if session.parent_id:
         return None
@@ -213,7 +214,8 @@ def delegations_for(turns: list[dict[str, Any]], session: Session, user: User) -
         }
         for batch_id, legs in reversed(delegations.batches.items())
     ]
-    return {"total": sum(len(batch["legs"]) for batch in batches), "batches": batches}
+    total = len({leg.session_id for legs in delegations.batches.values() for leg in legs})
+    return {"total": total, "batches": batches}
 
 
 def _prompt_goals(delegations: Delegations, goals: Mapping[uuid.UUID, str]) -> dict[uuid.UUID, str]:

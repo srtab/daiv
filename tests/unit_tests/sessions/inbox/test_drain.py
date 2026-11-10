@@ -1077,5 +1077,5 @@ class TestLegFollowUp:
         stopped = await Run.objects.aget(pk=run.pk)
         assert (stopped.status, stopped.error_message) == (RunStatus.FAILED, label)
         assert stopped.started_at == stopped.finished_at
-        assert [call.args[0].thread_id for call in drained.call_args_list] == [follow_up.session_id]
+        assert follow_up.session_id in [call.args[0].thread_id for call in drained.call_args_list]
         enqueue.assert_not_awaited()

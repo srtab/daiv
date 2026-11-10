@@ -9,24 +9,42 @@ from asgiref.sync import sync_to_async
 from django_tasks_db.models import DBTaskResult
 from sessions.artifacts import bind_active_run
 from sessions.delegation import (
+    _NOT_A_LEG,
+    _UNSTARTED_LEG,
     MAX_STATUS_BATCHES,
     STALLED_BATCH_WINDOW,
     SessionJobDelegator,
     adelegator_for,
     leg_state,
+    load_delegations,
     outcome_states,
     render_batch_summary,
     resume_coordinator,
     resume_stalled_batches,
 )
 from sessions.inbox.drain import Drain
-from sessions.models import EventKind, InboxEvent, Run, RunStatus, Session, SessionOrigin
-from sessions.queue import LINK_FAILED_PREFIX
+from sessions.inbox.leg_follow_ups import BUSY, LegFollowUpRefused
+from sessions.inbox.ownership import Ownerships
+from sessions.legs import NOT_RUN_CLOSED, NOT_RUN_MERGED
+from sessions.models import (
+    LINK_FAILED_PREFIX,
+    EventKind,
+    EventState,
+    HiddenSession,
+    InboxEvent,
+    MergeRequestOwnership,
+    MergeRequestState,
+    Run,
+    RunStatus,
+    Session,
+    SessionOrigin,
+)
 
-from automation.agent.delegation import MAX_DELEGATED_TARGETS, Checkout, DelegatedTarget, DelegationError
+from automation.agent.delegation import MAX_DELEGATED_TARGETS, Checkout, DelegatedTarget, DelegationError, StartedLeg
 from automation.agent.references import RefIn
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied
 from tests.unit_tests.sessions.conftest import make_coordinator, make_delegating_run, make_leg, make_task_result
+from tests.unit_tests.sessions.inbox.conftest import make_event, post_leg_follow_up
 
 
 def _target(repo_id: str = "acme/api", ref: str = "", prompt: str = "Bump auth to 3.2.1.") -> DelegatedTarget:
@@ -766,7 +784,7 @@ def test_the_summary_lists_each_legs_outcome_with_its_reply_quoted(admin_user):
     assert "## acme/web: failed\n" in summary
     assert "db-internal" not in summary
     assert "- Reply: none; open its session to see what happened." in summary
-    assert "  > " + "x" * 1000 + "\n" in summary
+    assert "  > " + "x" * 4000 + "\n  > [cut at 4,000 characters: the rest is in the leg's session, http" in summary
     assert "## acme/lost: started, but DAIV lost track of it" in summary
     assert "## acme/void: cancelled\n- Session:" in summary
     assert summary.count("- Reply: none") == 2
@@ -788,6 +806,8 @@ def test_the_summary_lists_each_legs_outcome_with_its_reply_quoted(admin_user):
         ({"status": RunStatus.FAILED, "error_message": f"{LINK_FAILED_PREFIX}: x"}, False, "lost"),
         ({"status": RunStatus.FAILED, "cancel_requested_at": timezone.now()}, False, "cancelled"),
         ({"status": RunStatus.RUNNING, "cancel_requested_at": timezone.now()}, False, "stopping"),
+        ({"status": RunStatus.FAILED, "error_message": NOT_RUN_MERGED}, False, "not_run_merged"),
+        ({"status": RunStatus.FAILED, "error_message": NOT_RUN_CLOSED}, False, "not_run_closed"),
     ],
 )
 def test_leg_state(admin_user, fields, waits, expected):
@@ -808,4 +828,437 @@ def test_outcome_states_reads_each_status_word_back_as_its_state():
         "failed": "failed",
         "cancelled": "cancelled",
         "started, but DAIV lost track of it": "lost",
+        "not run: its merge request was merged": "not_run_merged",
+        "not run: its merge request was closed": "not_run_closed",
     }
+
+
+def _finished_leg(coordinator: Session, **fields) -> Run:
+    """A leg of ``coordinator`` that finished on a branch and merge request of its own. SYNC ONLY."""
+    fields = {
+        "status": RunStatus.SUCCESSFUL,
+        "ref": "main",
+        "session_ref": "daiv/leg-branch",
+        "merge_request_iid": 4,
+        "merge_request_web_url": "https://git.example/mr/4",
+    } | fields
+    return make_leg(coordinator, uuid.uuid4(), **fields)
+
+
+def _follow_up(leg: Run, *, override: dict | None = None) -> DelegatedTarget:
+    fields = {"repo_id": leg.repo_id, "ref": "", "prompt": "Make the failing test pass.", "thread_id": leg.session_id}
+    return DelegatedTarget(**(fields | (override or {})))
+
+
+async def _coordinated(user, **leg_fields) -> tuple[Session, Run, Run]:
+    coordinator = await sync_to_async(make_coordinator)(user)
+    run = await sync_to_async(make_delegating_run)(coordinator, user)
+    leg = await sync_to_async(_finished_leg)(coordinator, **leg_fields)
+    return coordinator, run, leg
+
+
+@pytest.mark.django_db(transaction=True)
+class TestLegFollowUp:
+    async def test_it_continues_the_leg_in_its_own_session_on_its_branch(self, admin_user, create_db_task_result):
+        _, run, leg = await _coordinated(admin_user)
+        task = await sync_to_async(create_db_task_result)(status="READY")
+        sessions = await Session.objects.acount()
+
+        with patch("sessions.queue.run_job_task") as mock_task:
+            _mock_enqueue(mock_task, [task])
+            result = await _delegate(run, [_follow_up(leg)])
+
+        assert await Session.objects.acount() == sessions
+        follow_up = await Run.objects.exclude(pk=leg.pk).aget(session=leg.session_id)
+        assert (str(follow_up.batch_id), follow_up.user_id, follow_up.muted) == (result.batch_id, admin_user.pk, False)
+        assert (follow_up.status, follow_up.prompt) == (RunStatus.READY, "Make the failing test pass.")
+        event = await InboxEvent.objects.aget(run=follow_up)
+        assert (event.kind, event.payload["batch_id"]) == (EventKind.LEG_FOLLOW_UP, result.batch_id)
+        [started] = result.started
+        assert (started.repo_id, started.ref, started.thread_id) == ("acme/api", "daiv/leg-branch", leg.session_id)
+        assert started.session_url.endswith(f"/sessions/{leg.session_id}/")
+        assert (started.leg_follow_up, started.starts_after_this_turn) == (True, False)
+        assert result.failed == []
+        assert mock_task.aenqueue.call_args.kwargs["fork_branch"] is False
+
+    async def test_a_new_leg_and_a_follow_up_share_one_batch(self, admin_user, create_db_task_result):
+        _, run, leg = await _coordinated(admin_user)
+        tasks = [await sync_to_async(create_db_task_result)(status="READY") for _ in range(2)]
+
+        with patch("sessions.queue.run_job_task") as mock_task:
+            _mock_enqueue(mock_task, tasks)
+            result = await _delegate(run, [_target("acme/web"), _follow_up(leg)])
+
+        assert [(leg.repo_id, leg.leg_follow_up) for leg in result.started] == [("acme/web", False), ("acme/api", True)]
+        batch = [
+            str(batch_id) async for batch_id in Run.objects.by_batch(result.batch_id).values_list("batch_id", flat=True)
+        ]
+        assert batch == [result.batch_id] * 2
+
+    async def test_a_call_with_only_follow_ups_submits_no_batch(self, admin_user):
+        _, run, leg = await _coordinated(admin_user)
+
+        with (
+            patch("sessions.delegation.asubmit_batch_runs", new=AsyncMock()) as submitted,
+            patch.object(Drain, "start_logged", autospec=True),
+        ):
+            result = await _delegate(run, [_follow_up(leg)])
+
+        submitted.assert_not_awaited()
+        assert result.batch_id is not None
+
+    async def test_its_run_exists_before_the_new_legs_and_its_leg_drains_after_them(self, admin_user):
+        _, run, leg = await _coordinated(admin_user)
+        order = []
+
+        async def submit(**kwargs):
+            follow_up = await Run.objects.exclude(pk=leg.pk).aget(session=leg.session_id)
+            order.append(("submit", follow_up.status, kwargs["batch_id"] == follow_up.batch_id))
+            return MagicMock(
+                outcomes=[MagicMock(spec=Run, repo_id="acme/web", ref="", session_id="s", waits_for_id=None)]
+            )
+
+        with (
+            patch("sessions.delegation.asubmit_batch_runs", new=AsyncMock(side_effect=submit)),
+            patch.object(Drain, "start_logged", autospec=True, side_effect=lambda drain: order.append(drain.thread_id)),
+        ):
+            await _delegate(run, [_target("acme/web"), _follow_up(leg)])
+
+        assert order == [("submit", RunStatus.QUEUED, True), leg.session_id]
+
+    async def test_only_the_new_legs_repositories_are_checked_when_sent(self, admin_user, create_db_task_result):
+        _, run, leg = await _coordinated(admin_user)
+
+        with (
+            patch("sessions.delegation.aassert_repo_access", new=AsyncMock()) as checked,
+            patch("sessions.delegation.asubmit_batch_runs", new=AsyncMock(return_value=MagicMock(outcomes=[]))),
+            patch("sessions.delegation._started_legs", return_value=[StartedLeg("acme/web", "", "s", "u")]),
+            patch.object(Drain, "start_logged", autospec=True),
+        ):
+            await _delegate(run, [_target("acme/web"), _follow_up(leg)])
+
+        checked.assert_awaited_once_with(admin_user, ["acme/web"])
+
+    async def test_a_session_that_is_not_its_leg_is_refused(self, admin_user):
+        coordinator, run, leg = await _coordinated(admin_user)
+        others = await sync_to_async(_finished_leg)(await sync_to_async(make_coordinator)(admin_user))
+        stranger = str(uuid.uuid4())
+
+        result = await _delegate(
+            run, [_follow_up(others), DelegatedTarget(repo_id="acme/api", ref="", prompt="p", thread_id=stranger)]
+        )
+
+        assert (result.batch_id, result.started) == (None, [])
+        assert [(failed.thread_id, failed.error) for failed in result.failed] == [
+            (others.session_id, _NOT_A_LEG.format(thread_id=others.session_id)),
+            (stranger, _NOT_A_LEG.format(thread_id=stranger)),
+        ]
+        assert "is not a leg you delegated: give a `thread_id` from a resume" in result.failed[0].error
+        assert not await InboxEvent.objects.filter(kind=EventKind.LEG_FOLLOW_UP).aexists()
+
+    async def test_an_unexpected_failure_posting_it_is_logged_and_reported_without_its_text(self, admin_user, caplog):
+        _, run, leg = await _coordinated(admin_user)
+
+        with patch("sessions.delegation.LegFollowUps.apost", new=AsyncMock(side_effect=RuntimeError("db-internal"))):
+            result = await _delegate(run, [_follow_up(leg)])
+
+        assert [(failed.thread_id, failed.error) for failed in result.failed] == [(leg.session_id, _UNSTARTED_LEG)]
+        assert any(record.levelname == "ERROR" and record.exc_info for record in caplog.records)
+
+    async def test_follow_ups_count_toward_the_target_limit(self, admin_user):
+        _, run, leg = await _coordinated(admin_user)
+        targets = [_target(f"acme/r{i}") for i in range(MAX_DELEGATED_TARGETS)] + [_follow_up(leg)]
+
+        with pytest.raises(DelegationError, match="At most"):
+            await _delegate(run, targets)
+
+        assert not await InboxEvent.objects.filter(kind=EventKind.LEG_FOLLOW_UP).aexists()
+
+    async def test_the_same_leg_twice_refuses_the_whole_call(self, admin_user):
+        _, run, leg = await _coordinated(admin_user)
+
+        with pytest.raises(DelegationError, match=f"Name each leg once per call: {leg.session_id} appears more than"):
+            await _delegate(run, [_follow_up(leg), _target("acme/web"), _follow_up(leg)])
+
+        assert not await InboxEvent.objects.filter(kind=EventKind.LEG_FOLLOW_UP).aexists()
+        assert await Run.objects.filter(trigger_type=SessionOrigin.DELEGATED_JOB).acount() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+class TestLegFollowUpRefusals:
+    async def _refusal(self, run: Run, target: DelegatedTarget) -> str:
+        with patch.object(Drain, "start_logged", autospec=True):
+            result = await _delegate(run, [target])
+        [failed] = result.failed
+        assert failed.thread_id == target.thread_id
+        assert not await InboxEvent.objects.filter(kind=EventKind.LEG_FOLLOW_UP).aexists()
+        return failed.error
+
+    async def test_it_names_no_branch(self, admin_user):
+        _, run, leg = await _coordinated(admin_user)
+
+        assert await self._refusal(run, _follow_up(leg, override={"ref": "release"})) == (
+            "A leg follow-up works on the leg's own branch: omit `ref`."
+        )
+
+    async def test_it_names_the_legs_repository(self, admin_user):
+        _, run, leg = await _coordinated(admin_user)
+
+        assert await self._refusal(run, _follow_up(leg, override={"repo_id": "acme/web"})) == (
+            "This leg works on `acme/api`: give that `repo_id`, or delegate a new leg for `acme/web`."
+        )
+
+    async def test_the_person_it_acts_for_archived_it(self, admin_user):
+        _, run, leg = await _coordinated(admin_user)
+        await HiddenSession.objects.acreate(session_id=leg.session_id, user=admin_user)
+
+        assert "archived for the person you act for" in await self._refusal(run, _follow_up(leg))
+
+    async def test_another_persons_archive_does_not_refuse_it(self, admin_user, member_user):
+        _, run, leg = await _coordinated(admin_user)
+        await HiddenSession.objects.acreate(session_id=leg.session_id, user=member_user)
+
+        with patch.object(Drain, "start_logged", autospec=True):
+            result = await _delegate(run, [_follow_up(leg)])
+
+        assert [started.thread_id for started in result.started] == [leg.session_id]
+
+    @pytest.mark.parametrize("busy", ["running", "follow_up_waiting", "waits_for_coordinator"])
+    async def test_a_leg_still_working(self, admin_user, busy):
+        coordinator, run, leg = await _coordinated(admin_user)
+        if busy == "running":
+            await Run.objects.filter(pk=leg.pk).aupdate(status=RunStatus.RUNNING)
+        elif busy == "follow_up_waiting":
+            await sync_to_async(post_leg_follow_up)(await Session.objects.aget(pk=leg.session_id), admin_user)
+        else:
+            await Run.objects.filter(pk=leg.pk).aupdate(status=RunStatus.QUEUED, waits_for=run)
+
+        error = await self._refusal(run, _follow_up(leg)) if busy != "follow_up_waiting" else None
+        if busy == "follow_up_waiting":
+            with patch.object(Drain, "start_logged", autospec=True):
+                [failed] = (await _delegate(run, [_follow_up(leg)])).failed
+            error = failed.error
+
+        assert error == "This leg is still working: you are resumed when its batch finishes, and can follow it up then."
+
+    async def test_a_leg_daiv_lost_track_of(self, admin_user):
+        _, run, leg = await _coordinated(admin_user, status=RunStatus.FAILED, error_message=f"{LINK_FAILED_PREFIX}: x")
+
+        error = await self._refusal(run, _follow_up(leg))
+
+        assert error.startswith("DAIV lost track of this leg's last run, which may still be working: check its session")
+        assert f"/sessions/{leg.session_id}/" in error
+
+    @pytest.mark.parametrize(("merged", "word"), [(True, "merged"), (False, "closed")])
+    async def test_a_merged_or_closed_merge_request(self, admin_user, merged, word):
+        _, run, leg = await _coordinated(admin_user)
+        await MergeRequestOwnership.objects.acreate(
+            repo_id="acme/api", merge_request_iid=4, session_id=leg.session_id, source_branch="daiv/leg-branch"
+        )
+        await Ownerships("acme/api").aclose(4, merged=merged, by_username="sfr", target_branch="main")
+
+        assert await self._refusal(run, _follow_up(leg)) == (
+            f"This leg's merge request was {word}: delegate a new leg for further work."
+        )
+
+    async def test_the_earliest_failing_check_gives_the_reason(self, admin_user):
+        _, run, leg = await _coordinated(admin_user, status=RunStatus.RUNNING)
+
+        error = await self._refusal(run, _follow_up(leg, override={"ref": "release", "repo_id": "acme/web"}))
+
+        assert error == "A leg follow-up works on the leg's own branch: omit `ref`."
+
+    async def test_a_refused_follow_up_beside_a_valid_one_leaves_the_valid_one_started(self, admin_user):
+        coordinator, run, leg = await _coordinated(admin_user)
+        other = await sync_to_async(_finished_leg)(coordinator, repo_id="acme/web")
+
+        with patch.object(Drain, "start_logged", autospec=True):
+            result = await _delegate(run, [_follow_up(leg, override={"ref": "x"}), _follow_up(other)])
+
+        assert [started.thread_id for started in result.started] == [other.session_id]
+        assert [failed.thread_id for failed in result.failed] == [leg.session_id]
+
+    @pytest.mark.parametrize(
+        ("reason", "text"),
+        [(BUSY, "This leg is still working"), (MergeRequestState.MERGED, "This leg's merge request was merged")],
+    )
+    async def test_a_refusal_raced_under_the_legs_lock_reads_as_its_check(self, admin_user, reason, text):
+        _, run, leg = await _coordinated(admin_user)
+
+        with patch("sessions.delegation.LegFollowUps.apost", new=AsyncMock(side_effect=LegFollowUpRefused(reason))):
+            [failed] = (await _delegate(run, [_follow_up(leg)])).failed
+
+        assert failed.error.startswith(text)
+
+
+@pytest.mark.django_db(transaction=True)
+class TestLegFollowUpBatch:
+    def _batch(self, admin_user, *, new_leg_status=RunStatus.SUCCESSFUL) -> tuple[Session, Run, Run, uuid.UUID]:
+        """A batch of a finished new leg and a leg follow-up waiting on an earlier leg. SYNC ONLY."""
+        coordinator = make_coordinator(admin_user)
+        earlier = _finished_leg(coordinator)
+        batch_id = uuid.uuid4()
+        new_leg = make_leg(
+            coordinator, batch_id, status=new_leg_status, repo_id="acme/web", task_result=make_task_result()
+        )
+        follow_up = post_leg_follow_up(earlier.session, admin_user, batch_id=batch_id)
+        return coordinator, new_leg, follow_up, batch_id
+
+    def test_the_coordinator_is_resumed_once_after_the_follow_up_ends(self, admin_user, drain):
+        coordinator, _, follow_up, _ = self._batch(admin_user)
+
+        resume_coordinator(Run.objects.get(trigger_type=SessionOrigin.DELEGATED_JOB, repo_id="acme/web"))
+        assert _resume_event(coordinator) is None
+
+        Run.objects.finish(follow_up, RunStatus.SUCCESSFUL, finished_at=timezone.now())
+        resume_coordinator(follow_up)
+
+        assert InboxEvent.objects.filter(session=coordinator, kind=EventKind.DELEGATION_FINISHED).count() == 1
+        assert "(leg follow-up)" in _resume_event(coordinator).payload["summary"]
+
+    def test_a_follow_up_refused_access_at_its_start_still_resumes_the_coordinator(self, admin_user):
+        coordinator = make_coordinator(admin_user)
+        earlier = _finished_leg(coordinator)
+        post_leg_follow_up(earlier.session, admin_user, batch_id=uuid.uuid4())
+
+        with patch("sessions.admission.assert_can_run", side_effect=RepositoryAccessDenied(["acme/api"])):
+            Drain(earlier.session_id).start()
+
+        summary = _resume_event(coordinator).payload["summary"]
+        assert "## acme/api on main: failed (leg follow-up)" in summary
+        assert "- Reply: none; open its session to see what happened." in summary
+
+    def test_a_batch_of_follow_ups_all_cancelled_before_starting_resumes_nothing(self, admin_user, drain):
+        coordinator = make_coordinator(admin_user)
+        earlier = _finished_leg(coordinator)
+        follow_up = post_leg_follow_up(earlier.session, admin_user)
+        ci = make_event(earlier.session, EventKind.CI_FAILED, ref="daiv/leg-branch")
+
+        result = SessionJobDelegator(coordinator.pk)._cancel(str(follow_up.batch_id), set())
+
+        assert (result.cancelled, result.resumes) == ([earlier.session_id], False)
+        assert InboxEvent.objects.get(run=follow_up).state == EventState.DISMISSED
+        ci.refresh_from_db()
+        assert (ci.state, ci.wake) == (EventState.PENDING, True)
+        assert _resume_event(coordinator) is None
+
+    def test_a_running_follow_up_is_stopping_once_cancelled(self, admin_user, drain):
+        coordinator = make_coordinator(admin_user)
+        earlier = _finished_leg(coordinator)
+        follow_up = post_leg_follow_up(earlier.session, admin_user)
+        Run.objects.filter(pk=follow_up.pk).update(status=RunStatus.RUNNING)
+
+        result = SessionJobDelegator(coordinator.pk)._cancel(str(follow_up.batch_id), {earlier.session_id})
+
+        assert Run.objects.get(pk=follow_up.pk).cancel_requested_at is not None
+        assert [leg.status for leg in result.batch.legs] == ["stopping"]
+
+    def test_its_status_names_where_the_leg_started_its_branch_and_merge_request(self, admin_user):
+        coordinator = make_coordinator(admin_user)
+        earlier = _finished_leg(coordinator)
+        follow_up = post_leg_follow_up(earlier.session, admin_user)
+        Run.objects.filter(pk=follow_up.pk).update(status=RunStatus.SUCCESSFUL, ref="daiv/leg-branch")
+
+        [status] = SessionJobDelegator(coordinator.pk)._status(str(follow_up.batch_id))
+
+        [leg] = status.legs
+        assert (leg.ref, leg.branch, leg.merge_request_url) == ("main", "daiv/leg-branch", "https://git.example/mr/4")
+        assert (leg.thread_id, leg.leg_follow_up) == (earlier.session_id, True)
+
+    @pytest.mark.parametrize(("label", "word"), [(NOT_RUN_MERGED, "merged"), (NOT_RUN_CLOSED, "closed")])
+    def test_a_follow_up_not_run_says_why_and_to_delegate_a_new_leg(self, admin_user, label, word):
+        coordinator = make_coordinator(admin_user)
+        batch_id = uuid.uuid4()
+        done = make_leg(coordinator, batch_id, status=RunStatus.SUCCESSFUL, task_result=make_task_result())
+        not_run = make_leg(coordinator, batch_id, status=RunStatus.FAILED, repo_id="acme/web", error_message=label)
+
+        summary = render_batch_summary(batch_id, [done, not_run])
+
+        assert "1 of 2 succeeded" in summary
+        section = summary.split("## acme/web: ")[1].split("\n\n")[0]
+        assert section.startswith(f"not run: its merge request was {word}\n")
+        assert "- Next: delegate a new leg for further work." in section
+        assert "Reply" not in section
+        resume_coordinator(not_run)
+        assert _resume_event(coordinator) is not None
+
+
+@pytest.mark.django_db
+class TestLegReplies:
+    def _leg(self, admin_user, reply: str, *, batch_id: uuid.UUID | None = None) -> Run:
+        coordinator = make_coordinator(admin_user)
+        return make_leg(
+            coordinator,
+            batch_id or uuid.uuid4(),
+            status=RunStatus.SUCCESSFUL,
+            task_result=make_task_result(return_value={"response": reply}),
+            result_summary=reply[:2000],
+        )
+
+    @pytest.mark.parametrize("length", [2600, 4000])
+    def test_a_reply_up_to_the_limit_reaches_the_coordinator_whole(self, admin_user, length):
+        reply = "f" * (length - 7) + "FINDING"
+        leg = self._leg(admin_user, reply)
+
+        summary = render_batch_summary(leg.batch_id, [leg])
+        [status] = SessionJobDelegator(leg.session.parent_id)._status(str(leg.batch_id))
+
+        assert "FINDING" in summary
+        assert status.legs[0].reply == reply
+
+    def test_a_longer_reply_is_cut_with_a_pointer_to_the_legs_session(self, admin_user):
+        leg = self._leg(admin_user, "r" * 4500)
+
+        [status] = SessionJobDelegator(leg.session.parent_id)._status(str(leg.batch_id))
+
+        reply = status.legs[0].reply
+        assert reply.startswith("r" * 4000 + "\n[cut at 4,000 characters: the rest is in the leg's session, http")
+        assert reply.endswith(f"/sessions/{leg.session_id}/]")
+        assert "r" * 4001 not in reply
+
+    def test_the_overview_keeps_the_shorter_limit(self, admin_user):
+        leg = self._leg(admin_user, "r" * 2600)
+
+        [status] = SessionJobDelegator(leg.session.parent_id)._status(None)
+
+        assert status.legs[0].reply.startswith("r" * 1000 + "\n[cut at 1,000 characters: the rest is in the leg's")
+
+    def test_a_run_with_no_task_result_falls_back_to_its_summary(self, admin_user):
+        coordinator = make_coordinator(admin_user)
+        leg = make_leg(coordinator, uuid.uuid4(), status=RunStatus.SUCCESSFUL, result_summary="Bumped.")
+
+        [status] = SessionJobDelegator(coordinator.pk)._status(str(leg.batch_id))
+
+        assert status.legs[0].reply == "Bumped."
+
+
+@pytest.mark.django_db
+class TestAddressingLegs:
+    def test_each_section_names_the_legs_session_id_and_the_closing_guidance(self, admin_user):
+        coordinator = make_coordinator(admin_user)
+        leg = _finished_leg(coordinator)
+
+        summary = render_batch_summary(leg.batch_id, [leg])
+
+        assert "- Session: http" in summary
+        assert f"- Session id: {leg.session_id}\n" in summary
+        assert (
+            "Check each leg's outcome and report it where the request came from. A leg's work is on its branch: "
+            "merge that branch into yours if it belongs in this change, or leave its merge request for review. To fix "
+            "or extend a leg's own work, follow it up: call `delegate_jobs` with a target that has its `thread_id`, "
+            "and it continues in its own session, branch and merge request. Delegate a new leg only for separate "
+            "work. Either way you are resumed again."
+        ) in summary
+
+    def test_the_page_payload_marks_a_follow_up_and_names_a_visible_session(self, admin_user, member_user):
+        coordinator = make_coordinator(admin_user)
+        earlier = _finished_leg(coordinator)
+        follow_up = post_leg_follow_up(earlier.session, admin_user)
+
+        seen = load_delegations(coordinator.pk, admin_user)
+        hidden = load_delegations(coordinator.pk, member_user)
+
+        assert [leg["leg_follow_up"] for leg in seen.legs[follow_up.batch_id]] == [True]
+        assert seen.legs[follow_up.batch_id][0]["thread_id"] == earlier.session_id
+        assert hidden.legs[follow_up.batch_id][0]["thread_id"] == ""
+        assert [leg["leg_follow_up"] for leg in seen.legs[earlier.batch_id]] == [False]

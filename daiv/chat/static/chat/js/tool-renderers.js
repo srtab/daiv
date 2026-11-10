@@ -1693,8 +1693,11 @@
     state,
     merge_request_url: linkOf(leg, "merge_request_url", false),
     session_url: linkOf(leg, "session_url", true),
+    thread_id: legText(leg, "thread_id"),
+    leg_follow_up: leg.leg_follow_up === true,
     error,
   });
+
 
   const LOST_OR_FAILED = new Set(["failed", "lost"]);
 
@@ -1708,12 +1711,17 @@
     ),
   ];
 
-  // A leg that failed to start has a row only when DAIV made one; one that still runs may have moved on since.
+  // A leg that failed to start has a row only when DAIV made one; one that still runs may have moved on since. A
+  // refused leg follow-up made none, so it is a row of its own.
   const mergedLegs = (enriched, data) => {
     const legs = enriched.filter(isRecord).map((leg) => cardLeg(leg, legText(leg, "state")));
     const claimed = new Set();
     for (const failed of recordsOf(data?.failed)) {
       const error = legText(failed, "error");
+      if (legText(failed, "thread_id")) {
+        legs.push(cardLeg(failed, "failed", error));
+        continue;
+      }
       const mine = (leg) => legKey(leg) === legKey(failed);
       const index = claimIndex(legs, claimed, (leg) => mine(leg) && LOST_OR_FAILED.has(leg.state));
       if (index >= 0) legs[index].error = error;
@@ -1743,10 +1751,19 @@
 
   const noteOf = (data) => noteHTML(valueText(data.note).trim());
 
-  // A leg takes the first target left with its repository and branch, else with its repository (`ref` may differ).
-  const claimTarget = (targets, used, leg) => {
+  // A started entry says whether it is a leg follow-up; a failed one names a session only when it was one.
+  const isFollowUp = (leg, failed) => (failed ? legText(leg, "thread_id") !== "" : leg.leg_follow_up === true);
+
+  // A leg follow-up takes the target naming its leg's session. Any other leg takes the first target left with its
+  // repository and branch, else with its repository (`ref` may differ), among the targets naming no session first.
+  const claimTarget = (targets, used, leg, failed) => {
     const repo = legText(leg, "repo_id");
-    let index = claimIndex(targets, used, (target) => legKey(target) === legKey(leg));
+    const id = legText(leg, "thread_id");
+    const fresh = (target) => !legText(target, "thread_id");
+    const named = (target) => legText(target, "thread_id") === id;
+    let index = isFollowUp(leg, failed) ? claimIndex(targets, used, named) : -1;
+    if (index < 0) index = claimIndex(targets, used, (target) => fresh(target) && legKey(target) === legKey(leg));
+    if (index < 0) index = claimIndex(targets, used, (target) => fresh(target) && legText(target, "repo_id") === repo);
     if (index < 0) index = claimIndex(targets, used, (target) => legText(target, "repo_id") === repo);
     return index < 0 ? { index: targets.length, target: {} } : { index, target: targets[index] };
   };
@@ -1757,10 +1774,12 @@
     const used = new Set();
     const legs = [...started.map((leg) => ({ leg, failed: false })), ...failed.map((leg) => ({ leg, failed: true }))];
     const rows = legs.slice(0, STRUCTURED_ROWS).map(({ leg, failed: legFailed }) => {
-      const { index, target } = claimTarget(targets, used, leg);
+      const { index, target } = claimTarget(targets, used, leg, legFailed);
       const after = leg.starts_after_this_turn === true ? ` · ${escapeHtml(t("jobs_after_turn"))}` : "";
       const last = legFailed ? escapeHtml(valueText(leg.error)) : sessionLink(leg) + after;
-      const cells = [valueText(leg.repo_id), branchText(leg.ref), firstLine(target.prompt)].map(escapeHtml);
+      const label = isFollowUp(leg, legFailed) ? ` · ${t("leg_follow_up")}` : "";
+      const repo = `${valueText(leg.repo_id)}${label}`;
+      const cells = [repo, branchText(leg.ref), firstLine(target.prompt)].map(escapeHtml);
       return { index, failed: legFailed, cells: [...cells, last] };
     });
     rows.sort((a, b) => a.index - b.index);

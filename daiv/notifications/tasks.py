@@ -13,6 +13,7 @@ from django.utils.translation import gettext
 
 from asgiref.sync import sync_to_async
 from crontask import cron
+from sessions.legs import NOT_RUN_LABELS
 from sessions.models import Run, RunStatus, SessionOrigin
 
 from core.constants import TASK_PRIORITY_NOTIFICATION, TASK_QUEUE_INTERACTIVE
@@ -143,7 +144,9 @@ async def classify_run_task(run_id: str) -> None:
     one envelope (the OneToOne would otherwise raise on a second insert).
 
     The load-bearing invariants are enforced here, in code, so no future method choice can break
-    them: a FAILED run is a tooling problem (``failed``, no LLM call); a WAITING_INPUT run is
+    them: a leg follow-up that stopped at its start because its leg's merge request was merged or closed
+    is ``all-clear`` with its not-run label (nothing failed, and its coordinator acts on it); any other FAILED run is
+    a tooling problem (``failed``, no LLM call); a WAITING_INPUT run is
     ``needs-input`` with its question lines (no LLM call); a ``report``-intent run never
     yields a finding (``actionable == []``); a ``found-issues`` draft with no items is coerced to
     ``needs-attention``; and — the reverse direction — only a ``found-issues`` envelope ever carries
@@ -188,6 +191,10 @@ async def classify_run_task(run_id: str) -> None:
         # Notify on the success path only. The notifier and its recipient/subscriber queries are
         # synchronous ORM, so they run in the shared sync executor rather than on the event loop.
         await sync_to_async(_notify_classified, thread_sensitive=True)(run, envelope)
+
+    if run.status == RunStatus.FAILED and run.error_message in NOT_RUN_LABELS:
+        await _persist(status=EnvelopeStatus.ALL_CLEAR, summary=run.error_message, actionable=[])
+        return
 
     # Deterministic FAILED gating (AC5): a failed run is a tooling problem, decided before — and
     # without — any LLM call. Its prose report may be empty, so the summary comes from error_message.

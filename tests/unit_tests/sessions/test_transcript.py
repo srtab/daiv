@@ -15,6 +15,7 @@ from langchain_core.messages import AIMessage
 from sessions.artifacts import serialize_artifact
 from sessions.delegation import load_delegations
 from sessions.executor.lock import LiveRun, SessionActivity
+from sessions.legs import NOT_RUN_CLOSED, NOT_RUN_MERGED
 from sessions.models import CHAT_PROMPT_MAX_LENGTH, Run, RunArtifact, RunStatus, Session, SessionOrigin
 from sessions.transcript import (
     RETRY_MESSAGE,
@@ -231,6 +232,19 @@ def test_a_leg_its_delegating_session_cancelled_renders_aborted_marker():
         "role": "run_status",
         "status": "aborted",
         "message": CANCELLED_BY_COORDINATOR_MESSAGE,
+    }
+
+
+@pytest.mark.parametrize("label", [NOT_RUN_MERGED, NOT_RUN_CLOSED])
+def test_a_leg_follow_up_not_run_renders_an_aborted_marker_with_why(label):
+    turns = [_user("h1"), _assistant("a1")]
+    runs = [_run("r1", trigger_type=SessionOrigin.DELEGATED_JOB, status=RunStatus.FAILED, error_message=label)]
+
+    assert annotate_transcript(turns, runs)[-1] == {
+        "id": "run-status-r1",
+        "role": "run_status",
+        "status": "aborted",
+        "message": label,
     }
 
 
@@ -1449,6 +1463,8 @@ def test_delegate_segment_gets_the_legs_current_states_oldest_first(owner):
         "state": "finished",
         "merge_request_url": "http://mr/1",
         "session_url": reverse("session_detail", kwargs={"thread_id": finished.session_id}),
+        "thread_id": finished.session_id,
+        "leg_follow_up": False,
     }
     assert legs[1]["session_url"] == reverse("session_detail", kwargs={"thread_id": running.session_id})
 
@@ -1478,6 +1494,8 @@ def test_leg_the_viewer_cannot_see_keeps_only_its_repository_and_state(owner, ot
         "state": "finished",
         "merge_request_url": "",
         "session_url": "",
+        "thread_id": "",
+        "leg_follow_up": False,
     }
 
 

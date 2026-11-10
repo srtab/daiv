@@ -267,7 +267,7 @@ class EventText:
                 text = payload["text"]
             case EventKind.MENTION:
                 text = f"{self.author_name()} on {self.merge_request()}: {payload['body']}"
-            case EventKind.FOLLOW_UP_JOB:
+            case EventKind.FOLLOW_UP_JOB | EventKind.LEG_FOLLOW_UP:
                 text = payload["prompt"]
             case EventKind.DELEGATION_FINISHED:
                 text = f"{payload['succeeded']} of {payload['total']} succeeded" if "total" in payload else ""

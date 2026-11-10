@@ -165,6 +165,7 @@ A column beside the transcript from 1100px, a bottom sheet below it. Must sit in
                   <span class="delegated-leg__body">
                     <span class="delegated-leg__repo">
                       <span x-text="leg.repo_id"></span>
+                      <span x-show="leg.leg_follow_up" x-text="`· ${TranscriptLabels.t('leg_follow_up')}`"></span>
                       <template x-if="mergeRequestLabel(leg.merge_request_url)">
                         <span>· <a :href="leg.merge_request_url" target="_blank" rel="noopener noreferrer"
                                    x-text="mergeRequestLabel(leg.merge_request_url)"></a></span>

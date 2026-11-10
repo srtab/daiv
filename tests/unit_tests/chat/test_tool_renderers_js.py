@@ -1301,6 +1301,39 @@ def test_delegate_jobs_legs_of_the_same_repository_and_branch_match_in_order():
     assert html.index("one") < html.index("/t1/") < html.index("two") < html.index("/t2/")
 
 
+def test_delegate_jobs_a_follow_up_takes_the_target_naming_its_leg_even_beside_a_new_leg_on_its_branch():
+    args = {
+        "goal": "g",
+        "targets": [
+            {"repo_id": "a/x", "prompt": "new leg"},
+            {"repo_id": "a/x", "prompt": "follow it up", "thread_id": "t-old"},
+            {"repo_id": "a/y", "prompt": "refused one", "thread_id": "t-gone"},
+        ],
+    }
+    result = {
+        "batch_id": "b",
+        "started": [_leg("a/x", "", "t-old", leg_follow_up=True), _leg("a/x", "", "t-new", leg_follow_up=False)],
+        "failed": [
+            {"repo_id": "a/y", "ref": "", "error": "Still working.", "still_runs": False, "thread_id": "t-gone"}
+        ],
+    }
+    html = _body("delegate_jobs", args, result=json.dumps(result))
+    changed = html.split('<div class="body-label">Input', 1)[0]
+    assert html.index("new leg") < html.index("/t-new/") < html.index("follow it up") < html.index("/t-old/")
+    assert "<td>a/x · Leg follow-up</td><td>default branch</td><td>follow it up</td>" in changed
+    assert "<td>a/x</td><td>default branch</td><td>new leg</td>" in changed
+    assert (
+        '<tr class="body-row-failed"><td>a/y · Leg follow-up</td><td>default branch</td><td>refused one</td>' in changed
+    )
+
+
+def test_delegate_jobs_a_leg_from_before_leg_follow_ups_is_no_follow_up():
+    args = {"goal": "g", "targets": [{"repo_id": "a/x", "prompt": "one"}]}
+    result = {"batch_id": "b", "started": [_leg("a/x", "", "t1")], "failed": []}
+    html = _body("delegate_jobs", args, result=json.dumps(result))
+    assert "Leg follow-up" not in html and "<td>a/x</td>" in html
+
+
 def test_delegate_jobs_where_no_leg_started_is_what_went_wrong():
     result = {
         "batch_id": None,
