@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, TypedDict
 from urllib.parse import urlparse
 
 from django import forms
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.forms.models import BaseModelFormSet, modelformset_factory
 from django.utils.translation import gettext_lazy as _
 
@@ -214,7 +215,6 @@ class SiteConfigurationForm(forms.ModelForm):
 
     class Meta:
         model = SiteConfiguration
-        widgets = {"web_search_searxng_timeout_seconds": forms.NumberInput(attrs={"min": 1, "max": 120})}
         fields = [
             "agent_model_name",
             "agent_thinking_level",
@@ -343,6 +343,15 @@ class SiteConfigurationForm(forms.ModelForm):
                 paired = _PAIRED_THINKING_FIELDS.get(name)
                 field_obj.widget = _AgentPickerWidget(paired_thinking_field=paired)
             elif isinstance(widget, forms.NumberInput):
+                for validator in model_field.validators if model_field else ():
+                    if isinstance(validator, MinValueValidator):
+                        limit = validator.limit_value() if callable(validator.limit_value) else validator.limit_value
+                        if "min" not in widget.attrs or float(widget.attrs["min"]) < limit:
+                            widget.attrs["min"] = limit
+                    elif isinstance(validator, MaxValueValidator):
+                        limit = validator.limit_value() if callable(validator.limit_value) else validator.limit_value
+                        if "max" not in widget.attrs or float(widget.attrs["max"]) > limit:
+                            widget.attrs["max"] = limit
                 widget.attrs.setdefault("min", "0")
 
             # Set template and default attributes on remaining non-secret fields

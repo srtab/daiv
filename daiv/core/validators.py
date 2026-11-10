@@ -19,11 +19,14 @@ def validate_searxng_url(value: str) -> None:
         hostname, port = parsed.hostname, parsed.port
         if not hostname or parsed.username is not None or parsed.password is not None:
             raise ValueError
-        # Django's URL validator requires a domain suffix. Validate single-label service
-        # names with a suffix without changing the URL that is stored or requested.
+        # Validate Docker DNS names through a surrogate accepted by Django, preserving
+        # the endpoint itself: service names may have underscores or no domain suffix.
+        validation_hostname = hostname.replace("_", "a")
+        if "." not in validation_hostname and ":" not in validation_hostname and validation_hostname != "localhost":
+            validation_hostname += ".internal"
         validation_url = value
-        if "." not in hostname and ":" not in hostname and hostname != "localhost":
-            netloc = f"{hostname}.internal"
+        if validation_hostname != hostname:
+            netloc = validation_hostname
             if port is not None:
                 netloc += f":{port}"
             validation_url = parsed._replace(netloc=netloc).geturl()

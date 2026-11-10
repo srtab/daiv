@@ -40,6 +40,11 @@ class WebSearchConfigurationError(ValueError):
 class SearXNGSearchError(RuntimeError):
     """A sanitized SearXNG failure that is safe for the model and diagnostics."""
 
+    def __init__(self, message: str, *, engine_names: tuple[str, ...] = (), http_status: int | None = None):
+        super().__init__(message)
+        self.engine_names = engine_names
+        self.http_status = http_status
+
 
 class SearXNGSearch:
     """Own the configured SearXNG endpoint, transport and result normalization."""
@@ -81,19 +86,27 @@ class SearXNGSearch:
             # An external search bang can redirect to a result site. Keep requests
             # scoped to the operator's endpoint; never follow that redirect.
             async with httpx.AsyncClient(timeout=self.timeout_seconds, follow_redirects=False) as client:
-                response = await client.get(self.url, params={"q": query, "format": "json"})
+                response = await client.get(
+                    self.url, params={"q": query, "format": "json"}, headers={"Accept-Language": "en"}
+                )
                 response.raise_for_status()
-        except httpx.TimeoutException:
+        except httpx.TimeoutException as exc:
             raise SearXNGSearchError(
                 "SearXNG request timed out. Check service health or the configured timeout."
-            ) from None
+            ) from exc
         except httpx.HTTPStatusError as exc:
-            raise SearXNGSearchError(self._http_error(exc.response.status_code)) from None
-        except httpx.RequestError:
+            raise SearXNGSearchError(
+                self._http_error(exc.response.status_code), http_status=exc.response.status_code
+            ) from None
+        except httpx.RequestError as exc:
             raise SearXNGSearchError(
                 "SearXNG request failed. Check network access, proxy configuration and TLS trust."
-            ) from None
-        except OSError, ValueError, httpx.InvalidURL:
+            ) from exc
+        except OSError as exc:
+            raise SearXNGSearchError(
+                "SearXNG transport configuration failed. Check the endpoint, proxy and CA bundle."
+            ) from exc
+        except ValueError, httpx.InvalidURL:
             raise SearXNGSearchError(
                 "SearXNG transport configuration failed. Check the endpoint, proxy and CA bundle."
             ) from None
@@ -122,6 +135,11 @@ class SearXNGSearch:
         engine_errors = payload.get("unresponsive_engines", [])
         if not isinstance(engine_errors, list):
             raise SearXNGSearchError("SearXNG returned an invalid search response. Check the endpoint and JSON output.")
+        engine_names = tuple(
+            error[0]
+            for error in engine_errors
+            if isinstance(error, list | tuple) and error and isinstance(error[0], str)
+        )
         results = []
         invalid_results = False
         for result in payload["results"]:
@@ -134,12 +152,17 @@ class SearXNGSearch:
                 break
         if not results and engine_errors:
             raise SearXNGSearchError(
-                "SearXNG returned no usable results and reported engine failures. Check engine health."
+                "SearXNG returned no usable results and reported engine failures. Check engine health.",
+                engine_names=engine_names,
             )
         if not results and invalid_results:
             raise SearXNGSearchError("SearXNG returned no usable result entries. Check the endpoint's response format.")
-        if results and (engine_errors or invalid_results):
-            logger.error("SearXNG returned partial search results; some engines or result entries failed.")
+        if results and len(results) < self.max_results and (engine_errors or invalid_results):
+            logger.warning(
+                "SearXNG returned fewer results than requested; unavailable engines=%s, invalid result entries=%s.",
+                engine_names,
+                invalid_results,
+            )
             results[0]["content"] = (
                 "[Partial search results: some engines or result entries failed.] " + results[0]["content"]
             )
@@ -295,9 +318,23 @@ async def web_search_tool(query: Annotated[str, "The search query."]) -> str:
     except WebSearchConfigurationError:
         raise
     except SearXNGSearchError as exc:
-        # The backend has already replaced upstream exception text and bodies.
-        # Do not log a traceback containing the original request or response.
-        logger.error("SearXNG web search failed: %s", exc)
+        # Keep transport evidence operator-side while the model sees only the
+        # sanitized message. HTTP failures never attach response bodies/headers.
+        error_type = (
+            type(exc.__cause__).__name__
+            if exc.__cause__
+            else "HTTPStatusError"
+            if exc.http_status
+            else type(exc).__name__
+        )
+        logger.error(
+            "SearXNG web search failed (%s): %s; HTTP status=%s; unavailable engines=%s.",
+            error_type,
+            exc,
+            exc.http_status,
+            exc.engine_names,
+            exc_info=exc.__cause__,
+        )
         return f"error: Web search failed. Details: {exc}"
     except Exception as exc:
         # Returned, not raised: the ToolNode's default handler re-raises anything that is not a

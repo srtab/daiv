@@ -52,6 +52,14 @@ maximum-result and web-search enablement settings also apply to SearXNG.
 Search is available to GitLab/GitHub-triggered runs as well as chat. A failed
 search is reported to the agent as a tool failure, rather than an empty result.
 
+DAIV sends `Accept-Language: en`, but an enabled SearXNG limiter may still return
+HTTP 429. Configure a narrow `botdetection.ip_lists.pass_ip` entry in
+`limiter.toml` for trusted DAIV app/worker source IPs; see the
+[deployment example](env-variables.md#web-search).
+
+SearXNG still forwards query text to its configured upstream engines. Queries
+may include repository code, so self-hosting alone does not keep that text local.
+
 For environment-based deployment, see [Web Search variables](env-variables.md#web-search).
 
 ## Relationship to environment variables

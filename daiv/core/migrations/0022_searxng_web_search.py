@@ -39,7 +39,7 @@ class Migration(migrations.Migration):
             field=models.CharField(
                 blank=True,
                 choices=[("duckduckgo", "DuckDuckGo"), ("tavily", "Tavily"), ("searxng", "SearXNG")],
-                help_text="Search engine to use. Tavily requires an API key.",
+                help_text="Search engine to use. Tavily requires an API key; SearXNG requires a search URL.",
                 max_length=20,
                 null=True,
                 verbose_name="web search engine",

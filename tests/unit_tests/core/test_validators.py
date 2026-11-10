@@ -9,6 +9,8 @@ from core.validators import validate_searxng_url
     "url",
     [
         "http://searxng:8080/search",
+        "http://my_searxng:8080/prefix/search",
+        "http://my_searxng.internal:8080/prefix/search",
         "http://localhost:8080/search",
         "https://search.example.com/prefix/search",
         "https://search.example.com:8443/prefix/search/",
@@ -29,6 +31,7 @@ def test_searxng_endpoint_accepts_internal_hosts_and_preserves_complete_urls(url
         "ftp://search.example.com/search",
         "https:///search",
         "https://-invalid/search",
+        "https://invalid_host-/search",
         "http://[::1/search",
         "http://searxng:bad/search",
         "http://searxng:65536/search",

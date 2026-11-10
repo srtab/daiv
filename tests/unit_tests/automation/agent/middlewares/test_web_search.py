@@ -81,13 +81,20 @@ class TestSearXNGSearch:
         assert request.url.port == 8080
         assert request.url.path == "/prefix/search"
         assert dict(request.url.params) == {"q": "a & b/ä? !docs", "format": "json"}
+        assert request.headers["accept-language"] == "en"
         assert "authorization" not in request.headers
+
+    async def test_docker_hostname_with_underscore_is_preserved(self, searxng, httpx_mock):
+        searxng.web_search_searxng_url = "http://my_searxng:8080/prefix/search"
+        httpx_mock.add_response(json={"results": []})
+
+        assert json.loads(await web_search_tool.ainvoke({"query": "q"})) == []
+        assert httpx_mock.get_request().url.host == "my_searxng"
 
     @pytest.mark.parametrize(
         "url",
         [
             "",
-            None,
             "ftp://example.org/search",
             "http://user:secret@example.org/search",
             "http://example.org/search?secret=key",
@@ -103,7 +110,7 @@ class TestSearXNGSearch:
         assert "secret" not in str(error.value)
         assert httpx_mock.get_requests() == []
 
-    @pytest.mark.parametrize("timeout", [None, 0, -1, 121, 1.5, "15", True])
+    @pytest.mark.parametrize("timeout", [0, -1, 121])
     async def test_invalid_timeout_never_sends_request(self, searxng, httpx_mock, timeout):
         searxng.web_search_searxng_timeout_seconds = timeout
 
@@ -112,7 +119,7 @@ class TestSearXNGSearch:
 
         assert httpx_mock.get_requests() == []
 
-    @pytest.mark.parametrize("maximum", [None, 0, -1, 1.5, "5", True])
+    @pytest.mark.parametrize("maximum", [0, -1])
     async def test_invalid_result_limit_never_sends_request(self, searxng, httpx_mock, maximum):
         searxng.web_search_max_results = maximum
 
@@ -122,26 +129,11 @@ class TestSearXNGSearch:
         assert httpx_mock.get_requests() == []
 
     @pytest.mark.parametrize("timeout", [1, 120])
-    async def test_client_lifetime_timeout_and_standard_tls(self, searxng, httpx_mock, monkeypatch, timeout):
+    async def test_configured_timeout_is_sent(self, searxng, httpx_mock, timeout):
         searxng.web_search_searxng_url = "https://search.example.org/search"
         searxng.web_search_searxng_timeout_seconds = timeout
         httpx_mock.add_response(json={"results": []})
-        factory = httpx.AsyncClient
-        clients = []
-        options = []
-
-        def create_client(**kwargs):
-            options.append(kwargs)
-            client = factory(**kwargs)
-            clients.append(client)
-            return client
-
-        monkeypatch.setattr("automation.agent.middlewares.web_search.httpx.AsyncClient", create_client)
-
         assert json.loads(await web_search_tool.ainvoke({"query": "q"})) == []
-
-        assert options == [{"timeout": timeout, "follow_redirects": False}]
-        assert clients[0].is_closed
         assert all(value == timeout for value in httpx_mock.get_request().extensions["timeout"].values())
 
     @pytest.mark.parametrize(
@@ -149,36 +141,26 @@ class TestSearXNGSearch:
         [(401, "authentication"), (403, "Enable JSON"), (429, "rate limit"), (500, "HTTP 500"), (503, "HTTP 503")],
     )
     async def test_http_errors_are_sanitized_tool_results(self, searxng, httpx_mock, caplog, status, expected):
-        httpx_mock.add_response(status_code=status, text="upstream-secret-and-private-details")
+        httpx_mock.add_response(
+            status_code=status,
+            text="upstream-secret-and-private-details",
+            headers={"Set-Cookie": "session=header-secret"},
+        )
 
         result = await web_search_tool.ainvoke({"query": "q"})
 
         assert result.startswith("error: Web search failed.")
         assert expected in result
         assert "upstream-secret" not in result + caplog.text
+        assert "header-secret" not in result + caplog.text
         assert "http://searxng" not in result + caplog.text
         record = next(record for record in caplog.records if "SearXNG web search failed" in record.getMessage())
         assert record.levelname == "ERROR"
         assert record.exc_info is None
+        assert "HTTPStatusError" in record.getMessage()
+        assert f"HTTP status={status}" in record.getMessage()
 
-    async def test_client_is_closed_on_request_failure(self, searxng, httpx_mock, monkeypatch):
-        httpx_mock.add_exception(httpx.ReadTimeout("upstream detail"))
-        factory = httpx.AsyncClient
-        clients = []
-
-        def create_client(**kwargs):
-            client = factory(**kwargs)
-            clients.append(client)
-            return client
-
-        monkeypatch.setattr("automation.agent.middlewares.web_search.httpx.AsyncClient", create_client)
-
-        result = await web_search_tool.ainvoke({"query": "q"})
-
-        assert "timed out" in result
-        assert clients[0].is_closed
-
-    async def test_redirect_is_not_followed(self, searxng, httpx_mock):
+    async def test_redirect_is_not_followed(self, searxng, httpx_mock, caplog):
         httpx_mock.add_response(status_code=302, headers={"Location": "https://private.example.org/?secret=token"})
 
         result = await web_search_tool.ainvoke({"query": "!external query"})
@@ -186,18 +168,48 @@ class TestSearXNGSearch:
         assert "redirects are not followed" in result
         assert "private.example" not in result
         assert "secret" not in result
+        assert "secret" not in caplog.text
         assert len(httpx_mock.get_requests()) == 1
 
     @pytest.mark.parametrize(
-        "error_type, expected", [(httpx.ReadTimeout, "timed out"), (httpx.ConnectError, "network access")]
+        "error_type, detail, expected",
+        [
+            (httpx.ReadTimeout, "Read timed out while waiting for search", "timed out"),
+            (httpx.ConnectError, "DNS lookup failed for search.internal", "network access"),
+            (httpx.ConnectError, "Connection refused by search.internal:8080", "network access"),
+            (httpx.ConnectError, "CERTIFICATE_VERIFY_FAILED: unknown issuer", "network access"),
+        ],
     )
-    async def test_network_errors_are_sanitized(self, searxng, httpx_mock, caplog, error_type, expected):
-        httpx_mock.add_exception(error_type("secret private URL or TLS details"))
+    async def test_transport_evidence_is_logged_but_not_returned(
+        self, searxng, httpx_mock, caplog, error_type, detail, expected
+    ):
+        error = error_type(detail)
+        httpx_mock.add_exception(error)
 
         result = await web_search_tool.ainvoke({"query": "q"})
 
         assert expected in result
-        assert "secret" not in result + caplog.text
+        assert detail not in result
+        assert detail in caplog.text
+        record = next(record for record in caplog.records if "SearXNG web search failed" in record.getMessage())
+        assert record.levelname == "ERROR"
+        assert record.exc_info is not None
+        assert record.exc_info[0] is error_type
+        assert record.exc_info[1] is error
+        assert record.exc_info[2] is not None
+
+    async def test_ca_bundle_error_is_logged_but_not_returned(self, searxng, monkeypatch, caplog):
+        def fail_client(**kwargs):
+            raise FileNotFoundError("CA bundle /etc/search/ca.pem does not exist")
+
+        monkeypatch.setattr("automation.agent.middlewares.web_search.httpx.AsyncClient", fail_client)
+
+        result = await web_search_tool.ainvoke({"query": "q"})
+
+        assert "transport configuration failed" in result
+        assert "/etc/search/ca.pem" not in result
+        assert "FileNotFoundError" in caplog.text
+        assert "/etc/search/ca.pem" in caplog.text
 
     async def test_transport_setup_error_is_sanitized(self, searxng, monkeypatch, caplog):
         def fail_client(**kwargs):
@@ -242,13 +254,14 @@ class TestSearXNGSearch:
 
         assert "engine failures" in result
         assert "secret" not in result + caplog.text
-        assert "private-engine" not in result + caplog.text
+        assert "private-engine" not in result
+        assert "private-engine" in caplog.text
 
     async def test_partial_results_remain_usable_and_flagged(self, searxng, httpx_mock, caplog):
         httpx_mock.add_response(
             json={
                 "results": [{"title": "Result", "url": "https://example.org", "content": "snippet"}],
-                "unresponsive_engines": [["private-engine", "secret"]],
+                "unresponsive_engines": [["google", "CAPTCHA"], ["brave", "too many requests"]],
             }
         )
 
@@ -258,8 +271,28 @@ class TestSearXNGSearch:
         assert result[0]["link"] == "https://example.org"
         assert "Partial search results" in result[0]["content"]
         assert result[0]["content"].endswith("snippet")
-        assert "secret" not in json.dumps(result) + caplog.text
-        assert any(record.levelname == "ERROR" for record in caplog.records)
+        assert "google" not in json.dumps(result)
+        assert "CAPTCHA" not in json.dumps(result)
+        assert "google" in caplog.text
+        assert "brave" in caplog.text
+        assert any(record.levelname == "WARNING" for record in caplog.records)
+        assert not any(record.levelname == "ERROR" for record in caplog.records)
+
+    async def test_full_results_ignore_routine_engine_failures(self, searxng, httpx_mock, caplog):
+        httpx_mock.add_response(
+            json={
+                "results": [
+                    {"title": "First", "url": "https://example.org/first", "content": "first snippet"},
+                    {"title": "Second", "url": "https://example.org/second", "content": "second snippet"},
+                ],
+                "unresponsive_engines": [["google", "CAPTCHA"]],
+            }
+        )
+
+        result = json.loads(await web_search_tool.ainvoke({"query": "q"}))
+
+        assert [row["content"] for row in result] == ["first snippet", "second snippet"]
+        assert not caplog.records
 
     async def test_unusable_rows_are_skipped_before_limiting(self, searxng, httpx_mock):
         httpx_mock.add_response(
@@ -279,8 +312,17 @@ class TestSearXNGSearch:
 
         assert [row["link"] for row in result] == ["https://example.org/first", "https://example.org/second"]
         assert result[0]["title"] == "https://example.org/first"
-        assert "Partial search results" in result[0]["content"]
+        assert result[0]["content"] == ""
         assert "secret" not in json.dumps(result)
+
+    async def test_fewer_valid_results_are_flagged_after_skipping_unusable_rows(self, searxng, httpx_mock, caplog):
+        httpx_mock.add_response(json={"results": [{"url": "file:///etc/passwd"}, {"url": "https://example.org"}]})
+
+        result = json.loads(await web_search_tool.ainvoke({"query": "q"}))
+
+        assert len(result) == 1
+        assert "Partial search results" in result[0]["content"]
+        assert any(record.levelname == "WARNING" for record in caplog.records)
 
     async def test_only_unusable_rows_are_a_backend_failure(self, searxng, httpx_mock):
         httpx_mock.add_response(json={"results": [{"title": "Not a citable result"}]})

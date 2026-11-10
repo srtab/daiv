@@ -429,7 +429,7 @@ class SiteConfiguration(models.Model):
         blank=True,
         null=True,
         choices=WebSearchEngineChoices.choices,
-        help_text=_("Search engine to use. Tavily requires an API key."),
+        help_text=_("Search engine to use. Tavily requires an API key; SearXNG requires a search URL."),
     )
     web_search_searxng_url = models.CharField(
         _("SearXNG search URL"),

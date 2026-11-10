@@ -312,6 +312,25 @@ DAIV sends a GET request with `q` and `format=json`; enable `json` in the SearXN
 instance's `search.formats`. No SearXNG API key is required or sent. The initial
 integration supports endpoints reachable without additional authentication.
 
+Requests include `Accept-Language: en` for SearXNG's HTTP header checks. If
+`server.limiter` is enabled, it can still return HTTP 429 for automated requests.
+For a trusted DAIV client, configure its source IP in `/etc/searxng/limiter.toml`:
+
+```toml
+[botdetection.ip_lists]
+pass_ip = ["192.0.2.10"]
+```
+
+Replace the example with the actual DAIV app/worker egress IP as seen by SearXNG,
+or a narrowly scoped trusted subnet. This list exempts those clients from bot
+detection; keep it restricted rather than disabling the limiter for everyone.
+See the [SearXNG limiter documentation](https://docs.searxng.org/admin/searx.limiter)
+for pass lists and reverse-proxy client-IP handling.
+
+SearXNG forwards queries to its configured upstream search engines. Self-hosting
+does not keep query text local; search queries can contain repository code or
+other private information.
+
 Web search is shared by chat, GitLab/GitHub-triggered runs and other agent entry
 points; the model decides when to call it. The DAIV app and workers must be able
 to reach the endpoint. The request is made by DAIV itself, so it does not require

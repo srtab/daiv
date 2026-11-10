@@ -39,6 +39,9 @@ msgstr "DuckDuckGo"
 msgid "Tavily"
 msgstr "Tavily"
 
+msgid "SearXNG"
+msgstr "SearXNG"
+
 msgid "OpenAI"
 msgstr "OpenAI"
 
@@ -222,8 +225,23 @@ msgstr "Número máximo de resultados devolvidos pela pesquisa web."
 msgid "web search engine"
 msgstr "motor de pesquisa web"
 
-msgid "Search engine to use. Tavily requires an API key."
-msgstr "Motor de pesquisa a usar. O Tavily requer uma chave API."
+msgid "Search engine to use. Tavily requires an API key; SearXNG requires a search URL."
+msgstr "Motor de pesquisa a usar. O Tavily requer uma chave API; o SearXNG requer um URL de pesquisa."
+
+msgid "SearXNG search URL"
+msgstr "URL de pesquisa do SearXNG"
+
+msgid "Complete SearXNG search endpoint, including /search and any path prefix. Use http or https without credentials, query parameters or a fragment. JSON output must be enabled."
+msgstr "Endpoint completo de pesquisa do SearXNG, incluindo /search e qualquer prefixo de caminho. Utilize http ou https sem credenciais, parâmetros de consulta ou fragmento. A saída JSON tem de estar ativada."
+
+msgid "SearXNG request timeout"
+msgstr "Tempo limite dos pedidos ao SearXNG"
+
+msgid "Timeout for SearXNG requests in seconds (1–120; default 15)."
+msgstr "Tempo limite dos pedidos ao SearXNG, em segundos (1–120; predefinição 15)."
+
+msgid "Use a complete http or https SearXNG URL without credentials, query parameters or a fragment."
+msgstr "Utilize um URL completo http ou https do SearXNG sem credenciais, parâmetros de consulta ou fragmento."
 
 msgid "web fetch enabled"
 msgstr "obtenção web ativada"
