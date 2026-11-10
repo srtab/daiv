@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from dataclasses import dataclass
 
@@ -6,8 +7,11 @@ from ag_ui.core import RunAgentInput
 from ag_ui.core.events import EventType, RawEvent, ToolCallStartEvent
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
+from langchain.agents.middleware.internal_call_transformer import internal_call_metadata
+from langchain_core.language_models import BaseChatModel
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
+from langchain_core.outputs import ChatGenerationChunk
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
 from sessions.live.agui import RuntimeContextLangGraphAGUIAgent
@@ -280,6 +284,11 @@ class _Ctx:
     pass
 
 
+class _ToolModel(FakeMessagesListChatModel):
+    def bind_tools(self, tools, **kwargs):
+        return self
+
+
 def _run_graph(model, *, content: str, tools=(), middleware=()):
     """The AG-UI event stream of a real ``create_agent`` graph run through the real agent class."""
     agent = create_agent(
@@ -337,10 +346,6 @@ async def test_every_streamed_tool_call_gets_one_result_even_when_middleware_ans
     """A real graph whose middleware answers one call without running the tool, through the real agent class and
     filter: pins that the tools node's output reaches the hook, which sends the result upstream never emits."""
 
-    class _ToolModel(FakeMessagesListChatModel):
-        def bind_tools(self, tools, **kwargs):
-            return self
-
     @tool
     def edit_file(file_path: str) -> str:
         """Edit a file."""
@@ -368,6 +373,79 @@ async def test_every_streamed_tool_call_gets_one_result_even_when_middleware_ans
     results = [(e.tool_call_id, e.content) for e in events if e.type == EventType.TOOL_CALL_RESULT]
     assert sorted(started) == ["call_1", "call_2"]
     assert sorted(results) == [("call_1", "edited"), ("call_2", "Error: rejected")]
+
+
+_SUMMARY = "the summariser's answer"
+_SUMMARY_THOUGHT = "the summariser's thought"
+
+
+class _ThinkingModel(BaseChatModel):
+    """Streams a thought then its answer, yielding between chunks so parallel calls interleave."""
+
+    thought: str = _SUMMARY_THOUGHT
+    answer: str = _SUMMARY
+
+    @property
+    def _llm_type(self) -> str:
+        return "thinking"
+
+    def bind_tools(self, tools, **kwargs):
+        return self
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        raise NotImplementedError
+
+    async def _astream(self, messages, stop=None, run_manager=None, **kwargs):
+        for content in ([{"type": "thinking", "thinking": self.thought, "index": 0}], self.answer):
+            await asyncio.sleep(0)
+            yield ChatGenerationChunk(message=AIMessageChunk(content=content))
+
+
+async def test_a_marked_model_call_leaves_the_agents_own_stream_intact():
+    """Compaction marks its summary call internal and makes it in the agent's own model node, just before the agent:
+    its open thought must not carry the agent's next one under a message the client never saw start."""
+
+    class CompactingMiddleware(AgentMiddleware):
+        async def awrap_model_call(self, request, handler):
+            await _ThinkingModel().ainvoke("compact", config={"metadata": internal_call_metadata()})
+            return await handler(request)
+
+    stream = _run_graph(
+        _ThinkingModel(thought="my own thought", answer="done"), content="hi", middleware=[CompactingMiddleware()]
+    )
+
+    events = [e async for e in SubagentEventFilter().apply(stream) if e is not None]
+
+    started = {e.message_id for e in events if e.type == EventType.REASONING_MESSAGE_START}
+    thoughts = [e for e in events if e.type == EventType.REASONING_MESSAGE_CONTENT]
+    assert [e.delta for e in thoughts] == ["my own thought"]
+    assert thoughts[0].message_id in started
+    assert [e.delta for e in events if e.type == EventType.TEXT_MESSAGE_CONTENT] == ["done"]
+
+
+async def test_parallel_model_calls_made_inside_tools_never_reach_the_chat():
+    """web_fetch's summariser runs under the agent's event stream, unmarked: being inside a tool is enough."""
+
+    @tool
+    async def fetch_page() -> str:
+        """Fetch a page."""
+        return (await _ThinkingModel().ainvoke("summarise")).text
+
+    calls = [{"name": "fetch_page", "args": {}, "id": f"call_{i}"} for i in (1, 2)]
+    stream = _run_graph(
+        _ToolModel(responses=[AIMessage(content="", tool_calls=calls), AIMessage(content="done")]),
+        content="fetch",
+        tools=[fetch_page],
+    )
+
+    events = [e async for e in SubagentEventFilter().apply(stream) if e is not None]
+
+    results = [(e.tool_call_id, e.content) for e in events if e.type == EventType.TOOL_CALL_RESULT]
+    assert sorted(results) == [("call_1", _SUMMARY), ("call_2", _SUMMARY)]
+    deltas = [e.delta for e in events if getattr(e, "delta", None)]
+    assert _SUMMARY not in deltas
+    assert _SUMMARY_THOUGHT not in deltas
+    assert not [e for e in events if e.type in REASONING_EVENT_TYPES]
 
 
 def _tools_node_end(*messages: ToolMessage) -> dict:
