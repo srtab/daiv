@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load icon_tags static %}
 
-{% block title %}DAIV — Open-source async SWE agent for your Git platform{% endblock %}
+{% block title %}DAIV — Open-source, self-hosted SWE agents for GitLab &amp; GitHub{% endblock %}
 
 {% block head_extra %}
 <script type="application/ld+json">
@@ -9,7 +9,7 @@
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "DAIV",
-  "description": "Open-source async software engineering agent that integrates natively with GitLab and GitHub. Create an issue, get a merge request.",
+  "description": "Open-source, self-hosted SWE agents for GitLab & GitHub. Turn issues into merge requests, answer review comments, and fix failing CI, in a sandbox you control with the LLM provider you choose.",
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "Linux",
   "license": "https://github.com/srtab/daiv/blob/main/LICENSE",
@@ -63,7 +63,7 @@
         <div class="absolute -left-16 bottom-[18%] h-px w-[400px] rotate-[28deg] bg-gradient-to-r from-transparent via-white/[0.04] to-transparent"></div>
     </div>
 
-    <div class="relative max-w-3xl text-center">
+    <div class="relative max-w-4xl text-center">
         <!-- Badge -->
         <div class="animate-fade-up">
             <span class="inline-flex items-center gap-2 rounded-full border border-white/[0.06] bg-white/[0.03] px-4 py-1.5 text-[13px] text-gray-400">
@@ -75,14 +75,19 @@
 
         <!-- Headline -->
         <h1 class="animate-fade-up mt-8 text-4xl font-bold leading-[1.1] tracking-tight sm:text-6xl" style="animation-delay: 80ms">
-            DAIV — your async SWE agent,<br>native to your Git platform
+            Issues in. <span class="whitespace-nowrap">Merge requests out.</span><br>On your infrastructure.
         </h1>
 
+        <!-- Tagline -->
+        <p class="animate-fade-up mt-6 text-lg font-medium text-gray-200 sm:text-xl" style="animation-delay: 120ms">
+            Open-source, self-hosted SWE agents for GitLab &amp; GitHub
+        </p>
+
         <!-- Subheadline -->
-        <p class="animate-fade-up mx-auto mt-6 max-w-2xl text-base font-light text-gray-400 sm:text-lg" style="animation-delay: 160ms">
-            DAIV integrates directly with GitLab and GitHub through webhooks.
-            Create an issue, get a merge request. Mention DAIV in a review, get the fix.
-            No context switching, no separate tools.
+        <p class="animate-fade-up mx-auto mt-4 max-w-2xl text-base font-light text-gray-400 sm:text-lg" style="animation-delay: 160ms">
+            DAIV works inside GitLab and GitHub through webhooks, plugs into your editor over MCP,
+            and ships with an optional self-hosted dashboard. You host it, you pick the model,
+            and every task runs in an isolated sandbox whose network egress you define.
         </p>
 
         <!-- CTAs -->
@@ -353,23 +358,23 @@
         <div class="mt-12 grid gap-x-8 gap-y-10 sm:grid-cols-3">
             <div class="animate-fade-up" style="animation-delay: 80ms">
                 <div class="mb-5 h-px w-8 bg-white/[0.15]"></div>
-                <h3 class="text-[15px] font-semibold text-white">Native to your Git platform</h3>
-                <p class="mt-2 text-[14px] font-light text-gray-400">No new UI to learn. DAIV works inside GitLab and GitHub issues and merge requests.</p>
+                <h3 class="text-[15px] font-semibold text-white">It lives where you already work</h3>
+                <p class="mt-2 text-[14px] font-light text-gray-400">Issue to plan to merge request, replies to review comments, and CI fixes all happen inside GitLab and GitHub threads, self-managed GitLab included.</p>
             </div>
             <div class="animate-fade-up" style="animation-delay: 120ms">
                 <div class="mb-5 h-px w-8 bg-white/[0.15]"></div>
-                <h3 class="text-[15px] font-semibold text-white">Human-in-the-loop</h3>
-                <p class="mt-2 text-[14px] font-light text-gray-400">Plans require approval before execution. You review, you decide, DAIV implements.</p>
+                <h3 class="text-[15px] font-semibold text-white">Your infrastructure, your model, your network rules</h3>
+                <p class="mt-2 text-[14px] font-light text-gray-400">Run it on your own servers, with any of the built-in LLM providers or your own OpenAI-compatible server, in a sandbox whose egress you define.</p>
             </div>
             <div class="animate-fade-up" style="animation-delay: 160ms">
                 <div class="mb-5 h-px w-8 bg-white/[0.15]"></div>
-                <h3 class="text-[15px] font-semibold text-white">Fully extensible</h3>
-                <p class="mt-2 text-[14px] font-light text-gray-400">Custom skills, subagents, MCP servers, per-repo config. Shape DAIV to your team's needs.</p>
+                <h3 class="text-[15px] font-semibold text-white">Open source, no per-seat pricing</h3>
+                <p class="mt-2 text-[14px] font-light text-gray-400">Apache-2.0, with nothing to buy per developer. Read the code, modify it, no black boxes.</p>
             </div>
             <div class="animate-fade-up" style="animation-delay: 200ms">
                 <div class="mb-5 h-px w-8 bg-white/[0.15]"></div>
-                <h3 class="text-[15px] font-semibold text-white">No vendor lock-in</h3>
-                <p class="mt-2 text-[14px] font-light text-gray-400">Choose your LLM provider. Switch models without changing anything else. Self-host the entire stack.</p>
+                <h3 class="text-[15px] font-semibold text-white">Human-in-the-loop</h3>
+                <p class="mt-2 text-[14px] font-light text-gray-400">Plans require approval before execution. You review, you decide, DAIV implements.</p>
             </div>
             <div class="animate-fade-up" style="animation-delay: 240ms">
                 <div class="mb-5 h-px w-8 bg-white/[0.15]"></div>
@@ -378,8 +383,8 @@
             </div>
             <div class="animate-fade-up" style="animation-delay: 280ms">
                 <div class="mb-5 h-px w-8 bg-white/[0.15]"></div>
-                <h3 class="text-[15px] font-semibold text-white">Open-source, Apache 2.0</h3>
-                <p class="mt-2 text-[14px] font-light text-gray-400">Read the code, modify it, deploy it on your infrastructure. No black boxes.</p>
+                <h3 class="text-[15px] font-semibold text-white">Fully extensible</h3>
+                <p class="mt-2 text-[14px] font-light text-gray-400">Custom skills, subagents, MCP servers, per-repo config. Shape DAIV to your team's needs.</p>
             </div>
         </div>
     </div>
@@ -412,7 +417,7 @@
 <!-- Footer -->
 <footer class="border-t border-white/[0.06] py-8">
     <div class="mx-auto flex max-w-5xl flex-col items-center justify-between gap-4 px-6 sm:flex-row">
-        <p class="text-[13px] text-gray-400">DAIV &mdash; Open-source async SWE agent</p>
+        <p class="text-center text-[13px] text-gray-400 sm:text-left">DAIV &mdash; Open-source, self-hosted SWE agents for GitLab &amp; GitHub</p>
         <div class="flex items-center gap-6">
             <a href="{{ build_info.docs_url }}" rel="noopener noreferrer" class="text-[13px] text-gray-400 transition-colors duration-200 hover:text-white">Documentation</a>
             <a href="https://github.com/srtab/daiv" rel="noopener noreferrer" class="text-[13px] text-gray-400 transition-colors duration-200 hover:text-white">GitHub</a>
