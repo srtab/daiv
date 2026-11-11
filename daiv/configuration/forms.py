@@ -214,6 +214,17 @@ def model_spec_error(model_spec: str) -> str | None:
     return None
 
 
+def _picker_spec(spec: str) -> str:
+    """``spec`` as the picker posts it back, ``slug:model``; the picker drops a bare model name it is seeded with."""
+    if not spec or ":" in spec:
+        return spec
+    try:
+        resolved = parse_model_spec(spec)
+    except ValueError:
+        return spec
+    return f"{resolved.row.slug}:{resolved.model_name}"
+
+
 class SiteConfigurationForm(forms.ModelForm):
     """
     ModelForm for :class:`~core.models.SiteConfiguration` with custom handling
@@ -662,7 +673,7 @@ class ModelEntriesForm(forms.Form):
         for field_name, entry in self.entries.items():
             locked = site_settings.is_env_locked(entry.site_field)
             source = site_settings if locked else stored
-            value = getattr(source, entry.site_field).get(entry.name, "")
+            value = _picker_spec(getattr(source, entry.site_field).get(entry.name, ""))
             widget = _AgentPickerWidget()
             widget.placeholder = str(entry.default_label)
             widget.default_hint = True

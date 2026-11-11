@@ -60,11 +60,19 @@ class TestForSubagent:
             _for_subagent(FakeModels(), configured={}, file_spec="broken:file")
 
     def test_never_skip_serves_the_runs_model_for_an_invalid_file_model(self, caplog):
-        with caplog.at_level(logging.ERROR, logger="daiv.agent"):
+        with caplog.at_level(logging.WARNING, logger="daiv.agent"):
             served = _for_subagent(FakeModels(), configured={}, file_spec="broken:file", never_skip=True)
 
         assert served is RUN_MODEL
+        assert [record.levelno for record in caplog.records] == [logging.WARNING]
         assert "broken:file" in caplog.text
+
+    def test_an_unusable_entry_is_logged_at_error_once_across_runs(self, caplog):
+        with caplog.at_level(logging.ERROR, logger="daiv.agent"):
+            for _ in range(2):
+                _for_subagent(FakeModels(), configured={"cr-tests": "nosuch:model"})
+
+        assert len(caplog.records) == 1
 
     def test_an_entry_shared_by_several_subagents_is_built_once(self):
         models = FakeModels("fake:configured")

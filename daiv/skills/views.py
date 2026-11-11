@@ -12,24 +12,14 @@ from django.views import View
 from django.views.generic import TemplateView
 
 from core.mixins import AdminRequiredMixin
-from core.site_settings import site_settings
 from core.utils import short_model_name
 from skills.constants import ZIPS_DIR
 from skills.forms import SkillUploadForm
 from skills.models import GlobalSkill, SkillInvocation
 from skills.pages import SkillPageMixin
-from skills.services import BUILTIN_SKILL_NAMES, SkillStorage, SkillStorageError, list_builtins, skill_subagents
+from skills.services import BUILTIN_SKILL_NAMES, SkillStorage, SkillStorageError, list_builtins, site_model_entries
 
 logger = logging.getLogger("daiv.skills")
-
-
-def _model_entries(name: str) -> tuple[str, int]:
-    """Skill ``name``'s model entry, shortened, and how many of the subagents it ships have one."""
-    subagent_models = site_settings.agent_subagent_models
-    return (
-        short_model_name(site_settings.agent_skill_models.get(name, "")),
-        sum(1 for subagent in skill_subagents(name) if subagent_models.get(subagent.name)),
-    )
 
 
 class SkillListView(AdminRequiredMixin, TemplateView):
@@ -52,13 +42,15 @@ class SkillListView(AdminRequiredMixin, TemplateView):
         for skill in custom_skills:
             skill.invocations_count = counts.get((skill.name, SkillInvocation.Source.GLOBAL), 0)
             skill.overrides_builtin = skill.name in BUILTIN_SKILL_NAMES
-            skill.model, skill.subagent_models = _model_entries(skill.name)
+            spec, skill.subagent_models = site_model_entries(skill.name)
+            skill.model = short_model_name(spec)
         # A custom upload shadows the built-in of the same name; drop the
         # shadowed entry so the list shows only the active skill.
         builtin_skills = [entry for entry in builtin_skills if entry["name"] not in custom_names]
         for entry in builtin_skills:
             entry["invocations_count"] = counts.get((entry["name"], SkillInvocation.Source.BUILTIN), 0)
-            entry["model"], entry["subagent_models"] = _model_entries(entry["name"])
+            spec, entry["subagent_models"] = site_model_entries(entry["name"])
+            entry["model"] = short_model_name(spec)
 
         ctx["custom_skills"] = custom_skills
         ctx["builtin_skills"] = builtin_skills

@@ -1288,6 +1288,33 @@ class TestSkillModel:
 
         assert result["messages"][-1].content == "from the skill model"
 
+    async def test_the_run_model_serves_a_call_the_skill_model_fails(self):
+        result = await self._run(
+            [AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL]), AIMessage(content="from the run model")],
+            Mock(return_value=_FailingModel(messages=iter([]))),
+        )
+
+        assert result["messages"][-1].content == "from the run model"
+
+    async def test_a_skill_model_that_failed_a_call_is_not_tried_again_in_the_run(self):
+        attempts = []
+
+        class _CountingFailingModel(_ToolModel):
+            def _generate(self, *args, **kwargs):
+                attempts.append(1)
+                raise RuntimeError("provider down")
+
+        await self._run(
+            [
+                AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL]),
+                AIMessage(content="", tool_calls=[{**CHEAP_SKILL_CALL, "id": "call_cheap_again"}]),
+                AIMessage(content="done"),
+            ],
+            Mock(return_value=_CountingFailingModel(messages=iter([]))),
+        )
+
+        assert len(attempts) == 1
+
     async def test_a_failing_skill_model_hands_the_call_to_the_runs_fallbacks(self):
         result = await self._run(
             [AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL])],

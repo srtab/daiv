@@ -62,11 +62,17 @@ def match_runs(invocations: list[SkillInvocation]) -> list[SkillRun]:
     starts: dict[UUID, list[datetime]] = defaultdict(list)
     runs: dict[UUID, list[Run]] = defaultdict(list)
     latest = max(invocation.created for invocation in invocations)
-    for run in Run.objects.filter(
-        session_id__in=[session.thread_id for session in sessions.values()],
-        started_at__isnull=False,
-        started_at__lte=latest,
-    ).order_by("started_at"):
+    session_runs = (
+        Run.objects
+        .filter(
+            session_id__in=[session.thread_id for session in sessions.values()],
+            started_at__isnull=False,
+            started_at__lte=latest,
+        )
+        .only("session_id", "started_at", "status", "trigger_type", "title", "agent_model")
+        .order_by("started_at")
+    )
+    for run in session_runs:
         starts[thread_uuids[run.session_id]].append(run.started_at)
         runs[thread_uuids[run.session_id]].append(run)
 

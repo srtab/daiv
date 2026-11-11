@@ -42,9 +42,11 @@ def test_the_tab_counts_the_invocations_of_the_last_30_days(admin_client):
     for offset in (0, 1, 1, 5, 31):
         _invocation(uuid.uuid4(), timezone.make_aware(datetime.combine(today - timedelta(days=offset), time(12))))
 
-    usage = admin_client.get(USAGE_URL).context["usage"]
+    context = admin_client.get(USAGE_URL).context
+    usage = context["usage"]
 
-    assert usage["total"] == 5
+    assert context["invocations_total"] == 5
+    assert "total" not in usage
     assert usage["last_30_total"] == 4
     counts = {entry["day"]: entry["count"] for entry in usage["daily_series"]}
     assert len(counts) == 30

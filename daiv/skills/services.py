@@ -24,6 +24,7 @@ from django.utils import timezone
 
 import yaml
 
+from core.site_settings import site_settings
 from skills.conf import settings
 from skills.constants import (
     ALLOWED_SUFFIXES,
@@ -248,14 +249,22 @@ def skill_subagents(name: str) -> tuple[BundledSubagent, ...]:
     return _code_review_detectors() if name == CODE_REVIEW_SKILL else ()
 
 
+def site_model_entries(name: str) -> tuple[str, int]:
+    """Skill ``name``'s site model entry (empty when unset), and how many of the subagents it ships have one."""
+    subagent_models = site_settings.agent_subagent_models
+    return (
+        site_settings.agent_skill_models.get(name, ""),
+        sum(1 for subagent in skill_subagents(name) if subagent_models.get(subagent.name)),
+    )
+
+
 def skill_usage(name: str, source: SkillInvocation.Source) -> dict[str, Any]:
-    """Skill ``name``'s invocations from ``source``: the lifetime ``total``, and a ``daily_series`` of the last 30 days,
-    oldest first, with its ``last_30_total``."""
-    invocations = SkillInvocation.objects.filter(name=name, source=source)
+    """Skill ``name``'s invocations from ``source`` over the last 30 days: a ``daily_series``, oldest first, and its
+    ``last_30_total``."""
     cutoff = timezone.localdate() - timedelta(days=29)
     by_day = dict(
-        invocations
-        .filter(created__date__gte=cutoff)
+        SkillInvocation.objects
+        .filter(name=name, source=source, created__date__gte=cutoff)
         .annotate(day=TruncDate("created"))
         .values("day")
         .annotate(count=Count("id"))
@@ -264,7 +273,6 @@ def skill_usage(name: str, source: SkillInvocation.Source) -> dict[str, Any]:
     days = [cutoff + timedelta(days=offset) for offset in range(30)]
     counts = [by_day.get(day, 0) for day in days]
     return {
-        "total": invocations.count(),
         "last_30_total": sum(counts),
         "daily_series": [{"day": day, "count": count} for day, count in zip(days, counts, strict=True)],
     }

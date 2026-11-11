@@ -18,10 +18,9 @@ from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from django.views.generic.base import ContextMixin
 
-from core.site_settings import site_settings
 from skills.constants import BUILTIN_SKILLS_PATH, FRONTMATTER_RE, MAX_FILES
 from skills.models import GlobalSkill, SkillInvocation
-from skills.services import BUILTIN_SKILL_NAMES, SkillStorage, list_builtins, skill_subagents
+from skills.services import BUILTIN_SKILL_NAMES, SkillStorage, list_builtins, site_model_entries
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -76,9 +75,8 @@ class SkillPage:
 
     def model_entry_count(self) -> int:
         """How many of the skill's model entries are set: its own, and those of the subagents it ships."""
-        subagent_models = site_settings.agent_subagent_models
-        own = 1 if site_settings.agent_skill_models.get(self.name) else 0
-        return own + sum(1 for subagent in skill_subagents(self.name) if subagent_models.get(subagent.name))
+        spec, subagents = site_model_entries(self.name)
+        return bool(spec) + subagents
 
 
 def get_skill_page(name: str) -> SkillPage:

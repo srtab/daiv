@@ -94,6 +94,23 @@ def test_an_entry_whose_provider_went_away_is_flagged(admin_client, usable_opena
 
 
 @pytest.mark.django_db
+def test_an_entry_stored_without_its_provider_is_seeded_as_the_picker_posts_it(admin_client, usable_openai):
+    """The picker posts an empty value for a seed with no ``provider:`` prefix, which would clear the entry."""
+    config = SiteConfiguration.objects.get_instance()
+    config.agent_subagent_models = {"cr-tests": "gpt-5.4"}
+    config.save()
+
+    seeded = admin_client.get(MODELS_URL).context["form"]["agent_subagent_models__cr-tests"].value()
+    _post(admin_client, **{"agent_subagent_models__cr-tests": seeded, SECURITY_FIELD: "openai:gpt-5.4"})
+
+    assert seeded == "openai:gpt-5.4"
+    assert SiteConfiguration.objects.get_instance().agent_subagent_models == {
+        "cr-tests": "gpt-5.4",
+        "cr-security": "openai:gpt-5.4",
+    }
+
+
+@pytest.mark.django_db
 def test_the_skill_s_map_locked_by_its_variable_leaves_the_detectors_editable(admin_client, usable_openai, monkeypatch):
     from core import site_settings as ss_module
 

@@ -1515,3 +1515,58 @@ class TestAgentGroupSubagentModels:
         assert "DAIV_AGENT_SUBAGENT_MODELS" in page
         assert f'name="{EXPLORE_FIELD}"' not in page
         assert SiteConfiguration.objects.get_instance().agent_subagent_models == {}
+
+    def _explore_default(self, admin_client) -> str:
+        form = admin_client.get(AGENT_GROUP_URL).context["subagent_models_form"]
+        return form.fields["agent_subagent_models__explore"].widget.placeholder
+
+    def test_explore_s_default_is_its_own_model_when_a_provider_serves_it(self, admin_client):
+        _enable_seed_provider("openrouter")
+
+        assert self._explore_default(admin_client) == "claude-haiku-5.5"
+
+    def test_explore_s_default_is_the_run_s_model_when_no_provider_serves_its_own(self, admin_client):
+        assert self._explore_default(admin_client) == "Run's model"
+
+    def test_explore_s_default_is_the_legacy_variable_s_model(self, admin_client, monkeypatch):
+        from core import site_settings as ss_module
+
+        _enable_seed_provider("openai")
+        monkeypatch.setenv("DAIV_AGENT_EXPLORE_MODEL_NAME", "openai:gpt-5.4-mini")
+        ss_module._docker_secret_cache.clear()
+
+        assert self._explore_default(admin_client) == "gpt-5.4-mini"
+
+    def test_saving_keeps_a_model_entry_saved_while_the_request_ran(self, admin_client, monkeypatch):
+        from configuration.forms import SiteConfigurationForm
+
+        is_valid = SiteConfigurationForm.is_valid
+
+        def is_valid_after_a_concurrent_save(form):
+            SiteConfiguration.objects.update(agent_skill_models={"plan": "openai:gpt-5.4"})
+            return is_valid(form)
+
+        monkeypatch.setattr(SiteConfigurationForm, "is_valid", is_valid_after_a_concurrent_save)
+
+        admin_client.post(AGENT_GROUP_URL, {"agent_recursion_limit": 100})
+
+        assert SiteConfiguration.objects.get_instance().agent_skill_models == {"plan": "openai:gpt-5.4"}
+
+    def test_entries_no_page_lists_can_be_cleared(self, admin_client):
+        config = SiteConfiguration.objects.get_instance()
+        config.agent_subagent_models = {"my-reviewer": "openai:gpt-5.4", "cr-security": "openai:gpt-5.4"}
+        config.agent_skill_models = {"repo-only": "openai:gpt-5.4", "plan": "openai:gpt-5.4"}
+        config.save()
+        reviewer = "subagent_models-agent_subagent_models__my-reviewer"
+        repo_skill = "subagent_models-agent_skill_models__repo-only"
+
+        page = admin_client.get(AGENT_GROUP_URL).content.decode()
+        admin_client.post(AGENT_GROUP_URL, {EXPLORE_FIELD: "", GENERAL_PURPOSE_FIELD: "", reviewer: "", repo_skill: ""})
+
+        assert f'name="{reviewer}"' in page
+        assert f'name="{repo_skill}"' in page
+        assert "agent_subagent_models__cr-security" not in page
+        assert "agent_skill_models__plan" not in page
+        config = SiteConfiguration.objects.get_instance()
+        assert config.agent_subagent_models == {"cr-security": "openai:gpt-5.4"}
+        assert config.agent_skill_models == {"plan": "openai:gpt-5.4"}

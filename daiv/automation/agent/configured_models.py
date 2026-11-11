@@ -17,12 +17,23 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.agent")
 
+_reported: set[tuple[str, str]] = set()
+
+
+def _log_unusable(target: str, spec: str, message: str, *args: object) -> None:
+    """Log the active exception at ERROR the first time this process sees ``target``'s ``spec`` fail to build, then
+    at DEBUG: subagent models are built on every run, dispatched or not."""
+    level = logging.DEBUG if (target, spec) in _reported else logging.ERROR
+    _reported.add((target, spec))
+    logger.log(level, message, *args, exc_info=True)
+
 
 @dataclass(eq=False)
 class ConfiguredModels:
     """The ``target``'s ``entries`` by name, each spec built once per run with ``chain``'s thinking level.
 
-    A spec that cannot be built is logged at ERROR and never fails the run: the next model in line serves.
+    A spec that cannot be built is logged at ERROR and never fails the run: the next model in line serves. So does
+    a skill's spec once one of its calls failed (``call_failed``).
     """
 
     target: Literal["skill", "subagent"]
@@ -39,9 +50,16 @@ class ConfiguredModels:
                 )
             except Exception:
                 # Safe to continue: the caller serves on the next model in line.
-                logger.exception("Configured %s model '%s' for %s cannot be used", self.target, spec, name)
+                _log_unusable(
+                    self.target, spec, "Configured %s model '%s' for %s cannot be used", self.target, spec, name
+                )
                 self._builds[spec] = None
         return self._builds[spec]
+
+    def call_failed(self, spec: str, error: Exception) -> None:
+        """Stop using ``spec`` for the rest of the run after ``error`` failed one of its calls."""
+        logger.error("Configured %s model '%s' failed a call", self.target, spec, exc_info=error)
+        self._builds[spec] = None
 
     def skill_spec(self, name: str, file_spec: str | None) -> str | None:
         """The spec skill ``name`` runs on: its entry, else ``file_spec``; ``None`` keeps the run's model."""
@@ -68,6 +86,6 @@ class ConfiguredModels:
         try:
             return get_model(model=file_spec)
         except Exception:
-            # Safe to continue: the run's model serves.
-            logger.exception("Subagent %s: its own model '%s' cannot be used", name, file_spec)
+            # Safe to continue: the run's model serves. A warning: no operator chose this model.
+            logger.warning("Subagent %s: its own model '%s' cannot be used", name, file_spec, exc_info=True)
             return run_model

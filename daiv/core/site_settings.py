@@ -94,6 +94,11 @@ def _with_legacy_explore_model(subagent_models: dict[str, str]) -> dict[str, str
     return {**subagent_models, "explore": legacy}
 
 
+def legacy_explore_model() -> str:
+    """The model ``DAIV_AGENT_EXPLORE_MODEL_NAME`` gives explore while no entry names one; empty when unset."""
+    return _with_legacy_explore_model({}).get("explore", "")
+
+
 def _build_field_defaults() -> dict[str, Any]:
     """Build the defaults dict at first access, so importing this module never loads ``core.models``."""
     from core.models import ThinkingLevelChoices, WebSearchEngineChoices

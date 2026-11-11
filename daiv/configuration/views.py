@@ -12,9 +12,9 @@ from django.views import View
 from django.views.generic import TemplateView
 
 from skills.pages import SkillPage, SkillPageMixin
-from skills.services import skill_subagents
+from skills.services import list_global_skills, skill_subagents
 
-from automation.agent.constants import EXPLORE_MODEL_NAME, EXPLORE_NAME, GENERAL_PURPOSE_NAME
+from automation.agent.constants import BUILTIN_SUBAGENT_NAMES, EXPLORE_MODEL_NAME, EXPLORE_NAME, GENERAL_PURPOSE_NAME
 from configuration.forms import (
     PROVIDERS_FORMSET_PREFIX,
     RUN_MODEL_LABEL,
@@ -24,16 +24,40 @@ from configuration.forms import (
     SiteConfigurationForm,
     build_provider_formset,
     build_web_fetch_auth_header_formset,
+    model_spec_error,
 )
 from core.mixins import AdminRequiredMixin
 from core.models import FieldGroup, Provider, SiteConfiguration, WebFetchAuthHeader
-from core.site_settings import site_settings
+from core.site_settings import MODEL_MAP_FIELDS, legacy_explore_model, site_settings
 from core.utils import short_model_name
 
 logger = logging.getLogger("daiv.configuration")
 
 
 SUBAGENT_MODELS_PREFIX = "subagent_models"
+
+
+def _explore_default_label():
+    """What serves explore with no entry: the legacy variable's model, else its own, else the run's."""
+    for spec in (legacy_explore_model(), EXPLORE_MODEL_NAME):
+        if spec and not model_spec_error(spec):
+            return short_model_name(spec)
+    return RUN_MODEL_LABEL
+
+
+def _unlisted_entries(instance: SiteConfiguration) -> list[ModelEntry]:
+    """Stored entries no page lists, a repository's skill or subagent, so they can still be changed or cleared."""
+    unlisted = (
+        ("agent_subagent_models", BUILTIN_SUBAGENT_NAMES, _("A subagent only repositories define")),
+        ("agent_skill_models", list_global_skills(), _("A skill only repositories define")),
+    )
+    return [
+        ModelEntry(site_field, name, name, help_text)
+        for site_field, listed, help_text in unlisted
+        if not site_settings.is_env_locked(site_field)
+        for name in getattr(instance, site_field)
+        if name not in listed
+    ]
 
 
 class SiteConfigurationIndexView(AdminRequiredMixin, View):
@@ -103,6 +127,10 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
 
         if form.is_valid() and providers_valid and headers_valid and subagent_models_valid:
             with transaction.atomic():
+                # form.save() writes every column: without this it would undo a skill page's concurrent save.
+                form.instance.refresh_from_db(
+                    fields=MODEL_MAP_FIELDS, from_queryset=SiteConfiguration.objects.select_for_update()
+                )
                 if providers_formset is not None:
                     providers_formset.save()
                 if saves_subagent_models:
@@ -147,7 +175,7 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
         return None, None, False
 
     def _build_subagent_models_form(self, *, data, instance: SiteConfiguration) -> ModelEntriesForm | None:
-        """The Agent group's models of the subagents every run can delegate to; the skill page has the others."""
+        """The Agent group's models of the subagents every run can delegate to, and the entries no skill page has."""
         if self.group.key != "agent":
             return None
         entries = [
@@ -162,8 +190,9 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
                 EXPLORE_NAME,
                 EXPLORE_NAME,
                 _("Read-only codebase search"),
-                default_label=short_model_name(EXPLORE_MODEL_NAME),
+                default_label=_explore_default_label(),
             ),
+            *_unlisted_entries(instance),
         ]
         return ModelEntriesForm(entries, data, stored=instance, prefix=SUBAGENT_MODELS_PREFIX)
 
