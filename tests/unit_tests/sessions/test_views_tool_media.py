@@ -5,7 +5,7 @@ from django.urls import reverse
 
 import pytest
 from sessions.models import Run, Session, ToolResultMedia
-from sessions.views import ARTIFACT_RAW_HEADERS
+from sessions.views import ARTIFACT_RAW_HEADERS, TOOL_MEDIA_RAW_HEADERS
 
 from tests.unit_tests.sessions.test_views_artifacts import _create_run, _create_session
 
@@ -33,7 +33,9 @@ def test_owner_gets_the_bytes_with_the_artifact_headers(member_client, member_us
     assert response.status_code == 200
     assert b"".join(response.streaming_content) == b"png"
     assert response["Content-Type"] == "image/png"
-    assert all(response[key] == value for key, value in ARTIFACT_RAW_HEADERS.items())
+    assert all(response[key] == value for key, value in TOOL_MEDIA_RAW_HEADERS.items())
+    assert response["Content-Security-Policy"] == ARTIFACT_RAW_HEADERS["Content-Security-Policy"]
+    assert response["Cache-Control"] == "private, max-age=86400, immutable"
 
 
 def test_requires_login(client, member_user):
