@@ -43,6 +43,9 @@ pipeline_watch:
 orchestration:
   enabled: false
 
+memory:
+  enabled: true
+
 # Model overrides
 models:
   agent:
@@ -122,6 +125,7 @@ slash_commands:
 | `pipeline_watch` | `enabled` | site-wide | [Pipeline Watch](../features/pipeline-watch.md) — disable to stop DAIV watching CI on published MRs. |
 | `pipeline_watch` | `max_attempts` | site-wide | [Pipeline Watch](../features/pipeline-watch.md) — maximum fix attempts before giving up, clamped to the site-wide cap. |
 | `orchestration` | `enabled` | `true` | [Orchestration](../features/orchestration.md) — let the agent delegate sub-jobs to other repositories, or to new sessions on this one. |
+| `memory` | `enabled` | `true` | Learned repository memory: capture observations from finished runs, consolidate them, and add them to the system prompt of later runs. It only takes effect while **Memory** is also enabled site-wide ([Site Configuration](../reference/site-configuration.md), `DAIV_MEMORY_ENABLED`); set it to `false` to opt this repository out. |
 
 ## Branch naming and commit conventions
 
