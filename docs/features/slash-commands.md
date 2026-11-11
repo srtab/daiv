@@ -4,7 +4,7 @@ description: "Slash commands and skills DAIV responds to in issue and merge or p
 
 # Slash Commands & Skills
 
-DAIV responds to slash commands in issue and merge/pull request comments. Some are built-in commands with fixed behavior, others are **skills** — modular capabilities that give DAIV specialized expertise for specific tasks.
+DAIV responds to slash commands in issue and merge/pull request comments, and some of them also work in the dashboard chat. Some are built-in commands with fixed behavior, others are **skills** — modular capabilities that give DAIV specialized expertise for specific tasks.
 
 From your perspective, both work the same way:
 
@@ -20,8 +20,8 @@ These commands have fixed behavior and are always available:
 
 | Command | Scopes | Description |
 |---------|--------|-------------|
-| `/help` | Issues, MRs/PRs | Lists all available commands and skills |
-| `/agents` | Issues, MRs/PRs | Lists available subagents with descriptions |
+| `/help` | Issues, MRs/PRs, dashboard chat | Lists all available commands and skills |
+| `/agents` | Issues, MRs/PRs, dashboard chat | Lists available subagents with descriptions |
 | `/clear` | Issues, MRs/PRs | Resets the conversation context to start fresh |
 
 ### /help
@@ -47,6 +47,10 @@ Lists the available subagents with their names and descriptions. See [Subagents]
 ```
 
 Starts a fresh conversation context for the current issue or merge/pull request. Useful when DAIV's context becomes stale or it starts drifting. The earlier conversation stays in the session's history; DAIV just stops seeing it.
+
+### In the dashboard chat
+
+`/help` and `/agents` are also registered for the global scope, so they work in the dashboard chat too. Typing `/` in the chat composer opens a list of suggestions with those commands and the global skills. Per-repository skills don't appear there: they live in the repository's sandbox and can't be listed while the page renders.
 
 ## Built-in skills
 
