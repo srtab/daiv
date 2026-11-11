@@ -94,7 +94,7 @@ Replace `<gitlab-token>` with your personal access token and `<webhook-secret>` 
 
 DAIV uses webhooks to receive real-time notifications from GitLab about repository events.
 
-DAIV's scheduler adds a webhook to every repository its user maintains, every 5 minutes. No manual setup is required — once DAIV is running with valid GitLab credentials, webhooks are created automatically for new repositories. To add them right away, or to update existing ones after changing `DAIV_EXTERNAL_URL` or the webhook secret, run the command in the app container:
+DAIV's scheduler adds a webhook to every repository its user maintains, every 5 minutes. No manual setup is required — once DAIV is running with valid GitLab credentials, webhooks are created automatically for new repositories. To add them right away, or to update existing ones after changing `DAIV_EXTERNAL_URL` or the webhook secret, run the [`setup_webhooks`](../reference/management-commands.md#setup_webhooks) command in the app container:
 
 ```bash
 docker compose exec app django-admin setup_webhooks           # add missing webhooks now

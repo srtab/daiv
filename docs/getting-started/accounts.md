@@ -114,7 +114,7 @@ When OAuth is not configured, create the initial admin from a shell:
 docker compose exec app django-admin bootstrap_admin admin@example.com
 ```
 
-The `bootstrap_admin` command creates an admin user and prints how to sign in. It is a one-shot bootstrap: it refuses to run if an admin already exists, and refuses if a user with that email already exists (promote that user via the dashboard instead). The new admin signs in via login-by-code (the one-time email code). Without an SMTP server, set `EMAIL_BACKEND` to `django.core.mail.backends.console.EmailBackend` and read the code from the app's log (`docker compose logs app`).
+The [`bootstrap_admin`](../reference/management-commands.md#bootstrap_admin) command creates an admin user and prints how to sign in. It is a one-shot bootstrap: it refuses to run if an admin already exists, and refuses if a user with that email already exists (promote that user via the dashboard instead). The new admin signs in via login-by-code (the one-time email code). Without an SMTP server, set `EMAIL_BACKEND` to `django.core.mail.backends.console.EmailBackend` and read the code from the app's log (`docker compose logs app`).
 
 !!! note
     For end-to-end first-run setup including OAuth credentials and email, see the first-admin notes in [Deployment](deployment.md).
