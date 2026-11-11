@@ -124,6 +124,16 @@ async def test_url_block_is_recorded_not_stored(dispatch):
     assert store.stored == []
 
 
+async def test_a_url_that_is_not_a_string_is_unsupported(dispatch):
+    block = {"type": "image", "url": 123, "mime_type": "image/png"}
+
+    result = await ToolMediaMiddleware(store=FakeToolMediaStore()).awrap_tool_call(
+        _request(), _returns(ToolMessage(content=[block], tool_call_id="call_1"))
+    )
+
+    assert _tagged(result) == [{"ordinal": 0, "kind": "image", "mime_type": "image/png", "error": "unsupported_type"}]
+
+
 async def test_block_without_bytes_or_url_is_unsupported(dispatch):
     block = {"type": "file", "file_id": "f1", "mime_type": "application/pdf"}
 
@@ -155,15 +165,17 @@ async def test_command_result_tags_its_tool_message(dispatch):
     assert _tagged(message)[0]["id"] == str(uuid.UUID(int=1))
 
 
-async def test_no_thread_id_records_failed_without_storing(dispatch):
+async def test_no_thread_id_records_failed_without_storing(dispatch, caplog):
     store = FakeToolMediaStore()
 
-    result = await ToolMediaMiddleware(store=store).awrap_tool_call(
-        _request(config={}), _returns(ToolMessage(content=[_image()], tool_call_id="call_1"))
-    )
+    with caplog.at_level(logging.ERROR, logger="daiv.tools"):
+        result = await ToolMediaMiddleware(store=store).awrap_tool_call(
+            _request(config={}), _returns(ToolMessage(content=[_image()], tool_call_id="call_1"))
+        )
 
     assert _tagged(result)[0]["error"] == "failed"
     assert store.stored == []
+    assert [r.levelno for r in caplog.records] == [logging.ERROR]
 
 
 async def test_media_in_a_commands_other_message_is_tagged_on_the_calls_tool_message(dispatch):

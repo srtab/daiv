@@ -20,8 +20,8 @@ from langchain.agents.middleware.internal_call_transformer import INTERNAL_CALL_
 from langchain_core.messages import ToolMessage
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT, TOOL_MEDIA_EVENT, parse_assistant_message
-from automation.agent.tool_media import media_blocks, result_messages
-from sessions.tool_media import media_items, tool_text
+from automation.agent.tool_media import ToolContent
+from sessions.tool_media import TranscriptMedia
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator
@@ -169,10 +169,10 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
                 if agui_event.tool_call_id in self._answered_tool_calls:
                     continue
                 self._answered_tool_calls.add(agui_event.tool_call_id)
-                if (message := _source_tool_message(event, agui_event.tool_call_id)) is not None:
-                    agui_event.content = _result_text(message, agui_event.content)
+                if (message := self._source_tool_message(event, agui_event.tool_call_id)) is not None:
+                    agui_event.content = self._result_text(message, agui_event.content)
             elif isinstance(agui_event, CustomEvent) and agui_event.name == TOOL_MEDIA_EVENT:
-                agui_event.value = _media_event_value(agui_event.value)
+                agui_event.value = self._media_event_value(agui_event.value)
             yield agui_event
 
         for text_event in self._assistant_message_frames(event, provenance):
@@ -197,7 +197,7 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
             if not isinstance(message, ToolMessage) or message.tool_call_id in self._answered_tool_calls:
                 continue
             self._answered_tool_calls.add(message.tool_call_id)
-            content = _result_text(message, normalize_tool_content(message.content))
+            content = self._result_text(message, normalize_tool_content(message.content))
             # The event has no status: the chat UI marks a row failed only by this prefix (``ERROR_PREFIX_RE``).
             if message.status == "error" and not _ERROR_PREFIX.match(content):
                 content = f"Error: {content}"
@@ -273,30 +273,30 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
         constant = list(self.constant_schema_keys)
         return {"input": constant, "output": [*constant, *STREAMED_STATE_KEYS], "config": [], "context": context_keys}
 
+    @staticmethod
+    def _source_tool_message(event: Any, tool_call_id: str) -> ToolMessage | None:
+        """The ``ToolMessage`` an ``on_tool_end`` event carries for ``tool_call_id``: its output, or the one a returned
+        ``Command`` holds (the only one when the public call id was remapped)."""
+        if not isinstance(event, dict):
+            return None
+        output = (event.get("data") or {}).get("output")
+        messages = [m for m in ToolContent.messages(output) if isinstance(m, ToolMessage)]
+        matching = [m for m in messages if m.tool_call_id == tool_call_id]
+        if matching:
+            return matching[0]
+        return messages[0] if len(messages) == 1 else None
 
-def _source_tool_message(event: Any, tool_call_id: str) -> ToolMessage | None:
-    """The ``ToolMessage`` an ``on_tool_end`` event carries for ``tool_call_id``: its output, or the one a returned
-    ``Command`` holds (the only one when the public call id was remapped)."""
-    if not isinstance(event, dict):
-        return None
-    output = (event.get("data") or {}).get("output")
-    messages = [m for m in result_messages(output) if isinstance(m, ToolMessage)]
-    matching = [m for m in messages if m.tool_call_id == tool_call_id]
-    if matching:
-        return matching[0]
-    return messages[0] if len(messages) == 1 else None
+    @staticmethod
+    def _result_text(message: ToolMessage, content: str) -> str:
+        """The text of a result that carries media blocks, which upstream would serialize base64 and all; else
+        ``content`` unchanged."""
+        tool_content = ToolContent(message)
+        return tool_content.text if tool_content.media_blocks else content
 
-
-def _result_text(message: ToolMessage, content: str) -> str:
-    """The text of a result that carries media blocks, which upstream would serialize base64 and all; else
-    ``content`` unchanged."""
-    return tool_text(message.content) if media_blocks(message) else content
-
-
-def _media_event_value(value: Any) -> dict[str, Any]:
-    """The ``TOOL_MEDIA_EVENT`` payload as the chat renders it: the call's media items, with URLs in place of ids."""
-    value = value if isinstance(value, dict) else {}
-    return {
-        "tool_call_id": value.get("tool_call_id"),
-        "media": media_items(value.get("media") or [], thread_id=value.get("thread_id") or ""),
-    }
+    @staticmethod
+    def _media_event_value(value: Any) -> dict[str, Any]:
+        """The ``TOOL_MEDIA_EVENT`` payload as the chat renders it: the call's media items, with URLs in place of
+        ids."""
+        value = value if isinstance(value, dict) else {}
+        media = TranscriptMedia(value.get("thread_id") or "")
+        return {"tool_call_id": value.get("tool_call_id"), "media": media.items(value.get("media") or [])}

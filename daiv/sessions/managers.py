@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any
 
+from django.core.files.base import ContentFile
 from django.db import close_old_connections, models, transaction
 from django.tasks import TaskResultStatus
 from django.utils import timezone
@@ -11,6 +12,7 @@ from django_tasks_db.models import DBTaskResult
 
 from core import ui_events
 from core.constants import CANCELLED_BY_COORDINATOR_MESSAGE
+from sessions.artifacts import delete_stored_file
 from sessions.live.notify import publish_session_changed, session_changed
 from sessions.signal_defs import run_ended, run_finished
 
@@ -386,21 +388,41 @@ def _require_terminal(status: str) -> None:
         raise ValueError(f"{status!r} is not a terminal run status")
 
 
-class RunArtifactManager(models.Manager["RunArtifact"]):
-    def visible_to(self, user: User) -> models.QuerySet[RunArtifact]:
-        """Artifacts of the sessions the user may view, whose page lists every run's transcript. SYNC ONLY."""
+class RunFileManager[T: (RunArtifact, ToolResultMedia)](models.Manager[T]):
+    """Files a run keeps for people to open: a published artifact, or an image or file a tool result carried."""
+
+    def visible_to(self, user: User) -> models.QuerySet[T]:
+        """Rows of the sessions the user may view, whose page shows every run's transcript. SYNC ONLY."""
         from sessions.models import Session
 
         if user.is_admin:
             return self.all()
         return self.filter(run__session__in=Session.objects.visible_to(user))
 
+    def save_within_run_cap(self, row: T, name: str, content: bytes, *, per_run_max: int, error: Exception) -> None:
+        """Save ``content`` as ``row``'s file and the row, unless its run already keeps ``per_run_max`` rows; then raise
+        ``error`` and leave no file behind. SYNC ONLY."""
+        from sessions.models import Run
 
-class ToolResultMediaManager(models.Manager["ToolResultMedia"]):
-    def visible_to(self, user: User) -> models.QuerySet[ToolResultMedia]:
-        """Media of the sessions the user may view, whose page shows every run's transcript. SYNC ONLY."""
-        from sessions.models import Session
+        kept = self.filter(run_id=row.run_id)
+        if kept.count() >= per_run_max:
+            raise error
+        try:
+            row.file.save(name, ContentFile(content), save=False)
+            with transaction.atomic():
+                # Parallel tool calls in one model turn store concurrently; the lock serialises the budget check.
+                Run.objects.select_for_update().only("pk").get(pk=row.run_id)
+                if kept.count() >= per_run_max:
+                    raise error
+                row.save()
+        except BaseException:
+            delete_stored_file(row.file.storage, row.file.name or row.file.field.generate_filename(row, name))
+            raise
 
-        if user.is_admin:
-            return self.all()
-        return self.filter(run__session__in=Session.objects.visible_to(user))
+
+class RunArtifactManager(RunFileManager["RunArtifact"]):
+    pass
+
+
+class ToolResultMediaManager(RunFileManager["ToolResultMedia"]):
+    pass

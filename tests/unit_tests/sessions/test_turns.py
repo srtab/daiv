@@ -4,7 +4,7 @@ import json
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from sessions.tool_media import media_items
+from sessions.tool_media import TranscriptMedia
 from sessions.turns import build_turns
 
 from automation.agent.questions import QUESTION_DELIVERED
@@ -551,7 +551,7 @@ def test_a_tool_result_with_media_carries_items_and_a_text_only_result():
     seg = _tool_segment(build_turns(_shot_messages(message), thread_id="t1"))
 
     assert seg["result"] == "shot"
-    assert seg["media"] == media_items(entries, thread_id="t1")
+    assert seg["media"] == TranscriptMedia("t1").items(entries)
 
 
 def test_a_text_only_tool_result_has_no_media_key():

@@ -14,7 +14,8 @@ from typing import Any
 from automation.agent.constants import SKILLS_TOOL_NAME
 from automation.agent.questions import is_question_close
 from automation.agent.synthetic import is_synthetic
-from sessions.tool_media import message_media, tool_text
+from automation.agent.tool_media import ToolContent
+from sessions.tool_media import TranscriptMedia
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -66,6 +67,7 @@ def build_turns(messages: list[Any], *, in_flight: bool = False, thread_id: str 
     tool_index: dict[str, tuple[int, int]] = {}
     skill_tool_ids: set[str] = set()
     pending_skill_tc_id: str | None = None
+    media = TranscriptMedia(thread_id)
 
     for index, m in enumerate(messages):
         mtype = message_role(m)
@@ -90,7 +92,7 @@ def build_turns(messages: list[Any], *, in_flight: bool = False, thread_id: str 
             turns.append(turn)
             pending_skill_tc_id = None
         elif mtype in ("tool", "tool_result"):
-            tc_id = _attach_tool_result(m, turns, tool_index, thread_id)
+            tc_id = _attach_tool_result(m, turns, tool_index, media)
             is_skill_placeholder = tc_id in skill_tool_ids and _tool_message_text(m).startswith(
                 _SKILL_PLACEHOLDER_PREFIX
             )
@@ -104,7 +106,7 @@ def build_turns(messages: list[Any], *, in_flight: bool = False, thread_id: str 
 
 
 def _attach_tool_result(
-    m: Any, turns: list[dict[str, Any]], tool_index: dict[str, tuple[int, int]], thread_id: str
+    m: Any, turns: list[dict[str, Any]], tool_index: dict[str, tuple[int, int]], media: TranscriptMedia
 ) -> str | None:
     tc_id = getattr(m, "tool_call_id", None) or ((getattr(m, "additional_kwargs", None) or {}).get("tool_call_id"))
     if not tc_id or tc_id not in tool_index:
@@ -114,13 +116,13 @@ def _attach_tool_result(
     t_idx, s_idx = tool_index[tc_id]
     segment = turns[t_idx]["segments"][s_idx]
     segment["result"] = _tool_message_text(m)
-    if media := message_media(m, thread_id=thread_id):
-        segment["media"] = media
+    if items := media.of_message(m):
+        segment["media"] = items
     return tc_id
 
 
 def _tool_message_text(m: Any) -> str:
-    return tool_text(getattr(m, "content", ""))
+    return ToolContent(m).text
 
 
 def _fold_skill_body(m: Any, turns: list[dict[str, Any]], tool_index: dict[str, tuple[int, int]], tc_id: str) -> None:

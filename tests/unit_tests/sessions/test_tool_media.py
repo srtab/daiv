@@ -12,7 +12,7 @@ from langchain_core.messages import ToolMessage
 from sessions.artifacts import bind_active_run
 from sessions.conf import settings as sessions_settings
 from sessions.models import Run, RunStatus, Session, SessionOrigin, ToolResultMedia
-from sessions.tool_media import RunToolMediaStore, media_items, message_media, stored_content_type, tool_text
+from sessions.tool_media import RunToolMediaStore, TranscriptMedia
 
 from automation.agent.tool_media import ToolMediaError
 
@@ -58,7 +58,7 @@ async def _rejection(run: Run, **kwargs) -> str:
     ],
 )
 def test_stored_content_type(mime, expected):
-    assert stored_content_type(mime) == expected
+    assert RunToolMediaStore.content_type(mime) == expected
 
 
 async def test_astore_saves_the_bytes_on_the_bound_run():
@@ -141,7 +141,7 @@ def test_media_items_maps_each_entry_kind():
         {"ordinal": 4, "kind": "image", "mime_type": "image/png", "url": "data:image/png;base64,AAAA"},
     ]
 
-    assert media_items(entries, thread_id="t1") == [
+    assert TranscriptMedia("t1").items(entries) == [
         {
             "kind": "image",
             "mime_type": "image/png",
@@ -166,7 +166,7 @@ def test_untagged_message_shows_not_saved_placeholders():
         tool_call_id="c1",
     )
 
-    assert message_media(message, thread_id="t1") == [
+    assert TranscriptMedia("t1").of_message(message) == [
         {"kind": "image", "mime_type": "image/png", "error": "not_saved"},
         {"kind": "image", "mime_type": "image/png", "url": "https://x.test/a.png", "external": True},
         {"kind": "image", "mime_type": "image/png", "error": "not_saved"},
@@ -181,18 +181,29 @@ def test_tagged_message_uses_its_entries():
         additional_kwargs={"daiv_media": entries},
     )
 
-    assert message_media(message, thread_id="t1") == [{"kind": "image", "mime_type": "image/png", "error": "run_limit"}]
+    assert TranscriptMedia("t1").of_message(message) == [
+        {"kind": "image", "mime_type": "image/png", "error": "run_limit"}
+    ]
 
 
 def test_text_only_message_has_no_media():
-    assert message_media(ToolMessage(content="ok", tool_call_id="c1"), thread_id="t1") == []
+    assert TranscriptMedia("t1").of_message(ToolMessage(content="ok", tool_call_id="c1")) == []
 
 
-def test_tool_text_joins_the_text_of_each_block():
-    content = [{"type": "text", "text": "a"}, {"type": "image", "base64": "AAAA"}, "b", {"text": "c"}, {"text": None}]
+def test_a_url_that_is_not_a_string_is_unsupported():
+    entries = [{"ordinal": 0, "kind": "image", "mime_type": "image/png", "url": 123}]
 
-    assert tool_text(content) == "a\nb\nc"
-    assert tool_text("plain") == "plain"
+    assert TranscriptMedia("t1").items(entries) == [
+        {"kind": "image", "mime_type": "image/png", "error": "unsupported_type"}
+    ]
+
+
+def test_an_untagged_block_whose_url_is_not_a_string_is_not_saved():
+    message = ToolMessage(content=[{"type": "image", "url": 123, "mime_type": "image/png"}], tool_call_id="c1")
+
+    assert TranscriptMedia("t1").of_message(message) == [
+        {"kind": "image", "mime_type": "image/png", "error": "not_saved"}
+    ]
 
 
 @pytest.mark.parametrize(
@@ -201,7 +212,7 @@ def test_tool_text_joins_the_text_of_each_block():
 def test_media_items_rejects_urls_that_are_not_plain(url):
     entry = {"ordinal": 0, "kind": "image", "mime_type": "image/png", "url": url}
 
-    assert media_items([entry], thread_id="t1") == [
+    assert TranscriptMedia("t1").items([entry]) == [
         {"kind": "image", "mime_type": "image/png", "error": "unsupported_type"}
     ]
 
@@ -217,4 +228,4 @@ def test_media_items_rejects_urls_that_are_not_plain(url):
     ],
 )
 def test_stored_content_type_normalises_and_validates(mime, expected):
-    assert stored_content_type(mime) == expected
+    assert RunToolMediaStore.content_type(mime) == expected

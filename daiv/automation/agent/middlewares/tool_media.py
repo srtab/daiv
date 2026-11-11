@@ -15,10 +15,9 @@ from automation.agent.tool_media import (
     FAILED,
     TOO_LARGE,
     UNSUPPORTED_TYPE,
+    ToolContent,
     ToolMediaError,
     ToolMediaStore,
-    media_blocks,
-    result_messages,
 )
 
 if TYPE_CHECKING:
@@ -45,14 +44,14 @@ class ToolMediaMiddleware(AgentMiddleware):
         self, request: ToolCallRequest, handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]]
     ) -> ToolMessage | Command:
         result = await handler(request)
-        thread_id = _thread_id(request)
-        for message, blocks in _media_by_tool_message(result, request.tool_call.get("id")):
+        thread_id = self._thread_id(request)
+        for message, blocks in self._media_by_tool_message(result, request.tool_call.get("id")):
             entries = [
                 await self._entry(block, ordinal, thread_id=thread_id, tool_call_id=message.tool_call_id)
                 for ordinal, block in enumerate(blocks)
             ]
             message.additional_kwargs[DAIV_MEDIA_KEY] = entries
-            await _dispatch({"thread_id": thread_id, "tool_call_id": message.tool_call_id, "media": entries})
+            await self._publish({"thread_id": thread_id, "tool_call_id": message.tool_call_id, "media": entries})
         return result
 
     async def _entry(self, block: dict[str, Any], ordinal: int, *, thread_id: str, tool_call_id: str) -> dict[str, Any]:
@@ -65,14 +64,14 @@ class ToolMediaMiddleware(AgentMiddleware):
                 return {**entry, "error": UNSUPPORTED_TYPE}
             entry["mime_type"] = header.removeprefix("data:").removesuffix(";base64") or entry["mime_type"]
         elif data is None:
-            if url:
+            if isinstance(url, str) and url:
                 return {**entry, "url": url}
             return {**entry, "error": UNSUPPORTED_TYPE}
         try:
             if not isinstance(data, str):
                 raise TypeError(type(data).__name__)
             encoded = "".join(data.split())
-            if (size := _decoded_size(encoded)) > self._store.max_bytes:
+            if (size := self._decoded_size(encoded)) > self._store.max_bytes:
                 return {**entry, "size": size, "error": TOO_LARGE}
             content = base64.b64decode(encoded, validate=True)
         except ValueError, TypeError:
@@ -80,7 +79,7 @@ class ToolMediaMiddleware(AgentMiddleware):
             return {**entry, "error": FAILED}
         entry["size"] = len(content)
         if not thread_id:
-            logger.warning("Media %d of tool call %s has no thread to keep it on", ordinal, tool_call_id)
+            logger.error("Media %d of tool call %s has no thread to keep it on", ordinal, tool_call_id)
             return {**entry, "error": FAILED}
         try:
             media_id = await self._store.astore(
@@ -97,41 +96,42 @@ class ToolMediaMiddleware(AgentMiddleware):
             return {**entry, "error": FAILED}
         return {**entry, "id": media_id}
 
+    @staticmethod
+    def _thread_id(request: ToolCallRequest) -> str:
+        config = getattr(request.runtime, "config", None) or {}
+        return (config.get("configurable") or {}).get("thread_id") or ""
 
-def _thread_id(request: ToolCallRequest) -> str:
-    config = getattr(request.runtime, "config", None) or {}
-    return (config.get("configurable") or {}).get("thread_id") or ""
+    @staticmethod
+    def _decoded_size(encoded: str) -> int:
+        return len(encoded) * 3 // 4 - encoded[-2:].count("=")
 
+    @staticmethod
+    def _media_by_tool_message(
+        result: ToolMessage | Command, call_id: str | None
+    ) -> list[tuple[ToolMessage, list[dict[str, Any]]]]:
+        """Each tool message of ``result`` that has media, with its blocks.
 
-def _decoded_size(encoded: str) -> int:
-    return len(encoded) * 3 // 4 - encoded[-2:].count("=")
+        Media a ``Command`` returns in another message (the frames of deepagents' video ``read_file``) go to the call's
+        own tool message, and the other message is marked synthetic so the transcript doesn't show it as a person's
+        turn.
+        """
+        messages = ToolContent.messages(result)
+        tool_messages = [m for m in messages if isinstance(m, ToolMessage)]
+        media = {id(m): ToolContent(m).media_blocks for m in tool_messages}
+        owner = next((m for m in tool_messages if m.tool_call_id == call_id), None)
+        if owner is None and len(tool_messages) == 1:
+            owner = tool_messages[0]
+        for message in messages:
+            if owner is None or isinstance(message, ToolMessage):
+                continue
+            if blocks := ToolContent(message).media_blocks:
+                media[id(owner)] += blocks
+                message.additional_kwargs[SYNTHETIC_KWARG] = TOOL_MEDIA_KIND
+        return [(m, media[id(m)]) for m in tool_messages if media[id(m)]]
 
-
-def _media_by_tool_message(
-    result: ToolMessage | Command, call_id: str | None
-) -> list[tuple[ToolMessage, list[dict[str, Any]]]]:
-    """Each tool message of ``result`` that has media, with its blocks.
-
-    Media a ``Command`` returns in another message (the frames of deepagents' video ``read_file``) go to the call's
-    own tool message, and the other message is marked synthetic so the transcript doesn't show it as a person's turn.
-    """
-    messages = result_messages(result)
-    tool_messages = [m for m in messages if isinstance(m, ToolMessage)]
-    media = {id(m): media_blocks(m) for m in tool_messages}
-    owner = next((m for m in tool_messages if m.tool_call_id == call_id), None)
-    if owner is None and len(tool_messages) == 1:
-        owner = tool_messages[0]
-    for message in messages:
-        if owner is None or isinstance(message, ToolMessage):
-            continue
-        if blocks := media_blocks(message):
-            media[id(owner)] += blocks
-            message.additional_kwargs[SYNTHETIC_KWARG] = TOOL_MEDIA_KIND
-    return [(m, media[id(m)]) for m in tool_messages if media[id(m)]]
-
-
-async def _dispatch(payload: dict[str, Any]) -> None:
-    try:
-        await adispatch_custom_event(TOOL_MEDIA_EVENT, payload)
-    except Exception:
-        logger.warning("Could not dispatch tool media; the live transcript will not show it", exc_info=True)
+    @staticmethod
+    async def _publish(payload: dict[str, Any]) -> None:
+        try:
+            await adispatch_custom_event(TOOL_MEDIA_EVENT, payload)
+        except Exception:
+            logger.exception("Could not dispatch tool media; the live transcript will not show it")
