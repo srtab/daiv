@@ -44,7 +44,7 @@ DAIV (pronounced "dive", from *dev* + *AI*) integrates directly with **GitLab** 
 - **[Orchestration](features/orchestration.md)** — let the agent fan work out as tailored jobs, across your other repositories or as new sessions on the same one, then report the combined result.
 - **[Sandbox Environments](features/sandbox-environments.md)** — define a reusable runtime once: base image, CPU/memory, **network egress policy**, and encrypted secrets, scoped to the repositories you choose.
 - **Per-run model & effort** — pick the LLM and thinking effort for each run.
-- **[Notifications](features/notifications.md)** — know the moment work finishes, in the app, by email, or in Rocket Chat.
+- **[Notifications](features/notifications.md)** — know the moment work finishes, in the app, by email, in Rocket Chat or on Telegram.
 - **[Merge Metrics](features/merge-metrics.md)** — track code velocity with commit-level DAIV-vs-human attribution.
 
 ## Quick example
