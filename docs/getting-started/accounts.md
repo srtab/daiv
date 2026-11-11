@@ -37,7 +37,7 @@ DAIV checks two tiers, matched to the platform's own roles:
 
 | Tier | Required platform role | Gates |
 |------|------------------------|-------|
-| **Read** | GitLab Reporter or above, GitHub read (or higher) collaborator | Repository and branch pickers, the memory dashboard, and the MCP `list_repositories` tool. |
+| **Read** | GitLab Reporter or above, GitHub read (or higher) collaborator | Repository and branch pickers, the [memory dashboard](../features/memory.md), and the MCP `list_repositories` tool. |
 | **Write** | GitLab Developer or above, GitHub write (or higher) collaborator | Starting an agent run or chat, and creating or running a [scheduled job](../features/scheduled-jobs.md), from the dashboard, the Jobs API or MCP. |
 
 A repository a user cannot read never appears in a listing. A repository they can read but not write to appears, and DAIV rejects their run, chat and schedule attempts with a "not accessible" message.

@@ -90,6 +90,7 @@ plugins:
         - features/issue-addressing.md
         - features/pull-request-assistant.md
         - features/pipeline-watch.md
+        - features/memory.md
         - features/sessions.md
         - features/jobs-api.md
         - features/scheduled-jobs.md
@@ -163,6 +164,7 @@ nav:
     - Issue addressing: features/issue-addressing.md
     - Pull request assistant: features/pull-request-assistant.md
     - Pipeline watch: features/pipeline-watch.md
+    - Repository memory: features/memory.md
     - Sessions: features/sessions.md
     - Jobs API: features/jobs-api.md
     - Scheduled jobs: features/scheduled-jobs.md
