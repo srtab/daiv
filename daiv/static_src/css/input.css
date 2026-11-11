@@ -446,6 +446,12 @@ html {
            bg-white text-[#030712] transition-all duration-200 hover:bg-gray-200 active:scale-[0.98];
   }
 
+  /* The primary action on a page moved to the tokens: teal owns "clickable". */
+  .btn-accent {
+    @apply inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-[15px] font-semibold
+           bg-accent text-accent-ink transition-all duration-200 hover:bg-accent-bright active:scale-[0.98];
+  }
+
   .btn-secondary {
     @apply inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-[15px] font-medium
            border border-white/[0.06] bg-white/[0.03] text-gray-400 transition-all duration-200
@@ -1125,6 +1131,20 @@ html {
     @apply bg-surface-3 font-medium text-text-strong hover:text-text-strong;
   }
 
+  /* A row of links to a page's views, each its own URL; the current one carries `aria-current`. */
+  .segmented-nav {
+    @apply inline-flex flex-wrap items-center gap-1 rounded-xl border border-border bg-surface-2 p-1;
+  }
+  .segmented-nav__item {
+    @apply rounded-lg px-3 py-1.5 text-sm font-medium text-text-muted transition-colors hover:text-text;
+  }
+  .segmented-nav__item[aria-current] {
+    @apply bg-surface-3 text-text-strong hover:text-text-strong;
+  }
+  .segmented-nav__count {
+    @apply ml-1 font-mono text-[12px] tabular-nums text-text-faint;
+  }
+
   /* The label row is the toggle; its figure dims while the section is open, as the body then shows it. */
   .details-fold {
     @apply border-t border-border first:border-t-0;
@@ -1176,7 +1196,8 @@ html {
   .repo-card__slug {
     @apply min-w-0 truncate font-mono text-[12px] text-text;
   }
-  .repo-card__tag {
+  .repo-card__tag,
+  .leg-tag {
     @apply shrink-0 rounded-full border border-border px-1.5 font-mono text-[10px] leading-4 font-semibold
       tracking-[0.14em] text-text-faint uppercase;
   }
@@ -3753,8 +3774,9 @@ html {
       margin-bottom: 8px;
     }
 
-    /* Only this one — its trigger sits at the right edge, beside Send. */
-    .chat-composer__buttons .picker-popover {
+    /* Only these — their trigger sits at the right edge: beside Send, and at the end of a model entry row. */
+    .chat-composer__buttons .picker-popover,
+    .model-entry .picker-popover {
       left: auto;
       right: 0;
     }
@@ -4585,6 +4607,12 @@ html {
 
   .agent-pill__icon { @apply h-3.5 w-3.5 opacity-85; }
   .agent-pill__name { @apply max-w-[18ch] truncate; }
+  .agent-pill__name--default { @apply text-text-muted; }
+
+  /* A model entry row: what the entry is for, then its picker at the right edge. */
+  .model-entry { @apply flex flex-wrap items-center justify-between gap-x-4 gap-y-2; }
+  .model-entry__text { @apply min-w-[16rem] flex-1; }
+  .agent-picker__default-hint { @apply font-mono text-[11px] text-text-faint; }
 
   .agent-pill__effort { @apply inline-flex items-center gap-1; }
   .agent-pill__effort-icon { @apply h-3 w-3 opacity-70; }
@@ -4873,40 +4901,118 @@ html {
     @apply mt-1.5 text-[14px] text-text-muted;
   }
 
-  .landing-step {
-    @apply flex gap-6;
+  .landing-inline-link,
+  .landing-faq__answer a {
+    @apply text-accent underline-offset-2 hover:text-accent-bright hover:underline;
   }
-  .landing-step__track {
-    @apply flex flex-col items-center;
+
+  .landing-demo {
+    @apply pb-24;
   }
-  .landing-step__number {
-    @apply flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border
-      bg-surface-2 font-mono text-[14px] font-semibold tabular-nums text-text-strong;
+  .landing-demo__frame {
+    @apply overflow-hidden rounded-2xl border border-border bg-surface-2;
   }
-  .landing-step__rail {
-    @apply mt-3 h-full w-px bg-gradient-to-b from-border to-transparent;
+  .landing-demo__media {
+    @apply block aspect-video h-auto w-full;
   }
-  .landing-step__card {
-    @apply flex-1 rounded-2xl border border-border bg-surface-2 p-6 pb-8;
+  .landing-demo__caption {
+    @apply mx-auto mt-4 max-w-2xl text-center text-[13px] text-text-muted;
   }
-  .landing-mock {
-    @apply mt-5 rounded-xl border border-border bg-surface-3 px-4 py-3;
+
+  /* SVG text sizes are in viewBox units, so they scale with the drawing. */
+  .landing-flow {
+    @apply h-auto w-full;
   }
-  .landing-mock__meta {
-    @apply font-mono text-[12px] text-text-muted;
+  .landing-flow__lane {
+    fill: var(--color-surface-1);
+    stroke: var(--color-border);
   }
-  .landing-mock__text {
-    @apply mt-1 text-[14px] text-text;
+  .landing-flow__lane--daiv {
+    fill: var(--color-surface-2);
   }
-  .landing-mock__chip {
-    @apply rounded-md border border-border bg-surface-2 px-2 py-0.5 font-mono text-[11px] text-text-muted;
+  .landing-flow__lane-label {
+    @apply font-mono;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    fill: var(--color-text-muted);
   }
-  .landing-mock__status {
-    @apply rounded-md border border-border bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-status-clear;
+  .landing-flow__node {
+    fill: var(--color-surface-3);
+    stroke: var(--color-border);
+  }
+  .landing-flow__node--daiv {
+    stroke: var(--color-brand);
+  }
+  .landing-flow__badge {
+    fill: var(--color-ground);
+    stroke: var(--color-border);
+  }
+  .landing-flow__badge--daiv {
+    stroke: var(--color-brand);
+  }
+  .landing-flow__num {
+    @apply font-mono;
+    font-size: 11px;
+    font-weight: 600;
+    fill: var(--color-text-strong);
+    text-anchor: middle;
+    dominant-baseline: central;
+  }
+  .landing-flow__title {
+    font-size: 15px;
+    font-weight: 600;
+    fill: var(--color-text-strong);
+  }
+  .landing-flow__detail {
+    @apply font-mono;
+    font-size: 12.5px;
+    fill: var(--color-text-muted);
+  }
+  .landing-flow__note {
+    @apply font-mono;
+    font-size: 12px;
+    fill: var(--color-text-faint);
+  }
+  .landing-flow__edge {
+    fill: none;
+    stroke: var(--color-text-faint);
+    stroke-width: 1.5;
+  }
+  .landing-flow__edge--loop {
+    stroke-dasharray: 4 4;
+  }
+  .landing-flow__arrowhead {
+    fill: var(--color-text-faint);
+  }
+
+  .landing-note {
+    @apply max-w-3xl text-[14px] text-text-muted;
+  }
+  .landing-note code,
+  .landing-faq__answer code {
+    @apply rounded bg-surface-3 px-1 py-0.5 font-mono text-[13px] text-text;
+  }
+
+  .landing-faq {
+    @apply max-w-3xl border-t border-border;
+  }
+  .landing-faq__item {
+    @apply border-b border-border;
+  }
+  .landing-faq__question {
+    @apply flex cursor-pointer list-none items-center justify-between gap-4 py-5 text-[16px] font-semibold
+      text-text-strong transition-colors duration-200 hover:text-text [&::-webkit-details-marker]:hidden;
+  }
+  .landing-faq__answer {
+    @apply pb-6 text-[14px] leading-relaxed text-text-muted;
   }
 
   .landing-card {
     @apply rounded-2xl border border-border bg-surface-2 p-6;
+  }
+  .landing-card--link {
+    @apply block transition-colors duration-200 hover:border-text-faint hover:bg-surface-3;
   }
   .landing-card__icon {
     @apply mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-surface-3;
@@ -4916,6 +5022,31 @@ html {
   }
   .landing-cta {
     @apply rounded-2xl border border-border bg-surface-2 px-6 py-12 text-center sm:p-16;
+  }
+
+  .landing-page {
+    @apply pt-16 pb-24;
+  }
+  .landing-subheading {
+    @apply text-xl font-semibold tracking-tight text-text-strong;
+  }
+  .landing-compare {
+    @apply border-t border-border;
+  }
+  .landing-compare__row {
+    @apply grid gap-x-8 gap-y-3 border-b border-border py-5 sm:grid-cols-[10rem_1fr_1fr];
+  }
+  .landing-compare__aspect {
+    @apply text-[14px] font-semibold text-text-strong;
+  }
+  .landing-compare__cell {
+    @apply text-[14px] text-text-muted;
+  }
+  .landing-compare__who {
+    @apply mb-1 block text-text-faint;
+  }
+  .landing-compare__sources {
+    @apply mt-1.5 text-[12px] text-text-faint;
   }
 
   .landing-footer {

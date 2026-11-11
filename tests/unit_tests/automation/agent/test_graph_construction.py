@@ -5,7 +5,7 @@ import inspect
 import re
 from contextlib import ExitStack
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 from langchain.agents.middleware import ModelFallbackMiddleware
@@ -14,11 +14,13 @@ from sandbox_envs.spec import SandboxSpec
 from automation.agent import graph as graph_module
 from automation.agent import subagents as subagents_module
 from automation.agent.agent_settings import RunOverrides
+from automation.agent.constants import EXPLORE_MODEL_NAME
 from automation.agent.graph import create_daiv_agent
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
 from automation.agent.middlewares.delegate_jobs import DelegateJobsMiddleware
 from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.memory import RepositoryMemoryMiddleware
+from automation.agent.middlewares.skills import SkillModelMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.verification import VerificationMiddleware, VerificationResetMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
@@ -156,13 +158,18 @@ def test_context_usage_middleware_registered_after_model_fallback():
     assert fallback < meter, "ContextUsageMiddleware must be registered after ModelFallbackMiddleware"
 
 
+def test_the_skill_model_swaps_inside_the_fallback_and_outside_what_acts_on_the_serving_model():
+    src = inspect.getsource(graph_module.create_daiv_agent)
+    fallback = src.index("ModelFallbackMiddleware(fallback_models[0]")
+    skill_model = src.index("SkillModelMiddleware(")
+    assert fallback < skill_model < src.index("*deferred_tools,") < src.index("ContextUsageMiddleware()")
+
+
 _SITE = {
     "agent_model_name": "site-model",
     "agent_fallback_model_name": "site-fallback",
     "agent_thinking_level": "medium",
     "agent_fallback_thinking_level": "low",
-    "agent_explore_model_name": "site-explore",
-    "agent_explore_fallback_model_name": "",
     "agent_recursion_limit": 500,
     "web_fetch_enabled": False,
     "web_search_enabled": False,
@@ -181,6 +188,8 @@ async def _construct(
     before_publish: tuple[str, ...] | None = ("make test",),
     delegator: object | None = None,
     fork_branch: bool = False,
+    configured_get_model: object | None = None,
+    build_error: Exception | None = None,
 ):
     """Build the agent through ``create_daiv_agent`` with its collaborators stubbed, and return what it was built with.
 
@@ -200,7 +209,7 @@ async def _construct(
     )
     graph_patches = {
         "create_general_purpose_subagent": {},
-        "load_custom_subagents": {"new": AsyncMock(return_value=[])},
+        "load_custom_subagents": {"new": AsyncMock(return_value=[], side_effect=build_error)},
         "create_deep_agent": {},
         "get_model": {},
         "SkillsMiddleware": {},
@@ -215,8 +224,10 @@ async def _construct(
             name: stack.enter_context(patch(f"automation.agent.graph.{name}", **kwargs))
             for name, kwargs in graph_patches.items()
         }
-        explore_models = stack.enter_context(patch("automation.agent.subagents.get_model"))
-        stack.enter_context(patch("automation.agent.subagents.create_agent"))
+        configured = stack.enter_context(
+            patch("automation.agent.configured_models.get_model", configured_get_model or MagicMock())
+        )
+        subagent_agents = stack.enter_context(patch("automation.agent.subagents.create_agent"))
         stack.enter_context(patch("automation.agent.middlewares.deferred_tools.deferred_settings", ENABLED=False))
         ctx = MagicMock(sandbox=sandbox)
         ctx.config.context_file_name = "AGENTS.md"
@@ -233,7 +244,8 @@ async def _construct(
     deep_agent = mocks["create_deep_agent"]
     return SimpleNamespace(
         models=[(c.kwargs["model"], c.kwargs["thinking_level"]) for c in mocks["get_model"].call_args_list],
-        explore_models=[c.kwargs["model"] for c in explore_models.call_args_list],
+        run_model=mocks["get_model"].return_value,
+        explore_model=next(c.kwargs["model"] for c in subagent_agents.call_args_list if c.kwargs["name"] == "explore"),
         middleware=deep_agent.call_args.kwargs["middleware"],
         subagent_web={
             toggle: mocks["create_general_purpose_subagent"].call_args.kwargs[toggle]
@@ -243,6 +255,10 @@ async def _construct(
         settings=settings,
         git_middleware=mocks["GitMiddleware"],
         caching=mocks["AnthropicPromptCachingMiddleware"].return_value,
+        skills_middleware=mocks["SkillsMiddleware"],
+        general_purpose=mocks["create_general_purpose_subagent"],
+        configured=configured,
+        custom_subagents=mocks["load_custom_subagents"],
     )
 
 
@@ -276,17 +292,50 @@ async def test_fallback_models_take_the_sites_fallback_thinking_level_whatever_t
     assert built.models == expected
 
 
-async def test_the_explore_subagent_runs_on_the_sites_explore_chain_whatever_the_run_chooses():
-    site = {"agent_explore_model_name": "explore-a", "agent_explore_fallback_model_name": "explore-b"}
-    built = await _construct(site=site, run={"model_names": ("run-a", "run-b"), "agent_thinking_level": "high"})
+async def test_the_explore_subagent_runs_on_its_default_model_without_thinking_whatever_the_run_chooses():
+    built = await _construct(run={"model_names": ("run-a", "run-b"), "agent_thinking_level": "high"})
 
-    assert built.explore_models == ["explore-a", "explore-b"]
+    assert built.explore_model is built.configured.return_value
+    built.configured.assert_called_once_with(model=EXPLORE_MODEL_NAME)
 
 
-async def test_the_explore_subagent_has_no_fallback_when_the_site_sets_none():
-    built = await _construct(site={"agent_explore_model_name": "explore-a", "agent_explore_fallback_model_name": ""})
+async def test_the_explore_subagent_runs_on_its_configured_model_at_the_runs_thinking_level():
+    built = await _construct(
+        site={"agent_subagent_models": {"explore": "fake:explore"}},
+        run={"model_names": ("run-a",), "agent_thinking_level": "high"},
+    )
 
-    assert built.explore_models == ["explore-a"]
+    assert built.explore_model is built.configured.return_value
+    built.configured.assert_called_once_with(model="fake:explore", thinking_level="high")
+
+
+async def test_skills_run_on_the_runs_skill_map():
+    built = await _construct(site={"agent_skill_models": {"code-review": "fake:review"}})
+
+    models = built.skills_middleware.call_args.kwargs["configured_models"]
+    assert (models.target, models.entries, models.chain) == (
+        "skill",
+        {"code-review": "fake:review"},
+        built.settings.agent,
+    )
+    [skill_model_middleware] = [m for m in built.middleware if isinstance(m, SkillModelMiddleware)]
+    assert (skill_model_middleware._models, skill_model_middleware._run_model) == (models, built.run_model)
+
+
+async def test_the_general_purpose_subagent_runs_on_its_configured_model():
+    built = await _construct(site={"agent_subagent_models": {"general-purpose": "fake:gp"}})
+
+    assert built.general_purpose.call_args.args[0] is built.configured.return_value
+    assert built.configured.call_args_list.count(call(model="fake:gp", thinking_level="medium")) == 1
+
+
+async def test_the_general_purpose_subagent_falls_back_to_the_runs_model():
+    built = await _construct(
+        site={"agent_subagent_models": {"general-purpose": "nosuch:model"}},
+        configured_get_model=MagicMock(side_effect=ValueError("Unknown provider prefix")),
+    )
+
+    assert built.general_purpose.call_args.args[0] is built.run_model
 
 
 async def test_the_agent_is_bound_to_the_sites_recursion_limit():

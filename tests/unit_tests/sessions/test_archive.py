@@ -343,7 +343,7 @@ async def _daiv_agent(checkpointer: BaseCheckpointSaver | None = None):
 
     with (
         patch("automation.agent.graph.get_model", side_effect=_tool_model),
-        patch("automation.agent.subagents.get_model", side_effect=_tool_model),
+        patch("automation.agent.configured_models.get_model", side_effect=_tool_model),
         patch("automation.agent.graph.load_custom_subagents", AsyncMock(return_value=[])),
         patch("automation.agent.middlewares.sandbox.site_settings", sandbox_api_key="key"),
         patch.object(deferred_settings, "ENABLED", True),
@@ -362,6 +362,7 @@ _RESET_CHANNELS = {
     "_skill_tools_disclosed",
     "_summarization_session_id",
     "active_skill_mode",
+    "active_skill_model",
     "code_changes",
     "github_token",
     "github_token_expires_at",

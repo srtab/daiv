@@ -9,6 +9,7 @@ from notifications.choices import ChannelType, EnvelopeStatus
 from notifications.models import Notification, NotificationDelivery, RunEnvelope
 from notifications.policy import NOTIFY_WORTHY_STATUSES, RECLASSIFY_MAX_AGE
 from notifications.run_notifiers import ACTIONABLE_CONTEXT_LIMIT, NOTABLE_RUNS_CONTEXT_LIMIT, emit_run_notification
+from sessions.legs import NOT_RUN_MERGED
 from sessions.models import EventKind, EventState, Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
@@ -144,6 +145,19 @@ class TestRunBatchRollup:
         ctx = Notification.objects.get(recipient=member_user, event_type="job_batch.finished").context
         assert ctx["notable_count"] == ctx["total"] == 2
         assert ctx["status_tone"] == "failure"
+
+    def test_a_leg_follow_up_not_run_is_neither_failed_nor_notable_in_its_batch(self, member_user, email_binding):
+        runs = _make_run_batch(member_user, statuses=[RunStatus.SUCCESSFUL, RunStatus.FAILED, RunStatus.SUCCESSFUL])
+        runs[1].error_message = NOT_RUN_MERGED
+        runs[1].save(update_fields=["error_message"])
+        for run in runs:
+            self._finish(run)
+        for run in runs[:2]:
+            emit_run_notification(run, _classify(run, EnvelopeStatus.ALL_CLEAR, summary=run.error_message))
+        emit_run_notification(runs[2], _classify(runs[2], EnvelopeStatus.FOUND_ISSUES))
+
+        ctx = Notification.objects.get(recipient=member_user, event_type="job_batch.finished").context
+        assert (ctx["failed_count"], ctx["notable_count"], ctx["all_clear_count"]) == (0, 1, 2)
 
     def test_all_clear_batch_is_silent(self, member_user, email_binding):
         a, b = _make_run_batch(member_user, statuses=[RunStatus.SUCCESSFUL, RunStatus.SUCCESSFUL])

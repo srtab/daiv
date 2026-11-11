@@ -12,7 +12,9 @@ from sessions.executor.lock import SessionLock, stale_cutoff
 from sessions.inbox import kinds
 from sessions.inbox.complete import RunEnd
 from sessions.inbox.drain import Drain
+from sessions.inbox.ownership import Ownerships
 from sessions.inbox.policy import WakePolicy
+from sessions.legs import NOT_RUN_CLOSED, NOT_RUN_MERGED
 from sessions.models import (
     EventFailure,
     EventKind,
@@ -37,7 +39,9 @@ from tests.unit_tests.sessions.inbox.conftest import (
     amake_session,
     chat_payload,
     ci_payload,
+    make_leg_session,
     mention_payload,
+    post_leg_follow_up,
 )
 
 pytestmark = pytest.mark.django_db(transaction=True)
@@ -972,3 +976,156 @@ class TestSiblingRepository:
         assert (await _state(main_failure)).run_id == run.pk
         stored = await _state(sibling_failure)
         assert (stored.wake, stored.reason) == (False, QuietReason.WATCH_OFF)
+
+
+async def _leg_follow_up(user, **fields) -> tuple[Run, InboxEvent]:
+    session = await sync_to_async(make_leg_session)(user)
+    run = await sync_to_async(post_leg_follow_up)(session, user, **fields)
+    return run, await InboxEvent.objects.select_related("session").aget(run=run)
+
+
+def _after(event: InboxEvent):
+    return event.created_at + timedelta(seconds=1)
+
+
+_PUSH = {"before": "a" * 8, "after": "b" * 8, "commit_count": 1, "pusher_username": "bob"}
+
+
+class TestLegFollowUp:
+    async def test_its_own_run_is_promoted_and_takes_it_alone_with_the_remembered_events(self, enqueue, admin_user):
+        run, follow_up = await _leg_follow_up(admin_user, muted=True)
+        session = follow_up.session
+        push = await amake_event(session, EventKind.BRANCH_PUSHED, payload=_PUSH, ref=session.ref)
+        chat = await amake_event(session, EventKind.CHAT_MESSAGE, author=admin_user, created_at=_after(follow_up))
+        runs_before = await Run.objects.filter(session=session).acount()
+
+        with patch("sessions.inbox.drain.pinned_agent_override", return_value=("anthropic:claude-sonnet-5-5", "")):
+            started = await Drain(session.thread_id).astart()
+
+        assert started.pk == run.pk
+        promoted = await Run.objects.aget(pk=run.pk)
+        assert (promoted.status, promoted.trigger_type, promoted.batch_id) == (
+            RunStatus.READY, SessionOrigin.DELEGATED_JOB, run.batch_id
+        )  # fmt: skip
+        assert (promoted.ref, promoted.user_id, promoted.muted) == (session.ref, admin_user.pk, True)
+        assert (promoted.agent_model, promoted.prompt) == ("anthropic:claude-sonnet-5-5", "Make the failing test pass")
+        assert (await Session.objects.aget(pk=session.pk)).active_run_id == str(run.pk)
+        assert await Run.objects.filter(session=session).acount() == runs_before
+        assert [((await _state(event)).state, (await _state(event)).run_id) for event in (follow_up, push)] == [
+            (EventState.TAKEN, run.pk), (EventState.TAKEN, run.pk)
+        ]  # fmt: skip
+        assert (await _state(chat)).state == EventState.PENDING
+        enqueue.assert_awaited_once()
+
+    async def test_a_persons_chat_from_the_same_user_waits_for_a_run_of_its_own(self, enqueue, admin_user):
+        run, follow_up = await _leg_follow_up(admin_user)
+        session = follow_up.session
+        chat = await amake_event(session, EventKind.CHAT_MESSAGE, author=admin_user, created_at=_after(follow_up))
+
+        await Drain(session.thread_id).astart()
+        await _end(await Run.objects.aget(pk=run.pk))
+        chat_run = await Drain(session.thread_id).astart()
+
+        assert chat_run.pk != run.pk
+        assert chat_run.trigger_type == SessionOrigin.CHAT
+        assert (await _state(chat)).run_id == chat_run.pk
+
+    async def test_a_requester_who_lost_access_fails_it_and_its_run(self, enqueue, admin_user):
+        run, follow_up = await _leg_follow_up(admin_user)
+
+        with (
+            patch("sessions.admission.assert_can_run", Mock(side_effect=RepositoryAccessDenied(["acme/api"]))),
+            patch("sessions.signals.DelegatedBatch.resume_after") as resumed,
+        ):
+            assert await Drain(follow_up.session_id).astart() is None
+
+        stored = await _state(follow_up)
+        assert (stored.state, stored.failure, stored.run_id) == (EventState.FAILED, EventFailure.ACCESS_DENIED, run.pk)
+        failed = await Run.objects.aget(pk=run.pk)
+        assert (failed.status, failed.error_message) == (RunStatus.FAILED, EventFailure.ACCESS_DENIED.label)
+        assert [call.args[0].pk for call in resumed.call_args_list] == [run.pk]
+        enqueue.assert_not_awaited()
+
+    async def test_its_references_are_merged_into_the_session(self, enqueue, admin_user):
+        reference = {"kind": "issue", "repo_id": "acme/api", "iid": 12}
+        _, follow_up = await _leg_follow_up(admin_user, references=[reference])
+
+        await Drain(follow_up.session_id).astart()
+
+        assert reference in (await Session.objects.aget(pk=follow_up.session_id)).external_refs
+
+    @pytest.mark.parametrize(
+        ("merged", "failure", "label"),
+        [(True, EventFailure.MR_MERGED, NOT_RUN_MERGED), (False, EventFailure.MR_CLOSED, NOT_RUN_CLOSED)],
+        ids=["merged", "closed"],
+    )
+    async def test_a_merge_request_merged_or_closed_since_it_was_sent_stops_it_at_its_start(
+        self, enqueue, admin_user, merged, failure, label
+    ):
+        run, follow_up = await _leg_follow_up(admin_user)
+        await Run.objects.filter(session=follow_up.session_id).aupdate(merge_request_iid=4)
+        await MergeRequestOwnership.objects.acreate(
+            repo_id="acme/api", merge_request_iid=4, session_id=follow_up.session_id, source_branch="daiv/leg-branch"
+        )
+        await Ownerships("acme/api").aclose(4, merged=merged, by_username="sfr", target_branch="main")
+
+        with patch.object(Drain, "start_logged", autospec=True) as drained:
+            assert await Drain(follow_up.session_id).astart() is None
+
+        stored = await _state(follow_up)
+        assert (stored.state, stored.failure) == (EventState.FAILED, failure)
+        stopped = await Run.objects.aget(pk=run.pk)
+        assert (stopped.status, stopped.error_message) == (RunStatus.FAILED, label)
+        assert stopped.started_at == stopped.finished_at
+        assert follow_up.session_id in [call.args[0].thread_id for call in drained.call_args_list]
+        enqueue.assert_not_awaited()
+
+    async def test_a_follow_up_whose_run_already_ended_is_settled_not_started(self, enqueue, admin_user):
+        run, follow_up = await _leg_follow_up(admin_user)
+        await Run.objects.filter(pk=run.pk).aupdate(status=RunStatus.FAILED, cancel_requested_at=timezone.now())
+
+        with patch.object(Drain, "start_logged", autospec=True):
+            assert await Drain(follow_up.session_id).astart() is None
+
+        assert (await _state(follow_up)).state == EventState.DISMISSED
+        assert (await Run.objects.aget(pk=run.pk)).status == RunStatus.FAILED
+        enqueue.assert_not_awaited()
+
+    async def test_a_follow_up_left_without_its_run_fails_and_the_drain_moves_on(self, enqueue, admin_user):
+        _, follow_up = await _leg_follow_up(admin_user)
+        await InboxEvent.objects.filter(pk=follow_up.pk).aupdate(run=None)
+
+        with patch.object(Drain, "start_logged", autospec=True):
+            assert await Drain(follow_up.session_id).astart() is None
+
+        stored = await _state(follow_up)
+        assert (stored.state, stored.failure) == (EventState.FAILED, EventFailure.RUN_FAILED)
+        enqueue.assert_not_awaited()
+
+    async def test_a_follow_up_whose_run_succeeded_is_failed_so_the_drain_stops_retaking_it(self, enqueue, admin_user):
+        run, follow_up = await _leg_follow_up(admin_user)
+        await Run.objects.filter(pk=run.pk).aupdate(status=RunStatus.SUCCESSFUL)
+
+        with patch.object(Drain, "start_logged", autospec=True):
+            assert await Drain(follow_up.session_id).astart() is None
+
+        stored = await _state(follow_up)
+        assert (stored.state, stored.failure, stored.run_id) == (EventState.FAILED, EventFailure.RUN_FAILED, run.pk)
+        enqueue.assert_not_awaited()
+
+    async def test_a_failed_enqueue_ends_it_with_its_run_and_keeps_it_linked(self, admin_user):
+        run, follow_up = await _leg_follow_up(admin_user)
+
+        async def fail(started, **kwargs):
+            now = timezone.now()
+            await Run.objects.afinish(
+                started, RunStatus.FAILED, skip_dispatch=True, never_started=True, error_message="enqueue_failed: x",
+                finished_at=now, started_at=now,
+            )  # fmt: skip
+            return EnqueueFailure(task_enqueued=False)
+
+        with patch("sessions.inbox.drain.aenqueue_run", new=AsyncMock(side_effect=fail)):
+            assert await Drain(follow_up.session_id).astart() is None
+
+        stored = await _state(follow_up)
+        assert (stored.state, stored.failure, stored.run_id) == (EventState.FAILED, EventFailure.RUN_FAILED, run.pk)

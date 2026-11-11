@@ -6,6 +6,8 @@
 | FAILED after its owner asked it to stop | ``dismissed``: the owner chose to stop, so they are not retried |
 | FAILED otherwise | back to ``pending`` with ``attempts + 1``, or ``failed`` (``retries_exhausted``) at
   ``MAX_EVENT_ATTEMPTS``, logged with ``logger.error`` |
+| A leg follow-up's run ended, taken or not | ``handled`` when it succeeded, ``dismissed`` when it was cancelled, else
+  ``failed`` (``run_failed``), never retried: a second run would start after its batch finished |
 
 A run that still holds its session's slot when it ends frees it: the drain claimed the slot when it created the run,
 and only the run's task releases it, so a run stopped or failed before its task ran would keep it. The session is then
@@ -52,6 +54,7 @@ from core import ui_events
 from core.constants import BOT_NAME
 from sessions.executor.lock import SessionLock, stale_cutoff
 from sessions.inbox.drain import Drain
+from sessions.inbox.leg_follow_ups import LegFollowUps
 from sessions.inbox.post import Inbox
 from sessions.live.notify import session_changed
 from sessions.models import (
@@ -116,8 +119,10 @@ class RunEnd:
         return await sync_to_async(self.withdraw)()
 
     def settle_events(self) -> None:
-        """Move the events the run took to the state its outcome calls for. SYNC ONLY."""
+        """Move the events the run took to the state its outcome calls for, its leg follow-up's first, taken or not.
+        SYNC ONLY."""
         run = self.run
+        LegFollowUps.end_with_run(run)
         taken = InboxEvent.objects.filter(run=run, state=EventState.TAKEN)
         if run.status in (RunStatus.SUCCESSFUL, RunStatus.WAITING_INPUT):
             woken_by_ci = list(taken.filter(kind=EventKind.CI_FAILED, wake=True, merge_request_iid__isnull=False))
@@ -135,7 +140,7 @@ class RunEnd:
             if taken.update(state=EventState.DISMISSED, updated_at=timezone.now()):
                 session_changed(run.session_id)
         elif run.status == RunStatus.FAILED:
-            FailedAttempt(taken, cause=f"run={run.pk} failed").record()
+            FailedAttempt(taken.exclude(kind=EventKind.LEG_FOLLOW_UP), cause=f"run={run.pk} failed").record()
 
     @classmethod
     def recover_stale_events(cls) -> int:
@@ -211,7 +216,9 @@ class FailedAttempt:
         for event in self.events:
             sessions.add(event.session_id)
             event.attempts += 1
-            if event.attempts >= MAX_EVENT_ATTEMPTS:
+            if event.kind == EventKind.LEG_FOLLOW_UP:
+                event.state, event.failure = EventState.FAILED, EventFailure.RUN_FAILED
+            elif event.attempts >= MAX_EVENT_ATTEMPTS:
                 event.state, event.failure = EventState.FAILED, EventFailure.RETRIES_EXHAUSTED
                 exhausted.append(event)
             else:

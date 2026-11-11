@@ -61,3 +61,15 @@ def parse_model_spec(model_spec: str) -> ResolvedProvider:
             return ResolvedProvider(row=rows_by_slug[target_slug], model_name=model_spec)
 
     raise ValueError(f"Unknown/Unsupported provider for model {model_spec}")
+
+
+def canonical_model_spec(model_spec: str) -> str:
+    """``model_spec`` as ``slug:model``: a bare model name gains its provider's slug, which the model picker needs to
+    seed a selection. Returned as is when empty, already prefixed, or served by no provider."""
+    if not model_spec or ":" in model_spec:
+        return model_spec
+    try:
+        resolved = parse_model_spec(model_spec)
+    except ValueError:
+        return model_spec
+    return f"{resolved.row.slug}:{resolved.model_name}"

@@ -87,7 +87,7 @@ def bubble(event: InboxEvent) -> dict[str, Any]:
     match event.kind:
         case EventKind.CHAT_MESSAGE:
             text = payload["text"]
-        case EventKind.FOLLOW_UP_JOB:
+        case EventKind.FOLLOW_UP_JOB | EventKind.LEG_FOLLOW_UP:
             text = payload["prompt"]
         case EventKind.MENTION:
             text = f"{EventText(event).author_name()} mentioned you on !{event.merge_request_iid}: {payload['body']}"

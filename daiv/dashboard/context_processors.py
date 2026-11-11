@@ -56,7 +56,16 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
     },
     "users": {"user_list", "user_create", "user_update", "user_delete"},
     "configuration": {"site_configuration", "site_configuration_index"},
-    "skills": {"skills:list", "skills:upload", "skills:detail", "skills:delete", "skills:download"},
+    "skills": {
+        "skills:list",
+        "skills:upload",
+        "skills:detail",
+        "skills:files",
+        "skills:models",
+        "skills:usage",
+        "skills:delete",
+        "skills:download",
+    },
     "sandbox_envs": {
         "sandbox_envs:list",
         "sandbox_envs:create",

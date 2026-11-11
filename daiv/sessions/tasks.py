@@ -43,12 +43,12 @@ def sync_stuck_runs_cron_task():
 def resume_stalled_batches_cron_task():
     """Resume the coordinators whose delegated batch finished without a continuation reaching the task queue.
 
-    The normal path is the ``run_finished`` signal (``sessions.delegation.resume_coordinator``); this is its
+    The normal path is the ``run_finished`` signal (``sessions.delegation.DelegatedBatch.resume_after``); this is its
     backstop. Non-blocking lock, so a sweep that overruns the interval is never double-dispatched.
     """
-    from sessions.delegation import resume_stalled_batches
+    from sessions.delegation import DelegatedBatch
 
-    queued = resume_stalled_batches()
+    queued = DelegatedBatch.resume_stalled()
     if queued:
         logger.info("resume_stalled_batches: queued %d continuation(s)", queued)
 

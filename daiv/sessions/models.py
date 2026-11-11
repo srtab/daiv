@@ -30,6 +30,8 @@ logger = logging.getLogger("daiv.sessions")
 
 CHAT_PROMPT_MAX_LENGTH = 2000
 RESULT_SUMMARY_MAX_CHARS = 2000
+# The agent may still push a commit or open an MR while the row shows FAILED.
+LINK_FAILED_PREFIX = "link_failed (agent task will run but its result cannot be captured)"
 
 _INBOX_TRIGGER_LITERALS = ["chat", "mr_webhook", "api_job", "mcp_job", "delegation_resume", "pipeline_webhook"]
 
@@ -531,7 +533,7 @@ class Run(models.Model):
                 name="run_one_next_run_per_account",
             ),
             # The insert of a batch's continuation is the election when several legs finish at once; a FAILED one
-            # leaves room for ``sessions.delegation.resume_stalled_batches`` to retry one that never reached the queue.
+            # leaves room for ``DelegatedBatch.resume_stalled`` to retry one that never reached the queue.
             models.UniqueConstraint(
                 fields=["continuation_of_batch_id"],
                 condition=models.Q(continuation_of_batch_id__isnull=False) & ~models.Q(status="FAILED"),
@@ -591,11 +593,21 @@ class Run(models.Model):
     @property
     def response_text(self) -> str:
         """Return the response text from the task result, or the truncated denormalized summary if unavailable."""
+        return self._task_response() or self.result_summary
+
+    def _task_response(self) -> str:
         if self.task_result and self.task_result.return_value:
-            parsed = parse_agent_result(self.task_result.return_value)
-            if parsed["response"]:
-                return parsed["response"]
-        return self.result_summary
+            return parse_agent_result(self.task_result.return_value)["response"] or ""
+        return ""
+
+    def response_text_within(self, chars: int) -> tuple[str, bool]:
+        """:attr:`response_text`, stripped and cut at ``chars`` characters, and whether anything was cut. The stored
+        summary serves when it holds them, so the task result is read only for more; a summary at its own cap, as once
+        the task result is pruned, counts as cut."""
+        if chars >= RESULT_SUMMARY_MAX_CHARS and (full := self._task_response().strip()):
+            return full[:chars], len(full) > chars
+        summary = self.result_summary.strip()
+        return summary[:chars], len(summary) > chars or len(self.result_summary) >= RESULT_SUMMARY_MAX_CHARS
 
     def sync_and_save(self) -> bool:
         """Sync from the linked DBTaskResult and persist changed fields.
@@ -903,6 +915,7 @@ class EventKind(models.TextChoices):
     COMMENT = "comment", _("Comment")
     DELEGATED_CI_OUTCOME = "delegated_ci_outcome", _("Delegated session CI")
     NOTICE = "notice", _("Notice")
+    LEG_FOLLOW_UP = "leg_follow_up", _("Leg follow-up")
 
 
 class EventState(models.TextChoices):
@@ -930,6 +943,9 @@ class EventFailure(models.TextChoices):
     ACCESS_DENIED = "access_denied", _("The person it would run as can no longer run on this repository")
     RETRIES_EXHAUSTED = "retries_exhausted", _("The runs that took it kept failing")
     SESSION_GONE = "session_gone", _("The session no longer exists")
+    RUN_FAILED = "run_failed", _("The run that took it failed")
+    MR_MERGED = "mr_merged", _("Its merge request was merged")
+    MR_CLOSED = "mr_closed", _("Its merge request was closed")
 
 
 class InboxEvent(models.Model):

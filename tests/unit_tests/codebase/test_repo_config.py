@@ -37,6 +37,8 @@ def test_the_model_and_attempt_defaults_hold_nothing_from_the_site():
     assert config.models.model_dump() == {
         "agent": {"model": None, "fallback_model": None, "thinking_level": None},
         "diff_to_metadata": {"model": None, "fallback_model": None},
+        "skills": {},
+        "subagents": {},
     }
     assert config.pipeline_watch.max_attempts is None
     assert config.model_fields_set == set()
@@ -112,3 +114,62 @@ def test_hooks_before_publish_rejects_more_than_ten_commands():
 
     with pytest.raises(ValidationError):
         RepositoryConfig.model_validate({"hooks": {"before_publish": [f"make check-{n}" for n in range(11)]}})
+
+
+def test_skill_and_subagent_models_load_as_name_to_spec_maps_without_unset_entries():
+    from codebase.repo_config import RepositoryConfig
+
+    config = RepositoryConfig(
+        models={
+            "skills": {"code-review": "openrouter:anthropic/claude-sonnet-5.5", "plan": None},
+            "subagents": {"cr-security": "openrouter:anthropic/claude-opus-5.5", "cr-tests": ""},
+        }
+    )
+
+    assert config.models.skills == {"code-review": "openrouter:anthropic/claude-sonnet-5.5"}
+    assert config.models.subagents == {"cr-security": "openrouter:anthropic/claude-opus-5.5"}
+
+
+def test_an_unusable_model_spec_does_not_drop_the_rest_of_the_file(mock_repo_client):
+    from codebase.repo_config import RepositoryConfig
+
+    mock_repo_client.get_repository_file.return_value = (
+        "default_branch: develop\n"
+        "suggest_context_file: false\n"
+        "models:\n"
+        "  skills:\n"
+        "    code-review: nosuchprovider:model\n"
+        "  subagents:\n"
+        "    cr-tests: nosuchprovider:model\n"
+    )
+    repo_id = "group/bad-model-spec"
+    try:
+        config = RepositoryConfig.get_config(repo_id)
+    finally:
+        RepositoryConfig.invalidate_cache(repo_id)
+
+    assert (config.default_branch, config.suggest_context_file) == ("develop", False)
+    assert config.models.skills == {"code-review": "nosuchprovider:model"}
+    assert config.models.subagents == {"cr-tests": "nosuchprovider:model"}
+
+
+@pytest.mark.parametrize(
+    ("models_yaml", "skills"),
+    [
+        ("  skills:\n    # code-review: fake:review\n", {}),
+        ("  skills:\n    code-review: 5\n    plan: fake:plan\n", {"plan": "fake:plan"}),
+        ("  skills: [code-review]\n", {}),
+    ],
+    ids=["no-entries", "a-non-string-spec", "not-a-mapping"],
+)
+def test_a_malformed_models_map_does_not_drop_the_rest_of_the_file(mock_repo_client, models_yaml, skills):
+    from codebase.repo_config import RepositoryConfig
+
+    mock_repo_client.get_repository_file.return_value = "suggest_context_file: false\nmodels:\n" + models_yaml
+    repo_id = "group/malformed-models-map"
+    try:
+        config = RepositoryConfig.get_config(repo_id)
+    finally:
+        RepositoryConfig.invalidate_cache(repo_id)
+
+    assert (config.suggest_context_file, config.models.skills) == (False, skills)

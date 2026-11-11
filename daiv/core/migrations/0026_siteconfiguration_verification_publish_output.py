@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("core", "0023_siteconfiguration_verification_enabled")]
+    dependencies = [("core", "0025_siteconfiguration_verification_enabled")]
 
     operations = [
         migrations.AddField(

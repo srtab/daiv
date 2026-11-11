@@ -73,3 +73,32 @@ async def amake_event(session: Session, kind: str = EventKind.CI_FAILED, **field
 def make_event(session: Session, kind: str = EventKind.CI_FAILED, **fields) -> InboxEvent:
     """SYNC ONLY."""
     return InboxEvent.objects.create(**_event_fields(session, kind, fields))
+
+
+def make_leg_session(user, *, ref: str = "daiv/leg-branch", **leg_fields) -> Session:
+    """The session of a leg a new coordinator of ``user`` delegated, which finished on its own branch ``ref``.
+    SYNC ONLY."""
+    from sessions.models import RunStatus
+
+    from tests.unit_tests.sessions.conftest import make_coordinator, make_leg
+
+    leg_fields = {"status": RunStatus.SUCCESSFUL, "ref": "main"} | leg_fields
+    return make_leg(make_coordinator(user), uuid.uuid4(), session_ref=ref, **leg_fields).session
+
+
+def post_leg_follow_up(
+    session: Session,
+    user,
+    *,
+    prompt: str = "Make the failing test pass",
+    batch_id: uuid.UUID | None = None,
+    muted: bool | None = None,
+    references: list[dict] | None = None,
+):
+    """A leg follow-up to the leg ``session``, as ``user``; returns its run. SYNC ONLY."""
+    from sessions.inbox.leg_follow_ups import LegFollowUps
+    from sessions.legs import Leg
+
+    return LegFollowUps(Leg(session)).post(
+        prompt=prompt, batch_id=batch_id or uuid.uuid4(), user=user, muted=muted, references=references or []
+    )

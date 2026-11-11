@@ -23,7 +23,13 @@ from sessions.queue import ENQUEUE_FAILED_PREFIX
 
 from codebase.base import GitPlatform
 from codebase.clients.base import CommentThread
-from tests.unit_tests.sessions.inbox.conftest import amake_event, amake_session, mention_payload
+from tests.unit_tests.sessions.inbox.conftest import (
+    amake_event,
+    amake_session,
+    make_leg_session,
+    mention_payload,
+    post_leg_follow_up,
+)
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -617,3 +623,56 @@ class TestSiblingRepository:
         await main.arefresh_from_db()
         await sibling.arefresh_from_db()
         assert (main.last_examined_sha, sibling.last_examined_sha) == (sha, "")
+
+
+class TestLegFollowUp:
+    async def _taken(self, admin_user, status: str, **run_fields) -> tuple[Run, InboxEvent]:
+        session = await sync_to_async(make_leg_session)(admin_user)
+        run = await sync_to_async(post_leg_follow_up)(session, admin_user)
+        await InboxEvent.objects.filter(run=run).aupdate(state=EventState.TAKEN)
+        await Run.objects.filter(pk=run.pk).aupdate(status=status, **run_fields)
+        return await Run.objects.aget(pk=run.pk), await InboxEvent.objects.aget(run=run)
+
+    async def test_a_run_that_succeeded_handles_it(self, drain, admin_user):
+        run, event = await self._taken(admin_user, RunStatus.SUCCESSFUL)
+
+        await RunEnd(run).aon_run_ended()
+
+        assert (await _state(event)).state == EventState.HANDLED
+
+    async def test_a_run_that_failed_fails_it_for_good(self, drain, admin_user):
+        run, event = await self._taken(admin_user, RunStatus.FAILED)
+
+        await RunEnd(run).aon_run_ended()
+
+        stored = await _state(event)
+        assert (stored.state, stored.failure, stored.attempts) == (EventState.FAILED, EventFailure.RUN_FAILED, 0)
+        assert not await Run.objects.filter(session=run.session_id).exclude(status__in=RunStatus.terminal()).aexists()
+
+    async def test_a_run_its_coordinator_stopped_dismisses_it(self, drain, admin_user):
+        run, event = await self._taken(admin_user, RunStatus.FAILED, cancel_requested_at=timezone.now())
+
+        await RunEnd(run).aon_run_ended()
+
+        assert (await _state(event)).state == EventState.DISMISSED
+
+    async def test_the_remembered_events_its_failed_run_took_get_another_attempt(self, drain, admin_user):
+        run, _ = await self._taken(admin_user, RunStatus.FAILED)
+        session = await Session.objects.aget(pk=run.session_id)
+        remembered = await amake_event(session, EventKind.CI_PASSED, run=run, state=EventState.TAKEN, wake=False)
+
+        await RunEnd(run).aon_run_ended()
+
+        stored = await _state(remembered)
+        assert (stored.state, stored.attempts) == (EventState.PENDING, 1)
+
+    async def test_the_stale_slot_sweep_fails_it_on_its_first_attempt(self, admin_user):
+        run, event = await self._taken(admin_user, RunStatus.RUNNING)
+        await Session.objects.filter(pk=run.session_id).aupdate(
+            active_run_id=str(run.pk), last_active_at=stale_cutoff() - timedelta(minutes=1)
+        )
+
+        assert await _recover() == 1
+
+        stored = await _state(event)
+        assert (stored.state, stored.failure, stored.attempts) == (EventState.FAILED, EventFailure.RUN_FAILED, 1)

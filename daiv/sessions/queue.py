@@ -29,8 +29,9 @@ from django.utils import timezone
 from asgiref.sync import async_to_sync
 
 from sessions.executor.tasks import run_job_task
+from sessions.legs import Leg
 from sessions.live.notify import session_changed
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import LINK_FAILED_PREFIX, Run, RunStatus, Session, SessionOrigin
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -38,8 +39,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.sessions")
 
 ENQUEUE_FAILED_PREFIX = "enqueue_failed"
-# The agent may still push a commit or open an MR while the row shows FAILED.
-LINK_FAILED_PREFIX = "link_failed (agent task will run but its result cannot be captured)"
 
 MAX_CONSECUTIVE_DISPATCH_FAILURES = 3
 
@@ -75,7 +74,7 @@ async def aenqueue_run(
             run_id=str(run.pk),
             user_id=run.user_id,
             ask_user_enabled=await _acan_ask_user(run),
-            fork_branch=run.trigger_type == SessionOrigin.DELEGATED_JOB,
+            fork_branch=await _afork_branch(run),
             inbox=inbox,
         )
     except Exception as err:  # noqa: BLE001
@@ -97,6 +96,15 @@ async def aenqueue_run(
         )
         return EnqueueFailure(task_enqueued=True)
     return None
+
+
+async def _afork_branch(run: Run) -> bool:
+    """Whether ``run`` publishes to a new branch and merge request: a delegated run on a leg with no branch of its own
+    yet, which a leg's first run never has. A leg follow-up on a leg that published pushes to the leg's branch."""
+    if run.trigger_type != SessionOrigin.DELEGATED_JOB:
+        return False
+    session = await Session.objects.filter(pk=run.session_id).afirst()
+    return session is None or not await Leg(session).ahas_own_branch()
 
 
 async def _acan_ask_user(run: Run) -> bool:

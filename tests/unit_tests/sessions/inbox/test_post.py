@@ -354,3 +354,17 @@ class TestSiblingRepository:
         run = await Run.objects.aget(pk=result.run_id)
         assert (result.event.repo_id, result.event.ref) == ("group/lib", "daiv/lib")
         assert (run.repo_id, run.ref, run.merge_request_iid) == (session.repo_id, "chore/x", None)
+
+
+async def test_a_leg_follow_up_is_refused_since_it_is_posted_with_its_run():
+    session = await amake_session()
+
+    with pytest.raises(ValueError, match="LegFollowUps.post"):
+        await Inbox(session.thread_id).apost(
+            kind=EventKind.LEG_FOLLOW_UP,
+            source_key="leg-follow-up:b",
+            payload={"prompt": "Make the failing test pass", "batch_id": "b"},
+            wake=True,
+        )
+
+    assert not await InboxEvent.objects.filter(session=session).aexists()

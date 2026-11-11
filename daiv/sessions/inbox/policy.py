@@ -1,9 +1,12 @@
 """Whether a CI or delegation event may wake the agent when a run takes it (FR-033).
 
-A person's request (a chat message, a mention, a follow-up job) always wakes it. A CI failure or a finished delegated
-batch does not once ``MAX_SYSTEM_RUNS_IN_A_ROW`` runs DAIV started itself followed each other with no run a person
-started in between: the event is then only remembered, with the reason recorded, and the session's owner is told once
-per streak (:meth:`WakePolicy.report_run_limit`).
+A person's request (a chat message, a mention, a follow-up job) and a coordinator's leg follow-up always wake it. A CI
+failure or a finished delegated batch does not once ``MAX_SYSTEM_RUNS_IN_A_ROW`` runs DAIV started itself
+(``RunQuerySet.with_daiv_started``) followed each other with no run a person started in between: the event is then
+only remembered, with the reason recorded, and the session's owner is told once per streak
+(:meth:`WakePolicy.report_run_limit`). A leg follow-up's run is one DAIV started, so CI failures after it stay limited;
+a leg's first run is not, which ``SessionOrigin.daiv_authored`` leaves out, as transcript authorship and classification
+also read it.
 """
 
 from __future__ import annotations
@@ -15,16 +18,7 @@ from django.db.models import Q
 from asgiref.sync import sync_to_async
 
 from sessions.inbox.kinds import GATED_KINDS
-from sessions.models import (
-    EventKind,
-    InboxEvent,
-    MergeRequestOwnership,
-    QuietReason,
-    Run,
-    RunStatus,
-    Session,
-    SessionOrigin,
-)
+from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, QuietReason, Run, RunStatus, Session
 from sessions.signal_defs import inbox_paused
 
 if TYPE_CHECKING:
@@ -77,12 +71,13 @@ class WakePolicy:
             Run.objects
             .filter(session=self.session)
             .exclude(status=RunStatus.QUEUED)
+            .with_daiv_started()
             .order_by("-created_at")
-            .values_list("trigger_type", flat=True)[:MAX_SYSTEM_RUNS_IN_A_ROW]
+            .values_list("daiv_started", flat=True)[:MAX_SYSTEM_RUNS_IN_A_ROW]
         )
         count = 0
-        for trigger in latest:
-            if trigger not in SessionOrigin.daiv_authored():
+        for by_daiv in latest:
+            if not by_daiv:
                 break
             count += 1
         return count
@@ -137,7 +132,8 @@ class WakePolicy:
             Run.objects
             .filter(session=self.session)
             .exclude(status=RunStatus.QUEUED)
-            .exclude(trigger_type__in=SessionOrigin.daiv_authored())
+            .with_daiv_started()
+            .filter(daiv_started=False)
             .order_by("-created_at")
             .values_list("created_at", flat=True)
             .first()

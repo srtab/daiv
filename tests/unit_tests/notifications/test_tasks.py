@@ -20,6 +20,7 @@ from notifications.tasks import (
     reclassify_missing_envelopes_cron_task,
     redrive_missing_notifications_cron_task,
 )
+from sessions.legs import NOT_RUN_CLOSED, NOT_RUN_MERGED
 from sessions.models import EventKind, EventState, Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
@@ -966,3 +967,25 @@ async def test_a_ci_woken_run_with_empty_prose_is_all_clear_and_still_notifies_i
     build.assert_not_called()
     assert (await RunEnvelope.objects.aget(run=run)).status == EnvelopeStatus.ALL_CLEAR
     assert await Notification.objects.filter(recipient=member_user, source_id=str(run.pk)).acount() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("label", [NOT_RUN_MERGED, NOT_RUN_CLOSED])
+async def test_a_leg_follow_up_not_run_is_all_clear_with_why_and_no_model_call(label):
+    run = await _make_scheduled_run(status=RunStatus.FAILED, error_message=label, response_text="")
+
+    with patch("notifications.classification.llm._build_structured_llm") as llm:
+        await classify_run_task.func(str(run.pk))
+
+    llm.assert_not_called()
+    envelope = await RunEnvelope.objects.aget(run=run)
+    assert (envelope.status, envelope.summary, envelope.actionable) == (EnvelopeStatus.ALL_CLEAR, label, [])
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_any_other_failed_run_is_still_failed():
+    run = await _make_scheduled_run(status=RunStatus.FAILED, error_message="Not run: something else", response_text="")
+
+    await classify_run_task.func(str(run.pk))
+
+    assert (await RunEnvelope.objects.aget(run=run)).status == EnvelopeStatus.FAILED

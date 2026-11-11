@@ -1,3 +1,5 @@
+import json
+import re
 import uuid
 from datetime import datetime, time, timedelta
 from unittest.mock import patch
@@ -8,6 +10,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 import pytest
+from dashboard import landing
+from dashboard.comparisons import COMPARISONS
 from dashboard.home import INBOX_LIMIT
 from dashboard.tasks import BOT_USERNAME_CACHE_KEY, BOT_USERNAME_PENDING_KEY
 from notifications.choices import EnvelopeStatus
@@ -59,6 +63,65 @@ class TestHomepage:
         response = member_client.get(reverse("homepage"))
         assert response.status_code == 302
         assert response.url == reverse("dashboard")
+
+    def test_faq_json_ld_repeats_the_visible_faq(self):
+        content = Client().get(reverse("homepage")).content.decode()
+
+        blocks = re.findall(r'<script type="application/ld\+json">(.*?)</script>', content, re.DOTALL)
+        faq_page = next(data for data in map(json.loads, blocks) if data["@type"] == "FAQPage")
+        assert [(q["name"], q["acceptedAnswer"]["text"]) for q in faq_page["mainEntity"]] == [
+            (faq.question, faq.answer) for faq in landing.FAQS
+        ]
+        for faq in landing.FAQS:
+            assert faq.answer in content
+
+    def test_hero_deploy_link_is_the_quickstart(self):
+        content = Client().get(reverse("homepage")).content.decode()
+
+        assert f'href="{landing.QUICKSTART_URL}"' in content
+
+    def test_demo_plays_muted_and_never_on_its_own(self):
+        content = Client().get(reverse("homepage")).content.decode()
+
+        assert re.search(r"<video[^>]*\bmuted\b[^>]*\bplaysinline\b[^>]*\bpreload=\"none\"", content)
+        assert "autoplay" not in content
+        assert '<source src="/static/dashboard/video/demo.mp4" type="video/mp4">' in content
+
+    def test_links_every_comparison(self):
+        content = Client().get(reverse("homepage")).content.decode()
+
+        for comparison in COMPARISONS:
+            assert f'href="{reverse("comparison", args=[comparison.slug])}"' in content
+
+
+@pytest.mark.django_db
+class TestComparison:
+    @pytest.mark.parametrize("comparison", COMPARISONS, ids=lambda comparison: comparison.slug)
+    def test_page_shows_both_sides_with_their_sources(self, comparison):
+        response = Client().get(reverse("comparison", args=[comparison.slug]))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert f"DAIV and {comparison.name}</h1>" in content
+        assert f'<meta property="og:title" content="DAIV and {comparison.name} compared">' in content
+        for row in comparison.rows:
+            for source in (*row.daiv.sources, *row.theirs.sources):
+                assert f'href="{source}"' in content
+
+    def test_unknown_comparison_is_not_found(self):
+        assert Client().get("/compare/nothing-like-this/").status_code == 404
+
+    def test_signed_in_user_can_read_it_without_links_into_the_homepage(self, member_client):
+        response = member_client.get(reverse("comparison", args=[COMPARISONS[0].slug]))
+
+        assert response.status_code == 200
+        assert f'href="{reverse("homepage")}#' not in response.content.decode()
+
+    def test_sitemap_lists_every_comparison(self):
+        content = Client().get(reverse("sitemap")).content.decode()
+
+        for comparison in COMPARISONS:
+            assert reverse("comparison", args=[comparison.slug]) in content
 
 
 @pytest.mark.django_db

@@ -117,8 +117,11 @@ async def test_a_targets_references_reach_the_delegator():
 async def test_it_returns_the_started_and_failed_legs():
     result = DelegationResult(
         batch_id="b1",
-        started=[StartedLeg("acme/api", "", "t2", "https://daiv.example/sessions/t2/", starts_after_this_turn=True)],
-        failed=[FailedLeg("acme/web", "", "denied")],
+        started=[
+            StartedLeg("acme/api", "", "t2", "https://daiv.example/sessions/t2/", starts_after_this_turn=True),
+            StartedLeg("acme/ops", "daiv/ops", "t3", "https://daiv.example/sessions/t3/", leg_follow_up=True),
+        ],
+        failed=[FailedLeg("acme/web", "", "denied"), FailedLeg("acme/lib", "", "busy", thread_id="t4")],
     )
 
     assert await _call(_delegator(result)) == {
@@ -130,10 +133,32 @@ async def test_it_returns_the_started_and_failed_legs():
                 "thread_id": "t2",
                 "session_url": "https://daiv.example/sessions/t2/",
                 "starts_after_this_turn": True,
-            }
+                "leg_follow_up": False,
+            },
+            {
+                "repo_id": "acme/ops",
+                "ref": "daiv/ops",
+                "thread_id": "t3",
+                "session_url": "https://daiv.example/sessions/t3/",
+                "starts_after_this_turn": False,
+                "leg_follow_up": True,
+            },
         ],
-        "failed": [{"repo_id": "acme/web", "ref": "", "error": "denied", "still_runs": False}],
+        "failed": [
+            {"repo_id": "acme/web", "ref": "", "error": "denied", "still_runs": False, "thread_id": ""},
+            {"repo_id": "acme/lib", "ref": "", "error": "busy", "still_runs": False, "thread_id": "t4"},
+        ],
     }
+
+
+@pytest.mark.parametrize(("given", "passed"), [(" t9 ", "t9"), ("  ", ""), (None, "")], ids=["named", "blank", "none"])
+async def test_a_targets_thread_id_reaches_the_delegator_stripped(given, passed):
+    delegator = _delegator(DelegationResult(batch_id="b1", started=[StartedLeg("acme/api", "", "t9", "u")]))
+
+    await _call(delegator, targets=[DelegateTarget(repo_id="acme/api", prompt="Fix it.", thread_id=given)])
+
+    [target] = delegator.adelegate.await_args.kwargs["targets"]
+    assert target.thread_id == passed
 
 
 async def test_when_nothing_started_it_says_no_resume_will_come():
@@ -202,6 +227,7 @@ async def test_check_reports_the_batches_the_delegator_finds(batch_id, asked):
                         "branch": "",
                         "merge_request_url": "",
                         "reply": "",
+                        "leg_follow_up": False,
                     }
                 ],
             }
