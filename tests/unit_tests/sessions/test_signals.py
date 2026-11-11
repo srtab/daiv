@@ -249,7 +249,7 @@ class TestResumeDelegatingSession:
             session_id=str(uuid.uuid4()), status=RunStatus.SUCCESSFUL, trigger_type=SessionOrigin.DELEGATED_JOB
         )
 
-        with patch("sessions.signals.resume_coordinator") as resume:
+        with patch("sessions.signals.DelegatedBatch.resume_after") as resume:
             run_finished.send(sender=Run, run=finished, skip_dispatch=True)
 
         resume.assert_called_once_with(finished)

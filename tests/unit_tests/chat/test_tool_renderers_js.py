@@ -7,7 +7,7 @@ import re
 import time
 
 import pytest
-from sessions.delegation import outcome_states
+from sessions.delegation import LegRun
 
 from tests.unit_tests.chat.transcript_driver import run_transcript
 from tests.unit_tests.chat.transcript_fixtures import tool_call
@@ -186,7 +186,7 @@ def _body_seg(seg: dict, *, show_raw: bool = False, servers: list[dict] | None =
     rows = servers or []
     ctx = {"mcpRows": rows, "mergeRequestUrl": mr_url}
     expr = "toolBodyHTML(vars.seg, { ...vars.ctx, latestArtifactsById: new Map() })"
-    labels = {"show_raw": show_raw, "session_path": SESSION_PATH, "leg_states": outcome_states()}
+    labels = {"show_raw": show_raw, "session_path": SESSION_PATH, "leg_states": LegRun.outcome_states()}
     return run_transcript(expr, {"seg": seg, "ctx": ctx}, blocks=False, labels=labels, markdown=True)
 
 
@@ -1312,7 +1312,10 @@ def test_delegate_jobs_a_follow_up_takes_the_target_naming_its_leg_even_beside_a
     }
     result = {
         "batch_id": "b",
-        "started": [_leg("a/x", "", "t-old", leg_follow_up=True), _leg("a/x", "", "t-new", leg_follow_up=False)],
+        "started": [
+            _leg("a/x", "daiv/leg", "t-old", leg_follow_up=True),
+            _leg("a/x", "", "t-new", leg_follow_up=False),
+        ],
         "failed": [
             {"repo_id": "a/y", "ref": "", "error": "Still working.", "still_runs": False, "thread_id": "t-gone"}
         ],
@@ -1320,11 +1323,10 @@ def test_delegate_jobs_a_follow_up_takes_the_target_naming_its_leg_even_beside_a
     html = _body("delegate_jobs", args, result=json.dumps(result))
     changed = html.split('<div class="body-label">Input', 1)[0]
     assert html.index("new leg") < html.index("/t-new/") < html.index("follow it up") < html.index("/t-old/")
-    assert "<td>a/x · Leg follow-up</td><td>default branch</td><td>follow it up</td>" in changed
+    tag = '<span class="leg-tag">Leg follow-up</span>'
+    assert f"<td>a/x {tag}</td><td>daiv/leg</td><td>follow it up</td>" in changed
     assert "<td>a/x</td><td>default branch</td><td>new leg</td>" in changed
-    assert (
-        '<tr class="body-row-failed"><td>a/y · Leg follow-up</td><td>default branch</td><td>refused one</td>' in changed
-    )
+    assert f'<tr class="body-row-failed"><td>a/y {tag}</td><td></td><td>refused one</td>' in changed
 
 
 def test_delegate_jobs_a_leg_from_before_leg_follow_ups_is_no_follow_up():

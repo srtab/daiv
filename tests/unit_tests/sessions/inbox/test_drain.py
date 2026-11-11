@@ -1035,7 +1035,7 @@ class TestLegFollowUp:
 
         with (
             patch("sessions.admission.assert_can_run", Mock(side_effect=RepositoryAccessDenied(["acme/api"]))),
-            patch("sessions.signals.resume_coordinator") as resumed,
+            patch("sessions.signals.DelegatedBatch.resume_after") as resumed,
         ):
             assert await Drain(follow_up.session_id).astart() is None
 

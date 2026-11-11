@@ -3,7 +3,7 @@
 Each case runs the agent on a disk clone of srtab/daiv ``main`` with a delegator that records what it is asked to start
 and puts those legs in the database instead of starting them, a leg follow-up as a run on its leg's session; its status
 and cancel are the real ones, over the legs in the database. A resumed run gets what a real ``delegation_finished``
-event renders: ``render_batch_summary`` over those legs, after the turn that delegated them.
+event renders: ``DelegatedBatch.summary`` over those legs, after the turn that delegated them.
 """
 
 import re
@@ -16,15 +16,7 @@ import pytest
 from asgiref.sync import sync_to_async
 from django_tasks_db.models import DBTaskResult, get_date_max
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from sessions.delegation import (
-    LEG_REPLY_MAX_CHARS,
-    SessionJobDelegator,
-    _failed_leg,
-    _on_own_branch,
-    _session_url,
-    check_delegation,
-    delegation_finished_payload,
-)
+from sessions.delegation import LEG_REPLY_MAX_CHARS, DelegatedBatch, LegRun, SessionJobDelegator
 from sessions.inbox.kinds import SourceKey
 from sessions.inbox.render import RunInput
 from sessions.models import (
@@ -184,7 +176,7 @@ class RecordingDelegator(SessionJobDelegator):
         self.calls: list[list[DelegatedTarget]] = []
 
     async def adelegate(self, *, checkout: Checkout, goal: str, targets: list[DelegatedTarget]) -> DelegationResult:
-        check_delegation(goal, targets)
+        self.check(goal, targets)
         self.calls.append(list(targets))
         return await sync_to_async(self._record)(checkout, targets)
 
@@ -208,7 +200,7 @@ class RecordingDelegator(SessionJobDelegator):
             )
             if lost:
                 result.failed.append(
-                    _failed_leg(BatchSubmitFailure(target.repo_id, target.ref, "", task_enqueued=True))
+                    self._failed_leg(BatchSubmitFailure(target.repo_id, target.ref, "", task_enqueued=True))
                 )
             else:
                 result.started.append(
@@ -216,8 +208,8 @@ class RecordingDelegator(SessionJobDelegator):
                         target.repo_id,
                         target.ref,
                         leg.session_id,
-                        _session_url(leg.session_id),
-                        starts_after_this_turn=_on_own_branch(checkout, target),
+                        LegRun.url_of(leg.session_id),
+                        starts_after_this_turn=self._on_own_branch(checkout, target),
                     )
                 )
         return result
@@ -238,7 +230,7 @@ class RecordingDelegator(SessionJobDelegator):
             status=RunStatus.QUEUED,
         )
         result.started.append(
-            StartedLeg(session.repo_id, session.ref, session.pk, _session_url(session.pk), leg_follow_up=True)
+            StartedLeg(session.repo_id, session.ref, session.pk, LegRun.url_of(session.pk), leg_follow_up=True)
         )
 
     def targets(self) -> list[DelegatedTarget]:
@@ -289,7 +281,7 @@ def _delegating_turn(request: str, batch_id: uuid.UUID, legs: list[Run]) -> list
     call_id = "call_delegate"
     result = DelegationResult(
         batch_id=str(batch_id),
-        started=[StartedLeg(leg.repo_id, leg.ref, leg.session_id, _session_url(leg.session_id)) for leg in legs],
+        started=[StartedLeg(leg.repo_id, leg.ref, leg.session_id, LegRun.url_of(leg.session_id)) for leg in legs],
     )
     return [
         HumanMessage(request),
@@ -332,7 +324,7 @@ def _resume_input(request: str, legs: tuple[FinishedLeg, ...]) -> tuple[str, lis
         wake=True,
         source_key=SourceKey.batch(batch_id),
         ref="main",
-        payload=delegation_finished_payload(batch_id, runs),
+        payload=DelegatedBatch(runs).finished_payload(),
     )
     rendered = RunInput.of_run(resume).render(resume).messages
     return coordinator.thread_id, [*_delegating_turn(request, batch_id, runs), *rendered]

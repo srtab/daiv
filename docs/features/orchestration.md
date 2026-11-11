@@ -63,12 +63,12 @@ Each leg in the resume names its session id. To fix or extend a leg's own work �
 
 A leg follow-up:
 
-- **Works where the leg's work is.** It runs in the leg's session, with the leg's earlier conversation, and pushes to the leg's branch and merge request. A leg that published nothing opens a branch and merge request of its own, as a new leg would, never the branch it started from.
+- **Works where the leg's work is.** It runs in the leg's session, with the leg's earlier conversation, and pushes to the leg's branch and merge request, even one a reviewer approved or set to merge when its pipeline passes: your platform's approval rules decide whether that push resets the approvals. A leg that published nothing opens a branch and merge request of its own, as a new leg would, never the branch it started from.
 - **Waits its turn.** When the leg's session is busy — fixing CI on its merge request, or answering a person's chat — the leg follow-up waits in its inbox, as **Leg follow-up**, until the session is free. It then runs alone, never in the same run as other waiting requests, and sees what happened meanwhile (a push to the branch, for example) as context.
 - **Runs once.** It is never retried: if its run fails, the batch reports it as failed and the coordinator decides whether to send another.
 - **Stops when its merge request is gone.** If the leg's merge request was merged or closed while the leg follow-up waited, it stops when it would start, without changing anything, and the coordinator reads *not run: its merge request was merged* (or *closed*) with the advice to delegate a new leg.
 
-It runs as the user who triggered the coordinator's run, keeps the coordinator's mute and cannot ask questions, like a leg. Its repository access is checked when its run starts: one refused there is reported as failed.
+It runs as the user who triggered the coordinator's run, keeps the coordinator's mute and cannot ask questions, like a leg. That user's repository access is checked when it is sent, as for a new leg, and again when its run starts: one refused there is reported as failed.
 
 ## Following and cancelling the legs
 

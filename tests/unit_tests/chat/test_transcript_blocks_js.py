@@ -539,7 +539,7 @@ def test_a_refused_follow_up_is_a_row_of_its_own_and_a_followed_up_leg_keeps_its
     assert [(leg["repo_id"], leg["state"], leg["error"], leg["leg_follow_up"]) for leg in shown] == [
         ("a/x", "failed", "", False),
         ("a/y", "running", "", True),
-        ("a/x", "failed", "Still working.", False),
+        ("a/x", "failed", "Still working.", True),
     ]
     assert shown[2]["thread_id"] == "t-a-x"
 

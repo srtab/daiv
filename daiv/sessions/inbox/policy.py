@@ -2,32 +2,23 @@
 
 A person's request (a chat message, a mention, a follow-up job) and a coordinator's leg follow-up always wake it. A CI
 failure or a finished delegated batch does not once ``MAX_SYSTEM_RUNS_IN_A_ROW`` runs DAIV started itself
-(:func:`daiv_started`) followed each other with no run a person started in between: the event is then only remembered,
-with the reason recorded, and the session's owner is told once per streak (:meth:`WakePolicy.report_run_limit`). A leg
-follow-up's run is one DAIV started, so CI failures after it stay limited; a leg's first run is not, which
-``SessionOrigin.daiv_authored`` leaves out, as transcript authorship and classification also read it.
+(``RunQuerySet.with_daiv_started``) followed each other with no run a person started in between: the event is then
+only remembered, with the reason recorded, and the session's owner is told once per streak
+(:meth:`WakePolicy.report_run_limit`). A leg follow-up's run is one DAIV started, so CI failures after it stay limited;
+a leg's first run is not, which ``SessionOrigin.daiv_authored`` leaves out, as transcript authorship and classification
+also read it.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from django.db.models import BooleanField, ExpressionWrapper, Q
+from django.db.models import Q
 
 from asgiref.sync import sync_to_async
 
 from sessions.inbox.kinds import GATED_KINDS
-from sessions.legs import is_leg_follow_up_run
-from sessions.models import (
-    EventKind,
-    InboxEvent,
-    MergeRequestOwnership,
-    QuietReason,
-    Run,
-    RunStatus,
-    Session,
-    SessionOrigin,
-)
+from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, QuietReason, Run, RunStatus, Session
 from sessions.signal_defs import inbox_paused
 
 if TYPE_CHECKING:
@@ -36,14 +27,6 @@ if TYPE_CHECKING:
     from datetime import datetime
 
 MAX_SYSTEM_RUNS_IN_A_ROW = 3
-
-
-def daiv_started() -> Q:
-    """The runs DAIV started itself: a CI fix, a delegation resume, a coordinator's leg follow-up. A leg's first
-    delegated run is not one of them."""
-    return Q(trigger_type__in=SessionOrigin.daiv_authored()) | Q(
-        is_leg_follow_up_run(), trigger_type=SessionOrigin.DELEGATED_JOB
-    )
 
 
 class WakePolicy:
@@ -88,9 +71,9 @@ class WakePolicy:
             Run.objects
             .filter(session=self.session)
             .exclude(status=RunStatus.QUEUED)
-            .annotate(by_daiv=ExpressionWrapper(daiv_started(), output_field=BooleanField()))
+            .with_daiv_started()
             .order_by("-created_at")
-            .values_list("by_daiv", flat=True)[:MAX_SYSTEM_RUNS_IN_A_ROW]
+            .values_list("daiv_started", flat=True)[:MAX_SYSTEM_RUNS_IN_A_ROW]
         )
         count = 0
         for by_daiv in latest:
@@ -149,7 +132,8 @@ class WakePolicy:
             Run.objects
             .filter(session=self.session)
             .exclude(status=RunStatus.QUEUED)
-            .exclude(daiv_started())
+            .with_daiv_started()
+            .filter(daiv_started=False)
             .order_by("-created_at")
             .values_list("created_at", flat=True)
             .first()

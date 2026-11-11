@@ -35,7 +35,7 @@ from codebase.clients.base import PLATFORM_ERRORS
 from codebase.conf import settings as codebase_settings
 from codebase.models import RepositoryCatalog
 from codebase.repo_config import RepositoryConfig
-from sessions.delegation import load_delegations
+from sessions.delegation import Delegations
 from sessions.inbox_display import stopped_after
 from sessions.models import EventKind, MergeRequestOwnership, QuietReason, Run, RunStatus, Session, SessionOrigin
 from sessions.pipeline_watch.policy import WatchPolicy
@@ -48,7 +48,6 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from accounts.models import User
-    from sessions.delegation import Delegations
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -201,7 +200,7 @@ def delegations_for(turns: list[dict[str, Any]], session: Session, user: User) -
     """
     if session.parent_id:
         return None
-    delegations = load_delegations(session.thread_id, user)
+    delegations = Delegations.load(session.thread_id, user)
     if not delegations.batches:
         return None
     called = mark_delegations(turns, delegations)

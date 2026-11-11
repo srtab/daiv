@@ -66,9 +66,10 @@ text (FR-009). The checks run in this order, and the first failing one gives the
 | 5 | Delegated work on the leg is unfinished: still running, a follow-up still waiting, or the leg itself waiting to start after this turn | "This leg is still working: you are resumed when its batch finishes, and can follow it up then." |
 | 6 | DAIV lost track of the leg's last run | "DAIV lost track of this leg's last run, which may still be working: check its session (`<session_url>`) before sending it more work, or delegate a new leg." |
 | 7 | The leg's merge request is merged or closed | "This leg's merge request was merged: delegate a new leg for further work." (or "…was closed…") |
+| 8 | The person it runs as may not run on the leg's repository | `REPO_ACCESS_DENIED_MESSAGE`, as for a new leg |
 
-A target whose session does not exist at all gets reason 1. Repository access is not checked here for leg follow-ups
-(FR-005a); a new leg on a repository the person cannot reach still fails with `REPO_ACCESS_DENIED_MESSAGE`, as today.
+A target whose session does not exist at all gets reason 1. Reason 8 is checked in the same call as the new legs'
+repositories (FR-005a), so a leg follow-up refused there posts nothing.
 
 ## `check_delegated_jobs`
 

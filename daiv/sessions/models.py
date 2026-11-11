@@ -533,7 +533,7 @@ class Run(models.Model):
                 name="run_one_next_run_per_account",
             ),
             # The insert of a batch's continuation is the election when several legs finish at once; a FAILED one
-            # leaves room for ``sessions.delegation.resume_stalled_batches`` to retry one that never reached the queue.
+            # leaves room for ``DelegatedBatch.resume_stalled`` to retry one that never reached the queue.
             models.UniqueConstraint(
                 fields=["continuation_of_batch_id"],
                 condition=models.Q(continuation_of_batch_id__isnull=False) & ~models.Q(status="FAILED"),
@@ -593,16 +593,21 @@ class Run(models.Model):
     @property
     def response_text(self) -> str:
         """Return the response text from the task result, or the truncated denormalized summary if unavailable."""
-        if self.task_result and self.task_result.return_value:
-            parsed = parse_agent_result(self.task_result.return_value)
-            if parsed["response"]:
-                return parsed["response"]
-        return self.result_summary
+        return self._task_response() or self.result_summary
 
-    def response_text_within(self, chars: int) -> str:
-        """:attr:`response_text` as far as its first ``chars`` characters: the stored summary when it holds them, so
-        the task result is read only for more."""
-        return self.result_summary if chars < RESULT_SUMMARY_MAX_CHARS else self.response_text
+    def _task_response(self) -> str:
+        if self.task_result and self.task_result.return_value:
+            return parse_agent_result(self.task_result.return_value)["response"] or ""
+        return ""
+
+    def response_text_within(self, chars: int) -> tuple[str, bool]:
+        """:attr:`response_text`, stripped and cut at ``chars`` characters, and whether anything was cut. The stored
+        summary serves when it holds them, so the task result is read only for more; a summary at its own cap, as once
+        the task result is pruned, counts as cut."""
+        if chars >= RESULT_SUMMARY_MAX_CHARS and (full := self._task_response().strip()):
+            return full[:chars], len(full) > chars
+        summary = self.result_summary.strip()
+        return summary[:chars], len(summary) > chars or len(self.result_summary) >= RESULT_SUMMARY_MAX_CHARS
 
     def sync_and_save(self) -> bool:
         """Sync from the linked DBTaskResult and persist changed fields.

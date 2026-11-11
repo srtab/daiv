@@ -194,6 +194,26 @@ def test_run_duration():
     assert run.duration == 90.0
 
 
+@pytest.mark.parametrize(
+    ("response", "summary", "chars", "expected"),
+    [
+        ("a" * 2500, "a" * 2000, 4000, ("a" * 2500, False)),
+        ("a" * 4500, "a" * 2000, 4000, ("a" * 4000, True)),
+        ("a" * 2500, "a" * 2000, 1000, ("a" * 1000, True)),
+        (None, "a" * 2000, 4000, ("a" * 2000, True)),
+        (None, " Bumped.\n", 4000, ("Bumped.", False)),
+    ],
+    ids=["whole", "cut", "summary-cut", "pruned-task-result", "short-summary"],
+)
+def test_response_text_within_says_whether_it_was_cut(response, summary, chars, expected):
+    from django_tasks_db.models import DBTaskResult
+
+    task_result = DBTaskResult(return_value={"response": response}) if response else None
+    run = Run(task_result=task_result, result_summary=summary)
+
+    assert run.response_text_within(chars) == expected
+
+
 # --- Enum / constraint drift guards ----------------------------------------
 
 

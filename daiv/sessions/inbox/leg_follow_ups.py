@@ -144,7 +144,7 @@ class LegFollowUps:
         if run is not None and run.status == RunStatus.FAILED:
             LegFollowUps.end_with_run(run)
         else:
-            _settle(InboxEvent.objects.filter(pk=event.pk, state=EventState.PENDING), event.session_id)
+            LegFollowUps._settle(InboxEvent.objects.filter(pk=event.pk, state=EventState.PENDING), event.session_id)
 
     @staticmethod
     def end_with_run(run: Run) -> None:
@@ -156,14 +156,15 @@ class LegFollowUps:
         follow_ups = InboxEvent.objects.filter(
             run=run, kind=EventKind.LEG_FOLLOW_UP, state__in=(EventState.PENDING, EventState.TAKEN)
         )
-        _settle(follow_ups, run.session_id, dismissed=run.is_cancelled)
+        LegFollowUps._settle(follow_ups, run.session_id, dismissed=run.is_cancelled)
 
-
-def _settle(follow_ups: QuerySet[InboxEvent], thread_id: str, *, dismissed: bool = False) -> None:
-    """Dismiss ``follow_ups``, or fail them (``run_failed``), telling the session's page when any moved."""
-    if dismissed:
-        moved = follow_ups.update(state=EventState.DISMISSED, updated_at=timezone.now())
-    else:
-        moved = follow_ups.update(state=EventState.FAILED, failure=EventFailure.RUN_FAILED, updated_at=timezone.now())
-    if moved:
-        session_changed(thread_id)
+    @staticmethod
+    def _settle(follow_ups: QuerySet[InboxEvent], thread_id: str, *, dismissed: bool = False) -> None:
+        """Dismiss ``follow_ups``, or fail them (``run_failed``), telling the session's page when any moved."""
+        now = timezone.now()
+        if dismissed:
+            moved = follow_ups.update(state=EventState.DISMISSED, updated_at=now)
+        else:
+            moved = follow_ups.update(state=EventState.FAILED, failure=EventFailure.RUN_FAILED, updated_at=now)
+        if moved:
+            session_changed(thread_id)

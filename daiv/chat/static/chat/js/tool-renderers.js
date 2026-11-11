@@ -1718,7 +1718,7 @@
     for (const failed of recordsOf(data?.failed)) {
       const error = legText(failed, "error");
       if (legText(failed, "thread_id")) {
-        legs.push(cardLeg(failed, "failed", error));
+        legs.push({ ...cardLeg(failed, "failed", error), leg_follow_up: true });
         continue;
       }
       const mine = (leg) => legKey(leg) === legKey(failed);
@@ -1776,10 +1776,11 @@
       const { index, target } = claimTarget(targets, used, leg, legFailed);
       const after = leg.starts_after_this_turn === true ? ` · ${escapeHtml(t("jobs_after_turn"))}` : "";
       const last = legFailed ? escapeHtml(valueText(leg.error)) : sessionLink(leg) + after;
-      const label = isFollowUp(leg, legFailed) ? ` · ${t("leg_follow_up")}` : "";
-      const repo = `${valueText(leg.repo_id)}${label}`;
-      const cells = [repo, branchText(leg.ref), firstLine(target.prompt)].map(escapeHtml);
-      return { index, failed: legFailed, cells: [...cells, last] };
+      const followUp = isFollowUp(leg, legFailed);
+      const tag = followUp ? ` <span class="leg-tag">${escapeHtml(t("leg_follow_up"))}</span>` : "";
+      const branch = followUp && !legText(leg, "ref") ? "" : branchText(leg.ref);
+      const [repo, ...cells] = [valueText(leg.repo_id), branch, firstLine(target.prompt)].map(escapeHtml);
+      return { index, failed: legFailed, cells: [repo + tag, ...cells, last] };
     });
     rows.sort((a, b) => a.index - b.index);
     const headers = jobsHeaders("jobs_repository", "jobs_branch", "jobs_job", "jobs_session");

@@ -13,7 +13,7 @@ from django.utils import timezone
 import pytest
 from langchain_core.messages import AIMessage
 from sessions.artifacts import serialize_artifact
-from sessions.delegation import load_delegations
+from sessions.delegation import Delegations
 from sessions.executor.lock import LiveRun, SessionActivity
 from sessions.legs import NOT_RUN_CLOSED, NOT_RUN_MERGED
 from sessions.models import CHAT_PROMPT_MAX_LENGTH, Run, RunArtifact, RunStatus, Session, SessionOrigin
@@ -1453,7 +1453,7 @@ def test_delegate_segment_gets_the_legs_current_states_oldest_first(owner):
     running = make_leg(coordinator, batch, status=RunStatus.RUNNING, repo_id="acme/b", finished_at=None)
     turns = delegate_turns(batch)
 
-    mark_delegations(turns, load_delegations(coordinator.thread_id, owner))
+    mark_delegations(turns, Delegations.load(coordinator.thread_id, owner))
 
     legs = turns[0]["segments"][0]["legs"]
     assert [leg["state"] for leg in legs] == ["finished", "running"]
@@ -1485,7 +1485,7 @@ def test_leg_the_viewer_cannot_see_keeps_only_its_repository_and_state(owner, ot
     )
     turns = delegate_turns(batch)
 
-    mark_delegations(turns, load_delegations(coordinator.thread_id, other_user))
+    mark_delegations(turns, Delegations.load(coordinator.thread_id, other_user))
 
     (leg,) = turns[0]["segments"][0]["legs"]
     assert leg == {
@@ -1507,7 +1507,7 @@ def test_two_batches_in_one_transcript_keep_their_own_legs(owner, admin_user, dj
     make_leg(coordinator, first, status=RunStatus.RUNNING)
     make_leg(coordinator, second, status=RunStatus.RUNNING)
     turns = delegate_turns(first, second)
-    delegations = load_delegations(coordinator.thread_id, admin_user)
+    delegations = Delegations.load(coordinator.thread_id, admin_user)
 
     with django_assert_num_queries(0):
         mark_delegations(turns, delegations)
@@ -1522,7 +1522,7 @@ def test_a_batch_belonging_to_another_session_is_left_untouched(owner):
     make_leg(stranger, batch, status=RunStatus.RUNNING)
     turns = delegate_turns(batch)
 
-    mark_delegations(turns, load_delegations(coordinator.thread_id, owner))
+    mark_delegations(turns, Delegations.load(coordinator.thread_id, owner))
 
     assert "legs" not in turns[0]["segments"][0]
 
@@ -1532,7 +1532,7 @@ def test_a_batch_without_runs_is_left_to_the_tool_result(owner):
     coordinator = make_coordinator(owner)
     turns = delegate_turns(uuid.uuid4())
 
-    mark_delegations(turns, load_delegations(coordinator.thread_id, owner))
+    mark_delegations(turns, Delegations.load(coordinator.thread_id, owner))
 
     assert "legs" not in turns[0]["segments"][0]
 
@@ -1548,7 +1548,7 @@ def test_a_delegate_result_without_a_batch_id_is_skipped(owner, result):
     segment["result"] = result
     turns = [{"role": "assistant", "segments": [segment]}]
 
-    goals = mark_delegations(turns, load_delegations(coordinator.thread_id, owner))
+    goals = mark_delegations(turns, Delegations.load(coordinator.thread_id, owner))
 
     assert "legs" not in segment
     assert goals == {}
@@ -1569,6 +1569,6 @@ def test_mark_delegations_returns_the_calls_own_trimmed_goals(owner):
     broken["args"] = "{not json"
     turns.append({"role": "assistant", "segments": [broken]})
 
-    goals = mark_delegations(turns, load_delegations(coordinator.thread_id, owner))
+    goals = mark_delegations(turns, Delegations.load(coordinator.thread_id, owner))
 
     assert goals == {named: "Bump auth"}

@@ -97,8 +97,9 @@
             <li class="artifact-card__row">
               <span class="leg-dot" :class="`leg-dot--${leg.state}`" aria-hidden="true"></span>
               <span class="delegated-card__repo" x-text="leg.repo_id"></span>
-              <span class="delegated-card__ref" x-show="leg.leg_follow_up" x-text="TranscriptLabels.t('leg_follow_up')"></span>
-              <span class="delegated-card__ref" x-text="leg.ref || TranscriptLabels.t('jobs_default_branch')"></span>
+              <span class="leg-tag" x-show="leg.leg_follow_up" x-text="TranscriptLabels.t('leg_follow_up')"></span>
+              <span class="delegated-card__ref"
+                    x-text="leg.ref || (leg.leg_follow_up ? '' : TranscriptLabels.t('jobs_default_branch'))"></span>
               <span class="delegated-card__state" x-text="TranscriptLabels.t(`leg_${leg.state}`)"></span>
               <template x-if="mergeRequestLabel(leg.merge_request_url)">
                 <a class="delegated-card__link" :href="leg.merge_request_url" target="_blank" rel="noopener noreferrer"

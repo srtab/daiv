@@ -38,7 +38,7 @@ def test_sync_stuck_runs_cron_task_dispatches_command():
 
 
 def test_resume_stalled_batches_cron_task_runs_the_sweep():
-    with patch("sessions.delegation.resume_stalled_batches", return_value=0) as sweep:
+    with patch("sessions.delegation.DelegatedBatch.resume_stalled", return_value=0) as sweep:
         resume_stalled_batches_cron_task.func()
 
     sweep.assert_called_once_with()

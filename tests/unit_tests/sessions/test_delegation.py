@@ -14,14 +14,10 @@ from sessions.delegation import (
     _UNSTARTED_LEG,
     MAX_STATUS_BATCHES,
     STALLED_BATCH_WINDOW,
+    DelegatedBatch,
+    Delegations,
+    LegRun,
     SessionJobDelegator,
-    adelegator_for,
-    leg_state,
-    load_delegations,
-    outcome_states,
-    render_batch_summary,
-    resume_coordinator,
-    resume_stalled_batches,
 )
 from sessions.inbox.drain import Drain
 from sessions.inbox.leg_follow_ups import BUSY, LegFollowUpRefused
@@ -321,8 +317,8 @@ async def test_only_a_session_that_was_not_delegated_gets_a_delegator(admin_user
     coordinator = await sync_to_async(make_coordinator)(admin_user)
     leg = await sync_to_async(make_coordinator)(admin_user, parent=coordinator)
 
-    assert isinstance(await adelegator_for(coordinator.pk), SessionJobDelegator)
-    assert await adelegator_for(leg.pk) is None
+    assert isinstance(await SessionJobDelegator.afor(coordinator.pk), SessionJobDelegator)
+    assert await SessionJobDelegator.afor(leg.pk) is None
 
 
 def _resume_event(coordinator: Session) -> InboxEvent | None:
@@ -356,7 +352,7 @@ class TestResumeCoordinator:
             user=member_user,
         )  # fmt: skip
 
-        resume_coordinator(failed)
+        DelegatedBatch.resume_after(failed)
 
         event = _resume_event(coordinator)
         assert (event.source_key, event.wake, event.ref, event.author_id) == (
@@ -364,7 +360,7 @@ class TestResumeCoordinator:
         )  # fmt: skip
         assert event.payload == {
             "batch_id": str(batch_id),
-            "summary": render_batch_summary(batch_id, [done, failed]),
+            "summary": DelegatedBatch([done, failed]).summary(),
             "succeeded": 1,
             "total": 2,
         }
@@ -379,13 +375,13 @@ class TestResumeCoordinator:
 
         with patch("sessions.queue.run_job_task") as mock_task:
             mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task.id))
-            resume_coordinator(leg)
+            DelegatedBatch.resume_after(leg)
 
         resume = Run.objects.get(session=coordinator)
         assert (resume.trigger_type, resume.status, resume.task_result_id) == (
             SessionOrigin.DELEGATION_RESUME, RunStatus.READY, task.id,
         )  # fmt: skip
-        assert resume.prompt == render_batch_summary(batch_id, [leg])
+        assert resume.prompt == DelegatedBatch([leg]).summary()
         assert resume.continuation_of_batch_id is None
         assert mock_task.aenqueue.call_args.kwargs["inbox"] is True
 
@@ -394,7 +390,7 @@ class TestResumeCoordinator:
         batch_id = uuid.uuid4()
         leg = make_leg(coordinator, batch_id, status=RunStatus.SUCCESSFUL, task_result=create_db_task_result())
 
-        resume_coordinator(leg)
+        DelegatedBatch.resume_after(leg)
 
         next_run = Run.objects.get(pk=_resume_event(coordinator).run_id)
         assert (next_run.status, next_run.trigger_type) == (RunStatus.QUEUED, SessionOrigin.DELEGATION_RESUME)
@@ -405,7 +401,7 @@ class TestResumeCoordinator:
         finished = make_leg(coordinator, batch_id, status=RunStatus.SUCCESSFUL, task_result=create_db_task_result())
         make_leg(coordinator, batch_id, status=RunStatus.RUNNING, task_result=create_db_task_result(status="RUNNING"))
 
-        resume_coordinator(finished)
+        DelegatedBatch.resume_after(finished)
 
         assert _resume_event(coordinator) is None
 
@@ -414,8 +410,8 @@ class TestResumeCoordinator:
         batch_id = uuid.uuid4()
         leg = make_leg(coordinator, batch_id, status=RunStatus.SUCCESSFUL, task_result=create_db_task_result())
 
-        resume_coordinator(leg)
-        resume_coordinator(leg)
+        DelegatedBatch.resume_after(leg)
+        DelegatedBatch.resume_after(leg)
 
         assert InboxEvent.objects.filter(session=coordinator).count() == 1
 
@@ -423,7 +419,7 @@ class TestResumeCoordinator:
         coordinator = make_coordinator(admin_user)
         leg = make_leg(coordinator, uuid.uuid4(), status=RunStatus.FAILED)
 
-        resume_coordinator(leg)
+        DelegatedBatch.resume_after(leg)
 
         assert _resume_event(coordinator) is None
 
@@ -433,7 +429,7 @@ class TestResumeCoordinator:
         Run.objects.filter(pk=delegating.pk).update(status=RunStatus.SUCCESSFUL)
         leg = make_leg(coordinator, uuid.uuid4(), status=RunStatus.FAILED, waits_for=delegating)
 
-        resume_coordinator(leg)
+        DelegatedBatch.resume_after(leg)
 
         assert _resume_event(coordinator).ref == "feat/x"
 
@@ -446,7 +442,7 @@ class TestResumeCoordinator:
         for name, value in fields.items():
             setattr(leg, name, value)
 
-        resume_coordinator(leg)
+        DelegatedBatch.resume_after(leg)
 
         assert not InboxEvent.objects.exists()
 
@@ -455,7 +451,7 @@ class TestResumeCoordinator:
         leg = make_leg(coordinator, uuid.uuid4(), status=RunStatus.SUCCESSFUL, task_result=create_db_task_result())
         coordinator.delete()
 
-        resume_coordinator(leg)
+        DelegatedBatch.resume_after(leg)
 
         assert not InboxEvent.objects.exists()
 
@@ -467,9 +463,9 @@ class TestResumeStalledBatches:
         batch_id = uuid.uuid4()
         make_leg(coordinator, batch_id, status=RunStatus.SUCCESSFUL, task_result=create_db_task_result())
 
-        assert resume_stalled_batches() == 1
+        assert DelegatedBatch.resume_stalled() == 1
         assert _resume_event(coordinator).source_key == f"batch:{batch_id}"
-        assert resume_stalled_batches() == 0
+        assert DelegatedBatch.resume_stalled() == 0
 
     def test_a_batch_an_older_continuation_resumed_is_left_alone(self, admin_user, create_db_task_result, drain):
         coordinator = make_coordinator(admin_user)
@@ -480,7 +476,7 @@ class TestResumeStalledBatches:
             status=RunStatus.SUCCESSFUL, continuation_of_batch_id=batch_id,
         )  # fmt: skip
 
-        assert resume_stalled_batches() == 0
+        assert DelegatedBatch.resume_stalled() == 0
         assert _resume_event(coordinator) is None
 
     def test_a_leg_left_queued_behind_a_finished_run_is_restacked_and_started(self, admin_user, create_db_task_result):
@@ -494,7 +490,7 @@ class TestResumeStalledBatches:
 
         with patch("sessions.queue.run_job_task") as mock_task:
             mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task.id))
-            resume_stalled_batches()
+            DelegatedBatch.resume_stalled()
 
         leg.refresh_from_db()
         assert (leg.status, leg.ref, leg.task_result_id) == (RunStatus.READY, "daiv/published", task.id)
@@ -507,7 +503,7 @@ class TestResumeStalledBatches:
             finished_at=long_ago,
         )  # fmt: skip
 
-        assert resume_stalled_batches() == 0
+        assert DelegatedBatch.resume_stalled() == 0
 
     def test_an_unfinished_batch_is_left_alone(self, admin_user, create_db_task_result, drain):
         coordinator = make_coordinator(admin_user)
@@ -515,7 +511,7 @@ class TestResumeStalledBatches:
         make_leg(coordinator, batch_id, status=RunStatus.SUCCESSFUL, task_result=create_db_task_result())
         make_leg(coordinator, batch_id, status=RunStatus.RUNNING, task_result=create_db_task_result(status="RUNNING"))
 
-        assert resume_stalled_batches() == 0
+        assert DelegatedBatch.resume_stalled() == 0
         assert _resume_event(coordinator) is None
 
     def test_a_continuation_left_queued_on_a_free_coordinator_is_released(self, admin_user, create_db_task_result):
@@ -531,7 +527,7 @@ class TestResumeStalledBatches:
 
         with patch("sessions.queue.run_job_task") as mock_task:
             mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task.id))
-            resume_stalled_batches()
+            DelegatedBatch.resume_stalled()
 
         continuation.refresh_from_db()
         assert (continuation.status, continuation.task_result_id) == (RunStatus.READY, task.id)
@@ -700,7 +696,7 @@ class TestCancel:
                 await sync_to_async(_end_task_as_its_worker_would)(
                     leg, status="FAILED", exception_class_path="sessions.executor.run.RunStoppedError"
                 )
-            stalled = await sync_to_async(resume_stalled_batches)()
+            stalled = await sync_to_async(DelegatedBatch.resume_stalled)()
 
         assert len(result.cancelled) == 2
         assert (result.batch.finished, result.resumes) == (False, False)
@@ -775,7 +771,7 @@ def test_the_summary_lists_each_legs_outcome_with_its_reply_quoted(admin_user):
         ),
     ]
 
-    summary = render_batch_summary(batch_id, legs)
+    summary = DelegatedBatch(legs).summary()
 
     assert summary.startswith(f"The sub-jobs you delegated (batch {batch_id}) have finished: 2 of 5 succeeded.")
     assert "## acme/api on release: succeeded" in summary
@@ -816,11 +812,11 @@ def test_leg_state(admin_user, fields, waits, expected):
     if waits:
         fields = fields | {"waits_for": make_delegating_run(coordinator, admin_user)}
 
-    assert leg_state(make_leg(coordinator, uuid.uuid4(), **fields)) == expected
+    assert LegRun(make_leg(coordinator, uuid.uuid4(), **fields)).state == expected
 
 
 def test_outcome_states_reads_each_status_word_back_as_its_state():
-    assert outcome_states() == {
+    assert LegRun.outcome_states() == {
         "queued": "queued",
         "running": "running",
         "stopping": "stopping",
@@ -927,18 +923,32 @@ class TestLegFollowUp:
 
         assert order == [("submit", RunStatus.QUEUED, True), leg.session_id]
 
-    async def test_only_the_new_legs_repositories_are_checked_when_sent(self, admin_user, create_db_task_result):
+    async def test_the_new_legs_and_the_follow_ups_repositories_are_checked_when_sent(self, admin_user):
         _, run, leg = await _coordinated(admin_user)
 
         with (
             patch("sessions.delegation.aassert_repo_access", new=AsyncMock()) as checked,
             patch("sessions.delegation.asubmit_batch_runs", new=AsyncMock(return_value=MagicMock(outcomes=[]))),
-            patch("sessions.delegation._started_legs", return_value=[StartedLeg("acme/web", "", "s", "u")]),
+            patch.object(SessionJobDelegator, "_started_legs", return_value=[StartedLeg("acme/web", "", "s", "u")]),
             patch.object(Drain, "start_logged", autospec=True),
         ):
             await _delegate(run, [_target("acme/web"), _follow_up(leg)])
 
-        checked.assert_awaited_once_with(admin_user, ["acme/web"])
+        checked.assert_awaited_once_with(admin_user, ["acme/web", "acme/api"])
+
+    async def test_a_follow_up_on_a_repository_its_user_cannot_run_on_is_refused_when_sent(self, member_user):
+        _, run, leg = await _coordinated(member_user)
+
+        with (
+            patch("sessions.admission.assert_can_run", side_effect=RepositoryAccessDenied(["acme/api"])),
+            patch.object(Drain, "start_logged", autospec=True) as drained,
+        ):
+            result = await _delegate(run, [_follow_up(leg)])
+
+        assert (result.batch_id, result.started) == (None, [])
+        assert [(f.thread_id, f.error) for f in result.failed] == [(leg.session_id, REPO_ACCESS_DENIED_MESSAGE)]
+        assert not await InboxEvent.objects.filter(kind=EventKind.LEG_FOLLOW_UP).aexists()
+        drained.assert_not_called()
 
     async def test_a_session_that_is_not_its_leg_is_refused(self, admin_user):
         coordinator, run, leg = await _coordinated(admin_user)
@@ -1129,11 +1139,11 @@ class TestLegFollowUpBatch:
     def test_the_coordinator_is_resumed_once_after_the_follow_up_ends(self, admin_user, drain):
         coordinator, _, follow_up, _ = self._batch(admin_user)
 
-        resume_coordinator(Run.objects.get(trigger_type=SessionOrigin.DELEGATED_JOB, repo_id="acme/web"))
+        DelegatedBatch.resume_after(Run.objects.get(trigger_type=SessionOrigin.DELEGATED_JOB, repo_id="acme/web"))
         assert _resume_event(coordinator) is None
 
         Run.objects.finish(follow_up, RunStatus.SUCCESSFUL, finished_at=timezone.now())
-        resume_coordinator(follow_up)
+        DelegatedBatch.resume_after(follow_up)
 
         assert InboxEvent.objects.filter(session=coordinator, kind=EventKind.DELEGATION_FINISHED).count() == 1
         assert "(leg follow-up)" in _resume_event(coordinator).payload["summary"]
@@ -1194,14 +1204,14 @@ class TestLegFollowUpBatch:
         done = make_leg(coordinator, batch_id, status=RunStatus.SUCCESSFUL, task_result=make_task_result())
         not_run = make_leg(coordinator, batch_id, status=RunStatus.FAILED, repo_id="acme/web", error_message=label)
 
-        summary = render_batch_summary(batch_id, [done, not_run])
+        summary = DelegatedBatch([done, not_run]).summary()
 
         assert "1 of 2 succeeded" in summary
         section = summary.split("## acme/web: ")[1].split("\n\n")[0]
         assert section.startswith(f"not run: its merge request was {word}\n")
         assert "- Next: delegate a new leg for further work." in section
         assert "Reply" not in section
-        resume_coordinator(not_run)
+        DelegatedBatch.resume_after(not_run)
         assert _resume_event(coordinator) is not None
 
 
@@ -1222,7 +1232,7 @@ class TestLegReplies:
         reply = "f" * (length - 7) + "FINDING"
         leg = self._leg(admin_user, reply)
 
-        summary = render_batch_summary(leg.batch_id, [leg])
+        summary = DelegatedBatch([leg]).summary()
         [status] = SessionJobDelegator(leg.session.parent_id)._status(str(leg.batch_id))
 
         assert "FINDING" in summary
@@ -1245,6 +1255,14 @@ class TestLegReplies:
 
         assert status.legs[0].reply.startswith("r" * 1000 + "\n[cut at 1,000 characters: the rest is in the leg's")
 
+    def test_a_reply_whose_task_result_was_pruned_says_it_was_cut_at_its_summary(self, admin_user):
+        coordinator = make_coordinator(admin_user)
+        leg = make_leg(coordinator, uuid.uuid4(), status=RunStatus.SUCCESSFUL, result_summary="r" * 2000)
+
+        [status] = SessionJobDelegator(coordinator.pk)._status(str(leg.batch_id))
+
+        assert status.legs[0].reply.startswith("r" * 2000 + "\n[cut at 2,000 characters: the rest is in the leg's")
+
     def test_a_run_with_no_task_result_falls_back_to_its_summary(self, admin_user):
         coordinator = make_coordinator(admin_user)
         leg = make_leg(coordinator, uuid.uuid4(), status=RunStatus.SUCCESSFUL, result_summary="Bumped.")
@@ -1260,7 +1278,7 @@ class TestAddressingLegs:
         coordinator = make_coordinator(admin_user)
         leg = _finished_leg(coordinator)
 
-        summary = render_batch_summary(leg.batch_id, [leg])
+        summary = DelegatedBatch([leg]).summary()
 
         assert "- Session: http" in summary
         assert f"- Session id: {leg.session_id}\n" in summary
@@ -1277,8 +1295,8 @@ class TestAddressingLegs:
         earlier = _finished_leg(coordinator)
         follow_up = post_leg_follow_up(earlier.session, admin_user)
 
-        seen = load_delegations(coordinator.pk, admin_user)
-        hidden = load_delegations(coordinator.pk, member_user)
+        seen = Delegations.load(coordinator.pk, admin_user)
+        hidden = Delegations.load(coordinator.pk, member_user)
 
         assert [leg["leg_follow_up"] for leg in seen.legs[follow_up.batch_id]] == [True]
         assert seen.legs[follow_up.batch_id][0]["thread_id"] == earlier.session_id

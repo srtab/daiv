@@ -16,7 +16,8 @@ through its ``SessionOrigin.DELEGATED_JOB`` runs (its first run and any leg foll
 
 ``sessions.queue`` imports this module, so it imports only ``sessions.models``. SYNC ONLY, but for the async wrappers.
 A leg follow-up that does not run because its leg's merge request was merged or closed finishes its run FAILED with
-:data:`NOT_RUN_MERGED` or :data:`NOT_RUN_CLOSED`, which readers of a run's outcome tell apart from a failure.
+:data:`NOT_RUN_MERGED` or :data:`NOT_RUN_CLOSED`, which readers of a run's outcome tell apart from a failure
+(:meth:`Leg.not_run_label`).
 """
 
 from __future__ import annotations
@@ -26,22 +27,18 @@ from dataclasses import dataclass
 from functools import cached_property
 from typing import TYPE_CHECKING
 
-from django.db.models import Exists, F, OuterRef
 from django.utils.translation import gettext, gettext_noop
 
 from asgiref.sync import sync_to_async
 
 from sessions.models import (
     LINK_FAILED_PREFIX,
-    EventKind,
     HiddenSession,
-    InboxEvent,
     MergeRequestOwnership,
     MergeRequestState,
     Run,
     RunStatus,
     Session,
-    SessionOrigin,
 )
 
 if TYPE_CHECKING:
@@ -54,26 +51,6 @@ if TYPE_CHECKING:
 NOT_RUN_MERGED = gettext_noop("Not run: its merge request was merged")
 NOT_RUN_CLOSED = gettext_noop("Not run: its merge request was closed")
 NOT_RUN_LABELS = frozenset({NOT_RUN_MERGED, NOT_RUN_CLOSED})
-
-
-def not_run_label(run: Run) -> str | None:
-    """The translated not-run label ``run`` finished with, or ``None`` when it finished otherwise."""
-    return gettext(run.error_message) if run.error_message in NOT_RUN_LABELS else None
-
-
-def is_leg_follow_up_run() -> Exists:
-    """For a query on runs: whether the run is a leg follow-up's, whose ``leg_follow_up`` event is linked to it."""
-    return Exists(InboxEvent.objects.filter(kind=EventKind.LEG_FOLLOW_UP, run=OuterRef("pk")))
-
-
-def _delegated_runs(runs: QuerySet[Run]) -> QuerySet[Run]:
-    """``runs`` that are delegated, oldest first."""
-    return runs.filter(trigger_type=SessionOrigin.DELEGATED_JOB).order_by("created_at", "id")
-
-
-def _published_runs(runs: QuerySet[Run]) -> QuerySet[Run]:
-    """``runs`` that published a merge request on their session's main repository, newest first."""
-    return runs.filter(repo_id=F("session__repo_id"), merge_request_iid__isnull=False).order_by("-created_at", "-id")
 
 
 @dataclass(frozen=True)
@@ -89,6 +66,11 @@ class Leg:
     def __init__(self, session: Session):
         self.session = session
 
+    @staticmethod
+    def not_run_label(run: Run) -> str | None:
+        """The translated not-run label ``run`` finished with, or ``None`` when it finished otherwise."""
+        return gettext(run.error_message) if run.error_message in NOT_RUN_LABELS else None
+
     @classmethod
     def many(cls, sessions: Iterable[Session]) -> dict[str, Leg]:
         """A leg for each of ``sessions``, by thread id, with what :attr:`base_ref`, :meth:`has_own_branch` and
@@ -96,11 +78,11 @@ class Leg:
         legs: dict[str, Leg] = {session.pk: cls(session) for session in sessions}
         runs = Run.objects.filter(session_id__in=list(legs))
         first_refs: dict[str, str] = {}
-        for thread_id, ref in _delegated_runs(runs).values_list("session_id", "ref"):
+        for thread_id, ref in runs.delegated().values_list("session_id", "ref"):
             first_refs.setdefault(thread_id, ref)
         pushed = set(runs.that_pushed().values_list("session_id", flat=True))
         published: defaultdict[str, list[tuple[int, str]]] = defaultdict(list)
-        rows = _published_runs(runs).values_list("session_id", "merge_request_iid", "merge_request_web_url")
+        rows = runs.that_published().values_list("session_id", "merge_request_iid", "merge_request_web_url")
         for thread_id, iid, web_url in rows:
             published[thread_id].append((iid, web_url))
         for thread_id, leg in legs.items():
@@ -124,7 +106,7 @@ class Leg:
 
     def delegated_runs(self) -> QuerySet[Run]:
         """Its delegated runs, oldest first."""
-        return _delegated_runs(Run.objects.filter(session=self.session))
+        return Run.objects.filter(session=self.session).delegated()
 
     @cached_property
     def base_ref(self) -> str:
@@ -146,7 +128,7 @@ class Leg:
 
     @cached_property
     def _published(self) -> list[tuple[int, str]]:
-        runs = _published_runs(Run.objects.filter(session=self.session))
+        runs = Run.objects.filter(session=self.session).that_published()
         return list(runs.values_list("merge_request_iid", "merge_request_web_url"))
 
     def merge_request(self) -> LegMergeRequest | None:

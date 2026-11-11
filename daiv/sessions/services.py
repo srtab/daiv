@@ -535,7 +535,7 @@ async def asubmit_batch_runs(
     # return_exceptions=True guards against BaseException (CancelledError, etc.) aborting the
     # whole batch; _create_one and _start_one already catch Exception themselves.
     created = await asyncio.gather(*[_create_one(i, t) for i, t in enumerate(repos)], return_exceptions=True)
-    # A delegated leg that finishes at once must find all its siblings' rows (sessions.delegation.resume_coordinator).
+    # A delegated leg that finishes at once must find all its siblings' rows (DelegatedBatch.resume_after).
     started = await asyncio.gather(*[_start_one(c) for c in created], return_exceptions=True)
 
     outcomes: list[Run | BatchSubmitFailure] = []

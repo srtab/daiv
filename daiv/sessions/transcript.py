@@ -34,7 +34,7 @@ from core.constants import (
 )
 from sessions.artifacts import published_tool_result
 from sessions.executor.lock import SessionActivity
-from sessions.legs import not_run_label
+from sessions.legs import Leg
 from sessions.models import (
     CHAT_PROMPT_MAX_LENGTH,
     EventState,
@@ -85,7 +85,7 @@ def _marker(run: Run) -> dict[str, Any] | None:
         # failure chip. This is the single, deliberate string-coupling point: nothing
         # persisted distinguishes them from a genuine failure except these shared messages.
         aborted = message in (CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE)
-    elif run.trigger_type == SessionOrigin.DELEGATED_JOB and (label := not_run_label(run)) is not None:
+    elif run.trigger_type == SessionOrigin.DELEGATED_JOB and (label := Leg.not_run_label(run)) is not None:
         message, aborted = label, True
     elif run.is_cancelled:
         # Only a delegated leg is cancelled by its coordinator; any other run, by its owner from the session page.

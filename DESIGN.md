@@ -657,7 +657,8 @@ status and the `⋯` menu.
   link (`.ref-card[href]`): the key in `text-accent`, a hover fill and a trailing open-in-new-tab icon.
   One without has no `href`, so it is not a link.
 - **Shared classes.** `.ci-dot`, `.ci-tone--<tone>` and `.draft-badge` are neutral: the header summary
-  and the cards both use them.
+  and the cards both use them. `.leg-tag` is the repository card's `__tag` pill for a leg follow-up, the
+  same on the Delegated jobs card, the details panel and the call's table.
 
 ### Prose / Markdown Content
 

@@ -197,6 +197,43 @@ class RunQuerySet(models.QuerySet["Run"]):
         """Runs that pushed a commit, to their main repository or to another of their session's repositories."""
         return self.exclude(pushed_sha="", sibling_pushed_shas=[])
 
+    def that_published(self) -> models.QuerySet[Run]:
+        """Runs that published a merge request on their session's main repository, newest first."""
+        return self.filter(repo_id=models.F("session__repo_id"), merge_request_iid__isnull=False).order_by(
+            *_NEWEST_FIRST
+        )
+
+    def delegated_by(self, thread_id: str) -> models.QuerySet[Run]:
+        """The delegated runs of the legs the session ``thread_id`` delegated: their first runs and leg follow-ups'."""
+        from sessions.models import SessionOrigin
+
+        return self.filter(trigger_type=SessionOrigin.DELEGATED_JOB, session__parent_id=thread_id)
+
+    def delegated(self) -> models.QuerySet[Run]:
+        """Delegated runs, oldest first: a leg's first run and its leg follow-ups' runs."""
+        from sessions.models import SessionOrigin
+
+        return self.filter(trigger_type=SessionOrigin.DELEGATED_JOB).order_by("created_at", "id")
+
+    def with_leg_follow_up(self) -> models.QuerySet[Run]:
+        """Annotate ``is_leg_follow_up``: the run is a leg follow-up's, whose ``leg_follow_up`` event links to it."""
+        from sessions.models import EventKind, InboxEvent
+
+        follow_up = InboxEvent.objects.filter(kind=EventKind.LEG_FOLLOW_UP, run=models.OuterRef("pk"))
+        return self.annotate(is_leg_follow_up=models.Exists(follow_up))
+
+    def with_daiv_started(self) -> models.QuerySet[Run]:
+        """Annotate ``daiv_started``: DAIV started the run itself, as a CI fix, a delegation resume or a coordinator's
+        leg follow-up. A leg's first delegated run is not one."""
+        from sessions.models import SessionOrigin
+
+        started = models.Q(trigger_type__in=SessionOrigin.daiv_authored()) | models.Q(
+            is_leg_follow_up=True, trigger_type=SessionOrigin.DELEGATED_JOB
+        )
+        return self.with_leg_follow_up().annotate(
+            daiv_started=models.ExpressionWrapper(started, output_field=models.BooleanField())
+        )
+
     def latest_in_session(self) -> models.QuerySet[Run]:
         """Each session's newest run, whoever started it: the run ``with_latest_status`` reads the status of."""
         newest = _session_runs_newest_first(models.OuterRef("session")).values("pk")[:1]
