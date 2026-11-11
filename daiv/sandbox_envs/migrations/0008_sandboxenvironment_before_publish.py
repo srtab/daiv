@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("sandbox_envs", "0006_drop_network_enabled")]
+    dependencies = [("sandbox_envs", "0007_default_image_with_git")]
 
     operations = [
         migrations.AddField(

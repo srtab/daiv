@@ -2385,6 +2385,35 @@ html {
     color: var(--color-text-faint);
   }
 
+  .body-media {
+    @apply flex flex-wrap items-start gap-2;
+  }
+
+  .body-media-item {
+    @apply block overflow-hidden rounded-md border border-border transition-colors hover:border-accent;
+    max-width: min(100%, 360px);
+  }
+
+  .body-media-thumb {
+    display: block;
+    max-width: 100%;
+    max-height: 240px;
+  }
+
+  .body-media-chip,
+  .body-media-missing {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-0.5 text-[12px] font-medium;
+    overflow-wrap: anywhere;
+  }
+
+  .body-media-chip {
+    @apply bg-surface-2 text-accent transition-colors hover:bg-surface-3 hover:text-accent-bright;
+  }
+
+  .body-media-missing {
+    @apply border-dashed text-text-muted;
+  }
+
   .body-offload {
     padding: 6px 8px;
     border: 1px solid rgba(251, 191, 36, 0.2);

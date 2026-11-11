@@ -34,6 +34,7 @@
   };
 
   const PUBLISH_RESULT_EVENT = "daiv_publish_result";
+  const TOOL_MEDIA_EVENT = "daiv_tool_media";
 
   // Structured-response tools of the diff_to_metadata subagents: their lifecycle only names the
   // working line's phase; the raw JSON never surfaces as a tool card.
@@ -1018,15 +1019,19 @@
     // A call rendered from the checkpoint before its ToolMessage landed has no result, and
     // this deduped event is the only place it arrives — so fill it in place.
     _fillReplayedResult(evt) {
-      for (let i = this.turns.length - 1; i >= 0; i--) {
-        const seg = this.turns[i].segments?.find((s) => s.type === "tool_call" && s.id === evt.toolCallId);
-        if (!seg) continue;
-        if (seg.result == null) {
-          seg.result = evt.content;
-          seg.status = "done";
-        }
-        return;
+      const seg = this._findToolSegment(evt.toolCallId);
+      if (seg && seg.result == null) {
+        seg.result = evt.content;
+        seg.status = "done";
       }
+    },
+
+    _findToolSegment(id) {
+      for (let i = this.turns.length - 1; i >= 0; i--) {
+        const seg = this.turns[i].segments?.find((s) => s.type === "tool_call" && s.id === id);
+        if (seg) return seg;
+      }
+      return null;
     },
 
     // Reasoning events key on a per-thought id (the provider's, else a fresh uuid), which is
@@ -1988,6 +1993,10 @@
         } else if (this.selectedSandboxEnvId) {
           console.debug("chat: ignored resolved_env (user picked %o)", this.selectedSandboxEnvId, v);
         }
+      } else if (type === AGUI.CUSTOM && evt.name === TOOL_MEDIA_EVENT) {
+        // Follows the call's TOOL_CALL_RESULT, and on replay may target a row rendered from the checkpoint.
+        const seg = this._findToolSegment(evt.value?.tool_call_id);
+        if (seg) seg.media = evt.value.media || [];
       } else if (type === AGUI.CUSTOM && evt.name === PUBLISH_RESULT_EVENT) {
         this.publishPhase = "";
         const entry = publishEntry(evt.value, window.TranscriptLabels);

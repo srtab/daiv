@@ -5,6 +5,7 @@ import logging
 import time
 import uuid
 from functools import cached_property
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
@@ -12,7 +13,7 @@ from django.conf import settings
 from django.contrib import messages as messages_module
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, SuspiciousOperation
-from django.http import FileResponse, Http404, HttpResponse, HttpResponseBase
+from django.http import Http404, HttpResponse, HttpResponseBase
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.decorators import method_decorator
@@ -32,11 +33,12 @@ from sandbox_envs.services import env_picker_context
 
 from automation.picker.context import agent_picker_context
 from core.mixins import Breadcrumb, BreadcrumbMixin
+from core.responses import ThreadedFileResponse
 from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
 from core.ui_events import redis_connections
 from core.utils import is_htmx
 from sessions.admission import RepoAccessError
-from sessions.artifacts import ArtifactKind, open_artifact_file
+from sessions.artifacts import ArtifactKind, guess_content_type, open_artifact_file
 from sessions.conf import settings as sessions_settings
 from sessions.delegation import outcome_states
 from sessions.filters import (
@@ -49,7 +51,7 @@ from sessions.filters import (
     resolve_scope,
 )
 from sessions.forms import AgentRunCreateForm
-from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
+from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin, ToolResultMedia
 from sessions.multi_repo import MAX_REPOS_PER_SESSION
 from sessions.page_state import aload_session_state
 from sessions.services import RepoTarget, submit_batch_runs
@@ -433,6 +435,8 @@ ARTIFACT_RAW_HEADERS = {
     "Referrer-Policy": "no-referrer",
     "Cache-Control": "private, no-store",
 }
+# Unlike an artifact, which a revision rewrites at the same URL, kept tool media never changes.
+TOOL_MEDIA_RAW_HEADERS = {**ARTIFACT_RAW_HEADERS, "Cache-Control": "private, max-age=86400, immutable"}
 ARTIFACT_INLINE_TEXT_MAX_BYTES = 1024 * 1024
 
 
@@ -494,12 +498,41 @@ class RunArtifactRawView(RunArtifactMixin, SingleObjectMixin, View):
         content_type = artifact.content_type
         if content_type.startswith("text/"):
             content_type = f"{content_type}; charset=utf-8"
-        return FileResponse(
+        return ThreadedFileResponse(
             fh,
             content_type=content_type,
             as_attachment=request.GET.get("download") == "1",
             filename=artifact.filename,
             headers=ARTIFACT_RAW_HEADERS,
+        )
+
+
+@method_decorator(xframe_options_sameorigin, name="dispatch")
+class ToolResultMediaRawView(LoginRequiredMixin, SingleObjectMixin, View):
+    """Stream an image or file a tool result carried, for the session transcript, under the artifact headers."""
+
+    def get_queryset(self) -> QuerySet[ToolResultMedia]:
+        return ToolResultMedia.objects.visible_to(self.request.user).filter(run__session_id=self.kwargs["thread_id"])
+
+    def get(self, request, *args, **kwargs):
+        media: ToolResultMedia = self.get_object()
+        try:
+            fh = media.file.open("rb")
+        except FileNotFoundError:
+            logger.error(
+                "Tool media %s: stored file %s is missing; is MEDIA_ROOT shared between the web and worker containers?",
+                media.pk,
+                media.file.name,
+            )
+            raise Http404("Tool media file is missing.") from None
+        content_type = guess_content_type(media.file.name)
+        # The sandbox CSP stops browsers' PDF and media viewers, so only images open inline.
+        return ThreadedFileResponse(
+            fh,
+            content_type=content_type,
+            as_attachment=not content_type.startswith("image/"),
+            filename=PurePosixPath(media.file.name).name,
+            headers=TOOL_MEDIA_RAW_HEADERS,
         )
 
 

@@ -17,10 +17,17 @@ from langgraph.checkpoint.memory import InMemorySaver
 from sessions.live.agui import RuntimeContextLangGraphAGUIAgent
 from sessions.live.event_filter import REASONING_EVENT_TYPES, SubagentEventFilter
 
-from automation.agent.events import ASSISTANT_MESSAGE_EVENT, CONTEXT_USAGE_EVENT, context_usage_payload
+from automation.agent.events import (
+    ASSISTANT_MESSAGE_EVENT,
+    CONTEXT_USAGE_EVENT,
+    TOOL_MEDIA_EVENT,
+    context_usage_payload,
+)
 from automation.agent.middlewares.context_usage import ContextUsageMiddleware
+from automation.agent.middlewares.tool_media import ToolMediaMiddleware
 from automation.agent.usage_tracking import ResolvedWindow
 from automation.agent.utils import streamed_assistant_message
+from tests.unit_tests.conftest import FakeToolMediaStore
 
 _TEXT_FRAME_TYPES = (EventType.TEXT_MESSAGE_START, EventType.TEXT_MESSAGE_CONTENT, EventType.TEXT_MESSAGE_END)
 
@@ -503,3 +510,57 @@ async def test_a_model_call_reaches_the_stream_as_a_context_usage_frame():
         usage={"input_tokens": 10, "output_tokens": 2, "total_tokens": 12},
         window=ResolvedWindow(1_000_000, "genai_prices"),
     )
+
+
+_IMAGE = {"type": "image", "base64": "iVBORw0K", "mime_type": "image/png"}
+
+
+async def test_a_screenshot_streams_as_text_then_a_media_event():
+    """A real graph whose tool returns text and an image, through the real agent class and filter: the result frame
+    carries only the text, and the media follows in its own frame with the endpoint URL."""
+
+    class _ToolModel(FakeMessagesListChatModel):
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+    @tool
+    def screenshot() -> list:
+        """Take a screenshot."""
+        return [{"type": "text", "text": "taken"}, _IMAGE]
+
+    stream = _run_graph(
+        _ToolModel(
+            responses=[
+                AIMessage(content="", tool_calls=[{"name": "screenshot", "args": {}, "id": "call_1"}]),
+                AIMessage(content="done"),
+            ]
+        ),
+        content="shoot",
+        tools=[screenshot],
+        middleware=[ToolMediaMiddleware(store=FakeToolMediaStore())],
+    )
+
+    events = [e async for e in SubagentEventFilter().apply(stream) if e is not None]
+
+    results = [e for e in events if e.type == EventType.TOOL_CALL_RESULT]
+    media = [e for e in events if e.type == EventType.CUSTOM and e.name == TOOL_MEDIA_EVENT]
+    assert [r.content for r in results] == ["taken"]
+    assert media[0].value["tool_call_id"] == results[0].tool_call_id
+    assert media[0].value["media"][0]["url"].endswith(f"/tool-media/{uuid.UUID(int=1)}/")
+    assert events.index(results[0]) < events.index(media[0])
+
+
+def test_an_unanswered_result_with_media_is_text_only():
+    message = ToolMessage(content=[{"type": "text", "text": "x"}, _IMAGE], tool_call_id="c1", name="shot")
+
+    [result] = _hook_agent()._unanswered_tool_results(_tools_node_end(message), {})
+
+    assert result.content == "x"
+
+
+def test_an_unanswered_text_only_result_keeps_upstream_content():
+    message = ToolMessage(content=[{"type": "text", "text": "a"}, {"type": "text", "text": "b"}], tool_call_id="c1")
+
+    [result] = _hook_agent()._unanswered_tool_results(_tools_node_end(message), {})
+
+    assert result.content == "ab"

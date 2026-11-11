@@ -1575,3 +1575,100 @@ def test_a_body_builder_that_throws_falls_back_to_the_result_as_text():
     html = _body_with(seg, 'window.Diff = { diffLines() { throw new Error("boom"); } }')
     assert html.startswith('<div class="body-section"><div class="body-label">Loaded into context')
     assert '<pre class="body-pre">Successfully replaced 1 instance(s)' in html and "Changed" not in html
+
+
+STORED_IMAGE = {"kind": "image", "mime_type": "image/png", "size": 2048, "url": "/dashboard/sessions/t1/tool-media/i1/"}
+STORED_PDF = {
+    "kind": "file",
+    "mime_type": "application/pdf",
+    "size": 4096,
+    "url": "/dashboard/sessions/t1/tool-media/p1/",
+}
+
+
+MEDIA_ICONS = {"arrow-down-tray": "<i>download</i>", "arrow-top-right-on-square": "<i>open</i>"}
+
+
+def _media_body(media: list[dict], *, name: str = "read_file", result: str = "", args: dict | None = None) -> str:
+    seg = tool_call("c1", name, args or {"file_path": "/workspace/repo/a.png"}, result=result) | {"media": media}
+    return run_transcript("toolBodyHTML(vars.seg, {})", {"seg": seg}, blocks=False, labels={"icons": MEDIA_ICONS})
+
+
+def test_an_image_renders_as_a_thumbnail_linking_to_itself():
+    html = _media_body([STORED_IMAGE])
+
+    assert f'<img class="body-media-thumb" src="{STORED_IMAGE["url"]}"' in html
+    assert f'href="{STORED_IMAGE["url"]}" target="_blank" rel="noopener noreferrer"' in html
+    assert "Attached" in html
+    assert "Loaded into context" not in html
+
+
+def test_a_pdf_renders_as_a_chip_with_its_size():
+    html = _media_body([STORED_PDF])
+
+    assert "PDF · 4.0 KB" in html
+    assert f'href="{STORED_PDF["url"]}"' in html
+    assert "<img" not in html
+
+
+def test_an_external_image_is_a_link_not_an_img():
+    html = _media_body([{"kind": "image", "mime_type": "image/png", "url": "https://x.test/a.png", "external": True}])
+
+    assert "<img" not in html
+    assert 'href="https://x.test/a.png" target="_blank" rel="noopener noreferrer"' in html
+    assert "x.test<i>open</i>" in html
+
+
+def test_a_stored_file_downloads_in_place():
+    html = _media_body([STORED_PDF])
+
+    assert f'href="{STORED_PDF["url"]}" download>' in html
+    assert "target=" not in html
+    assert "<i>download</i>" in html
+
+
+def test_each_thumbnail_is_numbered_in_its_alt_text():
+    html = _media_body([STORED_IMAGE, STORED_IMAGE | {"url": "/dashboard/sessions/t1/tool-media/i2/"}])
+
+    assert 'alt="Image 1"' in html and 'alt="Image 2"' in html
+
+
+def test_an_unsafe_url_is_never_rendered():
+    html = _media_body([{"kind": "image", "mime_type": "image/png", "url": "javascript:alert(1)", "external": True}])
+
+    assert "javascript:" not in html
+
+
+def test_an_error_item_shows_its_reason():
+    html = _media_body([{"kind": "image", "mime_type": "image/png", "error": "run_limit"}])
+
+    assert "Not kept: the run reached its limit" in html
+    assert "<img" not in html
+
+
+def test_mcp_text_and_image_show_together():
+    html = _media_body([STORED_IMAGE], name="browser_screenshot", result="taken", args={})
+
+    assert "taken" in html
+    assert "<img" in html
+
+
+def test_a_quote_in_a_media_url_cannot_break_out_of_the_attribute():
+    external = _media_body([
+        {
+            "kind": "image",
+            "mime_type": "image/png",
+            "url": 'https://x.test/a.png" onmouseover="alert(1)',
+            "external": True,
+        }
+    ])
+    stored = _media_body([{"kind": "image", "mime_type": "image/png", "url": '/dashboard/x.png" onerror="alert(1)'}])
+
+    assert 'onmouseover="' not in external
+    assert 'onerror="' not in stored
+
+
+def test_a_backslash_path_is_not_treated_as_same_origin():
+    html = _media_body([{"kind": "image", "mime_type": "image/png", "url": "/\\evil.test/a.png"}])
+
+    assert "evil.test" not in html
