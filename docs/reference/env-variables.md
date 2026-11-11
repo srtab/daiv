@@ -54,6 +54,9 @@ Variables marked with:
 | `DB_PORT`       | Database port                              | `5432`       | `5432`          |
 | `DB_SSLMODE`    | PostgreSQL SSL mode                        | `require`    | `prefer`        |
 | `DB_POOL_MAX_SIZE` | Maximum size of a connection pool | `15` | `30` |
+| `DB_KEEPALIVES_IDLE` | Seconds a pooled connection may sit idle before a TCP keepalive probe is sent | `60` | `120` |
+| `DB_KEEPALIVES_INTERVAL` | Seconds between TCP keepalive probes on a pooled connection | `10` | `10` |
+| `DB_KEEPALIVES_COUNT` | Unanswered keepalive probes before a pooled connection is considered dead | `5` | `5` |
 
 ### Redis
 
@@ -70,6 +73,7 @@ Variables marked with:
 | Variable                | Description                        | Default        | Example         |
 |-------------------------|------------------------------------|:--------------:|-----------------|
 | `SENTRY_DSN` :material-lock:            | Sentry DSN                         | *(none)*       |                 |
+| `ENVIRONMENT`           | Deployment environment name, reported to Sentry as the event environment | *(none)* | `production` |
 | `SENTRY_DEBUG`          | Enable Sentry debug mode           | `False`        | `True`          |
 | `SENTRY_ENABLE_LOGS`    | Enable Sentry logs                 | `False`        | `True`          |
 | `SENTRY_TRACES_SAMPLE_RATE` | Sentry traces sample rate          | `0.0`          | `1.0`           |
@@ -176,7 +180,7 @@ Two more fields follow the same `DAIV_<FIELD_NAME>` convention and so are env-lo
 
 | Variable                | Description                        | Default        | Example         |
 |-------------------------|------------------------------------|:--------------:|-----------------|
-| `DAIV_EXTERNAL_URL`     | External URL of the application.   | `https://app:8000` | `https://daiv.example.com` |
+| `DAIV_EXTERNAL_URL`     | External URL of the application.   | `https://127.0.0.1:8000` | `https://daiv.example.com` |
 | `DAIV_ENCRYPTION_KEY` :material-lock: | Fernet encryption key for secrets stored in the database. If not set, a key is derived from `DJANGO_SECRET_KEY` via HKDF. | *(derived)* | |
 
 !!! note
@@ -430,6 +434,7 @@ The main agent used for issue addressing, pull request assistance, and all inter
 | `DAIV_AGENT_SKILL_MODELS` | Model per skill name, as a JSON object (`{"code-review": "openrouter:anthropic/claude-sonnet-5.5"}`); see [Agent Skills](../customization/agent-skills.md#running-a-skill-on-another-model). A null or empty entry is unset; a malformed value is logged and ignored. | `{}` |
 | `DAIV_AGENT_SUBAGENT_MODELS` | Model per subagent name, as a JSON object (`{"explore": "openrouter:anthropic/claude-haiku-5.5"}`). See [Subagents](../features/subagents.md#choosing-a-subagents-model). A null or empty entry is unset; a malformed value is logged and ignored. The deprecated `DAIV_AGENT_EXPLORE_MODEL_NAME` is still read as the `explore` entry when there is none, logged at ERROR, until it is removed. | `{}` |
 | `DAIV_AGENT_CUSTOM_SKILLS_PATH` | Path to custom global skills directory. Set to `None` to disable. | `~/data/skills` |
+| `DAIV_SESSION_LINK_ENABLED` | Link back to the DAIV sessions that produced the changes, from the descriptions of merge requests DAIV opens and from a DAIV-Session trailer on every commit. Disable to keep the DAIV URL off the git platform | `true` |
 
 ### Model Requests
 
@@ -465,3 +470,37 @@ Generates short titles for sessions and runs from the user's initial prompt.
 |-------------------------------|----------------------------------------------|------------------------|
 | `DAIV_TITLING_MODEL_NAME` | Primary model for title generation | `gpt-6-luna` |
 | `DAIV_TITLING_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails | `claude-haiku-5.5` |
+
+### Memory
+
+Learns from finished runs, consolidates what they taught into a per-repository document, and injects it into future runs.
+
+| Variable | Description | Default |
+|----------------------------------------|----------------------------------------------------------|------------------------|
+| `DAIV_MEMORY_ENABLED` | Capture learnings from finished runs, consolidate them, and inject them into future runs. A per-repository `.daiv.yml` flag can still opt an individual repository out | `true` |
+| `DAIV_MEMORY_EXTRACTION_MODEL_NAME` | Cheap model that extracts candidate observations from each finished run's transcript | `gpt-6-luna` |
+| `DAIV_MEMORY_EXTRACTION_FALLBACK_MODEL_NAME` | Fallback model when the extraction model fails | `claude-haiku-5.5` |
+| `DAIV_MEMORY_CONSOLIDATION_MODEL_NAME` | Model that rewrites the memory document. Leave empty to reuse the repository's agent model | *(none)* |
+| `DAIV_MEMORY_CONSOLIDATION_MIN_PENDING` | Consolidate once at least this many pending observations have accumulated (subject to the consolidation interval below) | `10` |
+| `DAIV_MEMORY_CONSOLIDATION_MAX_PENDING_AGE_DAYS` | Consolidate a repository that is still below the threshold above once its oldest pending observation reaches this age, so low-volume repositories still form memory | `7` |
+| `DAIV_MEMORY_CONSOLIDATION_MIN_INTERVAL_HOURS` | Minimum hours between consolidations for the same repository | `24` |
+| `DAIV_MEMORY_MAX_LINES` | Cap on the memory document length in lines; entries beyond it are evicted | `200` |
+| `DAIV_MEMORY_MAX_BYTES` | Cap on the memory document size in bytes; entries beyond it are evicted | `10240` |
+
+### Run classifier
+
+Classifies the report of each finished scheduled run into an envelope.
+
+| Variable | Description | Default |
+|----------------------------------------|----------------------------------------------------------|------------------------|
+| `DAIV_RUN_CLASSIFIER_MODEL_NAME` | Model that classifies each finished scheduled run's report into an envelope | `gpt-6-luna` |
+| `DAIV_RUN_CLASSIFIER_FALLBACK_MODEL_NAME` | Fallback model when the classifier model fails | `claude-haiku-5.5` |
+
+### Pipeline Watch
+
+Watches the CI of merge requests DAIV publishes and spends a bounded number of agent runs making it green — see [Pipeline Watch](../features/pipeline-watch.md).
+
+| Variable | Description | Default |
+|----------------------------------------|----------------------------------------------------------|------------------------|
+| `DAIV_PIPELINE_WATCH_ENABLED` | Watch CI on merge requests DAIV publishes and try to fix failures | `true` |
+| `DAIV_PIPELINE_WATCH_MAX_ATTEMPTS` | How many fix attempts to spend on one merge request before handing back | `3` |
