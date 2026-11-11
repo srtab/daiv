@@ -1991,23 +1991,30 @@
     }
   };
 
-  const mediaLink = (url, cls, inner) =>
+  const newTabLink = (url, cls, inner) =>
     `<a class="${cls}" href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${inner}</a>`;
 
-  const mediaItemHTML = (item) => {
+  const mediaItemHTML = (item, index) => {
     const label = mediaKindLabel(item);
     const url = item.error ? null : safeMediaUrl(String(item.url ?? ""));
     if (!url) {
       const reason = MEDIA_ERRORS.has(item.error) ? item.error : item.error ? "failed" : "unsupported_type";
       return `<span class="body-media-missing">${escapeHtml(`${label} · ${t(`media_${reason}`)}`)}</span>`;
     }
-    if (item.external) return mediaLink(url, "body-media-chip", escapeHtml(`${label} · ${urlHost(url)}`));
-    if (item.kind === "image") {
-      const img = `<img class="body-media-thumb" src="${escapeAttr(url)}" alt="${escapeAttr(label)}" loading="lazy">`;
-      return mediaLink(url, "body-media-item", img);
+    const { iconHTML } = window.TranscriptLabels;
+    if (item.external) {
+      const text = escapeHtml(`${label} · ${urlHost(url)}`);
+      return newTabLink(url, "body-media-chip", text + iconHTML("arrow-top-right-on-square"));
     }
+    if (item.kind === "image") {
+      const alt = escapeAttr(`${label} ${index + 1}`);
+      const img = `<img class="body-media-thumb" src="${escapeAttr(url)}" alt="${alt}" loading="lazy">`;
+      return newTabLink(url, "body-media-item", img);
+    }
+    // The endpoint serves every stored file but an image as an attachment, so a new tab would only flash.
     const size = Number.isFinite(item.size) ? ` · ${kbSize(item.size)}` : "";
-    return mediaLink(url, "body-media-chip", escapeHtml(`${label}${size}`));
+    const text = escapeHtml(`${label}${size}`) + iconHTML("arrow-down-tray");
+    return `<a class="body-media-chip" href="${escapeAttr(url)}" download>${text}</a>`;
   };
 
   const mediaHTML = (media) => {

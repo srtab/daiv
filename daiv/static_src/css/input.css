@@ -2386,51 +2386,32 @@ html {
   }
 
   .body-media {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-start;
-    gap: 8px;
+    @apply flex flex-wrap items-start gap-2;
   }
 
   .body-media-item {
-    display: block;
-    border: 1px solid var(--color-border);
-    border-radius: 6px;
-    overflow: hidden;
-  }
-
-  .body-media-item:hover {
-    border-color: var(--color-accent);
+    @apply block overflow-hidden rounded-md border border-border transition-colors hover:border-accent;
+    max-width: min(100%, 360px);
   }
 
   .body-media-thumb {
     display: block;
-    max-width: min(100%, 360px);
+    max-width: 100%;
     max-height: 240px;
-    object-fit: contain;
   }
 
   .body-media-chip,
   .body-media-missing {
-    padding: 4px 9px;
-    border: 1px solid var(--color-border);
-    border-radius: 999px;
-    font-size: 12px;
+    @apply inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-0.5 text-[12px] font-medium;
     overflow-wrap: anywhere;
   }
 
   .body-media-chip {
-    color: var(--color-text);
-  }
-
-  .body-media-chip:hover {
-    border-color: var(--color-accent);
-    color: var(--color-text-strong);
+    @apply bg-surface-2 text-accent transition-colors hover:bg-surface-3 hover:text-accent-bright;
   }
 
   .body-media-missing {
-    border-style: dashed;
-    color: var(--color-text-muted);
+    @apply border-dashed text-text-muted;
   }
 
   .body-offload {

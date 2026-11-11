@@ -7,6 +7,8 @@ from sessions.models import EventKind, PublishErrorKind
 
 TRANSCRIPT_ICONS = frozenset({
     "agent",
+    "arrow-down-tray",
+    "arrow-top-right-on-square",
     "beaker",
     "chat-bubble",
     "command-line",

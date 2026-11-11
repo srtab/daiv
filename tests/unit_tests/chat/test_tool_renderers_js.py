@@ -1586,9 +1586,12 @@ STORED_PDF = {
 }
 
 
+MEDIA_ICONS = {"arrow-down-tray": "<i>download</i>", "arrow-top-right-on-square": "<i>open</i>"}
+
+
 def _media_body(media: list[dict], *, name: str = "read_file", result: str = "", args: dict | None = None) -> str:
     seg = tool_call("c1", name, args or {"file_path": "/workspace/repo/a.png"}, result=result) | {"media": media}
-    return run_transcript("toolBodyHTML(vars.seg, {})", {"seg": seg}, blocks=False)
+    return run_transcript("toolBodyHTML(vars.seg, {})", {"seg": seg}, blocks=False, labels={"icons": MEDIA_ICONS})
 
 
 def test_an_image_renders_as_a_thumbnail_linking_to_itself():
@@ -1612,8 +1615,22 @@ def test_an_external_image_is_a_link_not_an_img():
     html = _media_body([{"kind": "image", "mime_type": "image/png", "url": "https://x.test/a.png", "external": True}])
 
     assert "<img" not in html
-    assert 'href="https://x.test/a.png"' in html
-    assert "x.test" in html
+    assert 'href="https://x.test/a.png" target="_blank" rel="noopener noreferrer"' in html
+    assert "x.test<i>open</i>" in html
+
+
+def test_a_stored_file_downloads_in_place():
+    html = _media_body([STORED_PDF])
+
+    assert f'href="{STORED_PDF["url"]}" download>' in html
+    assert "target=" not in html
+    assert "<i>download</i>" in html
+
+
+def test_each_thumbnail_is_numbered_in_its_alt_text():
+    html = _media_body([STORED_IMAGE, STORED_IMAGE | {"url": "/dashboard/sessions/t1/tool-media/i2/"}])
+
+    assert 'alt="Image 1"' in html and 'alt="Image 2"' in html
 
 
 def test_an_unsafe_url_is_never_rendered():
