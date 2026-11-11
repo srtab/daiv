@@ -33,10 +33,11 @@ class TestSetupDefaultSite:
 
     def test_url_without_host_is_rejected(self, monkeypatch):
         monkeypatch.setattr(core_settings, "EXTERNAL_URL", Mock(host=None, port=None))
+        before = Site.objects.values("domain", "name").get(pk=settings.SITE_ID)
         with pytest.raises(CommandError, match="no valid host"):
             call_command("setup_default_site")
-        # Nothing was written: the default row keeps its domain.
-        assert Site.objects.get(pk=settings.SITE_ID).domain != ""
+        # Nothing was written: the default row keeps its domain and name.
+        assert Site.objects.values("domain", "name").get(pk=settings.SITE_ID) == before
 
     def test_prints_success_message(self, monkeypatch, capsys):
         monkeypatch.setattr(core_settings, "EXTERNAL_URL", HttpUrl("https://daiv.example.com:8443"))
