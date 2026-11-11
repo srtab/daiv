@@ -7,7 +7,7 @@ def test_a_removed_env_var_still_set_is_warned_about(monkeypatch):
 
     [warning] = check_removed_env_vars(None)
 
-    assert (warning.id, warning.msg) == ("core.W001", "DAIV_AGENT_EXPLORE_MODEL_NAME is no longer read.")
+    assert (warning.id, warning.msg) == ("core.W001", "DAIV_AGENT_EXPLORE_MODEL_NAME is deprecated.")
     assert "DAIV_AGENT_SUBAGENT_MODELS" in warning.hint
 
 

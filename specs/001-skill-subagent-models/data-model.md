@@ -54,7 +54,7 @@ serves.
 | `name` | string | The skill or subagent name |
 | `configured_model` | string | The spec that could not be used |
 | `served_model` | string | The spec that served instead |
-| `reason` | `"unknown_provider"` \| `"provider_unavailable"` \| `"init_failed"` | Category only, never exception text |
+| `reason` | `"unknown_provider"` \| `"provider_unavailable"` \| `"init_failed"` \| `"call_failed"` | Category only, never exception text |
 
 Notices are appended during the run and kept after it ends. A skill's notice is recorded once per
 run per entry, matching the per-run model cache.

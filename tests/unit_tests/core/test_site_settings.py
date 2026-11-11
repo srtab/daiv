@@ -371,3 +371,31 @@ class TestModelMaps:
         with pytest.raises(TypeError):
             getattr(snapshot, field)["plan"] = "openrouter:other/model"
         assert ss.FIELD_DEFAULTS[field] == {}
+
+
+class TestLegacyExploreModel:
+    def test_the_old_explore_variable_is_read_as_the_explore_entry_and_logged_once(self, ss, monkeypatch, caplog):
+        monkeypatch.setenv("DAIV_AGENT_EXPLORE_MODEL_NAME", "openrouter:legacy/explore")
+        stored = SiteConfiguration(agent_subagent_models={"cr-tests": "openrouter:db/tests"})
+        with (
+            patch.object(SiteConfiguration, "get_cached", return_value=stored),
+            caplog.at_level(logging.ERROR, logger="daiv.core"),
+        ):
+            models = ss.agent_subagent_models
+            snapshot_models = ss.snapshot().agent_subagent_models
+
+        assert models == snapshot_models == {"cr-tests": "openrouter:db/tests", "explore": "openrouter:legacy/explore"}
+        assert [r.levelno for r in caplog.records if "DAIV_AGENT_EXPLORE_MODEL_NAME" in r.getMessage()] == [
+            logging.ERROR
+        ]
+
+    def test_an_explore_entry_beats_the_old_variable(self, ss, monkeypatch):
+        monkeypatch.setenv("DAIV_AGENT_EXPLORE_MODEL_NAME", "openrouter:legacy/explore")
+        monkeypatch.setenv("DAIV_AGENT_SUBAGENT_MODELS", '{"explore": "openrouter:env/explore"}')
+        with patch.object(SiteConfiguration, "get_cached", return_value=SiteConfiguration()):
+            assert ss.agent_subagent_models == {"explore": "openrouter:env/explore"}
+
+    def test_the_skill_map_ignores_the_old_variable(self, ss, monkeypatch):
+        monkeypatch.setenv("DAIV_AGENT_EXPLORE_MODEL_NAME", "openrouter:legacy/explore")
+        with patch.object(SiteConfiguration, "get_cached", return_value=SiteConfiguration()):
+            assert ss.agent_skill_models == {}

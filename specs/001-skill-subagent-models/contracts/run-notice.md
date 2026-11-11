@@ -24,6 +24,7 @@ it records a notice.
 |--------|--------|-----------|
 | Agent assembly | `general-purpose`, a code-review detector, a repository subagent | Its configured entry cannot be built |
 | Skill invocation | the invoked skill | Its configured entry cannot be built; recorded once per run per entry |
+| A model call | the skill or subagent the call served | Its configured model failed the call; recorded once per run per name, and the model is not called again in the run |
 
 Each recorded notice is also logged at ERROR with the same fields.
 
@@ -34,7 +35,7 @@ Each recorded notice is also logged at ERROR with the same fields.
 - It renders as a neutral chip with the warning icon and the sentence "<name> ran on
   <served_model>: <configured_model> could not be used (<reason label>)."
 - Reason labels: `unknown_provider` → "unknown provider", `provider_unavailable` → "provider
-  disabled or missing an API key", `init_failed` → "the model could not be started".
+  disabled or missing an API key", `init_failed` → "the model could not be started", `call_failed` → "its calls failed".
 - The notice appears when the session page loads. Live display while the page is open is out of
   scope.
 - The run posts nothing extra to the merge or pull request, and the notice never includes

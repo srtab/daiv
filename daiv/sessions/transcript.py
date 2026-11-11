@@ -72,6 +72,7 @@ _FALLBACK_REASON_LABELS: dict[FallbackReason, str] = {
     "unknown_provider": "unknown provider",
     "provider_unavailable": "provider disabled or missing an API key",
     "init_failed": "the model could not be started",
+    "call_failed": "its calls failed",
 }
 
 

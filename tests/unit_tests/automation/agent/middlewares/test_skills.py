@@ -13,6 +13,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
+from skills.constants import SKILLS_PATH
 
 from automation.agent.agent_settings import ModelChain
 from automation.agent.configured_models import ConfiguredModels
@@ -1008,12 +1009,15 @@ def _write_file(file_path: str, content: str) -> str:
     return f"Updated file {file_path}"
 
 
+REPO_CHEAP_PATH = "/workspace/repo/.agents/skills/repo-cheap/SKILL.md"
+
 _SKILL_BODIES = {
     "/skills/plan/SKILL.md": b"---\nname: plan\ndescription: Plan\n---\nPlan it.",
     "/skills/audit/SKILL.md": b"---\nname: audit\ndescription: Audit\n---\nAudit it.",
     "/skills/demo/SKILL.md": b"---\nname: demo\ndescription: Demo\n---\nRun this.",
     "/skills/review/SKILL.md": b"---\nname: review\ndescription: Review\n---\nReview it.",
-    "/skills/cheap/SKILL.md": b"---\nname: cheap\ndescription: Cheap\n---\nRun cheap.",
+    f"{SKILLS_PATH}/cheap/SKILL.md": b"---\nname: cheap\ndescription: Cheap\n---\nRun cheap.",
+    REPO_CHEAP_PATH: b"---\nname: repo-cheap\ndescription: Repo cheap\n---\nRun repo cheap.",
 }
 _SKILLS_METADATA = [
     {
@@ -1030,7 +1034,13 @@ _SKILLS_METADATA = [
     },
     {"name": "demo", "description": "Demo", "path": "/skills/demo/SKILL.md"},
     {"name": "review", "description": "Review", "path": "/skills/review/SKILL.md", "metadata": {"mode": "interactive"}},
-    {"name": "cheap", "description": "Cheap", "path": "/skills/cheap/SKILL.md", "metadata": {"model": "fake:cheap"}},
+    {
+        "name": "cheap",
+        "description": "Cheap",
+        "path": f"{SKILLS_PATH}/cheap/SKILL.md",
+        "metadata": {"model": "fake:cheap"},
+    },
+    {"name": "repo-cheap", "description": "Repo cheap", "path": REPO_CHEAP_PATH, "metadata": {"model": "fake:cheap"}},
 ]
 
 
@@ -1321,6 +1331,17 @@ class TestSkillModel:
 
         assert result["messages"][-1].content == "from the run model"
 
+    async def test_a_repository_skills_own_model_is_ignored(self):
+        get_model = Mock(return_value=_ToolModel(messages=iter([AIMessage(content="from the skill model")])))
+
+        result = await self._run(
+            [AIMessage(content="", tool_calls=[REPO_CHEAP_SKILL_CALL]), AIMessage(content="from the run model")],
+            get_model,
+        )
+
+        assert result["messages"][-1].content == "from the run model"
+        get_model.assert_not_called()
+
     async def test_an_unresolvable_skill_model_leaves_the_run_model_in_place(self):
         result = await self._run(
             [AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL]), AIMessage(content="from the run model")],
@@ -1355,11 +1376,20 @@ class TestSkillModel:
 
 
 DEMO_SKILL_CALL = {"name": "skill", "args": {"skill": "demo"}, "id": "call_demo"}
+REPO_CHEAP_SKILL_CALL = {"name": "skill", "args": {"skill": "repo-cheap"}, "id": "call_repo_cheap"}
+
+
+class _CountingFailingModel(_FailingModel):
+    calls: int = 0
+
+    def _generate(self, *args, **kwargs):
+        self.calls += 1
+        return super()._generate(*args, **kwargs)
 
 
 class TestConfiguredSkillModel:
-    async def _run(self, run_replies: list[AIMessage], get_model, *, configured: dict, notices=None) -> dict:
-        agent = _skills_agent(run_replies, [], configured=configured, notices=notices)
+    async def _run(self, run_replies: list[AIMessage], get_model, *, configured: dict, notices=None, tools=()) -> dict:
+        agent = _skills_agent(run_replies, list(tools), configured=configured, notices=notices)
         with (
             patch("automation.agent.middlewares.skills.record_invocation", new_callable=AsyncMock),
             patch("automation.agent.configured_models.get_model", get_model),
@@ -1404,6 +1434,42 @@ class TestConfiguredSkillModel:
         )
 
         assert result["messages"][-1].content == "from the configured model"
+
+    async def test_a_configured_model_applies_to_a_repository_skill(self):
+        configured_model = _ToolModel(messages=iter([AIMessage(content="from the configured model")]))
+
+        result = await self._run(
+            [AIMessage(content="", tool_calls=[REPO_CHEAP_SKILL_CALL])],
+            FakeModels(models={"fake:configured": configured_model}),
+            configured={"repo-cheap": "fake:configured"},
+        )
+
+        assert result["messages"][-1].content == "from the configured model"
+
+    async def test_a_skill_model_that_fails_a_call_is_reported_once_and_not_called_again(self, caplog):
+        failing = _CountingFailingModel(messages=iter([]))
+        notices = FakeNotices()
+
+        with caplog.at_level(logging.WARNING, logger="daiv.agent"):
+            result = await self._run(
+                [
+                    AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL]),
+                    AIMessage(content="", tool_calls=[WRITE_CALL]),
+                    AIMessage(content="from the run model"),
+                ],
+                FakeModels(models={"fake:cheap": failing}),
+                configured={},
+                notices=notices,
+                tools=[_write_file],
+            )
+
+        assert result["messages"][-1].content == "from the run model"
+        assert failing.calls == 1
+        assert [(n.target, n.name, n.configured_model, n.served_model, n.reason) for n in notices.recorded] == [
+            ("skill", "cheap", "fake:cheap", "fake:run", "call_failed")
+        ]
+        assert notices.flushed_with == [1]
+        assert [r.levelno for r in caplog.records if "fake:cheap" in r.getMessage()] == [logging.ERROR]
 
     async def test_an_unusable_configured_model_falls_back_to_the_skill_files_model(self, caplog):
         # The skill model invokes the skill again, so the notice is shown to be recorded once per run.

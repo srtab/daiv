@@ -248,9 +248,11 @@ async def create_daiv_agent(
 
     subagent_models = ConfiguredModels("subagent", settings.subagent_models, chain=chain, notices=notices)
     skill_models = ConfiguredModels("skill", settings.skill_models, chain=chain, notices=notices)
+    general_purpose_model = subagent_models.for_subagent(GENERAL_PURPOSE_NAME, "", model)
+    explore_model = subagent_models.for_subagent(EXPLORE_NAME, EXPLORE_MODEL_NAME, model, never_skip=True)
     subagents = [
         create_general_purpose_subagent(
-            subagent_models.for_subagent(GENERAL_PURPOSE_NAME, "", model),
+            general_purpose_model,
             workspace,
             ctx,
             working_directory,
@@ -258,12 +260,14 @@ async def create_daiv_agent(
             web_fetch_enabled=settings.web_fetch_enabled,
             fallback_models=fallback_models,
             mcp_tools=mcp_tools,
+            model_failover=subagent_models.call_failover(GENERAL_PURPOSE_NAME),
         ),
         create_explore_subagent(
             workspace,
             working_directory,
-            model=subagent_models.for_subagent(EXPLORE_NAME, EXPLORE_MODEL_NAME, model, never_skip=True),
+            model=explore_model,
             fallback_models=fallback_models,
+            model_failover=subagent_models.call_failover(EXPLORE_NAME),
         ),
         *load_builtin_code_review_detectors(
             model, backend, working_directory, fallback_models=fallback_models, configured_models=subagent_models

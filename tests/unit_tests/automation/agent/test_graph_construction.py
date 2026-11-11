@@ -17,7 +17,7 @@ from automation.agent.middlewares.delegate_jobs import DelegateJobsMiddleware
 from automation.agent.middlewares.memory import RepositoryMemoryMiddleware
 from automation.agent.middlewares.skills import SkillModelMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
-from automation.agent.middlewares.subagent_models import SubagentModelNoticesMiddleware
+from automation.agent.middlewares.subagent_models import SubagentModelFailoverMiddleware, SubagentModelNoticesMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.model_spec import ModelSpecError
@@ -243,6 +243,9 @@ async def _construct(
         models=[(c.kwargs["model"], c.kwargs["thinking_level"]) for c in mocks["get_model"].call_args_list],
         run_model=mocks["get_model"].return_value,
         explore_model=next(c.kwargs["model"] for c in subagent_agents.call_args_list if c.kwargs["name"] == "explore"),
+        explore_middleware=next(
+            c.kwargs["middleware"] for c in subagent_agents.call_args_list if c.kwargs["name"] == "explore"
+        ),
         middleware=deep_agent.call_args.kwargs["middleware"],
         subagent_web={
             toggle: mocks["create_general_purpose_subagent"].call_args.kwargs[toggle]
@@ -325,6 +328,15 @@ async def test_the_general_purpose_subagent_runs_on_its_configured_model():
 
     assert built.general_purpose.call_args.args[0] is built.configured.return_value
     assert built.configured.call_args_list.count(call(model="fake:gp", thinking_level="medium")) == 1
+    [failover] = built.general_purpose.call_args.kwargs["model_failover"]
+    assert isinstance(failover, SubagentModelFailoverMiddleware)
+
+
+@pytest.mark.parametrize(("entries", "fails_over"), [({}, False), ({"explore": "fake:explore"}, True)])
+async def test_the_explore_subagent_fails_over_only_from_a_configured_entry(entries, fails_over):
+    built = await _construct(site={"agent_subagent_models": entries})
+
+    assert any(isinstance(m, SubagentModelFailoverMiddleware) for m in built.explore_middleware) is fails_over
 
 
 async def test_the_general_purpose_subagent_falls_back_to_the_runs_model_and_is_reported_once_dispatched():

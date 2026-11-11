@@ -160,12 +160,12 @@ Once the agent invokes a skill, its model calls run on the skill's model until y
 
 1. the skill's entry under `models.skills` in the repository's `.daiv.yml` (see [Model overrides](repository-config.md#skill-and-subagent-models));
 2. the skill's entry in site configuration, under **Agent → Skill and subagent models** (or `DAIV_AGENT_SKILL_MODELS`);
-3. the skill file's `metadata.model`;
+3. the `metadata.model` of a built-in or global skill file;
 4. the run's model.
 
 Site configuration changes a skill's model for every repository, built-in skills included, without copying or editing the skill file. A model the user picks for the run, even an exact model passed to the jobs API, does not override an entry.
 
-A skill file can name its own model in `metadata.model`, as a model spec (`provider-slug:model`, as in [subagents](../features/subagents.md)):
+A built-in or global skill file can name its own model in `metadata.model`, as a model spec (`provider-slug:model`, as in [subagents](../features/subagents.md)):
 
 ```yaml
 ---
@@ -176,9 +176,11 @@ metadata:
 ---
 ```
 
-The run's thinking level carries over. The run's model serves any model call whose conversation no longer fits the skill model's context window, and any call the skill model fails, before the run's fallback models. Switching models starts a fresh prompt cache on each side, so a cheaper skill model pays off only for skills that do substantial work.
+A repository skill's `metadata.model` is ignored, because the file comes from the branch the run works on, which the author of a merge request controls. Give a repository skill a model with a `models.skills` entry in `.daiv.yml` instead.
 
-When a configured entry names a provider that is unknown, disabled or missing its API key, the skill runs on its `metadata.model`, else the run's model. The failure is logged at ERROR, and the session view shows a notice naming the skill, the model that could not be used and the model that served. A `metadata.model` that can't be used keeps the run's model, logged and shown the same way.
+The run's thinking level carries over. The run's model serves any model call whose conversation no longer fits the skill model's context window, and, once the skill model fails a call, that call and every later one in the run, before the run's fallback models. Switching models starts a fresh prompt cache on each side, so a cheaper skill model pays off only for skills that do substantial work.
+
+When a configured entry names a provider that is unknown, disabled or missing its API key, the skill runs on its `metadata.model`, else the run's model. The failure is logged at ERROR, and the session view shows a notice naming the skill, the model that could not be used and the model that served. A `metadata.model` that can't be used keeps the run's model, logged and shown the same way, and so is a skill model whose call fails, such as a model name the provider doesn't know.
 
 ### Writing a good description
 

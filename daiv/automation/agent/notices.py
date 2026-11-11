@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Literal, Protocol
 
-FallbackReason = Literal["unknown_provider", "provider_unavailable", "init_failed"]
+FallbackReason = Literal["unknown_provider", "provider_unavailable", "init_failed", "call_failed"]
 NoticeTarget = Literal["skill", "subagent"]
 
 

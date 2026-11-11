@@ -78,8 +78,9 @@ class SkillModelMiddleware(AgentMiddleware):
 
     Registered right inside ``ModelFallbackMiddleware``, so the middlewares inside it (deferred tools, the context
     meter, prompt caching) see the model that serves the call. A fallback model's call passes through, and
-    ``run_model`` serves a call the skill model fails, so the chain is skill model, run model, fallbacks. The run's
-    model also keeps any call whose request would not fit the skill model's window, since compaction is tuned to it.
+    ``run_model`` serves a call the skill model fails and every call after it in the run, so the chain is skill model,
+    run model, fallbacks; ``ConfiguredModels.areport_call_failure`` reports the failure. The run's model also keeps any
+    call whose request would not fit the skill model's window, since compaction is tuned to it.
     """
 
     def __init__(self, configured_models: ConfiguredModels, *, run_model: BaseChatModel) -> None:
@@ -90,31 +91,26 @@ class SkillModelMiddleware(AgentMiddleware):
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
     ) -> ModelCallResult:
-        skill_model = self._skill_model(request)
-        if skill_model is None:
+        if (skill := self._skill_model(request)) is None:
             return await handler(request)
+        spec, skill_model = skill
         try:
             return await handler(request.override(model=skill_model))
         except GraphBubbleUp:
             raise
-        except Exception:
-            # Safe to continue: the run's model serves the call, as it does with no skill model.
-            logger.warning(
-                "[%s] Skill model '%s' failed; the run's model serves this call",
-                self.name,
-                chat_model_name(skill_model),
-                exc_info=True,
-            )
+        except Exception as error:
+            # Safe to continue: the run's model serves this call and the rest of the run, as with no skill model.
+            await self._models.areport_call_failure(self._models.skill_name(spec), spec, error)
         return await handler(request)
 
-    def _skill_model(self, request: ModelRequest) -> BaseChatModel | None:
-        """The active skill's model for ``request``, or ``None`` to keep ``request.model``: a fallback model's call, no
-        skill model, one that cannot be built, or a request that does not fit its window."""
+    def _skill_model(self, request: ModelRequest) -> tuple[str, BaseChatModel] | None:
+        """The active skill's spec and model for ``request``, or ``None`` to keep ``request.model``: a fallback model's
+        call, no skill model, one that cannot be built or failed a call, or a request that does not fit its window."""
         if request.model is not self._run_model:
             return None
         if not (spec := request.state.get("active_skill_model")) or (model := self._models.build(spec)) is None:
             return None
-        return model if self._fits_context_window(request, model, spec) else None
+        return (spec, model) if self._fits_context_window(request, model, spec) else None
 
     def _fits_context_window(self, request: ModelRequest, model: BaseChatModel, spec: str) -> bool:
         window = resolve_context_window(model, chat_model_name(model))
@@ -192,8 +188,10 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
     as ``provisioning_errors``, reported like the copy's own.
 
     An invoked skill sets ``active_skill_model``, the model spec (``slug:model``) its calls run on until the user's next
-    follow-up: its ``configured_models`` entry, else its ``metadata.model`` (see ``ConfiguredModels.askill_spec``);
-    ``None`` when neither can be built. ``SkillModelMiddleware`` serves the calls on it.
+    follow-up: its ``configured_models`` entry, else the ``metadata.model`` of a built-in or global skill (see
+    ``ConfiguredModels.askill_spec``); ``None`` when neither can be built. A repository's skill files come from the
+    branch the run works on, which anyone who opens a merge request controls, so their ``metadata.model`` is ignored.
+    ``SkillModelMiddleware`` serves the calls on it.
     """
 
     state_schema = DAIVSkillsState
@@ -382,6 +380,14 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
         return False
 
+    def _file_model(self, loaded_skill: SkillMetadata) -> str | None:
+        """The ``metadata.model`` of a built-in or global skill, which live under ``SKILLS_PATH``."""
+        model = loaded_skill.get("metadata", {}).get("model")
+        if model and not loaded_skill["path"].startswith(f"{SKILLS_PATH}/"):
+            logger.info("[%s] Ignoring metadata.model of repository skill '%s'", self.name, loaded_skill["name"])
+            return None
+        return model
+
     def _skill_tool_generator(self) -> BaseTool:
         """Generate a skill tool."""
 
@@ -437,7 +443,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             )
 
             skill_mode = loaded_skill.get("metadata", {}).get("mode")
-            skill_model = await self._models.askill_spec(skill, loaded_skill.get("metadata", {}).get("model"))
+            skill_model = await self._models.askill_spec(skill, self._file_model(loaded_skill))
             update: dict = {
                 "messages": [ToolMessage(content=body, tool_call_id=runtime.tool_call_id)],
                 "active_skill_model": skill_model,

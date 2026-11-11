@@ -61,6 +61,7 @@ def _parse_auth_headers_json(raw: str) -> dict[str, dict[str, SecretStr]]:
 
 
 MODEL_MAP_FIELDS = frozenset({"agent_skill_models", "agent_subagent_models"})
+LEGACY_EXPLORE_MODEL_ENV = "DAIV_AGENT_EXPLORE_MODEL_NAME"
 
 
 def _parse_model_map_json(raw: str, env_var: str) -> dict[str, str]:
@@ -73,6 +74,24 @@ def _parse_model_map_json(raw: str, env_var: str) -> dict[str, str]:
     except ValidationError:
         logger.exception("%s could not be parsed as a JSON object of model specs; ignoring.", env_var)
         return {}
+
+
+def _with_legacy_explore_model(subagent_models: dict[str, str]) -> dict[str, str]:
+    """``subagent_models`` with ``DAIV_AGENT_EXPLORE_MODEL_NAME`` as its ``explore`` entry when it has none, so an
+    upgrade does not silently move explore off the model the operator chose; logged at ERROR the first time it is read
+    until the operator moves it."""
+    if "explore" in subagent_models:
+        return subagent_models
+    first_read = LEGACY_EXPLORE_MODEL_ENV not in _docker_secret_cache
+    if not (legacy := _get_docker_secret_cached(LEGACY_EXPLORE_MODEL_ENV)):
+        return subagent_models
+    if first_read:
+        logger.error(
+            '%s is deprecated: it is read as the "explore" entry of DAIV_AGENT_SUBAGENT_MODELS until it is removed. '
+            "Move it there.",
+            LEGACY_EXPLORE_MODEL_ENV,
+        )
+    return {**subagent_models, "explore": legacy}
 
 
 def _build_field_defaults() -> dict[str, Any]:
@@ -291,6 +310,8 @@ class SiteSettings:
     def _resolve(self, name: str, get_config: Callable[[], SiteConfiguration | None]) -> Any:
         """Resolve one field; ``get_config`` is called only when no env var or Docker secret sets it."""
         value = self._resolve_value(name, get_config)
+        if name == "agent_subagent_models":
+            value = _with_legacy_explore_model(value)
         return MappingProxyType(dict(value)) if isinstance(value, dict) else value
 
     def _resolve_value(self, name: str, get_config: Callable[[], SiteConfiguration | None]) -> Any:

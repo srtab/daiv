@@ -196,9 +196,9 @@ For a given name, the model resolves in this order, first match wins:
 
 1. this repository's entry;
 2. the site configuration's entry (**Agent → Skill and subagent models**);
-3. the model the skill or subagent file declares;
+3. the model the subagent file, or a built-in or global skill file, declares (a repository skill's `metadata.model` is ignored);
 4. the run's model.
 
 A model picked for the run, `daiv-max`, or an exact model passed to the jobs API does not override these entries. Configured models run with the run's thinking level.
 
-Values are checked when a run uses them, not when the file loads, so a typo never drops the rest of `.daiv.yml`. An entry that can't be used falls back to the model the file declares, else the run's model, not to the site entry; the failure is logged at ERROR and the session view shows a notice. Names that match no skill or subagent are ignored. See [Agent Skills](agent-skills.md#running-a-skill-on-another-model) and [Subagents](../features/subagents.md#choosing-a-subagents-model).
+Values are checked when a run uses them, not when the file loads, so a typo never drops the rest of `.daiv.yml`. An entry that can't be used, or whose model fails a call, falls back to the model the file declares, else the run's model, not to the site entry; the failure is logged at ERROR and the session view shows a notice. Names that match no skill or subagent are ignored. See [Agent Skills](agent-skills.md#running-a-skill-on-another-model) and [Subagents](../features/subagents.md#choosing-a-subagents-model).

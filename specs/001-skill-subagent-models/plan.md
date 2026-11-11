@@ -52,19 +52,19 @@ ones.
 
 | Principle | How the design complies | Status |
 |-----------|-------------------------|--------|
-| I. Secure and isolated | No new credentials, egress or entry points. Entries resolve only against configured `Provider` rows. Repositories may override entries with the trust they already have for `models.agent` (clarification). Notices hold reason categories, never exception text. | Pass |
+| I. Secure and isolated | No new credentials, egress or entry points. Entries resolve only against configured `Provider` rows. Repositories may override entries with the trust they already have for `models.agent` (clarification). A repository's skill files come from the branch the run works on, so their `metadata.model` is ignored; only built-in and global skills name their own model. Notices hold reason categories, never exception text. | Pass |
 | II. Architecture boundaries | The `configuration` app (top layer) reads names from `skills` and `automation`. `automation` defines a `RunNotices` protocol that `sessions` implements and the executor injects, the same pattern as `session_links` and `delegator`. No new package, no new `ignore_imports`. | Pass |
 | III. Platform and provider neutrality | No platform branching. Specs resolve through `parse_model_spec`. The defaults are empty maps, and both maps can be overridden with `DAIV_AGENT_SKILL_MODELS` / `DAIV_AGENT_SUBAGENT_MODELS`. | Pass |
 | IV. Tests prove behaviour | Each behaviour change has tests that fail without it (Project Structure → tests). The `chat-stream.js` change is checked by hand in quickstart scenario 5, because the repository has no JavaScript test harness. | Pass (planned) |
-| V. Measured agent behaviour | With no entries configured, prompts, tools and models are unchanged, so this is not an agent-behaviour change. The pull request declares it unmeasured (R9). | Pass |
-| VI. Honest failure handling | An unusable configured model is logged at ERROR, and the run continues on the fallback model with a persisted notice. Nothing extra is posted to the merge or pull request. | Pass |
+| V. Measured agent behaviour | With no entries configured, prompts, tools and the models of the main agent and its subagents are unchanged; only explore's fallback moves from its own model to the main agent's fallback models, a failure path. The pull request declares it unmeasured (R9). | Pass |
+| VI. Honest failure handling | An unusable configured model, or one whose call fails, is logged at ERROR, and the run continues on the fallback model with a persisted notice; a failed model is not called again in the run. Nothing extra is posted to the merge or pull request. | Pass |
 
 Quality gates for the change: `make lint`, `make lint-typing`, `make test`, a strict docs build,
 and an `Unreleased` entry in `CHANGELOG.md`.
 
 **Post-design re-check**: still passes. The Phase 1 design adds `Run.notices` and a sessions-side
-recorder injected by the executor; neither changes a layer contract or the agent's state
-channels.
+recorder injected by the executor; neither changes a layer contract. The skills state gains
+`active_skill_model`, with a last-write-wins reducer for skills invoked in one message.
 
 ## Project Structure
 
