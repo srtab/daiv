@@ -227,7 +227,7 @@ By default, several entries in `repos` fan out into independent jobs, one sessio
 - `repos` takes up to 5 entries (the first is the main one), each repository at most once, and no per-repository `prompt`: the session runs the one `prompt`.
 - The response holds **one** job and one `thread_id`; the job's `repo_id` is the first entry, the **main repository**.
 - You need write access to every repository. If any is missing or unknown, the call fails with the usual opaque `404`.
-- The main repository's `.daiv.yml`, model, sandbox environment, skills, subagents and memory drive the session. It is checked out at `/workspace/repo`; the others at `/workspace/repos/<repository path>`. The agent is told about them and reads their `AGENTS.md`.
+- The main repository's `.daiv.yml`, model, sandbox environment, skills, subagents and [memory](memory.md) drive the session. It is checked out at `/workspace/repo`; the others at `/workspace/repos/<repository path>`. The agent is told about them and reads their `AGENTS.md`.
 - The agent reads the main repository's memory, but a multi-repository run adds no observations to it, since its transcript holds the other repositories' code.
 
 ### Merge requests
