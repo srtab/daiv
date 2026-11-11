@@ -148,6 +148,26 @@ async def test_submit_batch_creates_session_and_ready_run():
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("given", [True, False], ids=["given", "minted"])
+async def test_submit_batch_stamps_the_batch_id_the_caller_gives_or_a_fresh_one(given):
+    batch_id = uuid.uuid4() if given else None
+    with patch("sessions.queue.run_job_task") as mock_task:
+        mock_task.aenqueue = AsyncMock(side_effect=[await _atask_result_row(uuid.uuid4()) for _ in range(2)])
+        result = await asubmit_batch_runs(
+            user=None,
+            prompt="do it",
+            repos=[RepoTarget(repo_id="g/r"), RepoTarget(repo_id="g/s")],
+            trigger_type=SessionOrigin.API_JOB,
+            batch_id=batch_id,
+        )
+
+    assert result.batch_id is not None
+    if given:
+        assert result.batch_id == batch_id
+    assert {run.batch_id for run in result.runs} == {result.batch_id}
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_submit_continuation_queues_when_thread_busy():
     tid = str(uuid.uuid4())
     task_id = uuid.uuid4()

@@ -102,3 +102,32 @@ class TestKeys:
 
     def test_a_key_longer_than_the_column_is_cut(self):
         assert len(kinds.Subject.branch("b" * 400)) == 255
+
+
+class TestLegFollowUp:
+    PAYLOAD = {"prompt": "Make the failing test pass", "batch_id": "b"}
+
+    def test_its_payload_needs_a_prompt_and_a_batch(self):
+        EventContent(EventKind.LEG_FOLLOW_UP, self.PAYLOAD | {"references": [], "muted": True}).validate_payload()
+        for key in self.PAYLOAD:
+            payload = {name: value for name, value in self.PAYLOAD.items() if name != key}
+            with pytest.raises(ValueError, match=key):
+                EventContent(EventKind.LEG_FOLLOW_UP, payload).validate_payload()
+
+    def test_it_wakes_ranks_with_a_follow_up_job_and_is_neither_gated_nor_a_persons(self):
+        assert EventKind.LEG_FOLLOW_UP in kinds.WAKING_KINDS
+        assert kinds.PRECEDENCE[EventKind.LEG_FOLLOW_UP] == kinds.PRECEDENCE[EventKind.FOLLOW_UP_JOB]
+        assert EventKind.LEG_FOLLOW_UP not in kinds.GATED_KINDS
+        assert EventKind.LEG_FOLLOW_UP not in kinds.PERSON_KINDS
+
+    def test_it_follows_the_session_and_runs_as_a_delegated_run_outside_the_inbox_triggers(self):
+        content = EventContent(EventKind.LEG_FOLLOW_UP, self.PAYLOAD)
+
+        assert content.follows_session()
+        assert content.run_trigger_type() == SessionOrigin.DELEGATED_JOB
+        assert SessionOrigin.DELEGATED_JOB not in kinds.INBOX_TRIGGERS
+
+    def test_its_source_key_is_one_per_batch(self):
+        batch = uuid.uuid4()
+
+        assert kinds.SourceKey.leg_follow_up(batch) == f"leg-follow-up:{batch}"

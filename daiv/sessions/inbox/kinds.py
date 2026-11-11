@@ -103,6 +103,13 @@ class NoticePayload(TypedDict):
     text: str
 
 
+class LegFollowUpPayload(TypedDict):
+    prompt: str
+    batch_id: str
+    references: NotRequired[list[dict[str, Any]]]
+    muted: NotRequired[bool]
+
+
 PAYLOADS: dict[str, type] = {
     EventKind.CHAT_MESSAGE: ChatMessagePayload,
     EventKind.MENTION: CommentPayload,
@@ -118,6 +125,7 @@ PAYLOADS: dict[str, type] = {
     EventKind.COMMENT: CommentPayload,
     EventKind.DELEGATED_CI_OUTCOME: DelegatedCiOutcomePayload,
     EventKind.NOTICE: NoticePayload,
+    EventKind.LEG_FOLLOW_UP: LegFollowUpPayload,
 }
 
 #: Waking kinds, highest precedence first: the run that takes several gets the trigger type of the first (R6).
@@ -125,6 +133,7 @@ PRECEDENCE: dict[str, int] = {
     EventKind.CHAT_MESSAGE: 1,
     EventKind.MENTION: 2,
     EventKind.FOLLOW_UP_JOB: 3,
+    EventKind.LEG_FOLLOW_UP: 3,
     EventKind.DELEGATION_FINISHED: 4,
     EventKind.CI_FAILED: 5,
 }
@@ -170,13 +179,16 @@ class EventContent:
 
     def follows_session(self) -> bool:
         """Whether a waking event concerns whichever branch its session is on, not a branch of its own: a chat message,
-        a follow-up job sent without a branch, a finished delegated batch."""
+        a follow-up job sent without a branch, a finished delegated batch, a leg follow-up."""
         if self.kind == EventKind.FOLLOW_UP_JOB:
             return not self.payload.get("ref")
-        return self.kind in (EventKind.CHAT_MESSAGE, EventKind.DELEGATION_FINISHED)
+        return self.kind in (EventKind.CHAT_MESSAGE, EventKind.DELEGATION_FINISHED, EventKind.LEG_FOLLOW_UP)
 
     def run_trigger_type(self) -> str:
-        """The trigger type a run started by this kind gets."""
+        """The trigger type a run started by this kind gets. A leg follow-up's run is the delegated run it was posted
+        with, never a next run, so its trigger is outside ``INBOX_TRIGGERS``."""
+        if self.kind == EventKind.LEG_FOLLOW_UP:
+            return SessionOrigin.DELEGATED_JOB
         if self.kind == EventKind.FOLLOW_UP_JOB:
             trigger = self.payload.get("trigger_type")
             return trigger if trigger in _JOB_TRIGGERS else SessionOrigin.API_JOB
@@ -217,6 +229,10 @@ class SourceKey:
     @staticmethod
     def batch(batch_id: uuid.UUID | str) -> str:
         return _join("batch", batch_id)
+
+    @staticmethod
+    def leg_follow_up(batch_id: uuid.UUID | str) -> str:
+        return _join("leg-follow-up", batch_id)
 
     @staticmethod
     def chat(agui_message_id: str) -> str:

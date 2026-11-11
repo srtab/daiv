@@ -1256,9 +1256,10 @@ def test_a_bubble_names_the_kind_of_request():
         {"kind": "job", "trigger_type": "mcp_job"},
         {"kind": "job", "trigger_type": "ui_job"},
         {"kind": "ci_failed", "trigger_type": "", "received": True},
+        {"kind": "leg_follow_up", "trigger_type": ""},
     ]
 
-    assert _bubbles(bubbles=bubbles)["kinds"] == ["Chat", "Mention", "API job", "MCP job", "Job", ""]
+    assert _bubbles(bubbles=bubbles)["kinds"] == ["Chat", "Mention", "API job", "MCP job", "Job", "", "Leg follow-up"]
 
 
 def test_a_received_bubble_names_its_source():

@@ -435,6 +435,7 @@ async def asubmit_batch_runs(
     mcp_overrides: dict | None = None,
     references: Sequence[RefIn] | None = None,
     parent: Session | None = None,
+    batch_id: uuid.UUID | None = None,
 ) -> BatchSubmitResult:
     """Enqueue N ``run_job_task`` instances sharing a ``batch_id``; record N ``Run`` rows.
 
@@ -443,8 +444,10 @@ async def asubmit_batch_runs(
     and may carry its own ``prompt``, which replaces ``prompt`` for that repository; ``prompt`` still titles the batch.
     A target's ``references`` add to ``references`` for its run, and one with ``waits_for_run_id`` is created QUEUED
     and left for the queue to start once that run finishes.
-    ``parent`` is the coordinator session a delegated batch's new sessions hang under. A ``thread_id`` naming an
-    existing session posts a ``follow_up_job`` to its inbox instead (:func:`_asubmit_follow_up`).
+    ``parent`` is the coordinator session a delegated batch's new sessions hang under, and ``batch_id`` the batch the
+    caller minted for them when other runs join it (a coordinator's leg follow-ups); a fresh one without. A
+    ``thread_id`` naming an existing session posts a ``follow_up_job`` to its inbox instead
+    (:func:`_asubmit_follow_up`).
 
     Best-effort: a per-repo failure (run creation, refs merge, enqueue or link) lands in
     ``result.failed`` while siblings continue. Every row is created before any task is queued.
@@ -466,7 +469,7 @@ async def asubmit_batch_runs(
     stored_refs = [ref.to_stored() for ref in references or []]
     if any(len(stored_refs) + len(target.references) > MAX_REFS_PER_SUBMISSION for target in repos):
         raise ValueError(f"references exceeds the maximum of {MAX_REFS_PER_SUBMISSION}")
-    batch_id = uuid.uuid4()
+    batch_id = batch_id or uuid.uuid4()
 
     if thread_id is not None and (session := await Session.objects.filter(pk=thread_id).afirst()) is not None:
         follow_up = await _asubmit_follow_up(
@@ -532,7 +535,7 @@ async def asubmit_batch_runs(
     # return_exceptions=True guards against BaseException (CancelledError, etc.) aborting the
     # whole batch; _create_one and _start_one already catch Exception themselves.
     created = await asyncio.gather(*[_create_one(i, t) for i, t in enumerate(repos)], return_exceptions=True)
-    # A delegated leg that finishes at once must find all its siblings' rows (sessions.delegation.resume_coordinator).
+    # A delegated leg that finishes at once must find all its siblings' rows (DelegatedBatch.resume_after).
     started = await asyncio.gather(*[_start_one(c) for c in created], return_exceptions=True)
 
     outcomes: list[Run | BatchSubmitFailure] = []

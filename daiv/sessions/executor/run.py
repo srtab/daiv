@@ -20,7 +20,7 @@ from automation.agent.session_links import SessionLinks
 from core.utils import build_absolute_url
 from sessions.archive import aarchive_thread, arestore_thread
 from sessions.artifacts import RunArtifactStore, bind_active_run
-from sessions.delegation import adelegator_for
+from sessions.delegation import SessionJobDelegator
 from sessions.executor.lock import SessionLockLostError, hold_session_lock, still_held
 from sessions.executor.recovery import recover_draft
 from sessions.executor.spec import RunHooks, RunOutcome
@@ -427,7 +427,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
                 await acquire_sandbox(workspace.session, ctx, await _checkpointed_values(checkpointer, thread_id))
             fast_forward = await _fast_forward(spec, ctx, workspace)
             delegator = (
-                await adelegator_for(spec.thread_id)
+                await SessionJobDelegator.afor(spec.thread_id)
                 if spec.thread_id is not None and settings.features.orchestration
                 else None
             )

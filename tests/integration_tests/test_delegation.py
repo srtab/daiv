@@ -1,9 +1,9 @@
 """The coordinator workflow of ``delegate_jobs``: fanning legs out, ending the turn, and the run a batch resumes.
 
 Each case runs the agent on a disk clone of srtab/daiv ``main`` with a delegator that records what it is asked to start
-and puts those legs in the database instead of starting them; its status and cancel are the real ones, over the legs in
-the database. A resumed run gets what a real ``delegation_finished`` event renders: ``render_batch_summary`` over those
-legs, after the turn that delegated them.
+and puts those legs in the database instead of starting them, a leg follow-up as a run on its leg's session; its status
+and cancel are the real ones, over the legs in the database. A resumed run gets what a real ``delegation_finished``
+event renders: ``DelegatedBatch.summary`` over those legs, after the turn that delegated them.
 """
 
 import re
@@ -16,15 +16,7 @@ import pytest
 from asgiref.sync import sync_to_async
 from django_tasks_db.models import DBTaskResult, get_date_max
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from sessions.delegation import (
-    LEG_REPLY_MAX_CHARS,
-    SessionJobDelegator,
-    _failed_leg,
-    _on_own_branch,
-    _session_url,
-    check_delegation,
-    delegation_finished_payload,
-)
+from sessions.delegation import LEG_REPLY_MAX_CHARS, DelegatedBatch, LegRun, SessionJobDelegator
 from sessions.inbox.kinds import SourceKey
 from sessions.inbox.render import RunInput
 from sessions.models import (
@@ -40,7 +32,14 @@ from sessions.models import (
 from sessions.queue import LINK_FAILED_PREFIX
 from sessions.services import BatchSubmitFailure
 
-from automation.agent.delegation import DELEGATE_JOBS_TOOL_NAME, Checkout, DelegatedTarget, DelegationResult, StartedLeg
+from automation.agent.delegation import (
+    DELEGATE_JOBS_TOOL_NAME,
+    Checkout,
+    DelegatedTarget,
+    DelegationResult,
+    FailedLeg,
+    StartedLeg,
+)
 from automation.agent.middlewares.delegate_jobs import NO_CHANGE_CONVENTION, delegation_payload
 
 from .prompt_leak import assert_no_prompt_leak
@@ -66,6 +65,17 @@ BUMP_REQUESTS = (
     "it has started."
 )
 PIN_HTTPX = f"Pin `httpx` below 0.30 in {BILLING} and in {NOTIFIER}, with a merge request per repository."
+OPS_DOCS = "acme/ops-docs"
+PIN_THEN_DOCUMENT = (
+    f"Pin `httpx` below 0.30 in {BILLING} and in {NOTIFIER}, with a merge request per repository. Once both pins are "
+    f"in, record the new ceiling in `dependencies.md` of {OPS_DOCS}, with a merge request there too."
+)
+NOTIFIER_TESTS_FAIL = (
+    "I pinned `httpx<0.30` in requirements.txt and opened the merge request, but the work is not done: "
+    "`tests/test_client.py::test_retry_on_timeout` now fails, because it builds `httpx.Timeout(read=...)` without the "
+    "positional default that 0.29 requires. I did not change the test. The merge request's CI will stay red until "
+    "that test is fixed."
+)
 RENAME_SETTING = (
     f"Rename the `LEGACY_TOKEN` setting to `SERVICE_TOKEN` in {BILLING} and in {NOTIFIER}, with a merge request per "
     "repository."
@@ -99,7 +109,16 @@ ENDPOINT_REPORT = (
     f"{CHECKED_ENDPOINTS}\n\n{STILL_FAILING}"
 )
 
-assert_no_prompt_leak([RENAME_HEADER, BUMP_REQUESTS, PIN_HTTPX, RENAME_SETTING, FIND_500, STILL_FAILING])
+assert_no_prompt_leak([
+    RENAME_HEADER,
+    BUMP_REQUESTS,
+    PIN_HTTPX,
+    RENAME_SETTING,
+    FIND_500,
+    STILL_FAILING,
+    PIN_THEN_DOCUMENT,
+    NOTIFIER_TESTS_FAIL,
+])
 
 LOST_LEG_WORDING = re.compile(
     r"\blost\b|untracked|(?:may|might|could) still (?:open|run|publish)"
@@ -147,7 +166,9 @@ def _create_leg(
 
 class RecordingDelegator(SessionJobDelegator):
     """Starts nothing: records every ``delegate_jobs`` call it accepts and puts each leg in the database as queued,
-    except those on ``lost`` repositories, which fail the way a leg DAIV started but lost track of does."""
+    except those on ``lost`` repositories, which fail the way a leg DAIV started but lost track of does. A leg follow-up
+    the coordinator may send becomes a queued run on its leg's session, in the call's batch; one it may not send is
+    refused as the real delegator refuses it."""
 
     def __init__(self, thread_id: str, *, lost: frozenset[str] = frozenset()):
         super().__init__(thread_id)
@@ -155,7 +176,7 @@ class RecordingDelegator(SessionJobDelegator):
         self.calls: list[list[DelegatedTarget]] = []
 
     async def adelegate(self, *, checkout: Checkout, goal: str, targets: list[DelegatedTarget]) -> DelegationResult:
-        check_delegation(goal, targets)
+        self.check(goal, targets)
         self.calls.append(list(targets))
         return await sync_to_async(self._record)(checkout, targets)
 
@@ -163,6 +184,9 @@ class RecordingDelegator(SessionJobDelegator):
         batch_id = uuid.uuid4()
         result = DelegationResult(batch_id=str(batch_id))
         for target in targets:
+            if target.thread_id:
+                self._record_follow_up(target, batch_id, result)
+                continue
             lost = target.repo_id in self.lost
             leg = _create_leg(
                 self._thread_id,
@@ -176,7 +200,7 @@ class RecordingDelegator(SessionJobDelegator):
             )
             if lost:
                 result.failed.append(
-                    _failed_leg(BatchSubmitFailure(target.repo_id, target.ref, "", task_enqueued=True))
+                    self._failed_leg(BatchSubmitFailure(target.repo_id, target.ref, "", task_enqueued=True))
                 )
             else:
                 result.started.append(
@@ -184,11 +208,30 @@ class RecordingDelegator(SessionJobDelegator):
                         target.repo_id,
                         target.ref,
                         leg.session_id,
-                        _session_url(leg.session_id),
-                        starts_after_this_turn=_on_own_branch(checkout, target),
+                        LegRun.url_of(leg.session_id),
+                        starts_after_this_turn=self._on_own_branch(checkout, target),
                     )
                 )
         return result
+
+    def _record_follow_up(self, target: DelegatedTarget, batch_id: uuid.UUID, result: DelegationResult) -> None:
+        leg, refusal = self._check_follow_up(target, None)
+        if refusal is not None:
+            result.failed.append(FailedLeg(target.repo_id, target.ref, refusal, thread_id=target.thread_id))
+            return
+        session = leg.session
+        Run.objects.create(
+            session=session,
+            trigger_type=SessionOrigin.DELEGATED_JOB,
+            batch_id=batch_id,
+            repo_id=session.repo_id,
+            ref=session.ref,
+            prompt=target.prompt,
+            status=RunStatus.QUEUED,
+        )
+        result.started.append(
+            StartedLeg(session.repo_id, session.ref, session.pk, LegRun.url_of(session.pk), leg_follow_up=True)
+        )
 
     def targets(self) -> list[DelegatedTarget]:
         return [target for call in self.calls for target in call]
@@ -238,7 +281,7 @@ def _delegating_turn(request: str, batch_id: uuid.UUID, legs: list[Run]) -> list
     call_id = "call_delegate"
     result = DelegationResult(
         batch_id=str(batch_id),
-        started=[StartedLeg(leg.repo_id, leg.ref, leg.session_id, _session_url(leg.session_id)) for leg in legs],
+        started=[StartedLeg(leg.repo_id, leg.ref, leg.session_id, LegRun.url_of(leg.session_id)) for leg in legs],
     )
     return [
         HumanMessage(request),
@@ -281,7 +324,7 @@ def _resume_input(request: str, legs: tuple[FinishedLeg, ...]) -> tuple[str, lis
         wake=True,
         source_key=SourceKey.batch(batch_id),
         ref="main",
-        payload=delegation_finished_payload(batch_id, runs),
+        payload=DelegatedBatch(runs).finished_payload(),
     )
     rendered = RunInput.of_run(resume).render(resume).messages
     return coordinator.thread_id, [*_delegating_turn(request, batch_id, runs), *rendered]
@@ -362,8 +405,9 @@ async def test_a_leg_that_started_but_was_lost_is_not_delegated_again(model_name
 
 
 async def test_a_finding_deep_in_a_legs_reply_reaches_the_report(model_name, eval_request):
-    assert ENDPOINT_REPORT.index(STILL_FAILING) > max(RESULT_SUMMARY_MAX_CHARS, LEG_REPLY_MAX_CHARS), (
-        "the finding must sit past every reply cap DAIV applies today"
+    finding = ENDPOINT_REPORT.index(STILL_FAILING)
+    assert RESULT_SUMMARY_MAX_CHARS < finding < finding + len(STILL_FAILING) <= LEG_REPLY_MAX_CHARS, (
+        "the finding must sit past the stored summary's cap, inside the reply the coordinator reads"
     )
     delegator, messages = await _resumed(
         FIND_500,
@@ -378,5 +422,67 @@ async def test_a_finding_deep_in_a_legs_reply_reaches_the_report(model_name, eva
     _tool_calls, reply = await run_eval_case(model_name, messages, eval_request, delegator=delegator)
 
     assert re.search(r"invoices/\{id\}/pdf|pdf_blob_key", reply), (
-        f"expected to fail while the coordinator sees only a reply's first {LEG_REPLY_MAX_CHARS} characters: {reply}"
+        f"the coordinator reads up to {LEG_REPLY_MAX_CHARS} characters of a leg's reply, the finding included: {reply}"
     )
+
+
+def _leg_session(coordinator_id: str, repo_id: str) -> str:
+    """SYNC ONLY."""
+    return Session.objects.get(parent_id=coordinator_id, repo_id=repo_id).pk
+
+
+async def test_a_leg_that_reports_its_work_incomplete_gets_a_leg_follow_up(model_name, eval_request):
+    leg_prompt = f"Pin `httpx` below 0.30. {NO_CHANGE_CONVENTION}"
+    delegator, messages = await _resumed(
+        PIN_HTTPX,
+        FinishedLeg(
+            BILLING,
+            leg_prompt,
+            "Pinned `httpx>=0.27,<0.30` in pyproject.toml and refreshed uv.lock; the test suite passes.",
+            branch="chore/pin-httpx",
+            merge_request_url="https://gitlab.example/acme/billing-api/-/merge_requests/12",
+        ),
+        FinishedLeg(
+            NOTIFIER,
+            leg_prompt,
+            NOTIFIER_TESTS_FAIL,
+            branch="chore/pin-httpx-below-0-30",
+            merge_request_url="https://gitlab.example/acme/notifier/-/merge_requests/7",
+        ),
+    )
+    notifier = await sync_to_async(_leg_session)(delegator._thread_id, NOTIFIER)
+
+    await run_eval_case(model_name, messages, eval_request, delegator=delegator)
+
+    assert len(delegator.calls) == 1, f"expected one delegate_jobs call, got {len(delegator.calls)}"
+    [targets] = delegator.calls
+    assert [(target.thread_id, target.ref) for target in targets] == [(notifier, "")], (
+        f"expected one leg follow-up to the {NOTIFIER} leg, with no ref: {targets}"
+    )
+
+
+async def test_an_independent_second_part_gets_a_new_leg(model_name, eval_request):
+    leg_prompt = f"Pin `httpx` below 0.30. {NO_CHANGE_CONVENTION}"
+    delegator, messages = await _resumed(
+        PIN_THEN_DOCUMENT,
+        FinishedLeg(
+            BILLING,
+            leg_prompt,
+            "Pinned `httpx>=0.27,<0.30` in pyproject.toml and refreshed uv.lock; the test suite passes.",
+            branch="chore/pin-httpx",
+            merge_request_url="https://gitlab.example/acme/billing-api/-/merge_requests/12",
+        ),
+        FinishedLeg(
+            NOTIFIER,
+            leg_prompt,
+            "Pinned `httpx<0.30` in requirements.txt; nothing else imports it directly, and the test suite passes.",
+            branch="chore/pin-httpx-below-0-30",
+            merge_request_url="https://gitlab.example/acme/notifier/-/merge_requests/7",
+        ),
+    )
+
+    await run_eval_case(model_name, messages, eval_request, delegator=delegator)
+
+    new_legs = [target for target in delegator.targets() if not target.thread_id]
+    assert new_legs, f"expected a new leg for the second part, got: {delegator.targets()}"
+    assert OPS_DOCS in [target.repo_id for target in new_legs], new_legs

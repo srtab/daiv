@@ -128,6 +128,16 @@ def test_a_follow_up_job_bubble_carries_its_prompt_and_trigger(session):
     assert (result["text"], result["trigger_type"]) == ("Bump the version", SessionOrigin.API_JOB)
 
 
+def test_a_leg_follow_up_bubble_carries_its_prompt_and_is_not_received(session):
+    payload = {"prompt": "Make the failing test pass", "batch_id": "b"}
+
+    result = bubble(make_event(session, EventKind.LEG_FOLLOW_UP, payload=payload))
+
+    assert (result["kind"], result["text"], result["received"]) == (
+        EventKind.LEG_FOLLOW_UP, "Make the failing test pass", False
+    )  # fmt: skip
+
+
 def test_a_queued_job_run_bubble_carries_its_prompt_and_trigger(session):
     run = Run.objects.create(
         session=session,

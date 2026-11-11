@@ -35,7 +35,7 @@ from tests.unit_tests.sessions.conftest import (
     make_task_result,
 )
 from tests.unit_tests.sessions.inbox.conftest import ci_payload as ci_event_payload
-from tests.unit_tests.sessions.inbox.conftest import make_event
+from tests.unit_tests.sessions.inbox.conftest import make_event, post_leg_follow_up
 
 
 def _session(**kwargs) -> Session:
@@ -572,6 +572,20 @@ def test_a_render_reads_the_delegated_legs_once_for_the_transcript_and_the_heade
 
     assert [len(segment["legs"]) for segment in turns[0]["segments"]] == [2, 1]
     assert payload["total"] == 3
+
+
+@pytest.mark.django_db
+def test_a_leg_that_served_two_batches_is_listed_under_both_and_counted_once():
+    owner = _viewer(Role.MEMBER, "owner")
+    coordinator = make_coordinator(owner)
+    leg = make_leg(coordinator, uuid.uuid4(), status=RunStatus.SUCCESSFUL, session_ref="daiv/leg")
+    make_leg(coordinator, leg.batch_id, status=RunStatus.SUCCESSFUL)
+    post_leg_follow_up(leg.session, owner)
+
+    payload = delegations_for([], coordinator, owner)
+
+    assert [len(batch["legs"]) for batch in payload["batches"]] == [1, 2]
+    assert payload["total"] == 2
 
 
 @pytest.mark.django_db

@@ -68,3 +68,27 @@ def test_every_label_a_template_names_is_defined():
     }
     assert "publish_files" in named
     assert named - set(transcript_labels()) == set()
+
+
+LEG_LABELS = """Object.fromEntries(
+  ["leg_not_run_merged", "leg_not_run_closed", "leg_follow_up", "inbox_leg_follow_up"].map(
+    (key) => [key, TranscriptLabels.defaults[key]],
+  ),
+)"""
+
+
+def test_the_leg_follow_up_labels_read_the_same_on_both_sides():
+    browser = run_transcript(LEG_LABELS, {}, blocks=False)
+    with translation.override("en"):
+        server = {key: transcript_labels()[key] for key in browser}
+
+    assert (
+        server
+        == browser
+        == {
+            "leg_not_run_merged": "Not run: merge request merged",
+            "leg_not_run_closed": "Not run: merge request closed",
+            "leg_follow_up": "Leg follow-up",
+            "inbox_leg_follow_up": "Leg follow-up",
+        }
+    )

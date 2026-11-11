@@ -151,6 +151,9 @@
     leg_failed: "Failed",
     leg_cancelled: "Cancelled",
     leg_lost: "Lost",
+    leg_not_run_merged: "Not run: merge request merged",
+    leg_not_run_closed: "Not run: merge request closed",
+    leg_follow_up: "Leg follow-up",
     details_merge_requests: ["{count} MR", "{count} MRs"],
     suggested_answer: "Suggested answer",
     publish_committing: "Committing changes",
@@ -175,6 +178,7 @@
     inbox_comment: "Comment",
     inbox_delegated_ci_outcome: "Delegated session CI",
     inbox_notice: "Notice",
+    inbox_leg_follow_up: "Leg follow-up",
     inbox_not_handled: "{kind} not handled",
     up_next: "Up next",
     up_next_info:

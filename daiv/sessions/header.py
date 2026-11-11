@@ -35,7 +35,7 @@ from codebase.clients.base import PLATFORM_ERRORS
 from codebase.conf import settings as codebase_settings
 from codebase.models import RepositoryCatalog
 from codebase.repo_config import RepositoryConfig
-from sessions.delegation import load_delegations
+from sessions.delegation import Delegations
 from sessions.inbox_display import stopped_after
 from sessions.models import EventKind, MergeRequestOwnership, QuietReason, Run, RunStatus, Session, SessionOrigin
 from sessions.pipeline_watch.policy import WatchPolicy
@@ -48,7 +48,6 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from accounts.models import User
-    from sessions.delegation import Delegations
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -196,11 +195,12 @@ def delegations_for(turns: list[dict[str, Any]], session: Session, user: User) -
     cannot delegate, so it costs no query.
 
     A batch's ``goal`` is the one its call in ``turns`` gave, else the first line of the prompt of its first leg the
-    viewer may see.
+    viewer may see. A leg session that served several batches, through leg follow-ups, is listed under each and
+    counted once in ``total``.
     """
     if session.parent_id:
         return None
-    delegations = load_delegations(session.thread_id, user)
+    delegations = Delegations.load(session.thread_id, user)
     if not delegations.batches:
         return None
     called = mark_delegations(turns, delegations)
@@ -213,7 +213,8 @@ def delegations_for(turns: list[dict[str, Any]], session: Session, user: User) -
         }
         for batch_id, legs in reversed(delegations.batches.items())
     ]
-    return {"total": sum(len(batch["legs"]) for batch in batches), "batches": batches}
+    total = len({leg.session_id for legs in delegations.batches.values() for leg in legs})
+    return {"total": total, "batches": batches}
 
 
 def _prompt_goals(delegations: Delegations, goals: Mapping[uuid.UUID, str]) -> dict[uuid.UUID, str]:

@@ -19,7 +19,7 @@ from sessions.queue import (
 )
 
 from tests.unit_tests.sessions.conftest import make_run
-from tests.unit_tests.sessions.inbox.conftest import make_event
+from tests.unit_tests.sessions.inbox.conftest import make_event, make_leg_session, post_leg_follow_up
 
 
 def _emits(spy: MagicMock) -> list[tuple[str, bool, bool]]:
@@ -391,3 +391,41 @@ class TestReleaseOrphanQueuedRuns:
         orphan.refresh_from_db()
         assert orphan.status == RunStatus.FAILED
         assert orphan.error_message.startswith(LINK_FAILED_PREFIX)
+
+
+@pytest.mark.django_db(transaction=True)
+class TestForkBranch:
+    async def _fork_branch(self, run: Run) -> tuple[bool, bool]:
+        """``fork_branch`` and ``ask_user_enabled`` as ``run``'s task gets them."""
+        with patch("sessions.queue.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=uuid.uuid4()))
+            with patch.object(Run, "asave", AsyncMock()):
+                await aenqueue_run(run, log_context="test")
+        kwargs = mock_task.aenqueue.call_args.kwargs
+        return kwargs["fork_branch"], kwargs["ask_user_enabled"]
+
+    async def test_a_legs_first_run_forks(self, admin_user):
+        session = await sync_to_async(make_leg_session)(admin_user, ref="main", status=RunStatus.READY)
+        first = await Run.objects.aget(session=session)
+
+        assert await self._fork_branch(first) == (True, False)
+
+    async def test_a_follow_up_on_a_leg_without_a_branch_of_its_own_forks(self, admin_user):
+        session = await sync_to_async(make_leg_session)(admin_user, ref="main")
+        follow_up = await sync_to_async(post_leg_follow_up)(session, admin_user)
+
+        assert await self._fork_branch(follow_up) == (True, False)
+
+    async def test_a_follow_up_on_a_leg_with_a_branch_of_its_own_pushes_to_it(self, admin_user):
+        session = await sync_to_async(make_leg_session)(admin_user, ref="daiv/leg-branch")
+        follow_up = await sync_to_async(post_leg_follow_up)(session, admin_user)
+
+        assert await self._fork_branch(follow_up) == (False, False)
+
+    @pytest.mark.parametrize("trigger_type", [SessionOrigin.API_JOB, SessionOrigin.PIPELINE_WEBHOOK])
+    async def test_other_runs_never_fork(self, trigger_type):
+        run = await sync_to_async(make_run)(
+            session_id=str(uuid.uuid4()), status=RunStatus.READY, trigger_type=trigger_type
+        )
+
+        assert (await self._fork_branch(run))[0] is False

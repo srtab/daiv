@@ -13,7 +13,7 @@ from allauth.socialaccount.models import SocialAccount
 from django_tasks_db.backend import TaskResult as DatabaseTaskResult
 
 from core import ui_events
-from sessions.delegation import resume_coordinator
+from sessions.delegation import DelegatedBatch
 from sessions.inbox.complete import RunEnd
 from sessions.inbox.requester import Requester
 from sessions.live.notify import session_changed
@@ -167,11 +167,12 @@ def settle_inbox_events(sender: type, run: Any, **kwargs: Any) -> None:
 
 @receiver(run_finished, dispatch_uid="sessions.resume_delegating_session")
 def resume_delegating_session(sender: type, run: Any, **kwargs: Any) -> None:
-    """Resume the coordinator once its delegated batch has finished (:func:`sessions.delegation.resume_coordinator`).
+    """Resume the coordinator once its delegated batch has finished
+    (:meth:`sessions.delegation.DelegatedBatch.resume_after`).
 
     Ignores ``skip_dispatch``: a leg the dispatcher failed still finishes its batch.
     """
-    resume_coordinator(run)
+    DelegatedBatch.resume_after(run)
 
 
 @receiver(post_delete, sender="agent_sessions.RunArtifact", dispatch_uid="sessions.delete_artifact_file")

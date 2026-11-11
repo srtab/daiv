@@ -7,7 +7,14 @@ from sessions.models import EventKind, EventState, Run, RunStatus, Session, Sess
 from sessions.up_next import up_next_payload
 
 from accounts.models import Role, User
-from tests.unit_tests.sessions.inbox.conftest import chat_payload, ci_payload, make_event, mention_payload
+from tests.unit_tests.sessions.inbox.conftest import (
+    chat_payload,
+    ci_payload,
+    make_event,
+    make_leg_session,
+    mention_payload,
+    post_leg_follow_up,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -256,3 +263,18 @@ def test_a_mention_from_an_unlinked_account_names_its_author(session, owner):
     (group,) = _payload(session, owner)["groups"]
 
     assert (group["run_id"], group["who"], group["is_viewer"]) == (str(next_run.pk), "carol", False)
+
+
+def test_a_waiting_leg_follow_up_is_one_group_its_own_run_holds_with_the_remembered_events(owner):
+    session = make_leg_session(owner)
+    _busy(session)
+    follow_up = post_leg_follow_up(session, owner)
+    push = make_event(session, EventKind.BRANCH_PUSHED, ref=session.ref, payload=_push())
+
+    [group] = _payload(session, owner)["groups"]
+
+    assert group["run_id"] == str(follow_up.pk)
+    assert [(bubble["kind"], bubble["text"]) for bubble in group["bubbles"]] == [
+        (EventKind.LEG_FOLLOW_UP, "Make the failing test pass")
+    ]
+    assert [line["id"] for line in group["told"]] == [f"inbox-{push.pk}"]

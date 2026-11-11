@@ -1176,7 +1176,8 @@ html {
   .repo-card__slug {
     @apply min-w-0 truncate font-mono text-[12px] text-text;
   }
-  .repo-card__tag {
+  .repo-card__tag,
+  .leg-tag {
     @apply shrink-0 rounded-full border border-border px-1.5 font-mono text-[10px] leading-4 font-semibold
       tracking-[0.14em] text-text-faint uppercase;
   }

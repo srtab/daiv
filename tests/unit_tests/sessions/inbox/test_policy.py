@@ -4,8 +4,19 @@ from datetime import timedelta
 from django.utils import timezone
 
 import pytest
+from asgiref.sync import sync_to_async
 from sessions.inbox.policy import MAX_SYSTEM_RUNS_IN_A_ROW, WakePolicy
-from sessions.models import EventKind, MergeRequestOwnership, QuietReason, Run, RunStatus, Session, SessionOrigin
+from sessions.models import (
+    EventKind,
+    EventState,
+    InboxEvent,
+    MergeRequestOwnership,
+    QuietReason,
+    Run,
+    RunStatus,
+    Session,
+    SessionOrigin,
+)
 
 from tests.unit_tests.sessions.inbox.conftest import make_event
 
@@ -125,3 +136,57 @@ class TestQuietReasonsNow:
 
         assert reasons[failures[0].pk] == QuietReason.WATCH_OFF
         assert {reasons[event.pk] for event in failures[1:] + delegations} == {QuietReason.RUN_LIMIT}
+
+
+class TestLegFollowUp:
+    async def _follow_up_run(self, session: Session, *, minutes: int) -> Run:
+        run = await Run.objects.acreate(
+            session=session,
+            trigger_type=SessionOrigin.DELEGATED_JOB,
+            repo_id=session.repo_id,
+            status=RunStatus.SUCCESSFUL,
+            created_at=timezone.now() + timedelta(minutes=minutes),
+        )
+        await InboxEvent.objects.acreate(
+            session=session,
+            kind=EventKind.LEG_FOLLOW_UP,
+            source_key=f"leg-follow-up:{uuid.uuid4()}",
+            payload={"prompt": "p", "batch_id": "b"},
+            wake=True,
+            state=EventState.HANDLED,
+            run=run,
+        )
+        return run
+
+    async def test_it_wakes_a_session_at_the_limit(self):
+        session = await _session()
+        await _runs(session, *[SessionOrigin.PIPELINE_WEBHOOK] * MAX_SYSTEM_RUNS_IN_A_ROW)
+        pending = await sync_to_async(make_event)(
+            session, EventKind.LEG_FOLLOW_UP, payload={"prompt": "p", "batch_id": "b"}
+        )
+
+        assert await sync_to_async(WakePolicy(session).quiet_reasons_now)([pending]) == {}
+
+    async def test_its_run_counts_as_one_daiv_started(self):
+        session = await _session()
+        await _runs(session, SessionOrigin.CHAT, SessionOrigin.PIPELINE_WEBHOOK, SessionOrigin.PIPELINE_WEBHOOK)
+        await self._follow_up_run(session, minutes=1)
+
+        assert await sync_to_async(WakePolicy(session).system_runs_in_a_row)() == 3
+        assert await WakePolicy(session).amay_wake(EventKind.CI_FAILED) == QuietReason.RUN_LIMIT
+
+    async def test_a_legs_first_run_does_not(self):
+        session = await _session()
+        await _runs(
+            session, SessionOrigin.DELEGATED_JOB, SessionOrigin.PIPELINE_WEBHOOK, SessionOrigin.PIPELINE_WEBHOOK
+        )
+
+        assert await sync_to_async(WakePolicy(session).system_runs_in_a_row)() == 2
+
+    async def test_the_last_person_run_skips_its_run(self):
+        session = await _session()
+        await _runs(session, SessionOrigin.CHAT)
+        person = await Run.objects.filter(session=session).aget()
+        await self._follow_up_run(session, minutes=1)
+
+        assert await sync_to_async(WakePolicy(session)._last_person_run_at)() == person.created_at
