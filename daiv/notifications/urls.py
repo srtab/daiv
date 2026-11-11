@@ -8,6 +8,7 @@ from notifications.views import (
     MarkNotificationReadView,
     NotificationListView,
     UpdateRocketChatBindingView,
+    UpdateSlackBindingView,
 )
 
 app_name = "notifications"
@@ -27,5 +28,9 @@ urlpatterns = [
         "channels/telegram/delete/",
         ChannelDisconnectView.as_view(channel_type=ChannelType.TELEGRAM),
         name="telegram_disconnect",
+    ),
+    path("channels/slack/", UpdateSlackBindingView.as_view(), name="slack_connect"),
+    path(
+        "channels/slack/delete/", ChannelDisconnectView.as_view(channel_type=ChannelType.SLACK), name="slack_disconnect"
     ),
 ]

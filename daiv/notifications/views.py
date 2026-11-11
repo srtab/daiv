@@ -18,9 +18,10 @@ from django.views.generic import ListView, TemplateView
 from core.site_settings import site_settings
 from notifications.channels.registry import enabled_channels
 from notifications.channels.rocketchat import RocketChatChannel
+from notifications.channels.slack import SlackChannel
 from notifications.channels.telegram import TelegramChannel
 from notifications.choices import ChannelType
-from notifications.forms import RocketChatBindingForm
+from notifications.forms import RocketChatBindingForm, SlackBindingForm
 from notifications.models import Notification, UserChannelBinding
 from notifications.outcomes import attach_outcomes
 from notifications.telegram.tokens import mint_token
@@ -47,6 +48,9 @@ _CHANNEL_CONNECT = {
     ),
     ChannelType.TELEGRAM: ChannelConnect(
         "notifications:telegram_connect", "notifications:telegram_disconnect", style="link"
+    ),
+    ChannelType.SLACK: ChannelConnect(
+        "notifications:slack_connect", "notifications:slack_disconnect", "Member ID (U0123ABCD)"
     ),
 }
 
@@ -127,6 +131,27 @@ class UpdateRocketChatBindingView(LoginRequiredMixin, View):
         UserChannelBinding.objects.update_or_create(
             user=request.user,
             channel_type=ChannelType.ROCKETCHAT,
+            defaults={"address": form.cleaned_data["username"], "is_verified": True, "verified_at": timezone.now()},
+        )
+        return HttpResponseRedirect(redirect_url)
+
+
+@method_decorator(require_POST, name="dispatch")
+class UpdateSlackBindingView(LoginRequiredMixin, View):
+    def post(self, request):
+        if not SlackChannel.is_enabled():
+            raise Http404
+        redirect_url = reverse("user_channels")
+        form = SlackBindingForm(request.POST)
+        if not form.is_valid():
+            for errors in form.errors.values():
+                for msg in errors:
+                    messages.error(request, msg)
+            return HttpResponseRedirect(redirect_url)
+
+        UserChannelBinding.objects.update_or_create(
+            user=request.user,
+            channel_type=ChannelType.SLACK,
             defaults={"address": form.cleaned_data["username"], "is_verified": True, "verified_at": timezone.now()},
         )
         return HttpResponseRedirect(redirect_url)

@@ -280,6 +280,7 @@ class SiteConfigurationForm(forms.ModelForm):
             "rocketchat_url",
             "rocketchat_user_id",
             "telegram_enabled",
+            "slack_enabled",
             "pipeline_watch_enabled",
             "pipeline_watch_max_attempts",
             "jobs_throttle_rate",
@@ -630,6 +631,7 @@ class SiteConfigurationForm(forms.ModelForm):
             "auth_client_secret": _("OAuth application client secret for the configured Git platform."),
             "rocketchat_auth_token": _("Bot user personal access token (X-Auth-Token)."),
             "telegram_bot_token": _("Bot token issued by @BotFather, in the form 123456:ABC-DEF."),
+            "slack_bot_token": _("Bot User OAuth Token from your Slack app, in the form xoxb-…."),
         }
         return labels.get(name, "")
 

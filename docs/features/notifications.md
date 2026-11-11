@@ -31,7 +31,7 @@ Other notifications, such as the one DAIV sends when [pipeline watch](pipeline-w
 
 ## Channels
 
-DAIV reaches you through channels. In-app notifications are always on. Email, Rocket.Chat and Telegram are external channels, and your administrator decides which of the last two appear.
+DAIV reaches you through channels. In-app notifications are always on. Email, Rocket.Chat, Telegram and Slack are external channels, and your administrator decides which of the last three appear.
 
 | Channel | What you get | What it needs |
 |---------|--------------|---------------|
@@ -39,6 +39,7 @@ DAIV reaches you through channels. In-app notifications are always on. Email, Ro
 | Email | A message to your account email address. | Nothing. DAIV keeps a verified email channel in sync with your account address, so there is nothing to connect. |
 | **Rocket Chat** | A direct message from the DAIV bot. | An administrator has enabled Rocket.Chat, and you have connected your `@username`. |
 | **Telegram** | A direct message from the DAIV bot. | An administrator has enabled Telegram, and you have connected your chat. |
+| **Slack** | A direct message from the DAIV bot. | An administrator has enabled Slack, and you have connected your member ID. |
 
 A message about a run includes the run's summary. For a run waiting for an answer, that is the list of questions.
 
@@ -51,12 +52,13 @@ DAIV writes an in-app entry for each run whose outcome notifies, and none for an
 
 ## Connect a channel
 
-Email and in-app need no setup. Rocket.Chat and Telegram need an administrator to enable them first, and you then connect your own account on the channels page.
+Email and in-app need no setup. Rocket.Chat, Telegram and Slack need an administrator to enable them first, and you then connect your own account on the channels page.
 
 You need:
 
 - For Rocket.Chat, an administrator who has enabled it in **Settings** → **Configuration** → **Rocket Chat**, with the instance URL, bot user ID and auth token. See [Site configuration](../reference/site-configuration.md#setting-groups).
-- For Telegram, an administrator who has enabled it in **Settings** → **Configuration** → **Telegram**, as described in [Set up Telegram](../reference/site-configuration.md#set-up-telegram). Telegram delivery to chats that are already linked needs only outbound internet access, but connecting a new chat needs DAIV reachable from the internet over HTTPS. On an instance without public ingress, you cannot link new chats.
+- For Telegram, an administrator who has enabled it in **Settings** → **Configuration** → **Telegram**, as described in [Set up Telegram](../reference/site-configuration.md#set-up-telegram).
+- For Slack, an administrator who has enabled it in **Settings** → **Configuration** → **Slack**, with the Bot User OAuth Token. See [Site configuration](../reference/site-configuration.md#setting-groups). Telegram delivery to chats that are already linked needs only outbound internet access, but connecting a new chat needs DAIV reachable from the internet over HTTPS. On an instance without public ingress, you cannot link new chats.
 - Until the channel is enabled, its row does not appear on your channels page.
 
 To open the channels page, select **Notification channels** in the account menu at the bottom of the sidebar (`/accounts/channels/`).
@@ -95,6 +97,10 @@ A few rules apply to the link:
 To stop Telegram delivery, do any one of these: select **Disconnect** on your channels page, send `/stop` to the bot, or block the bot in Telegram. Each unlinks the chat, and the row goes back to **Not configured**; select **Connect** to link again.
 
 If DAIV could not be told that you blocked the bot, for example because its webhook was unreachable or Telegram refused the chat for another reason, the link stays on the row marked **Unverified** and delivers nothing. Select **Connect** to redo the handshake. If that does not clear it, select **Disconnect**, then **Connect**.
+
+### Connect Slack
+
+Slack is an optional integration. It appears as a channel only when an administrator has enabled it for the instance, after which you bind your own Slack member ID so DAIV can DM you.
 
 ## Muting
 
