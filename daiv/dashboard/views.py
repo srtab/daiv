@@ -1,15 +1,44 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.shortcuts import redirect, render
+from django.http import Http404
+from django.shortcuts import redirect
 from django.views.generic import TemplateView
 
-from dashboard import home, insights
+from dashboard import home, insights, landing
+from dashboard.comparisons import CHECKED, COMPARISONS, COMPARISONS_BY_SLUG
 from dashboard.context_processors import running_jobs_count
 
 
-def homepage(request):
-    if request.user.is_authenticated:
-        return redirect("dashboard")
-    return render(request, "dashboard/homepage.html")
+class LandingPageView(TemplateView):
+    def get_context_data(self, **kwargs):
+        return super().get_context_data(
+            quickstart_url=landing.QUICKSTART_URL, deployment_url=landing.DEPLOYMENT_URL, **kwargs
+        )
+
+
+class HomepageView(LandingPageView):
+    template_name = "dashboard/homepage.html"
+    extra_context = {"faqs": landing.FAQS, "comparisons": COMPARISONS}
+
+    def get(self, request, *args, **kwargs):
+        if request.user.is_authenticated:
+            return redirect("dashboard")
+        return super().get(request, *args, **kwargs)
+
+
+class ComparisonView(LandingPageView):
+    template_name = "dashboard/comparison.html"
+
+    def get_context_data(self, **kwargs):
+        try:
+            comparison = COMPARISONS_BY_SLUG[kwargs["slug"]]
+        except KeyError:
+            raise Http404("No comparison with that name") from None
+        return super().get_context_data(
+            comparison=comparison,
+            checked=CHECKED,
+            others=[other for other in COMPARISONS if other is not comparison],
+            **kwargs,
+        )
 
 
 class DashboardView(LoginRequiredMixin, TemplateView):
