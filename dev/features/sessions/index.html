@@ -789,6 +789,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Session detail">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#images-and-files-in-tool-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Images and files in tool results
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1829,6 +1846,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Session detail">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#images-and-files-in-tool-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Images and files in tool results
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2243,6 +2277,10 @@
 <li><strong>Up next</strong> — at the end of the conversation, what the session will do next, in order: each run still to start, as whom, with the requests that start it, then the updates the next run will be told (see <a href="#the-session-inbox">The session inbox</a>). A CI failure or finished delegated batch DAIV won't act on says why, such as <em>not fixing: out of attempts</em>; a request DAIV couldn't handle shows in the conversation as a <em>not handled</em> line with the reason. A run DAIV started itself opens with the message it received, and <strong>Show request</strong> expands the full prompt the run got.</li>
 </ul>
 <p>The detail page updates in place whenever the session changes — a run starting or ending, a message joining Up next, a CI result — without polling or reloading. An open page also streams a chat turn sent from another tab or by someone else. Without Redis (<code>DJANGO_REDIS_URL</code> unset), the page can't hear about changes, so it checks every few seconds while a run is in flight instead.</p>
+<h3 id="images-and-files-in-tool-results">Images and files in tool results</h3>
+<p>When a tool hands the agent an image or a file — a screenshot from an MCP browser tool, or an image, PDF, audio or video file the agent opened with <code>read_file</code> — the tool's row in the transcript shows it under <strong>Attached</strong>, both while the run streams and after a reload. Images show as thumbnails that open full size in a new tab; PDFs, audio and video show as a chip with their size that downloads the file. An image an MCP server only gives as a link to another site shows as a link, so viewing the transcript doesn't load anything from that site.</p>
+<p>Anyone who can see the session can open these files, as they can read the rest of its transcript: its owner, people who can read its repository, and admins. That includes screenshots from MCP servers a person connected with their own account, so a screenshot of a page they were signed in to is visible to everyone who can see the session.</p>
+<p>DAIV keeps these files with the run in its file storage under <code>MEDIA_ROOT</code> for as long as it keeps the run. DAIV doesn't delete runs on its own; deleting a run deletes its files, but the session's saved agent state still holds each file as the tool returned it. DAIV keeps PNG, JPEG, GIF and WebP images, PDFs, audio and video, up to <code>DAIV_TOOL_MEDIA_MAX_BYTES</code> each (default 10 MiB) and <code>DAIV_TOOL_MEDIA_PER_RUN_MAX</code> per run (default 100). A file it didn't keep shows the reason instead, such as <em>Too large to keep</em>. Runs from before DAIV kept these files show <em>Not saved</em>. The agent always gets the full tool result, whether or not the file was kept.</p>
 <hr />
 <h2 id="artifacts">Artifacts</h2>
 <p>A run's final message is a paragraph of text, and the agent's workspace is thrown away when the run ends. Tasks whose deliverable is a <em>document</em> — a dependency audit, a code-quality report, a changelog draft, a chart — need somewhere else to put it. That is what <strong>artifacts</strong> are for.</p>
@@ -2497,7 +2535,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 6, 2026 01:57:48 UTC">November 6, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 11, 2026 00:36:16 UTC">November 11, 2026</span>
   </span>
 
     
