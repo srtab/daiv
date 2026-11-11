@@ -32,7 +32,7 @@ The Scrip is fire-and-forget: it submits the job with a 5-second socket timeout 
 
 - A DAIV deployment reachable from the RT host, with the [Jobs API](../../features/jobs-api.md) enabled.
 - The RT MCP server wired into the DAIV agent (see [MCP Tools](../../customization/mcp-tools.md)). The RT MCP must authenticate as a user with rights to **comment** on the target queues. A dedicated `daiv-bot` RT user is recommended so comments are clearly attributed.
-- A DAIV API key for a dedicated service user:
+- A DAIV API key for a dedicated service user (see [`create_api_key`](../../reference/management-commands.md#create_api_key)):
 
   ```bash
   django-admin create_api_key rt-triage --name rt-scrip
@@ -96,7 +96,7 @@ Start with a single pilot queue. Expand only after the pilot looks healthy.
 | No log line at all after ticket create | Scrip not attached to the queue, or condition/stage is wrong | Re-check the Scrip's **Applies To** list and confirm Condition=`On Create`, Stage=`TransactionCreate` |
 | `DAIV_URL or DAIV_API_KEY not set` in `rt.log` | `RT_SiteConfig.pm` not reloaded | `apache2ctl graceful` |
 | `queue '<name>' in Applies-To but missing from QUEUE_REPO_MAP` | "Applies To" and the inline map drifted apart | Add the queue to `%QUEUE_REPO_MAP` with its repo, or remove it from "Applies To" |
-| `failed to submit job … 401` | Wrong or expired DAIV API key | Rotate via `django-admin create_api_key` and update `RT_SiteConfig.pm` |
+| `failed to submit job … 401` | Wrong or expired DAIV API key | Rotate via [`django-admin create_api_key`](../../reference/management-commands.md#create_api_key) and update `RT_SiteConfig.pm` |
 | `rate-limited for ticket … 429` (warning) | Jobs API rate limit exceeded (default 20/hour per user) | Raise the jobs throttle rate in Site Configuration (`jobs_throttle_rate`), or use a separate API-key user per queue. Logged at `warning` — safe to alert on `error` only |
 | `failed to submit job … <non-2xx, non-429>` | DAIV returned 4xx/5xx other than rate-limit | Check the DAIV sessions list and access log; the status line + body are captured |
 | `exception in triage scrip: daiv-triage timeout` | The 10-second hard ceiling tripped — usually DNS resolution or a stalled TLS handshake | Check DNS/network from the RT host to `$DAIV_URL`; confirm cert chain if using HTTPS |

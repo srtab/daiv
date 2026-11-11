@@ -182,7 +182,7 @@ The first start pulls about 1.2 GB of images and runs the database migrations; t
 
 ## 4. Sign in
 
-Signing in is optional for the first merge request, but the dashboard is where you watch DAIV work. Create the first admin:
+Signing in is optional for the first merge request, but the dashboard is where you watch DAIV work. Create the first admin with [`bootstrap_admin`](../reference/management-commands.md#bootstrap_admin):
 
 ```bash
 docker compose exec app django-admin bootstrap_admin you@example.com
@@ -199,7 +199,7 @@ docker compose logs app | grep -A2 "sign-in code"
 
 ## 5. Connect your GitLab project
 
-DAIV adds a webhook to every project its user maintains within five minutes. To add it now:
+DAIV adds a webhook to every project its user maintains within five minutes. To add it now, run [`setup_webhooks`](../reference/management-commands.md#setup_webhooks):
 
 ```bash
 docker compose exec app django-admin setup_webhooks

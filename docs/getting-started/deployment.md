@@ -595,7 +595,7 @@ The command returns once every service is healthy. If one isn't, `docker compose
 
 ### Step 4: Create the first admin
 
-**Create an admin account** to sign in to the dashboard:
+**Create an admin account** to sign in to the dashboard, with [`bootstrap_admin`](../reference/management-commands.md#bootstrap_admin):
 
 ```bash
 docker compose exec app django-admin bootstrap_admin admin@example.com

@@ -157,7 +157,7 @@ The `scope` field distinguishes how the agent was triggered: `Issue`, `Merge Req
 
 ## Custom dashboard
 
-DAIV includes a management command to create a pre-configured LangSmith custom dashboard with charts covering all key metrics.
+DAIV includes the [`setup_langsmith_dashboard`](management-commands.md#setup_langsmith_dashboard) management command to create a pre-configured LangSmith custom dashboard with charts covering all key metrics.
 
 ### Setup
 
@@ -249,7 +249,7 @@ LangSmith remains the recommended tool for detailed **trace-level** observabilit
 
 ## Session archive
 
-DAIV keeps a copy of each session's conversation in its database, written when each run ends, so transcripts outlive the checkpointer TTL and LangSmith's retention. Export them for offline analysis:
+DAIV keeps a copy of each session's conversation in its database, written when each run ends, so transcripts outlive the checkpointer TTL and LangSmith's retention. Export them for offline analysis with [`export_session_archives`](management-commands.md#export_session_archives):
 
 ```bash
 django-admin export_session_archives ./session-exports --since 2026-10-01 --repo group/project

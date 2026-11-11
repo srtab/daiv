@@ -164,7 +164,7 @@ Pipeline watch needs a CI event to react to, and enabling that event is a differ
 
 ### GitLab — run the management command
 
-GitLab webhooks are per repository, and `setup_webhooks` only creates hooks that do not exist yet; it skips repositories already onboarded. Adding `pipeline_events` to those existing hooks requires:
+GitLab webhooks are per repository, and [`setup_webhooks`](../reference/management-commands.md#setup_webhooks) only creates hooks that do not exist yet; it skips repositories already onboarded. Adding `pipeline_events` to those existing hooks requires:
 
 ```bash
 django-admin setup_webhooks --update

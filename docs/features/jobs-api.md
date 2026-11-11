@@ -23,7 +23,7 @@ The Jobs API uses **API key authentication** via Bearer tokens — the same mech
 django-admin create_api_key <username> --name "my-key"
 ```
 
-This outputs a key in the format `prefix.secret`. Store it securely — it cannot be retrieved later.
+This outputs a key in the format `prefix.secret`. Store it securely — it cannot be retrieved later. See [`create_api_key`](../reference/management-commands.md#create_api_key) for the `--expires-at` option.
 
 ### Managing API keys
 

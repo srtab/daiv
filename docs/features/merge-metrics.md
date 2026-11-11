@@ -84,7 +84,7 @@ DAIV registers the necessary webhook events on both platforms:
 
 If you already have DAIV connected to repositories, existing webhooks need to be updated to include the new event types.
 
-**GitLab** — Run the setup command with the `--update` flag:
+**GitLab** — Run the [`setup_webhooks`](../reference/management-commands.md#setup_webhooks) command with the `--update` flag:
 
 ```bash
 django-admin setup_webhooks --update
