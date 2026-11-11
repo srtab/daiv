@@ -13,14 +13,14 @@
 ### Session 2026-10-29
 
 - Q: Should operators be able to stop repositories from overriding the instance's skill and subagent models in `.daiv.yml`? → A: No. Repositories can always override; this release has no operator lock.
-- Q: How should operators enter skill and subagent model assignments in the dashboard's site configuration? → A: As rows of a name and a model. Names are suggested from the built-in and global skills and subagents, and any name can be typed; models are picked from the configured providers. Saving warns about an unknown name but accepts it.
+- Q: How should operators enter skill and subagent model assignments in the dashboard? → A: On each skill's page, a Models tab with the skill's entry and, for code-review, one per detector; the general-purpose and explore subagents in the Agent group of site configuration. Models are picked from the configured providers. A skill or subagent that exists only in repositories is set in `.daiv.yml`. (Revised 2026-11-11: rows of a typed name and a model in site configuration were first chosen here; a skill's own page is where an operator looks for it.)
 - Q: When a model named in a repository's `.daiv.yml` can't be used, who should be told? → A: Operators through the error log. Nothing extra is posted to the merge or pull request. (Revised 2026-11-11: the session-view notice first chosen here was dropped as more machinery than the feature warrants.)
 
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Choose the model a skill runs on, for every repository (Priority: P1)
 
-An operator wants every code review on the instance to run on a chosen model, for example a stronger model than the one the rest of the run uses. They open site configuration, assign that model to the `code-review` skill, and save. From the next run on, wherever the agent invokes `code-review`, the work that follows the invocation runs on the assigned model, in every repository, without anyone editing or copying a skill file.
+An operator wants every code review on the instance to run on a chosen model, for example a stronger model than the one the rest of the run uses. They open the `code-review` skill's page in the dashboard, assign that model on its Models tab, and save. From the next run on, wherever the agent invokes `code-review`, the work that follows the invocation runs on the assigned model, in every repository, without anyone editing or copying a skill file.
 
 **Why this priority**: This is the problem that started the feature: today the only way to change a skill's model is to edit the built-in file (a deploy) or copy the skill into each repository, where the copy drifts from upstream changes.
 
@@ -38,7 +38,7 @@ An operator wants every code review on the instance to run on a chosen model, fo
 
 ### User Story 2 - Choose the model each subagent runs on (Priority: P2)
 
-An operator wants the code-review detectors to run on different models: the security detector on a stronger model, the tests detector on a cheaper one. In site configuration they assign a model to each detector by name. Every run that delegates to those detectors uses the assigned models; detectors without an entry keep their current model.
+An operator wants the code-review detectors to run on different models: the security detector on a stronger model, the tests detector on a cheaper one. On the `code-review` skill's Models tab they assign a model to each detector. Every run that delegates to those detectors uses the assigned models; detectors without an entry keep their current model.
 
 **Why this priority**: Detectors do most of a code review's model work, so their models drive the review's cost and quality. Today a detector's model can only change through a deploy.
 
@@ -71,7 +71,7 @@ A repository maintainer wants their repository's code reviews on a different mod
 ### Edge Cases
 
 - **Unusable model**: An entry names a provider that is not configured, is disabled, or has no API key. The skill or subagent runs on the model it would use with no configured entry, neither the repository's nor the site configuration's. The run continues and operators see the failure at ERROR level. A subagent is never left out of the run because its configured model is unusable.
-- **Unknown name**: An entry names a skill or subagent that the run does not have. The entry is ignored and the run is unaffected. In site configuration, saving such an entry shows a warning when the name matches no built-in or global skill or subagent.
+- **Unknown name**: An entry names a skill or subagent that the run does not have. The entry is ignored and the run is unaffected. Only the environment variables can name such a skill or subagent site-wide; the dashboard lists only the ones it knows.
 - **Conversation too large**: The conversation no longer fits the configured skill model's context window. Those calls are served by the run's model, as for a model declared in the skill file.
 - **Two skills in one turn**: Two skills with different models are invoked in the same turn. The most recently applied skill model serves the calls that follow.
 - **Configuration changes mid-session**: A change applies to runs that start after it, never to a run already in progress.
@@ -82,15 +82,15 @@ A repository maintainer wants their repository's code reviews on a different mod
 
 ### Functional Requirements
 
-- **FR-001**: Operators MUST be able to assign a model spec to a skill by name in site configuration, and the assignment MUST apply to every repository on the instance.
-- **FR-002**: Operators MUST be able to assign a model spec to a subagent by name in site configuration, including each code-review detector, the general-purpose subagent, and subagents defined in repository files.
+- **FR-001**: Operators MUST be able to assign a model spec to a built-in or global skill on its page in the dashboard, and the assignment MUST apply to every repository on the instance.
+- **FR-002**: Operators MUST be able to assign a model spec to each code-review detector on the code-review skill's page, and to the general-purpose and explore subagents in site configuration's Agent group. A subagent defined in repository files is assigned in `.daiv.yml` (FR-003).
 - **FR-003**: Repository maintainers MUST be able to assign a model spec to a skill or a subagent by name in the repository's `.daiv.yml`. An entry overrides the site configuration's entry for the same name only, and an empty entry counts as no entry. The first release includes both site configuration and the repository file.
 - **FR-004**: For a given name, the model MUST resolve in this order, first match wins: the repository's entry, then the site configuration's entry, then the model the skill or subagent file declares, then the model it uses today. A model the user chose for the run, including an exact pin, sits in that last place and never beats a configured entry.
 - **FR-005**: A configured skill model MUST serve the run's model calls from the skill's invocation until the user's next message, the same lifetime as a model declared in the skill file.
 - **FR-006**: A configured subagent model MUST serve every model call that subagent makes.
 - **FR-007**: A configured model MUST run with the run's thinking level and fall back to the run's fallback models when it fails.
-- **FR-008**: Site configuration MUST present assignments as rows of a name and a model. The name field MUST suggest the built-in and global skills and subagents and MUST accept any typed name. The model MUST be picked from the models of the configured providers.
-- **FR-008a**: Saving site configuration MUST refuse an entry whose model spec names no configured provider and say which entry is invalid. It MUST warn about, but still save, an entry whose name matches no built-in or global skill or subagent, since that name may exist only in repositories.
+- **FR-008**: A skill's Models tab MUST show a row for the skill's entry and, for code-review, one per detector; the Agent group MUST show a row each for the general-purpose and explore subagents. Each row's model MUST be picked from the models of the configured providers, MUST name what serves while the entry is unset, and MUST be clearable.
+- **FR-008a**: Saving MUST refuse a changed entry whose model spec names no usable provider and say which entry is invalid. An unchanged entry whose provider became unusable MUST be kept and shown as such, so it does not block saving the others.
 - **FR-009**: When a configured model cannot be used at run time, the skill or subagent MUST run on the model it would use with no configured entry, neither the repository's nor the site configuration's, and the run MUST continue. The failure MUST be logged at ERROR level naming the entry. The run MUST NOT post anything extra to the merge or pull request.
 - **FR-010**: Entries naming a skill or subagent that the run does not have MUST be ignored without affecting the run.
 - **FR-011**: When the conversation does not fit a configured skill model's context window, the run's model MUST serve that call.

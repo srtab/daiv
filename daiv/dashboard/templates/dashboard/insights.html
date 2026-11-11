@@ -11,11 +11,9 @@
         <h1 class="text-2xl font-bold tracking-tight text-text-strong">{% translate "Insights" %}</h1>
         <p class="mt-1.5 text-[15px] font-light text-text-muted">{% translate "How DAIV is used across the repositories you can see." %}</p>
     </div>
-    <nav aria-label="{% translate 'Period' %}" class="flex flex-wrap items-center gap-1 rounded-xl border border-border bg-surface-2 p-1">
+    <nav aria-label="{% translate 'Period' %}" class="segmented-nav">
         {% for p in periods %}
-        <a href="?period={{ p.key }}"
-           {% if p.key == current_period %}aria-current="true"{% endif %}
-           class="rounded-lg px-3 py-1.5 text-sm font-medium transition-colors {% if p.key == current_period %}bg-surface-3 text-text-strong{% else %}text-text-muted hover:text-text{% endif %}">
+        <a href="?period={{ p.key }}" class="segmented-nav__item"{% if p.key == current_period %} aria-current="true"{% endif %}>
             {{ p.label }}
         </a>
         {% endfor %}

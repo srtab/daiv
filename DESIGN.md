@@ -413,11 +413,14 @@ All components are Django templates. Reusable partials are **underscore-prefixed
 **Legacy until migrated** — `.btn-primary`'s white fill predates the token layer, where
 teal `accent` owns "clickable" (see the sidebar's `bg-accent text-accent-ink` CTA). Keep
 using these classes on pages still on the legacy utilities; a page moved to the tokens
-moves its primary action to `accent` at the same time.
+moves its primary action to `.btn-accent` at the same time.
 
 Defined as Tailwind `@layer components` classes in `input.css`:
 
 ```html
+<!-- Primary on a page moved to the tokens (teal accent, accent-ink text) -->
+<button class="btn-accent">Save</button>
+
 <!-- Primary (white bg, dark text) -->
 <button class="btn-primary">Save</button>
 
@@ -541,6 +544,20 @@ switches on is never the width the rule names. The same wrap — grow the
 details, floor them, let the controls fall below — is how list rows with trailing
 controls stack (`mcp_connectors/_server_list.html`), and it adapts per row when the
 controls are conditional.
+
+### Segmented Nav
+
+Links to a page's views, each its own URL: a skill page's tabs, the Insights periods. The current
+link carries `aria-current`, which puts it on `surface-3` in `text-strong`; a count beside a label
+goes in `.segmented-nav__count`. Tabs that switch in place without a URL use `.details-tabs`
+(§Session sidebar) instead.
+
+```html
+<nav aria-label="Skill" class="segmented-nav">
+    <a href="…" class="segmented-nav__item" aria-current="page">SKILL.md</a>
+    <a href="…" class="segmented-nav__item">Files<span class="segmented-nav__count">7</span></a>
+</nav>
+```
 
 ### Badges / Pills
 

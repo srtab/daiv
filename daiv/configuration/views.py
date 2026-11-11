@@ -1,62 +1,39 @@
 import logging
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from django.contrib import messages
 from django.db import transaction
 from django.http import Http404
 from django.shortcuts import redirect, render
+from django.utils.html import format_html
 from django.utils.translation import gettext
 from django.utils.translation import gettext_lazy as _
 from django.views import View
+from django.views.generic import TemplateView
 
-from skills.services import list_global_skills
+from skills.pages import SkillPage, SkillPageMixin
+from skills.services import skill_subagents
 
-from automation.agent.constants import BUILTIN_SUBAGENT_NAMES
+from automation.agent.constants import EXPLORE_MODEL_NAME, EXPLORE_NAME, GENERAL_PURPOSE_NAME
 from configuration.forms import (
     PROVIDERS_FORMSET_PREFIX,
-    SKILL_MODELS,
-    SUBAGENT_MODELS,
+    RUN_MODEL_LABEL,
     WEB_FETCH_AUTH_HEADERS_FORMSET_PREFIX,
-    ModelMap,
+    ModelEntriesForm,
+    ModelEntry,
     SiteConfigurationForm,
-    build_model_map_formset,
     build_provider_formset,
     build_web_fetch_auth_header_formset,
-    model_map_from_formset,
 )
 from core.mixins import AdminRequiredMixin
 from core.models import FieldGroup, Provider, SiteConfiguration, WebFetchAuthHeader
 from core.site_settings import site_settings
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
+from core.utils import short_model_name
 
 logger = logging.getLogger("daiv.configuration")
 
 
-@dataclass(frozen=True)
-class _ModelMapSection:
-    """One model map of the Agent group: its rows, or the environment's value when a variable locks it."""
-
-    model_map: ModelMap
-    title: str
-    add_label: str
-    unknown_warning: str
-    suggestions: list[str]
-    formset: Any = None
-    env_value: Mapping[str, str] | None = None
-
-    @property
-    def saves(self) -> bool:
-        return self.formset is not None and self.formset.is_bound
-
-    def unknown_names(self) -> list[str]:
-        """Names this submission adds that no built-in or global entry has; stored ones were warned about already."""
-        stored = {row["name"] for row in self.formset.initial or ()}
-        return [
-            name for name in model_map_from_formset(self.formset) if name not in self.suggestions and name not in stored
-        ]
+SUBAGENT_MODELS_PREFIX = "subagent_models"
 
 
 class SiteConfigurationIndexView(AdminRequiredMixin, View):
@@ -84,7 +61,7 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
         instance = SiteConfiguration.objects.get_instance()
         field_defaults = site_settings.get_defaults()
         providers_formset, headers_formset, headers_env_locked = self._build_per_group_formsets(data=None)
-        model_maps = self._build_model_map_sections(data=None, instance=instance)
+        subagent_models = self._build_subagent_models_form(data=None, instance=instance)
         form = SiteConfigurationForm(
             instance=instance,
             env_locked_fields=self._get_env_locked_fields(),
@@ -94,7 +71,7 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
         return render(
             request,
             self.template_name,
-            self._build_context(form, providers_formset, headers_formset, headers_env_locked, model_maps),
+            self._build_context(form, providers_formset, headers_formset, headers_env_locked, subagent_models),
         )
 
     def post(self, request, group_key):
@@ -120,23 +97,20 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
         )
 
         headers_valid = headers_formset is None or headers_env_locked or headers_formset.is_valid()
-        model_maps = self._build_model_map_sections(data=request.POST, instance=instance)
-        saved_maps = [section for section in model_maps if section.saves]
-        model_maps_valid = all(section.formset.is_valid() for section in saved_maps)
+        subagent_models = self._build_subagent_models_form(data=request.POST, instance=instance)
+        saves_subagent_models = subagent_models is not None and subagent_models.is_submitted(request.POST)
+        subagent_models_valid = not saves_subagent_models or subagent_models.is_valid()
 
-        if form.is_valid() and providers_valid and headers_valid and model_maps_valid:
+        if form.is_valid() and providers_valid and headers_valid and subagent_models_valid:
             with transaction.atomic():
                 if providers_formset is not None:
                     providers_formset.save()
-                for section in saved_maps:
-                    setattr(form.instance, section.model_map.site_field, model_map_from_formset(section.formset))
+                if saves_subagent_models:
+                    subagent_models.apply_to(form.instance)
                 form.save()
                 if headers_formset is not None and not headers_env_locked:
                     headers_formset.save()
             messages.success(request, "Configuration saved.")
-            for section in saved_maps:
-                for name in section.unknown_names():
-                    messages.warning(request, section.unknown_warning % {"name": name})
             if providers_formset is not None:
                 for warning in self._collect_provider_warnings(providers_formset):
                     messages.warning(request, warning)
@@ -148,7 +122,7 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
         return render(
             request,
             self.template_name,
-            self._build_context(form, providers_formset, headers_formset, headers_env_locked, model_maps),
+            self._build_context(form, providers_formset, headers_formset, headers_env_locked, subagent_models),
         )
 
     @staticmethod
@@ -172,39 +146,26 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
             return None, self._build_headers_formset(data=None if env_locked else data), env_locked
         return None, None, False
 
-    def _build_model_map_sections(self, *, data, instance: SiteConfiguration) -> list[_ModelMapSection]:
-        """The Agent group's model maps. A POST without a map's rows leaves that map as stored."""
+    def _build_subagent_models_form(self, *, data, instance: SiteConfiguration) -> ModelEntriesForm | None:
+        """The Agent group's models of the subagents every run can delegate to; the skill page has the others."""
         if self.group.key != "agent":
-            return []
-
-        def section(model_map: ModelMap, **labels: Any) -> _ModelMapSection:
-            if site_settings.is_env_locked(model_map.site_field):
-                return _ModelMapSection(model_map, env_value=getattr(site_settings, model_map.site_field), **labels)
-            stored = getattr(instance, model_map.site_field)
-            return _ModelMapSection(
-                model_map, formset=build_model_map_formset(model_map, data=data, stored=stored), **labels
-            )
-
-        return [
-            section(
-                SKILL_MODELS,
-                title=gettext("Skills"),
-                add_label=gettext("Add skill"),
-                unknown_warning=gettext(
-                    "No built-in or global skill is named '%(name)s'; its entry applies where a repository defines it."
-                ),
-                suggestions=list(list_global_skills()),
+            return None
+        entries = [
+            ModelEntry(
+                "agent_subagent_models",
+                GENERAL_PURPOSE_NAME,
+                GENERAL_PURPOSE_NAME,
+                _("Open-ended work the agent hands off"),
             ),
-            section(
-                SUBAGENT_MODELS,
-                title=gettext("Subagents"),
-                add_label=gettext("Add subagent"),
-                unknown_warning=gettext(
-                    "No built-in subagent is named '%(name)s'; its entry applies where a repository defines it."
-                ),
-                suggestions=sorted(BUILTIN_SUBAGENT_NAMES),
+            ModelEntry(
+                "agent_subagent_models",
+                EXPLORE_NAME,
+                EXPLORE_NAME,
+                _("Read-only codebase search"),
+                default_label=short_model_name(EXPLORE_MODEL_NAME),
             ),
         ]
+        return ModelEntriesForm(entries, data, stored=instance, prefix=SUBAGENT_MODELS_PREFIX)
 
     def _build_context(
         self,
@@ -212,7 +173,7 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
         providers_formset,
         headers_formset,
         headers_env_locked: bool,
-        model_maps: list[_ModelMapSection],
+        subagent_models: ModelEntriesForm | None,
     ) -> dict:
         built_in_provider_forms, custom_provider_forms = self._split_provider_forms(providers_formset)
         return {
@@ -226,7 +187,8 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
             "web_fetch_auth_headers_env_locked": headers_env_locked,
             "web_fetch_auth_headers_env_value": (site_settings.web_fetch_auth_headers if headers_env_locked else None),
             "telegram_bot_username": (site_settings.telegram_bot_username if self.group.key == "telegram" else None),
-            "model_map_sections": model_maps,
+            "subagent_models_form": subagent_models,
+            "subagent_models_env_var": site_settings.get_env_var_name("agent_subagent_models"),
         }
 
     @staticmethod
@@ -289,3 +251,69 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
     def _get_env_locked_fields(self) -> set[str]:
         """Return field names in the active group that are locked by an environment variable."""
         return {name for name in self.group.fields if site_settings.is_env_locked(name)}
+
+
+def _mono(text: str) -> str:
+    return format_html('<span class="font-mono text-[12px]">{}</span>', text)
+
+
+def skill_model_entries(page: SkillPage) -> list[ModelEntry]:
+    """The model entries of ``page``'s skill: its own, then one per subagent it ships."""
+    declared = page.declared_model
+    skill_help = format_html(
+        gettext("Serves the run from the moment {} is invoked until the next message."), _mono(page.name)
+    )
+    if declared:
+        declares = format_html(gettext("Its SKILL.md declares {}."), _mono(declared))
+        skill_help = format_html("{} {}", skill_help, declares)
+    skill_default = short_model_name(declared) or RUN_MODEL_LABEL
+    return [
+        ModelEntry("agent_skill_models", page.name, _("Skill"), skill_help, skill_default),
+        *(
+            ModelEntry(
+                "agent_subagent_models",
+                subagent.name,
+                subagent.name,
+                subagent.summary,
+                short_model_name(subagent.model) or RUN_MODEL_LABEL,
+            )
+            for subagent in skill_subagents(page.name)
+        ),
+    ]
+
+
+class SkillModelsView(AdminRequiredMixin, SkillPageMixin, TemplateView):
+    """The skill page's Models tab: the site's model entries for the skill and the subagents it ships."""
+
+    template_name = "configuration/skill_models.html"
+    skill_tab = "models"
+
+    def get(self, request, *args, **kwargs):
+        return self.render_to_response(self.get_context_data(form=self._build_form(data=None)))
+
+    def post(self, request, *args, **kwargs):
+        form = self._build_form(data=request.POST)
+        if not form.is_valid():
+            return self.render_to_response(self.get_context_data(form=form))
+        with transaction.atomic():
+            config = SiteConfiguration.objects.select_for_update().get(pk=SiteConfiguration.objects.get_instance().pk)
+            if changed := form.apply_to(config):
+                config.save(update_fields=changed)
+        messages.success(request, _("Models saved."))
+        return redirect("skills:models", name=self.skill_page.name)
+
+    def _build_form(self, *, data) -> ModelEntriesForm:
+        entries = skill_model_entries(self.skill_page)
+        return ModelEntriesForm(entries, data, stored=SiteConfiguration.objects.get_instance())
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        form: ModelEntriesForm = context["form"]
+        rows = [{"field": form[name], "stale": form.stale_reasons.get(name, "")} for name in form.fields]
+        return {
+            **context,
+            "skill_row": rows[0],
+            "subagent_rows": rows[1:],
+            "skill_models_env_var": site_settings.get_env_var_name("agent_skill_models"),
+            "subagent_models_env_var": site_settings.get_env_var_name("agent_subagent_models"),
+        }

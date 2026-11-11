@@ -1,0 +1,63 @@
+{% extends "base_app.html" %}
+{% load i18n icon_tags %}
+{% comment %}
+The skill page every tab extends: the header and the tab row, then the tab's own `skill_tab` block.
+Context comes from `skills.pages.SkillPageMixin`.
+{% endcomment %}
+
+{% block title %}{{ skill.name }} — {% translate "Skills" %} — DAIV{% endblock %}
+
+{% block breadcrumb %}
+{% include "core/_breadcrumb.html" %}
+{% endblock breadcrumb %}
+
+{% block app_content %}
+<div class="animate-fade-up page-header">
+    <div class="page-header__title">
+        <div class="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+            <h1 class="text-2xl font-bold tracking-tight text-text-strong">{{ skill.name }}</h1>
+            {% if not skill.global_skill %}<span class="meta-pill">{% translate "Built-in" %}</span>{% endif %}
+            <span class="inline-flex items-center gap-1 font-mono text-[12px] tabular-nums text-text-faint" title="{% translate 'Lifetime invocations' %}">
+                {% icon "bolt" "h-3 w-3" %}
+                {% blocktranslate count counter=invocations_total %}{{ counter }} invocation{% plural %}{{ counter }} invocations{% endblocktranslate %}
+            </span>
+        </div>
+        <p class="mt-1.5 text-[15px] font-light text-text-muted">{{ skill.description }}</p>
+        {% if skill.global_skill %}
+        <div class="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[12px] text-text-faint">
+            <span>{% translate "Uploaded by" %}</span>
+            {% if skill.global_skill.uploaded_by %}
+            {% include "accounts/_avatar.html" with user=skill.global_skill.uploaded_by label=_("Uploaded by") %}
+            {% else %}
+            <span>{% translate "(unknown)" %}</span>
+            {% endif %}
+            <span class="font-mono tabular-nums">&middot; {{ skill.global_skill.modified|date:"Y-m-d H:i" }} &middot; {{ skill.global_skill.size_bytes|filesizeformat }}</span>
+        </div>
+        {% endif %}
+    </div>
+    {% if skill.global_skill %}
+    <div class="page-header__actions">
+        <a href="{% url 'skills:download' skill.name %}" class="btn-secondary gap-1.5 rounded-lg px-3 py-1.5 text-sm">
+            {% icon "arrow-down-tray" "h-4 w-4 shrink-0" %}
+            {% translate "Download zip" %}
+        </a>
+        <a href="{% url 'skills:delete' skill.name %}" class="btn-danger-outline gap-1.5 rounded-lg px-3 py-1.5 text-sm">
+            {% icon "trash" "h-4 w-4 shrink-0" %}
+            {% translate "Delete skill" %}
+        </a>
+    </div>
+    {% endif %}
+</div>
+
+<nav aria-label="{% translate 'Skill' %}" class="animate-fade-up segmented-nav mt-6" style="animation-delay: 50ms">
+    {% for tab in skill_tabs %}
+    <a href="{{ tab.url }}" class="segmented-nav__item"{% if tab.current %} aria-current="page"{% endif %}>
+        {{ tab.label }}{% if tab.count %}<span class="segmented-nav__count">{{ tab.count }}</span>{% endif %}
+    </a>
+    {% endfor %}
+</nav>
+
+<div class="animate-fade-up mt-6" style="animation-delay: 100ms">
+    {% block skill_tab %}{% endblock %}
+</div>
+{% endblock app_content %}

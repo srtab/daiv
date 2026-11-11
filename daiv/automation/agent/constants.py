@@ -1,3 +1,5 @@
+from core.constants import ModelName
+
 # Unified sandbox workspace. One backend (sandbox-authoritative) serves all of /workspace.
 # The sandbox holds the one true workspace: repo at /workspace/repo, seeded skills at
 # /workspace/skills, and the per-run scratchpad at /workspace/tmp.
@@ -19,6 +21,7 @@ SKILLS_SOURCES = [CURSOR_SKILLS_PATH, CLAUDE_CODE_SKILLS_PATH, AGENTS_SKILLS_PAT
 SKILLS_TOOL_NAME = "skill"
 
 EXPLORE_NAME = "explore"
+EXPLORE_MODEL_NAME = ModelName.CLAUDE_HAIKU_5_5
 GENERAL_PURPOSE_NAME = "general-purpose"
 CODE_REVIEW_DETECTOR_NAMES = (
     "cr-correctness",

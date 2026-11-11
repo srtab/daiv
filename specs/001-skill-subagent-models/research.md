@@ -22,32 +22,27 @@ repository root.
 - **Watch**: The snapshot exposes the maps read-only (`MappingProxyType`), because the cached
   defaults dict is shared across callers and a `{}` default could otherwise be mutated in place.
 
-## R2. Site configuration UI
+## R2. Dashboard UI
 
-- **Decision**: The fields match the Agent group's `agent_*` pattern but stay out of
-  `SiteConfigurationForm.Meta.fields`, so the generic field loop skips them. They are rendered as a
-  custom section in the Agent group, through the group-specific include hook in
-  `configuration/site_configuration_group.html:61-69`. Each map is a plain `formset_factory` of
-  rows, folded into the JSON object on save, following the MCP headers precedent
-  (`daiv/mcp_connectors/forms.py:200-279`) and the shared `djangoFormset` component
-  (`daiv/core/static/core/js/django-formset.js`). Each row has:
-  - a name `<input>` with a `<datalist>` of suggestions: `skills.services.list_global_skills()`
-    for skills (built-in and custom global, `daiv/skills/services.py:202`), and
-    `BUILTIN_SUBAGENT_NAMES` for subagents;
-  - the reusable picker `automation/_agent_picker.html` with `with_effort=False` (model only),
-    named after the row's formset prefix, so its provider list is already limited to enabled
-    `Provider` rows.
-- **Validation**: Each row's spec goes through the same check as `_validate_model_api_keys`
-  (`daiv/configuration/forms.py:472-496`): `parse_model_spec`, then an enabled provider row with
-  an API key. That check is extracted into a helper so both paths share it. An invalid row is a
-  form error naming the entry (FR-008a). A name outside the suggestions is accepted and reported
-  with `messages.warning` after save, the `_collect_provider_warnings` precedent
-  (`daiv/configuration/views.py:93-99`). Duplicate names in one map are refused.
-- **Env lock**: When the environment variable is set, the section renders read-only, like the
-  web-fetch auth headers section (`daiv/configuration/views.py:116-127`).
+- **Decision**: A skill's entries are set on the skill's own page, which splits into SKILL.md,
+  Files, Models and Usage tabs; the code-review detectors are on the code-review page, since their
+  charters ship in its `agents/` folder. The `general-purpose` and `explore` subagents belong to no
+  skill and stay in the Agent group of site configuration, as two fixed rows. (Revised 2026-11-11:
+  first decided as free-form rows of a name and a model in the Agent group.)
+- **Layering**: `skills` may not import `configuration`, `sessions` or `automation`. So the
+  Models tab is a `configuration` view and the Usage tab a `dashboard` view, both added to the
+  `skills` URL namespace in `daiv/urls.py`, and all four tabs share `skills.pages.SkillPageMixin`
+  and `skills/skill_page.html`. `skills.services.skill_subagents` reads the detector charters'
+  frontmatter for their names, a summary and any declared model.
+- **Form**: `configuration.forms.ModelEntriesForm` builds a picker per entry, with the settings
+  picker in model-only mode and a "default" hint naming what serves while unset. Only a changed
+  entry is validated with `model_spec_error`, so a stale stored entry is kept and flagged rather
+  than blocking the save. A map set by its environment variable renders locked.
 - **Alternatives considered**:
+  - Free-form rows with typed names in the Agent group: they put a skill's model away from the
+    skill, and suggested names only the dashboard already knew. A repository-only name is better
+    set in that repository's `.daiv.yml`.
   - A JSON textarea: rejected by clarification Q2.
-  - Free-text rows without a picker (Q2 option B): rejected for the same reason.
 
 ## R3. Repository maps in `.daiv.yml`
 

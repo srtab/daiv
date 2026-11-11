@@ -11,20 +11,21 @@
 - A malformed variable is logged at ERROR and treated as `{}`.
 - A saved change applies to runs that start after the commit.
 
-## Dashboard: Agent group, "Skill and subagent models" section
+## Dashboard
 
-Two lists of rows, one for skills and one for subagents. Each row has:
+A skill's page (`/dashboard/skills/<name>/`) has four tabs, each its own URL: SKILL.md, Files,
+Models (`models/`) and Usage (`usage/`). The Models tab holds the skill's `agent_skill_models` entry
+and, for code-review, an `agent_subagent_models` entry per detector. The Agent group of site
+configuration holds the `general-purpose` and `explore` entries.
 
-- **Name**: a text input. It suggests `list_global_skills()` names for skills, and the built-in
-  subagents for subagents. Any text is accepted.
-- **Model**: the agent picker, without the thinking-effort row, limited to enabled providers.
-
-Rows can be added and removed.
+Each row is one entry: the agent picker, without the thinking-effort row and limited to enabled
+providers, beside the name of what serves while the entry is unset. Saving writes the changed
+entries and keeps every other entry of the map.
 
 | Input | Result on save |
 |-------|----------------|
-| A row with a valid name and spec | Saved |
-| A spec whose provider is unknown, disabled or has no API key | Not saved; error on that row naming the entry |
-| A blank name, or a duplicate name in the same list | Not saved; error on that row |
-| A name outside the suggestions | Saved; warning message after save naming the entry |
-| A row with a name and no model | Not saved; error on that row |
+| A changed entry with a usable spec | Saved |
+| A changed entry whose provider is unknown, disabled or has no API key | Not saved; error on that row |
+| An entry cleared with "Use default" | Removed from the map |
+| An unchanged entry whose provider became unusable | Kept; the row is flagged |
+| A map set by its environment variable | Its rows are read-only and keep the environment's value |

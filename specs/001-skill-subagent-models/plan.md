@@ -6,7 +6,8 @@
 
 ## Summary
 
-Operators map skill and subagent names to model specs in site configuration. A repository can
+Operators map skill and subagent names to model specs in the dashboard: on a skill's page, and
+for the general-purpose and explore subagents in site configuration. A repository can
 override those entries per name in `.daiv.yml`. Each run resolves both maps once, and the
 repository's entries win.
 
@@ -97,16 +98,22 @@ daiv/
 │   ├── subagents.py                   # configured-model resolution for general-purpose, detectors, custom
 │   ├── graph.py                       # passes maps and thinking level through
 │   └── middlewares/skills.py          # configured spec before metadata.model; serves the active skill's calls on it
+├── skills/
+│   ├── pages.py                       # the skill page's header and tabs, shared by every tab view
+│   └── services.py                    # skill_subagents (detector charters), skill_usage
+├── dashboard/
+│   ├── skill_usage.py                 # matches recent invocations to their runs
+│   └── views.py                       # SkillUsageView (Usage tab)
 └── configuration/
-    ├── forms.py                       # model-map formset, shared spec validation
-    ├── views.py                       # formset wiring, unknown-name warnings, env lock
-    └── templates/configuration/_agent_model_maps_section.html, agent_model_map_row.html
+    ├── forms.py                       # ModelEntriesForm, shared spec validation
+    ├── views.py                       # SkillModelsView (Models tab); Agent group subagent rows
+    └── templates/configuration/skill_models.html, _agent_subagent_models_section.html
 
 docs/
 ├── customization/agent-skills.md      # metadata.model section → precedence with configuration
 ├── customization/repository-config.md # models.skills / models.subagents rows
 ├── features/subagents.md              # configured subagent models
-└── reference/site-configuration.md    # Agent group: skill and subagent models
+└── reference/site-configuration.md    # Agent group: subagent models; skill models on the skill page
 
 tests/unit_tests/
 ├── core/test_site_settings.py         # JSON env override, read-only snapshot maps
@@ -115,7 +122,8 @@ tests/unit_tests/
 ├── automation/agent/test_configured_models.py   # entry > file > run; ERROR log; one build per spec
 ├── automation/agent/test_subagents.py           # configured > frontmatter > run; fallback without skip
 ├── automation/agent/middlewares/test_skills.py  # configured > metadata; fallback on failure
-└── configuration/test_forms.py, test_views.py   # row validation, warning, env lock
+├── configuration/test_forms.py, test_views.py, test_skill_models.py   # entry validation, stale entries, env lock
+└── dashboard/test_skill_usage.py                # usage counts, invocations matched to runs
 ```
 
 **Structure Decision**: The changes extend existing apps in their own layers; no new app or

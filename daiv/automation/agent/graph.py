@@ -16,7 +16,13 @@ from skills.constants import SKILLS_PATH
 
 from automation.agent.base import get_model
 from automation.agent.configured_models import ConfiguredModels
-from automation.agent.constants import REPO_PATH, SKILLS_SOURCES, SKILLS_TOOL_NAME, SUBAGENTS_SOURCES
+from automation.agent.constants import (
+    EXPLORE_MODEL_NAME,
+    REPO_PATH,
+    SKILLS_SOURCES,
+    SKILLS_TOOL_NAME,
+    SUBAGENTS_SOURCES,
+)
 from automation.agent.context import RuntimeCtx
 from automation.agent.delegation import DELEGATE_JOBS_TOOL_NAME
 from automation.agent.mcp.toolkits import load_mcp_tools
@@ -54,7 +60,6 @@ from automation.agent.profile import register as _register_harness_profile
 from automation.agent.prompts import AGENTS_MEMORY_SYSTEM_PROMPT, DAIV_SYSTEM_PROMPT, WRITE_TODOS_SYSTEM_PROMPT
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME
 from automation.agent.subagents import (
-    EXPLORE_MODEL_NAME,
     EXPLORE_NAME,
     GENERAL_PURPOSE_NAME,
     create_explore_subagent,

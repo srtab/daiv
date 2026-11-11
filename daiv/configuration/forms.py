@@ -22,9 +22,13 @@ from core.models import (
     ThinkingLevelChoices,
     WebFetchAuthHeader,
 )
+from core.site_settings import site_settings
+from core.utils import short_model_name
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
+
+    from django_stubs_ext import StrOrPromise
 
     from core.models import FieldGroup
 
@@ -63,15 +67,6 @@ assert set(_PAIRED_THINKING_FIELDS).issubset(SiteConfiguration.MODEL_NAME_FIELDS
 )
 
 
-def _shorten_model_spec(spec: str) -> str:
-    """Strip ``provider:`` prefix and any ``org/`` path so the placeholder pill
-    label ("Default (...)") stays compact."""
-    if not spec:
-        return ""
-    name = spec.split(":", 1)[1] if ":" in spec else spec
-    return name.rsplit("/", 1)[-1] or name
-
-
 class _PickerContext(TypedDict):
     """Shape of the per-widget context blob the settings widget passes into
     ``automation/_agent_picker.html``. Defined here so renaming a key trips
@@ -93,6 +88,8 @@ class _PickerContext(TypedDict):
     locked_title: str
     seed_default: bool
     required: bool
+    default_hint: bool
+    stale: bool
 
 
 class _AgentPickerWidget(forms.Widget):
@@ -127,6 +124,11 @@ class _AgentPickerWidget(forms.Widget):
         # Populated by the form so the partial can seed the effort dots from
         # the paired field's stored value. Standalone widgets leave it empty.
         self.initial_thinking: str = ""
+        # Model entries set these: the unselected pill names what serves instead, beside a "default" hint, and a
+        # stored spec no provider serves any more renders stale.
+        self.placeholder: str = ""
+        self.default_hint: bool = False
+        self.stale: bool = False
 
     def get_context(self, name: str, value: Any, attrs: dict | None) -> dict[str, Any]:
         context = super().get_context(name, value, attrs)
@@ -144,11 +146,12 @@ class _AgentPickerWidget(forms.Widget):
         ]
 
         with_effort = self.paired_thinking_field is not None
-        placeholder = (
-            _("Default (%(name)s)") % {"name": _shorten_model_spec(self.default_model)}
-            if self.default_model
-            else _("Pick a model")
-        )
+        if self.placeholder:
+            placeholder = self.placeholder
+        elif self.default_model:
+            placeholder = _("Default (%(name)s)") % {"name": short_model_name(self.default_model)}
+        else:
+            placeholder = _("Pick a model")
 
         # ``attrs`` here is the per-render arg from ``BoundField`` (carries
         # ``disabled`` for env-locked fields). ``self.attrs`` is the widget's
@@ -161,7 +164,7 @@ class _AgentPickerWidget(forms.Widget):
             "field_name_model": name,
             "field_name_thinking": self.paired_thinking_field or "",
             "initial_agent_model": value or "",
-            "initial_model_display": _shorten_model_spec(value) if value else "",
+            "initial_model_display": short_model_name(value) if value else "",
             "initial_thinking_level": self.initial_thinking,
             "initial_effort_dots": ThinkingLevelChoices.dots_for(self.initial_thinking),
             "default_model": self.default_model,
@@ -179,6 +182,8 @@ class _AgentPickerWidget(forms.Widget):
             # save is a meaningful "use the configured default" state.
             "seed_default": False,
             "required": False,
+            "default_hint": self.default_hint,
+            "stale": self.stale,
         }
         widget_ctx["picker"] = picker
         return context
@@ -624,83 +629,86 @@ class SiteConfigurationForm(forms.ModelForm):
         return labels.get(name, "")
 
 
+RUN_MODEL_LABEL = _("Run's model")
+
+
 @dataclass(frozen=True)
-class ModelMap:
-    """A ``{name: model spec}`` map of the Agent group: the ``SiteConfiguration`` field it saves to, its formset prefix
-    and the ``<datalist>`` that suggests its names."""
+class ModelEntry:
+    """One ``{name: model spec}`` entry of ``agent_skill_models`` or ``agent_subagent_models``, as its row shows it:
+    ``default_label`` names what serves while the entry is unset."""
 
     site_field: str
-    prefix: str
-    names_id: str
+    name: str
+    label: StrOrPromise
+    help_text: StrOrPromise
+    default_label: StrOrPromise = RUN_MODEL_LABEL
+
+    @property
+    def field_name(self) -> str:
+        return f"{self.site_field}__{self.name}"
 
 
-SKILL_MODELS = ModelMap(site_field="agent_skill_models", prefix="skill_models", names_id="skill-model-names")
-SUBAGENT_MODELS = ModelMap(
-    site_field="agent_subagent_models", prefix="subagent_models", names_id="subagent-model-names"
-)
+class ModelEntriesForm(forms.Form):
+    """A model picker per ``ModelEntry``, saved into the site's model maps without touching their other entries.
 
+    A map set by its environment variable shows its value locked. Only a changed entry must name a usable model, so an
+    entry whose provider went away is kept, flagged ``stale``, until someone picks another.
+    """
 
-class ModelMapRowForm(forms.Form):
-    """One ``{name: model spec}`` entry of ``agent_skill_models`` or ``agent_subagent_models``."""
-
-    name = forms.CharField(label=_("Name"), max_length=255, required=False)
-    model = forms.CharField(label=_("Model"), max_length=255, required=False, widget=_AgentPickerWidget())
-
-    def __init__(self, *args: Any, name_list: str = "", **kwargs: Any) -> None:
+    def __init__(self, entries: Sequence[ModelEntry], *args: Any, stored: SiteConfiguration, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self.fields["name"].widget.attrs.update({"list": name_list, "aria-label": _("Name"), "autocomplete": "off"})
+        self.entries = {entry.field_name: entry for entry in entries}
+        self.stale_reasons: dict[str, str] = {}
+        for field_name, entry in self.entries.items():
+            locked = site_settings.is_env_locked(entry.site_field)
+            source = site_settings if locked else stored
+            value = getattr(source, entry.site_field).get(entry.name, "")
+            widget = _AgentPickerWidget()
+            widget.placeholder = str(entry.default_label)
+            widget.default_hint = True
+            if value and (reason := model_spec_error(value)):
+                widget.stale = True
+                self.stale_reasons[field_name] = reason
+            if locked:
+                widget.attrs["title"] = _("Locked by environment variable")
+            self.fields[field_name] = forms.CharField(
+                label=entry.label,
+                help_text=entry.help_text,
+                required=False,
+                initial=value,
+                disabled=locked,
+                widget=widget,
+            )
 
-    def has_changed(self) -> bool:
-        # A row added and left blank is skipped, not refused.
-        if self.empty_permitted and not any((self[name].value() or "").strip() for name in ("name", "model")):
-            return False
-        return super().has_changed()
+    @property
+    def is_editable(self) -> bool:
+        return any(not field.disabled for field in self.fields.values())
+
+    def is_submitted(self, data: Mapping[str, Any]) -> bool:
+        """Whether ``data`` posts this form's pickers; a POST that leaves them out keeps the stored entries."""
+        return any(self.add_prefix(name) in data for name, field in self.fields.items() if not field.disabled)
 
     def clean(self) -> dict[str, Any]:
         cleaned = super().clean() or {}
-        name = cleaned.get("name") or ""
-        model = cleaned.get("model") or ""
-        if not name:
-            self.add_error("name", _("Required."))
-        if not model:
-            self.add_error("model", _("Pick a model."))
-        elif error := model_spec_error(model):
-            self.add_error("model", f"{name or _('This entry')}: {error}")
+        for name in self.changed_data:
+            if (spec := cleaned.get(name)) and (error := model_spec_error(spec)):
+                self.add_error(name, error)
         return cleaned
 
-
-class _ModelMapFormset(forms.BaseFormSet):
-    def clean(self) -> None:
-        super().clean()
-        seen: set[str] = set()
-        for form in self.forms:
-            if form.cleaned_data.get("DELETE") or not (name := form.cleaned_data.get("name")):
-                continue
-            if name in seen:
-                form.add_error("name", _("%(name)s is listed twice.") % {"name": name})
-            seen.add(name)
-
-
-def build_model_map_formset(
-    model_map: ModelMap, *, data: Mapping[str, Any] | None, stored: Mapping[str, str]
-) -> _ModelMapFormset:
-    """``model_map``'s rows, from its ``stored`` map; bound to ``data`` only when ``data`` posts them."""
-    formset_class = forms.formset_factory(ModelMapRowForm, formset=_ModelMapFormset, extra=0, can_delete=True)
-    return formset_class(
-        data if data is not None and f"{model_map.prefix}-TOTAL_FORMS" in data else None,
-        initial=[{"name": name, "model": spec} for name, spec in stored.items()],
-        prefix=model_map.prefix,
-        form_kwargs={"name_list": model_map.names_id},
-    )
-
-
-def model_map_from_formset(formset: _ModelMapFormset) -> dict[str, str]:
-    """The ``{name: model spec}`` map a validated ``build_model_map_formset`` holds; blank and removed rows drop out."""
-    return {
-        form.cleaned_data["name"]: form.cleaned_data["model"]
-        for form in formset.forms
-        if form.cleaned_data.get("name") and not form.cleaned_data.get("DELETE")
-    }
+    def apply_to(self, config: SiteConfiguration) -> list[str]:
+        """Write the changed entries into ``config``; returns the fields it changed, for ``save(update_fields=...)``."""
+        changed: list[str] = []
+        for name in self.changed_data:
+            entry = self.entries[name]
+            entries = dict(getattr(config, entry.site_field))
+            if spec := self.cleaned_data[name]:
+                entries[entry.name] = spec
+            else:
+                entries.pop(entry.name, None)
+            setattr(config, entry.site_field, entries)
+            if entry.site_field not in changed:
+                changed.append(entry.site_field)
+        return changed
 
 
 WEB_FETCH_AUTH_HEADERS_FORMSET_PREFIX = "headers"

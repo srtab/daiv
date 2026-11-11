@@ -10,13 +10,17 @@ import time
 import zipfile
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, BinaryIO, NamedTuple
 
 from django.core.exceptions import ValidationError
 from django.db import DatabaseError, transaction
+from django.db.models import Count
+from django.db.models.functions import TruncDate
 from django.db.utils import Error as DjangoDBError
+from django.utils import timezone
 
 import yaml
 
@@ -24,6 +28,8 @@ from skills.conf import settings
 from skills.constants import (
     ALLOWED_SUFFIXES,
     BUILTIN_SKILLS_PATH,
+    CODE_REVIEW_AGENTS_PATH,
+    CODE_REVIEW_SKILL,
     FORBIDDEN_PATH_PARTS,
     FORBIDDEN_SUFFIXES,
     FRONTMATTER_RE,
@@ -208,6 +214,60 @@ def list_global_skills() -> dict[str, str]:
         if (metadata := _skill_metadata(path)) is not None
     }
     return dict(sorted(skills.items()))
+
+
+class BundledSubagent(NamedTuple):
+    """A subagent shipped in a skill's folder: its charter's ``name``, the first sentence of its ``description``, and
+    the ``model`` it declares (empty when it declares none)."""
+
+    name: str
+    summary: str
+    model: str
+
+
+@lru_cache(maxsize=1)
+def _code_review_detectors() -> tuple[BundledSubagent, ...]:
+    detectors = []
+    for charter in sorted(CODE_REVIEW_AGENTS_PATH.glob("*.md")):
+        try:
+            match = FRONTMATTER_RE.match(charter.read_text(encoding="utf-8"))
+            frontmatter = yaml.safe_load(match.group(1)) if match else None
+        except OSError, UnicodeDecodeError, yaml.YAMLError:
+            logger.warning("Could not read detector charter %s", charter, exc_info=True)
+            continue
+        if not isinstance(frontmatter, dict) or not isinstance(name := frontmatter.get("name"), str):
+            logger.warning("Detector charter %s has no name in its frontmatter", charter)
+            continue
+        summary = str(frontmatter.get("description") or "").split(". ", 1)[0].rstrip(".")
+        detectors.append(BundledSubagent(name, summary, str(frontmatter.get("model") or "").strip()))
+    return tuple(detectors)
+
+
+def skill_subagents(name: str) -> tuple[BundledSubagent, ...]:
+    """The subagents skill ``name`` ships, each run on its own model; only the code-review skill ships any."""
+    return _code_review_detectors() if name == CODE_REVIEW_SKILL else ()
+
+
+def skill_usage(name: str, source: SkillInvocation.Source) -> dict[str, Any]:
+    """Skill ``name``'s invocations from ``source``: the lifetime ``total``, and a ``daily_series`` of the last 30 days,
+    oldest first, with its ``last_30_total``."""
+    invocations = SkillInvocation.objects.filter(name=name, source=source)
+    cutoff = timezone.localdate() - timedelta(days=29)
+    by_day = dict(
+        invocations
+        .filter(created__date__gte=cutoff)
+        .annotate(day=TruncDate("created"))
+        .values("day")
+        .annotate(count=Count("id"))
+        .values_list("day", "count")
+    )
+    days = [cutoff + timedelta(days=offset) for offset in range(30)]
+    counts = [by_day.get(day, 0) for day in days]
+    return {
+        "total": invocations.count(),
+        "last_30_total": sum(counts),
+        "daily_series": [{"day": day, "count": count} for day, count in zip(days, counts, strict=True)],
+    }
 
 
 @dataclass(frozen=True, slots=True)

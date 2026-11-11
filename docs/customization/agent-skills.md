@@ -81,9 +81,9 @@ Admins can manage custom global skills from the web dashboard at **Skills** (`/d
 
 From the Skills page you can:
 
-- **List skills** — built-in and custom global skills are shown together, each with its invocation count. A custom skill whose name matches a built-in shadows it and is flagged **Overrides built-in**.
+- **List skills** — built-in and custom global skills are shown together, each with its invocation count and, when it has one, the model its entry names. A custom skill whose name matches a built-in shadows it and is flagged **Overrides built-in**.
 - **Upload a skill** as a ZIP archive (see constraints below). Uploading a skill whose name already exists asks you to confirm before it replaces the existing one.
-- **View a skill** — its `SKILL.md`, file tree, and usage over the last 30 days.
+- **View a skill** — its page has four tabs: **SKILL.md**, **Files**, **Models** (the model it runs on; see [Running a skill on another model](#running-a-skill-on-another-model)) and **Usage** (invocations over the last 30 days, and the latest runs that invoked it, each linking to the run in its session).
 - **Download** a custom skill's original ZIP.
 - **Delete** a custom skill (built-in skills cannot be deleted; deleting a custom skill that shadowed a built-in restores the built-in).
 
@@ -163,11 +163,13 @@ description: Brief description of what this skill does and when the agent should
 Once the agent invokes a skill, its model calls run on the skill's model until your next message. The first of these that is set names that model:
 
 1. the skill's entry under `models.skills` in the repository's `.daiv.yml` (see [Model overrides](repository-config.md#skill-and-subagent-models));
-2. the skill's entry in site configuration, under **Agent → Skill and subagent models** (or `DAIV_AGENT_SKILL_MODELS`);
+2. the skill's entry on its **Models** tab in the dashboard's Skills pages (or in `DAIV_AGENT_SKILL_MODELS`);
 3. the `metadata.model` of a built-in or global skill file;
 4. the run's model.
 
-Site configuration changes a skill's model for every repository, built-in skills included, without copying or editing the skill file. A model the user picks for the run, even an exact model passed to the jobs API, does not override an entry.
+The **Models** tab changes a skill's model for every repository, built-in skills included, without copying or editing the skill file. On `/code-review` it also sets the model of each detector the skill ships (see [Subagents](../features/subagents.md#choosing-a-subagents-model)). A model the user picks for the run, even an exact model passed to the jobs API, does not override an entry.
+
+A skill that exists only in repositories has no page: give it a model with a `models.skills` entry in each repository's `.daiv.yml`.
 
 A built-in or global skill file can name its own model in `metadata.model`, as a model spec (`provider-slug:model`, as in [subagents](../features/subagents.md)):
 

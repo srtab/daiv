@@ -1,15 +1,13 @@
 import pytest
 from configuration.forms import (
     PROVIDERS_FORMSET_PREFIX,
-    SKILL_MODELS,
-    SUBAGENT_MODELS,
+    ModelEntriesForm,
+    ModelEntry,
     ProviderForm,
     SiteConfigurationForm,
     WebFetchAuthHeaderForm,
-    build_model_map_formset,
     build_provider_formset,
     build_web_fetch_auth_header_formset,
-    model_map_from_formset,
 )
 
 from core.models import Provider, ProviderType, SiteConfiguration, WebFetchAuthHeader
@@ -446,24 +444,40 @@ def usable_openai(db):
     return provider
 
 
+ENTRIES = [
+    ModelEntry("agent_skill_models", "code-review", "Skill", ""),
+    ModelEntry("agent_subagent_models", "cr-security", "cr-security", ""),
+]
+SKILL_FIELD = "agent_skill_models__code-review"
+DETECTOR_FIELD = "agent_subagent_models__cr-security"
+
+
+def _stored(**maps) -> SiteConfiguration:
+    config = SiteConfiguration.objects.get_instance()
+    for field, entries in maps.items():
+        setattr(config, field, entries)
+    config.save()
+    return config
+
+
 @pytest.mark.django_db
-class TestSkillModelsFormset:
-    def _formset(self, rows: list[dict], *, initial: int = 0):
-        return build_model_map_formset(
-            SKILL_MODELS, data=formset_data(SKILL_MODELS.prefix, rows, initial=initial), stored={}
-        )
+class TestModelEntriesForm:
+    def test_a_changed_entry_is_written_beside_the_map_s_other_entries(self, usable_openai):
+        config = _stored(agent_subagent_models={"explore": "openai:gpt-5.4-mini"})
+        form = ModelEntriesForm(ENTRIES, {SKILL_FIELD: "", DETECTOR_FIELD: "openai:gpt-5.4"}, stored=config)
 
-    def test_valid_rows_fold_into_the_map(self, usable_openai):
-        formset = self._formset([
-            {"name": "code-review", "model": "openai:gpt-5.4"},
-            {"name": "my-repo-skill", "model": "openai:gpt-5.4-mini"},
-        ])
+        assert form.is_valid(), form.errors
+        assert form.apply_to(config) == ["agent_subagent_models"]
+        assert config.agent_subagent_models == {"explore": "openai:gpt-5.4-mini", "cr-security": "openai:gpt-5.4"}
+        assert config.agent_skill_models == {}
 
-        assert formset.is_valid(), formset.errors
-        assert model_map_from_formset(formset) == {
-            "code-review": "openai:gpt-5.4",
-            "my-repo-skill": "openai:gpt-5.4-mini",
-        }
+    def test_clearing_an_entry_removes_it(self, usable_openai):
+        config = _stored(agent_skill_models={"code-review": "openai:gpt-5.4", "plan": "openai:gpt-5.4"})
+        form = ModelEntriesForm(ENTRIES, {SKILL_FIELD: "", DETECTOR_FIELD: ""}, stored=config)
+
+        assert form.is_valid(), form.errors
+        form.apply_to(config)
+        assert config.agent_skill_models == {"plan": "openai:gpt-5.4"}
 
     @pytest.mark.parametrize(
         ("change", "model", "expected"),
@@ -474,73 +488,53 @@ class TestSkillModelsFormset:
         ],
         ids=["unknown-provider", "disabled-provider", "keyless-provider"],
     )
-    def test_a_model_its_provider_cannot_serve_is_refused_naming_the_entry(
-        self, usable_openai, change, model, expected
-    ):
+    def test_a_changed_entry_its_provider_cannot_serve_is_refused(self, usable_openai, change, model, expected):
         for field, value in change.items():
             setattr(usable_openai, field, value)
         usable_openai.save()
+        form = ModelEntriesForm(ENTRIES, {SKILL_FIELD: model, DETECTOR_FIELD: ""}, stored=_stored())
 
-        formset = self._formset([{"name": "code-review", "model": model}])
+        assert not form.is_valid()
+        assert expected in form.errors[SKILL_FIELD][0]
 
-        assert not formset.is_valid()
-        [error] = formset.forms[0].errors["model"]
-        assert "code-review" in error
-        assert expected in error
+    def test_an_unchanged_entry_whose_provider_went_away_is_kept_and_flagged(self, usable_openai):
+        config = _stored(agent_skill_models={"code-review": "openai:gpt-5.4"})
+        usable_openai.is_enabled = False
+        usable_openai.save()
+        form = ModelEntriesForm(ENTRIES, {SKILL_FIELD: "openai:gpt-5.4", DETECTOR_FIELD: ""}, stored=config)
 
-    @pytest.mark.parametrize(
-        ("rows", "field"),
-        [([{"name": "", "model": "openai:gpt-5.4"}], "name"), ([{"name": "code-review", "model": ""}], "model")],
-        ids=["blank-name", "no-model"],
-    )
-    def test_a_row_missing_its_name_or_model_is_refused(self, usable_openai, rows, field):
-        formset = self._formset(rows)
+        assert form.is_valid(), form.errors
+        assert form.apply_to(config) == []
+        assert "disabled" in form.stale_reasons[SKILL_FIELD]
+        assert form.fields[SKILL_FIELD].widget.stale is True
 
-        assert not formset.is_valid()
-        assert field in formset.forms[0].errors
+    def test_a_map_its_environment_variable_sets_is_locked(self, usable_openai, monkeypatch):
+        from core import site_settings as ss_module
 
-    def test_a_duplicate_name_is_refused_on_its_row(self, usable_openai):
-        formset = self._formset([
-            {"name": "code-review", "model": "openai:gpt-5.4"},
-            {"name": "code-review", "model": "openai:gpt-5.4-mini"},
-        ])
+        monkeypatch.setenv("DAIV_AGENT_SKILL_MODELS", '{"code-review": "openai:gpt-5.4-mini"}')
+        ss_module._docker_secret_cache.clear()
+        config = _stored()
+        form = ModelEntriesForm(ENTRIES, {SKILL_FIELD: "openai:gpt-5.4", DETECTOR_FIELD: ""}, stored=config)
 
-        assert not formset.is_valid()
-        assert "code-review" in formset.forms[1].errors["name"][0]
+        assert form.fields[SKILL_FIELD].disabled
+        assert form.fields[SKILL_FIELD].initial == "openai:gpt-5.4-mini"
+        assert form.is_valid(), form.errors
+        assert form.apply_to(config) == []
+        assert form.is_editable
 
-    def test_a_blank_added_row_is_dropped(self, usable_openai):
-        formset = self._formset([{"name": "", "model": ""}])
+    def test_a_post_without_its_pickers_is_not_a_submission(self, db):
+        form = ModelEntriesForm(ENTRIES, stored=_stored(), prefix="subagent_models")
 
-        assert formset.is_valid(), formset.errors
-        assert model_map_from_formset(formset) == {}
+        assert not form.is_submitted({"agent_recursion_limit": "100"})
+        assert form.is_submitted({f"subagent_models-{DETECTOR_FIELD}": ""})
 
-    def test_an_untouched_stored_row_is_kept(self, usable_openai):
-        formset = build_model_map_formset(
-            SKILL_MODELS,
-            data=formset_data(SKILL_MODELS.prefix, [{"name": "code-review", "model": "openai:gpt-5.4"}], initial=1),
-            stored={"code-review": "openai:gpt-5.4"},
-        )
+    def test_the_unset_pill_names_the_default_beside_a_hint(self, db):
+        entry = ModelEntry("agent_subagent_models", "explore", "explore", "", default_label="claude-haiku-5-5")
+        form = ModelEntriesForm([entry], stored=_stored())
 
-        assert formset.is_valid(), formset.errors
-        assert model_map_from_formset(formset) == {"code-review": "openai:gpt-5.4"}
-
-    def test_a_removed_row_is_dropped(self, usable_openai):
-        formset = self._formset([{"name": "code-review", "model": "openai:gpt-5.4", "DELETE": "on"}], initial=1)
-
-        assert formset.is_valid(), formset.errors
-        assert model_map_from_formset(formset) == {}
-
-
-@pytest.mark.django_db
-class TestSubagentModelsFormset:
-    def _formset(self, rows: list[dict]):
-        return build_model_map_formset(SUBAGENT_MODELS, data=formset_data(SUBAGENT_MODELS.prefix, rows), stored={})
-
-    def test_valid_rows_fold_into_the_map(self, usable_openai):
-        formset = self._formset([{"name": "cr-security", "model": "openai:gpt-5.4"}])
-
-        assert formset.is_valid(), formset.errors
-        assert model_map_from_formset(formset) == {"cr-security": "openai:gpt-5.4"}
+        picker = form.fields["agent_subagent_models__explore"].widget.get_context("x", "", {})["widget"]["picker"]
+        assert picker["placeholder_label"] == "claude-haiku-5-5"
+        assert picker["default_hint"] is True
 
 
 @pytest.mark.django_db

@@ -12,6 +12,7 @@ import pytest
 from automation.agent import graph as graph_module
 from automation.agent import subagents as subagents_module
 from automation.agent.agent_settings import RunOverrides
+from automation.agent.constants import EXPLORE_MODEL_NAME
 from automation.agent.graph import create_daiv_agent
 from automation.agent.middlewares.delegate_jobs import DelegateJobsMiddleware
 from automation.agent.middlewares.memory import RepositoryMemoryMiddleware
@@ -19,7 +20,6 @@ from automation.agent.middlewares.skills import SkillModelMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
-from automation.agent.subagents import EXPLORE_MODEL_NAME
 from codebase.repo_config import RepositoryConfig
 from tests.unit_tests.conftest import FakeWorkspace, agent_settings, site_snapshot
 

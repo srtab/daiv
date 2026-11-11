@@ -6,7 +6,7 @@
   `M_RUN` (the run's agent model) and `M_SKILL` below.
 - A test repository connected to DAIV, with permission to commit a `.daiv.yml` to its default
   branch.
-- An admin account for site configuration.
+- An admin account for the dashboard's Skills pages and site configuration.
 
 ## Automated checks
 
@@ -30,13 +30,13 @@ The unit tests listed in [plan.md](plan.md#source-code-repository-root) cover:
 ## Manual scenarios
 
 1. **Site entry applies to a skill (User Story 1).**
-   1. In site configuration, under Agent → Skill and subagent models, add `code-review` → `M_SKILL`
-      and save.
+   1. On the `code-review` skill's page in the dashboard, open the Models tab, pick `M_SKILL` for
+      the skill and save.
    2. Ask for a code review in the test repository.
    3. In the session's usage panel, `M_SKILL` appears beside `M_RUN`, and the review's calls after
       the skill started are billed to `M_SKILL`.
-2. **Site entry applies to a detector (User Story 2).** Add `cr-security` → `M_SKILL` and run a
-   review. The security detector's calls are billed to `M_SKILL`; the other detectors stay on
+2. **Site entry applies to a detector (User Story 2).** On the same tab, pick `M_SKILL` for
+   `cr-security` and run a review. The security detector's calls are billed to `M_SKILL`; the other detectors stay on
    `M_RUN`.
 3. **Repository override (User Story 3).**
    1. Commit `models.skills.code-review: M_RUN` to the test repository's `.daiv.yml`.
@@ -52,8 +52,9 @@ The unit tests listed in [plan.md](plan.md#source-code-repository-root) cover:
       - `cr-tests` still runs, on `M_RUN`;
       - the worker log has an ERROR naming `cr-tests`;
       - nothing extra is posted to the merge or pull request.
-6. **Form rules (FR-008, FR-008a).** In site configuration, try each case:
+6. **Form rules (FR-008, FR-008a).** On the Models tab, try each case:
    - a model on a disabled provider: refused, with an error on that row;
-   - a name such as `my-repo-skill`: saved, with a warning.
+   - disable the provider of a saved entry: the row is flagged, and saving another row still works.
 7. **Environment lock.** Set `DAIV_AGENT_SKILL_MODELS='{"code-review": "<M_SKILL>"}'` and
-   restart. The section is read-only and shows the environment value.
+   restart. The skill's row is read-only and shows the environment value; the detector rows stay
+   editable.

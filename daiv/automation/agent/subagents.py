@@ -12,7 +12,7 @@ from langchain_core.messages import AIMessage
 # wraps (`accepts_config` -> `inspect.signature`), which evaluates their annotations, so `Runnable`
 # and `RunnableConfig` must resolve at runtime — see _guard_subagent_crash.
 from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda
-from skills.constants import BUILTIN_SKILLS_PATH, FRONTMATTER_RE
+from skills.constants import BUILTIN_SKILLS_PATH, CODE_REVIEW_AGENTS_PATH, CODE_REVIEW_SKILL, FRONTMATTER_RE
 
 from automation.agent.configured_models import ConfiguredModels
 from automation.agent.constants import (
@@ -42,7 +42,6 @@ from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddlewa
 from automation.agent.middlewares.summarization import build_summarization_middleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
-from core.constants import ModelName
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -56,8 +55,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.agent")
 
-_CODE_REVIEW_SKILL_PATH = BUILTIN_SKILLS_PATH / "code-review"
-CODE_REVIEW_AGENTS_PATH = _CODE_REVIEW_SKILL_PATH / "agents"
+_CODE_REVIEW_SKILL_PATH = BUILTIN_SKILLS_PATH / CODE_REVIEW_SKILL
 
 
 GENERAL_PURPOSE_DESCRIPTION = "General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. This agent has access to all tools as the main agent."  # noqa: E501
@@ -352,8 +350,6 @@ Complete the user's search request efficiently and report your findings clearly.
 {filesystem_absolute_path_directive(working_directory)}
 """  # noqa: E501
 
-
-EXPLORE_MODEL_NAME = ModelName.CLAUDE_HAIKU_5_5
 
 EXPLORE_SUBAGENT_DESCRIPTION = """Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns (eg. "src/components/**/*.tsx"), search code for keywords (eg. "API endpoints"), or answer questions about the codebase (eg. "how do API endpoints work?"). When calling this agent, specify the desired thoroughness level: "quick" for basic searches, "medium" for moderate exploration, or "very thorough" for comprehensive analysis across multiple locations and naming conventions."""  # noqa: E501
 

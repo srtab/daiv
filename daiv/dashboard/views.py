@@ -3,9 +3,15 @@ from django.http import Http404
 from django.shortcuts import redirect
 from django.views.generic import TemplateView
 
+from skills.models import SkillInvocation
+from skills.pages import SkillPageMixin
+from skills.services import skill_usage
+
+from core.mixins import AdminRequiredMixin
 from dashboard import home, insights, landing
 from dashboard.comparisons import CHECKED, COMPARISONS, COMPARISONS_BY_SLUG
 from dashboard.context_processors import running_jobs_count
+from dashboard.skill_usage import RECENT_RUNS, match_runs
 
 
 class LandingPageView(TemplateView):
@@ -84,3 +90,19 @@ class InsightsView(LoginRequiredMixin, TemplateView):
             "velocity": insights.velocity(user, window),
         })
         return context
+
+
+class SkillUsageView(AdminRequiredMixin, SkillPageMixin, TemplateView):
+    """The skill page's Usage tab."""
+
+    template_name = "dashboard/skill_usage.html"
+    skill_tab = "usage"
+
+    def get_context_data(self, **kwargs):
+        page = self.skill_page
+        recent = list(
+            SkillInvocation.objects.filter(name=page.name, source=page.source).order_by("-created")[:RECENT_RUNS]
+        )
+        return super().get_context_data(
+            usage=skill_usage(page.name, page.source), recent_runs=match_runs(recent), **kwargs
+        )

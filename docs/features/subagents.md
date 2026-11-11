@@ -119,10 +119,10 @@ description: Helps with API stuff.
 
 ## Choosing a subagent's model
 
-Operators can run any subagent on a chosen model by name, without editing its file: the general-purpose and explore subagents, each code-review detector (`cr-security`, `cr-tests`, …) and custom subagents. A subagent's model is the first of these that is set:
+Operators can run any subagent on a chosen model by name, without editing its file: the general-purpose and explore subagents, each code-review detector (`cr-security`, `cr-tests`, …) and custom subagents. A custom subagent's file lives in the repository, so the dashboard does not list it: set its model in `.daiv.yml`, or for every repository in `DAIV_AGENT_SUBAGENT_MODELS`. A subagent's model is the first of these that is set:
 
 1. its entry under `models.subagents` in the repository's `.daiv.yml` (see [Model overrides](../customization/repository-config.md#skill-and-subagent-models));
-2. its entry in site configuration, under **Agent → Skill and subagent models** (or `DAIV_AGENT_SUBAGENT_MODELS`);
+2. its entry in the dashboard (or in `DAIV_AGENT_SUBAGENT_MODELS`): **Configuration → Agent → Subagent models** for the general-purpose and explore subagents, and the **Models** tab of the `code-review` skill's page for the detectors;
 3. the `model` its file or detector charter declares (Claude Haiku 5.5 for explore);
 4. the main agent's model.
 
