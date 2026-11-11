@@ -16,11 +16,7 @@ class HomepageView(TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context.update({
-            "faqs": landing.FAQS,
-            "demo_video_url": landing.DEMO_VIDEO_URL,
-            "quickstart_url": landing.QUICKSTART_URL,
-        })
+        context.update({"faqs": landing.FAQS, "quickstart_url": landing.QUICKSTART_URL})
         return context
 
 

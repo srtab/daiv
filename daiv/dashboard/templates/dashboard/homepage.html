@@ -123,16 +123,11 @@
     <div class="landing-container">
         <figure class="animate-fade-up">
             <div class="landing-demo__frame">
-                {% if demo_video_url %}
                 <video class="landing-demo__media" controls muted playsinline preload="none" width="1280" height="720"
                        poster="{% static 'dashboard/img/demo-poster.webp' %}">
-                    <source src="{{ demo_video_url }}" type="video/mp4">
-                    <a href="{{ demo_video_url }}">Download the demo video</a>
+                    <source src="{% static 'dashboard/video/demo.mp4' %}" type="video/mp4">
+                    <a href="{% static 'dashboard/video/demo.mp4' %}">Download the demo video</a>
                 </video>
-                {% else %}
-                <img class="landing-demo__media" src="{% static 'dashboard/img/demo-poster.webp' %}" width="1280" height="720"
-                     alt="A GitLab issue, Add rate limiting to the API endpoints, about to be labelled daiv" loading="lazy">
-                {% endif %}
             </div>
             <figcaption class="landing-demo__caption">
                 70 seconds on GitLab: label an issue, approve the plan, get a merge request with a passing pipeline, then ask for a change on a line.

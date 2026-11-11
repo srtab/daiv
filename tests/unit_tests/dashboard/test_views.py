@@ -79,22 +79,12 @@ class TestHomepage:
 
         assert f'href="{landing.QUICKSTART_URL}"' in content
 
-    def test_without_a_video_url_only_the_poster_shows(self, monkeypatch):
-        monkeypatch.setattr(landing, "DEMO_VIDEO_URL", "")
-
+    def test_demo_plays_muted_and_never_on_its_own(self):
         content = Client().get(reverse("homepage")).content.decode()
 
-        assert "<video" not in content
-        assert "dashboard/img/demo-poster.webp" in content
-
-    def test_with_a_video_url_the_player_streams_it(self, monkeypatch):
-        monkeypatch.setattr(landing, "DEMO_VIDEO_URL", "https://example.com/demo.mp4")
-
-        content = Client().get(reverse("homepage")).content.decode()
-
-        assert re.search(r"<video[^>]*\bmuted\b[^>]*\bplaysinline\b", content)
+        assert re.search(r"<video[^>]*\bmuted\b[^>]*\bplaysinline\b[^>]*\bpreload=\"none\"", content)
         assert "autoplay" not in content
-        assert '<source src="https://example.com/demo.mp4" type="video/mp4">' in content
+        assert '<source src="/static/dashboard/video/demo.mp4" type="video/mp4">' in content
 
 
 @pytest.mark.django_db

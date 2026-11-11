@@ -6,9 +6,6 @@ from django.utils.safestring import SafeString, mark_safe
 
 QUICKSTART_URL = "https://srtab.github.io/daiv/dev/getting-started/quickstart/"
 
-# Empty until the demo is hosted: the homepage then shows the poster frame without a player.
-DEMO_VIDEO_URL = ""
-
 
 @dataclass(frozen=True)
 class Faq:
