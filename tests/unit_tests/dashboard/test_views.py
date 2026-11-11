@@ -103,6 +103,7 @@ class TestComparison:
         assert response.status_code == 200
         content = response.content.decode()
         assert f"DAIV and {comparison.name}</h1>" in content
+        assert f'<meta property="og:title" content="DAIV and {comparison.name} compared">' in content
         for row in comparison.rows:
             for source in (*row.daiv.sources, *row.theirs.sources):
                 assert f'href="{source}"' in content

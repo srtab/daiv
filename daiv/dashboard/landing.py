@@ -2,22 +2,17 @@
 
 from dataclasses import dataclass
 
-from django.utils.safestring import SafeString, mark_safe
-
 from daiv import DOCS_URL
 
 DOCS_ROOT = DOCS_URL.rstrip("/")
 QUICKSTART_URL = f"{DOCS_ROOT}/getting-started/quickstart/"
+DEPLOYMENT_URL = f"{DOCS_ROOT}/getting-started/deployment/"
 
 
 @dataclass(frozen=True)
 class Faq:
     question: str
     answer: str
-
-    @property
-    def answer_html(self) -> SafeString:
-        return mark_safe(self.answer)  # noqa: S308 — authored in FAQS below, never user input.
 
 
 FAQS = (
@@ -29,7 +24,7 @@ FAQS = (
             '<a href="https://github.com/srtab/daiv-sandbox">daiv-sandbox</a> service that runs the agent\'s '
             f'commands. The <a href="{QUICKSTART_URL}">Quickstart</a> '
             "runs the smallest working setup on one machine and turns a GitLab issue into a merge request in "
-            f'about 15 minutes. <a href="{DOCS_ROOT}/getting-started/deployment/">Deployment</a> '
+            f'about 15 minutes. <a href="{DEPLOYMENT_URL}">Deployment</a> '
             "covers a production install."
         ),
     ),

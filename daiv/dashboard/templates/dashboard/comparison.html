@@ -4,12 +4,9 @@
 
 {% block meta_description %}<meta name="description" content="How DAIV and {{ comparison.name }} differ: where each runs, which Git platforms and models it supports, its license and its pricing, from each project's public docs.">{% endblock %}
 
-{% block open_graph %}
-<meta property="og:type" content="website">
-<meta property="og:title" content="DAIV and {{ comparison.name }} compared">
-<meta property="og:description" content="{{ comparison.summary }}">
-<meta property="og:site_name" content="DAIV">
-{% endblock open_graph %}
+{% block og_title %}DAIV and {{ comparison.name }} compared{% endblock %}
+
+{% block og_description %}{{ comparison.summary }}{% endblock %}
 
 {% block content %}
 {% include "dashboard/_landing_nav.html" %}
@@ -43,12 +40,12 @@
             <div class="landing-compare__row">
                 <dt class="landing-compare__aspect">{{ row.aspect }}</dt>
                 <dd class="landing-compare__cell">
-                    <span class="landing-compare__who">DAIV</span>
+                    <span class="landing-eyebrow landing-compare__who">DAIV</span>
                     <p>{{ row.daiv.text }}</p>
                     {% include "dashboard/_comparison_sources.html" with sources=row.daiv.sources %}
                 </dd>
                 <dd class="landing-compare__cell">
-                    <span class="landing-compare__who">{{ comparison.short_name }}</span>
+                    <span class="landing-eyebrow landing-compare__who">{{ comparison.short_name }}</span>
                     <p>{{ row.theirs.text }}</p>
                     {% include "dashboard/_comparison_sources.html" with sources=row.theirs.sources %}
                 </dd>

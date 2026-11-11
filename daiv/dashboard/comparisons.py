@@ -3,9 +3,9 @@
 Every cell about another tool cites the vendor's own public docs it was taken from.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-from dashboard.landing import DOCS_ROOT
+from dashboard.landing import DEPLOYMENT_URL, DOCS_ROOT
 
 CHECKED = "November 2026"
 
@@ -34,9 +34,7 @@ class Row:
 
 
 DAIV_CELLS = {
-    "hosting": Cell(
-        "On your servers, with Docker Compose or Docker Swarm.", (f"{DOCS_ROOT}/getting-started/deployment/",)
-    ),
+    "hosting": Cell("On your servers, with Docker Compose or Docker Swarm.", (DEPLOYMENT_URL,)),
     "platforms": Cell(
         "GitLab.com, self-managed GitLab, GitHub.com and GitHub Enterprise Server.",
         (f"{DOCS_ROOT}/getting-started/platform-setup/",),
@@ -73,7 +71,7 @@ class Comparison:
     summary: str
     choose_them: str
     choose_daiv: str
-    cells: dict[str, Cell] = field(hash=False)
+    cells: dict[str, Cell]
 
     @property
     def rows(self) -> list[Row]:

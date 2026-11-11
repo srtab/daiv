@@ -540,7 +540,7 @@
                     <span>{{ faq.question }}</span>
                     {% icon "chevron-down" "h-4 w-4 shrink-0 text-text-faint transition-transform duration-200 group-open:rotate-180" %}
                 </summary>
-                <div class="landing-faq__answer">{{ faq.answer_html }}</div>
+                <div class="landing-faq__answer">{{ faq.answer|safe }}</div>
             </details>
             {% endfor %}
         </div>
