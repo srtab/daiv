@@ -416,8 +416,7 @@ def test_detail_view_renders_builtin_without_global_skill_row(admin_client, tmp_
     (builtin / "plan" / "SKILL.md").write_text("---\nname: plan\ndescription: plan stuff\n---\n# plan\n")
     monkeypatch.setattr("skills.services.BUILTIN_SKILL_NAMES", frozenset({"plan"}))
     monkeypatch.setattr("skills.services.BUILTIN_SKILLS_PATH", builtin)
-    monkeypatch.setattr("skills.pages.BUILTIN_SKILL_NAMES", frozenset({"plan"}))
-    monkeypatch.setattr("skills.pages.BUILTIN_SKILLS_PATH", builtin)
+    monkeypatch.setattr("skills.pages.BUILTIN_SKILL_DIRS", {"plan": builtin / "plan"})
     # list_builtins is lru_cached: clear before populating it against tmp_path,
     # and register a teardown so the next test doesn't see entries pointing at
     # a now-deleted tmp dir.
@@ -446,8 +445,7 @@ def test_detail_view_builtin_missing_skill_md_logs_and_404s(admin_client, tmp_pa
     (builtin / "broken").mkdir(parents=True)  # directory exists but no SKILL.md
     monkeypatch.setattr("skills.services.BUILTIN_SKILL_NAMES", frozenset({"broken"}))
     monkeypatch.setattr("skills.services.BUILTIN_SKILLS_PATH", builtin)
-    monkeypatch.setattr("skills.pages.BUILTIN_SKILL_NAMES", frozenset({"broken"}))
-    monkeypatch.setattr("skills.pages.BUILTIN_SKILLS_PATH", builtin)
+    monkeypatch.setattr("skills.pages.BUILTIN_SKILL_DIRS", {"broken": builtin / "broken"})
     from skills.services import list_builtins
 
     list_builtins.cache_clear()
@@ -466,7 +464,6 @@ def test_detail_view_prefers_global_override_over_builtin(
     """When a custom global skill shadows a built-in, the detail page must render the
     custom one — that's the skill the agent actually runs."""
     monkeypatch.setattr("skills.services.BUILTIN_SKILL_NAMES", frozenset({"plan"}))
-    monkeypatch.setattr("skills.pages.BUILTIN_SKILL_NAMES", frozenset({"plan"}))
     data = build_skill_zip(skill_name="plan", description="my override")
     storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
 

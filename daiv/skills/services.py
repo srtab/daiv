@@ -193,7 +193,8 @@ def _skill_metadata(skill_dir: Path) -> SkillMetadata | None:
     return _parse_skill_metadata(content, str(skill_md), skill_dir.name)
 
 
-BUILTIN_SKILL_NAMES: frozenset[str] = frozenset(_skill_dirs(BUILTIN_SKILLS_PATH).dirs)
+BUILTIN_SKILL_DIRS: dict[str, Path] = _skill_dirs(BUILTIN_SKILLS_PATH).dirs
+BUILTIN_SKILL_NAMES: frozenset[str] = frozenset(BUILTIN_SKILL_DIRS)
 
 
 @lru_cache(maxsize=1)

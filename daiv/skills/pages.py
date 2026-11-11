@@ -18,9 +18,9 @@ from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from django.views.generic.base import ContextMixin
 
-from skills.constants import BUILTIN_SKILLS_PATH, FRONTMATTER_RE, MAX_FILES
+from skills.constants import FRONTMATTER_RE, MAX_FILES
 from skills.models import GlobalSkill, SkillInvocation
-from skills.services import BUILTIN_SKILL_NAMES, SkillStorage, list_builtins, site_model_entries
+from skills.services import BUILTIN_SKILL_DIRS, SkillStorage, list_builtins, site_model_entries
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -83,7 +83,7 @@ def get_skill_page(name: str) -> SkillPage:
     """``name``'s skill page; ``Http404`` when no such skill exists or its SKILL.md can't be read."""
     global_skill = GlobalSkill.objects.select_related("uploaded_by").filter(name=name).first()
     if global_skill is not None:
-        root = SkillStorage().root / name
+        root = SkillStorage().root / global_skill.name
         try:
             skill_md = (root / "SKILL.md").read_text(encoding="utf-8")
         except FileNotFoundError as err:
@@ -92,8 +92,8 @@ def get_skill_page(name: str) -> SkillPage:
             raise Http404("skill files unreadable on disk") from err
         return SkillPage(name, global_skill.description, SkillInvocation.Source.GLOBAL, root, skill_md, global_skill)
 
-    if name in BUILTIN_SKILL_NAMES:
-        root = BUILTIN_SKILLS_PATH / name
+    # Looked up, never joined: a path built from the URL's name is a path-injection sink to CodeQL.
+    if (root := BUILTIN_SKILL_DIRS.get(name)) is not None:
         try:
             skill_md = (root / "SKILL.md").read_text(encoding="utf-8")
         except FileNotFoundError as err:
