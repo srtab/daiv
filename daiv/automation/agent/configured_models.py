@@ -20,12 +20,12 @@ logger = logging.getLogger("daiv.agent")
 _reported: set[tuple[str, str]] = set()
 
 
-def _log_unusable(target: str, spec: str, message: str, *args: object) -> None:
+def _log_unusable(target: str, spec: str, name: str) -> None:
     """Log the active exception at ERROR the first time this process sees ``target``'s ``spec`` fail to build, then
     at DEBUG: subagent models are built on every run, dispatched or not."""
     level = logging.DEBUG if (target, spec) in _reported else logging.ERROR
     _reported.add((target, spec))
-    logger.log(level, message, *args, exc_info=True)
+    logger.log(level, "Configured %s model '%s' for %s cannot be used", target, spec, name, exc_info=True)
 
 
 @dataclass(eq=False)
@@ -50,9 +50,7 @@ class ConfiguredModels:
                 )
             except Exception:
                 # Safe to continue: the caller serves on the next model in line.
-                _log_unusable(
-                    self.target, spec, "Configured %s model '%s' for %s cannot be used", self.target, spec, name
-                )
+                _log_unusable(self.target, spec, name)
                 self._builds[spec] = None
         return self._builds[spec]
 
@@ -81,11 +79,11 @@ class ConfiguredModels:
             return built
         if not file_spec:
             return run_model
-        if not configured and not never_skip:
-            return get_model(model=file_spec)
         try:
             return get_model(model=file_spec)
         except Exception:
+            if not configured and not never_skip:
+                raise
             # Safe to continue: the run's model serves. A warning: no operator chose this model.
             logger.warning("Subagent %s: its own model '%s' cannot be used", name, file_spec, exc_info=True)
             return run_model

@@ -4,16 +4,17 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from functools import cached_property
+from functools import cache, cached_property
 from typing import TYPE_CHECKING, Any, ClassVar, TypedDict
 from urllib.parse import urlparse
 
 from django import forms
 from django.core.validators import MaxValueValidator, MinValueValidator
+from django.db import transaction
 from django.forms.models import BaseModelFormSet, modelformset_factory
 from django.utils.translation import gettext_lazy as _
 
-from automation.agent.model_spec import HTTPX_CLIENT_PROVIDER_TYPES, parse_model_spec
+from automation.agent.model_spec import HTTPX_CLIENT_PROVIDER_TYPES, canonical_model_spec, parse_model_spec
 from core.models import (
     THINKING_OFF,
     Provider,
@@ -22,7 +23,7 @@ from core.models import (
     ThinkingLevelChoices,
     WebFetchAuthHeader,
 )
-from core.site_settings import site_settings
+from core.site_settings import MODEL_MAP_FIELDS, site_settings
 from core.utils import short_model_name
 
 if TYPE_CHECKING:
@@ -127,12 +128,13 @@ class _AgentPickerWidget(forms.Widget):
         # Model entries set these: the unselected pill names what serves instead, beside a "default" hint, and a
         # stored spec no provider serves any more renders stale.
         self.placeholder: str = ""
-        self.default_hint: bool = False
         self.stale: bool = False
 
     def get_context(self, name: str, value: Any, attrs: dict | None) -> dict[str, Any]:
         context = super().get_context(name, value, attrs)
         widget_ctx = context["widget"]
+        # The picker cannot seed a bare model name, and would post the field back empty.
+        value = canonical_model_spec(value or "")
 
         # Use the cached snapshot so the agent settings group (10 model fields)
         # doesn't re-run the same provider query 10x per GET. ``get_cached_rows``
@@ -182,7 +184,7 @@ class _AgentPickerWidget(forms.Widget):
             # save is a meaningful "use the configured default" state.
             "seed_default": False,
             "required": False,
-            "default_hint": self.default_hint,
+            "default_hint": bool(self.placeholder),
             "stale": self.stale,
         }
         widget_ctx["picker"] = picker
@@ -212,17 +214,6 @@ def model_spec_error(model_spec: str) -> str | None:
     if row.api_key is None:
         return _("Provider '%(s)s' has no API key. Set it in the Providers section.") % {"s": row.slug}
     return None
-
-
-def _picker_spec(spec: str) -> str:
-    """``spec`` as the picker posts it back, ``slug:model``; the picker drops a bare model name it is seeded with."""
-    if not spec or ":" in spec:
-        return spec
-    try:
-        resolved = parse_model_spec(spec)
-    except ValueError:
-        return spec
-    return f"{resolved.row.slug}:{resolved.model_name}"
 
 
 class SiteConfigurationForm(forms.ModelForm):
@@ -604,20 +595,23 @@ class SiteConfigurationForm(forms.ModelForm):
     # ------------------------------------------------------------------
 
     def save(self, commit: bool = True) -> SiteConfiguration:
+        """Saves only this form's columns, so it never undoes another writer's concurrent save of the others."""
         instance = super().save(commit=False)
+        update_fields = [name for name in self.fields if name not in self.SECRET_FIELDS]
 
         for field_name in self.SECRET_FIELDS:
             if field_name in self.env_locked_fields:
                 continue
             if field_name in self.cleared_secrets:
                 setattr(instance, field_name, None)
+            elif value := self.cleaned_data.get(field_name, ""):
+                setattr(instance, field_name, value)
             else:
-                value = self.cleaned_data.get(field_name, "")
-                if value:
-                    setattr(instance, field_name, value)
+                continue
+            update_fields.append(f"_{field_name}_encrypted")
 
         if commit:
-            instance.save()
+            instance.save(update_fields=update_fields)
         return instance
 
     # ------------------------------------------------------------------
@@ -670,14 +664,19 @@ class ModelEntriesForm(forms.Form):
         super().__init__(*args, **kwargs)
         self.entries = {entry.field_name: entry for entry in entries}
         self.stale_reasons: dict[str, str] = {}
+        self._stored = stored
+        locks = {site_field: site_settings.is_env_locked(site_field) for site_field in MODEL_MAP_FIELDS}
+        maps = {
+            site_field: getattr(site_settings if locked else stored, site_field) for site_field, locked in locks.items()
+        }
+        spec_error = cache(model_spec_error)
         for field_name, entry in self.entries.items():
-            locked = site_settings.is_env_locked(entry.site_field)
-            source = site_settings if locked else stored
-            value = _picker_spec(getattr(source, entry.site_field).get(entry.name, ""))
+            locked = locks[entry.site_field]
+            # Canonical, as the picker posts it back: a bare stored name would read as changed, and be cleared.
+            value = canonical_model_spec(maps[entry.site_field].get(entry.name, ""))
             widget = _AgentPickerWidget()
             widget.placeholder = str(entry.default_label)
-            widget.default_hint = True
-            if value and (reason := model_spec_error(value)):
+            if value and (reason := spec_error(value)):
                 widget.stale = True
                 self.stale_reasons[field_name] = reason
             if locked:
@@ -720,6 +719,13 @@ class ModelEntriesForm(forms.Form):
             if entry.site_field not in changed:
                 changed.append(entry.site_field)
         return changed
+
+    def save(self) -> None:
+        """Save the changed entries under a row lock, leaving the maps' other entries and every other column."""
+        with transaction.atomic():
+            config = SiteConfiguration.objects.select_for_update().get(pk=self._stored.pk)
+            if changed := self.apply_to(config):
+                config.save(update_fields=changed)
 
 
 WEB_FETCH_AUTH_HEADERS_FORMSET_PREFIX = "headers"

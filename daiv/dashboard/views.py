@@ -5,13 +5,12 @@ from django.views.generic import TemplateView
 
 from skills.models import SkillInvocation
 from skills.pages import SkillPageMixin
-from skills.services import skill_usage
 
 from core.mixins import AdminRequiredMixin
 from dashboard import home, insights, landing
 from dashboard.comparisons import CHECKED, COMPARISONS, COMPARISONS_BY_SLUG
 from dashboard.context_processors import running_jobs_count
-from dashboard.skill_usage import RECENT_RUNS, match_runs
+from dashboard.skill_usage import RECENT_RUNS, match_runs, skill_usage
 
 
 class LandingPageView(TemplateView):

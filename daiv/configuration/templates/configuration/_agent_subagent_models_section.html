@@ -16,8 +16,8 @@ The Agent group's models of the subagents every run can delegate to. Context: `s
     </p>
     <div class="mt-4 space-y-4">
         {% for field in subagent_models_form %}
-        <div class="model-entry flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-            <div class="min-w-[16rem] flex-1">
+        <div class="model-entry">
+            <div class="model-entry__text">
                 <div class="font-mono text-sm text-gray-200">{{ field.label }}</div>
                 <p class="text-xs text-gray-500">{{ field.help_text }}</p>
                 {% for error in field.errors %}<p class="mt-1 text-xs text-red-300">{{ error }}</p>{% endfor %}
@@ -27,6 +27,7 @@ The Agent group's models of the subagents every run can delegate to. Context: `s
         {% endfor %}
     </div>
     <p class="mt-5 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 text-xs text-gray-400">
+        {% url 'skills:list' as skills_url %}
         {% blocktranslate trimmed with url=skills_url %}
         Skill models, and the models of the code-review detectors, are set on each skill's page in <a href="{{ url }}" class="text-gray-200 underline decoration-white/20 underline-offset-2 hover:decoration-white/60">Skills</a>.
         {% endblocktranslate %}

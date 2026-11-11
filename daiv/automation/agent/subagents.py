@@ -12,7 +12,7 @@ from langchain_core.messages import AIMessage
 # wraps (`accepts_config` -> `inspect.signature`), which evaluates their annotations, so `Runnable`
 # and `RunnableConfig` must resolve at runtime — see _guard_subagent_crash.
 from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda
-from skills.constants import BUILTIN_SKILLS_PATH, CODE_REVIEW_AGENTS_PATH, CODE_REVIEW_SKILL, FRONTMATTER_RE
+from skills.constants import CODE_REVIEW_AGENTS_PATH, FRONTMATTER_RE
 
 from automation.agent.configured_models import ConfiguredModels
 from automation.agent.constants import (
@@ -54,8 +54,6 @@ if TYPE_CHECKING:
     from automation.agent.workspace.base import Workspace
 
 logger = logging.getLogger("daiv.agent")
-
-_CODE_REVIEW_SKILL_PATH = BUILTIN_SKILLS_PATH / CODE_REVIEW_SKILL
 
 
 GENERAL_PURPOSE_DESCRIPTION = "General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. This agent has access to all tools as the main agent."  # noqa: E501

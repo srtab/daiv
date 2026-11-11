@@ -3774,13 +3774,8 @@ html {
       margin-bottom: 8px;
     }
 
-    /* Only this one — its trigger sits at the right edge, beside Send. */
-    .chat-composer__buttons .picker-popover {
-      left: auto;
-      right: 0;
-    }
-
-    /* A model entry row keeps its picker at the row's right edge. */
+    /* Only these — their trigger sits at the right edge: beside Send, and at the end of a model entry row. */
+    .chat-composer__buttons .picker-popover,
     .model-entry .picker-popover {
       left: auto;
       right: 0;
@@ -4613,6 +4608,10 @@ html {
   .agent-pill__icon { @apply h-3.5 w-3.5 opacity-85; }
   .agent-pill__name { @apply max-w-[18ch] truncate; }
   .agent-pill__name--default { @apply text-text-muted; }
+
+  /* A model entry row: what the entry is for, then its picker at the right edge. */
+  .model-entry { @apply flex flex-wrap items-center justify-between gap-x-4 gap-y-2; }
+  .model-entry__text { @apply min-w-[16rem] flex-1; }
   .agent-picker__default-hint { @apply font-mono text-[11px] text-text-faint; }
 
   .agent-pill__effort { @apply inline-flex items-center gap-1; }

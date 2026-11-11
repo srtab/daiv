@@ -16,11 +16,11 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from django.http import Http404
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
-from django.views.generic.base import ContextMixin
 
+from core.mixins import BreadcrumbMixin
 from skills.constants import FRONTMATTER_RE, MAX_FILES
 from skills.models import GlobalSkill, SkillInvocation
-from skills.services import BUILTIN_SKILL_DIRS, SkillStorage, list_builtins, site_model_entries
+from skills.services import BUILTIN_SKILL_DIRS, SkillStorage, _skill_metadata, list_builtins, site_model_entries
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -53,9 +53,7 @@ class SkillPage:
     @property
     def declared_model(self) -> str:
         """The model SKILL.md declares under ``metadata.model``, as the agent reads it; empty when it declares none."""
-        from deepagents.middleware.skills import _parse_skill_metadata
-
-        metadata = _parse_skill_metadata(self.skill_md, str(self.root / "SKILL.md"), self.root.name) or {}
+        metadata = _skill_metadata(self.root) or {}
         return str(metadata.get("metadata", {}).get("model") or "").strip()
 
     @cached_property
@@ -72,6 +70,11 @@ class SkillPage:
             if stat.S_ISREG(st.st_mode):
                 entries.append({"path": str(path.relative_to(self.root)), "size": st.st_size})
         return entries
+
+    @property
+    def file_count(self) -> int:
+        """How many files the skill has: an upload's recorded count, which spares walking its folder."""
+        return self.global_skill.file_count if self.global_skill is not None else len(self.files)
 
     def model_entry_count(self) -> int:
         """How many of the skill's model entries are set: its own, and those of the subagents it ships."""
@@ -106,7 +109,7 @@ def get_skill_page(name: str) -> SkillPage:
     raise Http404("skill not found")
 
 
-class SkillPageMixin(ContextMixin):
+class SkillPageMixin(BreadcrumbMixin):
     """A skill page's tab view: ``skill_page`` from the URL's ``name``, and the header and tabs in its context."""
 
     skill_tab: ClassVar[str]
@@ -118,7 +121,7 @@ class SkillPageMixin(ContextMixin):
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         page = self.skill_page
-        counts = {"files": len(page.files), "models": page.model_entry_count()}
+        counts = {"files": page.file_count, "models": page.model_entry_count()}
         return {
             **super().get_context_data(**kwargs),
             "skill": page,
@@ -132,5 +135,7 @@ class SkillPageMixin(ContextMixin):
                 }
                 for key, label, url_name in SKILL_TABS
             ],
-            "breadcrumbs": [{"label": _("Skills"), "url": reverse("skills:list")}, {"label": page.name, "url": None}],
         }
+
+    def get_breadcrumbs(self):
+        return [{"label": _("Skills"), "url": reverse("skills:list")}, {"label": self.skill_page.name, "url": None}]

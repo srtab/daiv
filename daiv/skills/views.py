@@ -12,6 +12,7 @@ from django.views import View
 from django.views.generic import TemplateView
 
 from core.mixins import AdminRequiredMixin
+from core.site_settings import site_settings
 from core.utils import short_model_name
 from skills.constants import ZIPS_DIR
 from skills.forms import SkillUploadForm
@@ -38,18 +39,19 @@ class SkillListView(AdminRequiredMixin, TemplateView):
             for row in (SkillInvocation.objects.values("name", "source").annotate(c=Count("id")))
         }
 
+        snapshot = site_settings.snapshot()
         custom_names = {skill.name for skill in custom_skills}
         for skill in custom_skills:
             skill.invocations_count = counts.get((skill.name, SkillInvocation.Source.GLOBAL), 0)
             skill.overrides_builtin = skill.name in BUILTIN_SKILL_NAMES
-            spec, skill.subagent_models = site_model_entries(skill.name)
+            spec, skill.subagent_models = site_model_entries(skill.name, snapshot)
             skill.model = short_model_name(spec)
         # A custom upload shadows the built-in of the same name; drop the
         # shadowed entry so the list shows only the active skill.
         builtin_skills = [entry for entry in builtin_skills if entry["name"] not in custom_names]
         for entry in builtin_skills:
             entry["invocations_count"] = counts.get((entry["name"], SkillInvocation.Source.BUILTIN), 0)
-            spec, entry["subagent_models"] = site_model_entries(entry["name"])
+            spec, entry["subagent_models"] = site_model_entries(entry["name"], snapshot)
             entry["model"] = short_model_name(spec)
 
         ctx["custom_skills"] = custom_skills

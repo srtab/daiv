@@ -59,8 +59,7 @@
                 {% endif %}
             {% endfor %}
             {% if subagent_models_form %}
-                {% url 'skills:list' as skills_url %}
-                {% include "configuration/_agent_subagent_models_section.html" with skills_url=skills_url %}
+                {% include "configuration/_agent_subagent_models_section.html" %}
             {% endif %}
             {% if active_group.key == "web_fetch" %}
                 {% include "configuration/_web_fetch_auth_headers_section.html" %}

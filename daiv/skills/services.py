@@ -10,17 +10,13 @@ import time
 import zipfile
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, BinaryIO, NamedTuple
 
 from django.core.exceptions import ValidationError
 from django.db import DatabaseError, transaction
-from django.db.models import Count
-from django.db.models.functions import TruncDate
 from django.db.utils import Error as DjangoDBError
-from django.utils import timezone
 
 import yaml
 
@@ -53,6 +49,8 @@ from skills.models import GlobalSkill, SkillInvocation
 if TYPE_CHECKING:
     from deepagents.middleware.skills import SkillMetadata, SkillsState
     from langchain.tools import ToolRuntime
+
+    from core.site_settings import SiteSettings, SiteSnapshot
 
 logger = logging.getLogger("daiv.skills")
 
@@ -232,12 +230,11 @@ def _code_review_detectors() -> tuple[BundledSubagent, ...]:
     detectors = []
     for charter in sorted(CODE_REVIEW_AGENTS_PATH.glob("*.md")):
         try:
-            match = FRONTMATTER_RE.match(charter.read_text(encoding="utf-8"))
-            frontmatter = yaml.safe_load(match.group(1)) if match else None
-        except OSError, UnicodeDecodeError, yaml.YAMLError:
+            frontmatter = SkillPackage._parse_frontmatter(charter.read_text(encoding="utf-8"))
+        except OSError, UnicodeDecodeError, SkillValidationError:
             logger.warning("Could not read detector charter %s", charter, exc_info=True)
             continue
-        if not isinstance(frontmatter, dict) or not isinstance(name := frontmatter.get("name"), str):
+        if not (name := str(frontmatter.get("name") or "").strip()):
             logger.warning("Detector charter %s has no name in its frontmatter", charter)
             continue
         summary = str(frontmatter.get("description") or "").split(". ", 1)[0].rstrip(".")
@@ -250,33 +247,15 @@ def skill_subagents(name: str) -> tuple[BundledSubagent, ...]:
     return _code_review_detectors() if name == CODE_REVIEW_SKILL else ()
 
 
-def site_model_entries(name: str) -> tuple[str, int]:
-    """Skill ``name``'s site model entry (empty when unset), and how many of the subagents it ships have one."""
-    subagent_models = site_settings.agent_subagent_models
+def site_model_entries(name: str, site: SiteSettings | SiteSnapshot = site_settings) -> tuple[str, int]:
+    """Skill ``name``'s site model entry (empty when unset), and how many of the subagents it ships have one; a caller
+    that asks for several skills passes one ``site_settings.snapshot()``."""
+    subagents = skill_subagents(name)
+    subagent_models = site.agent_subagent_models if subagents else {}
     return (
-        site_settings.agent_skill_models.get(name, ""),
-        sum(1 for subagent in skill_subagents(name) if subagent_models.get(subagent.name)),
+        site.agent_skill_models.get(name, ""),
+        sum(1 for subagent in subagents if subagent_models.get(subagent.name)),
     )
-
-
-def skill_usage(name: str, source: SkillInvocation.Source) -> dict[str, Any]:
-    """Skill ``name``'s invocations from ``source`` over the last 30 days: a ``daily_series``, oldest first, and its
-    ``last_30_total``."""
-    cutoff = timezone.localdate() - timedelta(days=29)
-    by_day = dict(
-        SkillInvocation.objects
-        .filter(name=name, source=source, created__date__gte=cutoff)
-        .annotate(day=TruncDate("created"))
-        .values("day")
-        .annotate(count=Count("id"))
-        .values_list("day", "count")
-    )
-    days = [cutoff + timedelta(days=offset) for offset in range(30)]
-    counts = [by_day.get(day, 0) for day in days]
-    return {
-        "last_30_total": sum(counts),
-        "daily_series": [{"day": day, "count": count} for day, count in zip(days, counts, strict=True)],
-    }
 
 
 @dataclass(frozen=True, slots=True)

@@ -5,17 +5,20 @@ from __future__ import annotations
 import bisect
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from datetime import datetime, time, timedelta
+from operator import attrgetter
+from typing import TYPE_CHECKING, Any
 
+from django.db.models import Count
+from django.db.models.functions import TruncDate
 from django.urls import reverse
+from django.utils import timezone
 
 from sessions.models import Run, Session
+from skills.models import SkillInvocation
 
 if TYPE_CHECKING:
-    from datetime import datetime
     from uuid import UUID
-
-    from skills.models import SkillInvocation
 
 RECENT_RUNS = 20
 
@@ -45,6 +48,27 @@ class SkillRun:
         return self.session.repo_id if self.session else self.invocation.repo_slug
 
 
+def skill_usage(name: str, source: SkillInvocation.Source) -> dict[str, Any]:
+    """Skill ``name``'s invocations from ``source`` over the last 30 days: a ``daily_series``, oldest first, and its
+    ``last_30_total``."""
+    cutoff = timezone.localdate() - timedelta(days=29)
+    by_day = dict(
+        SkillInvocation.objects
+        # A range on ``created`` itself, which the (name, source, -created) index serves; ``created__date`` cannot.
+        .filter(name=name, source=source, created__gte=timezone.make_aware(datetime.combine(cutoff, time.min)))
+        .annotate(day=TruncDate("created"))
+        .values("day")
+        .annotate(count=Count("id"))
+        .values_list("day", "count")
+    )
+    days = [cutoff + timedelta(days=offset) for offset in range(30)]
+    counts = [by_day.get(day, 0) for day in days]
+    return {
+        "last_30_total": sum(counts),
+        "daily_series": [{"day": day, "count": count} for day, count in zip(days, counts, strict=True)],
+    }
+
+
 def match_runs(invocations: list[SkillInvocation]) -> list[SkillRun]:
     """Each invocation with the run it happened in: the latest run of its session that started before it.
 
@@ -59,7 +83,6 @@ def match_runs(invocations: list[SkillInvocation]) -> list[SkillRun]:
         for text in (str(invocation.thread_id), invocation.thread_id.hex)
     }
     sessions = {thread_uuids[s.thread_id]: s for s in Session.objects.filter(thread_id__in=thread_uuids)}
-    starts: dict[UUID, list[datetime]] = defaultdict(list)
     runs: dict[UUID, list[Run]] = defaultdict(list)
     latest = max(invocation.created for invocation in invocations)
     session_runs = (
@@ -73,12 +96,12 @@ def match_runs(invocations: list[SkillInvocation]) -> list[SkillRun]:
         .order_by("started_at")
     )
     for run in session_runs:
-        starts[thread_uuids[run.session_id]].append(run.started_at)
         runs[thread_uuids[run.session_id]].append(run)
 
     matched = []
     for invocation in invocations:
-        index = bisect.bisect_right(starts[invocation.thread_id], invocation.created) - 1
-        run = runs[invocation.thread_id][index] if index >= 0 else None
+        candidates = runs[invocation.thread_id]
+        index = bisect.bisect_right(candidates, invocation.created, key=attrgetter("started_at")) - 1
+        run = candidates[index] if index >= 0 else None
         matched.append(SkillRun(invocation, sessions.get(invocation.thread_id), run))
     return matched

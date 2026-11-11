@@ -28,7 +28,7 @@ from configuration.forms import (
 )
 from core.mixins import AdminRequiredMixin
 from core.models import FieldGroup, Provider, SiteConfiguration, WebFetchAuthHeader
-from core.site_settings import MODEL_MAP_FIELDS, legacy_explore_model, site_settings
+from core.site_settings import legacy_explore_model, site_settings
 from core.utils import short_model_name
 
 logger = logging.getLogger("daiv.configuration")
@@ -48,16 +48,16 @@ def _explore_default_label():
 def _unlisted_entries(instance: SiteConfiguration) -> list[ModelEntry]:
     """Stored entries no page lists, a repository's skill or subagent, so they can still be changed or cleared."""
     unlisted = (
-        ("agent_subagent_models", BUILTIN_SUBAGENT_NAMES, _("A subagent only repositories define")),
-        ("agent_skill_models", list_global_skills(), _("A skill only repositories define")),
+        ("agent_subagent_models", lambda: BUILTIN_SUBAGENT_NAMES, _("A subagent only repositories define")),
+        ("agent_skill_models", list_global_skills, _("A skill only repositories define")),
     )
-    return [
-        ModelEntry(site_field, name, name, help_text)
-        for site_field, listed, help_text in unlisted
-        if not site_settings.is_env_locked(site_field)
-        for name in getattr(instance, site_field)
-        if name not in listed
-    ]
+    entries: list[ModelEntry] = []
+    for site_field, listed, help_text in unlisted:
+        stored = getattr(instance, site_field)
+        if stored and not site_settings.is_env_locked(site_field):
+            names = listed()
+            entries += [ModelEntry(site_field, name, name, help_text) for name in stored if name not in names]
+    return entries
 
 
 class SiteConfigurationIndexView(AdminRequiredMixin, View):
@@ -127,14 +127,10 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
 
         if form.is_valid() and providers_valid and headers_valid and subagent_models_valid:
             with transaction.atomic():
-                # form.save() writes every column: without this it would undo a skill page's concurrent save.
-                form.instance.refresh_from_db(
-                    fields=MODEL_MAP_FIELDS, from_queryset=SiteConfiguration.objects.select_for_update()
-                )
                 if providers_formset is not None:
                     providers_formset.save()
                 if saves_subagent_models:
-                    subagent_models.apply_to(form.instance)
+                    subagent_models.save()
                 form.save()
                 if headers_formset is not None and not headers_env_locked:
                     headers_formset.save()
@@ -324,10 +320,7 @@ class SkillModelsView(AdminRequiredMixin, SkillPageMixin, TemplateView):
         form = self._build_form(data=request.POST)
         if not form.is_valid():
             return self.render_to_response(self.get_context_data(form=form))
-        with transaction.atomic():
-            config = SiteConfiguration.objects.select_for_update().get(pk=SiteConfiguration.objects.get_instance().pk)
-            if changed := form.apply_to(config):
-                config.save(update_fields=changed)
+        form.save()
         messages.success(request, _("Models saved."))
         return redirect("skills:models", name=self.skill_page.name)
 

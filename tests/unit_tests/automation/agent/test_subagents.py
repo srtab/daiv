@@ -1148,7 +1148,7 @@ class TestShippedDetectorCharters:
         # A detector-side cutoff on top of the orchestrator's makes literal models under-report.
         import re
 
-        from automation.agent.subagents import _CODE_REVIEW_SKILL_PATH, CODE_REVIEW_AGENTS_PATH
+        from automation.agent.subagents import CODE_REVIEW_AGENTS_PATH
 
         allowed = {
             "- **Confidence:** <0–100>",
@@ -1163,7 +1163,7 @@ class TestShippedDetectorCharters:
                         f"{md.name} conditions reporting on confidence: {line!r}"
                     )
 
-        skill = (_CODE_REVIEW_SKILL_PATH / "SKILL.md").read_text(encoding="utf-8")
+        skill = (CODE_REVIEW_AGENTS_PATH.parent / "SKILL.md").read_text(encoding="utf-8")
         assert "dropping findings with confidence below 40" in skill, "SKILL.md step 5 lost the confidence filter"
 
 

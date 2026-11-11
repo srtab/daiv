@@ -536,6 +536,14 @@ class TestModelEntriesForm:
         assert picker["placeholder_label"] == "claude-haiku-5-5"
         assert picker["default_hint"] is True
 
+    def test_a_model_stored_without_its_provider_seeds_the_picker_with_it(self, db):
+        """The picker selects nothing for a bare name, and would post the field back empty."""
+        from configuration.forms import _AgentPickerWidget
+
+        picker = _AgentPickerWidget().get_context("agent_model_name", "gpt-5.4", {})["widget"]["picker"]
+
+        assert picker["initial_agent_model"] == "openai:gpt-5.4"
+
 
 @pytest.mark.django_db
 class TestSearXNGForm:
