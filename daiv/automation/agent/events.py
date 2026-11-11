@@ -99,6 +99,7 @@ def context_usage_payload(*, model: str, usage: Mapping[str, Any], window: Resol
 
 
 PUBLISH_RESULT_EVENT = "daiv_publish_result"
+TOOL_MEDIA_EVENT = "daiv_tool_media"
 
 
 def publish_result_payload(

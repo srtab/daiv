@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import mimetypes
 import uuid
 from decimal import Decimal
 from functools import reduce
@@ -18,7 +19,7 @@ from automation.agent.references import ExternalRef, refs_from_stored  # noqa: T
 from core.models import ThinkingLevelChoices
 from sessions.artifacts import ArtifactKind, artifact_kind
 from sessions.executor.result import parse_agent_result
-from sessions.managers import RunArtifactManager, RunManager, SessionManager
+from sessions.managers import RunArtifactManager, RunManager, SessionManager, ToolResultMediaManager
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -712,6 +713,41 @@ class RunArtifact(models.Model):
     @property
     def kind(self) -> ArtifactKind:
         return artifact_kind(self.content_type)
+
+
+def tool_media_upload_to(instance: ToolResultMedia, filename: str) -> str:
+    """Storage name ``tool-media/<media_id><ext>``, the extension derived from the stored content type."""
+    ext = mimetypes.guess_extension(instance.content_type) or ""
+    return f"tool-media/{instance.id}{ext}"
+
+
+class ToolResultMedia(models.Model):
+    """An image or file a tool result carried (an MCP screenshot, a ``read_file`` image), kept so the transcript can
+    show it.
+
+    The bytes live in the default file storage (``MEDIA_ROOT``). The tool message in the checkpoint names the row by
+    id (``automation.agent.tool_media.DAIV_MEDIA_KEY``). Deleting the run cascades to the row, and
+    ``sessions.signals.delete_tool_media_file`` removes the bytes.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    run = models.ForeignKey(Run, on_delete=models.CASCADE, related_name="tool_media", verbose_name=_("run"))
+    tool_call_id = models.CharField(_("tool call id"), max_length=255)
+    ordinal = models.PositiveSmallIntegerField(_("ordinal"))
+    content_type = models.CharField(_("content type"), max_length=100)
+    size = models.PositiveBigIntegerField(_("size"))
+    file = models.FileField(_("file"), upload_to=tool_media_upload_to, max_length=500)
+    created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
+
+    objects = ToolResultMediaManager()
+
+    class Meta:
+        verbose_name = _("Tool Result Media")
+        verbose_name_plural = _("Tool Result Media")
+        ordering = ["created_at", "id"]
+
+    def __str__(self) -> str:
+        return f"{self.content_type} #{self.ordinal} of tool call {self.tool_call_id} for run {self.run_id}"
 
 
 class HiddenSession(models.Model):

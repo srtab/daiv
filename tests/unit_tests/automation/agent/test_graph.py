@@ -22,6 +22,7 @@ from automation.agent.middlewares.memory import build_agents_memory_middleware
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
 from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.middlewares.summarization import build_summarization_middleware
+from automation.agent.middlewares.tool_media import ToolMediaMiddleware
 from automation.agent.prompts import AGENTS_MEMORY_SYSTEM_PROMPT
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME
 from automation.agent.workspace.backends import WORKSPACE_FENCE_PERMISSIONS
@@ -29,7 +30,14 @@ from automation.agent.workspace.disk import DiskWorkspace
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import GitPlatform
-from tests.unit_tests.conftest import FakeArtifactStore, FakeSandboxClient, agent_settings, sandbox_spec, site_snapshot
+from tests.unit_tests.conftest import (
+    FakeArtifactStore,
+    FakeSandboxClient,
+    FakeToolMediaStore,
+    agent_settings,
+    sandbox_spec,
+    site_snapshot,
+)
 
 
 def _patches() -> dict[str, tuple[str, dict]]:
@@ -254,3 +262,17 @@ async def test_system_prompt_names_the_ref_recorded_on_the_repo_handle():
 
     assert "You are on branch `feature-x`" in seen[0]
     assert "https://gitlab.test/group/repo/-/blob/feature-x/" in seen[0]
+
+
+async def test_the_tool_media_store_adds_the_middleware():
+    store = FakeToolMediaStore()
+
+    [kept] = [
+        m
+        for m in _middleware(await _build(_disk_workspace(), tool_media_store=store))
+        if isinstance(m, ToolMediaMiddleware)
+    ]
+    without = [m for m in _middleware(await _build(_disk_workspace())) if isinstance(m, ToolMediaMiddleware)]
+
+    assert kept._store is store
+    assert without == []

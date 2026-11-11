@@ -25,6 +25,7 @@ const sandbox = {{
   Diff: {DIFF_STUB},
   vars: payload.vars,
   console,
+  URL,
 }};
 if (payload.markdown) sandbox.renderMarkdown = markdown;
 sandbox.window = sandbox;

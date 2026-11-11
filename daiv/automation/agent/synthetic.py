@@ -15,6 +15,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 SYNTHETIC_KWARG = "daiv_synthetic"
 ISSUE_CONTEXT_KIND = "issue_context"
 PUBLISH_FAILURES_KIND = "publish_failures"
+TOOL_MEDIA_KIND = "tool_media"
 
 
 def synthetic_message(content: str, *, kind: str, message_id: str | None = None) -> HumanMessage:
