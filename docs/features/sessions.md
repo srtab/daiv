@@ -297,7 +297,7 @@ DAIV-Session: https://daiv.example.com/dashboard/sessions/<thread_id>/
 
 Unlike the description, the trailer is per-commit and append-only: it survives a rewritten description, reaches requests DAIV merely adopts (whose description is left untouched), and travels with the commit when it is squashed or cherry-picked. It joins any trailer block the commit message already ends with, so `Co-authored-by` and `Closes` keep working.
 
-Admins can turn both off for the whole instance (**Settings > Agent > Link sessions from merge requests**) or per repository with `session_link: false` in `.daiv.yml`.
+Admins can turn both off for the whole instance (**Dashboard > Configuration > Agent > Link sessions from merge requests**) or per repository with `session_link: false` in `.daiv.yml`.
 
 ---
 
