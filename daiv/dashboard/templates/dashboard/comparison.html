@@ -4,13 +4,22 @@
 
 {% block meta_description %}<meta name="description" content="How DAIV and {{ comparison.name }} differ: where each runs, which Git platforms and models it supports, its license and its pricing, from each project's public docs.">{% endblock %}
 
+{% block open_graph %}
+<meta property="og:type" content="website">
+<meta property="og:title" content="DAIV and {{ comparison.name }} compared">
+<meta property="og:description" content="{{ comparison.summary }}">
+<meta property="og:site_name" content="DAIV">
+{% endblock open_graph %}
+
 {% block content %}
 {% include "dashboard/_landing_nav.html" %}
 
 <main>
 <section class="landing-page">
     <div class="landing-container">
-        <p class="landing-eyebrow"><a href="{% url 'homepage' %}#compare" class="hover:text-text">Compare</a></p>
+        <p class="landing-eyebrow">
+            {% if user.is_authenticated %}Compare{% else %}<a href="{% url 'homepage' %}#compare" class="hover:text-text">Compare</a>{% endif %}
+        </p>
         <h1 class="landing-heading">DAIV and {{ comparison.name }}</h1>
         <p class="landing-lede">
             {{ comparison.summary }}
@@ -60,12 +69,7 @@
         </ul>
 
         <div class="mt-16 flex flex-col gap-3 sm:flex-row sm:gap-4">
-            <a href="{{ quickstart_url }}" rel="noopener noreferrer" class="landing-button landing-button--primary">
-                Deploy in 15 min
-            </a>
-            <a href="https://github.com/srtab/daiv" rel="noopener noreferrer" class="landing-button landing-button--secondary">
-                Star on GitHub
-            </a>
+            {% include "dashboard/_landing_ctas.html" %}
         </div>
     </div>
 </section>

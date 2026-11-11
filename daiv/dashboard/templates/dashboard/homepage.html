@@ -81,13 +81,7 @@
 
         <!-- CTAs -->
         <div class="animate-fade-up mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4" style="animation-delay: 240ms">
-            <a href="{{ quickstart_url }}" rel="noopener noreferrer" class="landing-button landing-button--primary">
-                Deploy in 15 min
-            </a>
-            <a href="https://github.com/srtab/daiv" rel="noopener noreferrer" class="landing-button landing-button--secondary">
-                {% icon "github" "h-5 w-5" %}
-                Star on GitHub
-            </a>
+            {% include "dashboard/_landing_ctas.html" %}
         </div>
 
         <!-- Platform icons -->
@@ -543,7 +537,7 @@
             {% for faq in faqs %}
             <details class="landing-faq__item group">
                 <summary class="landing-faq__question">
-                    <h3>{{ faq.question }}</h3>
+                    <span>{{ faq.question }}</span>
                     {% icon "chevron-down" "h-4 w-4 shrink-0 text-text-faint transition-transform duration-200 group-open:rotate-180" %}
                 </summary>
                 <div class="landing-faq__answer">{{ faq.answer_html }}</div>
@@ -563,12 +557,7 @@
                 For a production install, follow the deployment guide.
             </p>
             <div class="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4">
-                <a href="{{ quickstart_url }}" rel="noopener noreferrer" class="landing-button landing-button--primary">
-                    Deploy in 15 min
-                </a>
-                <a href="{{ build_info.docs_deployment_url }}" rel="noopener noreferrer" class="landing-button landing-button--secondary">
-                    Deployment guide
-                </a>
+                {% include "dashboard/_landing_ctas.html" with deployment_guide=True %}
             </div>
         </div>
     </div>

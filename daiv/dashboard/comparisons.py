@@ -5,6 +5,8 @@ Every cell about another tool cites the vendor's own public docs it was taken fr
 
 from dataclasses import dataclass, field
 
+from dashboard.landing import DOCS_ROOT
+
 CHECKED = "November 2026"
 
 ASPECTS = (
@@ -33,27 +35,26 @@ class Row:
 
 DAIV_CELLS = {
     "hosting": Cell(
-        "On your servers, with Docker Compose or Docker Swarm.",
-        ("https://srtab.github.io/daiv/dev/getting-started/deployment/",),
+        "On your servers, with Docker Compose or Docker Swarm.", (f"{DOCS_ROOT}/getting-started/deployment/",)
     ),
     "platforms": Cell(
         "GitLab.com, self-managed GitLab, GitHub.com and GitHub Enterprise Server.",
-        ("https://srtab.github.io/daiv/dev/getting-started/platform-setup/",),
+        (f"{DOCS_ROOT}/getting-started/platform-setup/",),
     ),
     "trigger": Cell(
         "Label an issue daiv or mention @daiv on an issue or merge request; or start a run from the dashboard, "
         "the Jobs API, the MCP endpoint or a schedule.",
-        ("https://srtab.github.io/daiv/dev/features/issue-addressing/",),
+        (f"{DOCS_ROOT}/features/issue-addressing/",),
     ),
     "models": Cell(
         "OpenRouter, Anthropic, OpenAI or Google Gemini with your own keys, or your own OpenAI-compatible "
         "server; chosen per repository and per run.",
-        ("https://srtab.github.io/daiv/dev/getting-started/llm-providers/",),
+        (f"{DOCS_ROOT}/getting-started/llm-providers/",),
     ),
     "execution": Cell(
         "A Docker container per session, managed by daiv-sandbox, with no network unless an egress allow-list "
         "opens it.",
-        ("https://srtab.github.io/daiv/dev/features/sandbox/",),
+        (f"{DOCS_ROOT}/features/sandbox/",),
     ),
     "license": Cell("Apache-2.0.", ("https://github.com/srtab/daiv/blob/main/LICENSE",)),
     "pricing": Cell(

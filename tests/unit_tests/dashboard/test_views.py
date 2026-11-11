@@ -110,8 +110,11 @@ class TestComparison:
     def test_unknown_comparison_is_not_found(self):
         assert Client().get("/compare/nothing-like-this/").status_code == 404
 
-    def test_signed_in_user_can_read_it(self, member_client):
-        assert member_client.get(reverse("comparison", args=[COMPARISONS[0].slug])).status_code == 200
+    def test_signed_in_user_can_read_it_without_links_into_the_homepage(self, member_client):
+        response = member_client.get(reverse("comparison", args=[COMPARISONS[0].slug]))
+
+        assert response.status_code == 200
+        assert f'href="{reverse("homepage")}#' not in response.content.decode()
 
     def test_sitemap_lists_every_comparison(self):
         content = Client().get(reverse("sitemap")).content.decode()

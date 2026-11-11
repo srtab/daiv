@@ -5,11 +5,17 @@
             <img src="{% static 'accounts/img/logo.svg' %}" alt="DAIV" class="h-7">
         </a>
         <div class="flex items-center gap-5">
+            {% if not user.is_authenticated %}
             <a href="{% url 'homepage' %}#security" class="landing-link hidden md:inline">Security</a>
             <a href="{% url 'homepage' %}#compare" class="landing-link hidden md:inline">Compare</a>
             <a href="{% url 'homepage' %}#faq" class="landing-link hidden md:inline">FAQ</a>
+            {% endif %}
             <a href="{{ build_info.docs_url }}" rel="noopener noreferrer" class="landing-link hidden sm:inline">Documentation</a>
+            {% if user.is_authenticated %}
+            <a href="{% url 'dashboard' %}" class="landing-signin">Dashboard</a>
+            {% else %}
             <a href="{% url 'account_login' %}" class="landing-signin">Sign in</a>
+            {% endif %}
         </div>
     </div>
 </nav>
