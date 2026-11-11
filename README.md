@@ -15,7 +15,7 @@
   <a href="https://github.com/srtab/daiv/stargazers"><img src="https://img.shields.io/github/stars/srtab/daiv?style=flat" alt="GitHub stars"></a>
 </p>
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/e94eecc0-9180-468b-8ccf-b8fe27bab302" alt="A GitLab issue is labelled daiv; DAIV posts a plan; the author replies @daiv proceed; DAIV opens a merge request whose pipeline passes" width="800">
+  <img src="https://github.com/user-attachments/assets/52fc593f-ab5e-4fcb-8660-1a885448c40f" alt="A GitLab issue is labelled daiv; DAIV posts a plan; the author replies @daiv proceed; DAIV opens a merge request whose pipeline passes" width="800">
 </p>
 
 ---
@@ -110,6 +110,11 @@ DAIV is powered by [Deep Agents](https://github.com/langchain-ai/deepagents), a 
 - **Error Handling**: [Sentry](https://sentry.io/) for tracking and analyzing errors.
 
 ## Getting Started
+
+To try DAIV, follow the [Quickstart](https://srtab.github.io/daiv/dev/getting-started/quickstart/): it runs DAIV on one
+machine with Docker Compose and turns a GitLab issue into a merge request in about 15 minutes, no clone needed.
+
+To run the development stack from a clone instead:
 
 ```bash
 git clone https://github.com/srtab/daiv.git && cd daiv
