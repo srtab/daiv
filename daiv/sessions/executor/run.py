@@ -27,7 +27,6 @@ from sessions.executor.spec import RunHooks, RunOutcome
 from sessions.inbox.ownership import Ownerships
 from sessions.models import PublishStatus, Run, publish_field_updates
 from sessions.multi_repo import aload_extra_repos, apersist_extra_repo_state
-from sessions.notices import RunNoticeRecorder
 from sessions.services import aget_session_ref, apersist_session_ref, areset_session_ref
 from sessions.tool_media import RunToolMediaStore
 
@@ -443,7 +442,6 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
                 mcp_servers=await sync_to_async(build_runtime_servers)(spec.acting_user_id, spec.mcp_overrides),
                 session_links=session_links,
                 delegator=delegator,
-                notices=RunNoticeRecorder(spec.run_id) if spec.run_id else None,
                 **spec.agent_options,
             )
             config = build_langsmith_config(

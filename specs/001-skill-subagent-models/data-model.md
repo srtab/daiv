@@ -34,38 +34,6 @@ The run's overrides (exact pin, picker choice, Max) do not affect either map.
 3. the model it uses today: the run's model, or for a skill the model already serving the
    conversation.
 
-An unusable entry at step 1 falls through to step 2 and records a notice naming the model that
-served. An unusable file-declared model behaves as it does today: a skill keeps the run's model,
-and a subagent is skipped, unless a configured entry also failed, in which case the run's model
-serves.
-
-## Run (existing model, one new field)
-
-| Field | Type | Default |
-|-------|------|---------|
-| `notices` | JSON list of notice objects | `[]` |
-
-**ModelFallbackNotice** (one list item):
-
-| Key | Type | Meaning |
-|-----|------|---------|
-| `kind` | `"model_fallback"` | Notice type; the only one in this release |
-| `target` | `"skill"` \| `"subagent"` | What the entry was for |
-| `name` | string | The skill or subagent name |
-| `configured_model` | string | The spec that could not be used |
-| `served_model` | string | The spec that served instead |
-| `reason` | `"unknown_provider"` \| `"provider_unavailable"` \| `"init_failed"` \| `"call_failed"` | Category only, never exception text |
-
-Notices are appended during the run and kept after it ends. A skill's notice is recorded once per
-run per entry, matching the per-run model cache.
-
-## Pseudo-turn `run_notice` (session view)
-
-`sessions.transcript` turns each notice into one item, placed next to its run's turns:
-
-```text
-{id: "run-notice-<run id>-<index>", role: "run_notice", message: <rendered sentence>}
-```
-
-The message reads "<name> ran on <served_model>: <configured_model> could not be used
-(<reason label>)."
+An unusable entry at step 1 falls through to step 2 and is logged at ERROR. An unusable
+file-declared model behaves as it does today: a skill keeps the run's model, and a subagent is
+skipped, unless a configured entry also failed, in which case the run's model serves.

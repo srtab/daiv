@@ -25,7 +25,6 @@ make test
 The unit tests listed in [plan.md](plan.md#source-code-repository-root) cover:
 - precedence;
 - fallback without skipping a subagent;
-- the notices;
 - the form rules in [contracts/site-configuration.md](contracts/site-configuration.md).
 
 ## Manual scenarios
@@ -52,8 +51,6 @@ The unit tests listed in [plan.md](plan.md#source-code-repository-root) cover:
       - the run completes;
       - `cr-tests` still runs, on `M_RUN`;
       - the worker log has an ERROR naming `cr-tests`;
-      - the session view shows a notice chip naming `cr-tests`, the spec that failed and `M_RUN`;
-      - with the chip on the page, the to-do panel and the outputs list still render;
       - nothing extra is posted to the merge or pull request.
 6. **Form rules (FR-008, FR-008a).** In site configuration, try each case:
    - a model on a disabled provider: refused, with an error on that row;

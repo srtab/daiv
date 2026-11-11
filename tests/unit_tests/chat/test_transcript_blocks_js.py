@@ -661,11 +661,3 @@ def test_cancelling_delegated_jobs_has_its_own_group_line():
     cancel = tool_call("j2", "cancel_delegated_jobs", {"batch_id": "b1"}, result='{"cancelled": []}')
     assert _group_line([check_jobs("j1"), cancel])["text"] == "Checked delegated jobs, cancelled delegated jobs"
     assert _group_line([cancel, cancel])["text"] == "Cancelled delegated jobs 2 times"
-
-
-def test_a_run_notice_attaches_to_its_run_beside_the_status_and_is_no_step():
-    notice = {"id": "run-notice-1-0", "role": "run_notice", "message": "cr-tests ran on m: x could not be used"}
-    blocks = _blocks([user("u1"), asst("a1", text("ok")), notice, status_turn("failed"), user("u2")])
-    assert [[n["id"] for n in b["notices"]] for b in blocks] == [["run-notice-1-0"], []]
-    assert [len(b["statuses"]) for b in blocks] == [1, 0]
-    assert blocks[0]["lastTurn"]["id"] == "a1"

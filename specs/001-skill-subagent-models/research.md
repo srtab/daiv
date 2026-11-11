@@ -57,7 +57,7 @@ repository root.
 - **Rationale**: A `ValidationError` makes `get_config` discard the whole file and fall back to
   defaults (`daiv/codebase/repo_config.py:266-274`). Validating a model spec on load would let one
   typo silently disable every other setting in the file. A bad spec is caught at run time instead,
-  where FR-009's notice reaches the maintainer.
+  where FR-009's ERROR log reaches operators.
 - **Empty entries**: A `null` or blank value counts as unset, matching how the precedence table
   in `daiv/automation/agent/agent_settings.py` treats a null `models.agent.model`.
 
@@ -77,8 +77,10 @@ repository root.
   invocation, the skill tool tries the configured spec first, then the skill's `metadata.model`,
   then keeps the run's model. When a configured spec cannot be built, it:
   1. falls through to the file-declared model, or else the run's model;
-  2. logs at ERROR, naming the entry, the reason category and the model that served;
-  3. records a notice (R7).
+  2. logs at ERROR, naming the entry and the spec (R7).
+
+  A call the skill model fails goes to the run's fallback models: the model swap sits inside
+  `ModelFallbackMiddleware`, and a fallback model's call passes through it unchanged.
 
   The prototype's lifetime (until the next user follow-up), the context-window guard and the
   per-run model cache stay as they are (`daiv/automation/agent/middlewares/skills.py:243-267`).
@@ -91,9 +93,8 @@ repository root.
 - **Decision**: Subagent models are built when the agent is assembled (`create_daiv_agent`,
   `daiv/automation/agent/graph.py:216-270`), so they are resolved there, by name, through one
   helper. The helper builds the configured spec with the run's thinking level
-  (`chain.thinking_level`) and, on failure, returns the reason category. The caller then uses its
-  existing default and reports the fallback, which logs at ERROR and records a notice naming the
-  model that served. It applies to:
+  (`chain.thinking_level`) and, on failure, logs at ERROR and returns nothing, so the caller uses
+  its existing default. It applies to:
   - `general-purpose`: configured entry, else the run's model;
   - code-review detectors (`load_builtin_code_review_detectors`): configured entry, else the
     charter's `model:`, else the run's model;
@@ -107,38 +108,25 @@ repository root.
   (`_shared_subagent_middleware`), so a configured subagent model needs no context-window guard.
   Fallback models stay the run's (FR-007).
 
-## R7. The notice on a run
+## R7. Reporting a model that can't be used
 
-- **Findings**: Nothing in DAIV persists a notice on a run today.
-  - `Run` (`daiv/sessions/models.py:277-366`) has no notices field.
-  - The only persisted pseudo-turn is the failed or aborted run-status marker built by
-    `transcript._marker` (`daiv/sessions/transcript.py:46-67`) and rendered as a chip in
-    `sessions/session_detail.html:202-215`.
-  - Custom events (`adispatch_custom_event`) are live-only. They also cannot be sent while the
-    agent is being built, which is outside any runnable (`daiv/sessions/executor/run.py:376`).
-- **Decision**:
-  - **Storage:** a new `Run.notices` `JSONField` (a list, default `[]`).
-  - **Recording:** a `RunNotices` protocol in `automation` with a synchronous `record(notice)`,
-    which buffers, and an async `aflush()`, which saves. `record` is synchronous because the
-    detector loader is synchronous. `create_daiv_agent` takes an optional `notices` collaborator,
-    like `session_links` and `delegator`, and the executor passes a sessions-side recorder bound to
-    the run id.
-  - **Saving:** `aflush()` writes the whole buffered list with
-    `Run.objects.filter(pk=...).aupdate(notices=...)`. It is called after the agent is built and
-    after a skill records a notice, so a notice survives a reload while the run is still going.
-  - **Display:** `transcript.py` emits one `run_notice` pseudo-turn per notice next to the run's
-    turns, and the session template renders it as a neutral chip. The chip reuses the run-status
-    chip styles in a new `--notice` variant, following `DESIGN.md`.
-- **Rationale**: `automation` (layer 6) cannot import `sessions` (layer 8), so writing to `Run` goes
-  through an injected collaborator, which is the existing extension point
-  (`constitutions/architecture/layering.md` rule 5). No new `ignore_imports` is needed.
-- **Disclosure**: A notice holds the target kind, name, configured spec, the spec that served, and
-  a reason category: `unknown_provider`, `provider_unavailable` or `init_failed`. It never holds
-  exception text (`constitutions/patterns/errors.md` rule 5). The run posts nothing extra to the
-  merge or pull request.
-- **Deferred**: Live display while the page is open would need a new CUSTOM frame handler in
-  `chat-stream.js`. It is left out of this release, and the notice appears on the next load of
-  the session.
+- **Decision**: One ERROR log per spec per run, naming the target kind, the spec and the skill or
+  subagent it was for, with the traceback. The run posts nothing extra to the merge or pull
+  request. A configured model whose call fails gets no handling of its own: every stack already
+  has `ModelFallbackMiddleware`, so the run's fallback models serve the call.
+- **Rationale**: The operator who can fix the entry reads the logs and Sentry, and ERROR records
+  reach both. Each configured spec is built once per run, so the log is not repeated within a run.
+- **Watch**: Subagents are built when the agent is assembled, so a subagent entry that can't be
+  built is logged by every run, whether or not the run dispatches that subagent. With no fallback
+  models configured, a call the configured model fails errors like any other model call.
+- **Alternatives considered**:
+  - A notice persisted on the run and shown as a chip in the session view. Built, then removed on
+    2026-11-11: it needed a `Run` field and migration, a recorder injected across the
+    `automation`/`sessions` boundary, pseudo-turns in three transcript paths, client changes, and a
+    middleware to delay a subagent's notice until it was dispatched.
+  - A failover from a failing configured model to the model used with no entry, ahead of the
+    fallback models. Built, then removed with the notices: it added a middleware to every subagent
+    stack and per-run failure state for an ordering the fallback models already cover.
 
 ## R8. Usage attribution
 

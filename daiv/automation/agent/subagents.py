@@ -45,7 +45,6 @@ from automation.agent.middlewares.web_search import WebSearchMiddleware
 from core.constants import ModelName
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
     from pathlib import Path
 
     from deepagents.backends import BackendProtocol
@@ -96,23 +95,18 @@ SUBAGENT_ALWAYS_LOADED_TOOLS = frozenset({
 
 
 def _shared_subagent_middleware(
-    model: BaseChatModel,
-    backend: BackendProtocol,
-    fallback_models: list[BaseChatModel] | None = None,
-    model_failover: Sequence[AgentMiddleware[Any, Any, Any]] = (),
+    model: BaseChatModel, backend: BackendProtocol, fallback_models: list[BaseChatModel] | None = None
 ) -> list[AgentMiddleware[Any, Any, Any]]:
     """The middleware every subagent stack shares.
 
     Context summarization, loop-break detection, model fallback (when ``fallback_models`` is
-    given), the configured model's ``model_failover`` (``ConfiguredModels.call_failover``), prompt
-    caching, tool-call logging, and tool-call patching, in that order. Fallback wraps caching so
-    caching re-runs for each attempt's model.
+    given), prompt caching, tool-call logging, and tool-call patching, in that order. Fallback
+    wraps caching so caching re-runs for each attempt's model.
     """
     return [
         build_summarization_middleware(model, backend),
         LoopBreakerMiddleware(terminal="error"),
         *([ModelFallbackMiddleware(*fallback_models)] if fallback_models else []),
-        *model_failover,
         AnthropicPromptCachingMiddleware(),
         ToolCallLoggingMiddleware(),
         PatchToolCallsMiddleware(),
@@ -127,7 +121,6 @@ def _build_general_purpose_middleware(
     web_fetch_enabled: bool,
     fallback_models: list[BaseChatModel] | None = None,
     mcp_tools: list[BaseTool] | None = None,
-    model_failover: Sequence[AgentMiddleware[Any, Any, Any]] = (),
 ) -> list:
     """
     Build the middleware stack for a general-purpose subagent.
@@ -151,7 +144,7 @@ def _build_general_purpose_middleware(
             _permissions=workspace.fs_permissions,
         ),
         GitPlatformMiddleware(git_platform=runtime.git_platform, backend=workspace.backend),
-        *_shared_subagent_middleware(model, workspace.backend, fallback_models, model_failover),
+        *_shared_subagent_middleware(model, workspace.backend, fallback_models),
     ]
 
     if web_search_enabled:
@@ -170,10 +163,7 @@ def _build_general_purpose_middleware(
 
 
 def _build_detector_middleware(
-    model: BaseChatModel,
-    backend: BackendProtocol,
-    fallback_models: list[BaseChatModel] | None = None,
-    model_failover: Sequence[AgentMiddleware[Any, Any, Any]] = (),
+    model: BaseChatModel, backend: BackendProtocol, fallback_models: list[BaseChatModel] | None = None
 ) -> list:
     """Build the middleware stack for a code-review detector subagent.
 
@@ -194,7 +184,7 @@ def _build_detector_middleware(
             tools=READ_ONLY_FS_TOOLS,
             _permissions=READ_ONLY_PERMISSIONS,
         ),
-        *_shared_subagent_middleware(model, backend, fallback_models, model_failover),
+        *_shared_subagent_middleware(model, backend, fallback_models),
     ]
 
 
@@ -271,9 +261,7 @@ def load_builtin_code_review_detectors(
             failed.append(md_file.stem)
             continue
 
-        middleware = _build_detector_middleware(
-            detector_model, backend, fallback_models, configured_models.call_failover(frontmatter["name"])
-        )
+        middleware = _build_detector_middleware(detector_model, backend, fallback_models)
         detectors.append(
             _compile_subagent(
                 name=frontmatter["name"],
@@ -315,7 +303,6 @@ def create_general_purpose_subagent(
     web_fetch_enabled: bool = True,
     fallback_models: list[BaseChatModel] | None = None,
     mcp_tools: list[BaseTool] | None = None,
-    model_failover: Sequence[AgentMiddleware[Any, Any, Any]] = (),
 ) -> CompiledSubAgent:
     """
     Create the general purpose subagent for the DAIV agent.
@@ -325,14 +312,7 @@ def create_general_purpose_subagent(
         tools=direct_mcp_tools(mcp_tools),
         system_prompt=_general_purpose_system_prompt(working_directory),
         middleware=_build_general_purpose_middleware(
-            model,
-            workspace,
-            runtime,
-            web_search_enabled,
-            web_fetch_enabled,
-            fallback_models,
-            mcp_tools=mcp_tools,
-            model_failover=model_failover,
+            model, workspace, runtime, web_search_enabled, web_fetch_enabled, fallback_models, mcp_tools=mcp_tools
         ),
         name=GENERAL_PURPOSE_NAME,
     )
@@ -384,7 +364,6 @@ def create_explore_subagent(
     *,
     model: BaseChatModel,
     fallback_models: list[BaseChatModel] | None = None,
-    model_failover: Sequence[AgentMiddleware[Any, Any, Any]] = (),
 ) -> CompiledSubAgent:
     """
     Create the explore subagent on ``model``.
@@ -400,7 +379,7 @@ def create_explore_subagent(
             tools=READ_ONLY_FS_TOOLS,
             _permissions=[*READ_ONLY_PERMISSIONS, *(workspace.fs_permissions or [])],
         ),
-        *_shared_subagent_middleware(model, workspace.backend, fallback_models, model_failover),
+        *_shared_subagent_middleware(model, workspace.backend, fallback_models),
     ]
 
     runnable = create_agent(
@@ -644,7 +623,6 @@ async def load_custom_subagents(
                 web_fetch_enabled,
                 fallback_models,
                 mcp_tools=mcp_tools,
-                model_failover=configured_models.call_failover(frontmatter["name"]),
             )
             subagents.append(
                 _compile_subagent(

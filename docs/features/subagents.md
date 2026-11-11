@@ -128,9 +128,9 @@ Operators can run any subagent on a chosen model by name, without editing its fi
 
 A configured model runs with the run's thinking level and falls back to the main agent's fallback models. A model the user picks for the run does not override an entry, and a skill's model never carries over to a subagent it delegates to.
 
-When an entry names a provider that is unknown, disabled or missing its API key, the subagent runs on its file's `model`, else the main agent's model; it is never left out of the run. When the subagent is dispatched, the failure is logged at ERROR, and the session view shows a notice naming the subagent, the model that could not be used and the model that served.
+When an entry names a provider that is unknown, disabled or missing its API key, the subagent runs on its file's `model`, else the main agent's model; it is never left out of the run. The failure is logged at ERROR.
 
-When a call on the configured model fails, for example because the provider doesn't know the model name, the same model serves that call and the subagent's later calls in the run, before the fallback models. Other subagents configured with that model skip it for the rest of the run too. Each is logged at ERROR and shown as a notice the same way.
+When a call on the configured model fails, for example because the provider doesn't know the model name, the main agent's fallback models serve it, as for any other model.
 
 ## Related pages
 

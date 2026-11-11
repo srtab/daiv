@@ -271,16 +271,13 @@
   const MULTI_ANSWER_SEP = ", ";
   const answerPrefix = (question) => `**${question.header}** — `;
 
-  // Run-status and run-notice pseudo-turns carry a message, never ``segments``.
-  const isMarker = (turn) => turn.role === "run_status" || turn.role === "run_notice";
-
   // Only consider write_todos calls from the current ask. Walking backwards and bailing at
   // the most recent user turn clears the rail on follow-up, so stale "all complete" lists
   // from a finished run don't linger.
   const findLatestTodos = (turns) => {
     for (let i = turns.length - 1; i >= 0; i--) {
       const turn = turns[i];
-      if (isMarker(turn)) continue;
+      if (turn.role === "run_status") continue;
       if (turn.role === "user") return [];
       const segments = turn.segments ?? [];
       for (let j = segments.length - 1; j >= 0; j--) {
@@ -301,7 +298,7 @@
       files.set(path, { path, op, segmentId: `tool-${seg.id}`, ...extra });
     };
     for (const t of turns) {
-      if (isMarker(t)) continue;
+      if (t.role === "run_status") continue;
       for (const seg of t.segments ?? []) {
         if (seg.type !== "tool_call") continue;
         if (seg.name === "publish_artifact") {
@@ -940,7 +937,7 @@
       const messages = new Set();
       const tools = new Set();
       for (const t of this.turns) {
-        if (isMarker(t)) continue;
+        if (t.role === "run_status") continue;
         if (t.id) messages.add(t.id);
         for (const s of t.segments ?? []) {
           if (s.type === "tool_call" && s.id) tools.add(s.id);
@@ -1459,7 +1456,7 @@
     // On a user turn this copies the whole message, including the part the
     // "Show more" clamp is hiding.
     canCopyTurn(turn) {
-      return !isMarker(turn) && !turn.streaming && Boolean(this.finalTextSegment(turn));
+      return turn.role !== "run_status" && !turn.streaming && Boolean(this.finalTextSegment(turn));
     },
 
     // Resolves true only once the write actually lands. The clipboard API is
@@ -1480,7 +1477,7 @@
 
     // Timestamps first: they short-circuit finalTextSegment's segment scan on historical turns.
     turnHasActions(turn) {
-      if (isMarker(turn)) return false;
+      if (turn.role === "run_status") return false;
       return !!turn.sent_at || !!turn.received_at || this.canCopyTurn(turn);
     },
 

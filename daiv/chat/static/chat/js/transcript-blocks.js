@@ -159,7 +159,6 @@
         runId: turn.run_id || null,
         turns: [],
         statuses: [],
-        notices: [],
         event: null,
       };
       runs.push(run);
@@ -178,7 +177,6 @@
       if (turn.role === "run_status" && turn.silent && !opens && answered(run)) return;
       if (opens) open(turn, ti);
       if (turn.role === "run_status") run.statuses.push(turn);
-      else if (turn.role === "run_notice") run.notices.push(turn);
       else run.turns.push({ turn, ti });
     });
     return runs;
@@ -237,7 +235,6 @@
       cards: keep(block.cards, prev.cards),
       endingTail: keep(block.endingTail, prev.endingTail),
       statuses: sameList(block.statuses, prev.statuses, identical) ? prev.statuses : block.statuses,
-      notices: sameList(block.notices, prev.notices, identical) ? prev.notices : block.notices,
     };
     return shallowSame(prev, next) ? prev : next;
   };
@@ -383,7 +380,6 @@
         cards,
         endingTail,
         statuses: run.statuses,
-        notices: run.notices,
         lastTurn: run.turns.findLast(({ turn }) => turn.role === "assistant")?.turn ?? null,
         publish: run.turns.findLast(({ turn }) => turn.publish)?.turn.publish ?? NO_PUBLISH,
         // A run's answer is copyable once nothing in it streams; a later tool-only turn does not hide it.

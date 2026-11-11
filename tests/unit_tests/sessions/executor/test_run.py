@@ -81,10 +81,9 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         mcp_overrides={"sentry": "off"},
         references=refs,
         extra_metadata={"ref": "feat/x"},
-        run_id="run-1",
     )
 
-    with agent_stack(agent) as stack, patch("sessions.executor.run.RunNoticeRecorder") as recorder:
+    with agent_stack(agent) as stack:
         await execute_run(spec)
 
     assert stack.context_kwargs == {
@@ -118,9 +117,7 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         mcp_servers=stack.build_servers.return_value,
         session_links=ANY,
         delegator=ANY,
-        notices=recorder.return_value,
     )
-    recorder.assert_called_once_with("run-1")
     stack.langsmith.assert_called_once_with(
         stack.ctx,
         trigger="job",
@@ -984,7 +981,6 @@ async def test_it_hands_the_extra_options_to_the_clone_and_the_agent():
         mcp_servers=[],
         session_links=ANY,
         delegator=ANY,
-        notices=ANY,
         capture_patch=True,
     )
 

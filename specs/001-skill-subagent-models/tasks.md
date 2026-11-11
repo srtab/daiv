@@ -33,8 +33,8 @@ its own.
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
-**Purpose**: Site storage for both maps, the per-run maps, the notice pipeline and the shared
-configured-model helper. Every user story depends on them.
+**Purpose**: Site storage for both maps, the per-run maps and the shared configured-model helper.
+Every user story depends on them.
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
@@ -50,22 +50,11 @@ configured-model helper. Every user story depends on them.
   - an `explore` entry is kept like any other name;
   - a run with `RunOverrides(model_names=...)`, `agent_model=...` or `use_max=True` gets the same maps (clarification Q1).
 - [X] T004 [P] Add tests in `tests/unit_tests/automation/agent/test_configured_models.py` (new file), stubbing `get_model`:
-  - `build_configured_model` builds the spec with the given thinking level and returns no reason;
-  - it returns `(None, "unknown_provider")` on `ValueError`, `(None, "provider_unavailable")` on `RuntimeError` (disabled provider or missing key) and `(None, "init_failed")` on any other exception, without logging;
-  - `report_model_fallback` logs at ERROR naming the target, name, configured model and served model, and records a `ModelFallbackNotice` when given a recorder;
-  - neither puts exception text in the notice.
-- [X] T005 [P] Add tests in `tests/unit_tests/sessions/test_notices.py` (new file, `django_db(transaction=True)`):
-  - `RunNoticeRecorder.record` buffers;
-  - `aflush()` writes the full list to `Run.notices`;
-  - a second `aflush()` after another `record` keeps both notices;
-  - a recorder with no run id stores nothing and logs.
-- [X] T006 [P] Add tests in `tests/unit_tests/sessions/test_transcript.py`:
-  - a run with two notices yields two `run_notice` pseudo-turns after that run's turns;
-  - ids are `run-notice-<run id>-<index>`;
-  - a run rebuilt from its row (`_synthetic_turns`) also yields its notices;
-  - notices come before the run's status marker;
-  - the message is "<name> ran on <served_model>: <configured_model> could not be used (<reason label>)", using the reason labels in `specs/001-skill-subagent-models/contracts/run-notice.md`;
-  - a run with `notices=[]` yields none.
+  - `ConfiguredModels.for_subagent` serves the entry over the file's model, built with the run's thinking level, and with no entry the file's model, else the run's;
+  - an entry that cannot be built falls back to the file's model, else the run's, and is logged at ERROR naming the spec;
+  - an invalid file model with no entry raises, unless `never_skip`, where the run's model serves;
+  - `ConfiguredModels.skill_spec` returns the entry, else the file's spec, else `None`;
+  - a spec is built, and its failure logged, once per run.
 
 ### Implementation for the foundation
 
@@ -82,34 +71,14 @@ configured-model helper. Every user story depends on them.
   - add `skill_models` and `subagent_models` (read-only `Mapping[str, str]`) to `AgentSettings`;
   - fill them in `resolve_agent_settings` from the site snapshot, ignoring `RunOverrides`;
   - add row 14 to the module's precedence docstring.
-- [X] T011 [P] Create `daiv/automation/agent/notices.py`:
-  - a frozen `ModelFallbackNotice` dataclass with fields:
-    - `kind` (`"model_fallback"`);
-    - `target` (`"skill"` | `"subagent"`);
-    - `name`, `configured_model`, `served_model`;
-    - `reason` (`"unknown_provider"` | `"provider_unavailable"` | `"init_failed"`);
-  - an `as_dict()` method;
-  - a `RunNotices` protocol with `record(notice) -> None` and `async aflush() -> None`.
-- [X] T012 Create `daiv/automation/agent/configured_models.py` (depends on T011):
-  - `build_configured_model(*, spec, thinking_level) -> tuple[BaseChatModel | None, FallbackReason | None]` calls `get_model(model=spec, thinking_level=thinking_level)` and maps `ValueError` → `unknown_provider`, `RuntimeError` → `provider_unavailable`, and anything else → `init_failed`; it does not log;
-  - `report_model_fallback(notices, *, target, name, configured_model, served_model, reason)` logs at ERROR with every field and calls `notices.record(...)` when `notices` is given; callers report only once they know the model that served;
+- [X] T012 Create `daiv/automation/agent/configured_models.py` with a `ConfiguredModels` dataclass holding the target kind (`"skill"` | `"subagent"`), the entries and the run's model chain:
+  - `build(spec, name)` calls `get_model` with the chain's thinking level once per run per spec; on any exception it logs at ERROR, naming the target, the spec and `name`, and returns `None`;
+  - `skill_spec(name, file_spec)` returns the first of the entry and `file_spec` that builds, else `None`;
+  - `for_subagent(name, file_spec, run_model, never_skip=False)` returns the entry's model, else the file's, else `run_model`; with no entry an invalid `file_spec` raises unless `never_skip`;
   - a two-line comment states why continuing is safe (`constitutions/patterns/errors.md` rule 2).
-- [X] T013 Add `notices = models.JSONField(default=list, blank=True)` to `Run` in `daiv/sessions/models.py`, and generate `daiv/sessions/migrations/0032_run_notices.py` with `uv run python daiv/manage.py makemigrations agent_sessions`.
-- [X] T014 Create `RunNoticeRecorder` in `daiv/sessions/notices.py` (depends on T011, T013). It implements `RunNotices`, bound to a run id that may be `None`:
-  - `record` appends `notice.as_dict()`;
-  - `aflush` runs `Run.objects.filter(pk=run_id).aupdate(notices=<full list>)`;
-  - with no run id it logs and stores nothing.
-- [X] T015 Add an optional `notices: RunNotices | None = None` parameter to `create_daiv_agent` in `daiv/automation/agent/graph.py`, documented in its Args; notices are saved when a skill is invoked or a subagent dispatched (`ConfiguredModels`). In `daiv/sessions/executor/run.py`, pass `notices=RunNoticeRecorder(run_id)` to `create_daiv_agent` (depends on T011, T014).
-- [X] T016 In `daiv/sessions/transcript.py`, emit one `run_notice` pseudo-turn per item of `run.notices`, shaped `{id, role: "run_notice", message}` as in `specs/001-skill-subagent-models/data-model.md`, in both places a run's turns are built: `annotate_transcript`, after the run's own turns and before its `_marker`, and `_synthetic_turns`. A notice is therefore never the last turn of a run that has a status marker (depends on T013).
-- [X] T017 Render notices on the session page (depends on T016):
-  - in `daiv/chat/static/chat/js/chat-stream.js`, add `isMarker(turn)`, true for `run_status` and `run_notice`, and use it everywhere the code skips `run_status` before reading `turn.segments`: `findLatestTodos`, `collectOutputs`, the replay de-duplication, `isTurnVisible` (returning true), `canCopyTurn`, `turnHasActions` and the publish-phase sweep;
-  - leave `runStatus` and `_lastRunAborted` checking `run_status` only: both read the last turn, which is never a notice when a marker exists;
-  - in `daiv/sessions/templates/sessions/session_detail.html`, change the article branch to `x-if="!isMarker(turn)"` and add a `run_notice` branch: a neutral chip with the `exclamation-triangle` icon and `turn.message`, without a Retry button;
-  - add a `chat-run-status--notice` variant in `daiv/static_src/css/input.css`, following `DESIGN.md`;
-  - the repository has no JavaScript test harness, so T042 checks this by hand (quickstart scenario 5).
 
-**Checkpoint**: The maps resolve per run, a configured spec can be built or fall back with a
-persisted notice, and notices render on the session page. Run T002–T006: they now pass.
+**Checkpoint**: The maps resolve per run, and a configured spec can be built or fall back with an
+ERROR log. Run T002–T004: they now pass.
 
 ---
 
@@ -129,9 +98,9 @@ calls run on it in every repository.
 - [X] T018 [P] [US1] Add tests in `tests/unit_tests/automation/agent/middlewares/test_skills.py`, extending `TestSkillModel` (a stubbed `get_model` returns distinct fake models per spec). Cover:
   - a configured spec for `cheap` beats its `metadata.model`;
   - a configured spec for a skill with no `metadata.model` applies;
-  - a configured spec that raises falls back to `metadata.model`, logs at ERROR, and records exactly one `ModelFallbackNotice` with `target="skill"` per run however often the skill is invoked, whose `served_model` is the `metadata.model` spec when that builds, else the run's model spec;
-  - `aflush()` is awaited after recording;
-  - a failing `metadata.model` with no configured entry still logs at WARNING and records no notice.
+  - a configured spec that raises falls back to `metadata.model` when that builds, else the run's model;
+  - a failing `metadata.model` with no configured entry keeps the run's model;
+  - a call the skill model fails goes to the run's fallback models.
 - [X] T019 [P] [US1] Add tests in `tests/unit_tests/configuration/test_forms.py` for the skills formset. Saving:
   - folds valid rows into `agent_skill_models`;
   - refuses a row whose model's provider is unknown, disabled or keyless, with an error naming the entry;
@@ -144,10 +113,9 @@ calls run on it in every repository.
 ### Implementation for User Story 1
 
 - [X] T021 [US1] In `daiv/automation/agent/middlewares/skills.py`:
-  - add `configured_models: Mapping[str, str]`, `run_model_spec: str` and `notices: RunNotices | None` constructor arguments;
-  - at invocation, try the configured spec through `build_configured_model`, then `metadata.model` through the existing `_skill_model`, then keep the run's model;
-  - when the configured spec failed, call `report_model_fallback(target="skill", ...)` with `served_model` set to the `metadata.model` spec if it built, else `run_model_spec`, then `await notices.aflush()`; do this once per run per entry;
-  - keep the WARNING path for file-declared models;
+  - add a `configured_models: ConfiguredModels` constructor argument to `SkillsMiddleware`;
+  - at invocation, set `active_skill_model` to `ConfiguredModels.skill_spec(name, file_model)`: the configured spec, then `metadata.model`, else `None` to keep the run's model;
+  - have `SkillModelMiddleware` serve the run model's calls on the active spec's model, leaving a fallback model's call as it is;
   - update the class docstring's precedence sentence.
 - [X] T022 [US1] In `daiv/automation/agent/graph.py`, pass one `ConfiguredModels` for the run's skill map to `SkillsMiddleware` and `SkillModelMiddleware` (depends on T021).
 - [X] T023 [US1] In `daiv/configuration/forms.py`:
@@ -168,7 +136,7 @@ calls run on it in every repository.
 - [X] T026 [US1] Rewrite "Running a skill on another model" in `docs/customization/agent-skills.md`:
   - site configuration first, then `metadata.model`;
   - the precedence order;
-  - that an unusable configured model falls back with a notice.
+  - that an unusable configured model falls back, logged at ERROR.
 
 **Checkpoint**: User Story 1 works end to end and passes T018–T020.
 
@@ -188,14 +156,14 @@ Detectors without an entry keep their model.
 
 - [X] T027 [P] [US2] Add tests in `tests/unit_tests/automation/agent/test_subagents.py`, with a stubbed `get_model`:
   - for detectors, a configured entry beats the charter's `model:`, which beats the run's model;
-  - a configured entry that fails falls back to the charter model, or else the run's model; the detector is still loaded, and a `ModelFallbackNotice` with `target="subagent"` is recorded whose `served_model` is the spec that served;
+  - a configured entry that fails falls back to the charter model, or else the run's model, and the detector is still loaded;
   - when a configured entry and the file's `model:` both fail, the subagent runs on the run's model instead of being skipped;
   - a repository subagent (`load_custom_subagents`) behaves the same;
   - an invalid file-declared `model:` with no entry still skips the subagent;
   - configured models get the run's thinking level.
 - [X] T028 [P] [US2] Add tests in `tests/unit_tests/automation/agent/test_graph_construction.py`:
   - `general-purpose` uses its configured entry when one is set;
-  - a subagent's unusable entry is recorded and saved when the `task` tool dispatches it.
+  - `general-purpose` falls back to the run's model when its entry can't be built.
 - [X] T029 [P] [US2] Add tests in `tests/unit_tests/configuration/test_forms.py` and `tests/unit_tests/configuration/test_views.py` for the subagent formset:
   - a row named `explore` saves like any other;
   - suggestions are `BUILTIN_SUBAGENT_NAMES`, `explore` included;
@@ -206,16 +174,16 @@ Detectors without an entry keep their model.
 - [X] T030 [US2] In `daiv/automation/agent/subagents.py`:
   - add a `configured_models: ConfiguredModels` keyword argument to `load_builtin_code_review_detectors` and `load_custom_subagents`;
   - resolve each subagent's model as configured entry → file `model:` → the run's model (`ConfiguredModels.for_subagent`);
-  - when the configured entry failed, record it for `ConfiguredModels.areport_dispatch` with the spec that served; if the file's `model:` also fails, use the run's model instead of skipping;
+  - when the configured entry failed and the file's `model:` also fails, use the run's model instead of skipping;
   - without a configured entry, leave the existing skip-on-invalid behaviour for file-declared models unchanged.
 - [X] T031 [US2] In `daiv/automation/agent/graph.py` (depends on T030):
-  - resolve the `general-purpose` model through `ConfiguredModels.for_subagent` before `create_general_purpose_subagent`, falling back to the run's model and reporting the fallback;
+  - resolve the `general-purpose` model through `ConfiguredModels.for_subagent` before `create_general_purpose_subagent`, falling back to the run's model;
   - pass one `ConfiguredModels` for the run's subagent map to both loaders.
 - [X] T032 [US2] Extend `daiv/configuration/forms.py`, `daiv/configuration/views.py` and `_agent_model_maps_section.html` with the subagent formset (prefix `subagent_models`) (depends on T023–T025):
   - suggest `BUILTIN_SUBAGENT_NAMES`;
   - warn on unknown names;
   - lock the section when `DAIV_AGENT_SUBAGENT_MODELS` is set.
-- [X] T033 [US2] Document configured subagent models in `docs/features/subagents.md`: site configuration entries, the precedence over the file's `model:`, the run's thinking level, the fallback with a notice, and that `explore` defaults to Claude Haiku 5.5.
+- [X] T033 [US2] Document configured subagent models in `docs/features/subagents.md`: site configuration entries, the precedence over the file's `model:`, the run's thinking level, the fallback, and that `explore` defaults to Claude Haiku 5.5.
 
 **Checkpoint**: User Stories 1 and 2 both work on their own; T027–T029 pass.
 
@@ -255,11 +223,10 @@ Detectors without an entry keep their model.
 ## Phase 6: Polish & Cross-Cutting Concerns
 
 - [X] T039 [P] Add the "Skill and subagent models" section to the Agent row of `docs/reference/site-configuration.md`, and `DAIV_AGENT_SKILL_MODELS` / `DAIV_AGENT_SUBAGENT_MODELS` to `docs/reference/env-variables.md`.
-- [X] T040 [P] Add an `Unreleased` → `Added` entry to `CHANGELOG.md`: per-skill and per-subagent models from site configuration and `.daiv.yml`, with a notice on the run when one can't be used.
+- [X] T040 [P] Add an `Unreleased` → `Added` entry to `CHANGELOG.md`: per-skill and per-subagent models from site configuration and `.daiv.yml`, falling back with an ERROR log when one can't be used.
 - [X] T041 Run `make lint`, `make lint-typing` and `make test`, and `uv run --only-group=docs mkdocs build --strict` for the docs. Report each result, and report any check not run as not run.
 - [X] T043 Configure `explore` like the other subagents: remove `agent_explore_model_name` / `agent_explore_fallback_model_name` (moving a saved model into `agent_subagent_models` in `core` migration 0024), default it to `EXPLORE_MODEL_NAME` without thinking, fall it back to the main agent's fallback models, and warn about the removed variables with the `core.W001` check.
 - [X] T044 Read the deprecated `DAIV_AGENT_EXPLORE_MODEL_NAME` as the `explore` entry when there is none, logged at ERROR once per process (`core/site_settings.py`), with a test in `tests/unit_tests/core/test_site_settings.py`; test migration 0024 in `tests/unit_tests/core/test_migrations_explore_model.py`.
-- [X] T045 Report a configured model whose call fails: log it at ERROR and record a `call_failed` notice once per run, and serve the rest of the run without it, on the run's model for a skill (`SkillModelMiddleware`) and on the model the subagent uses with no entry for a subagent (`SubagentModelFailoverMiddleware`, added by `ConfiguredModels.call_failover` to every subagent stack).
 - [X] T046 Honour `metadata.model` only for built-in and global skills (under `SKILLS_PATH`), since a repository's skill files come from the branch the run works on.
 - [ ] T042 Walk the manual scenarios in `specs/001-skill-subagent-models/quickstart.md` on a local stack. Report which ran and which did not.
 
@@ -280,10 +247,6 @@ Detectors without an entry keep their model.
 
 - T007 → T008 and T009.
 - T009 → T010.
-- T011 → T012 and T014.
-- T013 → T014 and T016.
-- T014 → T015.
-- T016 → T017.
 
 ### Within Each User Story
 
@@ -292,8 +255,8 @@ Detectors without an entry keep their model.
 
 ### Parallel Opportunities
 
-- Phase 2 tests T002–T006 are all [P].
-- Phase 2: T011 can run alongside T007–T010.
+- Phase 2 tests T002–T004 are all [P].
+- Phase 2: T012 can run alongside T007–T010.
 - Each story's test tasks are [P].
 - After Phase 2, US1's runtime tasks (T021–T022), US2's runtime tasks (T030–T031) and US3 (T036–T038) touch different files. The exception is `graph.py`, which T022 and T031 both edit, so those two run one after the other.
 
@@ -303,7 +266,7 @@ Detectors without an entry keep their model.
 
 ```bash
 # Tests together:
-Task: "T018 skill precedence and notice tests in tests/unit_tests/automation/agent/middlewares/test_skills.py"
+Task: "T018 skill precedence and fallback tests in tests/unit_tests/automation/agent/middlewares/test_skills.py"
 Task: "T019 skills formset tests in tests/unit_tests/configuration/test_forms.py"
 Task: "T020 Agent-group section tests in tests/unit_tests/configuration/test_views.py"
 

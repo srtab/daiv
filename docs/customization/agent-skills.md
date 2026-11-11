@@ -182,9 +182,9 @@ metadata:
 
 A repository skill's `metadata.model` is ignored, because the file comes from the branch the run works on, which the author of a merge request controls. Give a repository skill a model with a `models.skills` entry in `.daiv.yml` instead.
 
-The run's thinking level carries over. The run's model serves any model call whose conversation no longer fits the skill model's context window, and, once the skill model fails a call, that call and every later one in the run, before the run's fallback models. Switching models starts a fresh prompt cache on each side, so a cheaper skill model pays off only for skills that do substantial work.
+The run's thinking level carries over. The run's model serves any model call whose conversation no longer fits the skill model's context window, and the run's fallback models serve a call the skill model fails. Switching models starts a fresh prompt cache on each side, so a cheaper skill model pays off only for skills that do substantial work.
 
-When a configured entry names a provider that is unknown, disabled or missing its API key, the skill runs on its `metadata.model`, else the run's model. The failure is logged at ERROR, and the session view shows a notice naming the skill, the model that could not be used and the model that served. A `metadata.model` that can't be used keeps the run's model, logged and shown the same way, and so is a skill model whose call fails, such as a model name the provider doesn't know.
+When a configured entry names a provider that is unknown, disabled or missing its API key, the skill runs on its `metadata.model`, else the run's model. The failure is logged at ERROR. A `metadata.model` that can't be used keeps the run's model, logged the same way.
 
 ### Writing a good description
 

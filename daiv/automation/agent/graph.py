@@ -16,7 +16,7 @@ from skills.constants import SKILLS_PATH
 
 from automation.agent.base import get_model
 from automation.agent.configured_models import ConfiguredModels
-from automation.agent.constants import REPO_PATH, SKILLS_SOURCES, SKILLS_TOOL_NAME, SUBAGENTS_SOURCES, TASK_TOOL_NAME
+from automation.agent.constants import REPO_PATH, SKILLS_SOURCES, SKILLS_TOOL_NAME, SUBAGENTS_SOURCES
 from automation.agent.context import RuntimeCtx
 from automation.agent.delegation import DELEGATE_JOBS_TOOL_NAME
 from automation.agent.mcp.toolkits import load_mcp_tools
@@ -46,7 +46,6 @@ from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddlewa
 from automation.agent.middlewares.skills import SkillModelMiddleware, SkillsMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.step_budget import StepBudgetMiddleware
-from automation.agent.middlewares.subagent_models import SubagentModelNoticesMiddleware
 from automation.agent.middlewares.summarization import build_summarization_middleware
 from automation.agent.middlewares.tool_media import ToolMediaMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
@@ -76,7 +75,6 @@ if TYPE_CHECKING:
     from automation.agent.artifacts import ArtifactStore
     from automation.agent.delegation import JobDelegator
     from automation.agent.mcp.schemas import UserMcpServer
-    from automation.agent.notices import RunNotices
     from automation.agent.session_links import SessionLinksResolver
     from automation.agent.tool_media import ToolMediaStore
     from automation.agent.workspace.base import Workspace
@@ -101,7 +99,7 @@ ALWAYS_LOADED_TOOLS = frozenset({
     BASH_TOOL_NAME,
     "write_todos",
     SKILLS_TOOL_NAME,
-    TASK_TOOL_NAME,
+    "task",
     ASK_USER_QUESTION_TOOL_NAME,
     DELEGATE_JOBS_TOOL_NAME,
 })
@@ -190,7 +188,6 @@ async def create_daiv_agent(
     session_links: SessionLinksResolver | None = None,
     delegator: JobDelegator | None = None,
     fork_branch: bool = False,
-    notices: RunNotices | None = None,
 ):
     """
     Create the DAIV agent.
@@ -219,8 +216,6 @@ async def create_daiv_agent(
             orchestration off; ``None`` binds no ``delegate_jobs`` tool.
         fork_branch: Whether the run publishes to a new branch and merge request even when the checked-out branch
             already has an open one; set for a delegated leg.
-        notices: Where the run records a configured skill or subagent model that could not be used, from the run
-            executor; ``None`` only logs them.
 
     Returns:
         The DAIV agent.
@@ -250,8 +245,8 @@ async def create_daiv_agent(
     # receive it.
     mcp_tools = await load_mcp_tools(mcp_servers, backend)
 
-    subagent_models = ConfiguredModels("subagent", settings.subagent_models, chain=chain, notices=notices)
-    skill_models = ConfiguredModels("skill", settings.skill_models, chain=chain, notices=notices)
+    subagent_models = ConfiguredModels("subagent", settings.subagent_models, chain=chain)
+    skill_models = ConfiguredModels("skill", settings.skill_models, chain=chain)
     general_purpose_model = subagent_models.for_subagent(GENERAL_PURPOSE_NAME, "", model)
     explore_model = subagent_models.for_subagent(EXPLORE_NAME, EXPLORE_MODEL_NAME, model, never_skip=True)
     subagents = [
@@ -264,15 +259,8 @@ async def create_daiv_agent(
             web_fetch_enabled=settings.web_fetch_enabled,
             fallback_models=fallback_models,
             mcp_tools=mcp_tools,
-            model_failover=subagent_models.call_failover(GENERAL_PURPOSE_NAME),
         ),
-        create_explore_subagent(
-            workspace,
-            working_directory,
-            model=explore_model,
-            fallback_models=fallback_models,
-            model_failover=subagent_models.call_failover(EXPLORE_NAME),
-        ),
+        create_explore_subagent(workspace, working_directory, model=explore_model, fallback_models=fallback_models),
         *load_builtin_code_review_detectors(
             model, backend, working_directory, fallback_models=fallback_models, configured_models=subagent_models
         ),
@@ -321,7 +309,6 @@ async def create_daiv_agent(
             provisioning_errors=workspace.skills_provisioning_errors,
             configured_models=skill_models,
         ),
-        SubagentModelNoticesMiddleware(subagent_models),
         *([WebSearchMiddleware()] if settings.web_search_enabled else []),
         *([WebFetchMiddleware()] if settings.web_fetch_enabled else []),
         *([ArtifactsMiddleware(workspace=workspace, store=artifact_store)] if artifact_store is not None else []),

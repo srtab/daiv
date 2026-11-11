@@ -308,14 +308,6 @@
 
             {% include "sessions/_publish_rows.html" %}
 
-            <template x-for="notice in block.notices" :key="notice.id">
-              <div class="chat-run-status chat-run-status--notice" :id="runAnchorId(notice)"
-                   :data-run-ending="block.items.length ? false : ''" role="status">
-                <span class="chat-run-status__icon" aria-hidden="true">{% icon "exclamation-triangle" "h-4 w-4" %}</span>
-                <span class="chat-run-status__text" x-text="notice.message"></span>
-              </div>
-            </template>
-
             <template x-for="status in block.statuses" :key="status.id">
               <div class="chat-run-status" :id="runAnchorId(status)" :class="`chat-run-status--${status.status}`"
                    :data-run-ending="block.items.length ? false : ''"
