@@ -35,9 +35,9 @@ DAIV resolves the provider automatically from the model name. No extra configura
 |------|-------|----------|
 | Main agent | Claude Sonnet 5.5 | GPT-6.1 Sol |
 | Max mode | Claude Opus 5.5 | The main agent's models |
-| Explore subagent | Claude Haiku 5.5 | GPT-6 Luna |
+| Explore subagent | Claude Haiku 5.5 | The main agent's models |
 
-Smaller tasks such as titling, merge request metadata and memory have their own defaults, listed in [Environment Variables](../reference/env-variables.md). All defaults route through OpenRouter, so only `OPENROUTER_API_KEY` is required for a basic setup. Override models per repository in `.daiv.yml` — see [Repository Config](../customization/repository-config.md#model-overrides).
+Smaller tasks such as titling, merge request metadata and memory have their own defaults, listed in [Environment Variables](../reference/env-variables.md). All defaults route through OpenRouter, so only `OPENROUTER_API_KEY` is required for a basic setup. Choose the explore subagent's model with an `explore` entry in the subagent models (see [Subagents](../features/subagents.md#choosing-a-subagents-model)). Override models per repository in `.daiv.yml` — see [Repository Config](../customization/repository-config.md#model-overrides).
 
 ---
 

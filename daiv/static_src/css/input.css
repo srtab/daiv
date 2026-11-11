@@ -446,6 +446,12 @@ html {
            bg-white text-[#030712] transition-all duration-200 hover:bg-gray-200 active:scale-[0.98];
   }
 
+  /* The primary action on a page moved to the tokens: teal owns "clickable". */
+  .btn-accent {
+    @apply inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-[15px] font-semibold
+           bg-accent text-accent-ink transition-all duration-200 hover:bg-accent-bright active:scale-[0.98];
+  }
+
   .btn-secondary {
     @apply inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-[15px] font-medium
            border border-white/[0.06] bg-white/[0.03] text-gray-400 transition-all duration-200
@@ -1123,6 +1129,20 @@ html {
   }
   .details-tab--on {
     @apply bg-surface-3 font-medium text-text-strong hover:text-text-strong;
+  }
+
+  /* A row of links to a page's views, each its own URL; the current one carries `aria-current`. */
+  .segmented-nav {
+    @apply inline-flex flex-wrap items-center gap-1 rounded-xl border border-border bg-surface-2 p-1;
+  }
+  .segmented-nav__item {
+    @apply rounded-lg px-3 py-1.5 text-sm font-medium text-text-muted transition-colors hover:text-text;
+  }
+  .segmented-nav__item[aria-current] {
+    @apply bg-surface-3 text-text-strong hover:text-text-strong;
+  }
+  .segmented-nav__count {
+    @apply ml-1 font-mono text-[12px] tabular-nums text-text-faint;
   }
 
   /* The label row is the toggle; its figure dims while the section is open, as the body then shows it. */
@@ -3754,8 +3774,9 @@ html {
       margin-bottom: 8px;
     }
 
-    /* Only this one — its trigger sits at the right edge, beside Send. */
-    .chat-composer__buttons .picker-popover {
+    /* Only these — their trigger sits at the right edge: beside Send, and at the end of a model entry row. */
+    .chat-composer__buttons .picker-popover,
+    .model-entry .picker-popover {
       left: auto;
       right: 0;
     }
@@ -4586,6 +4607,12 @@ html {
 
   .agent-pill__icon { @apply h-3.5 w-3.5 opacity-85; }
   .agent-pill__name { @apply max-w-[18ch] truncate; }
+  .agent-pill__name--default { @apply text-text-muted; }
+
+  /* A model entry row: what the entry is for, then its picker at the right edge. */
+  .model-entry { @apply flex flex-wrap items-center justify-between gap-x-4 gap-y-2; }
+  .model-entry__text { @apply min-w-[16rem] flex-1; }
+  .agent-picker__default-hint { @apply font-mono text-[11px] text-text-faint; }
 
   .agent-pill__effort { @apply inline-flex items-center gap-1; }
   .agent-pill__effort-icon { @apply h-3 w-3 opacity-70; }

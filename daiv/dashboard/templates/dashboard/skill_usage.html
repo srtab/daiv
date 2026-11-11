@@ -1,0 +1,53 @@
+{% extends "skills/skill_page.html" %}
+{% load humanize i18n static %}
+
+{% block alpine_plugins %}
+{% if usage.last_30_total > 0 %}
+<script defer
+        src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"
+        integrity="sha384-b0GXujLkk9eYYSmcSfoyZbfyElGAQnDyY0skCHSG6w3JgTMFnz11ggrTAr7seu9f"
+        crossorigin="anonymous"></script>
+<script defer src="{% static 'skills/js/usage_chart.js' %}"></script>
+{% endif %}
+{% endblock alpine_plugins %}
+
+{% block skill_tab %}
+<section aria-label="{% translate 'Usage' %}" class="overflow-hidden rounded-2xl border border-border bg-surface-2 p-6">
+    <div class="grid grid-cols-2 gap-6 lg:grid-cols-4">
+        <div>
+            <p class="stat-value text-text-strong">{{ invocations_total|intcomma }}</p>
+            <p class="mt-2 text-sm text-text-muted">{% translate "invocations" %}</p>
+        </div>
+        <div>
+            <p class="stat-value text-text-strong">{{ usage.last_30_total|intcomma }}</p>
+            <p class="mt-2 text-sm text-text-muted">{% translate "in the last 30 days" %}</p>
+        </div>
+    </div>
+
+    <div class="mt-6 border-t border-border pt-5">
+        <h3 class="mb-3 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text-faint">{% translate "Last 30 days" %}</h3>
+        {% if usage.last_30_total == 0 %}
+        <p class="rounded-xl border border-border px-4 py-8 text-center text-sm text-text-muted">{% translate "No usage in the last 30 days." %}</p>
+        {% else %}
+        <div class="skill-usage-chart">
+            <canvas id="skill-usage-canvas" height="140"></canvas>
+        </div>
+        {{ usage.daily_series|json_script:"skill-usage-data" }}
+        {% endif %}
+    </div>
+
+    <div class="mt-6 border-t border-border pt-5">
+        <h3 class="mb-3 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text-faint">{% translate "Recent runs" %}</h3>
+        {% if recent_runs %}
+        {# -mx-6 -mb-6 cancel the section's p-6, so the rows reach the card's edges. #}
+        <div class="-mx-6 -mb-6">
+            {% for skill_run in recent_runs %}
+            {% include "dashboard/_skill_run_row.html" %}
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="rounded-xl border border-border px-4 py-8 text-center text-sm text-text-muted">{% translate "No run has invoked this skill yet." %}</p>
+        {% endif %}
+    </div>
+</section>
+{% endblock skill_tab %}

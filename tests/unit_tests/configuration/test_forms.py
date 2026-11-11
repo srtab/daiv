@@ -1,6 +1,8 @@
 import pytest
 from configuration.forms import (
     PROVIDERS_FORMSET_PREFIX,
+    ModelEntriesForm,
+    ModelEntry,
     ProviderForm,
     SiteConfigurationForm,
     WebFetchAuthHeaderForm,
@@ -9,6 +11,7 @@ from configuration.forms import (
 )
 
 from core.models import Provider, ProviderType, SiteConfiguration, WebFetchAuthHeader
+from tests.unit_tests.configuration.conftest import formset_data
 
 
 def _data(**overrides):
@@ -146,20 +149,6 @@ def test_site_form_flags_model_with_disabled_provider():
     assert any("disabled" in str(e) for e in form.errors.get("agent_model_name", []))
 
 
-def _formset_data(rows: list[dict]) -> dict:
-    """Build a POST dict for the providers formset from a list of row dicts."""
-    fields: dict[str, str] = {
-        f"{PROVIDERS_FORMSET_PREFIX}-TOTAL_FORMS": str(len(rows)),
-        f"{PROVIDERS_FORMSET_PREFIX}-INITIAL_FORMS": "0",
-        f"{PROVIDERS_FORMSET_PREFIX}-MIN_NUM_FORMS": "0",
-        f"{PROVIDERS_FORMSET_PREFIX}-MAX_NUM_FORMS": "1000",
-    }
-    for idx, row in enumerate(rows):
-        for key, value in row.items():
-            fields[f"{PROVIDERS_FORMSET_PREFIX}-{idx}-{key}"] = str(value)
-    return fields
-
-
 @pytest.mark.django_db
 def test_formset_rejects_duplicate_slug():
     row = {
@@ -172,7 +161,7 @@ def test_formset_rejects_duplicate_slug():
         "is_enabled": "on",
         "sort_order": "0",
     }
-    data = _formset_data([row, row])
+    data = formset_data(PROVIDERS_FORMSET_PREFIX, [row, row])
     formset = build_provider_formset()(data, queryset=Provider.objects.none(), prefix=PROVIDERS_FORMSET_PREFIX)
     assert not formset.is_valid()
     # ``slug`` is unique so Django's modelformset surfaces the duplicate before
@@ -194,7 +183,7 @@ def test_formset_ignores_unsaved_row_removed_from_dom():
         "is_enabled": "",
         "sort_order": "0",
     }
-    data = _formset_data([{}, empty_row])
+    data = formset_data(PROVIDERS_FORMSET_PREFIX, [{}, empty_row])
     formset = build_provider_formset()(data, queryset=Provider.objects.none(), prefix=PROVIDERS_FORMSET_PREFIX)
     assert formset.is_valid(), [f.errors for f in formset.forms]
 
@@ -444,6 +433,116 @@ class TestTelegramForm:
         group = SiteConfiguration.get_group_by_key("telegram")
         form = SiteConfigurationForm(instance=SiteConfiguration.objects.get_instance(), group=group)
         assert set(form.fields) == {"telegram_enabled", "telegram_bot_token"}
+
+
+@pytest.fixture
+def usable_openai(db):
+    provider = Provider.objects.get(slug="openai")
+    provider.api_key = "k"
+    provider.is_enabled = True
+    provider.save()
+    return provider
+
+
+ENTRIES = [
+    ModelEntry("agent_skill_models", "code-review", "Skill", ""),
+    ModelEntry("agent_subagent_models", "cr-security", "cr-security", ""),
+]
+SKILL_FIELD = "agent_skill_models__code-review"
+DETECTOR_FIELD = "agent_subagent_models__cr-security"
+
+
+def _stored(**maps) -> SiteConfiguration:
+    config = SiteConfiguration.objects.get_instance()
+    for field, entries in maps.items():
+        setattr(config, field, entries)
+    config.save()
+    return config
+
+
+@pytest.mark.django_db
+class TestModelEntriesForm:
+    def test_a_changed_entry_is_written_beside_the_map_s_other_entries(self, usable_openai):
+        config = _stored(agent_subagent_models={"explore": "openai:gpt-5.4-mini"})
+        form = ModelEntriesForm(ENTRIES, {SKILL_FIELD: "", DETECTOR_FIELD: "openai:gpt-5.4"}, stored=config)
+
+        assert form.is_valid(), form.errors
+        assert form.apply_to(config) == ["agent_subagent_models"]
+        assert config.agent_subagent_models == {"explore": "openai:gpt-5.4-mini", "cr-security": "openai:gpt-5.4"}
+        assert config.agent_skill_models == {}
+
+    def test_clearing_an_entry_removes_it(self, usable_openai):
+        config = _stored(agent_skill_models={"code-review": "openai:gpt-5.4", "plan": "openai:gpt-5.4"})
+        form = ModelEntriesForm(ENTRIES, {SKILL_FIELD: "", DETECTOR_FIELD: ""}, stored=config)
+
+        assert form.is_valid(), form.errors
+        form.apply_to(config)
+        assert config.agent_skill_models == {"plan": "openai:gpt-5.4"}
+
+    @pytest.mark.parametrize(
+        ("change", "model", "expected"),
+        [
+            ({}, "nosuch:model", "Unsupported model"),
+            ({"is_enabled": False}, "openai:gpt-5.4", "disabled"),
+            ({"api_key": None}, "openai:gpt-5.4", "API key"),
+        ],
+        ids=["unknown-provider", "disabled-provider", "keyless-provider"],
+    )
+    def test_a_changed_entry_its_provider_cannot_serve_is_refused(self, usable_openai, change, model, expected):
+        for field, value in change.items():
+            setattr(usable_openai, field, value)
+        usable_openai.save()
+        form = ModelEntriesForm(ENTRIES, {SKILL_FIELD: model, DETECTOR_FIELD: ""}, stored=_stored())
+
+        assert not form.is_valid()
+        assert expected in form.errors[SKILL_FIELD][0]
+
+    def test_an_unchanged_entry_whose_provider_went_away_is_kept_and_flagged(self, usable_openai):
+        config = _stored(agent_skill_models={"code-review": "openai:gpt-5.4"})
+        usable_openai.is_enabled = False
+        usable_openai.save()
+        form = ModelEntriesForm(ENTRIES, {SKILL_FIELD: "openai:gpt-5.4", DETECTOR_FIELD: ""}, stored=config)
+
+        assert form.is_valid(), form.errors
+        assert form.apply_to(config) == []
+        assert "disabled" in form.stale_reasons[SKILL_FIELD]
+        assert form.fields[SKILL_FIELD].widget.stale is True
+
+    def test_a_map_its_environment_variable_sets_is_locked(self, usable_openai, monkeypatch):
+        from core import site_settings as ss_module
+
+        monkeypatch.setenv("DAIV_AGENT_SKILL_MODELS", '{"code-review": "openai:gpt-5.4-mini"}')
+        ss_module._docker_secret_cache.clear()
+        config = _stored()
+        form = ModelEntriesForm(ENTRIES, {SKILL_FIELD: "openai:gpt-5.4", DETECTOR_FIELD: ""}, stored=config)
+
+        assert form.fields[SKILL_FIELD].disabled
+        assert form.fields[SKILL_FIELD].initial == "openai:gpt-5.4-mini"
+        assert form.is_valid(), form.errors
+        assert form.apply_to(config) == []
+        assert form.is_editable
+
+    def test_a_post_without_its_pickers_is_not_a_submission(self, db):
+        form = ModelEntriesForm(ENTRIES, stored=_stored(), prefix="subagent_models")
+
+        assert not form.is_submitted({"agent_recursion_limit": "100"})
+        assert form.is_submitted({f"subagent_models-{DETECTOR_FIELD}": ""})
+
+    def test_the_unset_pill_names_the_default_beside_a_hint(self, db):
+        entry = ModelEntry("agent_subagent_models", "explore", "explore", "", default_label="claude-haiku-5-5")
+        form = ModelEntriesForm([entry], stored=_stored())
+
+        picker = form.fields["agent_subagent_models__explore"].widget.get_context("x", "", {})["widget"]["picker"]
+        assert picker["placeholder_label"] == "claude-haiku-5-5"
+        assert picker["default_hint"] is True
+
+    def test_a_model_stored_without_its_provider_seeds_the_picker_with_it(self, db):
+        """The picker selects nothing for a bare name, and would post the field back empty."""
+        from configuration.forms import _AgentPickerWidget
+
+        picker = _AgentPickerWidget().get_context("agent_model_name", "gpt-5.4", {})["widget"]["picker"]
+
+        assert picker["initial_agent_model"] == "openai:gpt-5.4"
 
 
 @pytest.mark.django_db

@@ -1,25 +1,24 @@
 from __future__ import annotations
 
 import logging
-import stat
-from datetime import timedelta
 
 from django.contrib import messages
 from django.db.models import Count
-from django.db.models.functions import TruncDate
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
-from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import TemplateView
 
 from core.mixins import AdminRequiredMixin
-from skills.constants import BUILTIN_SKILLS_PATH, FRONTMATTER_RE, MAX_FILES, ZIPS_DIR
+from core.site_settings import site_settings
+from core.utils import short_model_name
+from skills.constants import ZIPS_DIR
 from skills.forms import SkillUploadForm
 from skills.models import GlobalSkill, SkillInvocation
-from skills.services import BUILTIN_SKILL_NAMES, SkillStorage, SkillStorageError, list_builtins
+from skills.pages import SkillPageMixin
+from skills.services import BUILTIN_SKILL_NAMES, SkillStorage, SkillStorageError, list_builtins, site_model_entries
 
 logger = logging.getLogger("daiv.skills")
 
@@ -40,15 +39,20 @@ class SkillListView(AdminRequiredMixin, TemplateView):
             for row in (SkillInvocation.objects.values("name", "source").annotate(c=Count("id")))
         }
 
+        snapshot = site_settings.snapshot()
         custom_names = {skill.name for skill in custom_skills}
         for skill in custom_skills:
             skill.invocations_count = counts.get((skill.name, SkillInvocation.Source.GLOBAL), 0)
             skill.overrides_builtin = skill.name in BUILTIN_SKILL_NAMES
+            spec, skill.subagent_models = site_model_entries(skill.name, snapshot)
+            skill.model = short_model_name(spec)
         # A custom upload shadows the built-in of the same name; drop the
         # shadowed entry so the list shows only the active skill.
         builtin_skills = [entry for entry in builtin_skills if entry["name"] not in custom_names]
         for entry in builtin_skills:
             entry["invocations_count"] = counts.get((entry["name"], SkillInvocation.Source.BUILTIN), 0)
+            spec, entry["subagent_models"] = site_model_entries(entry["name"], snapshot)
+            entry["model"] = short_model_name(spec)
 
         ctx["custom_skills"] = custom_skills
         ctx["builtin_skills"] = builtin_skills
@@ -109,110 +113,18 @@ class SkillUploadView(AdminRequiredMixin, View):
         return redirect("skills:list")
 
 
-class SkillDetailView(AdminRequiredMixin, View):
-    http_method_names = ["get"]
+class SkillDetailView(AdminRequiredMixin, SkillPageMixin, TemplateView):
+    """The skill page's SKILL.md tab."""
 
-    def get(self, request, name):
-        # Custom global skills shadow built-ins of the same name at runtime;
-        # render the override so admins see the skill actually being invoked.
-        if GlobalSkill.objects.filter(name=name).exists():
-            return self._render_global(request, name)
-        if name in BUILTIN_SKILL_NAMES:
-            return self._render_builtin(request, name)
-        raise Http404("skill not found")
+    template_name = "skills/skill_md.html"
+    skill_tab = "instructions"
 
-    def _render_builtin(self, request, name):
-        root = BUILTIN_SKILLS_PATH / name
-        try:
-            skill_md_text = (root / "SKILL.md").read_text(encoding="utf-8")
-        except FileNotFoundError as err:
-            # Missing built-in SKILL.md is a deployment defect, not a client
-            # error — log loudly so Sentry catches it even though we still
-            # have to return 404 to the browser.
-            logger.error("Built-in skill %r is missing SKILL.md at %s", name, root)
-            raise Http404("built-in skill files missing on disk") from err
-        body = FRONTMATTER_RE.sub("", skill_md_text, count=1).lstrip()
-        description = next((entry["description"] for entry in list_builtins() if entry["name"] == name), "")
-        return render(
-            request,
-            "skills/detail.html",
-            {
-                "skill": {"name": name, "description": description},
-                "source": "builtin",
-                "body": body,
-                "tree": self._list_tree(root),
-                "usage": self._compute_usage(name, SkillInvocation.Source.BUILTIN),
-                "breadcrumbs": [{"label": _("Skills"), "url": reverse("skills:list")}, {"label": name, "url": None}],
-            },
-        )
 
-    def _render_global(self, request, name):
-        skill = get_object_or_404(GlobalSkill, name=name)
-        root = SkillStorage().root / skill.name
-        try:
-            skill_md_text = (root / "SKILL.md").read_text(encoding="utf-8")
-        except FileNotFoundError as err:
-            raise Http404("skill files missing on disk") from err
-        except UnicodeDecodeError as err:
-            raise Http404("skill files unreadable on disk") from err
-        body = FRONTMATTER_RE.sub("", skill_md_text, count=1).lstrip()
-        return render(
-            request,
-            "skills/detail.html",
-            {
-                "skill": skill,
-                "source": "global",
-                "body": body,
-                "tree": self._list_tree(root),
-                "usage": self._compute_usage(skill.name, SkillInvocation.Source.GLOBAL),
-                "breadcrumbs": [
-                    {"label": _("Skills"), "url": reverse("skills:list")},
-                    {"label": skill.name, "url": None},
-                ],
-            },
-        )
+class SkillFilesView(AdminRequiredMixin, SkillPageMixin, TemplateView):
+    """The skill page's Files tab."""
 
-    @staticmethod
-    def _compute_usage(name: str, source: SkillInvocation.Source) -> dict:
-        qs = SkillInvocation.objects.filter(name=name, source=source)
-        today = timezone.localdate()
-        cutoff = today - timedelta(days=29)
-
-        grouped = dict(
-            qs
-            .filter(created__date__gte=cutoff)
-            .annotate(day=TruncDate("created"))
-            .values("day")
-            .annotate(c=Count("id"))
-            .values_list("day", "c")
-        )
-        daily_series = [
-            {"day": cutoff + timedelta(days=i), "count": grouped.get(cutoff + timedelta(days=i), 0)} for i in range(30)
-        ]
-        last_30_total = sum(entry["count"] for entry in daily_series)
-
-        return {
-            "total": qs.count(),
-            "last_30_total": last_30_total,
-            "daily_series": daily_series,
-            "recent": list(qs.order_by("-created")[:20]),
-        }
-
-    @staticmethod
-    def _list_tree(root) -> list[dict[str, object]]:
-        entries: list[dict[str, object]] = []
-        # lstat() so symlinks dropped on disk out-of-band aren't followed; MAX_FILES matches the upload cap.
-        for path in sorted(root.rglob("*")):
-            if len(entries) >= MAX_FILES:
-                break
-            try:
-                st = path.lstat()
-            except FileNotFoundError:
-                continue
-            if not stat.S_ISREG(st.st_mode):
-                continue
-            entries.append({"path": str(path.relative_to(root)), "size": st.st_size})
-        return entries
+    template_name = "skills/skill_files.html"
+    skill_tab = "files"
 
 
 class SkillDeleteView(AdminRequiredMixin, View):

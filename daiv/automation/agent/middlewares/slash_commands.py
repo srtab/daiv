@@ -41,8 +41,8 @@ class SlashCommandMiddleware(AgentMiddleware):
     ``/help`` cannot list them; the agent's ``<available_skills>`` prompt does once the loop runs.
     """
 
-    # Declares the skills state channels so this middleware may reset ``active_skill_mode`` when a
-    # command wipes the thread (see ``_apply_builtin_slash_commands``); ``SkillsMiddleware`` owns it.
+    # Declares the skills state channels so this middleware may reset ``active_skill_mode`` and ``active_skill_model``
+    # when a command wipes the thread (see ``_apply_builtin_slash_commands``); ``SkillsMiddleware`` owns them.
     state_schema = DAIVSkillsState
 
     def __init__(self, *, subagents: Sequence[SubAgent | CompiledSubAgent] | None = None) -> None:
@@ -93,8 +93,9 @@ class SlashCommandMiddleware(AgentMiddleware):
                 # active_skill_mode="read-only") must not survive onto the fresh thread, where
                 # _has_user_followup (needs surviving history) could never clear it — every write
                 # tool would stay refused. SkillsMiddleware's clear-on-followup never runs here
-                # (we jump to end), so reset it explicitly.
+                # (we jump to end), so reset it, and the skill's model, explicitly.
                 update["active_skill_mode"] = None
+                update["active_skill_model"] = None
             return update
 
     @staticmethod

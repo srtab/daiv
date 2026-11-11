@@ -90,7 +90,7 @@ The markdown body (after the frontmatter) is **required** and becomes the subage
 
 | Field | Description |
 |-------|-------------|
-| `model` | Override the model used by this subagent. Use the `provider:model-name` format (e.g., `openrouter:anthropic/claude-haiku-5.5`). If not specified, the main agent's model is used. |
+| `model` | Override the model used by this subagent. Use the `provider:model-name` format (e.g., `openrouter:anthropic/claude-haiku-5.5`). If not specified, the main agent's model is used. A [configured subagent model](#choosing-a-subagents-model) takes precedence. |
 
 ### Capabilities
 
@@ -116,6 +116,21 @@ description: >
 # Bad — too vague
 description: Helps with API stuff.
 ```
+
+## Choosing a subagent's model
+
+Operators can run any subagent on a chosen model by name, without editing its file: the general-purpose and explore subagents, each code-review detector (`cr-security`, `cr-tests`, …) and custom subagents. A custom subagent's file lives in the repository, so the dashboard does not list it: set its model in `.daiv.yml`, or for every repository in `DAIV_AGENT_SUBAGENT_MODELS`. A subagent's model is the first of these that is set:
+
+1. its entry under `models.subagents` in the repository's `.daiv.yml` (see [Model overrides](../customization/repository-config.md#skill-and-subagent-models));
+2. its entry in the dashboard (or in `DAIV_AGENT_SUBAGENT_MODELS`): **Configuration → Agent → Subagent models** for the general-purpose and explore subagents, and the **Models** tab of the `code-review` skill's page for the detectors;
+3. the `model` its file or detector charter declares (Claude Haiku 5.5 for explore);
+4. the main agent's model.
+
+A configured model runs with the run's thinking level and falls back to the main agent's fallback models. A model the user picks for the run does not override an entry, and a skill's model never carries over to a subagent it delegates to.
+
+When an entry names a provider that is unknown, disabled or missing its API key, the subagent runs on its file's `model`, else the main agent's model; it is never left out of the run. The failure is logged at ERROR.
+
+When a call on the configured model fails, for example because the provider doesn't know the model name, the main agent's fallback models serve it, as for any other model.
 
 ## Related pages
 

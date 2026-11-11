@@ -6,6 +6,13 @@ from automation.agent.context import RepoHandle
 from codebase.base import MergeRequest, User
 
 
+@pytest.fixture(autouse=True)
+def _no_unusable_model_reported_yet():
+    from automation.agent import configured_models
+
+    configured_models._reported.clear()
+
+
 @pytest.fixture
 def emit_custom_event():
     """Stub the sink ``streamed_assistant_message`` dispatches through.
