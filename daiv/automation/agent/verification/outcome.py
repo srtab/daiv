@@ -15,12 +15,6 @@ type VerificationStatus = Literal["passed", "failed", "not_verified", "not_confi
 
 SUSPICIOUS_PATHS_LINE = "Changed test, lint, CI or DAIV configuration files — please review: "
 _TIMED_OUT = f"timed out after {CHECK_TIMEOUT_SECONDS // 60} minutes"
-_REPORT_START = "<!-- daiv:verification -->"
-_REPORT_END = "<!-- /daiv:verification -->"
-# Greedy: a check's output inside the section can itself hold the end marker.
-_REPORT_SECTION = re.compile(f"{re.escape(_REPORT_START)}.*{re.escape(_REPORT_END)}", re.DOTALL)
-# Keeps a report with many failing commands well under GitHub's 65,536-character PR body limit.
-_REPORT_OUTPUT_CHARS = 24_000
 
 
 class CommandOutcome(TypedDict):
@@ -29,6 +23,7 @@ class CommandOutcome(TypedDict):
     timed_out: bool
     already_failing: bool
     output_changed: NotRequired[bool]
+    flaky: NotRequired[bool]
     output_tail: NotRequired[str]
 
 
@@ -47,8 +42,15 @@ def checks_failed(outcome: VerificationOutcome | None) -> bool:
 
 
 def command_outcomes(
-    results: Sequence[CheckResult], already_failing: Container[str], output_changed: Container[str] = ()
+    results: Sequence[CheckResult],
+    already_failing: Container[str],
+    output_changed: Container[str] = (),
+    *,
+    flaky: Container[str] = (),
+    with_output: bool,
 ) -> list[CommandOutcome]:
+    """One outcome per result. ``flaky`` commands failed and then passed when run again; ``with_output`` keeps the end
+    of each failing command's output, for publishing."""
     outcomes: list[CommandOutcome] = []
     for result in results:
         outcome = CommandOutcome(
@@ -59,7 +61,9 @@ def command_outcomes(
         )
         if outcome["already_failing"] and result.command in output_changed:
             outcome["output_changed"] = True
-        if not result.passed:
+        if not result.passed and result.command in flaky:
+            outcome["flaky"] = True
+        elif with_output and not result.passed:
             outcome["output_tail"] = result.output_tail
         outcomes.append(outcome)
     return outcomes
@@ -74,73 +78,97 @@ def code_span(text: str) -> str:
     return f"{delimiter} {text} {delimiter}" if delimiter != "`" else f"`{text}`"
 
 
-def _bullet(command: CommandOutcome) -> str:
-    span = code_span(command["command"])
-    if command["exit_code"] == 0:
-        return f"- {span} passed"
-    if command["already_failing"]:
-        if command.get("output_changed"):
-            return f"- {span} was already failing before this change, but its output changed"
-        return f"- {span} was already failing before this change"
-    if command["timed_out"]:
-        return f"- {span} {_TIMED_OUT}"
-    return f"- {span} failed (exit {command['exit_code']})"
+class VerificationReport:
+    """
+    The Markdown a run's verification outcome is published as, in a merge request description or DAIV's reply, and
+    the marked section of a description that holds it.
 
+    Args:
+        outcome: The run's verification outcome.
+        new_merge_request: Whether the report goes into the description of the merge request the run opened.
+    """
 
-def _output_block(command: CommandOutcome, max_chars: int) -> str | None:
-    tail = command.get("output_tail", "")[-max_chars:]
-    if not tail:
-        return None
-    fence = "`" * max(3, _longest_backtick_run(tail) + 1)
-    summary = escape(f"Output of {command['command']}", quote=False)
-    return f"<details><summary>{summary}</summary>\n\n{fence}\n{tail}\n{fence}\n\n</details>"
+    START = "<!-- daiv:verification -->"
+    END = "<!-- /daiv:verification -->"
+    # Greedy: a check's output inside the section can itself hold the end marker.
+    _SECTION = re.compile(f"{re.escape(START)}.*{re.escape(END)}", re.DOTALL)
+    # Keeps a report with many failing commands well under GitHub's 65,536-character PR body limit.
+    _OUTPUT_CHARS = 24_000
 
+    def __init__(self, outcome: VerificationOutcome, *, new_merge_request: bool) -> None:
+        self._outcome = outcome
+        self._new_merge_request = new_merge_request
 
-def _failed_line(rounds: int, new_merge_request: bool) -> str:
-    line = "These checks still fail"
-    if rounds:
-        line += f" after {rounds} fix attempt{'s' if rounds != 1 else ''}"
-    if new_merge_request:
-        line += ", so this merge request was opened as a draft"
-    return line + "."
+    def markdown(self) -> str | None:
+        """The report, or ``None`` when no checks are configured."""
+        outcome = self._outcome
+        if outcome["status"] == "not_configured":
+            return None
 
+        lines = ["### Verification", ""]
+        after_block = False
+        with_output = sum(1 for command in outcome["commands"] if command.get("output_tail"))
+        max_chars = self._OUTPUT_CHARS // max(with_output, 1)
+        for command in outcome["commands"]:
+            if after_block:
+                lines.append("")
+            lines.append(self._bullet(command))
+            block = self._output_block(command, max_chars)
+            if block is not None:
+                lines += ["", block]
+            after_block = block is not None
+        if changed_by_checks := outcome.get("changed_by_checks"):
+            lines += ["", "Running the checks changed these files: " + ", ".join(map(code_span, changed_by_checks))]
+        if outcome["status"] == "failed":
+            lines += ["", self._failed_line()]
+        elif outcome["status"] == "not_verified":
+            lines += ["", f"Not verified: {outcome.get('reason', 'the checks could not be run')}"]
+        if outcome["suspicious_paths"]:
+            lines += ["", SUSPICIOUS_PATHS_LINE + ", ".join(code_span(path) for path in outcome["suspicious_paths"])]
+        return "\n".join(lines)
 
-def render_report(outcome: VerificationOutcome, *, new_merge_request: bool = True) -> str | None:
-    """Markdown for a merge request description or comment, or ``None`` when no checks are configured."""
-    if outcome["status"] == "not_configured":
-        return None
+    @classmethod
+    def section(cls, markdown: str) -> str:
+        """``markdown`` between the markers ``replace_section`` finds it by in a merge request description."""
+        return f"{cls.START}\n\n{markdown}\n\n{cls.END}"
 
-    lines = ["### Verification", ""]
-    after_block = False
-    with_output = sum(1 for command in outcome["commands"] if command.get("output_tail"))
-    max_chars = _REPORT_OUTPUT_CHARS // max(with_output, 1)
-    for command in outcome["commands"]:
-        if after_block:
-            lines.append("")
-        lines.append(_bullet(command))
-        block = _output_block(command, max_chars)
-        if block is not None:
-            lines += ["", block]
-        after_block = block is not None
-    if changed_by_checks := outcome.get("changed_by_checks"):
-        lines += ["", "Running the checks changed these files: " + ", ".join(map(code_span, changed_by_checks))]
-    if outcome["status"] == "failed":
-        lines += ["", _failed_line(outcome["rounds"], new_merge_request)]
-    elif outcome["status"] == "not_verified":
-        lines += ["", f"Not verified: {outcome.get('reason', 'the checks could not be run')}"]
-    if outcome["suspicious_paths"]:
-        lines += ["", SUSPICIOUS_PATHS_LINE + ", ".join(code_span(path) for path in outcome["suspicious_paths"])]
-    return "\n".join(lines)
+    @classmethod
+    def replace_section(cls, description: str, markdown: str) -> str:
+        """``description`` with the section DAIV wrote into it replaced by ``markdown``; unchanged without one."""
+        return cls._SECTION.sub(lambda _: cls.section(markdown), description, count=1)
 
+    @staticmethod
+    def _bullet(command: CommandOutcome) -> str:
+        span = code_span(command["command"])
+        if command["exit_code"] == 0:
+            return f"- {span} passed"
+        if command.get("flaky"):
+            return f"- {span} failed (exit {command['exit_code']}), then passed when run again, so it may be flaky"
+        if command["already_failing"]:
+            if command.get("output_changed"):
+                return f"- {span} was already failing before this change, but its output changed"
+            return f"- {span} was already failing before this change"
+        if command["timed_out"]:
+            return f"- {span} {_TIMED_OUT}"
+        return f"- {span} failed (exit {command['exit_code']})"
 
-def report_section(report: str) -> str:
-    """``report`` between the markers ``replace_report_section`` finds it by in a merge request description."""
-    return f"{_REPORT_START}\n\n{report}\n\n{_REPORT_END}"
+    @staticmethod
+    def _output_block(command: CommandOutcome, max_chars: int) -> str | None:
+        tail = command.get("output_tail", "")[-max_chars:]
+        if not tail:
+            return None
+        fence = "`" * max(3, _longest_backtick_run(tail) + 1)
+        summary = escape(f"Output of {command['command']}", quote=False)
+        return f"<details><summary>{summary}</summary>\n\n{fence}\n{tail}\n{fence}\n\n</details>"
 
-
-def replace_report_section(description: str, report: str) -> str:
-    """``description`` with the report section DAIV wrote into it replaced by ``report``; unchanged without one."""
-    return _REPORT_SECTION.sub(lambda _: report_section(report), description, count=1)
+    def _failed_line(self) -> str:
+        rounds = self._outcome["rounds"]
+        line = "These checks still fail"
+        if rounds:
+            line += f" after {rounds} fix attempt{'s' if rounds != 1 else ''}"
+        if self._new_merge_request:
+            line += ", so this merge request was opened as a draft"
+        return line + "."
 
 
 def escape_tags(text: str) -> str:

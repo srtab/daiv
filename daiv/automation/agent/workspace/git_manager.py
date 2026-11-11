@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import re
 from dataclasses import dataclass
@@ -25,6 +26,7 @@ _FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
 _SANDBOX_BUSY = 409
 _BUSY_ATTEMPTS = 3
 _BUSY_BACKOFF_SECONDS = 2.0
+_HASH_OBJECT_BATCH = 500
 
 FastForward = Literal["advanced", "replaced", "unchanged", "diverged"]
 # Only the opening and closing markers: a bare ``=======`` is also a setext heading underline.
@@ -172,6 +174,30 @@ class GitManager:
         self._require_ok(specs[1], untracked_res)
         return self._nonempty_lines(changed_res.output) + self._nonempty_lines(untracked_res.output)
 
+    async def tree_fingerprint(self, ref: str = "HEAD") -> str:
+        """A digest of the working tree's changes against ``ref``, untracked files included, that changes whenever a
+        changed file's content does. Only file names and blob ids cross the sandbox, never the diff: one round-trip for
+        the names and one for hashing the files that still exist."""
+        specs: list[tuple[str, ...]] = [
+            ("diff", "--name-status", "--no-renames", "-z", ref),
+            ("ls-files", "-z", "--others", "--exclude-standard"),
+        ]
+        status_res, untracked_res = await self._git_batch(specs)
+        status = self._require_ok(specs[0], status_res).output
+        untracked = self._require_ok(specs[1], untracked_res).output
+        fields = status.split("\0")
+        present = [path for code, path in zip(fields[::2], fields[1::2], strict=False) if path and code != "D"]
+        present += [path for path in untracked.split("\0") if path]
+        batches: list[tuple[str, ...]] = [
+            ("hash-object", "--", *present[start : start + _HASH_OBJECT_BATCH])
+            for start in range(0, len(present), _HASH_OBJECT_BATCH)
+        ]
+        hashes = [
+            self._require_ok(args, res).output
+            for args, res in zip(batches, await self._git_batch(batches), strict=True)
+        ]
+        return hashlib.sha256("\0".join([status, untracked, *hashes]).encode()).hexdigest()
+
     async def pending_merge(self) -> PendingMerge | None:
         """The merge in progress, or ``None``. One round-trip, and a second when the merge left unmerged files.
 
@@ -313,30 +339,58 @@ class GitManager:
         await self._git("add", "-A")
         await self._git("commit", "-m", message)
 
-    async def stash_all(self, message: str) -> bool:
-        """Stash tracked and untracked changes. ``False`` when there was nothing to stash.
+    async def stash_all(self, message: str) -> StashedTree | None:
+        """Stash tracked and untracked changes, and where ``HEAD`` was; ``None`` when there was nothing to stash.
 
         A push that fails may already have stored its entry and taken part of the changes out of the tree, so the tree
         is put back from that entry before the failure is raised; ``StashRestoreError`` when that can't be done or
         can't be ruled out.
         """
         label = f"{message} [{uuid4().hex[:12]}]"
+        head, branch = await self._head_position()
         try:
             result = await self._git_unless_busy("stash", "push", "--include-untracked", "-m", label)
         except GIT_ERRORS as exc:
             if not self._never_ran(exc):
-                await self._put_back_failed_stash(label)
+                await self._put_back_failed_stash(label, head, branch)
             raise
-        return "No local changes to save" not in result.output
-
-    async def _put_back_failed_stash(self, label: str) -> None:
-        """Restore the tree from the entry a failed ``stash push`` stored under ``label``, if it stored one."""
+        if "No local changes to save" in result.output:
+            return None
         try:
-            newest = await self._git("stash", "list", "--max-count=1", "--format=%gs")
+            stash = await self._stash_sha(label)
         except GIT_ERRORS as exc:
             raise StashRestoreError from exc
-        if label in newest.output:
-            await self.restore_stash()
+        if stash is None:
+            raise StashRestoreError
+        return StashedTree(stash=stash, head=head, branch=branch)
+
+    async def _head_position(self) -> tuple[str, str | None]:
+        """The sha of ``HEAD`` and the branch it is on, ``None`` when detached."""
+        specs: list[tuple[str, ...]] = [("rev-parse", "HEAD"), ("symbolic-ref", "-q", "--short", "HEAD")]
+        head_res, branch_res = await self._git_batch(specs)
+        head = self._sha_from(specs[0], self._require_ok(specs[0], head_res))
+        if branch_res.exit_code == 1:
+            return head, None
+        lines = self._nonempty_lines(self._require_ok(specs[1], branch_res).output)
+        return head, lines[-1] if lines else None
+
+    async def _stash_sha(self, label: str) -> str | None:
+        """The sha of the stash entry stored under ``label``, or ``None`` when there is none."""
+        result = await self._git_unless_busy("stash", "list", "--format=%H %gs")
+        for line in self._nonempty_lines(result.output):
+            sha, _, subject = line.partition(" ")
+            if _FULL_SHA_RE.fullmatch(sha) and subject.endswith(label):
+                return sha
+        return None
+
+    async def _put_back_failed_stash(self, label: str, head: str, branch: str | None) -> None:
+        """Restore the tree from the entry a failed ``stash push`` stored under ``label``, if it stored one."""
+        try:
+            stash = await self._stash_sha(label)
+        except GIT_ERRORS as exc:
+            raise StashRestoreError from exc
+        if stash is not None:
+            await self.restore_stash(StashedTree(stash=stash, head=head, branch=branch))
 
     @staticmethod
     def _never_ran(exc: Exception) -> bool:
@@ -345,35 +399,50 @@ class GitManager:
             return exc.response.status_code == _SANDBOX_BUSY
         return isinstance(exc, httpx.ConnectError | httpx.ConnectTimeout)
 
-    async def save_tree(self, message: str) -> bool:
+    async def save_tree(self, message: str) -> StashedTree | None:
         """Copy the tracked and untracked changes into a stash entry and leave them in the tree, for ``restore_stash``
-        or ``drop_stash`` to end. ``False`` when there was nothing to save.
+        or ``drop_stash`` to end. ``None`` when there was nothing to save.
 
         Raises ``StashRestoreError`` when the changes were stashed but could not be put back in the tree.
         """
-        if not await self.stash_all(message):
-            return False
+        saved = await self.stash_all(message)
+        if saved is None:
+            return None
         try:
-            await self._git_unless_busy("stash", "apply", "--index")
+            await self._git_unless_busy("stash", "apply", "--index", saved.stash)
         except GIT_ERRORS as exc:
             raise StashRestoreError from exc
-        return True
+        return saved
 
-    async def drop_stash(self) -> None:
-        """Drop the newest stash entry."""
-        await self._git_unless_busy("stash", "drop")
+    async def drop_stash(self, saved: StashedTree) -> None:
+        """Drop ``saved``'s stash entry, wherever it now sits in the stash; nothing when it is gone."""
+        result = await self._git_unless_busy("stash", "list", "--format=%H")
+        shas = [line for line in self._nonempty_lines(result.output) if _FULL_SHA_RE.fullmatch(line)]
+        if saved.stash in shas:
+            await self._git_unless_busy("stash", "drop", f"stash@{{{shas.index(saved.stash)}}}")
 
-    async def restore_stash(self) -> None:
-        """Discard whatever is in the tree and pop the newest stash back, index included.
+    async def restore_stash(self, saved: StashedTree) -> None:
+        """Put the tree back as ``saved`` holds it: ``HEAD`` back on its branch at its commit, whatever ran since
+        discarded, then ``saved``'s entry applied, index included, and dropped.
 
         A step the sandbox turned away as busy (HTTP 409: it never ran) is run again, ``_BUSY_ATTEMPTS`` times in all.
-        Any other failure raises ``StashRestoreError`` at once, and a failed pop leaves the stash entry in place.
+        Any other failure raises ``StashRestoreError`` at once, and a failed apply leaves the stash entry in place.
         """
+        checkout = ("-B", saved.branch, saved.head) if saved.branch else ("--detach", saved.head)
         try:
-            for args in (("reset", "--hard", "HEAD"), ("clean", "-fd"), ("stash", "pop", "--index")):
+            for args in (
+                ("checkout", "-f", *checkout),
+                ("reset", "--hard", saved.head),
+                ("clean", "-fd"),
+                ("stash", "apply", "--index", saved.stash),
+            ):
                 await self._git_unless_busy(*args)
         except GIT_ERRORS as exc:
             raise StashRestoreError from exc
+        try:
+            await self.drop_stash(saved)
+        except GIT_ERRORS:
+            logger.warning("Could not drop the stash entry the tree was restored from", exc_info=True)
 
     async def _git_unless_busy(self, *args: str) -> GitResult:
         for attempt in range(1, _BUSY_ATTEMPTS):
@@ -589,6 +658,15 @@ class GitManager:
             branch_name = f"{original_branch_name}-{uuid4().hex[:8]}"
 
         return branch_name
+
+
+@dataclass(frozen=True)
+class StashedTree:
+    """A stash entry ``GitManager.stash_all`` stored, and where ``HEAD`` was when it did."""
+
+    stash: str
+    head: str
+    branch: str | None
 
 
 class StashRestoreError(RuntimeError):

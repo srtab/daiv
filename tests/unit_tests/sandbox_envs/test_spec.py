@@ -125,3 +125,7 @@ class TestMergeSandboxSpec:
     def test_before_publish_falls_back_to_global(self):
         spec = merge_sandbox_spec(per_run=_ov(), global_default=_ov(before_publish=("make ci",)))
         assert spec.before_publish == ("make ci",)
+
+    def test_empty_per_run_before_publish_does_not_inherit_global(self):
+        spec = merge_sandbox_spec(per_run=_ov(before_publish=()), global_default=_ov(before_publish=("make ci",)))
+        assert spec.before_publish == ()

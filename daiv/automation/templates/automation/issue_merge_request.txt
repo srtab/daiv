@@ -1,5 +1,5 @@
 {{ description }}
-{% if verification_report %}{# render_report escapes what it takes from the run and fences the output #}
+{% if verification_report %}{# VerificationReport code-spans what it takes from the run and fences the output #}
 {{ verification_report|safe }}
 {% endif %}
 ---

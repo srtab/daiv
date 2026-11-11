@@ -346,12 +346,33 @@
         </div>
     </div>
 
-    <div>
+    <div x-data="{ beforePublishMode: '{{ form.before_publish_mode.value|default:'default'|escapejs }}' }">
         <label for="{{ form.before_publish.id_for_label }}" class="block text-[15px] font-medium text-gray-400">
-            {% translate "Before publish" %}
+            {% translate "Before publish commands" %}
         </label>
-        {{ form.before_publish }}
-        <p class="mt-1.5 text-sm text-gray-500">{{ form.before_publish.help_text }}</p>
+        <div class="mt-2 flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
+            <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
+                   :class="beforePublishMode === 'default' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
+                <input type="radio" name="before_publish_mode" value="default" x-model="beforePublishMode" class="sr-only">
+                {% if is_default_form %}{% translate "No commands" %}{% else %}{% translate "Use default" %}{% endif %}
+            </label>
+            <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
+                   :class="beforePublishMode === 'custom' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
+                <input type="radio" name="before_publish_mode" value="custom" x-model="beforePublishMode" class="sr-only">
+                {% translate "Custom" %}
+            </label>
+        </div>
+        {% if not is_default_form %}
+        <p x-show="beforePublishMode === 'default'" x-cloak class="mt-1.5 text-sm text-gray-400">
+            {% translate "Inherits commands from the global default." %}
+        </p>
+        {% endif %}
+        <div x-show="beforePublishMode === 'custom'" x-cloak class="mt-2">
+            {{ form.before_publish }}
+            <p id="{{ form.before_publish.auto_id }}_helptext" class="mt-1.5 text-sm text-gray-400">
+                {{ form.before_publish.help_text }} {% translate "Leave empty to run none." %}
+            </p>
+        </div>
         {% if form.before_publish.errors %}<p class="mt-1.5 text-sm text-red-400">{{ form.before_publish.errors.0 }}</p>{% endif %}
     </div>
 

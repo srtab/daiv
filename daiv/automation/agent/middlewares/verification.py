@@ -122,13 +122,16 @@ class VerificationMiddleware(AgentMiddleware):
     is re-run once on the starting code; one that failed there too is reported, not sent back, unless its output now
     has lines it did not have there, which the agent is shown without the run counting as failed. The other failures,
     and any file the checks changed, go back to the agent as a reminder, for at most ``MAX_FIX_ROUNDS`` rounds; a stop
-    on the tree a reminder was sent for records the failure without another round. Without commands, the agent gets
+    on the tree a reminder was sent for records the failure without another round. Before a failure is recorded with no
+    round left to fix it, each command that failed only on the agent's code is run once more on the same tree, and one
+    that passes then is reported as flaky rather than failed. Without commands, the agent gets
     one reminder when the tree changed after the last check it ran through bash, or that check failed. No reminder is
     sent once the step budget is finalizing, ``LoopBreakerMiddleware`` has ended the run or the run ends on a question
     ``AskUserQuestionMiddleware`` delivered, which therefore sits inside this one: the outcome is still recorded.
 
     The outcome is recorded in the ``verification`` state key for the publish and the run executor, and ``recheck``
-    judges it again when the tree changed before publishing. Like ``LoopBreakerMiddleware`` this lives in
+    judges it again when the tree changed before publishing. It holds the checks' output only with ``publish_output``,
+    since everything in it reaches the merge request and the reply. Like ``LoopBreakerMiddleware`` this lives in
     ``awrap_model_call``, so it adds no graph node per turn; each reminder is saved into the thread ahead of the reply
     it produced (see ``reminders``).
 
@@ -142,6 +145,7 @@ class VerificationMiddleware(AgentMiddleware):
         step_budget: The run's step budget, asked whether a fix round still fits.
         loop_breaker: The run's loop breaker, whose terminal stop must not be reopened.
         redact: Values masked in the checks' output before the agent or the outcome sees it.
+        publish_output: Whether the outcome keeps the end of each failing check's output, to publish it.
     """
 
     state_schema = VerificationState
@@ -154,6 +158,7 @@ class VerificationMiddleware(AgentMiddleware):
         step_budget: StepBudgetMiddleware,
         loop_breaker: LoopBreakerMiddleware,
         redact: Sequence[str] = (),
+        publish_output: bool = False,
     ) -> None:
         super().__init__()
         if workspace.bash is None:
@@ -163,9 +168,11 @@ class VerificationMiddleware(AgentMiddleware):
         self._commands = commands
         self._step_budget = step_budget
         self._loop_breaker = loop_breaker
+        self._publish_output = publish_output
         self._rounds = 0
         self._starting: dict[str, frozenset[str] | None] = {}
         self._runs: dict[str, CheckRun] = {}
+        self._reruns: dict[str, frozenset[str]] = {}
         self._reminded_tree: str | None = None
         self._agent_check: _AgentCheck | None = None
         self._fallback_sent = False
@@ -248,21 +255,22 @@ class VerificationMiddleware(AgentMiddleware):
         if check is None:
             return
         try:
-            tree = diff_fingerprint(await self._workspace.git.get_diff())
+            tree = await self._workspace.git.tree_fingerprint()
         except GIT_ERRORS:
             logger.warning("Could not read the repository after the agent ran a check", exc_info=True)
             return
         self._agent_check = _AgentCheck(check, tree)
 
     async def _verdict(self, *, may_remind: bool) -> _Verdict | None:
-        """What the agent's stop comes to, or ``None`` when it leaves nothing to publish."""
+        """What the agent's stop comes to, or ``None`` when it leaves nothing to publish. With commands it reads the
+        diff the checks compare; without, only the tree's fingerprint."""
         git = self._workspace.git
         try:
             changed = await git.get_changed_files()
             merge = await git.pending_merge() if self._commands or not changed else None
             if not changed and merge is None:
                 return None
-            before = await git.get_diff()
+            state = await git.get_diff() if self._commands else await git.tree_fingerprint()
         except GIT_ERRORS:
             if not self._commands:
                 logger.warning("Could not read the repository to check the agent tested its work", exc_info=True)
@@ -270,8 +278,8 @@ class VerificationMiddleware(AgentMiddleware):
             logger.exception("Could not read the repository to verify the agent's work; publishing it as not verified")
             return self._not_verified([], UNREADABLE)
         if self._commands:
-            return await self._verify(changed, before, merging=merge is not None, may_remind=may_remind)
-        return self._fallback(changed, diff_fingerprint(before), may_remind=may_remind)
+            return await self._verify(changed, state, merging=merge is not None, may_remind=may_remind)
+        return self._fallback(changed, state, may_remind=may_remind)
 
     def _not_verified(self, changed: Sequence[str], reason: str) -> _Verdict:
         return _Verdict(_outcome("not_verified", commands=[], changed=changed, rounds=self._rounds, reason=reason))
@@ -283,26 +291,34 @@ class VerificationMiddleware(AgentMiddleware):
             if run is None:
                 run = self._runs[tree] = await self._checks.run_in_place(self._commands, before=before, merging=merging)
             baseline = await self._baseline([result for result in run.results if not result.passed], merging=merging)
+            failures = [result for result in run.results if not result.passed and result.command not in baseline]
+            output_changed = [
+                result
+                for result in run.results
+                if result.command in baseline and not result.signature <= baseline[result.command]
+            ]
+            remind = (
+                may_remind
+                and bool(failures or run.changed_by_checks or output_changed)
+                and tree != self._reminded_tree
+                and self._rounds < MAX_FIX_ROUNDS
+            )
+            flaky = frozenset() if remind else await self._passing_on_rerun(failures, tree, before, merging=merging)
         except ChecksUnavailableError as exc:
             logger.exception("Could not run the before_publish checks; publishing as not verified: %s", exc)
             return self._not_verified(changed, str(exc))
 
-        failures = [result for result in run.results if not result.passed and result.command not in baseline]
-        output_changed = [
-            result
-            for result in run.results
-            if result.command in baseline and not result.signature <= baseline[result.command]
-        ]
+        failures = [result for result in failures if result.command not in flaky]
         failed = bool(failures or run.changed_by_checks)
-        remind = (
-            may_remind
-            and (failed or bool(output_changed))
-            and tree != self._reminded_tree
-            and self._rounds < MAX_FIX_ROUNDS
-        )
         outcome = _outcome(
             "failed" if failed else "passed",
-            commands=command_outcomes(run.results, baseline, {result.command for result in output_changed}),
+            commands=command_outcomes(
+                run.results,
+                baseline,
+                {result.command for result in output_changed},
+                flaky=flaky,
+                with_output=self._publish_output,
+            ),
             changed=changed,
             fingerprint=run.fingerprint,
             rounds=self._rounds + 1 if remind else self._rounds,
@@ -314,6 +330,20 @@ class VerificationMiddleware(AgentMiddleware):
             failures, run.changed_by_checks, MAX_FIX_ROUNDS - self._rounds, changed_output=output_changed
         )
         return _Verdict(outcome, reminder, tree)
+
+    async def _passing_on_rerun(
+        self, failures: Sequence[CheckResult], tree: str, before: str, *, merging: bool
+    ) -> frozenset[str]:
+        """The ``failures`` that pass when run once more on the same tree, as a flaky check does: asked before a failure
+        is final, since that opens the merge request as a draft and keeps the CI fix loop off. Once per tree."""
+        if not failures:
+            return frozenset()
+        if tree not in self._reruns:
+            rerun = await self._checks.run_in_place(
+                [result.command for result in failures], before=before, merging=merging
+            )
+            self._reruns[tree] = frozenset(result.command for result in rerun.results if result.passed)
+        return self._reruns[tree]
 
     async def _baseline(self, failing: Sequence[CheckResult], *, merging: bool) -> dict[str, frozenset[str]]:
         """The ``failing`` commands that also fail on the starting code, each with its output signature there,

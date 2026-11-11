@@ -105,3 +105,10 @@ def test_hooks_before_publish_rejects_blank_command():
 
     with pytest.raises(ValidationError):
         RepositoryConfig.model_validate({"hooks": {"before_publish": ["make test", "  "]}})
+
+
+def test_hooks_before_publish_rejects_more_than_ten_commands():
+    from codebase.repo_config import RepositoryConfig
+
+    with pytest.raises(ValidationError):
+        RepositoryConfig.model_validate({"hooks": {"before_publish": [f"make check-{n}" for n in range(11)]}})

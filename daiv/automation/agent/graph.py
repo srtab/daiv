@@ -287,6 +287,7 @@ async def create_daiv_agent(
             step_budget=step_budget,
             loop_breaker=loop_breaker,
             redact=CheckRunner.redacted_values(ctx.sandbox.env_vars) if ctx.sandbox else (),
+            publish_output=settings.features.verification_output,
         )
 
     user_middleware: list[AgentMiddleware[Any, Any, Any]] = [

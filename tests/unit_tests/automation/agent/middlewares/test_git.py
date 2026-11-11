@@ -474,6 +474,22 @@ class TestGitMiddleware:
             PUBLISH_RESULT_EVENT, publish_result_payload(status="failed", error_kind="unknown", repository="a/b")
         )
 
+    async def test_after_agent_replies_with_the_report_after_pushing_to_an_existing_merge_request(self):
+        _, result = await self._publish_with(self._verification("failed"))
+
+        [message] = result["messages"]
+        assert message.content.startswith("### Verification\n")
+        assert "- `make test` failed (exit 1)" in message.content
+        assert "draft" not in message.content
+
+    @pytest.mark.parametrize(("created", "published"), [(True, True), (False, False)])
+    async def test_after_agent_sends_no_report_reply_for_a_new_merge_request_or_nothing_published(
+        self, created, published
+    ):
+        _, result = await self._publish_with(self._verification("failed"), created=created, published=published)
+
+        assert "messages" not in result
+
     async def test_after_agent_does_not_recheck_without_verification(self):
         kwargs, _ = await self._publish_with(self._verification("passed", fingerprint="stale"))
 

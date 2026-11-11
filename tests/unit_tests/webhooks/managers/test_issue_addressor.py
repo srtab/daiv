@@ -20,6 +20,7 @@ from automation.agent.agent_settings import resolve_agent_settings
 from automation.agent.questions import render_questions
 from automation.agent.synthetic import SYNTHETIC_KWARG, is_synthetic
 from automation.agent.validators import AgentConfigurationError
+from automation.agent.verification.outcome import VerificationReport
 from codebase.base import GitPlatform, Issue, MergeRequest, Scope, User
 from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL
@@ -221,8 +222,10 @@ class TestIssueAfterRunMatrix:
 
     async def test_issue_follow_up_reply_carries_verification_footer(self, captured_client):
         outcome = {"status": "failed", "commands": [], "rounds": 2, "suspicious_paths": [], "reason": "tests fail"}
+        report = VerificationReport(outcome, new_merge_request=False).markdown()
         agent = addressor_agent(
-            return_value={"messages": [AIMessage(content="done")]}, state_values={"verification": outcome}
+            return_value={"messages": [AIMessage(content="done"), AIMessage(content=report)]},
+            state_values={"verification": outcome},
         )
 
         with addressor_run(agent, ctx=_ctx()):

@@ -4,6 +4,8 @@ import base64
 import hashlib
 import logging
 import re
+import shlex
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from urllib.parse import quote
@@ -15,7 +17,7 @@ from automation.agent.middlewares.sandbox import is_bare_timeout_notice
 from automation.agent.workspace.git_manager import GIT_ERRORS
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
     from automation.agent.workspace.git_manager import GitManager
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
@@ -24,8 +26,15 @@ logger = logging.getLogger("daiv.agent")
 
 MAX_FIX_ROUNDS = 2
 CHECK_TIMEOUT_SECONDS = 600
+VERIFICATION_BUDGET_SECONDS = 1_800
 OUTPUT_TAIL_CHARS = 4_000
+_KILL_AFTER_SECONDS = 10
+# Past ``timeout``'s own limit, so ``timeout`` stops a check, and what it started, before the sandbox gives up on it.
+_SANDBOX_TIMEOUT_SECONDS = CHECK_TIMEOUT_SECONDS + _KILL_AFTER_SECONDS + 20
+_STOPPED_BY_TIMEOUT = frozenset({124, 137})
+_OUTPUT_WINDOW_CHARS = 200_000
 UNREADABLE = "the repository could not be read to run the checks"
+OUT_OF_TIME = f"the checks used up their {VERIFICATION_BUDGET_SECONDS // 60} minutes for this run"
 _STASH_MESSAGE = "daiv: pre-publish verification"
 _REDACTED = "******"
 # Shorter values (``true``, ``8000``, ``python``) would mask ordinary words all over the output.
@@ -70,16 +79,34 @@ class CheckRunner:
     Runs a repository's ``before_publish`` checks in the sandbox, each from the repo root in a request of its own so one
     that fails or times out never stops the others, and puts back whatever they change in the tree.
 
+    A check runs under ``timeout`` where the sandbox has it, which stops the check and every process it started in its
+    process group after ``CHECK_TIMEOUT_SECONDS``, so nothing it left running writes to the tree after the checks.
+    Every check a run starts shares ``VERIFICATION_BUDGET_SECONDS``, counted from the first: once it is spent, no
+    further check starts and ``ChecksUnavailableError`` says so, so a run waits at most the budget and one check.
+
+    Only the last ``_OUTPUT_WINDOW_CHARS`` of a check's output are masked and compared, so a check that prints without
+    end costs no more than that.
+
     Args:
         bash: The sandbox shell the checks run in.
         git: The run's git, which sets the tree aside and puts it back.
         redact: Values masked in the checks' output before anyone sees it.
+        clock: Monotonic seconds, which the budget is measured in.
     """
 
-    def __init__(self, bash: SandboxFileBackend, git: GitManager, *, redact: Sequence[str] = ()) -> None:
+    def __init__(
+        self,
+        bash: SandboxFileBackend,
+        git: GitManager,
+        *,
+        redact: Sequence[str] = (),
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self._bash = bash
         self._git = git
         self._redact = sorted(redact, key=len, reverse=True)
+        self._clock = clock
+        self._deadline: float | None = None
 
     @staticmethod
     def redacted_values(env_vars: Mapping[str, str]) -> tuple[str, ...]:
@@ -106,7 +133,7 @@ class CheckRunner:
         ``ChecksUnavailableError``; failing to put it back raises ``StashRestoreError``.
         """
         try:
-            saved = not merging and await self._git.save_tree(_STASH_MESSAGE)
+            saved = None if merging else await self._git.save_tree(_STASH_MESSAGE)
         except GIT_ERRORS as exc:
             raise ChecksUnavailableError("could not set the changes aside to run the checks") from exc
         try:
@@ -116,16 +143,16 @@ class CheckRunner:
             except GIT_ERRORS as exc:
                 raise ChecksUnavailableError(UNREADABLE) from exc
         except Exception:
-            if saved:
-                await self._git.restore_stash()
+            if saved is not None:
+                await self._git.restore_stash(saved)
             raise
         changed = changed_between(before, after)
-        if saved and changed:
-            await self._git.restore_stash()
+        if saved is not None and changed:
+            await self._git.restore_stash(saved)
             after = before
-        elif saved:
+        elif saved is not None:
             try:
-                await self._git.drop_stash()
+                await self._git.drop_stash(saved)
             except GIT_ERRORS:
                 logger.warning("Could not drop the stash entry saved before the checks", exc_info=True)
         return CheckRun(results, changed, diff_fingerprint(after))
@@ -146,33 +173,64 @@ class CheckRunner:
             stashed = await self._git.stash_all(_STASH_MESSAGE)
         except GIT_ERRORS as exc:
             raise ChecksUnavailableError("could not set the changes aside to re-check the starting code") from exc
-        if not stashed:
-            # Nothing was stashed, so the tree is the starting code, and a pop would restore an older, unrelated stash.
+        if stashed is None:
             return {result.command: result.signature for result in failing}
         try:
             results = await self.run([result.command for result in failing])
         finally:
-            await self._git.restore_stash()
+            await self._git.restore_stash(stashed)
         return {result.command: result.signature for result in results if not result.passed}
 
     async def _run_one(self, command: str) -> CheckResult:
+        self._claim_time()
+        started = self._clock()
         try:
             response = await self._bash.run_commands(
-                [f"cd {REPO_PATH} && {command}"], fail_fast=False, timeout=CHECK_TIMEOUT_SECONDS
+                [self.command_line(command)], fail_fast=False, timeout=_SANDBOX_TIMEOUT_SECONDS
             )
         except httpx.HTTPError as exc:
             raise ChecksUnavailableError("the sandbox could not be reached to run the checks") from exc
         if not response.results:
             raise ChecksUnavailableError("the sandbox returned no result for a check")
         result = response.results[0]
-        output = self._mask(result.output)
+        stopped = result.exit_code in _STOPPED_BY_TIMEOUT and self._clock() - started >= CHECK_TIMEOUT_SECONDS
+        output = self._masked_window(result.output)
         return CheckResult(
             command=command,
             exit_code=result.exit_code,
             output_tail=output[-OUTPUT_TAIL_CHARS:],
             signature=_signature(output) if result.exit_code else frozenset(),
-            timed_out=result.timed_out or is_bare_timeout_notice(result, CHECK_TIMEOUT_SECONDS),
+            timed_out=stopped or result.timed_out or is_bare_timeout_notice(result, _SANDBOX_TIMEOUT_SECONDS),
         )
+
+    @staticmethod
+    def command_line(command: str) -> str:
+        """The shell line that runs ``command`` from the repo root, under ``timeout`` when the sandbox has it, in the
+        shell the sandbox runs it in."""
+        quoted = shlex.quote(command)
+        shell = '"${BASH:-sh}" -c ' + quoted
+        return (
+            f"cd {REPO_PATH} && if command -v timeout >/dev/null 2>&1; "
+            f"then timeout -k {_KILL_AFTER_SECONDS} {CHECK_TIMEOUT_SECONDS} {shell}; else {shell}; fi"
+        )
+
+    def _claim_time(self) -> None:
+        """Start the budget on the run's first check; raise ``ChecksUnavailableError`` once it is spent."""
+        now = self._clock()
+        if self._deadline is None:
+            self._deadline = now + VERIFICATION_BUDGET_SECONDS
+        elif now >= self._deadline:
+            raise ChecksUnavailableError(OUT_OF_TIME)
+
+    def _masked_window(self, output: str) -> str:
+        """The masked end of ``output``. The window is cut a longest value wider and trimmed by as much after masking,
+        so a value the cut splits is dropped rather than shown in part."""
+        margin = len(self._redact[0]) if self._redact else 0
+        window = output[-(_OUTPUT_WINDOW_CHARS + margin) :]
+        masked = self._mask(window)
+        if len(window) < len(output):
+            masked = masked[margin:]
+        return masked[-_OUTPUT_WINDOW_CHARS:]
 
     def _mask(self, text: str) -> str:
         for value in self._redact:

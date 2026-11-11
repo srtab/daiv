@@ -4,12 +4,17 @@ from automation.agent.verification.checks import CheckResult
 from automation.agent.verification.outcome import (
     CommandOutcome,
     VerificationOutcome,
+    VerificationReport,
     command_outcomes,
     failure_reminder,
-    render_report,
-    replace_report_section,
-    report_section,
 )
+
+report_section = VerificationReport.section
+replace_report_section = VerificationReport.replace_section
+
+
+def render_report(outcome: VerificationOutcome, *, new_merge_request: bool = True) -> str | None:
+    return VerificationReport(outcome, new_merge_request=new_merge_request).markdown()
 
 
 def _command(command="make test", exit_code=0, *, timed_out=False, already_failing=False, output_tail=None):
@@ -38,7 +43,7 @@ def test_command_outcomes_records_tail_only_for_non_passing_commands():
         CheckResult("make old", 2, "legacy"),
     ]
 
-    lint, test, slow, old = command_outcomes(results, frozenset({"make old", "make lint"}))
+    lint, test, slow, old = command_outcomes(results, frozenset({"make old", "make lint"}), with_output=True)
 
     assert "output_tail" not in lint
     assert lint["already_failing"] is False
@@ -53,6 +58,15 @@ def test_command_outcomes_records_tail_only_for_non_passing_commands():
     assert slow["output_tail"] == "partial"
     assert old["already_failing"] is True
     assert old["output_tail"] == "legacy"
+
+
+def test_command_outcomes_without_output_keeps_no_tail():
+    results = [CheckResult("make test", 1, "boom"), CheckResult("make old", 2, "legacy")]
+
+    outcomes = command_outcomes(results, frozenset({"make old"}), with_output=False)
+
+    assert [outcome.get("output_tail") for outcome in outcomes] == [None, None]
+    assert [outcome["exit_code"] for outcome in outcomes] == [1, 2]
 
 
 def test_render_report_passed():
@@ -157,6 +171,25 @@ def test_render_report_has_no_changed_files_line_when_the_checks_changed_nothing
     assert "Running the checks changed" not in report
 
 
+def test_render_report_says_a_command_that_passed_on_a_second_run_may_be_flaky():
+    flaky = _command(exit_code=1)
+    flaky["flaky"] = True
+
+    report = render_report(_outcome("passed", [flaky]))
+
+    assert "- `make test` failed (exit 1), then passed when run again, so it may be flaky" in report
+    assert "<details>" not in report
+
+
+def test_command_outcomes_marks_flaky_commands_and_keeps_no_output_for_them():
+    results = [CheckResult("make test", 1, "boom"), CheckResult("make lint", 1, "lint")]
+
+    test, lint = command_outcomes(results, frozenset(), flaky=frozenset({"make test"}), with_output=True)
+
+    assert test.get("flaky") is True and "output_tail" not in test
+    assert "flaky" not in lint and lint["output_tail"] == "lint"
+
+
 def test_render_report_none_when_not_configured():
     assert render_report(_outcome("not_configured")) is None
 
@@ -228,7 +261,7 @@ def test_failure_reminder_shows_already_failing_checks_whose_output_changed():
 def test_command_outcomes_marks_already_failing_commands_whose_output_changed():
     results = [CheckResult("make old", 1, "x"), CheckResult("make new", 1, "y")]
 
-    old, new = command_outcomes(results, frozenset({"make old"}), frozenset({"make old", "make new"}))
+    old, new = command_outcomes(results, frozenset({"make old"}), frozenset({"make old", "make new"}), with_output=True)
 
     assert old["output_changed"] is True
     assert "output_changed" not in new

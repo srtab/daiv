@@ -262,6 +262,7 @@ class SiteConfigurationForm(forms.ModelForm):
             "pipeline_watch_enabled",
             "pipeline_watch_max_attempts",
             "verification_enabled",
+            "verification_publish_output",
             "jobs_throttle_rate",
             "auth_login_enabled",
             "auth_signup_open",

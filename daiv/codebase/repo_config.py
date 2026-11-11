@@ -10,7 +10,7 @@ import yaml
 from pydantic import AliasChoices, BaseModel, Field, ValidationError, field_validator
 from yaml.parser import ParserError
 
-from core.constants import ModelName  # noqa: TC001
+from core.constants import BEFORE_PUBLISH_MAX_COMMANDS, ModelName  # noqa: TC001
 from core.models import ThinkingLevelChoices as ThinkingLevel  # noqa: TC001
 
 if TYPE_CHECKING:
@@ -61,9 +61,10 @@ class Hooks(BaseModel):
 
     before_publish: tuple[str, ...] | None = Field(
         default=None,
+        max_length=BEFORE_PUBLISH_MAX_COMMANDS,
         description=(
-            "Commands DAIV runs before publishing a run's changes. Each must exit 0. An empty list turns verification "
-            "off for the repository."
+            f"Commands DAIV runs before publishing a run's changes, at most {BEFORE_PUBLISH_MAX_COMMANDS}. Each must "
+            "exit 0. An empty list turns verification off for the repository."
         ),
     )
 

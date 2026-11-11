@@ -14,6 +14,7 @@ from webhooks.managers.review_addressor import CommentsAddressorManager
 from automation.agent.agent_settings import resolve_agent_settings
 from automation.agent.questions import render_questions
 from automation.agent.validators import AgentConfigurationError
+from automation.agent.verification.outcome import VerificationReport
 from codebase.base import GitPlatform, MergeRequest, Scope, User
 from codebase.clients.base import CommentThread
 from codebase.exceptions import CloneRefNotFoundError
@@ -153,8 +154,9 @@ class TestReviewAfterRunMatrix:
 
     async def test_mr_reply_carries_verification_footer(self, mention):
         outcome = {"status": "failed", "commands": [], "rounds": 2, "suspicious_paths": [], "reason": "tests fail"}
+        report = VerificationReport(outcome, new_merge_request=False).markdown()
         agent = addressor_agent(
-            return_value={"messages": [AIMessage(content="done")]},
+            return_value={"messages": [AIMessage(content="done"), AIMessage(content=report)]},
             state_values={
                 "protected_branch_fallback_source": "feature",
                 "merge_request": _merge_request(200),

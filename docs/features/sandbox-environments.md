@@ -42,7 +42,7 @@ Click **Create** on the list page to open the drawer (`/dashboard/sandbox-envs/c
 | **CPUs** | CPU limit (a number, up to two decimals). Switch from *default* to *custom* to set it; leave on *default* to inherit |
 | **Memory** | Memory limit, entered as a value plus a **MiB** or **GiB** unit. Switch from *default* to *custom* to set it |
 | **Network** | **On** or **Off**. Controls outbound network access (needed to reach package registries) |
-| **Before publish commands** | Optional commands, one per line, that DAIV runs to check a run's changes before publishing (see below) |
+| **Before publish commands** | Commands DAIV runs to check a run's changes before publishing. Leave on *default* to inherit the global default's list, or switch to *custom* to list up to 10, one per line (see below) |
 | **Environment variables** | Name/value pairs injected into the sandbox; mark any as secret (see below). Up to 100 entries |
 | **Egress policy** | Per-host outbound rules, injected credentials, and traffic mode. Shown only when **Network** is **On** (see [Network access and egress policy](#network-access-and-egress-policy)) |
 | **Repositories** | The repository IDs this environment is bound to, as slash-separated paths like `owner/repo` or `group/subgroup/repo` (see [Repository bindings](#repository-bindings)) |
@@ -51,7 +51,12 @@ Leaving **CPUs** or **Memory** on *default* means the field is unset, and the va
 
 ### Default `before_publish` commands
 
-The **Before publish commands** field (one command per line) sets the [verification hooks](../customization/repository-config.md#verification-hooks) every repository using this environment runs before DAIV publishes. A `hooks.before_publish` list in a repository's `.daiv.yml` replaces this list entirely, and `before_publish: []` turns verification off for that repository. An environment whose field is empty uses the [global default](#the-single-global-default)'s list, like **CPUs** and **Memory** on *default*; leave the global default's field empty too for no default commands.
+The **Before publish commands** field sets the [verification hooks](../customization/repository-config.md#verification-hooks) every repository using this environment runs before DAIV publishes. A `hooks.before_publish` list in a repository's `.daiv.yml` replaces this list entirely, and `before_publish: []` turns verification off for that repository.
+
+- *default* inherits the [global default](#the-single-global-default)'s list, like **CPUs** and **Memory** on *default*.
+- *custom* runs this environment's own list, one command per line, up to 10. An empty custom list runs no commands, even when the global default has some.
+
+The global default has nothing to inherit from, so on its form *default* reads **No commands**; leave it there, or empty its custom list, for no default commands.
 
 ### Environment variables (encrypted at rest)
 

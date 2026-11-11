@@ -22,7 +22,7 @@ from automation.agent.references import (
     render_references_block,
 )
 from automation.agent.utils import build_langsmith_config, repo_relative_text
-from automation.agent.verification.outcome import render_report, replace_report_section, report_section
+from automation.agent.verification.outcome import VerificationReport
 from codebase.base import GitPlatform, MergeRequest, MergeRequestDiffStats, Scope
 from codebase.clients.base import aget_open_merge_request
 from codebase.exceptions import MergeRequestBranchNotVisibleError
@@ -286,7 +286,11 @@ class GitChangePublisher:
                     as_draft=as_draft,
                     fallback_from_mr=fallback_from_mr,
                     session_links=links,
-                    verification_report=render_report(verification) if verification is not None else None,
+                    verification_report=(
+                        VerificationReport(verification, new_merge_request=True).markdown()
+                        if verification is not None
+                        else None
+                    ),
                 )
             except MergeRequestBranchNotVisibleError:
                 # Branch is pushed but GitLab won't open the MR yet; failing here would orphan the work
@@ -559,7 +563,9 @@ class GitChangePublisher:
                 {
                     "description": repo_relative_text(description, repo_path=self.workspace.repo_path),
                     "verification_report": (
-                        repo_relative_text(report_section(verification_report), repo_path=self.workspace.repo_path)
+                        repo_relative_text(
+                            VerificationReport.section(verification_report), repo_path=self.workspace.repo_path
+                        )
                         if verification_report
                         else None
                     ),
@@ -579,18 +585,20 @@ class GitChangePublisher:
         self, merge_request: MergeRequest, verification: VerificationOutcome
     ) -> None:
         """Replace the verification report DAIV wrote into ``merge_request``'s description with this run's. Logged, not
-        raised, on failure: the changes are already pushed."""
-        report = render_report(verification, new_merge_request=False)
+        raised, on failure: the changes are already pushed. Neither platform offers a conditional update, so an edit a
+        person makes between the read and the write is lost, as with the related merge requests block."""
+        report = VerificationReport(verification, new_merge_request=False).markdown()
         if report is None:
             return
         try:
             current = await sync_to_async(self.client.get_merge_request)(
                 merge_request.repo_id, merge_request.merge_request_id
             )
-            description = replace_report_section(
-                current.description, repo_relative_text(report, repo_path=self.workspace.repo_path)
+            current_description = current.description or ""
+            description = VerificationReport.replace_section(
+                current_description, repo_relative_text(report, repo_path=self.workspace.repo_path)
             )
-            if description != current.description:
+            if description != current_description:
                 await sync_to_async(self.client.update_merge_request)(
                     merge_request.repo_id, merge_request.merge_request_id, description=description
                 )

@@ -4,8 +4,14 @@ import httpx
 import pytest
 from git import GitCommandError
 
-from automation.agent.verification.checks import CheckResult, CheckRunner, ChecksUnavailableError, diff_fingerprint
-from automation.agent.workspace.git_manager import StashRestoreError
+from automation.agent.verification.checks import (
+    VERIFICATION_BUDGET_SECONDS,
+    CheckResult,
+    CheckRunner,
+    ChecksUnavailableError,
+    diff_fingerprint,
+)
+from automation.agent.workspace.git_manager import StashedTree, StashRestoreError
 from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
 
 
@@ -34,6 +40,9 @@ class FakeBash:
         )
 
 
+SAVED = StashedTree(stash="5" * 40, head="h" * 40, branch="main")
+
+
 class FakeGit:
     def __init__(self) -> None:
         self.stashed = True
@@ -44,24 +53,26 @@ class FakeGit:
         self.drop_error: Exception | None = None
         self.diff_error: Exception | None = None
 
-    async def stash_all(self, message: str) -> bool:
+    async def stash_all(self, message: str) -> StashedTree | None:
         self.events.append("stash_all")
         if self.stash_error is not None:
             raise self.stash_error
-        return self.stashed
+        return SAVED if self.stashed else None
 
-    async def save_tree(self, message: str) -> bool:
+    async def save_tree(self, message: str) -> StashedTree | None:
         self.events.append("save_tree")
         if self.stash_error is not None:
             raise self.stash_error
-        return self.stashed
+        return SAVED if self.stashed else None
 
-    async def restore_stash(self) -> None:
+    async def restore_stash(self, saved: StashedTree) -> None:
+        assert saved is SAVED
         self.events.append("restore_stash")
         if self.restore_error is not None:
             raise self.restore_error
 
-    async def drop_stash(self) -> None:
+    async def drop_stash(self, saved: StashedTree) -> None:
+        assert saved is SAVED
         self.events.append("drop_stash")
         if self.drop_error is not None:
             raise self.drop_error
@@ -84,7 +95,20 @@ def fake_git() -> FakeGit:
 
 async def test_run_checks_sends_each_command_alone_from_the_repo_dir(fake_bash):
     await CheckRunner(fake_bash, FakeGit()).run(["make lint", "make test"])
-    assert fake_bash.calls == [(["cd /workspace/repo && make lint"], 600), (["cd /workspace/repo && make test"], 600)]
+    assert fake_bash.calls == [
+        ([CheckRunner.command_line("make lint")], 630),
+        ([CheckRunner.command_line("make test")], 630),
+    ]
+
+
+def test_command_line_runs_the_check_under_timeout_from_the_repo_dir():
+    line = CheckRunner.command_line("pytest -k 'not slow'")
+
+    assert line == (
+        "cd /workspace/repo && if command -v timeout >/dev/null 2>&1; "
+        "then timeout -k 10 600 \"${BASH:-sh}\" -c 'pytest -k '\"'\"'not slow'\"'\"''; "
+        "else \"${BASH:-sh}\" -c 'pytest -k '\"'\"'not slow'\"'\"''; fi"
+    )
 
 
 async def test_run_checks_runs_the_next_command_after_one_times_out(fake_bash):
@@ -139,7 +163,7 @@ async def test_run_checks_masks_a_value_printed_url_encoded(fake_bash):
     ("result", "timed_out"),
     [
         (RunCommandResult(command="make test", output="", exit_code=124, timed_out=True), True),
-        (RunCommandResult(command="make test", output="Command timed out after 600s", exit_code=124), True),
+        (RunCommandResult(command="make test", output="Command timed out after 630s", exit_code=124), True),
         (RunCommandResult(command="timeout 60 make test", output="", exit_code=124), False),
     ],
     ids=["sandbox-flag", "sandbox-notice", "the-commands-own-timeout"],
@@ -150,6 +174,33 @@ async def test_run_checks_tells_the_sandbox_timeout_from_the_commands_own(fake_b
     [check] = await CheckRunner(fake_bash, FakeGit()).run(["make test"])
 
     assert check.timed_out is timed_out
+
+
+@pytest.mark.parametrize("exit_code", [124, 137])
+async def test_run_checks_counts_a_check_timeout_stopped_at_the_limit_as_timed_out(fake_bash, exit_code):
+    clock = FakeClock()
+
+    async def slow(commands, *, fail_fast, timeout=None):
+        clock.now += 600
+        return RunCommandsResponse(results=[RunCommandResult(command=commands[0], output="", exit_code=exit_code)])
+
+    fake_bash.run_commands = slow
+
+    [check] = await CheckRunner(fake_bash, FakeGit(), clock=clock).run(["make test"])
+
+    assert check.timed_out is True
+
+
+async def test_run_checks_masks_a_value_the_output_window_cuts_in_two(fake_bash):
+    value = "hunter2-secret-0042"
+    # The 200,000-character window starts 5 characters into the first copy; the masked second copy shortens the text.
+    output = "x" * 10 + value + "y" * 100_000 + value + "y" * 99_986
+    fake_bash.results = [RunCommandResult(command="t", output=output, exit_code=1)]
+
+    [result] = await CheckRunner(fake_bash, FakeGit(), redact=(value,)).run(["t"])
+
+    assert "secret" not in "".join(result.signature)
+    assert "******" in "".join(result.signature)
 
 
 async def test_run_checks_raises_unavailable_on_transport_error(fake_bash):
@@ -315,4 +366,54 @@ async def test_run_checks_in_place_is_unavailable_when_the_tree_cannot_be_read_a
         await CheckRunner(fake_bash, fake_git).run_in_place(["make test"], before=AGENT_DIFF, merging=False)
 
     assert str(raised.value) == "the repository could not be read to run the checks"
+    assert fake_git.events == ["save_tree", "restore_stash"]
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+async def test_no_check_starts_once_the_run_spent_its_budget(fake_bash):
+    clock = FakeClock()
+    runner = CheckRunner(fake_bash, FakeGit(), clock=clock)
+    await runner.run(["make lint"])
+    clock.now = VERIFICATION_BUDGET_SECONDS
+
+    with pytest.raises(ChecksUnavailableError) as raised:
+        await runner.run(["make test"])
+
+    assert str(raised.value) == "the checks used up their 30 minutes for this run"
+    assert fake_bash.calls == [([CheckRunner.command_line("make lint")], 630)]
+
+
+async def test_checks_started_within_the_budget_run(fake_bash):
+    clock = FakeClock()
+    runner = CheckRunner(fake_bash, FakeGit(), clock=clock)
+    await runner.run(["make lint"])
+    clock.now = VERIFICATION_BUDGET_SECONDS - 1
+
+    await runner.run(["make test"])
+
+    assert len(fake_bash.calls) == 2
+
+
+async def test_run_checks_in_place_puts_the_tree_back_when_the_budget_runs_out(fake_bash, fake_git):
+    clock = FakeClock()
+
+    def spend(commands, *, fail_fast, timeout=None):
+        clock.now = VERIFICATION_BUDGET_SECONDS
+        return FakeBash.run_commands(fake_bash, commands, fail_fast=fail_fast, timeout=timeout)
+
+    fake_bash.run_commands = spend
+
+    with pytest.raises(ChecksUnavailableError):
+        await CheckRunner(fake_bash, fake_git, clock=clock).run_in_place(
+            ["make lint", "make test"], before=AGENT_DIFF, merging=False
+        )
+
+    assert len(fake_bash.calls) == 1
     assert fake_git.events == ["save_tree", "restore_stash"]

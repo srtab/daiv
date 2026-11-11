@@ -46,7 +46,6 @@ if TYPE_CHECKING:
     from automation.agent.publishers import PublishOutcome
     from automation.agent.session_links import SessionLinksResolver
     from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler
-    from automation.agent.verification.outcome import VerificationOutcome
     from automation.agent.workspace.base import Workspace
     from automation.agent.workspace.git_manager import FastForward
     from automation.agent.workspace.session import SandboxSession
@@ -623,7 +622,6 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
     snapshot = await _read_snapshot(run)
     values = snapshot.values if snapshot is not None else {}
     messages = values.get("messages") or []
-    streamed = response_text is None
     if response_text is None:
         response_text = closing_reply_text(messages)
     merge_request = values.get("merge_request")
@@ -641,14 +639,13 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
             )
         except Exception:
             logger.exception("executor: failed to persist session ref for thread_id=%s", run.thread_id)
-    opened = run.publish is not None and (run.publish.payload or {}).get("status") == "opened"
     if spec.arm_watch and published and spec.run_id is not None:
         from automation.agent.verification.outcome import checks_failed
 
         pushed_sha = (run.publish.payload or {}).get("pushed_sha") if run.publish is not None else None
-        # A streamed reply is not where the report goes, so CI stays the only notice of the failure.
-        examined = checks_failed(verification) and (opened or not streamed)
-        await _claim_merge_request(run, spec.run_id, merge_request, pushed_sha=pushed_sha or "", examined=examined)
+        await _claim_merge_request(
+            run, spec.run_id, merge_request, pushed_sha=pushed_sha or "", examined=checks_failed(verification)
+        )
     await _persist_sibling_state(spec, run, sibling_publishes)
     if spec.arm_watch and spec.run_id is not None:
         for publish in sibling_publishes:
@@ -657,7 +654,6 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
                     run, spec.run_id, publish.merge_request, pushed_sha=publish.pushed_sha, repo_id=publish.repo_id
                 )
 
-    response_text = _with_verification_report(response_text, verification, opened_merge_request=opened)
     agent_result = build_agent_result(
         response=response_text,
         usage=build_usage_summary(run.usage).to_dict(),
@@ -666,21 +662,6 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
         main_repo_id=spec.repo_id,
     )
     return RunOutcome(agent_result=agent_result, response_text=response_text, snapshot=snapshot)
-
-
-def _with_verification_report(
-    response_text: str, verification: VerificationOutcome | None, *, opened_merge_request: bool
-) -> str:
-    """The run's reply followed by its before_publish report, unless the description of the merge request the run
-    opened carries it or no checks are configured."""
-    from automation.agent.verification.outcome import render_report
-
-    if not verification or opened_merge_request:
-        return response_text
-    report = render_report(verification, new_merge_request=False)
-    if report is None:
-        return response_text
-    return f"{response_text.rstrip()}\n\n{report}" if response_text.strip() else report
 
 
 async def _persist_sibling_state(spec: RunSpec, run: AgentRun, publishes: Sequence[RepoPublish]) -> None:
@@ -704,8 +685,8 @@ async def _claim_merge_request(
     """Claim the merge request the run published for its session, in ``repo_id`` when it is not the run's own, then
     judge the branch's CI at once: the push happened during publish, so its pipeline event can arrive before the claim
     exists. ``examined`` claims the commit as examined, so CI failing on it wakes no fix run: the caller sets it when
-    the ``before_publish`` checks still fail and their report reached the person. Best-effort: logged, never raised
-    over a run that already published."""
+    the ``before_publish`` checks still fail, whose report the publish put in the new merge request's description or
+    the run's reply. Best-effort: logged, never raised over a run that already published."""
     from sessions.tasks import evaluate_pipeline_watch_task
 
     try:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 from dataclasses import dataclass, field
 from unittest.mock import Mock
 
@@ -13,19 +14,26 @@ from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.types import Command
 
-from automation.agent.constants import REPO_PATH
 from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.middlewares.verification import VerificationMiddleware
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME, QUESTION_DELIVERED
 from automation.agent.synthetic import is_synthetic
 from automation.agent.verification.checks import diff_fingerprint
+from automation.agent.workspace.git_manager import StashedTree
 from automation.agent.workspace.git_runners import SandboxGitProtocolError
 from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
 from tests.unit_tests.conftest import FakeWorkspace
 
 AGENT_DIFF = "diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -1 +1 @@\n-old\n+new\n"
 LOCK_DIFF = "diff --git a/uv.lock b/uv.lock\n--- a/uv.lock\n+++ b/uv.lock\n@@ -1 +1 @@\n-v1\n+v2\n"
+SAVED = StashedTree(stash="5" * 40, head="h" * 40, branch="main")
+
+
+def _declared(line: str) -> str:
+    """The check command inside the shell line ``CheckRunner`` sends."""
+    tokens = shlex.split(line)
+    return tokens[tokens.index("-c") + 1].removesuffix(";")
 
 
 @dataclass
@@ -41,6 +49,7 @@ class FakeRepo:
     diff: str = AGENT_DIFF
     failing: set[str] = field(default_factory=set)
     failing_on_start: set[str] = field(default_factory=set)
+    fail_once: set[str] = field(default_factory=set)
     outputs: dict[str, str] = field(default_factory=dict)
     start_outputs: dict[str, str] = field(default_factory=dict)
     checks_leave: str | None = None
@@ -69,27 +78,31 @@ class FakeRepo:
         self.diff_reads += 1
         return self.diff
 
+    async def tree_fingerprint(self) -> str:
+        self._read("tree_fingerprint")
+        return diff_fingerprint(self.diff)
+
     async def pending_merge(self) -> None:
         self._read("pending_merge")
         return None
 
-    async def stash_all(self, message: str) -> bool:
+    async def stash_all(self, message: str) -> StashedTree:
         if self.stash_error is not None:
             raise self.stash_error
         self.stashes += 1
         self.stashed = True
-        return True
+        return SAVED
 
-    async def save_tree(self, message: str) -> bool:
+    async def save_tree(self, message: str) -> StashedTree:
         if self.save_error is not None:
             raise self.save_error
         self.saved = self.diff
-        return True
+        return SAVED
 
-    async def drop_stash(self) -> None:
+    async def drop_stash(self, saved: StashedTree) -> None:
         self.saved = None
 
-    async def restore_stash(self) -> None:
+    async def restore_stash(self, saved: StashedTree) -> None:
         if self.restore_error is not None:
             raise self.restore_error
         if self.stashed:
@@ -100,8 +113,11 @@ class FakeRepo:
     async def run_commands(self, commands, *, fail_fast, timeout=None) -> RunCommandsResponse:
         if self.error is not None:
             raise self.error
-        declared = [command.removeprefix(f"cd {REPO_PATH} && ") for command in commands]
+        declared = [_declared(command) for command in commands]
         failing, outputs = (self.failing_on_start, self.start_outputs) if self.stashed else (self.failing, self.outputs)
+        if not self.stashed and self.fail_once & set(declared):
+            failing = failing | (self.fail_once & set(declared))
+            self.fail_once -= set(declared)
         if not self.stashed:
             self.check_runs += 1
             if self.checks_leave is not None:
@@ -152,6 +168,7 @@ def _middleware(
     finalizing: bool = False,
     terminated: bool = False,
     redact: tuple[str, ...] = (),
+    publish_output: bool = False,
 ) -> VerificationMiddleware:
     step_budget = Mock(spec=StepBudgetMiddleware)
     step_budget.is_finalizing.return_value = finalizing
@@ -163,6 +180,7 @@ def _middleware(
         step_budget=step_budget,
         loop_breaker=loop_breaker,
         redact=redact,
+        publish_output=publish_output,
     )
 
 
@@ -250,7 +268,7 @@ async def test_failures_stop_after_two_fix_rounds():
     outcome = _outcome(result)
     assert outcome["status"] == "failed"
     assert outcome["rounds"] == 2
-    assert repo.check_runs == 3
+    assert repo.check_runs == 4
     assert len(seen) == 1
 
 
@@ -258,12 +276,25 @@ async def test_check_output_is_masked_in_the_reminder_and_the_outcome():
     repo = FakeRepo(failing={"make test"})
     handler, seen = _scripted(_final(), _final())
 
-    result = await _middleware(repo, redact=("make test output",)).awrap_model_call(_request(), handler)
+    middleware = _middleware(repo, redact=("make test output",), publish_output=True)
+    result = await middleware.awrap_model_call(_request(), handler)
 
     reminder = seen[1].messages[-1].content
     assert "******" in reminder
     assert "make test output" not in reminder
     assert _outcome(result)["commands"][0]["output_tail"] == "******"
+
+
+async def test_outcome_keeps_no_check_output_unless_it_is_published():
+    repo = FakeRepo(failing={"make test"})
+    handler, seen = _scripted(_final(), _final())
+
+    result = await _middleware(repo).awrap_model_call(_request(), handler)
+
+    assert "make test output" in seen[1].messages[-1].content
+    [command] = _outcome(result)["commands"]
+    assert command["exit_code"] == 1
+    assert "output_tail" not in command
 
 
 async def test_failure_already_present_on_starting_code_is_not_sent_back():
@@ -366,8 +397,44 @@ async def test_unchanged_tree_after_reminder_is_not_rechecked():
     outcome = _outcome(result)
     assert outcome["status"] == "failed"
     assert outcome["rounds"] == 1
-    assert repo.check_runs == 1
+    assert repo.check_runs == 2
     assert len(seen) == 2
+
+
+async def test_a_failure_that_passes_when_run_again_is_recorded_as_flaky_not_failed():
+    repo = FakeRepo(fail_once={"make test"})
+    handler, seen = _scripted(_final())
+
+    result = await _middleware(repo, finalizing=True).awrap_model_call(_request(), handler)
+
+    outcome = _outcome(result)
+    assert outcome["status"] == "passed"
+    assert outcome["commands"][0]["flaky"] is True
+    assert repo.check_runs == 2
+    assert len(seen) == 1
+
+
+async def test_a_failure_that_fails_again_stays_failed_and_its_tree_is_rerun_once():
+    repo = FakeRepo(failing={"make test"})
+    middleware = _middleware(repo, finalizing=True)
+
+    for _ in range(2):
+        handler, _seen = _scripted(_final())
+        outcome = _outcome(await middleware.awrap_model_call(_request(), handler))
+
+    assert outcome["status"] == "failed"
+    assert "flaky" not in outcome["commands"][0]
+    assert repo.check_runs == 2
+
+
+async def test_a_failure_sent_back_for_fixing_is_not_run_again():
+    repo = FakeRepo(fail_once={"make test"})
+    handler, seen = _scripted(_final(), _tool_call())
+
+    await _middleware(repo).awrap_model_call(_request(), handler)
+
+    assert repo.check_runs == 1
+    assert "make test: exit code 1" in seen[1].messages[-1].content
 
 
 async def test_finalizing_budget_records_failure_without_reminder():
@@ -411,7 +478,7 @@ async def test_failed_reminder_call_keeps_the_round_for_the_retry():
     outcome = _outcome(result)
     assert outcome["status"] == "failed"
     assert outcome["rounds"] == 1
-    assert repo.check_runs == 1
+    assert repo.check_runs == 2
     assert repo.stashes == 1
 
 
@@ -671,7 +738,7 @@ async def test_recheck_keeps_the_outcome_when_the_tree_is_unchanged():
 
 async def test_recheck_judges_a_changed_tree_again_without_a_reminder():
     repo = FakeRepo()
-    middleware = _middleware(repo, redact=("make test output",))
+    middleware = _middleware(repo, redact=("make test output",), publish_output=True)
     outcome = _outcome(await _recorded(middleware))
     repo.diff += "+late change\n"
     repo.failing = {"make test"}
@@ -682,7 +749,7 @@ async def test_recheck_judges_a_changed_tree_again_without_a_reminder():
     assert updated["rounds"] == 0
     assert updated["fingerprint"] == diff_fingerprint(repo.diff)
     assert updated["commands"][0]["output_tail"] == "******"
-    assert repo.check_runs == 2
+    assert repo.check_runs == 3
 
 
 async def test_recheck_leaves_outcomes_that_ran_no_checks_alone():

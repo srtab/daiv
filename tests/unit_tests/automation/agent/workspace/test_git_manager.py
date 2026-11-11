@@ -17,6 +17,7 @@ from automation.agent.workspace.git_manager import (
     GitPushPermissionError,
     GitPushStaleError,
     PendingMerge,
+    StashedTree,
     StashRestoreError,
     _is_push_stale_error_text,
 )
@@ -1031,8 +1032,10 @@ async def test_head_sha_refuses_output_that_is_not_a_sha() -> None:
 
 
 # ---------------------------------------------------------------------------
-# stash_all / restore_stash
+# stash_all / save_tree / restore_stash / drop_stash
 # ---------------------------------------------------------------------------
+
+SAVED = StashedTree(stash="5" * 40, head="a" * 40, branch="main")
 
 
 @pytest.fixture
@@ -1041,39 +1044,110 @@ def fixed_label(monkeypatch) -> str:
     return "m [0123456789ab]"
 
 
-async def test_stash_all_returns_true_when_changes_stashed(fixed_label) -> None:
-    gm, client = _sandbox_manager({"stash push": (0, "Saved working directory and index state On main: m")})
-    assert await gm.stash_all("m") is True
-    assert client.ran("stash push --include-untracked -m 'm [0123456789ab]'")
+def _local_repo_with_changes(tmp_path: Path) -> tuple[Repo, Path, GitManager]:
+    repo, _ = _init_repo_with_origin(tmp_path)
+    work = Path(repo.working_dir)
+    (work / "README.md").write_text("agent edit\n")
+    (work / "new.py").write_text("print('new')\n")
+    return repo, work, GitManager(LocalGitRunner(repo))
+
+
+async def test_save_tree_keeps_the_changes_and_records_where_head_was(tmp_path: Path) -> None:
+    repo, work, gm = _local_repo_with_changes(tmp_path)
+
+    saved = await gm.save_tree("m")
+
+    assert saved is not None
+    assert (saved.head, saved.branch) == (repo.head.commit.hexsha, "main")
+    assert repo.git.stash("list", "--format=%H").split() == [saved.stash]
+    assert (work / "README.md").read_text() == "agent edit\n"
+    assert (work / "new.py").exists()
+
+
+async def test_save_tree_returns_none_on_a_clean_tree(tmp_path: Path) -> None:
+    repo, _ = _init_repo_with_origin(tmp_path)
+
+    assert await GitManager(LocalGitRunner(repo)).save_tree("m") is None
+
+
+async def test_restore_stash_undoes_a_check_that_committed_and_left_a_stash_entry_of_its_own(tmp_path: Path) -> None:
+    repo, work, gm = _local_repo_with_changes(tmp_path)
+    saved = await gm.save_tree("m")
+    (work / "README.md").write_text("written by the check\n")
+    repo.git.add("-A")
+    repo.index.commit("committed by the check")
+    (work / "README.md").write_text("stashed by the check\n")
+    repo.git.stash("push", "-m", "the check's own")
+
+    await gm.restore_stash(saved)
+
+    assert repo.head.commit.hexsha == saved.head
+    assert repo.active_branch.name == "main"
+    assert (work / "README.md").read_text() == "agent edit\n"
+    assert (work / "new.py").exists()
+    assert repo.git.stash("list", "--format=%gs").splitlines() == ["On main: the check's own"]
+
+
+async def test_restore_stash_puts_head_back_on_its_branch_after_a_check_switched_branches(tmp_path: Path) -> None:
+    repo, work, gm = _local_repo_with_changes(tmp_path)
+    saved = await gm.save_tree("m")
+    repo.git.checkout("-f", "-b", "other")
+
+    await gm.restore_stash(saved)
+
+    assert repo.active_branch.name == "main"
+    assert (work / "README.md").read_text() == "agent edit\n"
+
+
+async def test_drop_stash_drops_its_own_entry_even_below_a_newer_one(tmp_path: Path) -> None:
+    repo, work, gm = _local_repo_with_changes(tmp_path)
+    saved = await gm.save_tree("m")
+    (work / "extra.txt").write_text("x\n")
+    repo.git.stash("push", "--include-untracked", "-m", "newer")
+
+    await gm.drop_stash(saved)
+
+    assert repo.git.stash("list", "--format=%gs").splitlines() == ["On main: newer"]
+
+
+async def test_stash_all_takes_the_changes_out_of_the_tree(tmp_path: Path) -> None:
+    repo, work, gm = _local_repo_with_changes(tmp_path)
+
+    saved = await gm.stash_all("m")
+
+    assert saved is not None
+    assert (work / "README.md").read_text() == "initial\n"
+    assert not (work / "new.py").exists()
+    await gm.restore_stash(saved)
+    assert (work / "README.md").read_text() == "agent edit\n"
+    assert repo.git.stash("list") == ""
 
 
 async def test_stash_all_puts_the_tree_back_when_a_failed_push_stored_its_entry(fixed_label) -> None:
+    sha = "5" * 40
     gm, client = _sandbox_manager({
         "stash push": (1, "error: could not remove 'ro/'"),
-        "stash list": (0, f"On main: {fixed_label}\n"),
+        "stash list": (0, f"{sha} On main: {fixed_label}\n"),
+        "symbolic-ref": (0, "main"),
     })
 
     with pytest.raises(GitCommandError):
         await gm.stash_all("m")
 
-    assert [c.removeprefix("git -C /workspace/repo ") for c in client.commands][1:] == [
-        "stash list --max-count=1 '--format=%gs'",
-        "reset --hard HEAD",
-        "clean -fd",
-        "stash pop --index",
-    ]
+    assert client.ran(f"checkout -f -B main {FakeSandboxClient.HEAD_SHA}")
+    assert client.ran(f"stash apply --index {sha}")
 
 
 async def test_stash_all_leaves_the_tree_alone_when_a_failed_push_stored_nothing(fixed_label) -> None:
     gm, client = _sandbox_manager({
         "stash push": (1, "error: could not write index"),
-        "stash list": (0, "On main: m [ffffffffffff]\n"),
+        "stash list": (0, f"{'5' * 40} On main: m [ffffffffffff]\n"),
     })
 
     with pytest.raises(GitCommandError):
         await gm.stash_all("m")
 
-    assert not client.ran("reset --hard")
+    assert not client.ran("checkout -f")
 
 
 async def test_stash_all_fails_loudly_when_it_cannot_tell_whether_a_failed_push_stored_its_entry(fixed_label) -> None:
@@ -1082,87 +1156,73 @@ async def test_stash_all_fails_loudly_when_it_cannot_tell_whether_a_failed_push_
     with pytest.raises(StashRestoreError):
         await gm.stash_all("m")
 
-    assert not client.ran("reset --hard")
+    assert not client.ran("checkout -f")
+
+
+async def test_stash_all_fails_loudly_when_its_entry_cannot_be_found_after_the_push(fixed_label) -> None:
+    gm, _ = _sandbox_manager({
+        "stash push": (0, "Saved working directory and index state On main: m"),
+        "stash list": (0, ""),
+    })
+
+    with pytest.raises(StashRestoreError):
+        await gm.stash_all("m")
 
 
 async def test_stash_all_leaves_the_tree_alone_when_the_sandbox_never_ran_the_push() -> None:
-    runner = _BusyRunner(busy=3)
+    runner = _BusyRunner(busy=3, only=("stash", "push"))
 
     with pytest.raises(httpx.HTTPStatusError):
         await GitManager(runner).stash_all("m")
 
-    assert [args[:2] for args in runner.attempts] == [("stash", "push")] * 3
+    assert [args[:2] for args in runner.attempts if args[:2] == ("stash", "push")] == [("stash", "push")] * 3
+    assert not any(args[0] == "checkout" for args in runner.attempts)
 
 
-async def test_stash_all_returns_false_when_clean() -> None:
-    gm, _ = _sandbox_manager({"stash push": (0, "No local changes to save")})
-    assert await gm.stash_all("m") is False
+async def test_restore_stash_raises_and_keeps_the_entry_when_the_apply_fails() -> None:
+    gm, client = _sandbox_manager({"stash apply": (1, "CONFLICT")})
 
-
-async def test_restore_stash_runs_reset_clean_pop_in_order() -> None:
-    gm, client = _sandbox_manager()
-    await gm.restore_stash()
-    assert [c.removeprefix("git -C /workspace/repo ") for c in client.commands] == [
-        "reset --hard HEAD",
-        "clean -fd",
-        "stash pop --index",
-    ]
-
-
-async def test_restore_stash_raises_when_pop_fails() -> None:
-    gm, _ = _sandbox_manager({"stash pop": (1, "CONFLICT")})
     with pytest.raises(StashRestoreError) as raised:
-        await gm.restore_stash()
+        await gm.restore_stash(SAVED)
+
     assert isinstance(raised.value.__cause__, GitCommandError)
+    assert not client.ran("stash drop")
 
 
-async def test_save_tree_stashes_then_puts_the_changes_back(fixed_label) -> None:
-    gm, client = _sandbox_manager({"stash push": (0, "Saved working directory and index state On main: m")})
-    assert await gm.save_tree("m") is True
-    assert [c.removeprefix("git -C /workspace/repo ") for c in client.commands] == [
-        "stash push --include-untracked -m 'm [0123456789ab]'",
-        "stash apply --index",
-    ]
-
-
-async def test_save_tree_returns_false_when_clean() -> None:
-    gm, client = _sandbox_manager({"stash push": (0, "No local changes to save")})
-    assert await gm.save_tree("m") is False
-    assert not client.ran("stash apply")
-
-
-async def test_save_tree_raises_when_the_changes_cannot_be_put_back() -> None:
+async def test_save_tree_raises_when_the_changes_cannot_be_put_back(fixed_label) -> None:
     gm, _ = _sandbox_manager({
         "stash push": (0, "Saved working directory and index state On main: m"),
+        "stash list": (0, f"{'5' * 40} On main: {fixed_label}\n"),
         "stash apply": (1, "error"),
     })
     with pytest.raises(StashRestoreError):
         await gm.save_tree("m")
 
 
-async def test_drop_stash_drops_the_newest_entry() -> None:
-    gm, client = _sandbox_manager()
-    await gm.drop_stash()
-    assert client.ran("stash drop")
-
-
 class _BusyRunner:
-    """Answers ``busy`` calls with ``status`` before letting commands through, recording each attempt."""
+    """Answers ``busy`` calls (only those starting with ``only``, when given) with ``status`` before letting commands
+    through, recording each attempt."""
 
-    def __init__(self, busy: int, status: int = 409) -> None:
+    def __init__(self, busy: int, status: int = 409, only: tuple[str, ...] = ()) -> None:
         self.busy = busy
         self.status = status
+        self.only = only
         self.attempts: list[tuple[str, ...]] = []
 
     async def run(self, args: tuple[str, ...]) -> GitResult:
         self.attempts.append(args)
-        if self.busy:
+        if self.busy and args[: len(self.only)] == self.only:
             self.busy -= 1
             request = httpx.Request("POST", "http://sandbox.test/session/sid/")
             raise httpx.HTTPStatusError(
                 str(self.status), request=request, response=httpx.Response(self.status, request=request)
             )
+        if args[:2] == ("rev-parse", "HEAD"):
+            return GitResult(exit_code=0, output="a" * 40)
         return GitResult(exit_code=0, output="")
+
+    async def run_batch(self, commands: list[tuple[str, ...]]) -> list[GitResult]:
+        return [await self.run(args) for args in commands]
 
 
 @pytest.fixture(autouse=True)
@@ -1173,25 +1233,25 @@ def no_backoff(monkeypatch) -> None:
 async def test_restore_stash_retries_a_step_the_sandbox_refused_as_busy() -> None:
     runner = _BusyRunner(busy=2)
 
-    await GitManager(runner).restore_stash()
+    await GitManager(runner).restore_stash(SAVED)
 
-    assert runner.attempts == [
-        ("reset", "--hard", "HEAD"),
-        ("reset", "--hard", "HEAD"),
-        ("reset", "--hard", "HEAD"),
+    assert runner.attempts[:5] == [
+        ("checkout", "-f", "-B", "main", SAVED.head),
+        ("checkout", "-f", "-B", "main", SAVED.head),
+        ("checkout", "-f", "-B", "main", SAVED.head),
+        ("reset", "--hard", SAVED.head),
         ("clean", "-fd"),
-        ("stash", "pop", "--index"),
     ]
+    assert ("stash", "apply", "--index", SAVED.stash) in runner.attempts
 
 
 async def test_restore_stash_gives_up_after_three_busy_answers() -> None:
     runner = _BusyRunner(busy=3)
 
     with pytest.raises(StashRestoreError) as raised:
-        await GitManager(runner).restore_stash()
+        await GitManager(runner).restore_stash(SAVED)
 
     assert isinstance(raised.value.__cause__, httpx.HTTPStatusError)
-
     assert len(runner.attempts) == 3
 
 
@@ -1199,9 +1259,43 @@ async def test_restore_stash_does_not_retry_other_sandbox_errors() -> None:
     runner = _BusyRunner(busy=1, status=500)
 
     with pytest.raises(StashRestoreError):
-        await GitManager(runner).restore_stash()
+        await GitManager(runner).restore_stash(SAVED)
 
     assert len(runner.attempts) == 1
+
+
+# ---------------------------------------------------------------------------
+# tree_fingerprint
+# ---------------------------------------------------------------------------
+
+
+async def test_tree_fingerprint_changes_with_the_content_of_an_already_changed_file(tmp_path: Path) -> None:
+    _, work, gm = _local_repo_with_changes(tmp_path)
+    first = await gm.tree_fingerprint()
+    assert await gm.tree_fingerprint() == first
+
+    (work / "README.md").write_text("agent EDIT\n")
+
+    assert await gm.tree_fingerprint() != first
+
+
+async def test_tree_fingerprint_changes_with_the_content_of_an_untracked_file(tmp_path: Path) -> None:
+    _, work, gm = _local_repo_with_changes(tmp_path)
+    first = await gm.tree_fingerprint()
+
+    (work / "new.py").write_text("print('NEW')\n")
+
+    assert await gm.tree_fingerprint() != first
+
+
+async def test_tree_fingerprint_reads_a_deleted_file_without_hashing_it(tmp_path: Path) -> None:
+    repo, _ = _init_repo_with_origin(tmp_path)
+    gm = GitManager(LocalGitRunner(repo))
+    clean = await gm.tree_fingerprint()
+
+    (Path(repo.working_dir) / "README.md").unlink()
+
+    assert await gm.tree_fingerprint() != clean
 
 
 # ---------------------------------------------------------------------------

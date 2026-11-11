@@ -40,7 +40,7 @@ sequenceDiagram
     |---|---|
     | The watch is on for the repository and for this merge request | Watch off |
     | The pipeline ran on the commit DAIV last pushed | Not DAIV's commit |
-    | No CI run looked at that commit yet, and its [`before_publish` checks](../customization/repository-config.md#verification-hooks) did not still fail where their report was shown (a new merge request's description, or a reply that is not a chat reply) | Already examined |
+    | No CI run looked at that commit yet, and its [`before_publish` checks](../customization/repository-config.md#verification-hooks) did not still fail | Already examined |
     | Attempts are left | Attempts spent |
     | DAIV has not started three runs in a row on the session without a person | Too many runs in a row |
 

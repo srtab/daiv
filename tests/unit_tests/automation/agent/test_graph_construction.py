@@ -407,6 +407,14 @@ async def test_check_output_masks_the_sandbox_env_values():
     assert verification._checks._mask("TOKEN=abcd1234efgh DEBUG=1") == "TOKEN=****** DEBUG=1"
 
 
+@pytest.mark.parametrize("publish_output", [False, True])
+async def test_verification_keeps_check_output_only_when_the_site_publishes_it(publish_output):
+    built = await _construct(site={"verification_publish_output": publish_output}, bash=True, auto_commit_changes=True)
+
+    [verification] = _verification(built.middleware)
+    assert verification._publish_output is publish_output
+
+
 async def test_the_git_middleware_rechecks_through_the_verification_middleware():
     built = await _construct(bash=True, auto_commit_changes=True)
 

@@ -27,7 +27,7 @@ from automation.agent.publishers import (
 )
 from automation.agent.references import ExternalRef
 from automation.agent.session_links import SessionLinks
-from automation.agent.verification.outcome import render_report, report_section
+from automation.agent.verification.outcome import VerificationReport
 from automation.agent.workspace.git_manager import GitPushPermissionError, PendingMerge, RepoStatus
 from automation.agent.workspace.repo_view import RepoWorkspace
 from automation.agent.workspace.sandbox import SandboxWorkspace
@@ -309,7 +309,11 @@ class TestCreateMergeRequestDescription:
         }
 
         await publisher._create_merge_request(
-            "feature", "Title", "Fixes <b>bold</b>", target_branch="main", verification_report=render_report(outcome)
+            "feature",
+            "Title",
+            "Fixes <b>bold</b>",
+            target_branch="main",
+            verification_report=VerificationReport(outcome, new_merge_request=True).markdown(),
         )
 
         description = publisher.client.update_or_create_merge_request.call_args.kwargs["description"]
@@ -1010,18 +1014,23 @@ class TestPublishVerification:
             await publisher.publish(merge_request=None, verification=_FAILED)
 
         assert create_mr.await_args.args[2] == "Body"
-        assert create_mr.await_args.kwargs["verification_report"] == render_report(_FAILED)
+        assert (
+            create_mr.await_args.kwargs["verification_report"]
+            == VerificationReport(_FAILED, new_merge_request=True).markdown()
+        )
 
     async def test_report_replaces_the_one_in_an_existing_merge_requests_description(self):
         publisher = _publisher_no_issue()
         _use_git_manager(publisher, _fake_git_manager())
-        old = f"Body\n\n{report_section(render_report(_FAILED))}\n\n---\nfooter"
+        old_report = VerificationReport(_FAILED, new_merge_request=True).markdown()
+        old = f"Body\n\n{VerificationReport.section(old_report)}\n\n---\nfooter"
         publisher.client.get_merge_request.return_value = make_merge_request(description=old)
 
         with patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()):
             await publisher.publish(merge_request=make_merge_request(), verification=_PASSED)
 
-        new = f"Body\n\n{report_section(render_report(_PASSED, new_merge_request=False))}\n\n---\nfooter"
+        new_report = VerificationReport(_PASSED, new_merge_request=False).markdown()
+        new = f"Body\n\n{VerificationReport.section(new_report)}\n\n---\nfooter"
         publisher.client.update_merge_request.assert_called_once_with("owner/repo", 42, description=new)
 
     async def test_an_existing_description_without_a_report_is_left_alone(self):

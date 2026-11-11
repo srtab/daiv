@@ -38,6 +38,10 @@ class TestDefaults:
         with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(verification_enabled=None)):
             assert ss.verification_enabled is True
 
+    def test_verification_publish_output_defaults_false(self, ss):
+        with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(verification_publish_output=None)):
+            assert ss.verification_publish_output is False
+
 
 class TestDbOverride:
     def test_db_value_overrides_default(self, ss):

@@ -30,7 +30,7 @@ from automation.agent.publishers import (
 from automation.agent.sibling_links import RelatedMergeRequest, aensure_related_links
 from automation.agent.synthetic import PUBLISH_FAILURES_KIND, synthetic_ai_message
 from automation.agent.utils import final_assistant_text, streamed_assistant_message
-from automation.agent.verification.outcome import checks_failed
+from automation.agent.verification.outcome import VerificationReport, checks_failed
 from automation.agent.workspace.git_manager import GIT_ERRORS
 from codebase.base import MergeRequest, Scope
 
@@ -590,8 +590,11 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 ctx, main_merge_request or checkpointed_merge_request(state, strict=False), repo_publishes
             )
         conflicts, failures = _sibling_notices(ctx, repo_publishes)
+        report = None
+        if verification is not None and outcome is not None and outcome.published and not outcome.created_merge_request:
+            report = VerificationReport(verification, new_merge_request=False).markdown()
         messages = []
-        if visible_text := "\n\n".join(filter(None, [notice, *conflicts])):
+        if visible_text := "\n\n".join(filter(None, [notice, *conflicts, report])):
             messages.append(await streamed_assistant_message(visible_text))
         if failures:
             messages.append(synthetic_ai_message(failures, kind=PUBLISH_FAILURES_KIND))
