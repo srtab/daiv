@@ -375,7 +375,7 @@ The `Run` model denormalizes key fields (status, timestamps, result summary, err
 
     ---
 
-    Know the moment a run finishes, in the app, by email, or in Rocket Chat.
+    Know the moment a run finishes, in the app, by email, in Rocket Chat or on Telegram.
 
     [:octicons-arrow-right-24: Notifications](notifications.md)
 

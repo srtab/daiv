@@ -150,7 +150,7 @@ Every signed-in user — member or admin — has these self-service pages. All b
 |------|-------|--------------|
 | **Dashboard** | `/dashboard/` | Your activity summary and quick links. Admins also see system-wide velocity metrics and total user count. |
 | **API keys** | `/accounts/api-keys/` | Create and revoke personal API keys for programmatic access. |
-| **Notification channels** | `/accounts/channels/` | Choose how you're notified about your agent runs (in-app, email, and Rocket.Chat when enabled). |
+| **Notification channels** | `/accounts/channels/` | Choose how you're notified about your agent runs (in-app, email, Rocket Chat and Telegram when enabled). |
 
 API keys authenticate calls to the [Jobs API](../features/jobs-api.md) and the [MCP endpoint](../features/mcp-endpoint.md). Members see only their own keys; admins see every user's keys in the list.
 
