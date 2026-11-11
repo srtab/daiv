@@ -1315,6 +1315,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#running-a-skill-on-another-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running a skill on another model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#writing-a-good-description" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1839,6 +1850,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#running-a-skill-on-another-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running a skill on another model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#writing-a-good-description" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2078,9 +2100,9 @@
 <p>Admins can manage custom global skills from the web dashboard at <strong>Skills</strong> (<code>/dashboard/skills/</code>) instead of editing the mounted directory by hand. Both approaches write to the same <code>DAIV_AGENT_CUSTOM_SKILLS_PATH</code> location, so they coexist — the dashboard is an alternative to, not a replacement for, the Docker-volume approach.</p>
 <p>From the Skills page you can:</p>
 <ul>
-<li><strong>List skills</strong> — built-in and custom global skills are shown together, each with its invocation count. A custom skill whose name matches a built-in shadows it and is flagged <strong>Overrides built-in</strong>.</li>
+<li><strong>List skills</strong> — built-in and custom global skills are shown together, each with its invocation count and, when it has one, the model its entry names. A custom skill whose name matches a built-in shadows it and is flagged <strong>Overrides built-in</strong>.</li>
 <li><strong>Upload a skill</strong> as a ZIP archive (see constraints below). Uploading a skill whose name already exists asks you to confirm before it replaces the existing one.</li>
-<li><strong>View a skill</strong> — its <code>SKILL.md</code>, file tree, and usage over the last 30 days.</li>
+<li><strong>View a skill</strong> — its page has four tabs: <strong>SKILL.md</strong>, <strong>Files</strong>, <strong>Models</strong> (the model it runs on; see <a href="#running-a-skill-on-another-model">Running a skill on another model</a>) and <strong>Usage</strong> (invocations over the last 30 days, and the latest runs that invoked it, each linking to the run in its session).</li>
 <li><strong>Download</strong> a custom skill's original ZIP.</li>
 <li><strong>Delete</strong> a custom skill (built-in skills cannot be deleted; deleting a custom skill that shadowed a built-in restores the built-in).</li>
 </ul>
@@ -2219,119 +2241,145 @@
 </tr>
 </tbody>
 </table>
-<h3 id="writing-a-good-description">Writing a good description</h3>
-<p>The <code>description</code> field is how the agent decides whether to use your skill. Include specific trigger phrases:</p>
+<h3 id="running-a-skill-on-another-model">Running a skill on another model</h3>
+<p>Once the agent invokes a skill, its model calls run on the skill's model until your next message. The first of these that is set names that model:</p>
+<ol>
+<li>the skill's entry under <code>models.skills</code> in the repository's <code>.daiv.yml</code> (see <a href="../repository-config/#skill-and-subagent-models">Model overrides</a>);</li>
+<li>the skill's entry on its <strong>Models</strong> tab in the dashboard's Skills pages (or in <code>DAIV_AGENT_SKILL_MODELS</code>);</li>
+<li>the <code>metadata.model</code> of a built-in or global skill file;</li>
+<li>the run's model.</li>
+</ol>
+<p>The <strong>Models</strong> tab changes a skill's model for every repository, built-in skills included, without copying or editing the skill file. On <code>/code-review</code> it also sets the model of each detector the skill ships (see <a href="../../features/subagents/#choosing-a-subagents-model">Subagents</a>). A model the user picks for the run, even an exact model passed to the jobs API, does not override an entry.</p>
+<p>A skill that exists only in repositories has no page: give it a model with a <code>models.skills</code> entry in each repository's <code>.daiv.yml</code>.</p>
+<p>A built-in or global skill file can name its own model in <code>metadata.model</code>, as a model spec (<code>provider-slug:model</code>, as in <a href="../../features/subagents/">subagents</a>):</p>
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span>
 <span class="normal"><a href="#__codelineno-4-2">2</a></span>
 <span class="normal"><a href="#__codelineno-4-3">3</a></span>
 <span class="normal"><a href="#__codelineno-4-4">4</a></span>
 <span class="normal"><a href="#__codelineno-4-5">5</a></span>
-<span class="normal"><a href="#__codelineno-4-6">6</a></span>
-<span class="normal"><a href="#__codelineno-4-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a><span class="c1"># Good — includes trigger phrases the agent can match</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2"></a><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">&gt;</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3"></a><span class="w">  </span><span class="no">Diagnose and fix CI/CD pipeline failures. Use when the user mentions</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4"></a><span class="w">  </span><span class="no">"pipeline is failing", "CI broken", "fix the build", or "debug the tests".</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5"></a>
-<a id="__codelineno-4-6" name="__codelineno-4-6"></a><span class="c1"># Bad — too vague for the agent to match</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7"></a><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Helps with CI/CD issues.</span>
+<span class="normal"><a href="#__codelineno-4-6">6</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a><span class="nn">---</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2"></a><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">changelog</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3"></a><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Update CHANGELOG.md for the current changes.</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4"></a><span class="nt">metadata</span><span class="p">:</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5"></a><span class="w">  </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">openrouter:anthropic/claude-haiku-5.5</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6"></a><span class="nn">---</span>
 </code></pre></div></td></tr></table></div>
-<h2 id="authoring-best-practices">Authoring best practices</h2>
-<h3 id="be-specific-and-actionable">Be specific and actionable</h3>
-<p>Tell the agent exactly what steps to follow:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Markdown</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1">1</a></span>
+<p>A repository skill's <code>metadata.model</code> is ignored, because the file comes from the branch the run works on, which the author of a merge request controls. Give a repository skill a model with a <code>models.skills</code> entry in <code>.daiv.yml</code> instead.</p>
+<p>The run's thinking level carries over. The run's model serves any model call whose conversation no longer fits the skill model's context window, and, once the skill model fails a call, that call and every later one in the run, before the run's fallback models. Switching models starts a fresh prompt cache on each side, so a cheaper skill model pays off only for skills that do substantial work.</p>
+<p>When a configured entry names a provider that is unknown, disabled or missing its API key, the skill runs on its <code>metadata.model</code>, else the run's model. The failure is logged at ERROR. A <code>metadata.model</code> that can't be used keeps the run's model, logged the same way.</p>
+<h3 id="writing-a-good-description">Writing a good description</h3>
+<p>The <code>description</code> field is how the agent decides whether to use your skill. Include specific trigger phrases:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1">1</a></span>
 <span class="normal"><a href="#__codelineno-5-2">2</a></span>
 <span class="normal"><a href="#__codelineno-5-3">3</a></span>
 <span class="normal"><a href="#__codelineno-5-4">4</a></span>
 <span class="normal"><a href="#__codelineno-5-5">5</a></span>
 <span class="normal"><a href="#__codelineno-5-6">6</a></span>
-<span class="normal"><a href="#__codelineno-5-7">7</a></span>
-<span class="normal"><a href="#__codelineno-5-8">8</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a><span class="gu">## Instructions</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2"></a>
-<a id="__codelineno-5-3" name="__codelineno-5-3"></a><span class="k">1.</span> Fetch the merge request diff using the platform tools
-<a id="__codelineno-5-4" name="__codelineno-5-4"></a><span class="k">2.</span> For each changed file, check for:
-<a id="__codelineno-5-5" name="__codelineno-5-5"></a><span class="w">   </span><span class="k">-</span><span class="w"> </span>Missing error handling
-<a id="__codelineno-5-6" name="__codelineno-5-6"></a><span class="w">   </span><span class="k">-</span><span class="w"> </span>Unvalidated inputs
-<a id="__codelineno-5-7" name="__codelineno-5-7"></a><span class="w">   </span><span class="k">-</span><span class="w"> </span>Hardcoded credentials
-<a id="__codelineno-5-8" name="__codelineno-5-8"></a><span class="k">3.</span> Report findings grouped by severity (High / Medium / Low)
+<span class="normal"><a href="#__codelineno-5-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a><span class="c1"># Good — includes trigger phrases the agent can match</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2"></a><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">&gt;</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3"></a><span class="w">  </span><span class="no">Diagnose and fix CI/CD pipeline failures. Use when the user mentions</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4"></a><span class="w">  </span><span class="no">"pipeline is failing", "CI broken", "fix the build", or "debug the tests".</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5"></a>
+<a id="__codelineno-5-6" name="__codelineno-5-6"></a><span class="c1"># Bad — too vague for the agent to match</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7"></a><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Helps with CI/CD issues.</span>
 </code></pre></div></td></tr></table></div>
-<h3 id="bundle-supporting-files">Bundle supporting files</h3>
-<p>Skills can include helper scripts, templates, and reference documents. Reference them using relative paths from the skill directory:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span>
+<h2 id="authoring-best-practices">Authoring best practices</h2>
+<h3 id="be-specific-and-actionable">Be specific and actionable</h3>
+<p>Tell the agent exactly what steps to follow:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Markdown</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span>
 <span class="normal"><a href="#__codelineno-6-2">2</a></span>
 <span class="normal"><a href="#__codelineno-6-3">3</a></span>
 <span class="normal"><a href="#__codelineno-6-4">4</a></span>
 <span class="normal"><a href="#__codelineno-6-5">5</a></span>
-<span class="normal"><a href="#__codelineno-6-6">6</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a>my-skill/
-<a id="__codelineno-6-2" name="__codelineno-6-2"></a>├── SKILL.md
-<a id="__codelineno-6-3" name="__codelineno-6-3"></a>├── scripts/
-<a id="__codelineno-6-4" name="__codelineno-6-4"></a>│   └── validate.py
-<a id="__codelineno-6-5" name="__codelineno-6-5"></a>└── templates/
-<a id="__codelineno-6-6" name="__codelineno-6-6"></a>    └── report.md
+<span class="normal"><a href="#__codelineno-6-6">6</a></span>
+<span class="normal"><a href="#__codelineno-6-7">7</a></span>
+<span class="normal"><a href="#__codelineno-6-8">8</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a><span class="gu">## Instructions</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2"></a>
+<a id="__codelineno-6-3" name="__codelineno-6-3"></a><span class="k">1.</span> Fetch the merge request diff using the platform tools
+<a id="__codelineno-6-4" name="__codelineno-6-4"></a><span class="k">2.</span> For each changed file, check for:
+<a id="__codelineno-6-5" name="__codelineno-6-5"></a><span class="w">   </span><span class="k">-</span><span class="w"> </span>Missing error handling
+<a id="__codelineno-6-6" name="__codelineno-6-6"></a><span class="w">   </span><span class="k">-</span><span class="w"> </span>Unvalidated inputs
+<a id="__codelineno-6-7" name="__codelineno-6-7"></a><span class="w">   </span><span class="k">-</span><span class="w"> </span>Hardcoded credentials
+<a id="__codelineno-6-8" name="__codelineno-6-8"></a><span class="k">3.</span> Report findings grouped by severity (High / Medium / Low)
 </code></pre></div></td></tr></table></div>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Markdown</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span>
+<h3 id="bundle-supporting-files">Bundle supporting files</h3>
+<p>Skills can include helper scripts, templates, and reference documents. Reference them using relative paths from the skill directory:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span>
 <span class="normal"><a href="#__codelineno-7-2">2</a></span>
-<span class="normal"><a href="#__codelineno-7-3">3</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a><span class="gu">## Resources</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2"></a><span class="k">-</span><span class="w"> </span>Run <span class="sb">`scripts/validate.py`</span> to check prerequisites
-<a id="__codelineno-7-3" name="__codelineno-7-3"></a><span class="k">-</span><span class="w"> </span>Use <span class="sb">`templates/report.md`</span> as the output format
+<span class="normal"><a href="#__codelineno-7-3">3</a></span>
+<span class="normal"><a href="#__codelineno-7-4">4</a></span>
+<span class="normal"><a href="#__codelineno-7-5">5</a></span>
+<span class="normal"><a href="#__codelineno-7-6">6</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a>my-skill/
+<a id="__codelineno-7-2" name="__codelineno-7-2"></a>├── SKILL.md
+<a id="__codelineno-7-3" name="__codelineno-7-3"></a>├── scripts/
+<a id="__codelineno-7-4" name="__codelineno-7-4"></a>│   └── validate.py
+<a id="__codelineno-7-5" name="__codelineno-7-5"></a>└── templates/
+<a id="__codelineno-7-6" name="__codelineno-7-6"></a>    └── report.md
+</code></pre></div></td></tr></table></div>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Markdown</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1">1</a></span>
+<span class="normal"><a href="#__codelineno-8-2">2</a></span>
+<span class="normal"><a href="#__codelineno-8-3">3</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1"></a><span class="gu">## Resources</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2"></a><span class="k">-</span><span class="w"> </span>Run <span class="sb">`scripts/validate.py`</span> to check prerequisites
+<a id="__codelineno-8-3" name="__codelineno-8-3"></a><span class="k">-</span><span class="w"> </span>Use <span class="sb">`templates/report.md`</span> as the output format
 </code></pre></div></td></tr></table></div>
 <h3 id="use-the-skill-creator">Use the skill-creator</h3>
 <p>DAIV includes a built-in <code>/skill-creator</code> skill that walks you through creating a new skill:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1"></a>@daiv /skill-creator
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-9-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1"></a>@daiv /skill-creator
 </code></pre></div></td></tr></table></div>
 <h2 id="example-changelog-skill">Example: changelog skill</h2>
-<p><div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Markdown</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-9-1"> 1</a></span>
-<span class="normal"><a href="#__codelineno-9-2"> 2</a></span>
-<span class="normal"><a href="#__codelineno-9-3"> 3</a></span>
-<span class="normal"><a href="#__codelineno-9-4"> 4</a></span>
-<span class="normal"><a href="#__codelineno-9-5"> 5</a></span>
-<span class="normal"><a href="#__codelineno-9-6"> 6</a></span>
-<span class="normal"><a href="#__codelineno-9-7"> 7</a></span>
-<span class="normal"><a href="#__codelineno-9-8"> 8</a></span>
-<span class="normal"><a href="#__codelineno-9-9"> 9</a></span>
-<span class="normal"><a href="#__codelineno-9-10">10</a></span>
-<span class="normal"><a href="#__codelineno-9-11">11</a></span>
-<span class="normal"><a href="#__codelineno-9-12">12</a></span>
-<span class="normal"><a href="#__codelineno-9-13">13</a></span>
-<span class="normal"><a href="#__codelineno-9-14">14</a></span>
-<span class="normal"><a href="#__codelineno-9-15">15</a></span>
-<span class="normal"><a href="#__codelineno-9-16">16</a></span>
-<span class="normal"><a href="#__codelineno-9-17">17</a></span>
-<span class="normal"><a href="#__codelineno-9-18">18</a></span>
-<span class="normal"><a href="#__codelineno-9-19">19</a></span>
-<span class="normal"><a href="#__codelineno-9-20">20</a></span>
-<span class="normal"><a href="#__codelineno-9-21">21</a></span>
-<span class="normal"><a href="#__codelineno-9-22">22</a></span>
-<span class="normal"><a href="#__codelineno-9-23">23</a></span>
-<span class="normal"><a href="#__codelineno-9-24">24</a></span>
-<span class="normal"><a href="#__codelineno-9-25">25</a></span>
-<span class="normal"><a href="#__codelineno-9-26">26</a></span>
-<span class="normal"><a href="#__codelineno-9-27">27</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1"></a>---
-<a id="__codelineno-9-2" name="__codelineno-9-2"></a>name: changelog
-<a id="__codelineno-9-3" name="__codelineno-9-3"></a>description: &gt;
-<a id="__codelineno-9-4" name="__codelineno-9-4"></a>  Update the CHANGELOG.md file when changes are made. Use when the user
-<a id="__codelineno-9-5" name="__codelineno-9-5"></a>  asks to "update the changelog", "add a changelog entry", or after
-<a id="__codelineno-9-6" name="__codelineno-9-6"></a><span class="gu">  completing a feature implementation.</span>
-<a id="__codelineno-9-7" name="__codelineno-9-7"></a><span class="gu">---</span>
-<a id="__codelineno-9-8" name="__codelineno-9-8"></a>
-<a id="__codelineno-9-9" name="__codelineno-9-9"></a><span class="gh"># Changelog Maintenance</span>
-<a id="__codelineno-9-10" name="__codelineno-9-10"></a>
-<a id="__codelineno-9-11" name="__codelineno-9-11"></a><span class="gu">## Instructions</span>
-<a id="__codelineno-9-12" name="__codelineno-9-12"></a>
-<a id="__codelineno-9-13" name="__codelineno-9-13"></a><span class="k">1.</span> Read <span class="sb">`CHANGELOG.md`</span> from the repository root
-<a id="__codelineno-9-14" name="__codelineno-9-14"></a><span class="k">2.</span> Determine the change type: Added, Changed, Fixed, Removed
-<a id="__codelineno-9-15" name="__codelineno-9-15"></a><span class="k">3.</span> Add an entry under the <span class="sb">`## Unreleased`</span> section
-<a id="__codelineno-9-16" name="__codelineno-9-16"></a><span class="k">4.</span> Follow the existing format and style in the file
-<a id="__codelineno-9-17" name="__codelineno-9-17"></a><span class="k">5.</span> Keep entries concise — one line per change
-<a id="__codelineno-9-18" name="__codelineno-9-18"></a>
-<a id="__codelineno-9-19" name="__codelineno-9-19"></a><span class="gu">## Format</span>
-<a id="__codelineno-9-20" name="__codelineno-9-20"></a>
-<a id="__codelineno-9-21" name="__codelineno-9-21"></a>Use [<span class="nt">Common Changelog</span>](<span class="na">https://common-changelog.org/</span>) format:
-<a id="__codelineno-9-22" name="__codelineno-9-22"></a>
-<a id="__codelineno-9-23" name="__codelineno-9-23"></a>```markdown
-<a id="__codelineno-9-24" name="__codelineno-9-24"></a><span class="gu">## Unreleased</span>
-<a id="__codelineno-9-25" name="__codelineno-9-25"></a>
-<a id="__codelineno-9-26" name="__codelineno-9-26"></a><span class="gu">### Added</span>
-<a id="__codelineno-9-27" name="__codelineno-9-27"></a><span class="k">-</span><span class="w"> </span>New feature description
+<p><div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Markdown</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-10-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-10-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-10-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-10-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-10-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-10-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-10-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-10-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-10-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-10-10">10</a></span>
+<span class="normal"><a href="#__codelineno-10-11">11</a></span>
+<span class="normal"><a href="#__codelineno-10-12">12</a></span>
+<span class="normal"><a href="#__codelineno-10-13">13</a></span>
+<span class="normal"><a href="#__codelineno-10-14">14</a></span>
+<span class="normal"><a href="#__codelineno-10-15">15</a></span>
+<span class="normal"><a href="#__codelineno-10-16">16</a></span>
+<span class="normal"><a href="#__codelineno-10-17">17</a></span>
+<span class="normal"><a href="#__codelineno-10-18">18</a></span>
+<span class="normal"><a href="#__codelineno-10-19">19</a></span>
+<span class="normal"><a href="#__codelineno-10-20">20</a></span>
+<span class="normal"><a href="#__codelineno-10-21">21</a></span>
+<span class="normal"><a href="#__codelineno-10-22">22</a></span>
+<span class="normal"><a href="#__codelineno-10-23">23</a></span>
+<span class="normal"><a href="#__codelineno-10-24">24</a></span>
+<span class="normal"><a href="#__codelineno-10-25">25</a></span>
+<span class="normal"><a href="#__codelineno-10-26">26</a></span>
+<span class="normal"><a href="#__codelineno-10-27">27</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1"></a>---
+<a id="__codelineno-10-2" name="__codelineno-10-2"></a>name: changelog
+<a id="__codelineno-10-3" name="__codelineno-10-3"></a>description: &gt;
+<a id="__codelineno-10-4" name="__codelineno-10-4"></a>  Update the CHANGELOG.md file when changes are made. Use when the user
+<a id="__codelineno-10-5" name="__codelineno-10-5"></a>  asks to "update the changelog", "add a changelog entry", or after
+<a id="__codelineno-10-6" name="__codelineno-10-6"></a><span class="gu">  completing a feature implementation.</span>
+<a id="__codelineno-10-7" name="__codelineno-10-7"></a><span class="gu">---</span>
+<a id="__codelineno-10-8" name="__codelineno-10-8"></a>
+<a id="__codelineno-10-9" name="__codelineno-10-9"></a><span class="gh"># Changelog Maintenance</span>
+<a id="__codelineno-10-10" name="__codelineno-10-10"></a>
+<a id="__codelineno-10-11" name="__codelineno-10-11"></a><span class="gu">## Instructions</span>
+<a id="__codelineno-10-12" name="__codelineno-10-12"></a>
+<a id="__codelineno-10-13" name="__codelineno-10-13"></a><span class="k">1.</span> Read <span class="sb">`CHANGELOG.md`</span> from the repository root
+<a id="__codelineno-10-14" name="__codelineno-10-14"></a><span class="k">2.</span> Determine the change type: Added, Changed, Fixed, Removed
+<a id="__codelineno-10-15" name="__codelineno-10-15"></a><span class="k">3.</span> Add an entry under the <span class="sb">`## Unreleased`</span> section
+<a id="__codelineno-10-16" name="__codelineno-10-16"></a><span class="k">4.</span> Follow the existing format and style in the file
+<a id="__codelineno-10-17" name="__codelineno-10-17"></a><span class="k">5.</span> Keep entries concise — one line per change
+<a id="__codelineno-10-18" name="__codelineno-10-18"></a>
+<a id="__codelineno-10-19" name="__codelineno-10-19"></a><span class="gu">## Format</span>
+<a id="__codelineno-10-20" name="__codelineno-10-20"></a>
+<a id="__codelineno-10-21" name="__codelineno-10-21"></a>Use [<span class="nt">Common Changelog</span>](<span class="na">https://common-changelog.org/</span>) format:
+<a id="__codelineno-10-22" name="__codelineno-10-22"></a>
+<a id="__codelineno-10-23" name="__codelineno-10-23"></a>```markdown
+<a id="__codelineno-10-24" name="__codelineno-10-24"></a><span class="gu">## Unreleased</span>
+<a id="__codelineno-10-25" name="__codelineno-10-25"></a>
+<a id="__codelineno-10-26" name="__codelineno-10-26"></a><span class="gu">### Added</span>
+<a id="__codelineno-10-27" name="__codelineno-10-27"></a><span class="k">-</span><span class="w"> </span>New feature description
 </code></pre></div></td></tr></table></div>
 ```</p>
 <h2 id="security-considerations">Security considerations</h2>
@@ -2366,7 +2414,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 30, 2026 18:33:53 UTC">October 30, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 11, 2026 18:50:24 UTC">November 11, 2026</span>
   </span>
 
     

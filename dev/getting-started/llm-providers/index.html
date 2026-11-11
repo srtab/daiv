@@ -1769,11 +1769,11 @@
 <tr>
 <td>Explore subagent</td>
 <td>Claude Haiku 5.5</td>
-<td>GPT-6 Luna</td>
+<td>The main agent's models</td>
 </tr>
 </tbody>
 </table>
-<p>Smaller tasks such as titling, merge request metadata and memory have their own defaults, listed in <a href="../../reference/env-variables/">Environment Variables</a>. All defaults route through OpenRouter, so only <code>OPENROUTER_API_KEY</code> is required for a basic setup. Override models per repository in <code>.daiv.yml</code> — see <a href="../../customization/repository-config/#model-overrides">Repository Config</a>.</p>
+<p>Smaller tasks such as titling, merge request metadata and memory have their own defaults, listed in <a href="../../reference/env-variables/">Environment Variables</a>. All defaults route through OpenRouter, so only <code>OPENROUTER_API_KEY</code> is required for a basic setup. Choose the explore subagent's model with an <code>explore</code> entry in the subagent models (see <a href="../../features/subagents/#choosing-a-subagents-model">Subagents</a>). Override models per repository in <code>.daiv.yml</code> — see <a href="../../customization/repository-config/#model-overrides">Repository Config</a>.</p>
 <hr />
 <h2 id="openrouter">OpenRouter</h2>
 <p>OpenRouter is the <strong>default provider</strong> for DAIV. It provides access to models from multiple vendors with built-in fallback support.</p>

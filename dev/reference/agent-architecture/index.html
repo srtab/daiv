@@ -2305,15 +2305,15 @@
 </tr>
 <tr>
 <td>Explore</td>
-<td>Claude Haiku 4.5 (fast)</td>
-<td>GPT-5.4-mini</td>
+<td>Claude Haiku 5.5 (fast)</td>
+<td>Same as main agent</td>
 <td>Read-only filesystem</td>
 <td>Quick file lookups, code structure questions</td>
 </tr>
 </tbody>
 </table>
 <p>In addition, a set of read-only <strong>code-review detector subagents</strong> (<code>cr-correctness</code>, <code>cr-security</code>, <code>cr-performance</code>, <code>cr-structure</code>, <code>cr-tests</code>, <code>cr-custom-rules</code>) is built and registered on every run. The <a href="../../features/pull-request-assistant/">code review</a> skill picks the detectors applicable to the change, fans out across them in parallel, and aggregates their markdown reports into a single review report; each detector runs with a read-only tool stack. <a href="../../features/subagents/#custom-subagents">Custom subagents</a> defined per repository are also added to the available-agents list.</p>
-<p>All subagents (including custom subagents) support automatic model fallback via <code>ModelFallbackMiddleware</code>. When the primary model fails, the subagent retries with the configured fallback model. The general-purpose subagent and custom subagents use the main agent's fallback model; the explore subagent uses its own (<code>DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME</code>).</p>
+<p>All subagents (including custom subagents) support automatic model fallback via <code>ModelFallbackMiddleware</code>. When the primary model fails, the subagent retries with the configured fallback model. Every subagent uses the main agent's fallback model.</p>
 <p>No subagent is given <code>ask_user_question</code> — only the main agent can stop a run to ask the user.</p>
 <h2 id="dynamic-system-prompt">Dynamic system prompt</h2>
 <p>The agent's system prompt is assembled at runtime and includes:</p>

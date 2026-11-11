@@ -1610,9 +1610,9 @@ In the dashboard, the agent picker offers a live model dropdown built from each 
 | ---------------- | ----------------- | ----------------------- |
 | Main agent       | Claude Sonnet 5.5 | GPT-6.1 Sol             |
 | Max mode         | Claude Opus 5.5   | The main agent's models |
-| Explore subagent | Claude Haiku 5.5  | GPT-6 Luna              |
+| Explore subagent | Claude Haiku 5.5  | The main agent's models |
 
-Smaller tasks such as titling, merge request metadata and memory have their own defaults, listed in [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/index.md). All defaults route through OpenRouter, so only `OPENROUTER_API_KEY` is required for a basic setup. Override models per repository in `.daiv.yml` — see [Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/#model-overrides).
+Smaller tasks such as titling, merge request metadata and memory have their own defaults, listed in [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/index.md). All defaults route through OpenRouter, so only `OPENROUTER_API_KEY` is required for a basic setup. Choose the explore subagent's model with an `explore` entry in the subagent models (see [Subagents](https://srtab.github.io/daiv/dev/features/subagents/#choosing-a-subagents-model)). Override models per repository in `.daiv.yml` — see [Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/#model-overrides).
 
 ______________________________________________________________________
 
@@ -3932,9 +3932,9 @@ The markdown body (after the frontmatter) is **required** and becomes the subage
 
 ### Optional fields
 
-| Field   | Description                                                                                                                                                                       |
-| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `model` | Override the model used by this subagent. Use the `provider:model-name` format (e.g., `openrouter:anthropic/claude-haiku-5.5`). If not specified, the main agent's model is used. |
+| Field   | Description                                                                                                                                                                                                                                                    |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `model` | Override the model used by this subagent. Use the `provider:model-name` format (e.g., `openrouter:anthropic/claude-haiku-5.5`). If not specified, the main agent's model is used. A [configured subagent model](#choosing-a-subagents-model) takes precedence. |
 
 ### Capabilities
 
@@ -3960,6 +3960,21 @@ description: >
 # Bad — too vague
 description: Helps with API stuff.
 ```
+
+## Choosing a subagent's model
+
+Operators can run any subagent on a chosen model by name, without editing its file: the general-purpose and explore subagents, each code-review detector (`cr-security`, `cr-tests`, …) and custom subagents. A custom subagent's file lives in the repository, so the dashboard does not list it: set its model in `.daiv.yml`, or for every repository in `DAIV_AGENT_SUBAGENT_MODELS`. A subagent's model is the first of these that is set:
+
+1. its entry under `models.subagents` in the repository's `.daiv.yml` (see [Model overrides](https://srtab.github.io/daiv/dev/customization/repository-config/#skill-and-subagent-models));
+1. its entry in the dashboard (or in `DAIV_AGENT_SUBAGENT_MODELS`): **Configuration → Agent → Subagent models** for the general-purpose and explore subagents, and the **Models** tab of the `code-review` skill's page for the detectors;
+1. the `model` its file or detector charter declares (Claude Haiku 5.5 for explore);
+1. the main agent's model.
+
+A configured model runs with the run's thinking level and falls back to the main agent's fallback models. A model the user picks for the run does not override an entry, and a skill's model never carries over to a subagent it delegates to.
+
+When an entry names a provider that is unknown, disabled or missing its API key, the subagent runs on its file's `model`, else the main agent's model; it is never left out of the run. The failure is logged at ERROR.
+
+When a call on the configured model fails, for example because the provider doesn't know the model name, the main agent's fallback models serve it, as for any other model.
 
 ## Related pages
 
@@ -4407,6 +4422,10 @@ models:
   diff_to_metadata:
     model: "openrouter:anthropic/claude-sonnet-5.5"
     fallback_model: "openrouter:openai/gpt-6.1-sol"
+  skills:
+    code-review: "openrouter:anthropic/claude-sonnet-5.5"
+  subagents:
+    cr-security: "openrouter:anthropic/claude-opus-5.5"
 ```
 
 ## Repository settings
@@ -4535,6 +4554,36 @@ Note
 
 The diff to metadata agent reads your `AGENTS.md` file to follow your branch naming and commit message conventions.
 
+### Skill and subagent models
+
+Run a skill or a subagent on a chosen model in this repository, by name. An entry overrides the site's entry for the same name only; every other site entry still applies. Site entries are set in the dashboard: a skill's on the **Models** tab of its page, which also holds the code-review detectors', and the general-purpose and explore subagents' under **Configuration → Agent**.
+
+| Option                    | Type          | Default    | Description                                                                     |
+| ------------------------- | ------------- | ---------- | ------------------------------------------------------------------------------- |
+| `models.skills.<name>`    | `str \| null` | site entry | Model for the skill's model calls, from its invocation until your next message. |
+| `models.subagents.<name>` | `str \| null` | site entry | Model for every call the subagent makes.                                        |
+
+```
+models:
+  skills:
+    code-review: "openrouter:anthropic/claude-sonnet-5.5"
+    plan: null   # unset: the site entry, if any, applies
+  subagents:
+    cr-security: "openrouter:anthropic/claude-opus-5.5"
+    my-repo-subagent: "openrouter:z-ai/glm-5.2"
+```
+
+For a given name, the model resolves in this order, first match wins:
+
+1. this repository's entry;
+1. the site's entry (a skill page's **Models** tab, or **Configuration → Agent → Subagent models**);
+1. the model the subagent file, or a built-in or global skill file, declares (a repository skill's `metadata.model` is ignored);
+1. the run's model.
+
+A model picked for the run, `daiv-max`, or an exact model passed to the jobs API does not override these entries. Configured models run with the run's thinking level.
+
+Values are checked when a run uses them, not when the file loads, so a typo never drops the rest of `.daiv.yml`. An entry that can't be used falls back to the model the file declares, else the run's model, not to the site entry; the failure is logged at ERROR. Names that match no skill or subagent are ignored. See [Agent Skills](https://srtab.github.io/daiv/dev/customization/agent-skills/#running-a-skill-on-another-model) and [Subagents](https://srtab.github.io/daiv/dev/features/subagents/#choosing-a-subagents-model).
+
 # Agent Skills
 
 Skills are modular capabilities that extend DAIV's agent with specialized knowledge and workflows. Each skill is a directory containing a `SKILL.md` file with instructions the agent follows when the skill is triggered.
@@ -4615,9 +4664,9 @@ Admins can manage custom global skills from the web dashboard at **Skills** (`/d
 
 From the Skills page you can:
 
-- **List skills** — built-in and custom global skills are shown together, each with its invocation count. A custom skill whose name matches a built-in shadows it and is flagged **Overrides built-in**.
+- **List skills** — built-in and custom global skills are shown together, each with its invocation count and, when it has one, the model its entry names. A custom skill whose name matches a built-in shadows it and is flagged **Overrides built-in**.
 - **Upload a skill** as a ZIP archive (see constraints below). Uploading a skill whose name already exists asks you to confirm before it replaces the existing one.
-- **View a skill** — its `SKILL.md`, file tree, and usage over the last 30 days.
+- **View a skill** — its page has four tabs: **SKILL.md**, **Files**, **Models** (the model it runs on; see [Running a skill on another model](#running-a-skill-on-another-model)) and **Usage** (invocations over the last 30 days, and the latest runs that invoked it, each linking to the run in its session).
 - **Download** a custom skill's original ZIP.
 - **Delete** a custom skill (built-in skills cannot be deleted; deleting a custom skill that shadowed a built-in restores the built-in).
 
@@ -4691,6 +4740,36 @@ description: Brief description of what this skill does and when the agent should
 | `compatibility` | Environment requirements (max 500 chars)                      |
 | `metadata`      | Arbitrary key-value pairs for additional properties           |
 | `allowed-tools` | Space-delimited list of tool names the skill recommends using |
+
+### Running a skill on another model
+
+Once the agent invokes a skill, its model calls run on the skill's model until your next message. The first of these that is set names that model:
+
+1. the skill's entry under `models.skills` in the repository's `.daiv.yml` (see [Model overrides](https://srtab.github.io/daiv/dev/customization/repository-config/#skill-and-subagent-models));
+1. the skill's entry on its **Models** tab in the dashboard's Skills pages (or in `DAIV_AGENT_SKILL_MODELS`);
+1. the `metadata.model` of a built-in or global skill file;
+1. the run's model.
+
+The **Models** tab changes a skill's model for every repository, built-in skills included, without copying or editing the skill file. On `/code-review` it also sets the model of each detector the skill ships (see [Subagents](https://srtab.github.io/daiv/dev/features/subagents/#choosing-a-subagents-model)). A model the user picks for the run, even an exact model passed to the jobs API, does not override an entry.
+
+A skill that exists only in repositories has no page: give it a model with a `models.skills` entry in each repository's `.daiv.yml`.
+
+A built-in or global skill file can name its own model in `metadata.model`, as a model spec (`provider-slug:model`, as in [subagents](https://srtab.github.io/daiv/dev/features/subagents/index.md)):
+
+```
+---
+name: changelog
+description: Update CHANGELOG.md for the current changes.
+metadata:
+  model: openrouter:anthropic/claude-haiku-5.5
+---
+```
+
+A repository skill's `metadata.model` is ignored, because the file comes from the branch the run works on, which the author of a merge request controls. Give a repository skill a model with a `models.skills` entry in `.daiv.yml` instead.
+
+The run's thinking level carries over. The run's model serves any model call whose conversation no longer fits the skill model's context window, and, once the skill model fails a call, that call and every later one in the run, before the run's fallback models. Switching models starts a fresh prompt cache on each side, so a cheaper skill model pays off only for skills that do substantial work.
+
+When a configured entry names a provider that is unknown, disabled or missing its API key, the skill runs on its `metadata.model`, else the run's model. The failure is logged at ERROR. A `metadata.model` that can't be used keeps the run's model, logged the same way.
 
 ### Writing a good description
 
@@ -5295,18 +5374,18 @@ These variables control the models and behavior of DAIV's agents. You can also o
 
 The main agent used for issue addressing, pull request assistance, and all interactive tasks. Variables use the `DAIV_AGENT_` prefix.
 
-| Variable                                 | Description                                                                                                                                          | Default             |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
-| `DAIV_AGENT_RECURSION_LIMIT`             | Maximum recursion depth for agent execution                                                                                                          | `500`               |
-| `DAIV_AGENT_MODEL_NAME`                  | Primary model for agent tasks                                                                                                                        | `claude-sonnet-5.5` |
-| `DAIV_AGENT_FALLBACK_MODEL_NAME`         | Fallback model if the primary model fails                                                                                                            | `gpt-6.1-sol`       |
-| `DAIV_AGENT_THINKING_LEVEL`              | Extended thinking level (`minimal`, `low`, `medium`, `high`, `xhigh`, in any case; empty or `off` to disable)                                        | `medium`            |
-| `DAIV_AGENT_FALLBACK_THINKING_LEVEL`     | Thinking level applied when the primary model fails over to the fallback model (same values as `DAIV_AGENT_THINKING_LEVEL`, set independently of it) | `medium`            |
-| `DAIV_AGENT_MAX_MODEL_NAME`              | Model used when the `daiv-max` label is present                                                                                                      | `claude-opus-5.5`   |
-| `DAIV_AGENT_MAX_THINKING_LEVEL`          | Thinking level for `daiv-max` tasks (same values as `DAIV_AGENT_THINKING_LEVEL`)                                                                     | `high`              |
-| `DAIV_AGENT_EXPLORE_MODEL_NAME`          | Model for the explore subagent (fast, read-only)                                                                                                     | `claude-haiku-5.5`  |
-| `DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME` | Fallback model if the explore model fails                                                                                                            | `gpt-6-luna`        |
-| `DAIV_AGENT_CUSTOM_SKILLS_PATH`          | Path to custom global skills directory. Set to `None` to disable.                                                                                    | `~/data/skills`     |
+| Variable                             | Description                                                                                                                                                                                                                                                                                                                                                                                                                  | Default             |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| `DAIV_AGENT_RECURSION_LIMIT`         | Maximum recursion depth for agent execution                                                                                                                                                                                                                                                                                                                                                                                  | `500`               |
+| `DAIV_AGENT_MODEL_NAME`              | Primary model for agent tasks                                                                                                                                                                                                                                                                                                                                                                                                | `claude-sonnet-5.5` |
+| `DAIV_AGENT_FALLBACK_MODEL_NAME`     | Fallback model if the primary model fails                                                                                                                                                                                                                                                                                                                                                                                    | `gpt-6.1-sol`       |
+| `DAIV_AGENT_THINKING_LEVEL`          | Extended thinking level (`minimal`, `low`, `medium`, `high`, `xhigh`, in any case; empty or `off` to disable)                                                                                                                                                                                                                                                                                                                | `medium`            |
+| `DAIV_AGENT_FALLBACK_THINKING_LEVEL` | Thinking level applied when the primary model fails over to the fallback model (same values as `DAIV_AGENT_THINKING_LEVEL`, set independently of it)                                                                                                                                                                                                                                                                         | `medium`            |
+| `DAIV_AGENT_MAX_MODEL_NAME`          | Model used when the `daiv-max` label is present                                                                                                                                                                                                                                                                                                                                                                              | `claude-opus-5.5`   |
+| `DAIV_AGENT_MAX_THINKING_LEVEL`      | Thinking level for `daiv-max` tasks (same values as `DAIV_AGENT_THINKING_LEVEL`)                                                                                                                                                                                                                                                                                                                                             | `high`              |
+| `DAIV_AGENT_SKILL_MODELS`            | Model per skill name, as a JSON object (`{"code-review": "openrouter:anthropic/claude-sonnet-5.5"}`); see [Agent Skills](https://srtab.github.io/daiv/dev/customization/agent-skills/#running-a-skill-on-another-model). A null or empty entry is unset; a malformed value is logged and ignored.                                                                                                                            | `{}`                |
+| `DAIV_AGENT_SUBAGENT_MODELS`         | Model per subagent name, as a JSON object (`{"explore": "openrouter:anthropic/claude-haiku-5.5"}`). See [Subagents](https://srtab.github.io/daiv/dev/features/subagents/#choosing-a-subagents-model). A null or empty entry is unset; a malformed value is logged and ignored. The deprecated `DAIV_AGENT_EXPLORE_MODEL_NAME` is still read as the `explore` entry when there is none, logged at ERROR, until it is removed. | `{}`                |
+| `DAIV_AGENT_CUSTOM_SKILLS_PATH`      | Path to custom global skills directory. Set to `None` to disable.                                                                                                                                                                                                                                                                                                                                                            | `~/data/skills`     |
 
 ### Model Requests
 
@@ -5363,19 +5442,19 @@ Saving a group writes only that group's fields, then shows a "Configuration save
 
 The configuration is split into the following groups, organized by category.
 
-| Group                  | Category     | What it configures                                                                                                                                                                                                                                                                  |
-| ---------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Agent**              | AI tasks     | Primary, fallback, `daiv-max`, and explore models; their thinking levels; the agent recursion limit; the per-request LLM timeout and retry count (applied to every provider and model-backed task); and whether to suggest a context file (e.g. `AGENTS.md`) on new merge requests. |
-| **Commit & PR Writer** | AI tasks     | Primary and fallback models that generate commit messages and pull/merge request descriptions from diffs.                                                                                                                                                                           |
-| **Titling**            | AI tasks     | Primary and fallback models that generate session and run titles from prompts.                                                                                                                                                                                                      |
-| **Providers**          | Models       | LLM provider records — slug, wire protocol, base URL, API key, and extra headers — that every model field draws from.                                                                                                                                                               |
-| **Web Search**         | Agent tools  | Enable/disable the web search tool, pick DuckDuckGo, Tavily or SearXNG, set max results, store the Tavily API key, and configure the SearXNG search endpoint and timeout.                                                                                                           |
-| **Web Fetch**          | Agent tools  | Enable/disable the web fetch tool, choose the model that processes fetched pages, set cache TTL / timeout / max content size, and define per-domain auth headers.                                                                                                                   |
-| **Sandbox**            | Runtime      | Sandbox request timeout and the sandbox API key.                                                                                                                                                                                                                                    |
-| **Jobs**               | Runtime      | Per-user rate limit for [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) submissions (e.g. `20/hour`).                                                                                                                                                       |
-| **Rocket Chat**        | Integrations | Enable Rocket Chat as a notification channel, with the instance URL, bot user ID, and auth token.                                                                                                                                                                                   |
-| **Telegram**           | Integrations | Enable Telegram as a notification channel, with the bot token from @BotFather. The bot username and the webhook secret are derived and generated by DAIV, not typed.                                                                                                                |
-| **Authentication**     | Integrations | OAuth login with your Git platform — toggle login, control open signup, and store the OAuth client ID/secret and (for GitLab) instance URLs.                                                                                                                                        |
+| Group                  | Category     | What it configures                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ---------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Agent**              | AI tasks     | Primary, fallback and `daiv-max` models; their thinking levels; the agent recursion limit; the per-request LLM timeout and retry count (applied to every provider and model-backed task); whether to suggest a context file (e.g. `AGENTS.md`) on new merge requests; and **Subagent models**, the model the general-purpose and explore subagents run on in every repository (see [Subagents](https://srtab.github.io/daiv/dev/features/subagents/#choosing-a-subagents-model)). An entry already stored for a skill or subagent that only repositories define is listed there too, so it can be changed or cleared. A skill's model, and those of the code-review detectors, are set on the skill's page in **Skills** (see [Agent Skills](https://srtab.github.io/daiv/dev/customization/agent-skills/#running-a-skill-on-another-model)). |
+| **Commit & PR Writer** | AI tasks     | Primary and fallback models that generate commit messages and pull/merge request descriptions from diffs.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| **Titling**            | AI tasks     | Primary and fallback models that generate session and run titles from prompts.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| **Providers**          | Models       | LLM provider records — slug, wire protocol, base URL, API key, and extra headers — that every model field draws from.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| **Web Search**         | Agent tools  | Enable/disable the web search tool, pick DuckDuckGo, Tavily or SearXNG, set max results, store the Tavily API key, and configure the SearXNG search endpoint and timeout.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| **Web Fetch**          | Agent tools  | Enable/disable the web fetch tool, choose the model that processes fetched pages, set cache TTL / timeout / max content size, and define per-domain auth headers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| **Sandbox**            | Runtime      | Sandbox request timeout and the sandbox API key.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| **Jobs**               | Runtime      | Per-user rate limit for [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) submissions (e.g. `20/hour`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| **Rocket Chat**        | Integrations | Enable Rocket Chat as a notification channel, with the instance URL, bot user ID, and auth token.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| **Telegram**           | Integrations | Enable Telegram as a notification channel, with the bot token from @BotFather. The bot username and the webhook secret are derived and generated by DAIV, not typed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| **Authentication**     | Integrations | OAuth login with your Git platform — toggle login, control open signup, and store the OAuth client ID/secret and (for GitLab) instance URLs.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 Model pickers and providers
 
@@ -5657,11 +5736,11 @@ The main agent can delegate work to two general-use subagents. See [Subagents](h
 | Subagent        | Model                   | Fallback           | Tools                | Use case                                     |
 | --------------- | ----------------------- | ------------------ | -------------------- | -------------------------------------------- |
 | General-purpose | Same as main agent      | Same as main agent | Full tool access     | Complex searches, multi-step research        |
-| Explore         | Claude Haiku 4.5 (fast) | GPT-5.4-mini       | Read-only filesystem | Quick file lookups, code structure questions |
+| Explore         | Claude Haiku 5.5 (fast) | Same as main agent | Read-only filesystem | Quick file lookups, code structure questions |
 
 In addition, a set of read-only **code-review detector subagents** (`cr-correctness`, `cr-security`, `cr-performance`, `cr-structure`, `cr-tests`, `cr-custom-rules`) is built and registered on every run. The [code review](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md) skill picks the detectors applicable to the change, fans out across them in parallel, and aggregates their markdown reports into a single review report; each detector runs with a read-only tool stack. [Custom subagents](https://srtab.github.io/daiv/dev/features/subagents/#custom-subagents) defined per repository are also added to the available-agents list.
 
-All subagents (including custom subagents) support automatic model fallback via `ModelFallbackMiddleware`. When the primary model fails, the subagent retries with the configured fallback model. The general-purpose subagent and custom subagents use the main agent's fallback model; the explore subagent uses its own (`DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME`).
+All subagents (including custom subagents) support automatic model fallback via `ModelFallbackMiddleware`. When the primary model fails, the subagent retries with the configured fallback model. Every subagent uses the main agent's fallback model.
 
 No subagent is given `ask_user_question` — only the main agent can stop a run to ask the user.
 

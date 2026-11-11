@@ -1044,6 +1044,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#choosing-a-subagents-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Choosing a subagent's model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#related-pages" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1716,6 +1727,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#choosing-a-subagents-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Choosing a subagent's model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#related-pages" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1903,7 +1925,7 @@
 <tbody>
 <tr>
 <td><code>model</code></td>
-<td>Override the model used by this subagent. Use the <code>provider:model-name</code> format (e.g., <code>openrouter:anthropic/claude-haiku-5.5</code>). If not specified, the main agent's model is used.</td>
+<td>Override the model used by this subagent. Use the <code>provider:model-name</code> format (e.g., <code>openrouter:anthropic/claude-haiku-5.5</code>). If not specified, the main agent's model is used. A <a href="#choosing-a-subagents-model">configured subagent model</a> takes precedence.</td>
 </tr>
 </tbody>
 </table>
@@ -1934,6 +1956,17 @@
 <a id="__codelineno-2-7" name="__codelineno-2-7"></a><span class="c1"># Bad — too vague</span>
 <a id="__codelineno-2-8" name="__codelineno-2-8"></a><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Helps with API stuff.</span>
 </code></pre></div></td></tr></table></div>
+<h2 id="choosing-a-subagents-model">Choosing a subagent's model</h2>
+<p>Operators can run any subagent on a chosen model by name, without editing its file: the general-purpose and explore subagents, each code-review detector (<code>cr-security</code>, <code>cr-tests</code>, …) and custom subagents. A custom subagent's file lives in the repository, so the dashboard does not list it: set its model in <code>.daiv.yml</code>, or for every repository in <code>DAIV_AGENT_SUBAGENT_MODELS</code>. A subagent's model is the first of these that is set:</p>
+<ol>
+<li>its entry under <code>models.subagents</code> in the repository's <code>.daiv.yml</code> (see <a href="../../customization/repository-config/#skill-and-subagent-models">Model overrides</a>);</li>
+<li>its entry in the dashboard (or in <code>DAIV_AGENT_SUBAGENT_MODELS</code>): <strong>Configuration → Agent → Subagent models</strong> for the general-purpose and explore subagents, and the <strong>Models</strong> tab of the <code>code-review</code> skill's page for the detectors;</li>
+<li>the <code>model</code> its file or detector charter declares (Claude Haiku 5.5 for explore);</li>
+<li>the main agent's model.</li>
+</ol>
+<p>A configured model runs with the run's thinking level and falls back to the main agent's fallback models. A model the user picks for the run does not override an entry, and a skill's model never carries over to a subagent it delegates to.</p>
+<p>When an entry names a provider that is unknown, disabled or missing its API key, the subagent runs on its file's <code>model</code>, else the main agent's model; it is never left out of the run. The failure is logged at ERROR.</p>
+<p>When a call on the configured model fails, for example because the provider doesn't know the model name, the main agent's fallback models serve it, as for any other model.</p>
 <h2 id="related-pages">Related pages</h2>
 <ul>
 <li><a href="../../reference/agent-architecture/">Agent Architecture</a> — which model each subagent runs, its tool stack, and its fallback behaviour</li>
@@ -1962,7 +1995,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 9, 2026 23:11:21 UTC">November 9, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 11, 2026 18:05:50 UTC">November 11, 2026</span>
   </span>
 
     
