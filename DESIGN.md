@@ -454,6 +454,36 @@ Interactive (linked) cards add hover:
 </a>
 ```
 
+### Workspace card
+
+The new-chat page's setup card (`chat/_workspace_card.html`, classes `.workspace-card*` in `input.css`):
+a titled card holding the repository list (`codebase/_repo_picker.html`, `variant="card"`) and, below a
+divider, an **Environment** field (`sandbox_envs/_env_picker.html`, `variant="field"`). It is static markup
+in the hero, not inserted by Alpine, so HTMX processes the pickers at load. It carries no shadow, opacity or
+transform, so the popovers it hosts are not trapped in a stacking context. On phones a row's branch button
+wraps under the repository name.
+
+### Public homepage
+
+`dashboard/homepage.html` is on the tokens, through its own `landing-*` classes in `input.css`.
+What is particular to it:
+
+- **Display sizes.** The hero `<h1>` (`.landing-display`, 36px, 60px from `sm:`) and the section
+  `<h2>`s (`.landing-heading`, 30px, 36px from `sm:`) sit above `heading-page`. No other page uses them.
+- **Static cards.** `.landing-card` and the Why points are not links, so they carry no hover state;
+  only the comparison cards, `.landing-card--link`, do.
+- **Comparison pages.** `/compare/<slug>/` (`dashboard/comparison.html`) shares the homepage's nav and
+  footer partials. Its side-by-side rows (`.landing-compare*`) come from `dashboard/comparisons.py`,
+  where every cell names the public docs it was taken from.
+- **Flow diagram.** "How it works" is inline SVG (`.landing-flow*`), painted with the color tokens:
+  a wide drawing from `lg:` and a tall one below it, since SVG text scales with the drawing. DAIV's
+  steps carry the violet `brand` stroke, yours stay neutral. Screen readers get the `sr-only` list
+  beside it.
+- **FAQ.** `<details>` rows (`.landing-faq*`), no Alpine. The questions and answers live in
+  `dashboard/landing.py`, which the `FAQPage` JSON-LD repeats.
+- **Actions.** `.landing-button--primary` is the teal `accent`; `.btn-primary` stays white on legacy pages.
+- **Logo.** The nav keeps `accounts/img/logo.svg`, as the sign-in pages do, not the app shell's `brand-mark`.
+
 ### Empty State
 
 Centered card for "nothing here yet" and "can't show this" states, classes in `input.css`:
@@ -595,8 +625,7 @@ wordmark and the New split button) that is the only nav entry point on a phone.
   component (`core/js/menu-button.js`); the `session_new` chooser page stays for the
   Sessions list's New button and the empty states.
 - **Page bars and side columns.** A page that needs a bar above its scrolling `<main>` or a column beside it
-  overrides `{% block app_body %}` and renders its own single `<main>` (the session page's top bar and details
-  panel do). Keep that `<main>` the only one: chat scrolling and the sticky composer look it up.
+  overrides `{% block app_body %}` and renders its own single `<main>` (the session page's top bar and sidebar do). Keep that `<main>` the only one: chat scrolling and the sticky composer look it up.
 - **Only the `<nav>` scrolls.** The `<aside>` carries no `overflow`, so the footer
   (API docs, build info, account chip) stays pinned and the account and New menus can
   open past the rail's edge without being clipped.
@@ -607,6 +636,38 @@ wordmark and the New split button) that is the only nav entry point on a phone.
   share the one `account` section in `SECTION_URL_NAMES`.
 - **Notifications.** A nav item with the unread count from the `nav` store; the rail shows
   a dot instead, and the mobile top bar's menu button carries the same dot.
+
+### Session sidebar
+
+`sessions/_session_details.html` is the session page's home for repositories, merge requests, CI,
+external references, environment and usage; the header (`_session_topbar.html`) keeps only title,
+status and the `⋯` menu.
+
+- **Column or sheet.** From 1100px (`WIDE` in `session-page.js`) it is an always-open column with
+  no title and no close button; below that it is a sheet, opened by the header's `.session-summary`
+  button (main repository slug, `+N`, `!iid` or MR count, a CI dot). The switch is `(min-width: 1100px)`
+  and the same in CSS and JS.
+- **Tabs.** Overview and Info, `.details-tabs` / `.details-tab` (`--on` is `bg-surface-3` with
+  `text-text-strong`). The tab and each fold persist per browser.
+- **Folds.** `.details-fold` with a `__head` button, a `__chevron` that turns 90deg when open, and a
+  `__summary` figure in `font-mono`: `text-text-muted` while folded, `text-text-faint` while open.
+- **Repository card.** `.repo-card`: `bg-surface-2`, `border-border`, `rounded-xl`; `--quiet`
+  (agent ran, nothing to show) drops the fill and shows `__quiet-note`. Head: icon, slug in
+  `font-mono`, the `__tag` pill ("Main", only with several repositories) and the `⋯` menu (`.session-menu`,
+  the only `shadow-overlay` here). Then the branch (`font-mono`, muted), the merge request line (`!iid` in
+  `text-accent` because it links; the title; `.draft-badge` outside the link, so a status colour never marks
+  something clickable), and a CI and diff row: `.ci-dot` tinted by `.ci-tone--attn|clear|found|fail` (the
+  `status-*` tokens), the diff as `__added` / `__removed` counts in `font-mono`. Errors use `status-fail`.
+- **Reference card.** `.ref-card`, the last Overview fold: same fill, border and radius as the repository
+  card, one per external reference, from the header's `references` so it stays current. The provider's
+  icon (GitLab, GitHub, Sentry, Jira, else `link`; drawn by `TranscriptLabels.iconHTML`) in
+  `text-text-muted`, the key in `font-mono` (`#42` for a platform issue), a `__source` line (provider ·
+  host, truncating, then a "closes" that never does) in `text-text-faint`. A reference with a URL is a
+  link (`.ref-card[href]`): the key in `text-accent`, a hover fill and a trailing open-in-new-tab icon.
+  One without has no `href`, so it is not a link.
+- **Shared classes.** `.ci-dot`, `.ci-tone--<tone>` and `.draft-badge` are neutral: the header summary
+  and the cards both use them. `.leg-tag` is the repository card's `__tag` pill for a leg follow-up, the
+  same on the Delegated jobs card, the details panel and the call's table.
 
 ### Prose / Markdown Content
 
@@ -707,8 +768,13 @@ its own `{% comment %}` block); the Alpine state lives in `sessions/static/sessi
 as `promptBox(...)`:
 
 ```django
-{% include "codebase/_repo_picker.html" with variant="context" max_repos=1 field_name="" required=False on_change_event="daiv:chat-repo-changed" %}
+{% include "codebase/_repo_picker.html" with variant="card" max_repos=5 unique_repos=True field_name="" required=False on_change_event="daiv:chat-repo-changed" %}
 ```
+
+`variant="card"` renders one `.workspace-row` per repository (a **Main** tag once there is more than one,
+a branch button, **Make main** on every row but the first, a remove button) and an **Add repository**
+button; the default variant renders chips. `unique_repos=True` lists each repository once, whatever its
+branch, and the first row is the main repository.
 
 Both popovers are HTMX fragments served by `codebase.views` — debounced search on the input, and
 the repository list pages in on scroll via an `intersect`-triggered sentinel row. Adding to a
@@ -718,6 +784,10 @@ choices. Successful repository results, search, and scroll position survive reop
 page; reopening after a failed request retries the current search. A failed fragment
 request is surfaced by `promptBox`, which listens for both `htmx:sendError` and `htmx:responseError`
 (HTMX skips the swap on 4xx/5xx, so without the latter the popover stays blank).
+
+The environment picker (`sandbox_envs/_env_picker.html`) takes `variant="field"` for the select-like trigger
+used in the Workspace card; `auto_label_expr` is an Alpine expression whose value names what **Auto**
+resolves to (`Auto · <env>`).
 
 **Picker error row** — `window.pickerError` (`core/js/picker-error.js`, loaded in `base.html`) renders
 the failure row for every HTMX picker popover, reading its message from the nearest

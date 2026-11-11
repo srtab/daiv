@@ -21,9 +21,6 @@ msgstr ""
 msgid "MR"
 msgstr "MR"
 
-msgid "draft"
-msgstr "rascunho"
-
 msgid "Jump to latest"
 msgstr "Ir para o mais recente"
 
@@ -108,20 +105,26 @@ msgstr "Progresso da sessão"
 msgid "Progress"
 msgstr "Progresso"
 
-msgid "Todos"
-msgstr "Tarefas"
-
-msgid "Nothing planned yet."
-msgstr "Ainda não há nada planeado."
-
 msgid "Files changed"
 msgstr "Ficheiros alterados"
 
-msgid "No files touched yet."
-msgstr "Ainda não foi alterado nenhum ficheiro."
-
 msgid "Show all"
 msgstr "Mostrar tudo"
+
+msgid "Workspace"
+msgstr "Área de trabalho"
+
+#, python-format
+msgid "up to %(max)s repository"
+msgid_plural "up to %(max)s repositories"
+msgstr[0] "até %(max)s repositório"
+msgstr[1] "até %(max)s repositórios"
+
+msgid "Context"
+msgstr "Contexto"
+
+msgid "Spend"
+msgstr "Gasto"
 
 #, fuzzy
 #~| msgid "Session context"

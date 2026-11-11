@@ -2,6 +2,7 @@ from datetime import datetime  # noqa: TC003 - required at runtime by Pydantic
 from typing import Any, Literal
 from uuid import UUID  # noqa: TC003 - required at runtime by Pydantic
 
+from mcp_connectors.selection import McpServerSwitches  # noqa: TC002 - required at runtime by Ninja
 from ninja import Field, Schema
 from pydantic import ConfigDict
 from sessions.artifacts import ArtifactPayload  # noqa: TC002 - required at runtime by Ninja
@@ -16,7 +17,10 @@ class RepoSubmitItem(Schema):
     prompt: str | None = Field(
         default=None,
         pattern=r"\S",
-        description="Instruction for this repository only; replaces the batch prompt for it. Must not be blank.",
+        description=(
+            "Instruction for this repository only; replaces the batch prompt for it. Must not be blank. "
+            "Refused with `shared_session`."
+        ),
     )
 
 
@@ -33,10 +37,23 @@ class JobSubmitRequest(Schema):
     muted: bool = Field(default=False, description="Mute notifications for every job in this batch.")
     environment: str | None = None
     thread_id: UUID | None = None
+    shared_session: bool = Field(
+        default=False,
+        description="Run every repository in one session: the agent sees all of them and opens one merge request per "
+        "repository it changes. The first repository is the main one. At most 5.",
+    )
     references: list[RefIn] = Field(
         default_factory=list,
         max_length=MAX_REFS_PER_SUBMISSION,
         description="External work-item references to link into the MR/PR.",
+    )
+    mcp_overrides: McpServerSwitches | None = Field(
+        default=None,
+        description=(
+            "MCP servers to switch on or off for these jobs, relative to the default set: true adds an on-demand "
+            "server, false drops an active one. On a continued thread they apply on top of the thread's own, and "
+            "can't change them while another run on the thread is unfinished."
+        ),
     )
 
 
@@ -60,6 +77,16 @@ class JobSubmitResponse(Schema):
     failed: list[JobSubmitFailureItem]
 
 
+class JobMergeRequestItem(Schema):
+    repo_id: str
+    url: str
+
+
+class JobPublishErrorItem(Schema):
+    repo_id: str
+    error: str
+
+
 class JobStatusResponse(Schema):
     job_id: str
     status: Literal["QUEUED", "READY", "RUNNING", "SUCCESSFUL", "WAITING_INPUT", "FAILED"]
@@ -71,6 +98,12 @@ class JobStatusResponse(Schema):
         "this thread_id and the answer as the prompt.",
     )
     merge_request_url: str | None = None
+    merge_requests: list[JobMergeRequestItem] = Field(
+        default_factory=list, description="Every merge request the run opened, one per changed repository."
+    )
+    publish_errors: list[JobPublishErrorItem] = Field(
+        default_factory=list, description="Repositories whose publish failed; their work is not published."
+    )
     artifacts: list[ArtifactPayload] = Field(
         default_factory=list, description="Files the agent published from this run, with viewer and download URLs."
     )

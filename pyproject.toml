@@ -1,10 +1,7 @@
 [project]
 name = "daiv"
 version = "2.0.0"
-description = """\
-  Async SWE agents seamlessly integrated on your git platform to automate code issues implementation, reviews, and \
-  pipeline repairs.\
-  """
+description = "Open-source, self-hosted SWE agents for GitLab & GitHub"
 readme = "README.md"
 license = { file = "LICENSE" }
 maintainers = [
@@ -21,48 +18,50 @@ classifiers = [
 dependencies = [
   "ag-ui-langgraph==0.0.47",
   "ag-ui-protocol<1",
+  "beautifulsoup4==4.15.0",
   "copilotkit==0.1.96",
-  "croniter==6.2.4",
+  "croniter==7.0.0",
   "ddgs==9.16.1",
-  "deepagents==0.7.32",
-  "django==6.1.2",
-  "django-allauth[mfa,socialaccount]==65.21.0",
+  "deepagents==0.7.34",
+  "django==6.1.3",
+  "django-allauth[mfa,socialaccount]==65.21.1",
   "django-crontask==2.2.0",
   "django-extensions==4.1",
   "django-filter==26.2",
-  "django-ninja==1.7.1",
+  "django-ninja==1.8.0",
   "django-oauth-toolkit==3.4.1",
   "django-split-settings==1.3.2",
   "django-tasks-db==0.13.0",
-  "fastmcp-slim[client]==4.1.4",
-  "genai-prices==0.1.13",
+  "fastmcp-slim[client]==4.1.6",
+  "filetype==1.2.0",
+  "genai-prices==0.2.1",
   "get-docker-secret==2.0.0",
   "gitpython==3.2.1",
   "httpx==0.28.1",
-  "ipython==9.17.1",
+  "ipython==9.18.1",
   "jinja2==3.1.6",
-  "langchain[anthropic,community,google-genai,openai]==1.4.7",
-  "langchain-anthropic==1.7.6",
-  "langgraph==1.2.18",
-  "langgraph-checkpoint-redis==0.5.2",
-  "langsmith[pytest]==0.14.14",
+  "langchain[anthropic,community,google-genai,openai]==1.4.9",
+  "langchain-anthropic==1.7.10",
+  "langgraph==1.2.20",
+  "langgraph-checkpoint-redis==0.6.0",
+  "langsmith[pytest]==0.14.17",
   "langsmith-fetch==0.3.1",
-  "markdown==3.11.2",
+  "markdown==3.11.3",
   "markdownify==1.2.3",
   "mcp==2.3.0",
   "nh3==0.3.7",
   "parable",
   "prompt-toolkit==3.0.53",
-  "psycopg[pool]==3.3.6",
-  "pydantic==2.14.1",
-  "pydantic-settings==2.16.1",
+  "psycopg[pool]==3.3.8",
+  "pydantic==2.14.3",
+  "pydantic-settings==2.16.2",
   "pygithub==2.10.0",
   "python-decouple==3.8",
   "python-gitlab==8.6.0",
   "pyyaml==6.0.3",
   "rank-bm25==0.2.2",
   "redis==8.1.0",
-  "sentry-sdk==2.73.0",
+  "sentry-sdk==2.74.0",
   "unidiff==1.0.1",
   "uvicorn[standard]==0.54.0",
   "whitenoise==6.12.0",
@@ -73,34 +72,34 @@ urls.source = "https://github.com/srtab/daiv"
 
 [dependency-groups]
 dev = [
-  "coverage==7.17.0",
+  "coverage==7.17.2",
   "datasets==5.1.0",
   "djade==1.10.0",
   "django-stubs==6.1.2",
-  "import-linter==2.15",
+  "import-linter==2.16",
   "openevals==0.2.2",
-  "prek==0.5.7",
-  "pyproject-fmt==2.30.3",
+  "prek==0.5.10",
+  "pyproject-fmt==2.30.6",
   "pytest==9.1.1",
-  "pytest-asyncio==1.4.1",
+  "pytest-asyncio==1.4.1.post1",
   "pytest-cov==7.1.0",
   "pytest-django==4.14.0",
-  "pytest-env==1.8.3",
+  "pytest-env==1.8.5",
   "pytest-httpx==0.36.2",
   "pytest-mock==3.17.0",
   "pytest-xdist==3.8.0",
   "python-dotenv==1.2.4",
-  "ruff==0.17.3",
-  "ty==0.0.92",
-  "types-pyyaml==6.0.12.20260906",
+  "ruff==0.17.4",
+  "ty==0.0.99",
+  "types-pyyaml==6.0.12.20261103",
   "watchdog==6.0.0",
 ]
 docs = [
   "mike==2.2.0",
   "mkdocs==1.6.1",
-  "mkdocs-git-revision-date-localized-plugin==1.6.0",
+  "mkdocs-git-revision-date-localized-plugin==1.6.3",
   "mkdocs-llmstxt==0.5.1",
-  "mkdocs-material==9.7.7",
+  "mkdocs-material==9.8.1",
 ]
 
 [tool.uv]
@@ -109,7 +108,7 @@ sources.parable = { git = "https://github.com/ldayton/Parable.git", rev = "9f7e1
 
 [tool.ruff]
 line-length = 120
-extend-exclude = [ "*/node_modules/*", "*/static/*" ]
+extend-exclude = [ "*/node_modules/*", "*/static/*", "scripts/demo/demo-repo/*" ]
 force-exclude = true
 preview = true
 unsafe-fixes = true
@@ -155,6 +154,7 @@ lint.select = [
 ]
 lint.ignore = [ "N812", "S101" ]
 lint.per-file-ignores."*/migrations/*" = [ "E501" ]
+lint.per-file-ignores."scripts/*" = [ "S404", "S603", "S607", "T201" ]
 lint.isort.known-first-party = [
   "accounts",
   "automation",
@@ -285,7 +285,6 @@ include = [
   "daiv/skills/models.py",
   "daiv/skills/views.py",
   "daiv/slash_commands/actions/agents.py",
-  "daiv/slash_commands/actions/clone_to_topic.py",
   "daiv/slash_commands/actions/help.py",
   "daiv/webhooks/managers/issue_addressor.py",
   "daiv/webhooks/tasks.py",
@@ -312,7 +311,9 @@ ini_options.markers = [
   "code_review: scored recall eval of the /code-review skill on planted bugs, in a sandbox (paid model calls)",
   "deferred_cache: integration probe of prompt-cache hits across a deferred-tool load (paid model calls)",
   "deferred_frozen: integration test asserting deferred-tool schemas are frozen",
+  "delegation: integration eval of delegating sub-jobs and of the resumed run (paid model calls)",
   "diff_to_metadata: scored eval of the diff-to-metadata agent (paid model calls)",
+  "inbox: integration eval of runs built from session inbox events (paid model calls)",
   "memory: scored eval of repository-memory extraction and consolidation (paid model calls)",
   "own_replies: test registers its own webhook reply responses; skips the blanket sendMessage mock",
   "sandbox: integration test against a real sandbox executor",

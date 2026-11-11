@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 
-from automation.agent.mcp.client import StatusTrackingClient, build_client, list_tools, read_only_hint
+from automation.agent.mcp.client import StatusTrackingClient, build_client, list_tools_and_icon, read_only_hint
 from automation.agent.mcp.errors import FailureKind, classify
 from automation.agent.mcp.schemas import ToolFilter, UserMcpServer
 from core.encryption import DecryptionError
@@ -191,9 +191,11 @@ def _build_client(payload: dict[str, Any]) -> StatusTrackingClient:
 
 async def test_connection(payload: dict[str, Any]) -> dict[str, Any]:
     """Open a transient MCP session against ``payload`` and return either
-    ``{ok: True, tools: [...]}`` or ``{ok: False, error: ...}``."""
+    ``{ok: True, tools: [...], icon: str | None}`` or ``{ok: False, error: ...}``."""
     try:
-        tools = await asyncio.wait_for(list_tools(_build_client(payload)), timeout=_TEST_CONNECTION_TIMEOUT)
+        tools, icon = await asyncio.wait_for(
+            list_tools_and_icon(_build_client(payload)), timeout=_TEST_CONNECTION_TIMEOUT
+        )
     except TimeoutError:
         logger.warning("MCP test_connection timed out for url=%s", payload.get("url"))
         return {"ok": False, "error": f"Connection timed out after {_TEST_CONNECTION_TIMEOUT:g}s"}
@@ -210,6 +212,7 @@ async def test_connection(payload: dict[str, Any]) -> dict[str, Any]:
             {"name": tool.name, "description": tool.description or "", "read_only": read_only_hint(tool)}
             for tool in tools
         ],
+        "icon": icon,
     }
 
 
@@ -288,6 +291,10 @@ def composer_server_rows(rows: list[MCPServer]) -> list[dict[str, Any]]:
             "synced": server.tools_synced_at is not None,
             "available": server_health(server)["ok"],
             "is_default": server.is_default,
+            "icon": server.icon,
+            "read_only_tools": sorted(
+                tool["name"] for tool in server.discovered_tools or [] if tool.get("read_only") is True
+            ),
         })
     return out
 
@@ -313,6 +320,7 @@ def sync_discovered_tools(server: MCPServer) -> dict[str, Any]:
     if not result.get("ok"):
         return {"ok": False, "error": result.get("error")}
     server.discovered_tools = result["tools"]
+    server.icon = result.get("icon") or ""
     server.tools_synced_at = timezone.now()
-    server.save(update_fields=["discovered_tools", "tools_synced_at", "modified"])
+    server.save(update_fields=["discovered_tools", "icon", "tools_synced_at", "modified"])
     return {"ok": True, "count": len(result["tools"])}

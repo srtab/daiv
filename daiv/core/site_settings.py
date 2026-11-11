@@ -110,6 +110,10 @@ def _build_field_defaults() -> dict[str, Any]:
         "agent_recursion_limit": 500,
         "agent_skill_models": {},
         "agent_subagent_models": {},
+        "model_request_timeout_seconds": 120,
+        # Not 1: langchain-anthropic shares its httpx client process-wide, so a worker task's first call
+        # can spend a retry on a pooled connection left behind by the previous task's event loop.
+        "model_max_retries": 2,
         "suggest_context_file_enabled": True,
         "session_link_enabled": True,
         # Diff to Metadata — successors of gemini-3.7-flash and deepseek-v4-flash, which scored best on the
@@ -137,6 +141,8 @@ def _build_field_defaults() -> dict[str, Any]:
         "web_search_enabled": True,
         "web_search_max_results": 5,
         "web_search_engine": WebSearchEngineChoices.DUCKDUCKGO,
+        "web_search_searxng_url": None,
+        "web_search_searxng_timeout_seconds": 15,
         # Web Fetch
         "web_fetch_enabled": True,
         "web_fetch_model_name": ModelName.CLAUDE_HAIKU_5_5,
@@ -194,6 +200,8 @@ class SiteSnapshot:
     agent_recursion_limit: int
     agent_skill_models: Mapping[str, str]
     agent_subagent_models: Mapping[str, str]
+    model_request_timeout_seconds: int
+    model_max_retries: int
     suggest_context_file_enabled: bool
     session_link_enabled: bool
     diff_to_metadata_model_name: str
@@ -214,6 +222,8 @@ class SiteSnapshot:
     web_search_enabled: bool
     web_search_max_results: int
     web_search_engine: str
+    web_search_searxng_url: str | None
+    web_search_searxng_timeout_seconds: int
     web_fetch_enabled: bool
     web_fetch_model_name: str
     web_fetch_cache_ttl_seconds: int

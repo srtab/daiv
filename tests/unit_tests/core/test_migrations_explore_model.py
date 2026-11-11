@@ -3,7 +3,7 @@ import logging
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-migration = importlib.import_module("core.migrations.0021_explore_model_to_subagent_models")
+migration = importlib.import_module("core.migrations.0024_explore_model_to_subagent_models")
 
 
 def _site(**fields) -> SimpleNamespace:

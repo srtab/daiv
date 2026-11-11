@@ -14,6 +14,8 @@ from typing import Any
 from automation.agent.constants import SKILLS_TOOL_NAME
 from automation.agent.questions import is_question_close
 from automation.agent.synthetic import is_synthetic
+from automation.agent.tool_media import ToolContent
+from sessions.tool_media import TranscriptMedia
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -36,7 +38,7 @@ def is_assistant_message(m: Any) -> bool:
     return message_role(m) in _ASSISTANT_ROLES
 
 
-def build_turns(messages: list[Any], *, in_flight: bool = False) -> list[dict[str, Any]]:
+def build_turns(messages: list[Any], *, in_flight: bool = False, thread_id: str = "") -> list[dict[str, Any]]:
     """Walk a LangChain message list once, producing a list of turns.
 
     Each turn is ``{"id", "role", "segments": [...]}``. Segments are either
@@ -65,6 +67,7 @@ def build_turns(messages: list[Any], *, in_flight: bool = False) -> list[dict[st
     tool_index: dict[str, tuple[int, int]] = {}
     skill_tool_ids: set[str] = set()
     pending_skill_tc_id: str | None = None
+    media = TranscriptMedia(thread_id)
 
     for index, m in enumerate(messages):
         mtype = message_role(m)
@@ -77,7 +80,7 @@ def build_turns(messages: list[Any], *, in_flight: bool = False) -> list[dict[st
                 continue
             turns.append(_build_user_turn(m))
         elif mtype in _ASSISTANT_ROLES:
-            if is_question_close(messages, index):
+            if is_synthetic(m) or is_question_close(messages, index):
                 continue
             turn = _build_assistant_turn(m)
             turn_idx = len(turns)
@@ -89,7 +92,7 @@ def build_turns(messages: list[Any], *, in_flight: bool = False) -> list[dict[st
             turns.append(turn)
             pending_skill_tc_id = None
         elif mtype in ("tool", "tool_result"):
-            tc_id = _attach_tool_result(m, turns, tool_index)
+            tc_id = _attach_tool_result(m, turns, tool_index, media)
             is_skill_placeholder = tc_id in skill_tool_ids and _tool_message_text(m).startswith(
                 _SKILL_PLACEHOLDER_PREFIX
             )
@@ -102,22 +105,24 @@ def build_turns(messages: list[Any], *, in_flight: bool = False) -> list[dict[st
     return turns
 
 
-def _attach_tool_result(m: Any, turns: list[dict[str, Any]], tool_index: dict[str, tuple[int, int]]) -> str | None:
+def _attach_tool_result(
+    m: Any, turns: list[dict[str, Any]], tool_index: dict[str, tuple[int, int]], media: TranscriptMedia
+) -> str | None:
     tc_id = getattr(m, "tool_call_id", None) or ((getattr(m, "additional_kwargs", None) or {}).get("tool_call_id"))
     if not tc_id or tc_id not in tool_index:
         logger.warning("Dropping orphan ToolMessage with tool_call_id=%r", tc_id)
         return None
 
     t_idx, s_idx = tool_index[tc_id]
-    turns[t_idx]["segments"][s_idx]["result"] = _tool_message_text(m)
+    segment = turns[t_idx]["segments"][s_idx]
+    segment["result"] = _tool_message_text(m)
+    if items := media.of_message(m):
+        segment["media"] = items
     return tc_id
 
 
 def _tool_message_text(m: Any) -> str:
-    content = getattr(m, "content", "")
-    if isinstance(content, list):
-        content = "\n".join(block.get("text", "") if isinstance(block, dict) else str(block) for block in content)
-    return str(content or "")
+    return ToolContent(m).text
 
 
 def _fold_skill_body(m: Any, turns: list[dict[str, Any]], tool_index: dict[str, tuple[int, int]], tc_id: str) -> None:

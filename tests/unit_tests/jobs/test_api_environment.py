@@ -25,7 +25,7 @@ def test_jobs_endpoint_accepts_environment_name(auth_pair):
     user, key = auth_pair
     env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=user, name="dev", base_image="alpine:latest")
     fake_run = type("R", (), {"id": uuid.uuid4(), "session_id": str(uuid.uuid4()), "status": "READY"})()
-    with patch("jobs.api.views.asubmit_batch_runs", AsyncMock()) as submit:
+    with patch("sessions.multi_repo.asubmit_batch_runs", AsyncMock()) as submit:
         submit.return_value = BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[fake_run])
         c = Client()
         resp = c.post(

@@ -10,10 +10,15 @@ from typing import TYPE_CHECKING, Any
 from django.utils import timezone
 
 from ag_ui.core.events import BaseEvent, CustomEvent, EventType, RunErrorEvent
-from langchain_core.messages import HumanMessage
+from asgiref.sync import sync_to_async
+from langchain_core.messages import HumanMessage, RemoveMessage
 from sessions.executor.lock import Held, SessionLock, SessionLockLostError
 from sessions.executor.run import RunStoppedError, stream_run
 from sessions.executor.spec import RunHooks, RunSpec
+from sessions.inbox.chat_claim import ChatClaim
+from sessions.inbox.complete import RunEnd
+from sessions.inbox.drain import Drain
+from sessions.inbox.render import RunInput
 from sessions.live import relay
 from sessions.live.agui import RuntimeContextLangGraphAGUIAgent
 from sessions.live.event_filter import SubagentEventFilter
@@ -73,10 +78,13 @@ async def finalize_chat_run(
     error_message: str = "",
     question: dict | None = None,
     agent_result: AgentResult | None = None,
+    stopped: bool = False,
 ) -> None:
     """Terminal transition for a chat Run. Reuses ``usage_field_updates`` and ``agent_result_field_updates`` so
     the denormalization stays identical to the task-backed path (``Run.sync_from_task_result``). On failure,
-    ``error_message`` is persisted so the run timeline shows a reason instead of a blank FAILED pill.
+    ``error_message`` is persisted so the run timeline shows a reason instead of a blank FAILED pill. A failed run its
+    owner ``stopped`` records the stop in ``cancel_requested_at``, as ``RunManager.cancel`` does for a task-backed
+    run, so the inbox dismisses the events it took instead of retrying them.
     """
     if not success:
         status = RunStatus.FAILED
@@ -85,6 +93,8 @@ async def finalize_chat_run(
     else:
         status = RunStatus.SUCCESSFUL
     update: dict[str, Any] = {"finished_at": timezone.now()}
+    if status == RunStatus.FAILED and stopped:
+        update["cancel_requested_at"] = update["finished_at"]
     if status == RunStatus.WAITING_INPUT:
         update["question"] = question
     if response_text:
@@ -104,17 +114,50 @@ async def finalize_chat_run(
         await Run.objects.filter(pk=run.pk).aupdate(**usage_fields)
 
 
+_ANSWER_EVENT_PREFIXES = ("TEXT_MESSAGE_", "THINKING_", "REASONING_", "TOOL_CALL_", "SUBAGENT_")
+
+
+async def arelease_turn(thread_id: str, run_id: str) -> None:
+    """Put back the inbox events the chat turn ``run_id`` took that its ``Run`` never took over (the turn ended before
+    the clone was ready), release its slot, then drain the session's inbox, so a message sent meanwhile starts its run
+    at once. Each failure is logged, never raised."""
+    try:
+        await ChatClaim(thread_id, run_id).arelease()
+    except Exception:
+        logger.exception(
+            "chat: could not put back the inbox events of thread_id=%s; they return once it is idle", thread_id
+        )
+    try:
+        await SessionLock.release(thread_id, run_id)
+    except Exception:
+        logger.exception("chat: failed to release run slot for thread_id=%s", thread_id)
+        return
+    await sync_to_async(Drain(thread_id).start_logged)()
+
+
 @dataclass
 class _Turn:
     """What a chat turn has recorded so far, filled in as the executor reaches each step."""
 
-    chat_run: Run | None = None
-    announced: bool = False
     usage: CostAwareUsageMetadataCallbackHandler | None = None
     response: str = ""
     error: str | None = None
     question: dict | None = None
     agent_result: AgentResult | None = None
+    answered: bool = False
+    in_thread: bool = False
+    withdrawn: bool | None = None
+    context_message_id: str | None = None
+
+    @property
+    def unanswered(self) -> bool:
+        """No answer streamed and no model call finished, so taking the turn back loses nothing, spend included."""
+        return not self.answered and not (self.usage is not None and self.usage.usage_metadata)
+
+    @property
+    def withdrawable(self) -> bool:
+        """Stopped by its owner while still unanswered, with nothing of the turn left in the thread."""
+        return self.error == CANCELLED_BY_USER_MESSAGE and self.unanswered and not self.in_thread
 
     def add_text(self, delta: str | None) -> None:
         """Buffer assistant text for ``result_summary``, capped at the 2000 chars ``finalize_chat_run`` keeps."""
@@ -132,9 +175,12 @@ class ChatRunStreamer:
     """AG-UI event generator for one chat turn, run through the executor's ``stream_run``; ``runner.run_to_relay``
     publishes it.
 
-    Chat owns: the ``resolved_env`` and ``ref_fallback`` events, the ``Run`` row (started once the
-    clone is ready, finalized with token/cost usage), RUN_ERROR events with sanitized messages, and releasing the run
-    slot the view claimed — after the ``Run`` row is final, so a new turn never finds this one still running.
+    Chat owns: the ``resolved_env`` and ``ref_fallback`` events, the ``Run`` row (recorded by the view before it
+    answers, moved to the ref the clone lands on, finalized with token/cost usage), RUN_ERROR events with sanitized
+    messages, and releasing the run slot the view claimed — after the ``Run`` row is final, so a new turn never finds
+    this one still running. The inbox events the view took for the turn are linked to its ``Run`` once the clone is
+    ready and reach the model as a hidden context message ahead of the person's words; once the slot is released, the
+    session's inbox is drained, so a message sent meanwhile starts its run at once.
     """
 
     repo_id: str
@@ -142,9 +188,9 @@ class ChatRunStreamer:
     thread_id: str
     run_id: str
     input_data: RunAgentInput
+    chat_run: Run
     user_id: int | None = None
     prompt: str = ""
-    message_id: str = ""
     sandbox_environment_id: str | None = None
     agent_model: str | None = None
     agent_thinking_level: str | None = None
@@ -155,6 +201,7 @@ class ChatRunStreamer:
     # streamer's first emit swaps it to the real name without waiting for a page
     # refresh. ``None`` skips the emit — the view decides when emission is meaningful.
     auto_resolved_env: dict[str, str] | None = None
+    _turn: _Turn = field(default_factory=_Turn, init=False, repr=False)
 
     def __post_init__(self) -> None:
         # The view passes thread_id/run_id alongside input_data; a future refactor
@@ -164,8 +211,13 @@ class ChatRunStreamer:
         if self.run_id != self.input_data.run_id:
             raise ValueError(f"run_id mismatch: {self.run_id!r} vs input_data {self.input_data.run_id!r}")
 
+    @property
+    def withdrawn(self) -> bool:
+        """Its owner stopped the turn before DAIV answered, and the turn was taken back (``RunEnd.awithdraw``)."""
+        return self._turn.withdrawn is True
+
     async def events(self) -> AsyncGenerator[BaseEvent]:
-        turn = _Turn()
+        turn = self._turn
         run_relay = relay.RunRelay(self.thread_id, self.run_id)
         finished = False
         try:
@@ -173,17 +225,15 @@ class ChatRunStreamer:
             # what would have run if setup fails.
             if self.auto_resolved_env is not None:
                 yield CustomEvent(type=EventType.CUSTOM, name="resolved_env", value=self.auto_resolved_env)
-            hooks = RunHooks(
-                on_context_ready=partial(self._start_turn, turn), on_success=partial(self._record_outcome, turn)
-            )
+            # Names the run's row so the page keys its live marker as a reload renders it.
+            yield CustomEvent(type=EventType.CUSTOM, name="run_record", value={"id": str(self.chat_run.pk)})
+            hooks = RunHooks(on_context_ready=self._on_context_ready, on_success=partial(self._record_outcome, turn))
             async with contextlib.aclosing(
                 stream_run(
                     self._run_spec(), partial(self._agui_events, turn), hooks, should_stop=run_relay.cancel_requested
                 )
             ) as stream:
                 async for event in stream:
-                    if (record := self._announce(turn)) is not None:
-                        yield record
                     yield event
             finished = True
         except _ReportedRunError:
@@ -198,7 +248,8 @@ class ChatRunStreamer:
             yield RunErrorEvent(type=EventType.RUN_ERROR, message=INTERRUPTED_MESSAGE, code="run_interrupted")
         except RunStoppedError:
             turn.error = CANCELLED_BY_USER_MESSAGE
-            yield RunErrorEvent(type=EventType.RUN_ERROR, message=CANCELLED_BY_USER_MESSAGE, code="run_cancelled")
+            code = "run_withdrawn" if await self._withdraw(turn) else "run_cancelled"
+            yield RunErrorEvent(type=EventType.RUN_ERROR, message=CANCELLED_BY_USER_MESSAGE, code=code)
         except asyncio.CancelledError, GeneratorExit:
             # A local Stop, a shutdown, or a reader that goes away: only a user Stop sets the cancel
             # flag, so it decides the recorded reason.
@@ -212,20 +263,9 @@ class ChatRunStreamer:
             # The exception stays in the server log: its text can carry internal names and paths.
             logger.exception("Chat run failed for thread_id=%s run_id=%s", self.thread_id, self.run_id)
             turn.error = RUN_FAILED_MESSAGE
-            if (record := self._announce(turn)) is not None:
-                yield record
             yield RunErrorEvent(type=EventType.RUN_ERROR, message=RUN_FAILED_MESSAGE, code="run_failed")
         finally:
             await self._end_turn(turn, succeeded=finished)
-
-    @staticmethod
-    def _announce(turn: _Turn) -> CustomEvent | None:
-        """A ``run_record`` event naming the turn's ``Run`` row, once it exists, so the page keys this run's live
-        marker as a reload renders it; ``None`` before the row exists and after it was announced."""
-        if turn.chat_run is None or turn.announced:
-            return None
-        turn.announced = True
-        return CustomEvent(type=EventType.CUSTOM, name="run_record", value={"id": str(turn.chat_run.pk)})
 
     def _run_spec(self) -> RunSpec:
         return RunSpec(
@@ -235,7 +275,8 @@ class ChatRunStreamer:
             input_messages=(HumanMessage(content=self.prompt),),
             trigger="chat",
             lock=Held(holder_id=self.run_id),
-            ref=self.ref,
+            run_id=str(self.chat_run.pk),
+            ref=self.ref or None,
             fallback_ref_on_missing=True,
             agent_model=self.agent_model,
             agent_thinking_level=self.agent_thinking_level,
@@ -248,19 +289,13 @@ class ChatRunStreamer:
             extra_metadata={"override_source": "explicit" if self.agent_model else None},
         )
 
-    async def _start_turn(self, turn: _Turn, ref: str) -> str:
-        """Record the turn as a RUNNING ``Run`` on the ref the clone landed on; return its id for the executor to bind
-        as the run's ``Run``."""
-        run = await start_chat_run(
-            session_id=self.thread_id,
-            user_id=self.user_id,
-            prompt=self.prompt,
-            repo_id=self.repo_id,
-            ref=ref,
-            message_id=self.message_id,
-        )
-        turn.chat_run = run
-        return str(run.pk)
+    async def _on_context_ready(self, ref: str) -> None:
+        """Move the turn's ``Run`` to the ref the clone landed on and link the events the view took to it."""
+        run = self.chat_run
+        if run.ref != ref:
+            await Run.objects.filter(pk=run.pk).aupdate(ref=ref)
+            run.ref = ref
+        await ChatClaim(self.thread_id, self.run_id).alink(run)
 
     async def _record_outcome(self, turn: _Turn, outcome: RunOutcome) -> None:
         """A turn that ended on a question keeps the rendered question as its summary, since the question
@@ -271,9 +306,10 @@ class ChatRunStreamer:
             turn.response = outcome.response_text
 
     async def _agui_events(self, turn: _Turn, run: AgentRun) -> AsyncGenerator[BaseEvent]:
-        """The turn's AG-UI stream: a ``ref_fallback`` frame when the clone fell back, then the agent's events through
-        the subagent filter, recorded on ``turn``. Raises ``_ReportedRunError`` after the last event when one of them
-        was a RUN_ERROR."""
+        """The turn's AG-UI stream: a ``ref_fallback`` frame when the clone fell back or resolved a blank ref to the
+        default branch, then the agent's events through the subagent filter, recorded on ``turn``. Raises
+        ``_ReportedRunError`` after the last event when one of them was a RUN_ERROR. A turn its owner stops before any
+        of the answer streamed is taken back out of the thread."""
         turn.usage = run.usage
         if run.ctx.repo.ref != self.ref:
             yield CustomEvent(
@@ -291,37 +327,103 @@ class ChatRunStreamer:
         # the checkpoint lacks to the graph input.
         turn_message = _last_user_message(self.input_data)
         agui_input = self.input_data.model_copy(update={"messages": [turn_message] if turn_message else []})
+        withdraw = False
         try:
+            turn.in_thread = True
+            await self._add_inbox_context(turn, run)
             async with contextlib.aclosing(SubagentEventFilter().apply(agui.run(agui_input))) as events:
                 async for event in events:
+                    if not turn.answered and event.type.startswith(_ANSWER_EVENT_PREFIXES):
+                        # The executor checks the stop flag only after an event, so one set while DAIV thought
+                        # would otherwise be seen once its answer had started.
+                        if turn.unanswered and await self._stopped_by_owner():
+                            withdraw = True
+                            raise RunStoppedError(f"chat turn for thread_id={self.thread_id} was stopped unanswered")
+                        turn.answered = True
                     if event.type in (EventType.TEXT_MESSAGE_CONTENT, EventType.TEXT_MESSAGE_CHUNK):
                         turn.add_text(getattr(event, "delta", None))
                     elif event.type == EventType.RUN_ERROR:
                         turn.error = RUN_FAILED_MESSAGE
                     yield sanitize_run_error(event)
+        except asyncio.CancelledError, GeneratorExit:
+            withdraw = turn.unanswered and await self._stopped_by_owner()
+            raise
         finally:
             if agui.graph_stream is not None:
                 await close_graph_stream(agui.graph_stream, thread_id=self.thread_id, run_id=self.run_id)
+            if withdraw:
+                ids = (turn.context_message_id, turn_message.id if turn_message else None)
+                turn.in_thread = not await self._clear_turn(run, ids)
         if turn.error is not None:
             raise _ReportedRunError
 
+    async def _add_inbox_context(self, turn: _Turn, run: AgentRun) -> None:
+        """Write what the session's inbox holds for this turn into the thread, ahead of the person's message. The
+        turn runs without it when that fails: the person's request is what matters, and the events stay linked to
+        the run."""
+        try:
+            run_input = await RunInput.aof_run(self.chat_run)
+            context = run_input.render(self.chat_run, fast_forward=run.fast_forward).context
+            if context is not None:
+                turn.context_message_id = context.id
+                await run.agent.aupdate_state(run.config, {"messages": [context]}, as_node="model")
+        except Exception:
+            logger.exception("chat: could not add the inbox context for thread_id=%s", self.thread_id)
+
+    async def _stopped_by_owner(self) -> bool:
+        """Whether the turn is ending because its owner asked it to stop while it still held the session's slot: once
+        another holder owns the slot, it owns the thread too. Never raises."""
+        try:
+            return await relay.RunRelay(self.thread_id, self.run_id).cancel_requested() and await SessionLock.heartbeat(
+                self.thread_id, self.run_id
+            )
+        except Exception:
+            logger.exception("chat: could not tell whether thread_id=%s was stopped by its owner", self.thread_id)
+            return False
+
+    async def _clear_turn(self, run: AgentRun, message_ids: tuple[str | None, ...]) -> bool:
+        """Take the turn's messages back out of the thread; whether none is left there. Never raises."""
+        try:
+            state = await run.agent.aget_state(run.config)
+            present = {message.id for message in state.values.get("messages", [])}
+            removals = [
+                RemoveMessage(id=message_id) for message_id in message_ids if message_id and message_id in present
+            ]
+            if removals:
+                await run.agent.aupdate_state(run.config, {"messages": removals})
+        except Exception:
+            logger.exception("chat: could not take the stopped turn back out of thread_id=%s", self.thread_id)
+            return False
+        return True
+
+    async def _withdraw(self, turn: _Turn) -> bool:
+        """Whether the turn is taken back: it is ``withdrawable`` and its ``Run`` row is gone (``RunEnd.awithdraw``).
+        Decided once, so the code the page is sent and the row agree; never raises."""
+        if turn.withdrawn is None:
+            turn.withdrawn = turn.withdrawable
+            if turn.withdrawn:
+                try:
+                    await RunEnd(self.chat_run).awithdraw()
+                except Exception:
+                    logger.exception("chat: failed to withdraw the stopped chat run for thread_id=%s", self.thread_id)
+                    turn.withdrawn = False
+        return turn.withdrawn
+
     async def _end_turn(self, turn: _Turn, *, succeeded: bool) -> None:
-        """Finalize the ``Run`` row, then release the slot; each failure is logged, never raised over how the turn
-        ended."""
-        if turn.chat_run is not None:
+        """Withdraw or finalize the ``Run`` row, then ``arelease_turn``; each failure is logged, never raised over how
+        the turn ended."""
+        if not await self._withdraw(turn):
             try:
                 await finalize_chat_run(
-                    turn.chat_run,
+                    self.chat_run,
                     success=succeeded,
                     usage=build_usage_summary(turn.usage).to_dict() if turn.usage is not None else None,
                     response_text=turn.response,
                     error_message=turn.error or "",
                     question=turn.question,
                     agent_result=turn.agent_result,
+                    stopped=turn.error == CANCELLED_BY_USER_MESSAGE,
                 )
             except Exception:
                 logger.exception("chat: failed to finalize chat run for thread_id=%s", self.thread_id)
-        try:
-            await SessionLock.release(self.thread_id, self.run_id)
-        except Exception:
-            logger.exception("chat: failed to release run slot for thread_id=%s", self.thread_id)
+        await arelease_turn(self.thread_id, self.run_id)

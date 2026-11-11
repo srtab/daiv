@@ -7,15 +7,27 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from django.contrib.sites.models import Site
+from django.urls import reverse
 from django.utils import timezone
 
 import pytest
 from langchain_core.messages import AIMessage
 from sessions.artifacts import serialize_artifact
+from sessions.delegation import Delegations
 from sessions.executor.lock import LiveRun, SessionActivity
+from sessions.legs import NOT_RUN_CLOSED, NOT_RUN_MERGED
 from sessions.models import CHAT_PROMPT_MAX_LENGTH, Run, RunArtifact, RunStatus, Session, SessionOrigin
-from sessions.transcript import RETRY_MESSAGE, annotate_transcript, expired_run_turns, retry_message
-from sessions.turns import build_turns
+from sessions.transcript import (
+    RETRY_MESSAGE,
+    annotate_transcript,
+    expired_run_turns,
+    mark_delegations,
+    mark_skill_links,
+    marker_id,
+    retry_message,
+)
+from sessions.turns import build_turns, tool_call_segment
+from skills.models import GlobalSkill, SkillInvocation
 
 from core.constants import (
     CANCELLED_BY_COORDINATOR_MESSAGE,
@@ -23,9 +35,28 @@ from core.constants import (
     INTERRUPTED_MESSAGE,
     RUN_FAILED_MESSAGE,
 )
-from tests.unit_tests.sessions.conftest import make_artifact
+from tests.unit_tests.sessions.conftest import (
+    delegate_segment,
+    delegate_turns,
+    make_artifact,
+    make_coordinator,
+    make_leg,
+)
+
+LIVE_ENTRY_KEYS = (
+    "status",
+    "repository",
+    "sibling",
+    "merge_request_iid",
+    "merge_request_web_url",
+    "merge_request_title",
+    "lines_added",
+    "lines_removed",
+    "error",
+)
 
 CREATED_AT = datetime(2026, 7, 31, 12, 0, 0, tzinfo=UTC)
+STARTED_AT = datetime(2026, 7, 31, 12, 0, 2, tzinfo=UTC)
 FINISHED_AT = datetime(2026, 7, 31, 12, 5, 0, tzinfo=UTC)
 
 
@@ -38,9 +69,21 @@ def _run(
     prompt="",
     trigger_type=SessionOrigin.CHAT,
     created_at=None,
+    started_at=None,
     finished_at=None,
     is_cancelled=False,
     notices=(),
+    publish_status="",
+    publish_error="",
+    files_changed=None,
+    lines_added=None,
+    lines_removed=None,
+    merge_request_iid=None,
+    merge_request_web_url="",
+    code_changes=False,
+    repo_id="srtab/daiv",
+    merge_request_title="",
+    repo_publishes=(),
 ):
     return SimpleNamespace(
         id=rid,
@@ -50,9 +93,21 @@ def _run(
         prompt=prompt,
         trigger_type=trigger_type,
         created_at=created_at,
+        started_at=started_at,
         finished_at=finished_at,
         is_cancelled=is_cancelled,
         notices=list(notices),
+        publish_status=publish_status,
+        publish_error=publish_error,
+        files_changed=files_changed,
+        lines_added=lines_added,
+        lines_removed=lines_removed,
+        merge_request_iid=merge_request_iid,
+        merge_request_web_url=merge_request_web_url,
+        code_changes=code_changes,
+        repo_id=repo_id,
+        merge_request_title=merge_request_title,
+        repo_publishes=list(repo_publishes),
     )
 
 
@@ -92,7 +147,7 @@ def test_failed_middle_run_inserts_marker_after_its_segment_by_message_id():
     assert marker["message"] == "Run failed. Check server logs for details."
 
 
-def test_cancelled_run_renders_aborted_marker():
+def test_a_run_its_owner_stopped_keeps_a_silent_marker():
     turns = [_user("h1"), _assistant("a1")]
     runs = [_run("r1", message_id="h1", status=RunStatus.FAILED, error_message=CANCELLED_BY_USER_MESSAGE)]
     result = annotate_transcript(turns, runs)
@@ -101,6 +156,7 @@ def test_cancelled_run_renders_aborted_marker():
         "role": "run_status",
         "status": "aborted",
         "message": CANCELLED_BY_USER_MESSAGE,
+        "silent": True,
     }
 
 
@@ -275,14 +331,65 @@ def test_a_leg_its_delegating_session_cancelled_renders_aborted_marker():
     }
 
 
+@pytest.mark.parametrize("label", [NOT_RUN_MERGED, NOT_RUN_CLOSED])
+def test_a_leg_follow_up_not_run_renders_an_aborted_marker_with_why(label):
+    turns = [_user("h1"), _assistant("a1")]
+    runs = [_run("r1", trigger_type=SessionOrigin.DELEGATED_JOB, status=RunStatus.FAILED, error_message=label)]
+
+    assert annotate_transcript(turns, runs)[-1] == {
+        "id": "run-status-r1",
+        "role": "run_status",
+        "status": "aborted",
+        "message": label,
+    }
+
+
+def test_a_background_run_its_owner_stopped_is_not_blamed_on_a_coordinator():
+    turns = [_user("h1"), _assistant("a1")]
+    runs = [
+        _run(
+            "r1",
+            trigger_type=SessionOrigin.PIPELINE_WEBHOOK,
+            status=RunStatus.FAILED,
+            error_message=CANCELLED_BY_USER_MESSAGE,
+            is_cancelled=True,
+        )
+    ]
+    assert annotate_transcript(turns, runs)[-1]["message"] == CANCELLED_BY_USER_MESSAGE
+
+
 def test_chat_failed_run_renders_error_message_verbatim():
     # Chat runs use the streamer's fixed, user-safe constants — render verbatim.
     turns = [_user("h1"), _assistant("a1")]
-    runs = [_run("r1", trigger_type=SessionOrigin.CHAT, status=RunStatus.FAILED, error_message="some chat message")]
+    runs = [_run("r1", trigger_type=SessionOrigin.CHAT, status=RunStatus.FAILED, error_message=INTERRUPTED_MESSAGE)]
     result = annotate_transcript(turns, runs)
     marker = result[-1]
     assert marker["role"] == "run_status"
-    assert marker["message"] == "some chat message"
+    assert marker["message"] == INTERRUPTED_MESSAGE
+
+
+def test_a_chat_message_the_inbox_ran_never_renders_its_raw_error():
+    """It ran as a task, whose failure stores the exception and traceback."""
+    turns = [_user("h1"), _assistant("a1")]
+    error = "sessions.executor.run.RunStoppedError\nTraceback (most recent call last): ..."
+    runs = [_run("r1", trigger_type=SessionOrigin.CHAT, status=RunStatus.FAILED, error_message=error)]
+    marker = annotate_transcript(turns, runs)[-1]
+    assert (marker["status"], marker["message"]) == ("failed", RUN_FAILED_MESSAGE)
+
+
+def test_a_chat_message_the_inbox_ran_and_its_owner_stopped_reads_as_stopped():
+    turns = [_user("h1"), _assistant("a1")]
+    runs = [
+        _run(
+            "r1",
+            trigger_type=SessionOrigin.CHAT,
+            status=RunStatus.FAILED,
+            error_message="sessions.executor.run.RunStoppedError",
+            is_cancelled=True,
+        )
+    ]
+    marker = annotate_transcript(turns, runs)[-1]
+    assert (marker["status"], marker["message"], marker["silent"]) == ("aborted", CANCELLED_BY_USER_MESSAGE, True)
 
 
 def test_chat_failed_run_with_empty_error_message_falls_back_to_generic():
@@ -426,6 +533,20 @@ def test_unmatched_message_id_logs_only_for_finished_runs(caplog):
         result = annotate_transcript(turns, [_run("rs", message_id="gone", status=RunStatus.SUCCESSFUL)])
     assert [t["id"] for t in result] == ["h1", "a1"]  # finished run contributes nothing
     assert any("no matching" in r.message and "gone" in r.getMessage() for r in caplog.records)
+
+
+def test_started_at_stamped_on_the_runs_user_turn():
+    turns = [_user("h1"), _assistant("a1")]
+    runs = [_run("r1", message_id="h1", created_at=CREATED_AT, started_at=STARTED_AT, finished_at=FINISHED_AT)]
+    result = annotate_transcript(turns, runs)
+    assert result[0]["started_at"] == STARTED_AT.isoformat()
+    assert "started_at" not in result[1]
+
+
+def test_started_at_absent_for_a_run_that_never_started():
+    turns = [_user("h1"), _assistant("a1")]
+    runs = [_run("r1", message_id="h1", created_at=CREATED_AT, started_at=None, finished_at=FINISHED_AT)]
+    assert all("started_at" not in t for t in annotate_transcript(turns, runs))
 
 
 # --- Run-level sent/received timestamp stamping ---------------------------------
@@ -756,3 +877,806 @@ def test_expired_run_turns_restore_a_finished_runs_notices_after_its_turns():
 
     assert (prompt["run_id"], artifacts["received_at"]) == (str(run.id), run.finished_at.isoformat())
     assert (notice["id"], notice["role"]) == (f"run-notice-{run.id}-0", "run_notice")
+
+
+def skill_segment(name, key="skill"):
+    return tool_call_segment({"id": "t1", "name": "skill", "args": {key: name}})
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "source,uploaded,linked",
+    [("builtin", False, True), ("global", True, True), ("global", False, False), ("repo", False, False)],
+)
+def test_skill_calls_link_to_their_skills_page(source, uploaded, linked):
+    thread_id = uuid.uuid4()
+    SkillInvocation.objects.create(name="systematic-debugging", source=source, repo_slug="a/b", thread_id=thread_id)
+    if uploaded:
+        GlobalSkill.objects.create(name="systematic-debugging", size_bytes=1, file_count=1, checksum="c")
+    turns = [{"role": "assistant", "segments": [skill_segment("systematic-debugging")]}]
+
+    mark_skill_links(turns, thread_id)
+
+    url = turns[0]["segments"][0].get("skill_url")
+    assert (url == reverse("skills:detail", args=["systematic-debugging"])) if linked else url is None
+
+
+@pytest.mark.django_db
+def test_a_skill_without_an_invocation_gets_no_link():
+    turns = [{"role": "assistant", "segments": [skill_segment("x")]}]
+
+    mark_skill_links(turns, uuid.uuid4())
+
+    assert "skill_url" not in turns[0]["segments"][0]
+
+
+@pytest.mark.django_db
+def test_skill_links_read_the_name_key_and_ignore_other_threads_and_unparseable_args(django_assert_num_queries):
+    thread_id = uuid.uuid4()
+    SkillInvocation.objects.create(name="a-skill", source="builtin", repo_slug="a/b", thread_id=thread_id)
+    SkillInvocation.objects.create(name="other", source="builtin", repo_slug="a/b", thread_id=uuid.uuid4())
+    broken = {**skill_segment("a-skill"), "args": "{not json"}
+    turns = [{"role": "assistant", "segments": [skill_segment("a-skill", key="name"), skill_segment("other"), broken]}]
+
+    with django_assert_num_queries(1):
+        mark_skill_links(turns, thread_id)
+
+    linked, other, unparsed = turns[0]["segments"]
+    assert linked["skill_url"] == reverse("skills:detail", args=["a-skill"])
+    assert "skill_url" not in other
+    assert "skill_url" not in unparsed
+
+
+@pytest.mark.django_db
+def test_the_latest_invocation_decides_whether_a_skill_links():
+    thread_id = uuid.uuid4()
+    SkillInvocation.objects.create(name="a-skill", source="builtin", repo_slug="a/b", thread_id=thread_id)
+    SkillInvocation.objects.create(name="a-skill", source="repo", repo_slug="a/b", thread_id=thread_id)
+    turns = [{"role": "assistant", "segments": [skill_segment("a-skill")]}]
+
+    mark_skill_links(turns, thread_id)
+
+    assert "skill_url" not in turns[0]["segments"][0]
+
+
+@pytest.mark.django_db
+def test_a_thread_id_that_is_not_a_uuid_gets_no_skill_links(django_assert_num_queries):
+    turns = [{"role": "assistant", "segments": [skill_segment("a-skill")]}]
+
+    with django_assert_num_queries(0):
+        mark_skill_links(turns, "not-a-uuid")
+
+    assert "skill_url" not in turns[0]["segments"][0]
+
+
+def test_opened_result_is_stamped_on_the_runs_last_turn():
+    runs = [
+        _run(
+            "r1",
+            message_id="h1",
+            publish_status="opened",
+            merge_request_iid=1832,
+            merge_request_web_url="https://git/mr/1832",
+            lines_added=16,
+            lines_removed=4,
+            files_changed=3,
+        )
+    ]
+
+    result = annotate_transcript([_user("h1"), _assistant("a1")], runs)
+
+    assert result[-1]["publish"] == [
+        {
+            "status": "opened",
+            "repository": "srtab/daiv",
+            "sibling": False,
+            "merge_request_title": "",
+            "merge_request_iid": 1832,
+            "merge_request_web_url": "https://git/mr/1832",
+            "lines_added": 16,
+            "lines_removed": 4,
+            "error": "",
+        }
+    ]
+    assert "publish" not in result[0]
+
+
+def test_failed_publish_replaces_the_generic_marker_with_its_own_message():
+    runs = [
+        _run("r1", message_id="h1", status=RunStatus.FAILED, publish_status="failed", publish_error="push_rejected")
+    ]
+
+    result = annotate_transcript([_user("h1"), _assistant("a1")], runs)
+
+    assert all(t.get("role") != "run_status" for t in result)
+    (entry,) = result[-1]["publish"]
+    assert (entry["status"], entry["error"]) == ("failed", "The push was rejected")
+    assert entry["id"] == marker_id(runs[0])
+    assert entry["lines_added"] is None
+
+
+@pytest.mark.parametrize("message_id", ["h1", "gone"], ids=["checkpointed", "rebuilt"])
+@pytest.mark.parametrize(
+    "error_message", [CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE], ids=["cancelled", "interrupted"]
+)
+def test_a_stopped_run_keeps_its_marker_below_its_failed_publish_line(message_id, error_message):
+    run = _run(
+        "r1",
+        message_id=message_id,
+        status=RunStatus.FAILED,
+        error_message=error_message,
+        prompt="fix it",
+        publish_status="failed",
+        publish_error="unknown",
+    )
+
+    result = annotate_transcript([_user("h1"), _assistant("a1")] if message_id == "h1" else [], [run])
+
+    assert [p["status"] for p in result[-2]["publish"]] == ["failed"]
+    assert (result[-1]["role"], result[-1]["status"]) == ("run_status", "aborted")
+
+
+def test_published_then_failed_keeps_the_result_and_the_marker():
+    runs = [_run("r1", message_id="h1", status=RunStatus.FAILED, publish_status="pushed", merge_request_iid=7)]
+
+    result = annotate_transcript([_user("h1"), _assistant("a1")], runs)
+
+    assert result[-1]["role"] == "run_status"
+    assert [p["status"] for p in result[-2]["publish"]] == ["pushed"]
+    assert "id" not in result[-2]["publish"][0]
+
+
+def test_not_published_result_carries_its_error_but_not_the_sessions_merge_request():
+    runs = [
+        _run("r1", message_id="h1", publish_status="not_published", publish_error="conflicts", merge_request_iid=12)
+    ]
+
+    (entry,) = annotate_transcript([_user("h1"), _assistant("a1")], runs)[-1]["publish"]
+
+    assert (entry["status"], entry["error"]) == ("not_published", "Merge conflicts are left in the changed files")
+    assert (entry["merge_request_iid"], entry["merge_request_web_url"]) == (None, "")
+
+
+def test_failed_publish_with_a_recovered_draft_shows_red_then_opened():
+    runs = [
+        _run(
+            "r1",
+            message_id="h1",
+            status=RunStatus.FAILED,
+            publish_status="failed",
+            publish_error="mr_failed",
+            code_changes=True,
+            merge_request_iid=9,
+            merge_request_web_url="https://git/mr/9",
+            files_changed=2,
+            lines_added=5,
+            lines_removed=1,
+        )
+    ]
+
+    red, draft = annotate_transcript([_user("h1"), _assistant("a1")], runs)[-1]["publish"]
+
+    assert (red["status"], red["lines_added"], red["id"]) == ("failed", None, marker_id(runs[0]))
+    assert (draft["status"], draft["merge_request_iid"], draft["lines_added"], draft["error"]) == ("opened", 9, 5, "")
+    assert "id" not in draft
+
+
+def test_failed_publish_on_a_run_that_already_had_an_mr_shows_only_the_red_entry():
+    runs = [
+        _run(
+            "r1",
+            message_id="h1",
+            status=RunStatus.FAILED,
+            publish_status="failed",
+            publish_error="push_rejected",
+            merge_request_iid=9,
+        )
+    ]
+
+    publish = annotate_transcript([_user("h1"), _assistant("a1")], runs)[-1]["publish"]
+
+    assert [p["status"] for p in publish] == ["failed"]
+
+
+def test_a_draft_recovered_after_the_run_failed_shows_opened_above_the_marker():
+    runs = [
+        _run(
+            "r1",
+            message_id="h1",
+            status=RunStatus.FAILED,
+            publish_status="opened",
+            code_changes=True,
+            merge_request_iid=9,
+            merge_request_web_url="https://git/mr/9",
+            files_changed=2,
+        )
+    ]
+
+    result = annotate_transcript([_user("h1"), _assistant("a1")], runs)
+
+    (entry,) = result[-2]["publish"]
+    assert (entry["status"], entry["merge_request_iid"], entry["error"]) == ("opened", 9, "")
+    assert result[-1]["role"] == "run_status"
+
+
+def test_an_old_failed_run_on_a_merge_request_gets_no_result():
+    runs = [_run("r1", message_id="h1", status=RunStatus.FAILED, merge_request_iid=9)]
+
+    result = annotate_transcript([_user("h1"), _assistant("a1")], runs)
+
+    assert all("publish" not in t for t in result)
+
+
+def test_old_runs_get_no_result():
+    result = annotate_transcript([_user("h1"), _assistant("a1")], [_run("r1", message_id="h1")])
+
+    assert all("publish" not in t for t in result)
+
+
+def test_a_run_without_an_assistant_turn_gets_a_carrier_turn_never_the_user_turn():
+    runs = [_run("r1", message_id="h1", publish_status="pushed")]
+
+    result = annotate_transcript([_user("h1")], runs)
+
+    assert "publish" not in result[0]
+    assert result[-1]["id"] == "run-r1-publish"
+    assert result[-1]["role"] == "assistant"
+    assert result[-1]["segments"] == []
+    assert result[-1]["publish"][0]["status"] == "pushed"
+
+
+def test_a_rebuilt_failed_run_carries_its_result_on_a_rebuilt_carrier_turn():
+    runs = [
+        _run(
+            "r1",
+            status=RunStatus.FAILED,
+            message_id="gone",
+            prompt="fix it",
+            publish_status="failed",
+            publish_error="unknown",
+        )
+    ]
+
+    result = annotate_transcript([], runs)
+
+    assert [t["role"] for t in result] == ["user", "assistant"]
+    assert "publish" not in result[0]
+    assert result[1]["rebuilt"] is True
+    assert result[1]["publish"][0]["error"] == "Couldn't publish the changes"
+
+
+def test_a_rebuilt_run_that_published_then_failed_puts_the_result_before_its_marker():
+    runs = [_run("r1", status=RunStatus.FAILED, message_id="gone", prompt="fix it", publish_status="opened")]
+
+    result = annotate_transcript([], runs)
+
+    assert [t["role"] for t in result] == ["user", "assistant", "run_status"]
+    assert "publish" not in result[2]
+
+
+@pytest.mark.django_db
+def test_expired_run_turns_stamp_the_result_on_the_artifacts_turn():
+    session = _db_session()
+    run = _db_run(session, publish_status="opened", merge_request_iid=4, lines_added=2)
+    make_artifact(run, filename="report.md")
+
+    (turn,) = expired_run_turns([run], [])
+
+    assert turn["id"] == f"run-{run.id}-artifacts"
+    assert turn["publish"][0]["merge_request_iid"] == 4
+
+
+@pytest.mark.django_db
+def test_expired_run_turns_add_a_carrier_turn_for_a_result_without_artifacts():
+    session = _db_session()
+    run = _db_run(session, prompt="do it", publish_status="pushed")
+
+    result = expired_run_turns([run], [])
+
+    assert [t["role"] for t in result] == ["user", "assistant"]
+    assert "publish" not in result[0]
+    assert result[1]["id"] == f"run-{run.id}-publish"
+    assert result[1]["publish"][0]["status"] == "pushed"
+
+
+@pytest.mark.django_db
+def test_expired_run_turns_time_the_carrier_turn_as_the_runs_last():
+    run = _db_run(_db_session(), prompt="do it", publish_status="pushed", finished_at=FINISHED_AT)
+
+    user, carrier = expired_run_turns([run], [])
+
+    assert "received_at" not in user
+    assert carrier["received_at"] == FINISHED_AT.isoformat()
+
+
+def test_a_rebuilt_runs_carrier_turn_is_timed_as_the_runs_last():
+    runs = [
+        _run(
+            "r1",
+            status=RunStatus.FAILED,
+            message_id="gone",
+            prompt="fix it",
+            publish_status="pushed",
+            finished_at=FINISHED_AT,
+        )
+    ]
+
+    user, carrier, marker = annotate_transcript([], runs)
+
+    assert "received_at" not in user and "received_at" not in marker
+    assert carrier["received_at"] == FINISHED_AT.isoformat()
+
+
+def test_a_checkpointed_run_without_an_assistant_turn_times_its_carrier_turn():
+    runs = [_run("r1", message_id="h1", publish_status="pushed", finished_at=FINISHED_AT)]
+
+    user, carrier = annotate_transcript([_user("h1")], runs)
+
+    assert "received_at" not in user
+    assert carrier["received_at"] == FINISHED_AT.isoformat()
+
+
+SIBLING_OPENED = {
+    "status": "opened",
+    "repository": "srtab/daiv",
+    "sibling": True,
+    "merge_request_iid": 101,
+    "merge_request_web_url": "https://git/mr/101",
+    "merge_request_title": "Add it",
+    "files_changed": 2,
+    "lines_added": 5,
+    "lines_removed": 1,
+    "error_kind": None,
+}
+SIBLING_FAILED = {**SIBLING_OPENED, "status": "failed", "repository": "srtab/daiv-stack", "error_kind": "push_rejected"}
+
+
+def _publish_of(run):
+    return annotate_transcript([_user("h1"), _assistant("a1")], [run])[-1]["publish"]
+
+
+def test_every_repository_gets_a_publish_entry_main_first_then_the_extras_in_order():
+    run = _run(
+        "r1",
+        message_id="h1",
+        publish_status="pushed",
+        merge_request_iid=7,
+        merge_request_title="Main title",
+        repo_publishes=[SIBLING_OPENED, SIBLING_FAILED],
+    )
+
+    main, opened, failed = _publish_of(run)
+
+    assert (main["repository"], main["sibling"], main["merge_request_title"]) == ("srtab/daiv", False, "Main title")
+    assert (opened["sibling"], opened["merge_request_iid"], opened["merge_request_title"]) == (True, 101, "Add it")
+    assert (failed["repository"], failed["sibling"], failed["error"]) == (
+        "srtab/daiv-stack",
+        True,
+        "The push was rejected",
+    )
+    assert "id" not in failed
+    assert failed["merge_request_iid"] is None
+
+
+def test_a_run_with_only_extra_repository_results_still_gets_their_entries():
+    run = _run("r1", message_id="h1", repo_publishes=[SIBLING_OPENED])
+
+    (entry,) = _publish_of(run)
+
+    assert (entry["sibling"], entry["status"]) == (True, "opened")
+
+
+def test_a_run_with_no_results_gets_no_publish_entries():
+    result = annotate_transcript([_user("h1"), _assistant("a1")], [_run("r1", message_id="h1")])
+
+    assert "publish" not in result[-1]
+
+
+def test_malformed_extra_repository_results_are_skipped():
+    run = _run("r1", message_id="h1", repo_publishes=["x", {"repository": "a/b"}, SIBLING_OPENED])
+
+    assert [e["repository"] for e in _publish_of(run)] == ["srtab/daiv"]
+
+
+def test_a_main_failure_keeps_the_retry_anchor_and_the_extras_follow_it():
+    run = _run(
+        "r1",
+        message_id="h1",
+        status=RunStatus.FAILED,
+        publish_status="failed",
+        publish_error="mr_failed",
+        repo_publishes=[SIBLING_FAILED],
+    )
+
+    red, extra = _publish_of(run)
+
+    assert red["id"] == marker_id(run)
+    assert "id" not in extra
+
+
+def test_server_and_live_entries_have_the_same_keys():
+    server = _publish_of(_run("r1", message_id="h1", publish_status="opened", repo_publishes=[SIBLING_FAILED]))
+    assert {frozenset(e) - {"id"} for e in server} == {frozenset(LIVE_ENTRY_KEYS)}
+
+
+def test_retry_stays_offered_on_a_failed_publish_run_and_its_red_entry_is_the_retry_anchor():
+    runs = [_run("r1", message_id="h1", status=RunStatus.FAILED, publish_status="failed", publish_error="mr_failed")]
+
+    turns = annotate_transcript([_user("h1", "fix it"), _assistant("a1")], runs)
+
+    assert retry_message(turns, runs) == RETRY_MESSAGE
+    assert turns[-1]["publish"][0]["id"] == marker_id(runs[0])
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("with_artifact", [False, True])
+def test_expired_run_turns_do_not_stamp_a_result_an_already_rebuilt_run_carries(with_artifact):
+    session = _db_session()
+    run = _db_run(
+        session,
+        status=RunStatus.FAILED,
+        prompt="fix it",
+        message_id="gone",
+        publish_status="failed",
+        publish_error="unknown",
+    )
+    if with_artifact:
+        make_artifact(run, filename="report.md")
+    shown = annotate_transcript([], [run])
+
+    turns = [*shown, *expired_run_turns([run], shown)]
+
+    assert sum("publish" in turn for turn in turns) == 1
+    assert len({turn["id"] for turn in turns}) == len(turns)
+
+
+class TestInterleaveInboxEvents:
+    """Remembered events sit in the timeline before the first run created after them."""
+
+    @staticmethod
+    def _run(minute: int, status: str = RunStatus.SUCCESSFUL):
+        from datetime import UTC, datetime, timedelta
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            id=uuid.uuid4(),
+            created_at=datetime(2026, 10, 30, 12, tzinfo=UTC) + timedelta(minutes=minute),
+            status=status,
+        )
+
+    @staticmethod
+    def _event(minute: int, kind="mr_merged", payload=None, **fields):
+        from datetime import UTC, datetime, timedelta
+
+        from sessions.models import InboxEvent
+
+        defaults = {"mr_merged": {"target_branch": "main", "by_username": "sfr"}}
+        return InboxEvent(
+            kind=kind,
+            payload=payload or defaults[kind],
+            wake=False,
+            merge_request_iid=9,
+            created_at=datetime(2026, 10, 30, 12, tzinfo=UTC) + timedelta(minutes=minute),
+            **fields,
+        )
+
+    def test_events_land_between_the_runs_they_came_between(self):
+        from sessions.transcript import interleave_inbox_events
+
+        first, second = self._run(0), self._run(10)
+        turns = [
+            {"id": "u1", "role": "user", "run_id": str(first.id)},
+            {"id": "a1", "role": "assistant"},
+            {"id": "u2", "role": "user", "run_id": str(second.id)},
+        ]
+        between, after = self._event(5), self._event(20)
+
+        result = interleave_inbox_events(turns, [first, second], [after, between])
+
+        assert [turn["id"] for turn in result] == ["u1", "a1", f"inbox-{between.pk}", "u2", f"inbox-{after.pk}"]
+        entry = result[2]
+        assert entry == {
+            "id": f"inbox-{between.pk}",
+            "role": "inbox_event",
+            "kind": "mr_merged",
+            "summary": "!9 was merged into main by sfr.",
+            "reason": "",
+            "reason_text": "",
+            "failure_label": "",
+            "web_url": "",
+            "created_at": between.created_at.isoformat(),
+        }
+
+    def test_an_event_before_every_run_comes_first(self):
+        from sessions.transcript import interleave_inbox_events
+
+        run = self._run(10)
+        early = self._event(0)
+
+        result = interleave_inbox_events([{"id": "u1", "role": "user", "run_id": str(run.id)}], [run], [early])
+
+        assert [turn["role"] for turn in result] == ["inbox_event", "user"]
+
+    @pytest.mark.django_db
+    def test_events_interleave_with_the_turns_an_expired_checkpoint_restores(self):
+        from sessions.transcript import expired_run_turns, interleave_inbox_events
+
+        from tests.unit_tests.sessions.conftest import make_run
+
+        session_id = str(uuid.uuid4())
+        first = make_run(session_id=session_id, status=RunStatus.SUCCESSFUL)
+        second = make_run(session_id=session_id, status=RunStatus.SUCCESSFUL)
+        between = self._event(0)
+        between.created_at = first.created_at + (second.created_at - first.created_at) / 2
+
+        turns = expired_run_turns([first, second], [])
+        result = interleave_inbox_events(turns, [first, second], [between])
+
+        assert [turn.get("run_id") or turn["role"] for turn in result] == [str(first.id), "inbox_event", str(second.id)]
+
+    def test_no_events_leaves_the_turns_as_they_are(self):
+        from sessions.transcript import interleave_inbox_events
+
+        turns = [{"id": "u1", "role": "user"}]
+
+        assert interleave_inbox_events(turns, [], []) is turns
+
+    def test_a_remembered_event_sits_above_the_run_that_took_it(self):
+        from sessions.transcript import interleave_inbox_events
+
+        first, second = self._run(-60), self._run(0)
+        push = self._event(5, run_id=second.id, state="handled")
+        turns = [
+            {"id": "u1", "role": "user", "run_id": str(first.id)},
+            {"id": "a1", "role": "assistant"},
+            {"id": "u2", "role": "user", "run_id": str(second.id)},
+            {"id": "a2", "role": "assistant"},
+        ]
+
+        result = interleave_inbox_events(turns, [first, second], [push])
+
+        assert [turn["id"] for turn in result] == ["u1", "a1", f"inbox-{push.pk}", "u2", "a2"]
+
+    def test_an_event_a_run_not_started_took_is_left_to_up_next_unless_the_run_shows(self):
+        from sessions.transcript import interleave_inbox_events
+
+        first, starting, waiting = self._run(-60), self._run(0, RunStatus.READY), self._run(1, RunStatus.READY)
+        hidden = self._event(5, run_id=starting.id, state="taken")
+        shown = self._event(6, run_id=waiting.id, state="taken")
+        turns = [
+            {"id": "u1", "role": "user", "run_id": str(first.id)},
+            {"id": "u2", "role": "user", "run_id": str(waiting.id), "pending": True},
+        ]
+
+        result = interleave_inbox_events(turns, [first, starting, waiting], [hidden, shown])
+
+        assert [turn["id"] for turn in result] == ["u1", f"inbox-{shown.pk}", "u2"]
+
+    def test_a_failed_event_stays_at_its_arrival(self):
+        from sessions.transcript import interleave_inbox_events
+
+        first, second = self._run(10), self._run(20)
+        failed = self._event(
+            0, kind="mention", run_id=second.id, state="failed", failure="retries_exhausted",
+            payload={"body": "@daiv look", "web_url": "https://mr/9#1"},
+        )  # fmt: skip
+        turns = [
+            {"id": "u1", "role": "user", "run_id": str(first.id)},
+            {"id": "u2", "role": "user", "run_id": str(second.id)},
+        ]
+
+        result = interleave_inbox_events(turns, [first, second], [failed])
+
+        assert [turn["id"] for turn in result] == [f"inbox-{failed.pk}", "u1", "u2"]
+
+    def test_a_quiet_ci_failure_says_why(self):
+        from sessions.transcript import inbox_event_entry
+
+        event = self._event(
+            0, kind="ci_failed", reason="budget_spent",
+            payload={"pipeline_id": 8812, "sha": "abc", "status": "failed", "web_url": "", "failed_jobs": []},
+        )  # fmt: skip
+
+        assert inbox_event_entry(event)["reason_text"] == "not fixing: out of attempts"
+
+    def test_a_give_up_says_how_many_attempts_and_which_jobs_fail(self):
+        from sessions.transcript import inbox_event_entry
+
+        event = self._event(
+            0, kind="ci_failed", reason="budget_spent",
+            payload={
+                "pipeline_id": 8812, "sha": "abc", "status": "failed", "web_url": "", "failed_jobs": ["tests"],
+                "attempts": 3,
+            },
+        )  # fmt: skip
+
+        assert inbox_event_entry(event)["reason_text"] == "not fixing: stopped after 3 attempts, failing: tests"
+
+    def test_a_reason_given_overrides_the_stored_one(self):
+        from sessions.transcript import inbox_event_entry
+
+        event = self._event(0, kind="delegation_finished", payload={"batch_id": "b", "summary": "2 jobs finished."})
+
+        assert inbox_event_entry(event, reason="run_limit")["reason_text"] == "not acting: paused after 3 runs in a row"
+
+    def test_a_failed_event_carries_its_failure_label(self):
+        from sessions.transcript import inbox_event_entry
+
+        event = self._event(
+            0, kind="mention", state="failed", failure="retries_exhausted",
+            payload={"body": "@daiv look", "web_url": "https://mr/9#1"},
+        )  # fmt: skip
+
+        assert inbox_event_entry(event)["failure_label"] == "The runs that took it kept failing"
+
+
+class TestMarkRunOpenings:
+    def test_a_run_opens_with_the_events_it_took(self):
+        from datetime import UTC, datetime, timedelta
+
+        from sessions.models import InboxEvent
+        from sessions.transcript import mark_run_openings
+
+        run_id, other_id = uuid.uuid4(), uuid.uuid4()
+        at = datetime(2026, 10, 30, 12, tzinfo=UTC)
+        ci = InboxEvent(
+            kind="ci_failed", wake=True, run_id=run_id, state="handled", created_at=at + timedelta(minutes=2),
+            payload={"pipeline_id": 1, "sha": "abc", "status": "failed", "web_url": "", "failed_jobs": ["lint"]},
+        )  # fmt: skip
+        chat = InboxEvent(
+            kind="chat_message", wake=True, run_id=run_id, state="handled", created_at=at,
+            payload={"text": "Fix it", "agui_message_id": "m1"},
+        )  # fmt: skip
+        turns = [
+            {"id": "u1", "role": "user", "run_id": str(run_id)},
+            {"id": "a1", "role": "assistant", "run_id": str(run_id)},
+            {"id": "u2", "role": "user", "run_id": str(other_id)},
+        ]
+
+        mark_run_openings(turns, [ci, chat])
+
+        assert [bubble["id"] for bubble in turns[0]["opening"]] == [f"inbox-{chat.pk}", f"inbox-{ci.pk}"]
+        assert "opening" not in turns[1]
+        assert "opening" not in turns[2]
+
+
+@pytest.fixture
+def owner(member_user):
+    return member_user
+
+
+@pytest.mark.django_db
+def test_delegate_segment_gets_the_legs_current_states_oldest_first(owner):
+    coordinator = make_coordinator(owner)
+    batch = uuid.uuid4()
+    finished = make_leg(
+        coordinator,
+        batch,
+        status=RunStatus.SUCCESSFUL,
+        repo_id="acme/a",
+        ref="main",
+        session_ref="daiv/work-branch",
+        merge_request_web_url="http://mr/1",
+    )
+    running = make_leg(coordinator, batch, status=RunStatus.RUNNING, repo_id="acme/b", finished_at=None)
+    turns = delegate_turns(batch)
+
+    mark_delegations(turns, Delegations.load(coordinator.thread_id, owner))
+
+    legs = turns[0]["segments"][0]["legs"]
+    assert [leg["state"] for leg in legs] == ["finished", "running"]
+    assert legs[0] == {
+        "repo_id": "acme/a",
+        "ref": "main",
+        "state": "finished",
+        "merge_request_url": "http://mr/1",
+        "session_url": reverse("session_detail", kwargs={"thread_id": finished.session_id}),
+        "thread_id": finished.session_id,
+        "leg_follow_up": False,
+    }
+    assert legs[1]["session_url"] == reverse("session_detail", kwargs={"thread_id": running.session_id})
+
+
+@pytest.mark.django_db
+def test_leg_the_viewer_cannot_see_keeps_only_its_repository_and_state(owner, other_user):
+    coordinator = make_coordinator(owner)
+    batch = uuid.uuid4()
+    make_leg(
+        coordinator,
+        batch,
+        status=RunStatus.SUCCESSFUL,
+        repo_id="acme/secret",
+        ref="release",
+        session_ref="daiv/other",
+        result_summary="private",
+        merge_request_web_url="http://mr/1",
+    )
+    turns = delegate_turns(batch)
+
+    mark_delegations(turns, Delegations.load(coordinator.thread_id, other_user))
+
+    (leg,) = turns[0]["segments"][0]["legs"]
+    assert leg == {
+        "repo_id": "acme/secret",
+        "ref": "release",
+        "state": "finished",
+        "merge_request_url": "",
+        "session_url": "",
+        "thread_id": "",
+        "leg_follow_up": False,
+    }
+
+
+@pytest.mark.django_db
+def test_two_batches_in_one_transcript_keep_their_own_legs(owner, admin_user, django_assert_num_queries):
+    coordinator = make_coordinator(owner)
+    first, second = uuid.uuid4(), uuid.uuid4()
+    make_leg(coordinator, first, status=RunStatus.RUNNING)
+    make_leg(coordinator, first, status=RunStatus.RUNNING)
+    make_leg(coordinator, second, status=RunStatus.RUNNING)
+    turns = delegate_turns(first, second)
+    delegations = Delegations.load(coordinator.thread_id, admin_user)
+
+    with django_assert_num_queries(0):
+        mark_delegations(turns, delegations)
+
+    assert [len(segment["legs"]) for segment in turns[0]["segments"]] == [2, 1]
+
+
+@pytest.mark.django_db
+def test_a_batch_belonging_to_another_session_is_left_untouched(owner):
+    coordinator, stranger = make_coordinator(owner), make_coordinator(owner)
+    batch = uuid.uuid4()
+    make_leg(stranger, batch, status=RunStatus.RUNNING)
+    turns = delegate_turns(batch)
+
+    mark_delegations(turns, Delegations.load(coordinator.thread_id, owner))
+
+    assert "legs" not in turns[0]["segments"][0]
+
+
+@pytest.mark.django_db
+def test_a_batch_without_runs_is_left_to_the_tool_result(owner):
+    coordinator = make_coordinator(owner)
+    turns = delegate_turns(uuid.uuid4())
+
+    mark_delegations(turns, Delegations.load(coordinator.thread_id, owner))
+
+    assert "legs" not in turns[0]["segments"][0]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "result", [None, "{not json", '{"error": "nope"}', '{"batch_id": "nope"}', '{"batch_id": null}', "[1]"]
+)
+def test_a_delegate_result_without_a_batch_id_is_skipped(owner, result):
+    coordinator = make_coordinator(owner)
+    make_leg(coordinator, uuid.uuid4(), status=RunStatus.RUNNING)
+    segment = delegate_segment(uuid.uuid4())
+    segment["result"] = result
+    turns = [{"role": "assistant", "segments": [segment]}]
+
+    goals = mark_delegations(turns, Delegations.load(coordinator.thread_id, owner))
+
+    assert "legs" not in segment
+    assert goals == {}
+
+
+@pytest.mark.django_db
+def test_mark_delegations_returns_the_calls_own_trimmed_goals(owner):
+    coordinator = make_coordinator(owner)
+    named, blank, unparsable, foreign = uuid.uuid4(), uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    for batch in (named, blank, unparsable):
+        make_leg(coordinator, batch, status=RunStatus.RUNNING)
+    turns = [
+        *delegate_turns(named, goal="  Bump auth  "),
+        *delegate_turns(blank, goal=" "),
+        *delegate_turns(foreign, goal="Not ours"),
+    ]
+    broken = delegate_segment(unparsable)
+    broken["args"] = "{not json"
+    turns.append({"role": "assistant", "segments": [broken]})
+
+    goals = mark_delegations(turns, Delegations.load(coordinator.thread_id, owner))
+
+    assert goals == {named: "Bump auth"}

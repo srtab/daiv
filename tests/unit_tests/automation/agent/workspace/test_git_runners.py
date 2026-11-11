@@ -111,6 +111,17 @@ async def test_sandbox_runner_batch_is_one_round_trip_that_runs_past_a_failure()
     assert len(client.calls_to("run_commands")) == 1
 
 
+async def test_sandbox_runner_runs_git_in_its_repo_path() -> None:
+    client = FakeSandboxClient.opened()
+    runner = SandboxGitRunner(
+        sandbox_backend_on(client, client.add_running_session("sid")), repo_path="/workspace/repos/g/mod"
+    )
+
+    await runner.run(("status",))
+
+    assert client.commands == ["git -C /workspace/repos/g/mod status"]
+
+
 async def test_sandbox_runner_raises_on_a_missing_result() -> None:
     runner = SandboxGitRunner(sandbox_backend_on(_replying(), "sid"))
 

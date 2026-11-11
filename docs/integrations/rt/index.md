@@ -1,3 +1,7 @@
+---
+description: "Trigger DAIV on new Request Tracker tickets with a single RT Scrip: it triages each ticket, analyses root causes in code, and posts an internal comment."
+---
+
 # Request Tracker Triage
 
 Trigger DAIV automatically whenever a new ticket lands in Request Tracker. The DAIV agent reads the ticket, performs triage (bug / config / how-to / unclear) and — when the ticket is code-related — a root-cause analysis against the queue's repository. The report is posted back to the ticket as an **internal comment** (staff-only, not emailed to the requester).
@@ -31,7 +35,7 @@ The Scrip is fire-and-forget: it submits the job with a 5-second socket timeout 
 - A DAIV API key for a dedicated service user:
 
   ```bash
-  python manage.py create_api_key rt-triage --name rt-scrip
+  django-admin create_api_key rt-triage --name rt-scrip
   ```
 
   Store the emitted `prefix.secret` string; it cannot be retrieved later.
@@ -65,6 +69,8 @@ Reload RT after editing: `apache2ctl graceful` (or whichever reload command your
 
 4. Edit the `%QUEUE_REPO_MAP` hash at the top of the pasted code so each queue you care about maps to the correct DAIV `repo_id` (e.g. `group/project`).
 
+A queue can map to several repositories. To have one agent session work across them, send them as one `repos` list with `"shared_session": true`: the first entry is the main repository and each changed repository gets its own merge request (see [Multi-repository sessions](../../features/jobs-api.md#multi-repository-sessions)). Without `shared_session`, each repository runs as a separate job.
+
 ### 3. Attach the Scrip to queues
 
 From the Scrip's **Applies To** tab in the RT admin UI, select the queues you want triaged. **The "Applies To" list and the keys of `%QUEUE_REPO_MAP` must stay in lockstep** — any queue where the Scrip runs but no repo is mapped will log a warning and skip (no ticket change, no job).
@@ -90,7 +96,7 @@ Start with a single pilot queue. Expand only after the pilot looks healthy.
 | No log line at all after ticket create | Scrip not attached to the queue, or condition/stage is wrong | Re-check the Scrip's **Applies To** list and confirm Condition=`On Create`, Stage=`TransactionCreate` |
 | `DAIV_URL or DAIV_API_KEY not set` in `rt.log` | `RT_SiteConfig.pm` not reloaded | `apache2ctl graceful` |
 | `queue '<name>' in Applies-To but missing from QUEUE_REPO_MAP` | "Applies To" and the inline map drifted apart | Add the queue to `%QUEUE_REPO_MAP` with its repo, or remove it from "Applies To" |
-| `failed to submit job … 401` | Wrong or expired DAIV API key | Rotate via `python manage.py create_api_key` and update `RT_SiteConfig.pm` |
+| `failed to submit job … 401` | Wrong or expired DAIV API key | Rotate via `django-admin create_api_key` and update `RT_SiteConfig.pm` |
 | `rate-limited for ticket … 429` (warning) | Jobs API rate limit exceeded (default 20/hour per user) | Raise the jobs throttle rate in Site Configuration (`jobs_throttle_rate`), or use a separate API-key user per queue. Logged at `warning` — safe to alert on `error` only |
 | `failed to submit job … <non-2xx, non-429>` | DAIV returned 4xx/5xx other than rate-limit | Check the DAIV sessions list and access log; the status line + body are captured |
 | `exception in triage scrip: daiv-triage timeout` | The 10-second hard ceiling tripped — usually DNS resolution or a stalled TLS handshake | Check DNS/network from the RT host to `$DAIV_URL`; confirm cert chain if using HTTPS |

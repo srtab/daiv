@@ -73,7 +73,7 @@ configured-model helper. Every user story depends on them.
   - each is a `JSONField(default=dict, blank=True)` holding "JSON object `{skill name: model spec}`" / "`{subagent name: model spec}`";
   - let the Agent group's `agent_*` pattern match both, so `TestGetFieldGroups` keeps passing;
   - leave them out of `SiteConfigurationForm.Meta.fields`, so the group template skips them and only the formsets in T023/T032 render and save them.
-- [X] T008 Generate `daiv/core/migrations/0020_agent_skill_subagent_models.py` with `uv run python daiv/manage.py makemigrations core` (depends on T007)
+- [X] T008 Generate `daiv/core/migrations/0023_agent_skill_subagent_models.py` with `uv run python daiv/manage.py makemigrations core` (depends on T007)
 - [X] T009 In `daiv/core/site_settings.py` (depends on T007):
   - add `{}` defaults to `_build_field_defaults`;
   - add typed `SiteSnapshot` attributes (`Mapping[str, str]`), exposed as `MappingProxyType` copies so the shared cached default is never mutated;
@@ -94,7 +94,7 @@ configured-model helper. Every user story depends on them.
   - `build_configured_model(*, spec, thinking_level) -> tuple[BaseChatModel | None, FallbackReason | None]` calls `get_model(model=spec, thinking_level=thinking_level)` and maps `ValueError` → `unknown_provider`, `RuntimeError` → `provider_unavailable`, and anything else → `init_failed`; it does not log;
   - `report_model_fallback(notices, *, target, name, configured_model, served_model, reason)` logs at ERROR with every field and calls `notices.record(...)` when `notices` is given; callers report only once they know the model that served;
   - a two-line comment states why continuing is safe (`constitutions/patterns/errors.md` rule 2).
-- [X] T013 Add `notices = models.JSONField(default=list, blank=True)` to `Run` in `daiv/sessions/models.py`, and generate `daiv/sessions/migrations/0020_run_notices.py` with `uv run python daiv/manage.py makemigrations agent_sessions`.
+- [X] T013 Add `notices = models.JSONField(default=list, blank=True)` to `Run` in `daiv/sessions/models.py`, and generate `daiv/sessions/migrations/0032_run_notices.py` with `uv run python daiv/manage.py makemigrations agent_sessions`.
 - [X] T014 Create `RunNoticeRecorder` in `daiv/sessions/notices.py` (depends on T011, T013). It implements `RunNotices`, bound to a run id that may be `None`:
   - `record` appends `notice.as_dict()`;
   - `aflush` runs `Run.objects.filter(pk=run_id).aupdate(notices=<full list>)`;
@@ -257,8 +257,8 @@ Detectors without an entry keep their model.
 - [X] T039 [P] Add the "Skill and subagent models" section to the Agent row of `docs/reference/site-configuration.md`, and `DAIV_AGENT_SKILL_MODELS` / `DAIV_AGENT_SUBAGENT_MODELS` to `docs/reference/env-variables.md`.
 - [X] T040 [P] Add an `Unreleased` → `Added` entry to `CHANGELOG.md`: per-skill and per-subagent models from site configuration and `.daiv.yml`, with a notice on the run when one can't be used.
 - [X] T041 Run `make lint`, `make lint-typing` and `make test`, and `uv run --only-group=docs mkdocs build --strict` for the docs. Report each result, and report any check not run as not run.
-- [X] T043 Configure `explore` like the other subagents: remove `agent_explore_model_name` / `agent_explore_fallback_model_name` (moving a saved model into `agent_subagent_models` in `core` migration 0021), default it to `EXPLORE_MODEL_NAME` without thinking, fall it back to the main agent's fallback models, and warn about the removed variables with the `core.W001` check.
-- [X] T044 Read the deprecated `DAIV_AGENT_EXPLORE_MODEL_NAME` as the `explore` entry when there is none, logged at ERROR once per process (`core/site_settings.py`), with a test in `tests/unit_tests/core/test_site_settings.py`; test migration 0021 in `tests/unit_tests/core/test_migrations_explore_model.py`.
+- [X] T043 Configure `explore` like the other subagents: remove `agent_explore_model_name` / `agent_explore_fallback_model_name` (moving a saved model into `agent_subagent_models` in `core` migration 0024), default it to `EXPLORE_MODEL_NAME` without thinking, fall it back to the main agent's fallback models, and warn about the removed variables with the `core.W001` check.
+- [X] T044 Read the deprecated `DAIV_AGENT_EXPLORE_MODEL_NAME` as the `explore` entry when there is none, logged at ERROR once per process (`core/site_settings.py`), with a test in `tests/unit_tests/core/test_site_settings.py`; test migration 0024 in `tests/unit_tests/core/test_migrations_explore_model.py`.
 - [X] T045 Report a configured model whose call fails: log it at ERROR and record a `call_failed` notice once per run, and serve the rest of the run without it, on the run's model for a skill (`SkillModelMiddleware`) and on the model the subagent uses with no entry for a subagent (`SubagentModelFailoverMiddleware`, added by `ConfiguredModels.call_failover` to every subagent stack).
 - [X] T046 Honour `metadata.model` only for built-in and global skills (under `SKILLS_PATH`), since a repository's skill files come from the branch the run works on.
 - [ ] T042 Walk the manual scenarios in `specs/001-skill-subagent-models/quickstart.md` on a local stack. Report which ran and which did not.

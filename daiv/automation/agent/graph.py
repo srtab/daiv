@@ -48,6 +48,7 @@ from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.middlewares.subagent_models import SubagentModelNoticesMiddleware
 from automation.agent.middlewares.summarization import build_summarization_middleware
+from automation.agent.middlewares.tool_media import ToolMediaMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.profile import register as _register_harness_profile
@@ -77,6 +78,7 @@ if TYPE_CHECKING:
     from automation.agent.mcp.schemas import UserMcpServer
     from automation.agent.notices import RunNotices
     from automation.agent.session_links import SessionLinksResolver
+    from automation.agent.tool_media import ToolMediaStore
     from automation.agent.workspace.base import Workspace
 
 
@@ -175,6 +177,7 @@ async def create_daiv_agent(
     ctx: RuntimeCtx,
     workspace: Workspace,
     artifact_store: ArtifactStore | None = None,
+    tool_media_store: ToolMediaStore | None = None,
     mcp_servers: Sequence[tuple[str, UserMcpServer]] = (),
     auto_commit_changes: bool = True,
     capture_patch: bool = False,
@@ -198,6 +201,7 @@ async def create_daiv_agent(
         workspace: Where the agent works, built by the run executor: the worker's clone, or the run's sandbox session.
         artifact_store: Where ``publish_artifact`` keeps files and ``fetch_artifact`` reads them; ``None`` leaves both
             tools out (the run executor always passes one).
+        tool_media_store: Where the images and files of tool results are kept for the transcript; ``None`` keeps none.
         mcp_servers: The ``(name, server)`` pairs whose tools the agent gets, resolved by the run executor for the
             acting user; empty leaves MCP tools out.
         auto_commit_changes: Whether to commit the changes to the repository when the agent finishes.
@@ -244,7 +248,7 @@ async def create_daiv_agent(
     # parent's MCP toolset — otherwise a `task` delegation that calls an MCP tool fails with
     # "command not found". Explore and the code-review detectors stay deliberately scoped and don't
     # receive it.
-    mcp_tools = await load_mcp_tools(mcp_servers)
+    mcp_tools = await load_mcp_tools(mcp_servers, backend)
 
     subagent_models = ConfiguredModels("subagent", settings.subagent_models, chain=chain, notices=notices)
     skill_models = ConfiguredModels("skill", settings.skill_models, chain=chain, notices=notices)
@@ -321,6 +325,7 @@ async def create_daiv_agent(
         *([WebSearchMiddleware()] if settings.web_search_enabled else []),
         *([WebFetchMiddleware()] if settings.web_fetch_enabled else []),
         *([ArtifactsMiddleware(workspace=workspace, store=artifact_store)] if artifact_store is not None else []),
+        *([ToolMediaMiddleware(store=tool_media_store)] if tool_media_store is not None else []),
         *([DelegateJobsMiddleware(delegator=delegator)] if delegator is not None else []),
         *([ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:])] if fallback_models else []),
         # Inside the fallback and outside the deferred tools and context meter, which act on the model serving the call.

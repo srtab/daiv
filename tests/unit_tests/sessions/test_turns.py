@@ -4,10 +4,11 @@ import json
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from sessions.tool_media import TranscriptMedia
 from sessions.turns import build_turns
 
 from automation.agent.questions import QUESTION_DELIVERED
-from automation.agent.synthetic import synthetic_message
+from automation.agent.synthetic import PUBLISH_FAILURES_KIND, synthetic_ai_message, synthetic_message
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages
 
 
@@ -516,3 +517,45 @@ def test_build_turns_empty_tool_result_counts_as_answered():
     ai = AIMessage(content="", id="a-1", tool_calls=[{"id": "tc-1", "name": "bash", "args": {}}])
     turns = build_turns([ai, ToolMessage(content="", tool_call_id="tc-1")])
     assert turns[0]["segments"][0]["status"] == "done"
+
+
+def test_a_synthetic_assistant_message_is_not_a_turn():
+    turns = build_turns([
+        HumanMessage("hi"),
+        AIMessage("done"),
+        synthetic_ai_message("I couldn't publish the changes in these repositories", kind=PUBLISH_FAILURES_KIND),
+    ])
+
+    assistant = [t for t in turns if t["role"] == "assistant"]
+    assert len(assistant) == 1
+    assert assistant[0]["segments"] == [{"type": "text", "content": "done"}]
+    assert "couldn't publish" not in json.dumps(turns)
+
+
+def _shot_messages(tool_message: ToolMessage) -> list:
+    return [AIMessage(content="", tool_calls=[{"name": "shot", "args": {}, "id": "c1"}]), tool_message]
+
+
+def _tool_segment(turns: list[dict]) -> dict:
+    return next(seg for turn in turns for seg in turn["segments"] if seg["type"] == "tool_call")
+
+
+def test_a_tool_result_with_media_carries_items_and_a_text_only_result():
+    entries = [{"ordinal": 0, "kind": "image", "mime_type": "image/png", "id": "11111111-1111-1111-1111-111111111111"}]
+    message = ToolMessage(
+        content=[{"type": "text", "text": "shot"}, {"type": "image", "base64": "AAAA", "mime_type": "image/png"}],
+        tool_call_id="c1",
+        additional_kwargs={"daiv_media": entries},
+    )
+
+    seg = _tool_segment(build_turns(_shot_messages(message), thread_id="t1"))
+
+    assert seg["result"] == "shot"
+    assert seg["media"] == TranscriptMedia("t1").items(entries)
+
+
+def test_a_text_only_tool_result_has_no_media_key():
+    seg = _tool_segment(build_turns(_shot_messages(ToolMessage(content="ok", tool_call_id="c1")), thread_id="t1"))
+
+    assert seg["result"] == "ok"
+    assert "media" not in seg

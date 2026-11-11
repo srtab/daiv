@@ -1,3 +1,7 @@
+---
+description: "How DAIV's main agent delegates to specialized subagents for fast codebase exploration and complex multi-step tasks, and how to list them with /agents."
+---
+
 # Subagents
 
 DAIV's main agent can delegate work to specialized subagents. Each subagent is optimized for a specific type of task — one for fast codebase exploration, another for complex multi-step work. The main agent decides when to delegate based on the nature of the task.
@@ -61,7 +65,7 @@ Each `.md` file contains YAML frontmatter with the subagent's metadata, followed
 ---
 name: database-migration
 description: Specialized agent for planning and reviewing database migrations. Use when the task involves schema changes, data migrations, or ORM model modifications.
-model: openrouter:anthropic/claude-sonnet-4.6  # optional
+model: openrouter:anthropic/claude-sonnet-5.5  # optional
 ---
 
 You are a database migration specialist. When given a task:
@@ -86,7 +90,7 @@ The markdown body (after the frontmatter) is **required** and becomes the subage
 
 | Field | Description |
 |-------|-------------|
-| `model` | Override the model used by this subagent. Use the `provider:model-name` format (e.g., `openrouter:anthropic/claude-haiku-4.5`). If not specified, the main agent's model is used. A [configured subagent model](#choosing-a-subagents-model) takes precedence. |
+| `model` | Override the model used by this subagent. Use the `provider:model-name` format (e.g., `openrouter:anthropic/claude-haiku-5.5`). If not specified, the main agent's model is used. A [configured subagent model](#choosing-a-subagents-model) takes precedence. |
 
 ### Capabilities
 

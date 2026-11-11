@@ -1,3 +1,7 @@
+---
+description: "Every DAIV agent execution is recorded as a session: chat with the agent live, start background runs, and review transcripts, timelines and usage."
+---
+
 # Sessions
 
 DAIV records every agent execution in a **Session**. A session is one agent thread — a persistent conversation context tied to a repository and ref. Every way you can trigger DAIV (webhooks, the Jobs API, the MCP endpoint, scheduled jobs, or a chat conversation you type yourself) produces a session, and every time the agent runs against that thread produces a **Run** inside it.
@@ -5,7 +9,7 @@ DAIV records every agent execution in a **Session**. A session is one agent thre
 Navigate to **Dashboard > Sessions** (`/dashboard/sessions/`) to see the unified list. Clicking any session opens its detail page — the transcript, run timeline, and timing and usage for every execution.
 
 !!! info "What you can see"
-    Admins see all sessions across every repository. Regular users see their own sessions, sessions matched to their git platform username (from webhook payloads), and sessions from [Scheduled Jobs](scheduled-jobs.md) they subscribe to. The same scoping applies to the detail page, live updates, and retries.
+    Admins see all sessions across every repository. Regular users see their own sessions, sessions started by a GitLab/GitHub account they signed in to DAIV with (matched by the account's id, not its username), and sessions from [Scheduled Jobs](scheduled-jobs.md) they subscribe to. The same scoping applies to the detail page, live updates, and retries.
 
 ---
 
@@ -14,7 +18,9 @@ Navigate to **Dashboard > Sessions** (`/dashboard/sessions/`) to see the unified
 A **Session** groups all runs that share the same agent thread:
 
 - **Session** — the thread. Has a repository, ref, origin (how it was first triggered), title, and an optional link to an issue or merge request, schedule, or user.
-- **Run** — one agent execution inside that session. A session can have many runs: retries, follow-up chat turns, and FIFO-queued API submissions all add new runs to the same session.
+- **Run** — one agent execution inside that session. A session can have many runs: retries, follow-up chat turns, and API submissions that continue the thread all add new runs to the same session.
+
+A session can also span several repositories: a [Jobs API](jobs-api.md#multi-repository-sessions) or MCP request with `shared_session` opens one session over up to five repositories, with the first as the main one. The agent edits them together, each changed repository gets its own merge request, and the session page lists every repository and merge request. Only users who can read all of them (and admins) can see it.
 
 A chat conversation is a session where the origin is `Chat`; each turn you send creates a new Run. A webhook event (issue or MR) creates a session tied to the issue or merge request; the single agent invocation is its first Run.
 
@@ -33,7 +39,7 @@ Each session is tagged with the origin that created it:
 | **UI Run** | Dashboard run composer (see below) | You start a run from **Dashboard > Sessions** |
 | **Issue Webhook** | GitLab/GitHub issue event | An issue is labelled `daiv` |
 | **MR/PR Webhook** | GitLab/GitHub merge request event | A reviewer mentions `@daiv` on a merge request |
-| **Delegated Run** | A coordinator's `delegate_jobs` call ([Orchestration](orchestration.md)) | One repository's part of a multi-repository change |
+| **Delegated Run** | A coordinator's `delegate_jobs` call ([Orchestration](orchestration.md)), including a leg follow-up that continues the session | One repository's part of a multi-repository change |
 
 ---
 
@@ -71,7 +77,7 @@ The sessions list shows all sessions in reverse chronological order. Each row di
 - **Timing and usage** — when the session was last active, and the total tokens and cost across all its runs
 
 !!! note "Queued runs"
-    API and MCP runs that continue a thread already in flight don't start immediately. The new run is created in the **Queued** state and released in FIFO order once the prior run on that thread finishes.
+    An API or MCP job that continues a busy session doesn't start immediately: it joins the session's next run for its branch, shown as **Queued**, which starts once the current run finishes (see [The session inbox](#the-session-inbox)).
 
 ### Filtering
 
@@ -99,11 +105,20 @@ Sessions with in-flight runs (Queued, Pending, or Running) update automatically 
 
 Click any session to see its full detail page, which includes:
 
-- **Origin and status badges**
-- **Context** — repository, branch/ref, linked schedule or issue/MR (as a clickable link), the agent model and thinking level, and the sandbox environment. Admins viewing another user's session also see the owning user.
+- **Origin and status** — the session's title and status in the header, and who or what started it in the sidebar's **Info** tab.
+- **Sidebar** — repositories and merge requests, CI, the environment, usage and outputs (see [The session page](#the-session-page)).
 - **Transcript** — the full conversation transcript streams live during active runs, whatever started them (chat, job, webhook or schedule), and is replayed on return visits and mid-run refreshes — reopening the session rejoins the live stream and replays any events it missed (a fresh page load from the start of the run; an automatic reconnect only the events since it dropped).
+- **Up next** — at the end of the conversation, what the session will do next, in order: each run still to start, as whom, with the requests that start it, then the updates the next run will be told (see [The session inbox](#the-session-inbox)). A CI failure or finished delegated batch DAIV won't act on says why, such as *not fixing: out of attempts*; a request DAIV couldn't handle shows in the conversation as a *not handled* line with the reason. A run DAIV started itself opens with the message it received, and **Show request** expands the full prompt the run got.
 
-For in-flight sessions the detail page updates in real time until the run completes.
+The detail page updates in place whenever the session changes — a run starting or ending, a message joining Up next, a CI result — without polling or reloading. An open page also streams a chat turn sent from another tab or by someone else. Without Redis (`DJANGO_REDIS_URL` unset), the page can't hear about changes, so it checks every few seconds while a run is in flight instead.
+
+### Images and files in tool results
+
+When a tool hands the agent an image or a file — a screenshot from an MCP browser tool, or an image, PDF, audio or video file the agent opened with `read_file` — the tool's row in the transcript shows it under **Attached**, both while the run streams and after a reload. Images show as thumbnails that open full size in a new tab; PDFs, audio and video show as a chip with their size that downloads the file. An image an MCP server only gives as a link to another site shows as a link, so viewing the transcript doesn't load anything from that site.
+
+Anyone who can see the session can open these files, as they can read the rest of its transcript: its owner, people who can read its repository, and admins. That includes screenshots from MCP servers a person connected with their own account, so a screenshot of a page they were signed in to is visible to everyone who can see the session.
+
+DAIV keeps these files with the run in its file storage under `MEDIA_ROOT` for as long as it keeps the run. DAIV doesn't delete runs on its own; deleting a run deletes its files, but the session's saved agent state still holds each file as the tool returned it. DAIV keeps PNG, JPEG, GIF and WebP images, PDFs, audio and video, up to `DAIV_TOOL_MEDIA_MAX_BYTES` each (default 10 MiB) and `DAIV_TOOL_MEDIA_PER_RUN_MAX` per run (default 100). A file it didn't keep shows the reason instead, such as *Too large to keep*. Runs from before DAIV kept these files show *Not saved*. The agent always gets the full tool result, whether or not the file was kept.
 
 ---
 
@@ -148,44 +163,79 @@ A revised artifact stays on the run that first published it — on the dashboard
 
 Chat is the interactive dashboard workspace where you converse with the agent in real time. Go to **Dashboard > Sessions** and click **New session** (`/dashboard/sessions/new/`) to open the empty workspace.
 
-Before the composer appears, pick a **repository** in the hero picker. Each session is bound to a repository and a ref:
+Before your first message, set up the **Workspace** card in the hero: the repositories the session works on, and its sandbox environment. A session is bound to its repositories and a ref for each:
 
 - Selecting a repository defaults the ref to its **default branch**; you can switch to any other branch.
 - If the chosen ref already has an open merge/pull request, the workspace surfaces it.
 - The ref is the branch the work is based on: when the agent opens a new merge/pull request, that ref is its **target branch**. If it has been deleted from the remote by the time the agent publishes, the request targets the default branch instead.
 - The new merge/pull request is **assigned to you**, when your DAIV account is linked to the git platform through OAuth login.
 
-Once a repository is selected, the prompt box appears and you can type your first message. The session gets its own URL (`/dashboard/sessions/<thread_id>/`) so you can bookmark it or share it with teammates who have access.
+Send stays disabled until a repository is selected; then type your first message. The session gets its own URL (`/dashboard/sessions/<thread_id>/`) so you can bookmark it or share it with teammates who have access.
 
-!!! note "A session targets one repository and ref"
-    The repository and ref are fixed for the life of the session. To work against a different repository or branch, start a new session.
+!!! note "A session's repositories and refs are fixed"
+    The repositories and their refs are fixed for the life of the session. To work against a different repository or branch, start a new session.
+
+### Starting a chat over several repositories
+
+The Workspace card takes up to 5 repositories, for work that spans them (a backend change and the client that consumes it). Use **Add repository** to add one, and the branch button on a row to pick its ref. Each repository can be listed once, on any branch.
+
+- The first repository is the **main** one, tagged **Main** once there is more than one. Its `.daiv.yml`, sandbox environment, skills and memory drive the session. Use **Make main** on another row to promote it; removing the main row promotes the next one.
+- The **Environment** field shows `Auto · <environment>` for the current main repository while it is on **Auto**.
+- The list is fixed after your first message: later turns in the session reuse it, as in the [Jobs API](jobs-api.md#multi-repository-sessions).
+- Every repository the agent changes gets its own merge/pull request, as described under [Merge requests](jobs-api.md#merge-requests).
 
 As the agent works, the workspace streams updates live:
 
-- **Assistant text and reasoning** — replies render as Markdown; thinking/reasoning is shown in collapsible segments.
-- **Tool calls** — each tool call appears as an expandable card with its status (running, done, error), arguments, and result.
+- **Assistant text** — replies render as Markdown.
+- **Steps** — consecutive steps (thinking and tool calls) collapse into one line summarising what they did, such as "Read 3 files, ran 2 commands", with any failures and the lines added and removed. Open it to list the steps; each step opens to its details.
+- **Finished runs** — when a run ends, its steps fold behind one **Worked for 3m 12s · 14 steps** line; the answer, its artifacts and any question the agent asked stay visible below it. An answered question collapses to one quiet line.
 - **Todos** — when the agent plans with a todo list, the side rail shows the list with a `done/total` count.
 - **Files changed** — files the agent reads or edits are collected in the rail; click one to jump to the tool call that touched it.
 
-While a run is streaming you can press **Stop** to cancel it server-side. Refreshing the page or losing the connection does not stop the run — reopening the session rejoins the live stream. Only one run can be in flight per session at a time.
+While a run is streaming you can press **Stop** to cancel it server-side. If DAIV hasn't started answering yet, Stop takes your message back: it leaves the conversation, the agent never sees it, and its text returns to the composer. Refreshing the page or losing the connection does not stop the run — reopening the session rejoins the live stream. Only one run can be in flight per session at a time.
 
-Stop is offered on chat runs only, and only to the session's owner: a run started by a job, webhook or schedule streams without it.
+A message you send while the session is busy is not refused: it shows as **Pending** and waits for the session's next run, which starts as soon as the current one ends and answers it together with anything else that arrived meanwhile. The page follows that run when it starts. See [The session inbox](#the-session-inbox).
+
+Stop is offered to the session's owner, on chat runs and on the runs a job or the session's inbox started; a run started by a webhook on an issue or a merge request no session owns streams without it.
 
 ### Model and sandbox environment
 
-Each session pins three choices, set in the hero before your first message and then locked for the rest of the session:
+Each session pins three choices, set before your first message (the environment in the Workspace card) and then locked for the rest of the session:
 
 | Choice | What it controls | Default |
 |--------|------------------|---------|
 | **Agent model** | Which configured LLM the agent runs on | The admin-configured system default |
 | **Thinking level** | Reasoning effort: Minimal, Low, Medium, High, or Extra high | The admin-configured default (if any) |
-| **Sandbox environment** | The named [Sandbox Environment](sandbox-environments.md) the agent's commands run in | **Auto** — resolved per repository |
+| **Sandbox environment** | The named [Sandbox Environment](sandbox-environments.md) the agent's commands run in | **Auto** — resolved for the main repository |
 
 These selections are fixed at session creation. To use a different model, effort level, or sandbox environment, start a new session.
 
+### The session page
+
+The header carries only the session's title (rename it from the pencil when you can run agents on the repository), its status and a **⋯** menu with **Copy session link**, the linked issue and Archive. Everything about the work itself sits in the sidebar beside the transcript.
+
+From 1100px wide the sidebar is always open. Below that it is a sheet, which a summary button in the header opens: the main repository, `+N` for the others, the merge request (`!iid`, or a count) and a CI dot. The sheet opens on the Overview tab, scrolled to the repositories with that section unfolded.
+
+The sidebar has two tabs, and remembers the tab and which sections you folded in this browser:
+
+- **Overview** — foldable sections, each with a one-line summary beside its name while folded:
+    - **Repositories** (**Repository** for a lone one) — a card per repository.
+    - **Environment** — the sandbox and the model.
+    - **Context** and **Spend** — how full the model's context window is, and what the session has cost.
+    - **Outputs** — the artifacts the session published, once there are any.
+- **Info** — status, who started the session, its owner, the number of runs, when it was created and its **Session ID** (with a copy button), then, on a session that delegated work, the **Delegated jobs** of each batch (see [Orchestration](orchestration.md#seeing-the-batch)).
+
+A repository card shows the repository, tagged **Main** when the session spans several; the branch; the merge request with its title and a **Draft** badge; the merge request's CI status, with **What DAIV found** when a run explained a failure; and the lines added and removed with the number of files changed. A repository where the agent ran but changed nothing shows as a quiet card marked *no changes*. A repository DAIV could not publish shows the reason on its card.
+
+A card's **⋯** menu, offered once the repository has a merge request, holds:
+
+- **Open on GitLab** (or **GitHub**) and **Copy link**
+- **Other sessions on !iid**, on the main repository's card: the [sessions list](#filtering) filtered to that merge request
+- **Fix CI failures**, for the people who can run agents on the repository: turns the [CI watch](pipeline-watch.md#the-session-page) on or off for that merge request
+
 ### Merge request awareness
 
-When the agent commits changes, DAIV creates or updates a merge/pull request on the session's ref. The workspace shows an MR/PR pill that links to it and flags drafts. A pre-existing open request for the ref is detected and shown even before the agent runs.
+When the agent commits changes, DAIV creates or updates a merge/pull request on the session's ref. The session's repository card links to it and flags drafts. A pre-existing open request for the ref is detected and shown even before the agent runs.
 
 The request itself links back to the session that produced it — see [Linking back to sessions](#linking-back-to-sessions), which applies to every origin, not just chat.
 
@@ -204,6 +254,21 @@ When the agent hits a request that's genuinely ambiguous or a decision that's yo
 The card is only interactive on the session's last turn, and only while no run is in flight — once answered it stays visible but goes inert (options disabled, free-text field and buttons hidden), keeps the options your answer picked highlighted, even after a reload, and your answer shows as the next message. This isn't chat-only: the same card renders on a webhook or job session's transcript wherever a run ended on a question.
 
 For job runs (a dashboard job submission, the [Jobs API](jobs-api.md) or [MCP](mcp-endpoint.md)) and [scheduled](scheduled-jobs.md) runs, DAIV also sends a [notification](notifications.md) listing the questions, so you know the run is waiting on you. Chat runs don't notify, and webhook runs rely on the question comment on the issue or merge/pull request, which mentions you.
+
+---
+
+## The session inbox
+
+Everything that asks an existing session to act arrives in its inbox: a CI result on a merge request the session published, a mention or a comment on that merge request, a chat message sent while the session was busy, a follow-up job, a delegated batch finishing, a coordinator's **Leg follow-up** asking a delegated session to continue its work. Each one either **wakes** the agent or is only **remembered**.
+
+- **Waking** — a person's request (a chat message, a mention, a follow-up job) and a leg follow-up always wake the agent. A CI failure wakes it only on a commit DAIV pushed, once per commit, while attempts are left (see [Pipeline Watch](pipeline-watch.md)); a finished delegated batch wakes it to carry on.
+- **Remembered** — a CI pass, a pipeline that needs a person, a push someone else made to the branch, a merge or close, a comment that doesn't mention DAIV. These start no run. They appear in the session's timeline as compact rows between runs, and the next run on the session gets them as context, so the agent knows the branch moved before it pushes.
+
+One run handles everything one person is waiting for on the session's branch: a message you sent to your session and a CI failure that arrived during the same run are answered together, in one run, when the current one ends. A builtin slash command such as `/help` is the exception: it runs on its own, after what you sent before it and before what you sent after it, since DAIV answers a command only when it is the whole request. A leg follow-up also runs on its own, as a Delegated Run that answers only its coordinator, with what the session remembered as context; it is never retried, and it does not run when the session's merge request was merged or closed meanwhile (see [Orchestration](orchestration.md#following-up-a-leg)). Requests from different people wait for runs of their own, one after another, so one person's request never runs with another's access or tools. A message you sent while the session was busy, a follow-up job sent without a branch and a finished delegated batch follow it to the branch the current run publishes to; a mention or a CI result stays with its merge request's branch, and a run on another of the session's merge requests updates that merge request. A run started by a warm sandbox whose branch someone pushed to brings its checkout up to the remote first, unless it holds commits it hasn't published, and says so to the agent.
+
+A run acts as the person whose request woke it: a mention by a teammate runs with the DAIV account they signed in to with that GitLab/GitHub account, and its personal MCP servers, not the session owner's. A commenter who never signed in to DAIV with that platform account, or whose DAIV account is deactivated, gets no personal tools, even when a DAIV user shares their username or email. Before it starts, a run checks that the person it acts as may still run on the repository, except for a mention, which is checked where it is made; a person who may not only has their own requests fail. A session an issue or merge request comment starts is owned the same way: by the DAIV account linked to its author's GitLab/GitHub account, else by no one until that account is linked, when its sessions and runs, the merge requests those sessions own and its requests still waiting pass to that user. A run DAIV woke for a CI failure acts as the session's owner, and one that resumes a finished delegated batch as the user who delegated it, muted when their run was.
+
+DAIV stops waking a session on its own after three runs in a row that nobody asked for, and tells the owner; CI failures and finished delegated batches are still remembered, and sending a message or mentioning DAIV picks it up again.
 
 ---
 

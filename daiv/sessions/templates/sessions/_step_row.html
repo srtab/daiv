@@ -1,0 +1,33 @@
+{% load icon_tags %}
+<details class="step-row"
+         :id="step.seg.id ? `tool-${step.seg.id}` : null"
+         :class="{ 'step-row--failed': step.row.failed }"
+         :open="isOpen(step.key)"
+         @toggle="setOpen(step.key, $el.open)">
+  <summary class="step-row__summary">
+    <span class="step-row__icon" aria-hidden="true">
+      <template x-if="step.seg.status === 'running'">
+        <span :class="step.seg.type === 'thinking' ? 'step-row__thinking' : 'chat-spinner'"></span>
+      </template>
+      <template x-if="step.seg.status !== 'running' && step.row.iconSrc">
+        <img :src="step.row.iconSrc" alt="" width="14" height="14" referrerpolicy="no-referrer">
+      </template>
+      <template x-if="step.seg.status !== 'running' && !step.row.iconSrc">
+        <span class="contents" x-html="TranscriptLabels.iconHTML(step.row.icon)"></span>
+      </template>
+    </span>
+    <span class="step-row__phrase"
+          x-text="step.seg.status === 'running' ? step.row.livePhrase : step.row.phrase"></span>
+    {% include "sessions/_line_counts.html" with counts="step.row.diff" %}
+    <span class="step-row__detail" x-show="step.row.detail" x-text="step.row.detail"></span>
+    <template x-for="badge in step.row.badges" :key="badge.text">
+      <span class="step-row__badge" :class="`step-row__badge--${badge.tone}`" x-text="badge.text"></span>
+    </template>
+    {% icon "chevron-right" "chat-chev chat-chev--right step-row__chev h-3.5 w-3.5" %}
+  </summary>
+  <template x-if="isOpen(step.key)">
+    <div class="step-row__body"
+         :class="step.seg.type === 'thinking' ? 'step-row__thought chat-text' : 'chat-tool__body'"
+         x-html="step.seg.type === 'thinking' ? renderMarkdown(step.seg.content) : toolBodyHTML(step.seg)"></div>
+  </template>
+</details>

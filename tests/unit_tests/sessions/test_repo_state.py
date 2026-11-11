@@ -79,7 +79,7 @@ async def test_returns_none_when_lookup_returns_none():
     assert result is None
 
 
-async def test_a_config_read_failure_reads_as_no_merge_request(caplog):
+async def test_a_config_read_failure_is_not_read_as_no_merge_request():
     import requests
 
     with (
@@ -87,15 +87,12 @@ async def test_a_config_read_failure_reads_as_no_merge_request(caplog):
             "sessions.repo_state.RepositoryConfig.get_config",
             side_effect=requests.ConnectionError("platform unreachable"),
         ),
-        caplog.at_level("ERROR", logger="daiv.sessions"),
+        pytest.raises(requests.ConnectionError),
     ):
-        result = await aget_existing_mr_payload("a/b", "feature-x")
-
-    assert result is None
-    assert any("Failed to read the repository configuration" in rec.message for rec in caplog.records)
+        await aget_existing_mr_payload("a/b", "feature-x")
 
 
-async def test_a_lookup_failure_reads_as_no_merge_request():
+async def test_a_lookup_failure_is_not_read_as_no_merge_request():
     from gitlab.exceptions import GitlabError
 
     repo_client = MagicMock()
@@ -103,10 +100,9 @@ async def test_a_lookup_failure_reads_as_no_merge_request():
     with (
         patch("sessions.repo_state.RepositoryConfig.get_config", return_value=MagicMock(default_branch="main")),
         patch("sessions.repo_state.RepoClient.create_instance", return_value=repo_client),
+        pytest.raises(GitlabError),
     ):
-        result = await aget_existing_mr_payload("a/b", "feature-x")
-
-    assert result is None
+        await aget_existing_mr_payload("a/b", "feature-x")
 
 
 @pytest.mark.parametrize(("payload_input", "expected_keys"), [(None, None), ("not-a-mr", None)])

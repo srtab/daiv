@@ -1,6 +1,10 @@
+---
+description: "The admin-only DAIV Site Configuration UI: tune agent models, tools, LLM providers and OAuth login at runtime, with environment variables taking precedence."
+---
+
 # Site Configuration
 
-Site Configuration is the **admin-only** web UI for tuning DAIV's runtime behavior without redeploying. Settings are grouped by area, stored in the database, and **override the matching environment-variable defaults** — so you can pick agent models, toggle agent tools, register LLM providers, and switch OAuth login on or off, all from the dashboard.
+Site Configuration is the **admin-only** web UI for tuning DAIV's runtime behavior without redeploying. Settings are grouped by area and stored in the database. You can pick agent models, toggle agent tools, register LLM providers, and switch OAuth login on or off from the dashboard, unless an environment variable or Docker secret overrides the matching field.
 
 It lives at `/dashboard/configuration/` and is reachable only by users with the **admin** role. Members do not see it.
 
@@ -19,11 +23,11 @@ The configuration is split into the following groups, organized by category.
 
 | Group | Category | What it configures |
 |-------|----------|--------------------|
-| **Agent** | AI tasks | Primary, fallback and `daiv-max` models; their thinking levels; the agent recursion limit; whether to suggest a context file (e.g. `AGENTS.md`) on new merge requests; and **Skill and subagent models**, rows of a skill or subagent name and the model it runs on in every repository (see [Agent Skills](../customization/agent-skills.md#running-a-skill-on-another-model) and [Subagents](../features/subagents.md#choosing-a-subagents-model)). |
+| **Agent** | AI tasks | Primary, fallback and `daiv-max` models; their thinking levels; the agent recursion limit; the per-request LLM timeout and retry count (applied to every provider and model-backed task); whether to suggest a context file (e.g. `AGENTS.md`) on new merge requests; and **Skill and subagent models**, rows of a skill or subagent name and the model it runs on in every repository (see [Agent Skills](../customization/agent-skills.md#running-a-skill-on-another-model) and [Subagents](../features/subagents.md#choosing-a-subagents-model)). |
 | **Commit & PR Writer** | AI tasks | Primary and fallback models that generate commit messages and pull/merge request descriptions from diffs. |
 | **Titling** | AI tasks | Primary and fallback models that generate session and run titles from prompts. |
 | **Providers** | Models | LLM provider records — slug, wire protocol, base URL, API key, and extra headers — that every model field draws from. |
-| **Web Search** | Agent tools | Enable/disable the web search tool, pick the engine (DuckDuckGo or Tavily), set max results, and store the Tavily API key. |
+| **Web Search** | Agent tools | Enable/disable the web search tool, pick DuckDuckGo, Tavily or SearXNG, set max results, store the Tavily API key, and configure the SearXNG search endpoint and timeout. |
 | **Web Fetch** | Agent tools | Enable/disable the web fetch tool, choose the model that processes fetched pages, set cache TTL / timeout / max content size, and define per-domain auth headers. |
 | **Sandbox** | Runtime | Sandbox request timeout and the sandbox API key. |
 | **Jobs** | Runtime | Per-user rate limit for [Jobs API](../features/jobs-api.md) submissions (e.g. `20/hour`). |
@@ -33,6 +37,30 @@ The configuration is split into the following groups, organized by category.
 
 !!! tip "Model pickers and providers"
     The model fields in **Agent**, **Commit & PR Writer**, **Titling**, and **Web Fetch** only offer models from providers you configure under **Providers**. Selecting a model whose provider is disabled or has no API key is rejected on save with a message pointing you to the Providers section.
+
+## SearXNG web search
+
+Open **Web Search**, select **SearXNG** and enter the complete search endpoint,
+for example `https://search.example.com/search` or
+`https://search.example.com/searxng/search` when deployed under a prefix.
+The endpoint must be reachable from the DAIV app and workers without additional
+authentication and allow JSON search responses (`search.formats: [html, json]`
+in the SearXNG settings). Leave the Tavily API key unchanged; SearXNG does not use it.
+
+The SearXNG timeout defaults to 15 seconds and accepts 1–120 seconds. Existing
+maximum-result and web-search enablement settings also apply to SearXNG.
+Search is available to GitLab/GitHub-triggered runs as well as chat. A failed
+search is reported to the agent as a tool failure, rather than an empty result.
+
+DAIV sends `Accept-Language: en`, but an enabled SearXNG limiter may still return
+HTTP 429. Configure a narrow `botdetection.ip_lists.pass_ip` entry in
+`limiter.toml` for trusted DAIV app/worker source IPs; see the
+[deployment example](env-variables.md#web-search).
+
+SearXNG still forwards query text to its configured upstream engines. Queries
+may include repository code, so self-hosting alone does not keep that text local.
+
+For environment-based deployment, see [Web Search variables](env-variables.md#web-search).
 
 ## Relationship to environment variables
 

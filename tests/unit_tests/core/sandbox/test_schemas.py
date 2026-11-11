@@ -81,7 +81,7 @@ def test_egress_rule_uppercases_methods_and_rejects_empty():
 
 
 def test_egress_rule_rejects_blank_and_crlf_host():
-    """Host validity is enforced on the type (not only the form) so from_stored/with_platform_credential
+    """Host validity is enforced on the type (not only the form) so from_stored/with_platform_credentials
     can't carry a blank or CR/LF-smuggled host through to the sidecar. A surrounding-whitespace host
     is normalised."""
     from core.sandbox.schemas import EgressRule
@@ -151,3 +151,18 @@ def test_to_wire_unwraps_secret_and_carries_every_policy_field():
     # Every field of the policy schema is present (no silent drop) and the masked dump is not used.
     assert set(wire["policy"]) == set(EgressPolicy.model_fields)
     assert wire["policy"]["intercept"] == "credentialed"
+
+
+@pytest.mark.parametrize("prefix", ["", "g/app.git", "/g/app.git/", "/g/a b", "/g/app.git?x", "/g/app.git#x"])
+def test_egress_rule_rejects_invalid_path_prefix(prefix):
+    from core.sandbox.schemas import EgressRule
+
+    with pytest.raises(ValueError, match="path_prefix"):
+        EgressRule(host="x", path_prefix=prefix)
+
+
+def test_egress_rule_accepts_none_and_valid_path_prefix():
+    from core.sandbox.schemas import EgressRule
+
+    assert EgressRule(host="x").path_prefix is None
+    assert EgressRule(host="x", path_prefix="/g/app.git").path_prefix == "/g/app.git"

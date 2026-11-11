@@ -3,9 +3,11 @@ from unittest.mock import Mock
 from langchain_core.messages import AIMessage, HumanMessage
 
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT
+from automation.agent.synthetic import PUBLISH_FAILURES_KIND, synthetic_ai_message
 from automation.agent.utils import (
     FINAL_ASSISTANT_TEXT_MAX_CHARS,
     build_langsmith_config,
+    closing_reply_text,
     extract_text_content,
     final_assistant_text,
     repo_relative_text,
@@ -112,6 +114,33 @@ def test_extract_text_content_from_none():
     result = extract_text_content(content)
     assert result == "None"
     assert isinstance(result, str)
+
+
+class TestClosingReplyText:
+    def test_is_the_agents_closing_reply(self):
+        messages = [HumanMessage("fix the parser"), AIMessage("Fixed it.")]
+
+        assert closing_reply_text(messages) == "Fixed it."
+
+    def test_keeps_the_reply_when_a_notice_follows_it(self):
+        """A publish-failure notice minted after the agent loop must not stand in for the agent's answer."""
+        messages = [HumanMessage("fix it"), AIMessage("Fixed both."), AIMessage("I couldn't publish g/mod.")]
+
+        assert closing_reply_text(messages) == "Fixed both.\n\nI couldn't publish g/mod."
+
+    def test_keeps_a_synthetic_notice_after_the_reply(self):
+        notice = synthetic_ai_message("I couldn't publish g/mod.", kind=PUBLISH_FAILURES_KIND)
+        messages = [HumanMessage("fix it"), AIMessage("Fixed both."), notice]
+
+        assert closing_reply_text(messages) == "Fixed both.\n\nI couldn't publish g/mod."
+
+    def test_stops_at_the_last_tool_call(self):
+        messages = [AIMessage("", tool_calls=[{"name": "bash", "args": {}, "id": "c1"}]), AIMessage("Done.")]
+
+        assert closing_reply_text(messages) == "Done."
+
+    def test_is_empty_without_messages(self):
+        assert closing_reply_text([]) == ""
 
 
 class TestFinalAssistantText:
@@ -249,3 +278,7 @@ class TestRepoRelativeText:
         assert repo_relative_text("The root is /workspace/repo/") == "The root is /workspace/repo/"
         assert repo_relative_text("/workspace/repo//a.py") == "/workspace/repo//a.py"
         assert repo_relative_text("/workspace/repo/.agents/x and /workspace/repo/./x") == ".agents/x and ./x"
+
+    def test_the_given_repo_path_is_stripped(self):
+        text = "see /workspace/repos/g/mod/a.py, not /workspace/repo/b.py"
+        assert repo_relative_text(text, repo_path="/workspace/repos/g/mod") == "see a.py, not /workspace/repo/b.py"

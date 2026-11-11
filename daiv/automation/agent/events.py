@@ -5,17 +5,27 @@ degrades a payload it cannot read to "no frames" (or "no update") rather than ra
 renamed on one side alone fails silently — empty turns for the assistant message, a frozen meter
 for context usage. The consumer half lives with each event: Python (``sessions.live.agui``,
 parsing through this module) for the assistant message, JS (``chat-stream.js``, whose node test
-drives the handler with payloads built here) for the context meter.
+drives the handler with payloads built here) for the context meter and the publish result, which
+is also kept per run, for every repository, by :func:`record_publish_result`.
 """
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, NamedTuple
 
-if TYPE_CHECKING:
-    from collections.abc import Mapping
+from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.tracers.context import register_configure_hook
 
+if TYPE_CHECKING:
+    from collections.abc import Generator, Mapping
+    from uuid import UUID
+
+    from automation.agent.git_state import RepoPublish
+    from automation.agent.publishers import PublishOutcome
     from automation.agent.usage_tracking import ResolvedWindow
+    from codebase.base import MergeRequest, MergeRequestDiffStats
 
 # Custom LangGraph event carrying an assistant message the agent produced *without* a model call
 # (a slash command reply, a loop-breaker stop). Ignored by the webhook and MCP transports.
@@ -86,3 +96,122 @@ def context_usage_payload(*, model: str, usage: Mapping[str, Any], window: Resol
         "used_tokens": input_tokens + output_tokens,
         "window_tokens": window.tokens if window else None,
     }
+
+
+PUBLISH_RESULT_EVENT = "daiv_publish_result"
+TOOL_MEDIA_EVENT = "daiv_tool_media"
+
+
+def publish_result_payload(
+    *,
+    status: str,
+    repository: str = "",
+    sibling: bool = False,
+    merge_request: MergeRequest | None = None,
+    diff_stats: MergeRequestDiffStats | None = None,
+    error_kind: str | None = None,
+    pushed_sha: str | None = None,
+) -> dict[str, Any]:
+    """Build the wire payload for :data:`PUBLISH_RESULT_EVENT`; values that do not apply are ``None``."""
+    return {
+        "status": status,
+        "pushed_sha": pushed_sha or None,
+        "repository": repository,
+        "sibling": sibling,
+        "merge_request_title": merge_request.title if merge_request else None,
+        "merge_request_iid": merge_request.merge_request_id if merge_request else None,
+        "merge_request_web_url": merge_request.web_url if merge_request else None,
+        "files_changed": diff_stats.files_changed if diff_stats else None,
+        "lines_added": diff_stats.lines_added if diff_stats else None,
+        "lines_removed": diff_stats.lines_removed if diff_stats else None,
+        "error_kind": error_kind,
+    }
+
+
+def published_outcome_payload(
+    outcome: PublishOutcome | RepoPublish, *, repository: str = "", sibling: bool = False
+) -> dict[str, Any]:
+    """The :func:`publish_result_payload` of a publish that pushed ``outcome``."""
+    if outcome.merge_request is None:
+        return publish_result_payload(
+            status="pushed",
+            repository=repository,
+            sibling=sibling,
+            diff_stats=outcome.diff_stats,
+            error_kind="mr_pending",
+            pushed_sha=outcome.pushed_sha,
+        )
+    return publish_result_payload(
+        status="opened" if outcome.created_merge_request else "pushed",
+        repository=repository,
+        sibling=sibling,
+        merge_request=outcome.merge_request,
+        diff_stats=outcome.diff_stats,
+        pushed_sha=outcome.pushed_sha,
+    )
+
+
+def repo_publish_payload(publish: RepoPublish) -> dict[str, Any] | None:
+    """The sibling :func:`publish_result_payload` of an extra repository's publish, or ``None`` when it has nothing
+    to report."""
+    if publish.error:
+        return publish_result_payload(
+            status="not_published" if publish.error_kind == "conflicts" else "failed",
+            repository=publish.repo_id,
+            sibling=True,
+            error_kind=publish.error_kind or "unknown",
+        )
+    if not publish.published:
+        return None
+    return published_outcome_payload(publish, repository=publish.repo_id, sibling=True)
+
+
+class PublishResultRecorder(BaseCallbackHandler):
+    """Keeps the last :data:`PUBLISH_RESULT_EVENT` payload of the main repository (``payload``) and of each extra
+    repository (``siblings``, by repository) dispatched in the active recording block."""
+
+    run_inline = True
+    # Custom events only: an unhandled chat-model start makes langchain stringify the whole prompt per call.
+    ignore_llm = ignore_chat_model = ignore_chain = ignore_agent = ignore_retriever = ignore_retry = True
+
+    def __init__(self) -> None:
+        self.payload: dict[str, Any] | None = None
+        self.siblings: dict[str, dict[str, Any]] = {}
+
+    def record(self, payload: dict[str, Any]) -> None:
+        if payload.get("sibling"):
+            self.siblings[payload.get("repository") or ""] = payload
+        else:
+            self.payload = payload
+
+    def on_custom_event(
+        self,
+        name: str,
+        data: Any,
+        *,
+        run_id: UUID,
+        tags: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        if name == PUBLISH_RESULT_EVENT and isinstance(data, dict):
+            self.record(data)
+
+
+# Once, at import: a hook registered per block would pile up in langchain's module-level hook list.
+_publish_result_recorder: ContextVar[PublishResultRecorder | None] = ContextVar(
+    "daiv_publish_result_recorder", default=None
+)
+register_configure_hook(_publish_result_recorder, inheritable=True)
+
+
+@contextmanager
+def record_publish_result() -> Generator[PublishResultRecorder]:
+    """Record the publish results dispatched by every runnable invoked inside the block, so a caller reads what this
+    run published rather than a checkpoint that can still hold the previous run's."""
+    recorder = PublishResultRecorder()
+    token = _publish_result_recorder.set(recorder)
+    try:
+        yield recorder
+    finally:
+        _publish_result_recorder.reset(token)

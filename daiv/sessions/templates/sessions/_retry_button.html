@@ -1,0 +1,6 @@
+{% load i18n icon_tags %}
+{# turn: an Alpine expression for the marker or publish entry the button retries the run from #}
+<button type="button" class="chat-run-status__retry" x-show="canRetry({{ turn }})" @click="submit(latest.retry)"
+        data-testid="run-retry">
+  {% icon "arrow-path" "h-3.5 w-3.5" %}<span>{% translate "Retry" %}</span>
+</button>

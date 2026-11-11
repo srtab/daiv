@@ -14,12 +14,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 import redis
 
-from core.ui_events import Channel, UIEventKind, UIEventPublisher, UIEventStream, is_transient_bus_error
+from core.ui_events import (
+    Channel,
+    UIEventKind,
+    UIEventPublisher,
+    UIEventStream,
+    aread_session_revision,
+    is_transient_bus_error,
+)
 
 
 class FakeConnections:
@@ -79,6 +87,10 @@ class TestChannel:
         assert Channel.RUNS == "daiv:ui-events:runs"
         assert Channel.for_user(42) == "daiv:ui-events:user:42"
 
+    def test_a_session_has_its_own_channel_and_revision_key(self):
+        assert Channel.for_session("t1") == "daiv:ui-events:session:t1"
+        assert Channel.session_revision("t1") == "daiv:ui-events:session-rev:t1"
+
 
 class TestWireFormat:
     def test_a_poke_carries_no_state(self):
@@ -120,6 +132,30 @@ class TestPublish:
         publisher_with(client).notifications_changed(42)
         client.publish.assert_called_once_with("daiv:ui-events:user:42", UIEventKind.NOTIFICATIONS.as_payload())
 
+    def test_session_changed_bumps_the_revision_then_pokes_the_session_channel(self, settings):
+        settings.DJANGO_REDIS_CHECKPOINT_TTL_MINUTES = 90
+        pipe = Mock()
+        client = Mock(pipeline=Mock(return_value=pipe))
+        assert publisher_with(client).session_changed("t1") is True
+        pipe.incr.assert_called_once_with("daiv:ui-events:session-rev:t1")
+        pipe.expire.assert_called_once_with("daiv:ui-events:session-rev:t1", 90 * 60)
+        pipe.publish.assert_called_once_with("daiv:ui-events:session:t1", '{"kind": "session"}')
+        pipe.execute.assert_called_once_with()
+        client.publish.assert_not_called()
+
+    def test_session_changed_swallows_a_redis_failure(self, settings, caplog):
+        settings.DJANGO_REDIS_CHECKPOINT_TTL_MINUTES = 90
+        pipe = Mock(execute=Mock(side_effect=redis.ConnectionError("redis is down")))
+        with caplog.at_level(logging.WARNING, logger="daiv.core"):
+            assert publisher_with(Mock(pipeline=Mock(return_value=pipe))).session_changed("t1") is False
+        assert "failed to publish" in caplog.text
+
+    def test_session_changed_on_an_unconfigured_bus_is_a_silent_no_op(self, caplog):
+        client = Mock()
+        assert publisher_with(client, configured=False).session_changed("t1") is False
+        client.pipeline.assert_not_called()
+        assert "failed to publish" not in caplog.text
+
     def test_no_recipient_is_a_no_op(self):
         client = Mock()
         publisher_with(client).notifications_changed(None)
@@ -142,6 +178,35 @@ class TestPublish:
         assert "failed to publish" not in caplog.text
 
 
+class TestRevision:
+    """A tab that was disconnected when a poke went out learns it missed one by comparing
+    revisions, so every failure reads as ``0`` (the page then fetches once) and none
+    of them may raise into the page render."""
+
+    async def test_a_missing_key_reads_as_zero(self):
+        client = Mock(get=AsyncMock(return_value=None))
+        assert await aread_session_revision("t1", connections=FakeConnections(client)) == 0
+        client.get.assert_awaited_once_with("daiv:ui-events:session-rev:t1")
+
+    async def test_a_stored_revision_reads_as_an_int(self):
+        client = Mock(get=AsyncMock(return_value=b"7"))
+        assert await aread_session_revision("t1", connections=FakeConnections(client)) == 7
+
+    async def test_an_unconfigured_bus_reads_zero(self):
+        client = Mock(get=AsyncMock())
+        assert await aread_session_revision("t1", connections=FakeConnections(client, configured=False)) == 0
+        client.get.assert_not_awaited()
+
+    async def test_a_redis_failure_reads_zero_without_a_traceback(self, caplog):
+        client = Mock(get=AsyncMock(side_effect=redis.ConnectionError("redis is down")))
+        with caplog.at_level(logging.WARNING, logger="daiv.core"):
+            assert await aread_session_revision("t1", connections=FakeConnections(client)) == 0
+        [record] = caplog.records
+        assert record.levelno == logging.WARNING
+        assert record.exc_info is None
+        assert "t1" in record.getMessage()
+
+
 class TestStreamLifecycle:
     async def test_a_viewer_listens_on_the_broadcast_channel_and_their_own(self):
         pubsub = FakePubSub()
@@ -149,6 +214,13 @@ class TestStreamLifecycle:
         async with UIEventStream.for_user(7, connections=connections):
             pass
         assert pubsub.channels == (Channel.RUNS, "daiv:ui-events:user:7")
+
+    async def test_a_session_page_also_listens_on_its_session(self):
+        pubsub = FakePubSub()
+        connections = FakeConnections(Mock(pubsub=Mock(return_value=pubsub)))
+        async with UIEventStream.for_user(42, session="t1", connections=connections):
+            pass
+        assert pubsub.channels == (Channel.RUNS, "daiv:ui-events:user:42", "daiv:ui-events:session:t1")
 
     async def test_subscribes_and_always_releases_the_connection(self):
         pubsub = FakePubSub()
@@ -182,31 +254,43 @@ class TestStreamLifecycle:
 class TestWaitForChange:
     async def test_a_poke_is_a_change(self):
         async with stream_on(FakePubSub([poke()])) as stream:
-            assert await stream.wait_for_change(20.0) is True
+            assert await stream.wait_for_change(20.0) == frozenset({UIEventKind.RUNS})
 
     async def test_an_idle_stream_reports_no_change(self):
         async with stream_on(FakePubSub()) as stream:
-            assert await stream.wait_for_change(20.0) is False
+            assert await stream.wait_for_change(20.0) == frozenset()
 
     async def test_junk_is_not_a_change(self):
         async with stream_on(FakePubSub([{"type": "message", "channel": "c", "data": "garbage"}])) as stream:
-            assert await stream.wait_for_change(20.0) is False
+            assert await stream.wait_for_change(20.0) == frozenset()
 
     async def test_either_kind_counts(self):
-        """One recompute covers every counter, so a poke of either kind also repairs a
-        badge whose own poke was dropped."""
+        """A poke of either kind is a change, so a reader that recomputes everything also
+        repairs a badge whose own poke was dropped."""
         async with stream_on(FakePubSub([poke("notifications")])) as stream:
-            assert await stream.wait_for_change(20.0) is True
+            assert await stream.wait_for_change(20.0) == frozenset({UIEventKind.NOTIFICATIONS})
 
     async def test_a_burst_is_absorbed_into_one_change(self):
         """A finishing run pokes several times over; coalescing here is what keeps that
         from costing one recount per poke, per connected reader."""
         pubsub = FakePubSub([poke(), poke(), poke()])
         async with stream_on(pubsub) as stream:
-            assert await stream.wait_for_change(20.0) is True
-            assert await stream.wait_for_change(20.0) is False
+            assert await stream.wait_for_change(20.0) == frozenset({UIEventKind.RUNS})
+            assert await stream.wait_for_change(20.0) == frozenset()
         assert pubsub.reads[:1] == [20.0]
         assert pubsub.reads[1:4] == [UIEventStream.COALESCE_S] * 3
+
+    async def test_a_burst_reports_every_kind_it_carried(self):
+        """A run end pokes the runs badge and the session page in one burst; the reader
+        needs both kinds to know which of its views to refresh."""
+        session_poke = poke("session", "daiv:ui-events:session:t1")
+        async with stream_on(FakePubSub([poke(), session_poke])) as stream:
+            assert await stream.wait_for_change(20.0) == frozenset({UIEventKind.RUNS, UIEventKind.SESSION})
+
+    async def test_junk_inside_a_burst_neither_ends_it_nor_counts(self):
+        junk = {"type": "message", "channel": "c", "data": "garbage"}
+        async with stream_on(FakePubSub([poke(), junk, poke("notifications")])) as stream:
+            assert await stream.wait_for_change(20.0) == frozenset({UIEventKind.RUNS, UIEventKind.NOTIFICATIONS})
 
 
 class TestTransientClassification:

@@ -24,3 +24,10 @@ as far as the next reader is concerned.
 | Repository memory | What DAIV remembers about a repository (`MemoryEntry`, `RepositoryMemory`) | notes |
 | Bot label | An issue or merge/pull request label that hands work to DAIV: `daiv`, `daiv-max`, `daiv-auto` | tag |
 | Schedule | A saved job that submits runs on a cron schedule, or once | cron job |
+| Inbox event | Something that happened which concerns a Session: a CI result, a mention, a queued chat message, a follow-up job, a leg follow-up, a delegated batch finishing (`InboxEvent`). It wakes the agent or is only remembered | message, notification |
+| Owning session | The Session that most recently published a merge request, among the sessions of the person who first published it (`MergeRequestOwnership`) | MR thread |
+| Next run | A QUEUED Run that waking events join while their Session is busy: one per branch and requester | queued job |
+| Coordinator | The session whose run delegated work with `delegate_jobs`, and which is resumed when its batch finishes | parent job, orchestrator |
+| Leg | One piece of delegated work: a session whose `parent` is the coordinator, publishing to a branch and merge request of its own | sub-job, child |
+| Batch | The new legs and leg follow-ups one `delegate_jobs` call sent, sharing a `batch_id`; the coordinator is resumed once when all have ended | — |
+| Leg follow-up | A coordinator's request to continue a leg it delegated earlier, in the leg's session and on its branch (`leg_follow_up` inbox event) | follow-up job, follow-up |

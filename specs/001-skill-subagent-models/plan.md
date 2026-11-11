@@ -92,7 +92,7 @@ daiv/
 ├── core/
 │   ├── models.py                      # SiteConfiguration.agent_skill_models / agent_subagent_models
 │   ├── site_settings.py               # defaults, SiteSnapshot attributes, JSON env parsing
-│   └── migrations/0020_agent_skill_subagent_models.py
+│   └── migrations/0023_agent_skill_subagent_models.py
 ├── codebase/
 │   └── repo_config.py                 # Models.skills / Models.subagents
 ├── automation/agent/
@@ -104,7 +104,7 @@ daiv/
 │   └── middlewares/skills.py          # configured spec before metadata.model; ERROR + notice
 ├── sessions/
 │   ├── models.py                      # Run.notices
-│   ├── migrations/0020_run_notices.py
+│   ├── migrations/0032_run_notices.py
 │   ├── notices.py                     # RunNoticeRecorder (implements RunNotices)
 │   ├── executor/run.py                # injects the recorder into create_daiv_agent
 │   ├── transcript.py                  # run_notice pseudo-turns

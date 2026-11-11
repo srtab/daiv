@@ -1,3 +1,5 @@
+import json
+import re
 import uuid
 from datetime import datetime, time, timedelta
 from unittest.mock import patch
@@ -8,17 +10,30 @@ from django.urls import reverse
 from django.utils import timezone
 
 import pytest
+from dashboard import landing
+from dashboard.comparisons import COMPARISONS
 from dashboard.home import INBOX_LIMIT
 from dashboard.tasks import BOT_USERNAME_CACHE_KEY, BOT_USERNAME_PENDING_KEY
 from notifications.choices import EnvelopeStatus
 from notifications.models import RunEnvelope
-from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin, WatchState
+from sessions.models import (
+    EventKind,
+    HiddenSession,
+    MergeRequestOwnership,
+    MergeRequestState,
+    QuietReason,
+    Run,
+    RunStatus,
+    Session,
+    SessionOrigin,
+)
 
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
 from core.conf import settings as core_settings
 from schedules.models import DispatchError, Frequency, ScheduledJob
+from tests.unit_tests.sessions.inbox.conftest import make_event
 
 
 @pytest.fixture(autouse=True)
@@ -48,6 +63,65 @@ class TestHomepage:
         response = member_client.get(reverse("homepage"))
         assert response.status_code == 302
         assert response.url == reverse("dashboard")
+
+    def test_faq_json_ld_repeats_the_visible_faq(self):
+        content = Client().get(reverse("homepage")).content.decode()
+
+        blocks = re.findall(r'<script type="application/ld\+json">(.*?)</script>', content, re.DOTALL)
+        faq_page = next(data for data in map(json.loads, blocks) if data["@type"] == "FAQPage")
+        assert [(q["name"], q["acceptedAnswer"]["text"]) for q in faq_page["mainEntity"]] == [
+            (faq.question, faq.answer) for faq in landing.FAQS
+        ]
+        for faq in landing.FAQS:
+            assert faq.answer in content
+
+    def test_hero_deploy_link_is_the_quickstart(self):
+        content = Client().get(reverse("homepage")).content.decode()
+
+        assert f'href="{landing.QUICKSTART_URL}"' in content
+
+    def test_demo_plays_muted_and_never_on_its_own(self):
+        content = Client().get(reverse("homepage")).content.decode()
+
+        assert re.search(r"<video[^>]*\bmuted\b[^>]*\bplaysinline\b[^>]*\bpreload=\"none\"", content)
+        assert "autoplay" not in content
+        assert '<source src="/static/dashboard/video/demo.mp4" type="video/mp4">' in content
+
+    def test_links_every_comparison(self):
+        content = Client().get(reverse("homepage")).content.decode()
+
+        for comparison in COMPARISONS:
+            assert f'href="{reverse("comparison", args=[comparison.slug])}"' in content
+
+
+@pytest.mark.django_db
+class TestComparison:
+    @pytest.mark.parametrize("comparison", COMPARISONS, ids=lambda comparison: comparison.slug)
+    def test_page_shows_both_sides_with_their_sources(self, comparison):
+        response = Client().get(reverse("comparison", args=[comparison.slug]))
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert f"DAIV and {comparison.name}</h1>" in content
+        assert f'<meta property="og:title" content="DAIV and {comparison.name} compared">' in content
+        for row in comparison.rows:
+            for source in (*row.daiv.sources, *row.theirs.sources):
+                assert f'href="{source}"' in content
+
+    def test_unknown_comparison_is_not_found(self):
+        assert Client().get("/compare/nothing-like-this/").status_code == 404
+
+    def test_signed_in_user_can_read_it_without_links_into_the_homepage(self, member_client):
+        response = member_client.get(reverse("comparison", args=[COMPARISONS[0].slug]))
+
+        assert response.status_code == 200
+        assert f'href="{reverse("homepage")}#' not in response.content.decode()
+
+    def test_sitemap_lists_every_comparison(self):
+        content = Client().get(reverse("sitemap")).content.decode()
+
+        for comparison in COMPARISONS:
+            assert reverse("comparison", args=[comparison.slug]) in content
 
 
 @pytest.mark.django_db
@@ -79,6 +153,14 @@ def _make_session(user, origin, *, status=RunStatus.SUCCESSFUL, days_ago=0):
         created_at=_local_noon(days_ago),
     )
     return session
+
+
+def _gave_up(session, *, days_ago=0):
+    """CI on the session's merge request ran out of attempts ``days_ago``."""
+    make_event(
+        session, EventKind.CI_FAILED, wake=False, reason=QuietReason.BUDGET_SPENT, merge_request_iid=9,
+        created_at=_local_noon(days_ago),
+    )  # fmt: skip
 
 
 def _mcp_url() -> str:
@@ -158,8 +240,7 @@ class TestNeedsYouInbox:
         _classified_session(member_user, EnvelopeStatus.NEEDS_ATTENTION)
         _classified_session(member_user, EnvelopeStatus.FOUND_ISSUES)
         _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.WAITING_INPUT)
-        watched = _make_session(member_user, SessionOrigin.MR_WEBHOOK, days_ago=2)
-        Session.objects.filter(pk=watched.pk).update(watch_state=WatchState.EXHAUSTED)
+        _gave_up(_make_session(member_user, SessionOrigin.MR_WEBHOOK, days_ago=2), days_ago=2)
         _failing_schedule(member_user)
         _make_session(member_user, SessionOrigin.UI_JOB, status=RunStatus.FAILED)
         _make_session(member_user, SessionOrigin.CHAT)
@@ -271,8 +352,7 @@ class TestNeedsYouInbox:
     def test_findings_and_a_given_up_watch_age_out_after_a_week(self, member_user, member_client):
         _classified_session(member_user, EnvelopeStatus.FOUND_ISSUES, days_ago=6)
         _classified_session(member_user, EnvelopeStatus.NEEDS_ATTENTION, days_ago=8)
-        stale_watch = _make_session(member_user, SessionOrigin.MR_WEBHOOK, days_ago=8)
-        Session.objects.filter(pk=stale_watch.pk).update(watch_state=WatchState.EXHAUSTED)
+        _gave_up(_make_session(member_user, SessionOrigin.MR_WEBHOOK, days_ago=8), days_ago=8)
 
         assert _keys(_inbox(member_client)) == ["found-issues"]
 
@@ -296,10 +376,16 @@ class TestNeedsYouInbox:
         assert _keys(_inbox(member_client)) == ["needs-input", "failed", "failed"]
 
     def test_a_question_in_a_session_whose_ci_watch_gave_up_shows_as_the_question(self, member_user, member_client):
-        session = _make_session(member_user, SessionOrigin.MR_WEBHOOK, status=RunStatus.WAITING_INPUT)
-        Session.objects.filter(pk=session.pk).update(watch_state=WatchState.EXHAUSTED)
+        _gave_up(_make_session(member_user, SessionOrigin.MR_WEBHOOK, status=RunStatus.WAITING_INPUT))
 
         assert _keys(_inbox(member_client)) == ["needs-input"]
+
+    def test_ci_that_passed_after_giving_up_is_cleared(self, member_user, member_client):
+        session = _make_session(member_user, SessionOrigin.MR_WEBHOOK, days_ago=2)
+        _gave_up(session, days_ago=2)
+        make_event(session, EventKind.CI_PASSED, merge_request_iid=9, created_at=timezone.now() - timedelta(days=1))
+
+        assert _inbox(member_client)["items"] == []
 
     def test_all_clear_and_schedules_that_will_not_run_stay_out(self, member_user, member_client):
         _classified_session(member_user, EnvelopeStatus.ALL_CLEAR)
@@ -781,6 +867,26 @@ class TestYourWeek:
         assert [mr["iid"] for mr in week["merge_requests"]] == [4, 3, 2]
         assert (week["merge_requests_total"], week["merge_requests_more"]) == (4, 1)
         assert week["merge_requests"][0]["title"] == "Change 4"
+
+    @pytest.mark.parametrize("state", [MergeRequestState.MERGED, MergeRequestState.CLOSED])
+    def test_a_merge_request_carries_its_state(self, member_user, member_client, state):
+        session = _bare_session(member_user)
+        _week_run(session, merge_request_iid=7)
+        MergeRequestOwnership.objects.create(
+            session=session,
+            repo_id=session.repo_id,
+            merge_request_iid=7,
+            source_branch="chore/x",
+            merged=state == MergeRequestState.MERGED,
+            closed_at=timezone.now(),
+        )
+
+        assert _week(member_client)["merge_requests"][0]["state"] == state
+
+    def test_a_merge_request_daiv_does_not_own_is_open(self, member_user, member_client):
+        _week_run(_bare_session(member_user), merge_request_iid=7)
+
+        assert _week(member_client)["merge_requests"][0]["state"] == MergeRequestState.OPEN
 
     def test_started_from_groups_triggers(self, member_user, member_client):
         session = _bare_session(member_user, SessionOrigin.ISSUE_WEBHOOK)

@@ -1,3 +1,7 @@
+---
+description: "Slash commands and skills DAIV responds to in issue and merge or pull request comments, including /plan and /code-review, plus your own custom skills."
+---
+
 # Slash Commands & Skills
 
 DAIV responds to slash commands in issue and merge/pull request comments. Some are built-in commands with fixed behavior, others are **skills** — modular capabilities that give DAIV specialized expertise for specific tasks.
@@ -19,7 +23,6 @@ These commands have fixed behavior and are always available:
 | `/help` | Issues, MRs/PRs | Lists all available commands and skills |
 | `/agents` | Issues, MRs/PRs | Lists available subagents with descriptions |
 | `/clear` | Issues, MRs/PRs | Resets the conversation context to start fresh |
-| `/clone-to-topics <topics>` | Issues only | Clones the issue to all repositories matching the specified topics |
 
 ### /help
 
@@ -44,18 +47,6 @@ Lists the available subagents with their names and descriptions. See [Subagents]
 ```
 
 Starts a fresh conversation context for the current issue or merge/pull request. Useful when DAIV's context becomes stale or it starts drifting. The earlier conversation stays in the session's history; DAIV just stops seeing it.
-
-### /clone-to-topics
-
-```
-@daiv /clone-to-topics backend, api
-```
-
-Clones the current issue (title, description, and labels) to all repositories matching the specified topics. The current repository is excluded. Only available on issues.
-
-!!! note "Topic matching is platform-dependent"
-
-    On GitLab, a repository must carry **all** the listed topics to be included. On GitHub, a repository is included if it matches **any** of the listed topics.
 
 ## Built-in skills
 
@@ -84,6 +75,8 @@ DAIV explores the codebase without making any changes and posts a detailed imple
 ```
 
 Reviews the current merge/pull request diff for correctness, security, performance, structure, and your repository's [custom review rules](pull-request-assistant.md#custom-review-rules). Posts numbered findings grouped by severity, as a single report comment.
+
+How it scores on the ReviewBench benchmark, and at what cost, is on the [Benchmarks](../reference/benchmarks.md) page.
 
 ### /security-audit
 

@@ -1,3 +1,7 @@
+---
+description: "Configure DAIV per repository with a .daiv.yml file: access control, file access, feature toggles, branch naming, commit messages and model overrides."
+---
+
 # Repository Config
 
 Customize DAIV's behavior per repository using a `.daiv.yml` file in the root of the default branch.
@@ -42,12 +46,12 @@ orchestration:
 # Model overrides
 models:
   agent:
-    model: "openrouter:anthropic/claude-sonnet-4.6"
-    fallback_model: "openrouter:openai/gpt-5.3-codex"
+    model: "openrouter:anthropic/claude-sonnet-5.5"
+    fallback_model: "openrouter:openai/gpt-6.1-sol"
     thinking_level: "medium"
   diff_to_metadata:
-    model: "openrouter:anthropic/claude-sonnet-4.6"
-    fallback_model: "openrouter:openai/gpt-5.3-codex"
+    model: "openrouter:anthropic/claude-sonnet-5.5"
+    fallback_model: "openrouter:openai/gpt-6.1-sol"
   skills:
     code-review: "openrouter:anthropic/claude-sonnet-5.5"
   subagents:
@@ -85,6 +89,9 @@ When the list is empty or omitted, **all users** can interact with DAIV (default
 
 !!! tip
     Push events (e.g., configuration cache invalidation) are not affected by the allowlist — they are system-level operations tied to the webhook, not to individual users.
+
+!!! warning
+    The allowlist decides who can **trigger** DAIV, not who it reads. On a merge request a DAIV session owns, a comment that doesn't mention DAIV is remembered from anyone and shown to that session's next run as context (see [Pull request assistant](../features/pull-request-assistant.md#a-merge-request-daiv-published)). On a public repository, treat those comments as untrusted input.
 
 ## File access
 

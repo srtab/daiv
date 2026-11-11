@@ -122,7 +122,7 @@ SESSION_CACHE_ALIAS = "sessions"
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 SESSION_COOKIE_AGE = 60 * 60 * 24 * 30  # 30 days (sliding; refreshed on activity)
 SESSION_COOKIE_SAMESITE = "Lax"
-SESSION_COOKIE_NAME = "__Secure-sessionid"
+SESSION_COOKIE_NAME = config("DJANGO_SESSION_COOKIE_NAME", default="__Secure-sessionid")
 SESSION_COOKIE_SECURE = True
 
 

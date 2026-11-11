@@ -1,3 +1,7 @@
+---
+description: "Track code merged across your repositories with diff statistics and commit-level attribution of changes to DAIV or human authors."
+---
+
 # Merge Metrics
 
 DAIV automatically tracks code merge activity across your repositories. Every time a merge request (GitLab) or pull request (GitHub) is merged into a default branch, DAIV records diff statistics and attributes code changes to DAIV or human authors at the commit level.
@@ -83,7 +87,7 @@ If you already have DAIV connected to repositories, existing webhooks need to be
 **GitLab** — Run the setup command with the `--update` flag:
 
 ```bash
-uv run manage.py setup_webhooks --update
+django-admin setup_webhooks --update
 ```
 
 The periodic webhook setup cron task does **not** pass `--update` by default, so this one-time manual step is needed after deploying the update.

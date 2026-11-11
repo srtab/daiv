@@ -1,3 +1,7 @@
+---
+description: "Connect DAIV to GitLab (GitLab.com or self-hosted) or GitHub so it can address issues, review merge and pull requests, and react to webhooks."
+---
+
 # Platform Setup
 
 This guide walks you through connecting DAIV to your GitLab or GitHub repository. Once configured, DAIV will automatically address issues, review pull requests, and more.
@@ -17,25 +21,30 @@ Before configuring a GitLab repository, ensure you have:
 
 - **DAIV installed and running** - Follow the [Deployment](deployment.md) guide first
 - **GitLab repository access** - Admin or maintainer permissions on the repository you want to connect
-- **GitLab personal access token** - With `api` scope permissions
+- **A GitLab account for DAIV** - A separate user that DAIV acts as, created in Step 1
 
-### Step 1: Create GitLab Personal Access Token
+### Step 1: Create a GitLab User and Token for DAIV
 
-DAIV needs a GitLab personal access token to interact with your repositories.
+DAIV works as a GitLab user: it comments, pushes and opens merge requests as the user its token belongs to, and it ignores comments written by that user. Give DAIV its own account. With a token from your own account, DAIV ignores your comments, including the one that approves its plan.
 
-1. **Navigate to GitLab Settings**:
+1. **Create the user**:
 
-    - Go to your GitLab instance (e.g., `https://gitlab.com`)
+    - Create a GitLab user for DAIV, for example `daiv`. Its username is how you mention DAIV (`@daiv`). On GitLab.com, sign up a separate account; on a self-managed instance, an admin creates it under **Admin → Users → New user**
+    - Add it to each project DAIV should work on with the **Maintainer** role. DAIV only sets up webhooks on projects where its user is a Maintainer or Owner
+
+2. **Navigate to the user's settings**:
+
+    - Sign in to your GitLab instance (e.g., `https://gitlab.com`) as the DAIV user
     - Click your avatar → **Edit profile** → **Access Tokens**
 
-2. **Create New Token**:
+3. **Create New Token**:
 
     - **Name**: `DAIV Integration`
     - **Expiration**: Set according to your security policy (recommended: 1 year)
     - **Scopes**: Select `api` (full API access)
     - Click **Create personal access token**
 
-3. **Copy the Token**:
+4. **Copy the Token**:
 
     - **Important**: Copy and save the token immediately - you won't see it again
     - The token format looks like: `glpat-xxxxxxxxxxxxxxxxxxxx`
@@ -81,7 +90,14 @@ echo "your-webhook-secret-here" | docker secret create codebase_gitlab_webhook_s
 
 DAIV uses webhooks to receive real-time notifications from GitLab about repository events.
 
-DAIV automatically creates webhooks on all accessible repositories via a background task that runs every 5 minutes. No manual setup is required — once DAIV is running with valid GitLab credentials, webhooks are created automatically for new repositories. To update existing webhooks, run `django-admin setup_webhooks --update`.
+DAIV's scheduler adds a webhook to every repository its user maintains, every 5 minutes. No manual setup is required — once DAIV is running with valid GitLab credentials, webhooks are created automatically for new repositories. To add them right away, or to update existing ones after changing `DAIV_EXTERNAL_URL` or the webhook secret, run the command in the app container:
+
+```bash
+docker compose exec app django-admin setup_webhooks           # add missing webhooks now
+docker compose exec app django-admin setup_webhooks --update  # also update existing ones
+```
+
+GitLab sends each event to `DAIV_EXTERNAL_URL`, so that URL must be reachable from your GitLab. A self-managed GitLab refuses webhooks to private network addresses by default (`Url is blocked: Requests to the local network are not allowed`); an admin allows them under **Admin → Settings → Network → Outbound requests**.
 
 !!! tip "Verifying webhook setup"
     To confirm webhooks are configured, go to your GitLab repository → **Settings** → **Webhooks**. You should see a webhook pointing to `https://your-daiv-instance.com/api/codebase/callbacks/gitlab/` with the following trigger events:
@@ -107,11 +123,15 @@ Verify that DAIV is properly connected to your repository.
 1. **Create a Test Issue**:
     - Go to your GitLab repository
     - Create a new issue with title: "Add hello world function"
-    - Add the `daiv` label to the issue
+    - Add the `daiv` label to the issue. If the project has no `daiv` label yet, create it from the label picker
 
 2. **Wait for DAIV Response**:
-    - DAIV should automatically comment with a plan to address the issue
+    - DAIV reacts with 👀 within seconds, then comments with a plan to address the issue
     - Check the issue comments for DAIV's response
+
+3. **Approve the Plan**:
+    - From your own account, comment on the issue mentioning DAIV's user, for example `@daiv proceed`
+    - DAIV implements the plan and opens a merge request
 
 !!! tip
     For more on how issue addressing works, see [Issue Addressing](../features/issue-addressing.md).
@@ -123,12 +143,23 @@ Verify that DAIV is properly connected to your repository.
 - Verify the webhook URL is accessible from GitLab
 - Check SSL certificate validity
 - Review firewall settings
+- On a self-managed GitLab, allow requests to the local network if DAIV has a private address (see [Step 3](#step-3-repository-webhooks))
 
 **Issues not being processed**:
 
 - Ensure the `daiv` label is added to issues
+- Check that the project has a webhook: DAIV's user must be a Maintainer or Owner of it
 - Verify `issue_addressing.enabled: true` in `.daiv.yml` (enabled by default)
 - Check DAIV logs for errors
+
+**DAIV ignores your comments**:
+
+- Comment from an account other than DAIV's own: DAIV ignores what its own user writes
+- Mention DAIV's username, for example `@daiv`
+
+**DAIV comments "An unexpected error occurred"**:
+
+- The run failed. The worker and sandbox logs show why, for example `docker compose logs worker sandbox`
 
 **No response to merge request comments**:
 
@@ -181,6 +212,7 @@ DAIV uses GitHub App authentication to securely interact with your repositories.
         - ✅ Issues
         - ✅ Issue comment
         - ✅ Pull request review
+        - ✅ Pull request review comment (mentions and comments on diff lines of a pull request a DAIV session owns)
         - ✅ Pull request
         - ✅ Workflow run
 
@@ -295,6 +327,7 @@ Webhooks are configured at the GitHub App level and automatically apply to all r
         - ✅ Issues
         - ✅ Issue comment
         - ✅ Pull request review
+        - ✅ Pull request review comment (mentions and comments on diff lines of a pull request a DAIV session owns)
         - ✅ Pull request
         - ✅ Workflow run (only listed once **Actions** is set to **Read-only**, see Step 1)
 

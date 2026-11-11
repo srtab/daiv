@@ -1,4 +1,5 @@
 import asyncio
+import base64
 from contextlib import AsyncExitStack
 
 import anyio
@@ -9,7 +10,11 @@ from mcp_types import CONNECTION_CLOSED
 
 from automation.agent.mcp.schemas import ToolFilter, UserMcpServer
 from automation.agent.mcp.toolkits import _load_server_tools, load_mcp_tools
+from automation.agent.workspace.backends import DAIVFilesystemBackend
 from tests.unit_tests.automation.agent.mcp.helpers import APP_TOOLS, client_for, empty_event_stream, serve, status_error
+from tests.unit_tests.conftest import recording_backend
+
+BACKEND = recording_backend()
 
 
 def _dto(url: str, tool_filter: ToolFilter | None = None, headers: dict[str, str] | None = None) -> UserMcpServer:
@@ -35,14 +40,14 @@ def gates(monkeypatch):
 
 class TestLoadMcpTools:
     async def test_returns_empty_when_there_are_no_servers(self):
-        assert await load_mcp_tools([]) == []
+        assert await load_mcp_tools([], BACKEND) == []
 
     async def test_prefixes_names_and_sets_tags_and_metadata(self, gates):
         async with serve() as gate:
             gates["http://acme/mcp"] = gate
             servers = [("acme", _dto("http://acme/mcp"))]
 
-            tools = await load_mcp_tools(servers)
+            tools = await load_mcp_tools(servers, BACKEND)
 
         assert {tool.name for tool in tools} == {f"acme_{name}" for name in APP_TOOLS}
         for tool in tools:
@@ -55,18 +60,30 @@ class TestLoadMcpTools:
             gates["http://acme/mcp"] = gate
             servers = [("acme", _dto("http://acme/mcp"))]
 
-            tools = await load_mcp_tools(servers)
+            tools = await load_mcp_tools(servers, BACKEND)
             echo = next(tool for tool in tools if tool.name == "acme_echo")
             result = await echo.ainvoke({"text": "hi"})
 
         assert result[0]["text"] == "hi"
+
+    async def test_loaded_tools_save_the_files_their_results_embed(self, gates, tmp_path):
+        png = base64.b64encode(b"\x89PNG\r\n\x1a\n" + bytes(range(200))).decode()
+        echo_backend = DAIVFilesystemBackend(root_dir=tmp_path, virtual_mode=True)
+        async with serve() as gate:
+            gates["http://acme/mcp"] = gate
+            tools = await load_mcp_tools([("acme", _dto("http://acme/mcp"))], echo_backend)
+            echo = next(tool for tool in tools if tool.name == "acme_echo")
+            result = await echo.ainvoke({"text": png})
+
+        assert png not in result[0]["text"]
+        assert ".png" in result[0]["text"]
 
     async def test_server_headers_reach_the_server(self, gates):
         async with serve() as gate:
             gates["http://acme/mcp"] = gate
             servers = [("acme", _dto("http://acme/mcp", headers={"Authorization": "Bearer t0k"}))]
 
-            await load_mcp_tools(servers)
+            await load_mcp_tools(servers, BACKEND)
 
         assert gate.request_headers
         assert all(h.get("authorization") == "Bearer t0k" for h in gate.request_headers)
@@ -76,7 +93,7 @@ class TestLoadMcpTools:
             gates["http://acme/mcp"] = gate
             servers = [("acme", _dto("http://acme/mcp"))]
 
-            tools = await load_mcp_tools(servers)
+            tools = await load_mcp_tools(servers, BACKEND)
             boom = next(tool for tool in tools if tool.name == "acme_boom")
             message = await boom.ainvoke({"id": "call-1", "name": "acme_boom", "args": {}, "type": "tool_call"})
 
@@ -95,7 +112,7 @@ class TestLoadMcpTools:
             gates["http://acme/mcp"] = gate
             servers = [("acme", _dto("http://acme/mcp", tool_filter))]
 
-            tools = await load_mcp_tools(servers)
+            tools = await load_mcp_tools(servers, BACKEND)
 
         assert {tool.name for tool in tools} == {f"acme_{name}" for name in expected}
 
@@ -105,7 +122,7 @@ class TestLoadMcpTools:
             servers = [("acme", _dto("http://acme/mcp", ToolFilter(mode="allow", items=["does-not-exist"])))]
 
             with caplog.at_level("WARNING", logger="daiv.tools"):
-                assert await load_mcp_tools(servers) == []
+                assert await load_mcp_tools(servers, BACKEND) == []
 
         assert gate.request_headers
         assert [r for r in caplog.records if r.name == "daiv.tools"] == []
@@ -121,7 +138,7 @@ class TestLoadMcpTools:
                 ("git_hub", _dto("http://git-hub/mcp")),
             ]
 
-            tools = await load_mcp_tools(servers)
+            tools = await load_mcp_tools(servers, BACKEND)
 
         names = {tool.name for tool in tools}
         assert {name for name in names if name.startswith("git_") and not name.startswith("git_hub_")} == {"git_echo"}
@@ -135,7 +152,7 @@ class TestLoadMcpTools:
             gates["http://bad/mcp"] = bad
             servers = [("bad", _dto("http://bad/mcp")), ("good", _dto("http://good/mcp"))]
 
-            tools = await load_mcp_tools(servers)
+            tools = await load_mcp_tools(servers, BACKEND)
 
         assert {tool.name for tool in tools} == {f"good_{name}" for name in APP_TOOLS}
 
@@ -149,7 +166,7 @@ class TestLoadMcpTools:
             servers = [("slow", _dto("http://slow/mcp")), ("good", _dto("http://good/mcp"))]
 
             with caplog.at_level("WARNING", logger="daiv.tools"):
-                tools = await load_mcp_tools(servers)
+                tools = await load_mcp_tools(servers, BACKEND)
 
         assert {tool.name for tool in tools} == {f"good_{name}" for name in APP_TOOLS}
         [record] = [r for r in caplog.records if r.name == "daiv.tools"]
@@ -166,7 +183,7 @@ class TestLoadServerTools:
         async with serve(hang=True) as gate:
             gates["http://slow/mcp"] = gate
 
-            task = asyncio.create_task(_load_server_tools("slow", _dto("http://slow/mcp")))
+            task = asyncio.create_task(_load_server_tools("slow", _dto("http://slow/mcp"), BACKEND))
             await asyncio.wait_for(_until_requested(gate), timeout=5)
             task.cancel()
 
@@ -200,7 +217,7 @@ class TestLogPolicy:
         servers = [("acme", _dto("http://acme/mcp"))]
 
         with caplog.at_level("DEBUG", logger="daiv.tools"):
-            assert await load_mcp_tools(servers) == []
+            assert await load_mcp_tools(servers, BACKEND) == []
 
         [record] = [r for r in caplog.records if r.name == "daiv.tools" and r.levelname != "DEBUG"]
         assert record.levelname == level
@@ -213,7 +230,7 @@ class TestLogPolicy:
             servers = [("bad", _dto("http://bad/mcp"))]
 
             with caplog.at_level("WARNING", logger="daiv.tools"):
-                assert await load_mcp_tools(servers) == []
+                assert await load_mcp_tools(servers, BACKEND) == []
 
         assert [r.levelname for r in caplog.records if r.name == "daiv.tools"] == ["WARNING"]
 
@@ -223,7 +240,7 @@ class TestLogPolicy:
             servers = [("bad", _dto("http://bad/mcp"))]
 
             with caplog.at_level("WARNING", logger="daiv.tools"):
-                assert await load_mcp_tools(servers) == []
+                assert await load_mcp_tools(servers, BACKEND) == []
 
         [record] = [r for r in caplog.records if r.name == "daiv.tools"]
         assert record.levelname == "WARNING"
@@ -243,7 +260,7 @@ async def test_end_to_end_db_row_yields_prefixed_tools(gates):
 
     async with serve() as gate:
         gates["http://acme.test/mcp"] = gate
-        tools = await load_mcp_tools(await sync_to_async(build_runtime_servers)())
+        tools = await load_mcp_tools(await sync_to_async(build_runtime_servers)(), BACKEND)
 
     assert {f"acme_{name}" for name in APP_TOOLS} <= {tool.name for tool in tools}
 
@@ -265,7 +282,7 @@ async def test_end_to_end_db_tool_filter_is_applied(gates):
 
     async with serve() as gate:
         gates["http://acme.test/mcp"] = gate
-        tools = await load_mcp_tools(await sync_to_async(build_runtime_servers)())
+        tools = await load_mcp_tools(await sync_to_async(build_runtime_servers)(), BACKEND)
 
     names = {tool.name for tool in tools if tool.name.startswith("acme_")}
     assert "acme_echo" in names

@@ -1,8 +1,13 @@
+---
+html_title: "Self-hosted SWE agents for GitLab and GitHub"
+description: "DAIV turns issues into merge requests, answers review comments and fixes failing CI, running every agent in a sandbox you control with the LLM you choose."
+---
+
 <p align="center">
   <img src="assets/logo.svg" alt="DAIV" width="400">
 </p>
 
-<p align="center"><strong>Open-source, self-hosted SWE agents for GitLab &amp; GitHub</strong></p>
+<h1 align="center">Open-source, self-hosted SWE agents for GitLab &amp; GitHub</h1>
 <p align="center">
   Turn issues into merge requests, answer review comments, and fix failing CI —
   with every agent running in a sandbox you control, the network egress you define,
@@ -17,7 +22,7 @@
 
 ---
 
-DAIV integrates directly with **GitLab** and **GitHub** through webhooks — no new tools to adopt, no context-switching. Beyond your Git workflow, DAIV plugs into your editor over **MCP** and ships with an optional **self-hosted dashboard** to chat with the agent, start and watch runs, schedule jobs, and review what changed. You host it, you pick the model, and every task executes in an isolated sandbox whose network access you define.
+DAIV (pronounced "dive", from *dev* + *AI*) integrates directly with **GitLab** and **GitHub** through webhooks — no new tools to adopt, no context-switching. Beyond your Git workflow, DAIV plugs into your editor over **MCP** and ships with an optional **self-hosted dashboard** to chat with the agent, start and watch runs, schedule jobs, and review what changed. You host it, you pick the model, and every task executes in an isolated sandbox whose network access you define.
 
 ## Three ways to put DAIV to work
 
@@ -60,7 +65,7 @@ DAIV is powered by [Deep Agents](https://github.com/langchain-ai/deepagents), a 
 - **[MCP Tools](customization/mcp-tools.md)** — external integrations over the [Model Context Protocol](https://modelcontextprotocol.io/), such as Sentry for error tracking.
 - **[Monitoring](reference/monitoring.md)** — trace every agent execution with [LangSmith](https://www.langchain.com/langsmith) to analyze performance and spot issues.
 - **Scalable Workers** — background workers scale horizontally by adding replicas, with a dedicated scheduler for recurring jobs.
-- **[LLM Providers](getting-started/llm-providers.md)** — run on OpenRouter, Anthropic, OpenAI, or Google — your keys, your choice.
+- **[LLM Providers](getting-started/llm-providers.md)** — run on OpenRouter, Anthropic, OpenAI, or Google, or on your own OpenAI-compatible server (vLLM, llama.cpp, LiteLLM) — your keys, your choice.
 
 For how these pieces fit together — the middleware stack, skill loading, and how a single run is assembled — see [Agent Architecture](reference/agent-architecture.md).
 
@@ -85,6 +90,14 @@ For how these pieces fit together — the middleware stack, skill loading, and h
 ## Get started
 
 <div class="grid cards" markdown>
+
+-   **Try it in 15 minutes**
+
+    ---
+
+    Run DAIV on one machine and turn a GitLab issue into a merge request.
+
+    [:octicons-arrow-right-24: Quickstart](getting-started/quickstart.md)
 
 -   **Deploy DAIV**
 

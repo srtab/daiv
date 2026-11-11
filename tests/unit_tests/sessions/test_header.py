@@ -1,23 +1,59 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import patch
 
+from django.urls import reverse
 from django.utils import timezone
 
 import pytest
-from sessions.header import build_session_header, issue_link, latest_run_payload, retry_for, watch_payload
-from sessions.models import Run, RunStatus, Session, SessionOrigin, WatchState
-from sessions.pipeline_watch.store import watch_thread_id
+from sessions.header import (
+    build_session_header,
+    ci_payload,
+    delegations_for,
+    issue_link,
+    latest_run_payload,
+    parent_link,
+    references_payload,
+    retry_for,
+    watch_payload,
+)
+from sessions.models import EventKind, MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
+from sessions.transcript import annotate_transcript
+from sessions.transcript_labels import TRANSCRIPT_ICONS
 
+from accounts.models import Role, User
 from codebase.base import GitPlatform
 from codebase.models import RepositoryCatalog
-from tests.unit_tests.sessions.conftest import make_task_result
+from tests.unit_tests.sessions.conftest import (
+    delegate_turns,
+    grant_read_access,
+    make_coordinator,
+    make_leg,
+    make_task_result,
+)
+from tests.unit_tests.sessions.inbox.conftest import ci_payload as ci_event_payload
+from tests.unit_tests.sessions.inbox.conftest import make_event, post_leg_follow_up
 
 
 def _session(**kwargs) -> Session:
     defaults = {"thread_id": str(uuid.uuid4()), "origin": SessionOrigin.CHAT, "repo_id": "group/project"}
     return Session.objects.create(**{**defaults, **kwargs})
+
+
+def _viewer(role=Role.ADMIN, username="viewer") -> User:
+    return User.objects.create_user(username=username, email=f"{username}@test.com", password="x", role=role)  # noqa: S106
+
+
+def _header(session: Session, runs: list[Run], *, user: User, **kwargs) -> dict:
+    delegations = delegations_for([], session, user)
+    return build_session_header(session, runs, retry="", user=user, delegations=delegations, **kwargs)
+
+
+def _delegations(session: Session, user: User, turns=()) -> dict | None:
+    return delegations_for(list(turns), session, user)
 
 
 def _run(session: Session, **kwargs) -> Run:
@@ -84,6 +120,20 @@ def test_retry_for_needs_a_viewer_who_owns_the_session_and_can_run_on_it(member_
 
 
 @pytest.mark.django_db
+def test_retry_for_needs_run_access_on_every_repository_of_a_multi_repo_session(member_user):
+    from sessions.models import SessionRepository
+
+    session = _session(user=member_user)
+    SessionRepository.objects.create(session=session, position=1, repo_id="group/module")
+    runs = [_run(session, status=RunStatus.FAILED, prompt="fix it")]
+
+    with patch("sessions.header.can_run", side_effect=lambda _user, repo_id: repo_id == "group/project"):
+        retry = retry_for(session, runs, [], member_user, can_act=True)
+
+    assert retry == ""
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(("status", "can_act"), [(RunStatus.SUCCESSFUL, None), (RunStatus.FAILED, True)])
 def test_retry_for_asks_for_run_access_only_when_it_has_to(member_user, status, can_act):
     session = _session(user=member_user)
@@ -144,88 +194,430 @@ def test_issue_link_is_only_for_issue_webhook_sessions():
     assert issue_link(session, [_issue_run(session, 7)]) is None
 
 
-@pytest.mark.parametrize(
-    ("state", "label", "tone", "is_open"),
-    [
-        (WatchState.WATCHING, "Waiting for CI", "attn", True),
-        (WatchState.FIXING, "Fixing", "attn", True),
-        (WatchState.GREEN, "Green", "clear", False),
-        (WatchState.EXHAUSTED, "Attempts exhausted", "fail", False),
-        (WatchState.UNCLEAR, "CI unreadable", "found", False),
-    ],
-)
-def test_watch_payload_tones_the_ci_watch(state, label, tone, is_open):
-    assert watch_payload(state) == {"state": state, "label": label, "tone": tone, "open": is_open}
+def _owned(session: Session, iid: int = 7, **fields) -> MergeRequestOwnership:
+    defaults = {"repo_id": session.repo_id, "merge_request_iid": iid, "session": session, "source_branch": f"b{iid}"}
+    ownership = MergeRequestOwnership.objects.create(**(defaults | fields))
+    MergeRequestOwnership.objects.filter(pk=ownership.pk).update(updated_at=timezone.now() - timedelta(hours=1))
+    ownership.refresh_from_db()
+    return ownership
 
 
-@pytest.mark.parametrize("state", [WatchState.OFF, None])
-def test_watch_payload_is_none_when_nothing_is_watched(state):
-    assert watch_payload(state) is None
+def _ci_event(session: Session, kind: str, *, iid: int = 7, run: Run | None = None, **fields):
+    return make_event(session, kind, merge_request_iid=iid, run=run, created_at=timezone.now(), **fields)
+
+
+@pytest.fixture
+def policy():
+    with patch("sessions.header.WatchPolicy") as policy:
+        policy.return_value = SimpleNamespace(enabled=True, max_attempts=3)
+        yield policy.return_value
 
 
 @pytest.mark.django_db
-def test_build_session_header_gathers_the_pages_context():
-    session = _session(watch_state=WatchState.GREEN)
+class TestCiPayload:
+    def test_a_session_that_owns_nothing_has_no_ci(self, policy):
+        assert ci_payload(_session()) == []
+
+    @pytest.mark.parametrize(
+        ("kind", "status", "label", "tone", "jobs"),
+        [
+            (EventKind.CI_FAILED, "failing", "Failing", "fail", ["build"]),
+            (EventKind.CI_PASSED, "passing", "Passing", "clear", []),
+            (EventKind.CI_STOPPED, "stopped", "Needs a person", "found", []),
+        ],
+    )
+    def test_the_latest_ci_result_is_the_status(self, policy, kind, status, label, tone, jobs):
+        session = _session()
+        _owned(session, attempts=1)
+        _ci_event(session, kind, wake=False)
+
+        assert ci_payload(session) == [
+            {
+                "repo_id": session.repo_id,
+                "merge_request_iid": 7,
+                "status": status,
+                "label": label,
+                "tone": tone,
+                "failed_jobs": jobs,
+                "attempts": 1,
+                "max_attempts": 3,
+                "watch_enabled": True,
+                "explanation_run_id": None,
+            }
+        ]
+
+    def test_a_give_up_says_it_stopped_after_its_attempts_and_names_the_failing_jobs(self, policy):
+        session = _session()
+        _owned(session, attempts=3)
+        _ci_event(
+            session,
+            EventKind.CI_FAILED,
+            wake=False,
+            reason="budget_spent",
+            payload=ci_event_payload(jobs=["tests", "lint"]),
+        )
+
+        [item] = ci_payload(session)
+        assert (item["status"], item["label"], item["tone"]) == ("failing", "Stopped after 3 attempts", "fail")
+        assert item["failed_jobs"] == ["tests", "lint"]
+
+    @pytest.mark.parametrize(("attempts", "label"), [(3, "Stopped after 3 attempts"), (1, "Stopped after 1 attempt")])
+    def test_a_give_up_counts_the_attempts_it_recorded_once_the_watch_gives_them_back(self, policy, attempts, label):
+        session = _session()
+        _owned(session, attempts=0)
+        payload = ci_event_payload() | {"attempts": attempts}
+        _ci_event(session, EventKind.CI_FAILED, wake=False, reason="budget_spent", payload=payload)
+
+        assert ci_payload(session)[0]["label"] == label
+
+    def test_a_failure_the_agent_already_examined_is_not_a_give_up(self, policy):
+        session = _session()
+        _owned(session, attempts=1)
+        _ci_event(session, EventKind.CI_FAILED, wake=False, reason="already_examined")
+
+        assert ci_payload(session)[0]["label"] == "Failing"
+
+    def test_an_unreadable_repository_configuration_still_shows_the_ci(self, policy, caplog):
+        session = _session()
+        _owned(session)
+
+        with patch("sessions.header.RepositoryConfig.get_config", side_effect=OSError("platform down")):
+            [item] = ci_payload(session)
+
+        assert item["merge_request_iid"] == 7
+        assert "Failed to read the repository configuration" in caplog.text
+
+    def test_no_result_yet_is_running(self, policy):
+        session = _session()
+        _owned(session)
+
+        assert ci_payload(session)[0]["status"] == "running"
+
+    def test_a_publish_since_the_last_result_is_running(self, policy):
+        session = _session()
+        ownership = _owned(session)
+        _ci_event(session, EventKind.CI_FAILED, wake=False)
+        ownership.save()
+
+        assert ci_payload(session)[0]["status"] == "running"
+
+    def test_a_run_looking_at_a_failure_is_running(self, policy):
+        session = _session()
+        _owned(session)
+        _ci_event(session, EventKind.CI_FAILED, run=_run(session, status=RunStatus.RUNNING))
+
+        assert ci_payload(session)[0]["status"] == "running"
+
+    def test_a_failure_links_the_last_run_that_looked_at_one(self, policy):
+        session = _session()
+        _owned(session, attempts=3)
+        _ci_event(session, EventKind.CI_FAILED, run=_run(session))
+        latest = _run(session)
+        _ci_event(session, EventKind.CI_FAILED, run=latest)
+        _ci_event(session, EventKind.CI_FAILED, wake=False)
+
+        [item] = ci_payload(session)
+        assert (item["status"], item["explanation_run_id"]) == ("failing", str(latest.pk))
+
+    def test_the_watch_is_on_only_when_the_merge_request_and_the_repository_allow_it(self, policy):
+        session = _session()
+        _owned(session, watch_enabled=False)
+        assert ci_payload(session)[0]["watch_enabled"] is False
+
+        MergeRequestOwnership.objects.update(watch_enabled=True)
+        policy.enabled = False
+        assert ci_payload(session)[0]["watch_enabled"] is False
+
+    def test_every_open_merge_request_is_listed_newest_claim_first(self, policy):
+        session = _session()
+        _owned(session, 7)
+        _owned(session, 8).save()
+        _owned(session, 9, closed_at=timezone.now())
+
+        assert [item["merge_request_iid"] for item in ci_payload(session)] == [8, 7]
+
+
+@pytest.mark.django_db
+class TestCiSubjects:
+    """A GitLab merge request has one CI subject; on GitHub each workflow is one. The status is that of the latest
+    result of every subject on the newest result's commit."""
+
+    @staticmethod
+    def _result(session: Session, kind: str, subject: str, *, sha: str = "head", **fields):
+        status = {EventKind.CI_PASSED: "success", EventKind.CI_STOPPED: "manual"}.get(kind, "failed")
+        payload = ci_event_payload(sha=sha, status=status, jobs=["lint"] if kind == EventKind.CI_FAILED else ())
+        return _ci_event(session, kind, subject=subject, payload=payload, wake=False, **fields)
+
+    def test_a_later_gitlab_pipeline_decides_the_status(self, policy):
+        session = _session()
+        _owned(session)
+        self._result(session, EventKind.CI_FAILED, "ci:7")
+        self._result(session, EventKind.CI_PASSED, "ci:7")
+
+        assert ci_payload(session)[0]["status"] == "passing"
+
+    @pytest.mark.parametrize(
+        ("other", "status"),
+        [(EventKind.CI_FAILED, "failing"), (EventKind.CI_STOPPED, "stopped"), (EventKind.CI_PASSED, "passing")],
+    )
+    def test_one_github_workflows_pass_does_not_hide_anothers_result(self, policy, other, status):
+        session = _session()
+        _owned(session)
+        self._result(session, other, "ci:7:11")
+        self._result(session, EventKind.CI_PASSED, "ci:7:12")
+
+        assert ci_payload(session)[0]["status"] == status
+
+    def test_a_failing_workflow_names_its_own_jobs_once(self, policy):
+        session = _session()
+        _owned(session)
+        self._result(session, EventKind.CI_FAILED, "ci:7:11")
+        self._result(session, EventKind.CI_FAILED, "ci:7:12")
+        self._result(session, EventKind.CI_PASSED, "ci:7:13")
+
+        assert ci_payload(session)[0]["failed_jobs"] == ["lint"]
+
+    def test_a_workflow_that_did_not_run_on_the_latest_commit_does_not_count(self, policy):
+        session = _session()
+        _owned(session)
+        self._result(session, EventKind.CI_FAILED, "ci:7:11", sha="older")
+        self._result(session, EventKind.CI_PASSED, "ci:7:12", sha="head")
+
+        assert ci_payload(session)[0]["status"] == "passing"
+
+    def test_a_merge_request_in_another_repository_is_reported_apart_from_the_one_sharing_its_iid(self, policy):
+        session = _session()
+        _owned(session)
+        _owned(session, repo_id="group/lib", source_branch="daiv/lib")
+        _ci_event(session, EventKind.CI_FAILED, wake=False)
+        _ci_event(
+            session, EventKind.CI_PASSED, wake=False, repo_id="group/lib", payload=ci_event_payload(status="success")
+        )
+
+        statuses = {item["repo_id"]: item["status"] for item in ci_payload(session)}
+
+        assert statuses == {session.repo_id: "failing", "group/lib": "passing"}
+
+
+def test_watch_payload_is_the_first_merge_requests_ci_in_the_old_shape():
+    ci = [
+        {"merge_request_iid": 8, "status": "failing", "label": "Failing", "tone": "fail", "watch_enabled": True},
+        {"merge_request_iid": 7, "status": "passing", "label": "Passing", "tone": "clear", "watch_enabled": False},
+    ]
+
+    assert watch_payload(ci) == {"state": "failing", "label": "Failing", "tone": "fail", "open": True}
+    assert watch_payload([]) is None
+
+
+@pytest.mark.django_db
+def test_build_session_header_gathers_the_pages_context(policy):
+    session = _session()
+    _owned(session)
+    _ci_event(session, EventKind.CI_PASSED, wake=False)
     runs = [_run(session), _run(session)]
 
-    header = build_session_header(session, runs, retry="")
+    header = _header(session, runs, user=_viewer())
 
     assert header["latest_run"]["label"] == "Done"
+    assert [item["status"] for item in header["ci"]] == ["passing"]
     assert header["watch"]["tone"] == "clear"
     assert header["issue"] is None
     assert header["run_count"] == 2
 
 
 @pytest.mark.django_db
-def test_merge_request_iid_prefers_the_checkpoints_then_the_sessions_then_the_newest_runs():
-    from sessions.header import merge_request_iid
-
+def test_latest_marker_id_names_the_red_publish_entry_of_a_failed_publish_run():
     session = _session()
-    runs = [_run(session, merge_request_iid=3), _run(session, merge_request_iid=4), _run(session)]
+    run = _run(session, status=RunStatus.FAILED, publish_status="failed", publish_error="mr_failed", message_id="h1")
+    turns = [{"id": "h1", "role": "user", "segments": []}, {"id": "a1", "role": "assistant", "segments": []}]
 
-    assert merge_request_iid(session, runs, {"id": 9}) == 9
-    assert merge_request_iid(session, runs, None) == 4
-    session.merge_request_iid = 5
-    assert merge_request_iid(session, runs, None) == 5
-    assert merge_request_iid(_session(), [], None) is None
+    annotated = annotate_transcript(turns, [run])
+    payload = latest_run_payload([run], "again")
+
+    assert annotated[-1]["publish"][0]["id"] == payload["marker_id"]
 
 
 @pytest.mark.django_db
-def test_the_watch_is_read_off_the_merge_requests_thread():
-    """A chat session that published the merge request shows the watch the MR's own thread holds."""
-    from sessions.header import watch_state
+def test_header_counts_delegated_jobs_across_batches_and_lists_newest_batch_first():
+    admin = _viewer()
+    coordinator = make_coordinator(admin)
+    first, second = uuid.uuid4(), uuid.uuid4()
+    make_leg(coordinator, first, status=RunStatus.RUNNING, prompt="Bump auth\nsecond line", finished_at=None)
+    make_leg(coordinator, first, status=RunStatus.FAILED)
+    make_leg(coordinator, second, status=RunStatus.WAITING_INPUT, prompt="x" * 300, repo_id="acme/ops")
+    make_leg(coordinator, second, status=RunStatus.SUCCESSFUL)
+    make_leg(coordinator, second, status=RunStatus.QUEUED, finished_at=None)
 
-    session = _session(watch_state=WatchState.OFF)
-    mr_thread = _session(
-        thread_id=watch_thread_id("group/project", 7), merge_request_iid=7, watch_state=WatchState.FIXING
-    )
+    payload = _delegations(coordinator, admin)
 
-    assert watch_state(session, 7) == WatchState.FIXING
-    assert watch_state(session, 8) is None
-    assert watch_state(session, None) == WatchState.OFF
-    assert watch_state(mr_thread, 7) == WatchState.FIXING
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_awatch_state_reads_the_merge_requests_thread_but_not_the_session_itself():
-    from asgiref.sync import sync_to_async
-    from sessions.header import awatch_state
-
-    session = await sync_to_async(_session)(watch_state=WatchState.OFF)
-    mr_thread = await sync_to_async(_session)(
-        thread_id=watch_thread_id("group/project", 7), merge_request_iid=7, watch_state=WatchState.WATCHING
-    )
-    await Session.objects.filter(pk=mr_thread.pk).aupdate(watch_state=WatchState.FIXING)
-
-    assert await awatch_state(session, 7) == WatchState.FIXING
-    assert await awatch_state(mr_thread, 7) == WatchState.WATCHING
+    assert payload["total"] == 5
+    assert [b["goal"] for b in payload["batches"]] == ["x" * 120, "Bump auth"]
+    assert [leg["state"] for leg in payload["batches"][0]["legs"]] == ["waiting_input", "finished", "queued"]
+    assert [leg["state"] for leg in payload["batches"][1]["legs"]] == ["running", "failed"]
+    assert payload["batches"][1]["created_at"]
 
 
 @pytest.mark.django_db
-def test_build_session_header_reads_the_watch_of_the_checkpoints_merge_request():
-    session = _session()
-    _session(thread_id=watch_thread_id("group/project", 7), merge_request_iid=7, watch_state=WatchState.GREEN)
+def test_header_orders_batches_by_the_time_it_shows_for_them():
+    admin = _viewer()
+    coordinator = make_coordinator(admin)
+    older, newer = uuid.uuid4(), uuid.uuid4()
+    make_leg(coordinator, older, status=RunStatus.RUNNING, finished_at=None)
+    make_leg(coordinator, newer, status=RunStatus.RUNNING, finished_at=None)
+    late = make_leg(coordinator, older, status=RunStatus.RUNNING, finished_at=None)
+    Run.objects.filter(pk=late.pk).update(created_at=timezone.now() + timedelta(minutes=1))
 
-    header = build_session_header(session, [], retry="", merge_request={"id": 7})
+    batches = _delegations(coordinator, admin)["batches"]
 
-    assert header["watch"]["state"] == WatchState.GREEN
+    assert [len(batch["legs"]) for batch in batches] == [1, 2]
+    assert batches[0]["created_at"] > batches[1]["created_at"]
+
+
+@pytest.mark.django_db
+def test_a_batch_goal_is_the_one_its_delegate_call_gave_else_its_first_legs_prompt():
+    admin = _viewer()
+    coordinator = make_coordinator(admin)
+    called, uncalled = uuid.uuid4(), uuid.uuid4()
+    make_leg(coordinator, called, status=RunStatus.RUNNING, prompt="Bump auth in acme/api", finished_at=None)
+    make_leg(coordinator, uncalled, status=RunStatus.RUNNING, prompt="Fix lint\nin acme/web", finished_at=None)
+
+    payload = _delegations(coordinator, admin, delegate_turns(called, goal="  Bump auth everywhere  "))
+
+    assert [batch["goal"] for batch in payload["batches"]] == ["Fix lint", "Bump auth everywhere"]
+
+
+@pytest.mark.django_db
+def test_a_batch_goal_never_comes_from_a_leg_the_viewer_cannot_see():
+    owner, stranger = _viewer(Role.MEMBER, "owner"), _viewer(Role.MEMBER, "stranger")
+    coordinator = make_coordinator(owner)
+    batch = uuid.uuid4()
+    for repo_id, prompt in (("acme/secret", "Secret plan"), ("acme/open", "Open work")):
+        make_leg(coordinator, batch, status=RunStatus.RUNNING, repo_id=repo_id, prompt=prompt, finished_at=None)
+    grant_read_access(stranger, "acme/open")
+
+    assert _delegations(coordinator, owner)["batches"][0]["goal"] == "Secret plan"
+    assert _delegations(coordinator, stranger)["batches"][0]["goal"] == "Open work"
+    assert _delegations(coordinator, _viewer(Role.MEMBER, "nobody"))["batches"][0]["goal"] == ""
+
+
+@pytest.mark.django_db
+def test_header_lists_a_leg_the_viewer_cannot_see_without_a_link():
+    owner = _viewer(Role.MEMBER, "owner")
+    coordinator = make_coordinator(owner)
+    make_leg(
+        coordinator,
+        uuid.uuid4(),
+        status=RunStatus.RUNNING,
+        repo_id="acme/secret",
+        ref="release",
+        session_ref="daiv/other",
+        finished_at=None,
+    )
+
+    [leg] = _delegations(coordinator, _viewer(Role.MEMBER, "stranger"))["batches"][0]["legs"]
+
+    assert (leg["repo_id"], leg["ref"], leg["state"], leg["session_url"]) == ("acme/secret", "release", "running", "")
+
+
+@pytest.mark.django_db
+def test_header_without_delegations_is_none():
+    assert _header(_session(), [], user=_viewer())["delegations"] is None
+
+
+@pytest.mark.django_db
+def test_header_carries_delegations_and_parent():
+    admin = _viewer()
+    coordinator = make_coordinator(admin, title="Parent work")
+    leg = make_leg(coordinator, uuid.uuid4(), status=RunStatus.RUNNING, finished_at=None)
+
+    assert _header(coordinator, [], user=admin)["delegations"]["total"] == 1
+    assert _header(leg.session, [], user=admin)["parent"]["title"] == "Parent work"
+
+
+@pytest.mark.django_db
+def test_a_delegated_session_reads_no_delegations(django_assert_num_queries):
+    admin = _viewer()
+    child = make_leg(make_coordinator(admin), uuid.uuid4(), status=RunStatus.RUNNING, finished_at=None).session
+
+    with django_assert_num_queries(0):
+        assert delegations_for([], child, admin) is None
+
+
+@pytest.mark.django_db
+def test_child_session_links_its_parent_only_when_visible():
+    owner = _viewer(Role.MEMBER, "owner")
+    coordinator = make_coordinator(owner, title="Parent work")
+    child = make_leg(coordinator, uuid.uuid4(), status=RunStatus.RUNNING, finished_at=None).session
+
+    url = reverse("session_detail", kwargs={"thread_id": coordinator.thread_id})
+    assert parent_link(child, owner) == {"title": "Parent work", "url": url}
+    assert parent_link(child, _viewer(Role.MEMBER, "stranger")) is None
+    assert parent_link(coordinator, owner) is None
+
+
+@pytest.mark.django_db
+def test_a_render_reads_the_delegated_legs_once_for_the_transcript_and_the_header(django_assert_num_queries):
+    owner = _viewer(Role.MEMBER, "owner")
+    coordinator = make_coordinator(owner)
+    first, second = uuid.uuid4(), uuid.uuid4()
+    for batch in (first, first, second):
+        make_leg(coordinator, batch, status=RunStatus.RUNNING, finished_at=None)
+    turns = delegate_turns(first, second)
+    # Once per process, not per render: the URLconf's first load and the repository-access sync probe.
+    reverse("session_detail", kwargs={"thread_id": coordinator.thread_id})
+    Session.objects.visible_to(owner).exists()
+
+    with django_assert_num_queries(3):
+        payload = delegations_for(turns, coordinator, owner)
+
+    assert [len(segment["legs"]) for segment in turns[0]["segments"]] == [2, 1]
+    assert payload["total"] == 3
+
+
+@pytest.mark.django_db
+def test_a_leg_that_served_two_batches_is_listed_under_both_and_counted_once():
+    owner = _viewer(Role.MEMBER, "owner")
+    coordinator = make_coordinator(owner)
+    leg = make_leg(coordinator, uuid.uuid4(), status=RunStatus.SUCCESSFUL, session_ref="daiv/leg")
+    make_leg(coordinator, leg.batch_id, status=RunStatus.SUCCESSFUL)
+    post_leg_follow_up(leg.session, owner)
+
+    payload = delegations_for([], coordinator, owner)
+
+    assert [len(batch["legs"]) for batch in payload["batches"]] == [1, 2]
+    assert payload["total"] == 2
+
+
+@pytest.mark.django_db
+def test_references_name_their_provider_host_and_whether_they_close():
+    session = _session(
+        external_refs=[
+            {
+                "key": "PROJ-12",
+                "url": "https://jira.example.com/browse/PROJ-12",
+                "provider": "jira",
+                "relation": "closes",
+            },
+            {"key": "42", "provider": "gitlab-issue", "relation": "closes"},
+            {"key": "org/repo#7", "provider": "github-issue"},
+            {"key": "DAIV-1V", "url": "https://sentry.io/issues/1/", "provider": "sentry"},
+            {"key": "RT-7", "provider": "rt"},
+            {"key": "PROJ-9", "relation": "closes"},
+            {"key": "OPS-3", "url": "https://tracker.example.com/OPS-3"},
+        ]
+    )
+
+    cards = references_payload(session)
+
+    assert [(card["key"], card["source"], card["closing"]) for card in cards] == [
+        ("PROJ-12", "Jira · jira.example.com", "· closes"),
+        ("#42", "GitLab issue", "· closes"),
+        ("org/repo#7", "GitHub issue", ""),
+        ("DAIV-1V", "Sentry · sentry.io", ""),
+        ("RT-7", "rt", ""),
+        ("PROJ-9", "", "closes"),
+        ("OPS-3", "tracker.example.com", ""),
+    ]
+    assert [card["icon"] for card in cards] == ["jira", "gitlab", "github", "sentry", "link", "link", "link"]
+    assert {card["icon"] for card in cards} <= TRANSCRIPT_ICONS
+    assert cards[0]["url"] == "https://jira.example.com/browse/PROJ-12"

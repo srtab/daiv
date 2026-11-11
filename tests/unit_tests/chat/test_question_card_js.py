@@ -54,6 +54,7 @@ const seg = chat.turns[1].segments[0];
 const out = {};
 for (const step of script) {
   if (step.op === "toggle") chat.toggleQuestionOption(seg, step.qi, step.label);
+  if (step.op === "unpick") chat.unpickQuestionOption(seg, step.qi, step.label);
   if (step.op === "type") chat.setQuestionText(seg, step.qi, step.value);
   if (step.op === "streaming") chat.streaming = step.value;
   if (step.op === "archived") chat.archived = step.value;
@@ -69,6 +70,8 @@ for (const step of script) {
     highlighted: chat.questionsOf(seg).map((q, qi) =>
       (q.options || []).filter((o) => chat.isOptionSelected(seg, qi, o.label, 1)).map((o) => o.label)),
     draft: chat.draftMessage,
+    answered: chat.isQuestionAnswered({ seg, turnIndex: 1 }),
+    summary: chat.answeredSummary(seg, 1),
     canSend: chat.canSend("follow-up"),
   };
 }
@@ -110,7 +113,7 @@ def test_the_card_closes_while_a_run_is_in_flight_or_once_the_user_replied():
 def test_archiving_closes_the_card_and_the_composer():
     out = _drive([{"op": "read", "key": "before"}, {"op": "archived", "value": True}, {"op": "read", "key": "after"}])
     assert (out["before"]["open"], out["before"]["canSend"]) == (True, True)
-    assert (out["after"]["open"], out["after"]["canSend"]) == (False, False)
+    assert (out["after"]["open"], out["after"]["canSend"], out["after"]["answered"]) == (False, False, False)
 
 
 def test_answer_composes_one_line_per_question():
@@ -123,6 +126,20 @@ def test_answer_composes_one_line_per_question():
     ])
     assert out["s"]["highlighted"] == [["SQLite"], ["API", "UI"]]
     assert out["s"]["answer"] == "**Database** — SQLite\n**Targets** — API, UI"
+
+
+def test_clicking_the_picked_option_of_a_single_choice_question_clears_it():
+    out = _drive([
+        {"op": "toggle", "qi": 0, "label": "SQLite"},
+        {"op": "unpick", "qi": 0, "label": "PostgreSQL"},
+        {"op": "read", "key": "kept"},
+        {"op": "unpick", "qi": 0, "label": "SQLite"},
+        {"op": "toggle", "qi": 1, "label": "API"},
+        {"op": "unpick", "qi": 1, "label": "API"},
+        {"op": "read", "key": "cleared"},
+    ])
+    assert out["kept"]["highlighted"] == [["SQLite"], []]
+    assert out["cleared"]["highlighted"] == [[], ["API"]]
 
 
 def test_typed_text_wins_over_a_selection():
@@ -195,6 +212,19 @@ def test_an_answered_card_highlights_nothing_when_the_reply_was_typed_in_the_com
         [{"op": "toggle", "qi": 0, "label": "SQLite"}, {"op": "read", "key": "s"}], extra_turns=[_reply("use sqlite")]
     )
     assert out["s"]["highlighted"] == [[], []]
+
+
+def test_answered_question_summarises_the_choices():
+    out = _drive([{"op": "read", "key": "s"}], extra_turns=[_reply("**Database** — PostgreSQL\n**Targets** — API, UI")])
+    assert out["s"]["answered"] is True
+    assert out["s"]["summary"] == "Database · PostgreSQL · Targets · API, UI"
+
+
+def test_an_open_or_refused_question_is_not_answered():
+    reply = _reply("**Database** — PostgreSQL\n**Targets** — API, UI")
+    assert _drive([{"op": "read", "key": "s"}])["s"]["answered"] is False
+    refused = _drive([{"op": "read", "key": "s"}], segment=_card(result="Error: bad args"), extra_turns=[reply])
+    assert refused["s"]["answered"] is False
 
 
 def test_the_js_knows_the_delivery_text_the_tool_returns():

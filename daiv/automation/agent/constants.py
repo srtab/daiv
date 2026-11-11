@@ -3,6 +3,7 @@
 # /workspace/skills, and the per-run scratchpad at /workspace/tmp.
 WORKSPACE_PATH = "/workspace"
 REPO_PATH = "/workspace/repo"
+EXTRA_REPOS_PATH = "/workspace/repos"
 # Per-run ephemeral scratchpad. In sandbox mode it is a real sandbox dir; in disk mode it is the
 # composite's default fall-through area (alongside offloaded artifacts).
 TMP_PATH = "/workspace/tmp"

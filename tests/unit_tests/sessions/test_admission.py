@@ -1,22 +1,28 @@
 from __future__ import annotations
 
+import uuid
 from unittest.mock import Mock, patch
 
 import pytest
+from mcp_connectors.models import MCPServer
 from sandbox_envs.models import SandboxEnvironment, Visibility
 from sessions.admission import (
+    InvalidMcpOverridesError,
     RejectedOverrideError,
     RepoAccessError,
     UnknownEnvironmentError,
     aadmit,
     aresolve_environment,
+    aresolve_mcp_overrides,
     assert_repo_access,
     check_agent_override,
 )
+from sessions.models import Session, SessionOrigin
 from sessions.services import RepoTarget
 
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied
 from core.site_settings import site_settings
+from tests.unit_tests.mcp_connectors.helpers import only_servers
 
 _DENIED = RepositoryAccessDenied(["a/b"])
 
@@ -130,3 +136,33 @@ async def test_aadmit_resolves_each_target_when_no_environment_is_named(member_u
     )
 
     assert [t.sandbox_environment_id for t in admission.targets] == [str(user_env.id), str(global_default.id)]
+
+
+@pytest.fixture
+def mcp_pool(db):
+    only_servers(("rt", MCPServer.Status.ACTIVE), ("grafana", MCPServer.Status.ON_DEMAND))
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_aresolve_mcp_overrides_resolves_against_the_callers_pool(member_user, mcp_pool):
+    assert await aresolve_mcp_overrides(member_user, {"grafana": True, "rt": True}) == {"grafana": "on"}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_aresolve_mcp_overrides_refuses_an_unknown_server(member_user, mcp_pool):
+    with pytest.raises(InvalidMcpOverridesError, match="grafna"):
+        await aresolve_mcp_overrides(member_user, {"grafna": True})
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_aresolve_mcp_overrides_applies_the_switches_on_top_of_the_threads(member_user, mcp_pool):
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.MCP_JOB, repo_id="a/b", mcp_overrides={"rt": "off"}
+    )
+    overrides = await aresolve_mcp_overrides(member_user, {"grafana": True}, session.thread_id)
+    assert overrides == {"rt": "off", "grafana": "on"}
+
+
+@pytest.mark.parametrize("switches", [None, {}])
+async def test_aresolve_mcp_overrides_skips_the_pool_when_nothing_is_switched(switches):
+    assert await aresolve_mcp_overrides(Mock(), switches) is None

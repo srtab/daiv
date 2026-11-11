@@ -7,14 +7,15 @@ from django.test import TestCase
 from django.utils import timezone
 
 import pytest
+from allauth.socialaccount.models import SocialAccount
 from asgiref.sync import sync_to_async
 from django_tasks_db.models import DBTaskResult
-from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin
+from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin, SessionRepository
 from sessions.signal_defs import run_ended, run_finished
 
 from core.constants import CANCELLED_BY_COORDINATOR_MESSAGE
 from schedules.models import ScheduledJob
-from tests.unit_tests.sessions.conftest import make_task_result
+from tests.unit_tests.sessions.conftest import grant_read_access, make_task_result
 
 
 def _create_run(*, status: str = RunStatus.RUNNING, trigger_type: str = SessionOrigin.PIPELINE_WEBHOOK) -> Run:
@@ -297,6 +298,58 @@ class TestAfinish:
 
 
 @pytest.mark.django_db
+class TestMultiRepoVisibility:
+    @staticmethod
+    def _user(django_user_model, name):
+        return django_user_model.objects.create_user(username=name, email=f"{name}@x.io", password="x")  # noqa: S106
+
+    @staticmethod
+    def _session(extra=(), **kwargs):
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="g/app", **kwargs
+        )
+        for position, repo_id in enumerate(extra, start=1):
+            SessionRepository.objects.create(session=session, position=position, repo_id=repo_id)
+        run = Run.objects.create(session=session, trigger_type=SessionOrigin.API_JOB, repo_id="g/app")
+        return session, run
+
+    def test_hidden_from_user_reading_only_the_main_repository(self, django_user_model):
+        user = self._user(django_user_model, "main-only")
+        session, run = self._session(extra=["g/mod"])
+        grant_read_access(user, "g/app")
+
+        assert not Session.objects.visible_to(user).filter(pk=session.pk).exists()
+        assert not Run.objects.visible_to(user).filter(pk=run.pk).exists()
+
+    def test_visible_to_user_reading_every_repository(self, django_user_model):
+        user = self._user(django_user_model, "all-repos")
+        session, run = self._session(extra=["g/mod", "g/lib"])
+        for repo_id in ("g/app", "g/mod", "g/lib"):
+            grant_read_access(user, repo_id)
+
+        assert Session.objects.visible_to(user).filter(pk=session.pk).exists()
+        assert Run.objects.visible_to(user).filter(pk=run.pk).exists()
+
+    def test_visible_to_owner_and_admin_without_repository_access(self, django_user_model, admin_user):
+        owner = self._user(django_user_model, "owner")
+        session, run = self._session(extra=["g/mod"], user=owner)
+        run.user = owner
+        run.save()
+
+        for user in (owner, admin_user):
+            assert Session.objects.visible_to(user).filter(pk=session.pk).exists()
+            assert Run.objects.visible_to(user).filter(pk=run.pk).exists()
+
+    def test_single_repository_session_still_visible_with_main_access(self, django_user_model):
+        user = self._user(django_user_model, "single")
+        session, run = self._session()
+        grant_read_access(user, "g/app")
+
+        assert Session.objects.visible_to(user).filter(pk=session.pk).exists()
+        assert Run.objects.visible_to(user).filter(pk=run.pk).exists()
+
+
+@pytest.mark.django_db
 class TestOwnedBy:
     def test_an_admin_gets_only_their_own_sessions(self, admin_user, other_user):
         mine = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, user=admin_user)
@@ -305,12 +358,14 @@ class TestOwnedBy:
         assert list(Session.objects.owned_by(admin_user)) == [mine]
 
     def test_a_run_actor_owns_the_shared_thread(self, other_user):
+        SocialAccount.objects.create(user=other_user, provider="gitlab", uid="77")
         session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.ISSUE_WEBHOOK)
         Run.objects.create(
             session=session,
             trigger_type=SessionOrigin.ISSUE_WEBHOOK,
             repo_id="acme/api",
-            external_username=other_user.username,
+            external_provider="gitlab",
+            external_uid="77",
         )
 
         assert list(Session.objects.owned_by(other_user)) == [session]
@@ -330,12 +385,15 @@ def _session(user, origin=SessionOrigin.UI_JOB, **fields) -> Session:
 
 @pytest.mark.django_db
 class TestStartedBy:
-    def test_matches_the_account_or_the_platform_username(self, member_user, other_user):
-        by_account = _run_at(_session(member_user), timezone.now())
-        by_username = _run_at(_session(None), timezone.now(), external_username=member_user.username)
+    def test_matches_the_user_or_their_linked_account_never_the_platform_username(self, member_user, other_user):
+        SocialAccount.objects.create(user=member_user, provider="gitlab", uid="77")
+        by_user = _run_at(_session(member_user), timezone.now())
+        by_linked_account = _run_at(_session(None), timezone.now(), external_provider="gitlab", external_uid="77")
+        _run_at(_session(None), timezone.now(), external_provider="github", external_uid="77")
+        _run_at(_session(None), timezone.now(), external_username=member_user.username)
         _run_at(_session(other_user), timezone.now())
 
-        assert set(Run.objects.started_by(member_user)) == {by_account, by_username}
+        assert set(Run.objects.started_by(member_user)) == {by_user, by_linked_account}
 
 
 @pytest.mark.django_db

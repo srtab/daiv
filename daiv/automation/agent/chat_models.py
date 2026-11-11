@@ -71,6 +71,7 @@ from typing import TYPE_CHECKING, Any
 from langchain_openai import ChatOpenAI
 
 from automation.agent.provider_clients import OPENROUTER_BASE_URL
+from automation.agent.usage_tracking import REPORTED_COST_KEY, usd_amount
 from core.models import ProviderType
 
 if TYPE_CHECKING:
@@ -85,6 +86,7 @@ logger = logging.getLogger("daiv.automation")
 # Stamped by ``langchain_openai._convert_chunk_to_generation_chunk`` inside its
 # ``if finish_reason := choice.get("finish_reason")`` block — see the module docstring.
 FINISH_STAMPED_KEYS = ("finish_reason", "model_name", "system_fingerprint", "service_tier")
+_FIRST_WINS_KEYS = (*FINISH_STAMPED_KEYS, REPORTED_COST_KEY)
 
 # ``parsed`` may hold arbitrary Pydantic models from structured output; dumping it
 # is both wasteful and failure-prone, and upstream excludes it for the same reason.
@@ -115,34 +117,36 @@ class ChatOpenRouter(ChatOpenAI):
         return self.model_name.startswith(ProviderType.ANTHROPIC.value)
 
     def _stream(self, *args: Any, **kwargs: Any) -> Iterator[ChatGenerationChunk]:
-        seen: dict[str, str] = {}
+        seen: dict[str, Any] = {}
         for chunk in super()._stream(*args, **kwargs):
             self._drop_restamped_keys(chunk, seen)
             yield chunk
 
     async def _astream(self, *args: Any, **kwargs: Any) -> AsyncIterator[ChatGenerationChunk]:
-        seen: dict[str, str] = {}
+        seen: dict[str, Any] = {}
         async for chunk in super()._astream(*args, **kwargs):
             self._drop_restamped_keys(chunk, seen)
             yield chunk
 
     @staticmethod
-    def _drop_restamped_keys(chunk: ChatGenerationChunk, seen: dict[str, str]) -> None:
-        """Drop the finish-stamped keys this stream already emitted, first occurrence winning.
+    def _drop_restamped_keys(chunk: ChatGenerationChunk, seen: dict[str, Any]) -> None:
+        """Drop the finish-stamped keys and reported cost this stream already emitted, first
+        occurrence winning.
 
         Mutates both arguments. ``seen`` belongs to the calling generator's frame, never to the
         model instance, which is shared across concurrent requests. Per key rather than
-        all-or-nothing, so a key only a later chunk carries is still a first occurrence.
+        all-or-nothing, so a key only a later chunk carries is still a first occurrence. The cost
+        is here because ``merge_dicts`` raises on two different floats under one key.
 
-        A repeat carrying a *different* value is a real mid-stream routing switch, not the
-        re-stamping this exists for: first-wins still applies (the alternative concatenation
-        resolves to no model at all) but it is logged, since otherwise nothing records that a
-        second model ran. ``finish_reason`` is exempt — ``tool_calls`` then ``stop`` is
+        A repeat carrying a *different* value is not the re-stamping this exists for (for
+        ``model_name``, a real mid-stream routing switch): first-wins still applies (the
+        alternative concatenation resolves to no model at all) but it is logged, since otherwise
+        nothing records it. ``finish_reason`` is exempt — ``tool_calls`` then ``stop`` is
         legitimate, and nothing in DAIV reads it.
         """
         if not (info := chunk.generation_info):
             return
-        for key in FINISH_STAMPED_KEYS:
+        for key in _FIRST_WINS_KEYS:
             if key not in info:
                 continue
             if key not in seen:
@@ -159,6 +163,9 @@ class ChatOpenRouter(ChatOpenAI):
         if generation_chunk is None:
             return None
         self._store_reasoning(self._delta(chunk), generation_chunk.message.additional_kwargs)
+        if (cost := self._reported_cost(chunk.get("usage"))) is not None:
+            # In ``generation_info`` rather than on the message, so ``_drop_restamped_keys`` sees a repeat.
+            generation_chunk.generation_info = {**(generation_chunk.generation_info or {}), REPORTED_COST_KEY: cost}
         return generation_chunk
 
     def _create_chat_result(self, response: dict | openai.BaseModel, generation_info: dict | None = None) -> ChatResult:
@@ -167,8 +174,11 @@ class ChatOpenRouter(ChatOpenAI):
             raw = response
         else:
             raw = response.model_dump(exclude=_RESPONSE_DUMP_EXCLUDE, warnings=False)
+        cost = self._reported_cost(raw.get("usage"))
         for choice, generation in zip(raw.get("choices") or [], result.generations, strict=True):
             self._store_reasoning((choice or {}).get("message") or {}, generation.message.additional_kwargs)
+            if cost is not None:
+                generation.message.response_metadata[REPORTED_COST_KEY] = cost
         return result
 
     def _get_request_payload(self, input_: LanguageModelInput, *, stop: list[str] | None = None, **kwargs: Any) -> dict:
@@ -212,6 +222,23 @@ class ChatOpenRouter(ChatOpenAI):
             # deltas accumulate into the final message.
             additional_kwargs[DISPLAY_KEY] = reasoning
             additional_kwargs[FALLBACK_KEY] = reasoning
+
+    @staticmethod
+    def _reported_cost(usage: dict | None) -> float | None:
+        """The USD the call cost, from OpenRouter's ``usage``, or None when it reported none.
+
+        ``cost`` is what OpenRouter charged at the upstream provider it routed to, which is what
+        makes it the spend: a price looked up by model name is one provider's list rate. On a
+        BYOK call ``cost`` is only OpenRouter's fee, and the provider bills
+        ``cost_details.upstream_inference_cost`` to the operator's own key, so the two add up. A
+        BYOK call without that charge reports None, so the call falls back to the list-price estimate
+        rather than recording the fee alone.
+        """
+        usage = usage or {}
+        if (cost := usd_amount(usage.get("cost"))) is None or not usage.get("is_byok"):
+            return cost
+        upstream = usd_amount((usage.get("cost_details") or {}).get("upstream_inference_cost"))
+        return None if upstream is None else cost + upstream
 
     @staticmethod
     def _delta(chunk: dict) -> dict:

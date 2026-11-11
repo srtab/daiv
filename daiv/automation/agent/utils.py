@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import logging
 import re
 import uuid
@@ -12,6 +13,7 @@ from skills.constants import FRONTMATTER_RE
 
 from .constants import REPO_PATH
 from .events import ASSISTANT_MESSAGE_EVENT, assistant_message_payload
+from .questions import closing_replies_start
 
 logger = logging.getLogger("daiv.agent")
 
@@ -56,6 +58,12 @@ def extract_text_content(content: str | list) -> str:
     return str(content)
 
 
+def closing_reply_text(messages: Sequence[BaseMessage]) -> str:
+    """The text the last turn closes on: the agent's closing reply and any notice minted after it, in order."""
+    texts = (extract_text_content(m.content) for m in messages[closing_replies_start(messages) :])
+    return "\n\n".join(text for text in texts if text)
+
+
 FINAL_ASSISTANT_TEXT_MAX_CHARS = 6000
 
 # LoopBreakerMiddleware's terminal="error" reply, addressed to a parent agent rather than a human.
@@ -81,16 +89,18 @@ def final_assistant_text(messages: Sequence[BaseMessage]) -> str | None:
     return None
 
 
-_WORKSPACE_PATH_PREFIX = re.compile(rf"(?<![\w.~/-]){re.escape(REPO_PATH)}/(?=[\w-]|\.[\w./-])")
+@functools.cache
+def _workspace_path_prefix(repo_path: str) -> re.Pattern[str]:
+    return re.compile(rf"(?<![\w.~/-]){re.escape(repo_path)}/(?=[\w-]|\.[\w./-])")
 
 
-def repo_relative_text(text: str) -> str:
-    """``text`` with the workspace prefix removed from every repository path, for text DAIV posts to the platform.
+def repo_relative_text(text: str, *, repo_path: str = REPO_PATH) -> str:
+    """``text`` with the ``repo_path`` prefix removed from every repository path, for text DAIV posts to the platform.
 
     Only a prefix that starts a path is removed; one right after a word or path character, as in a URL's path or a
     longer path, is kept. The root itself, with or without a trailing slash, is kept since it has no repo-relative form.
     """
-    return _WORKSPACE_PATH_PREFIX.sub("", text)
+    return _workspace_path_prefix(repo_path).sub("", text)
 
 
 def build_langsmith_config(

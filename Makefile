@@ -1,10 +1,12 @@
 # Makefile
 
-.PHONY: help setup test test-ci lint lint-check lint-format lint-fix lint-imports lint-design lint-typing evals eval-prompts tailwind-build tailwind-watch
+.PHONY: help setup test test-ci lint lint-check lint-format lint-fix lint-imports lint-design lint-typing evals eval-prompts tailwind-build tailwind-watch up db-reset
 
 help:
 	@echo "Available commands:"
 	@echo "  make setup          - Set up local development environment"
+	@echo "  make up             - Start this checkout's stack (in a worktree: its own slot)"
+	@echo "  make db-reset       - Copy the main database into this worktree's slot again, then start it"
 	@echo "  make test           - Run tests with coverage report"
 	@echo "  make lint           - Run lint, format and import-layering checks"
 	@echo "  make lint-check     - Run lint check only (ruff)"
@@ -91,7 +93,7 @@ integration-tests:
 	uv run pytest --envfile +docker/local/app/config.secrets.env --reuse-db tests/integration_tests --no-cov --log-level=INFO -m "diff_to_metadata or memory"
 
 EVAL_MODEL ?= openrouter:z-ai/glm-5.2
-EVAL_SUITE_MODEL_VARS := ASK_USER SKILLS TODOS WEB_SEARCH SUBAGENTS CODE_REVIEW
+EVAL_SUITE_MODEL_VARS := ASK_USER SKILLS TODOS WEB_SEARCH SUBAGENTS CODE_REVIEW INBOX DELEGATION
 empty :=
 space := $(empty) $(empty)
 
@@ -149,6 +151,12 @@ swerebench-clean:
 
 docs-serve:
 	uv run --only-group=docs mkdocs serve -o -a localhost:4000 -w docs/
+
+up:
+	docker/local/stack up
+
+db-reset:
+	docker/local/stack db-reset
 
 tailwind-build:
 	docker compose exec app tailwindcss -i daiv/static_src/css/input.css -o daiv/static/css/styles.css --minify

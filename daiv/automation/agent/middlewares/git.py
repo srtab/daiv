@@ -8,19 +8,35 @@ from git import GitCommandError
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.types import PrivateStateAttr
+from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langsmith import get_current_run_tree
 
-from automation.agent.context import RuntimeCtx  # noqa: TC001
-from automation.agent.git_state import checkpointed_merge_request, effective_merge_request
-from automation.agent.publishers import GitChangePublisher, UnresolvedMergeConflictsError
+from automation.agent.context import RuntimeCtx, extra_repo_path
+from automation.agent.events import (
+    PUBLISH_RESULT_EVENT,
+    publish_result_payload,
+    published_outcome_payload,
+    repo_publish_payload,
+)
+from automation.agent.git_state import RepoPublish, checkpointed_merge_request, effective_merge_request
+from automation.agent.publish_errors import publish_error_kind
+from automation.agent.publishers import (
+    GitChangePublisher,
+    PublishOutcome,
+    UnresolvedMergeConflictsError,
+    aopen_branch_merge_request,
+    apublish_extra_repos,
+    publish_failure,
+)
+from automation.agent.sibling_links import RelatedMergeRequest, aensure_related_links
+from automation.agent.synthetic import PUBLISH_FAILURES_KIND, synthetic_ai_message
 from automation.agent.utils import final_assistant_text, streamed_assistant_message
 from automation.agent.workspace.git_runners import SandboxGitProtocolError
 from codebase.base import MergeRequest, Scope
-from codebase.clients.base import aget_open_merge_request
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Sequence
 
     from langgraph.runtime import Runtime
 
@@ -63,7 +79,21 @@ The user will interact with you through the issue comments that will be automati
 You're currently working on merge request #{{merge_request_iid}}.
 
 The user will interact with you through the merge request comments that will be automatically provided to you as messages. You should respond to the user's comments with the appropriate actions and tools.
-{{/merge_request_iid}}""",  # noqa: E501
+{{/merge_request_iid}}
+{{#has_other_repositories}}
+
+## Other repositories in this session
+
+The repository above is the main one, checked out at `/workspace/repo`. This session also has:
+{{#other_repositories}}
+- `{{repository}}` at `{{path}}` (current branch: `{{current_branch}}`, default branch: `{{default_branch}}`)
+{{/other_repositories}}
+
+- Each is its own git repository: run git in it with `git -C <path> …`.
+- Fix a problem in the repository whose code causes it; never work around one repository's bug in another.
+- When your turn ends, each repository's changes are committed, pushed and opened as their own merge request.
+- A repository's own agent instructions, if any, are in `<path>/.agents/AGENTS.md` or `<path>/AGENTS.md`: read them before changing that repository.
+{{/has_other_repositories}}""",  # noqa: E501
     "mustache",
 )
 
@@ -126,6 +156,50 @@ class GitState(AgentState):
     signal to flag/exclude the run instead of grading a poisoned patch. Public on the
     output schema like ``model_patch``; absent on normal runs and on clean starts.
     """
+
+    repo_publishes: Annotated[NotRequired[list[dict[str, Any]]], PrivateStateAttr]
+    """
+    This turn's publish of each of the session's extra repositories, as
+    :meth:`~automation.agent.publishers.RepoPublish.to_state` dicts in the context's order.
+    Set at turn end whenever the run has extra repositories; ``merge_request`` and
+    ``diff_stats`` stay the main repository's.
+    """
+
+    main_publish_error: Annotated[NotRequired[str | None], PrivateStateAttr]
+    """
+    Why the main repository's publish failed in a turn with extra repositories, which ends the
+    turn with a notice instead of raising so the extra repositories' publishes are kept. ``None``
+    otherwise; a run without extra repositories still raises.
+    """
+
+
+def _turn_publish_reset() -> dict[str, Any]:
+    """The turn's publish results before anything published; ``abefore_agent`` starts every agent-loop turn from it."""
+    return {"code_changes": False, "published": False, "repo_publishes": [], "main_publish_error": None}
+
+
+def _sibling_notices(ctx: RuntimeCtx, repo_publishes: list[RepoPublish]) -> tuple[list[str], str | None]:
+    """The turn-end notices of the extra repositories: one naming the conflicted files of each that stopped on merge
+    conflicts, and the list of the others whose publish failed (``None`` when none did)."""
+    conflicts: list[str] = []
+    failed: list[str] = []
+    for handle, publish in zip(ctx.extra_repos, repo_publishes, strict=True):
+        if publish.conflicted_paths:
+            conflicts.append(_conflicts_notice(publish.conflicted_paths, where=f" in `{handle.repository.slug}`"))
+        elif publish.error:
+            failed.append(f"- `{handle.repository.slug}`: {publish.error}")
+    failures = "\n".join(["I couldn't publish the changes in these repositories:", *failed]) if failed else None
+    return conflicts, failures
+
+
+def _conflicts_notice(paths: Sequence[str], *, where: str) -> str:
+    """The reply naming the files still holding conflict markers; ``where`` is a trailing place phrase or ``""``."""
+    there = " there" if where else ""
+    return (
+        f"I didn't publish the merge{where}: {', '.join(f'`{path}`' for path in paths)} still "
+        f"{'has' if len(paths) == 1 else 'have'} conflict markers, so nothing was committed or "
+        f"pushed{there}. Ask me to finish resolving them."
+    )
 
 
 class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
@@ -217,19 +291,20 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             # In this case, ignore the branch name and merge request ID from the state,
             # and use the source branch and merge request ID from the merge request.
             merge_request = runtime.context.merge_request
-        elif merge_request is None and not self.fork_branch:
+        elif not self.fork_branch and (
+            merge_request is None or merge_request.source_branch != runtime.context.repo.current_ref
+        ):
             # Surface any pre-existing open MR on the current branch so the chat composer pill
             # reflects reality from the very first turn. A *first* issue-scope turn starts on the
             # default branch, where this lookup short-circuits; a follow-up turn starts on the
             # branch the previous turn published to (``Session.ref``, resolved in
             # ``address_issue_task``), so a cleared checkpoint re-discovers that MR here.
-            merge_request = await self._alookup_open_mr(runtime.context)
+            merge_request = await self._alookup_open_mr(runtime.context) or merge_request
 
         update: dict[str, Any] = {
             "merge_request": merge_request,
-            "code_changes": False,
-            "published": False,
             "protected_branch_fallback_source": None,
+            **_turn_publish_reset(),
         }
         if pre_run_dirty_files:
             update["pre_run_dirty_files"] = pre_run_dirty_files
@@ -266,19 +341,8 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
 
     @staticmethod
     async def _alookup_open_mr(context: RuntimeCtx) -> MergeRequest | None:
-        """Best-effort lookup of an open MR whose source branch matches the current ref.
-
-        Short-circuits on detached HEAD: commit-pinned runs (SWE-bench evals check out a
-        raw SHA) have no branch, so no MR can exist and querying the platform with a SHA
-        would be meaningless.
-        """
-        if context.repo.head_detached:
-            logger.debug("Skipping MR lookup for %s: detached HEAD (commit-pinned run)", context.repository.slug)
-            return None
-        current_branch = context.repo.current_ref
-        if not current_branch or current_branch == context.config.default_branch:
-            return None
-        return await aget_open_merge_request(context.repo.client, context.repository.slug, current_branch)
+        """Best-effort lookup of an open MR whose source branch is the main repository's current ref."""
+        return await aopen_branch_merge_request(context.repo)
 
     def _effective_mr(self, state: GitState, context: RuntimeCtx, *, current_ref: str) -> MergeRequest | None:
         """Resolve the run's MR from the one decision, with the context this middleware holds.
@@ -335,6 +399,17 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             cast("GitState", request.state), request.runtime.context, current_ref=current_ref
         )
 
+        runtime_ctx = request.runtime.context
+        other_repositories = [
+            {
+                "repository": handle.repository.slug,
+                "path": extra_repo_path(handle),
+                "current_branch": handle.current_ref,
+                "default_branch": handle.config.default_branch,
+            }
+            for handle in runtime_ctx.extra_repos
+        ]
+
         context = {
             "git_platform": request.runtime.context.git_platform.value,
             "repository": request.runtime.context.repository.slug,
@@ -342,6 +417,8 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             "default_branch": request.runtime.context.config.default_branch,
             "issue_iid": request.runtime.context.issue.iid if request.runtime.context.issue else None,
             "merge_request_iid": effective_mr.merge_request_id if effective_mr is not None else None,
+            "has_other_repositories": bool(other_repositories),
+            "other_repositories": other_repositories,
         }
 
         system_prompt = ""
@@ -358,6 +435,32 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         if runtime.context.scope == Scope.ISSUE and (rt := get_current_run_tree()):
             rt.metadata["merge_request_id"] = merge_request.merge_request_id
 
+    @staticmethod
+    async def _alink_related(
+        ctx: RuntimeCtx, main_merge_request: MergeRequest | None, repo_publishes: list[RepoPublish]
+    ) -> None:
+        """Link the session's merge requests to each other, the main one first; a no-op below two of them."""
+        if not ctx.extra_repos:
+            return
+        entries = (
+            [RelatedMergeRequest(ctx.repo.client, ctx.repository.slug, main_merge_request)]
+            if main_merge_request
+            else []
+        )
+        entries += [
+            RelatedMergeRequest(handle.client, handle.repository.slug, publish.merge_request)
+            for handle, publish in zip(ctx.extra_repos, repo_publishes, strict=True)
+            if publish.merge_request is not None
+        ]
+        await aensure_related_links(entries)
+
+    @staticmethod
+    async def _emit_publish_result(payload: dict[str, Any]) -> None:
+        try:
+            await adispatch_custom_event(PUBLISH_RESULT_EVENT, payload)
+        except Exception:
+            logger.warning("Could not dispatch the publish result; the run will not show it", exc_info=True)
+
     async def aafter_agent(self, state: GitState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """
         After the agent finishes, optionally capture the run's patch, then publish any new changes.
@@ -372,19 +475,29 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         and the private ``code_changes`` / ``protected_branch_fallback_source`` flags. A merge the agent left with
         conflict markers is not published: the turn ends with a reply naming the files instead of failing.
 
+        The session's extra repositories publish after the main one, each to its own merge request (see
+        :func:`~automation.agent.publishers.apublish_extra_repos`), and land in ``repo_publishes`` on every return. With
+        extra repositories, a failed main publish is recorded in ``main_publish_error`` and ends the turn with a notice
+        rather than raising, which would skip the extra repositories' publishes. Each repository dispatches its own
+        ``PUBLISH_RESULT_EVENT``, main first, once every repository has published: the chat ends its publish phase on
+        the first one. The list of failed extra repositories is a synthetic message the chat
+        hides (it stays in the run's messages); an extra repository's merge conflicts get a visible notice naming
+        the files.
+
         Short-circuited runs (a builtin slash command jumps from ``SlashCommandMiddleware.abefore_agent``
         straight to the after_agent chain) never ran the agent loop, so nothing was captured or changed. Unless
         the command reads the repository, the run executor acquires no sandbox session for it either: its
         workspace is then not ready, and probing git through it would raise (``SandboxFileBackend is not
         bound to a sandbox session``), so this no-ops. A disk workspace is always ready and correctly
-        reports a clean tree.
+        reports a clean tree. The short-circuit also skipped ``abefore_agent``, so this clears the turn's publish
+        results itself: the executor would otherwise report, persist and re-arm the previous turn's.
         """
         if not self._workspace.is_ready:
             logger.debug(
                 "Workspace not ready at turn end (run short-circuited before the agent loop); "
                 "skipping patch capture and publish"
             )
-            return None
+            return _turn_publish_reset()
 
         update: dict[str, Any] = {}
         if self.capture_patch:
@@ -410,21 +523,73 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             logger.exception("Could not read the run's closing summary; publishing without it")
             agent_summary = None
 
-        publisher = GitChangePublisher(
-            runtime.context, self._workspace, settings=self._settings, session_links=self._session_links
-        )
+        ctx = runtime.context
+        multi_repo = bool(ctx.extra_repos)
+        if multi_repo:
+            update["main_publish_error"] = None
+
+        publisher = GitChangePublisher(ctx, self._workspace, settings=self._settings, session_links=self._session_links)
+        outcome: PublishOutcome | None = None
+        notice: str | None = None
+        main_payload: dict[str, Any] | None = None
         try:
             outcome = await publisher.publish(
-                merge_request=self._publish_target(state, runtime), skip_ci=self.skip_ci, agent_summary=agent_summary
+                merge_request=self._publish_target(state, runtime),
+                skip_ci=self.skip_ci,
+                agent_summary=None if multi_repo else agent_summary,
             )
         except UnresolvedMergeConflictsError as exc:
             logger.warning("Not publishing: %s", exc)
-            notice = (
-                f"I didn't publish the merge: {', '.join(f'`{path}`' for path in exc.paths)} still "
-                f"{'has' if len(exc.paths) == 1 else 'have'} conflict markers, so nothing was committed or pushed. "
-                "Ask me to finish resolving them."
+            if multi_repo:
+                update["main_publish_error"] = str(exc)
+            where = f" in the main repository `{ctx.repository.slug}`" if multi_repo else ""
+            notice = _conflicts_notice(exc.paths, where=where)
+            main_payload = publish_result_payload(
+                status="not_published", error_kind="conflicts", repository=ctx.repo.repo_id
             )
-            return {**update, "messages": [await streamed_assistant_message(notice)]}
+        except Exception as exc:
+            main_payload = publish_result_payload(
+                status="failed", error_kind=publish_error_kind(exc), repository=ctx.repo.repo_id
+            )
+            if not multi_repo:
+                await self._emit_publish_result(main_payload)
+                raise
+            logger.exception("Publishing to %s failed", ctx.repository.slug)
+            update["main_publish_error"] = publish_failure(ctx.repository.slug, exc)
+            notice = (
+                f"I couldn't publish the changes in the main repository `{ctx.repository.slug}` "
+                f"({type(exc).__name__}). The other repositories were published on their own, and their results stand."
+            )
+        else:
+            if outcome.published:
+                main_payload = published_outcome_payload(outcome, repository=ctx.repo.repo_id)
+
+        repo_publishes: list[RepoPublish] = []
+        if multi_repo:
+            repo_publishes = await apublish_extra_repos(
+                ctx, self._workspace, settings=self._settings, session_links=self._session_links, skip_ci=self.skip_ci
+            )
+            update["repo_publishes"] = [publish.to_state() for publish in repo_publishes]
+        for payload in [main_payload, *map(repo_publish_payload, repo_publishes)]:
+            if payload is not None:
+                await self._emit_publish_result(payload)
+
+        # A link block only goes stale when a publish opens a merge request or rewrites its description.
+        if outcome is None or outcome.published or any(publish.published for publish in repo_publishes):
+            main_merge_request = outcome.merge_request if outcome is not None else None
+            await self._alink_related(
+                ctx, main_merge_request or checkpointed_merge_request(state, strict=False), repo_publishes
+            )
+        conflicts, failures = _sibling_notices(ctx, repo_publishes)
+        messages = []
+        if visible_text := "\n\n".join(filter(None, [notice, *conflicts])):
+            messages.append(await streamed_assistant_message(visible_text))
+        if failures:
+            messages.append(synthetic_ai_message(failures, kind=PUBLISH_FAILURES_KIND))
+        if messages:
+            update["messages"] = messages
+        if outcome is None:
+            return update
 
         if outcome.diff_stats is not None:
             update["diff_stats"] = outcome.diff_stats.model_dump()

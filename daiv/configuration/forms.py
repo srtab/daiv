@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, TypedDict
 from urllib.parse import urlparse
 
 from django import forms
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.forms.models import BaseModelFormSet, modelformset_factory
 from django.utils.translation import gettext_lazy as _
 
@@ -238,6 +239,8 @@ class SiteConfigurationForm(forms.ModelForm):
             "agent_max_model_name",
             "agent_max_thinking_level",
             "agent_recursion_limit",
+            "model_request_timeout_seconds",
+            "model_max_retries",
             "diff_to_metadata_model_name",
             "diff_to_metadata_fallback_model_name",
             "titling_model_name",
@@ -256,6 +259,8 @@ class SiteConfigurationForm(forms.ModelForm):
             "web_search_enabled",
             "web_search_max_results",
             "web_search_engine",
+            "web_search_searxng_url",
+            "web_search_searxng_timeout_seconds",
             "web_fetch_enabled",
             "web_fetch_model_name",
             "web_fetch_cache_ttl_seconds",
@@ -352,6 +357,15 @@ class SiteConfigurationForm(forms.ModelForm):
                 paired = _PAIRED_THINKING_FIELDS.get(name)
                 field_obj.widget = _AgentPickerWidget(paired_thinking_field=paired)
             elif isinstance(widget, forms.NumberInput):
+                for validator in model_field.validators if model_field else ():
+                    if isinstance(validator, MinValueValidator):
+                        limit = validator.limit_value() if callable(validator.limit_value) else validator.limit_value
+                        if "min" not in widget.attrs or float(widget.attrs["min"]) < limit:
+                            widget.attrs["min"] = limit
+                    elif isinstance(validator, MaxValueValidator):
+                        limit = validator.limit_value() if callable(validator.limit_value) else validator.limit_value
+                        if "max" not in widget.attrs or float(widget.attrs["max"]) > limit:
+                            widget.attrs["max"] = limit
                 widget.attrs.setdefault("min", "0")
 
             # Set template and default attributes on remaining non-secret fields
@@ -479,6 +493,7 @@ class SiteConfigurationForm(forms.ModelForm):
         cleaned_data = super().clean()
         self._validate_model_api_keys(cleaned_data)
         self._validate_web_search_api_key(cleaned_data)
+        self._validate_searxng_url(cleaned_data)
         self._validate_auth_credentials(cleaned_data)
         self._validate_telegram_token(cleaned_data)
         return cleaned_data
@@ -501,6 +516,17 @@ class SiteConfigurationForm(forms.ModelForm):
                 "web_search_engine",
                 _("Tavily requires an API key. Set the web search API key below or via environment variable."),
             )
+
+    def _validate_searxng_url(self, cleaned_data: dict[str, Any]) -> None:
+        """Require an endpoint for SearXNG while allowing other engines to leave it unset."""
+        from core.models import WebSearchEngineChoices
+
+        if (
+            cleaned_data.get("web_search_engine") == WebSearchEngineChoices.SEARXNG
+            and not cleaned_data.get("web_search_searxng_url")
+            and "web_search_searxng_url" not in self.errors
+        ):
+            self.add_error("web_search_searxng_url", _("SearXNG requires a search endpoint URL."))
 
     def _validate_auth_credentials(self, cleaned_data: dict[str, Any]) -> None:
         """Validate that OAuth client ID and secret are configured as a pair."""

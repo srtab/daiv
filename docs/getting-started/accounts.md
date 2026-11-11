@@ -1,3 +1,7 @@
+---
+description: "How sign-in works in the DAIV dashboard: admin and member roles, Git platform OAuth or one-time email codes, the first admin, and managing users."
+---
+
 # Accounts & Roles
 
 DAIV's web dashboard requires you to sign in. Every authenticated user has one of two roles — **admin** or **member** — which decide what they can see and change. Members manage their own work (agent runs, chats, schedules, and API keys); admins additionally manage the deployment: site configuration, users, global skills, and global sandbox environments.
@@ -46,6 +50,17 @@ The login page lives at `/accounts/login/`. Two sign-in methods are available, d
 
 When OAuth login is enabled, users can sign in with the same Git platform DAIV is connected to — **GitHub** or **GitLab** (including self-hosted GitLab). DAIV offers the provider that matches your configured platform; it does not offer both at once.
 
+With social signup closed, create each permitted account under **Accounts → Users**
+using the email address confirmed by its Git platform. For GitLab, DAIV uses the
+authenticated profile's `confirmed_at` to verify that exact primary email before
+allauth looks up an existing account. Matching is case-insensitive and preserves
+the existing user's role. Missing or invalid confirmation does not authorize
+email-based linking. An already-linked platform user ID continues to identify
+the same DAIV account when its platform email changes.
+
+Closed signup is checked again before saving a new account. A pending signup
+form cannot create another user by replacing an email that already exists.
+
 OAuth is configured by an admin in **Site Configuration** under the **Authentication** section, not in code. The relevant settings are:
 
 | Setting | Purpose |
@@ -85,10 +100,10 @@ On a fresh install with OAuth enabled, the **first user to sign in via a social 
 When OAuth is not yet configured, create the initial admin from a shell:
 
 ```bash
-docker exec -it daiv-app python manage.py bootstrap_admin admin@example.com
+docker compose exec app django-admin bootstrap_admin admin@example.com
 ```
 
-The `bootstrap_admin` command creates an admin user and prints how to sign in. It is a one-shot bootstrap: it refuses to run if an admin already exists, and refuses if a user with that email already exists (promote that user via the dashboard instead). The new admin signs in via login-by-code (the one-time email code).
+The `bootstrap_admin` command creates an admin user and prints how to sign in. It is a one-shot bootstrap: it refuses to run if an admin already exists, and refuses if a user with that email already exists (promote that user via the dashboard instead). The new admin signs in via login-by-code (the one-time email code). Without an SMTP server, set `EMAIL_BACKEND` to `django.core.mail.backends.console.EmailBackend` and read the code from the app's log (`docker compose logs app`).
 
 !!! info
     For end-to-end first-run setup including OAuth credentials and email, see the first-admin notes in [Deployment](deployment.md).

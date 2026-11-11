@@ -38,10 +38,10 @@ Context:
             {% endif %}
             {% if merge_request %}
                 {% if merge_request.url %}
-                <a href="{{ merge_request.url }}" target="_blank" rel="noopener"
-                   class="mr-pill relative z-10 shrink-0">{% icon "merge-request" "h-3 w-3" %}!{{ merge_request.iid }}</a>
+                <a href="{{ merge_request.url }}" target="_blank" rel="noopener" title="{{ merge_request.state.label }}"
+                   class="mr-pill mr-pill--{{ merge_request.state }} relative z-10 shrink-0">{% icon "merge-request" "h-3 w-3" %}!{{ merge_request.iid }}</a>
                 {% else %}
-                <span class="mr-pill shrink-0">{% icon "merge-request" "h-3 w-3" %}!{{ merge_request.iid }}</span>
+                <span class="mr-pill mr-pill--{{ merge_request.state }} shrink-0" title="{{ merge_request.state.label }}">{% icon "merge-request" "h-3 w-3" %}!{{ merge_request.iid }}</span>
                 {% endif %}
             {% endif %}
         </div>

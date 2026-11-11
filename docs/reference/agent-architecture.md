@@ -1,3 +1,7 @@
+---
+description: "Technical architecture of the DAIV agent, built on LangChain Deep Agents and LangGraph, with subagents, middleware and a virtual filesystem."
+---
+
 # Agent Architecture
 
 DAIV uses a single AI agent built on [Deep Agents](https://github.com/langchain-ai/deepagents), a general-purpose deep agent framework from [LangChain](https://python.langchain.com/) with sub-agent spawning, middleware-based architecture, and virtual filesystem — all running on [LangGraph](https://langchain-ai.github.io/langgraph/). This page covers the technical architecture for those who want to understand how DAIV works under the hood.
@@ -95,7 +99,7 @@ Commands are evaluated against a [command policy](../features/sandbox.md) before
 
 | Tool | Description |
 |------|-------------|
-| `web_search` | Search the web (DuckDuckGo or Tavily) |
+| `web_search` | Search the web (DuckDuckGo, Tavily or SearXNG) |
 | `web_fetch` | Fetch a URL, convert to markdown, and answer a prompt about its content |
 
 ### Skills

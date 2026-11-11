@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
@@ -44,6 +44,7 @@ def _ctx() -> SimpleNamespace:
         config=RepositoryConfig(),
         repo=SimpleNamespace(ref="main", head_detached=False, clone_seconds=0.0),
         gitrepo=SimpleNamespace(working_dir="/clone"),
+        extra_repos=(),
         sandbox=None,
         sandbox_client=None,
         bot_username="daiv",
@@ -182,7 +183,7 @@ class TestIssueAfterRunMatrix:
         assert holder.startswith("webhook-")
         assert await active_holder(thread_id) is None
 
-    async def test_a_successful_run_persists_the_ref_and_arms_the_watch(self, captured_client):
+    async def test_a_successful_run_persists_the_ref_and_claims_the_merge_request(self, captured_client):
         mr = _merge_request()
         agent = addressor_agent(
             return_value={"messages": [AIMessage(content="done")]},
@@ -190,24 +191,28 @@ class TestIssueAfterRunMatrix:
         )
         issue = _issue(labels=[BOT_LABEL])
 
-        with addressor_run(agent, ctx=_ctx()) as run:
-            await _address(issue=issue, ref="fix/42", thread_id="t-issue", sandbox_env_id="env-1")
+        with (
+            addressor_run(agent, ctx=_ctx()) as run,
+            patch("sessions.executor.run._persist_resolved_agent", AsyncMock()),
+            patch("sessions.executor.run._record_measurements", AsyncMock()),
+            patch("sessions.executor.run._record_publish_result", AsyncMock()),
+        ):
+            await _address(
+                issue=issue,
+                ref="fix/42",
+                thread_id="t-issue",
+                sandbox_env_id="env-1",
+                run_id="run-42",
+                acting_user_id=5,
+            )
 
         run.build_spec.assert_awaited_once_with("env-1")
         assert run.context_kwargs["fallback_ref_on_missing"] is True
         assert run.context_kwargs["issue"] is issue
         assert run.context_kwargs["ref"] == "fix/42"
+        assert run.context_kwargs["acting_user_id"] == 5
         run.persist.assert_awaited_once_with(thread_id="t-issue", current_ref="main", merge_request=mr, published=True)
-        assert run.armed == [
-            {
-                "repo_id": "owner/repo",
-                "run_id": None,
-                "merge_request": mr,
-                "published": True,
-                "user_id": None,
-                "sandbox_environment_id": "env-1",
-            }
-        ]
+        assert run.claimed == [{"run_id": "run-42", "merge_request": mr, "pushed_sha": "", "repo_id": None}]
         run.recover.assert_not_awaited()
         [reply] = captured_client.create_issue_comment.call_args_list
         assert reply.args[2] == "done"
@@ -249,11 +254,12 @@ class TestIssueAfterRunMatrix:
             "workspace": run.create_agent.await_args.kwargs["workspace"],
             "settings": run.resolve.return_value,
             "session_links": run.create_agent.await_args.kwargs["session_links"],
+            "on_publish": ANY,
         }
         [note] = captured_client.create_issue_comment.call_args_list
         assert "To avoid losing progress" in note.args[2]
         run.persist.assert_not_awaited()
-        assert run.armed == []
+        assert run.claimed == []
 
     async def test_an_agent_error_recovers_the_draft_through_the_live_session(self, captured_client):
         """B7: after an agent error, the draft is pushed through the turn's own session, the one the run acquired."""
