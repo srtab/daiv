@@ -411,6 +411,7 @@ for (const entry of script) {
   if (op === "markers") out.push(chat.turns.filter((t) => t.role === "run_status").map((t) => t.status));
   if (op === "segmentTypes") out.push(live().segments.map((s) => s.type));
   if (op === "segmentStatuses") out.push(live().segments.map((s) => s.status));
+  if (op === "media") out.push(segment(arg)?.media ?? null);
   if (op === "block0.publish") out.push(chat.runBlocks[0].publish);
   if (op === "hasFailedPublish") out.push(chat._hasFailedPublish());
   if (op === "break") broken = true;
@@ -1534,3 +1535,18 @@ def test_the_drawer_shows_totals_only_where_the_page_has_no_sidebar_for_them(dif
     out = run_chat_stream(DRAWER_STATS_BODY, {"diffInDetails": diff_in_details})
 
     assert out["drawerDiffStats"] == shown
+
+
+MEDIA_ITEM = {"kind": "image", "mime_type": "image/png", "url": "/dashboard/sessions/t1/tool-media/x/"}
+
+
+def test_a_media_event_attaches_items_to_its_row():
+    value = json.dumps({"tool_call_id": "c1", "media": [MEDIA_ITEM]})
+
+    assert _drive(LIVE, script=[f"custom:daiv_tool_media:{value}", "media:c1"]) == [[MEDIA_ITEM]]
+
+
+def test_a_media_event_for_an_unknown_row_is_ignored():
+    value = json.dumps({"tool_call_id": "nope", "media": [MEDIA_ITEM]})
+
+    assert _drive(LIVE, script=[f"custom:daiv_tool_media:{value}", "media:c1", "errors"]) == [None, 0]

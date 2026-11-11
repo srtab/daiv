@@ -16,6 +16,14 @@ class SessionsSettings(BaseSettings):
     ARTIFACTS_PER_RUN_MAX: int = Field(
         default=20, gt=0, description="Maximum number of artifacts a single agent run may publish."
     )
+    TOOL_MEDIA_MAX_BYTES: int = Field(
+        default=10 * 1024 * 1024,
+        gt=0,
+        description="Maximum size, in bytes, of one image or file kept from a tool result for the transcript.",
+    )
+    TOOL_MEDIA_PER_RUN_MAX: int = Field(
+        default=100, gt=0, description="Maximum number of images and files kept from one run's tool results."
+    )
     SHOW_RAW_TOOL_DATA: bool | None = Field(
         default=None,
         description="Show a tool call's raw arguments and result in the session transcript; unset follows DEBUG.",

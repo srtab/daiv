@@ -112,6 +112,14 @@ Click any session to see its full detail page, which includes:
 
 The detail page updates in place whenever the session changes — a run starting or ending, a message joining Up next, a CI result — without polling or reloading. An open page also streams a chat turn sent from another tab or by someone else. Without Redis (`DJANGO_REDIS_URL` unset), the page can't hear about changes, so it checks every few seconds while a run is in flight instead.
 
+### Images and files in tool results
+
+When a tool hands the agent an image or a file — a screenshot from an MCP browser tool, or an image, PDF, audio or video file the agent opened with `read_file` — the tool's row in the transcript shows it under **Attached**, both while the run streams and after a reload. Images show as thumbnails that open full size in a new tab; PDFs, audio and video show as a chip with their size that downloads the file. An image an MCP server only gives as a link to another site shows as a link, so viewing the transcript doesn't load anything from that site.
+
+Anyone who can see the session can open these files, as they can read the rest of its transcript: its owner, people who can read its repository, and admins. That includes screenshots from MCP servers a person connected with their own account, so a screenshot of a page they were signed in to is visible to everyone who can see the session.
+
+DAIV keeps these files with the run in its file storage under `MEDIA_ROOT` for as long as it keeps the run. DAIV doesn't delete runs on its own; deleting a run deletes its files, but the session's saved agent state still holds each file as the tool returned it. DAIV keeps PNG, JPEG, GIF and WebP images, PDFs, audio and video, up to `DAIV_TOOL_MEDIA_MAX_BYTES` each (default 10 MiB) and `DAIV_TOOL_MEDIA_PER_RUN_MAX` per run (default 100). A file it didn't keep shows the reason instead, such as *Too large to keep*. Runs from before DAIV kept these files show *Not saved*. The agent always gets the full tool result, whether or not the file was kept.
+
 ---
 
 ## Artifacts

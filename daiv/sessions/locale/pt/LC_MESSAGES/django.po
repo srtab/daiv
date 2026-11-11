@@ -1145,6 +1145,33 @@ msgstr "Argumentos"
 msgid "Result"
 msgstr "Resultado"
 
+msgid "Attached"
+msgstr "Anexado"
+
+msgid "PDF"
+msgstr "PDF"
+
+msgid "Audio"
+msgstr "Áudio"
+
+msgid "Video"
+msgstr "Vídeo"
+
+msgid "Not saved"
+msgstr "Não guardado"
+
+msgid "Too large to keep"
+msgstr "Demasiado grande para guardar"
+
+msgid "Not kept: the run reached its limit"
+msgstr "Não guardado: a execução atingiu o limite"
+
+msgid "Can't be shown"
+msgstr "Não pode ser mostrado"
+
+msgid "Couldn't be kept"
+msgstr "Não foi possível guardar"
+
 msgid "{count} line"
 msgstr "{count} linha"
 

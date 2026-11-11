@@ -11,7 +11,8 @@
       margin: -18px 0 0 -18px; border-radius: 50%; border: 3px solid ${BRAND};
       animation: demo-ripple 520ms ease-out forwards; }
     @keyframes demo-ripple { from { transform: scale(0.3); opacity: 0.9; } to { transform: scale(1.4); opacity: 0; } }
-    #demo-caption { position: fixed; z-index: 2147483645; left: 50%; bottom: 28px; transform: translateX(-50%);
+    #demo-caption { position: fixed; z-index: 2147483645; pointer-events: none; left: 50%; bottom: 28px;
+      transform: translateX(-50%);
       display: flex; align-items: center; gap: 14px; padding: 12px 22px 12px 12px; border-radius: 999px;
       background: ${INK}; color: #fff; font: 600 21px/1.2 Inter, "Segoe UI", system-ui, sans-serif;
       box-shadow: 0 10px 30px rgba(0,0,0,0.28); white-space: nowrap; transition: opacity 250ms; }
@@ -19,7 +20,8 @@
       background: ${BRAND}; font-size: 18px; }
     #demo-caption code { font: 600 19px/1 ui-monospace, "SFMono-Regular", monospace; color: ${ACCENT};
       background: transparent; padding: 0; border: 0; }
-    #demo-badge { position: fixed; z-index: 2147483645; top: 22px; left: 50%; transform: translateX(-50%);
+    #demo-badge { position: fixed; z-index: 2147483645; pointer-events: none; top: 22px; left: 50%;
+      transform: translateX(-50%);
       padding: 9px 18px; border-radius: 999px; background: ${BRAND}; color: #fff;
       font: 600 18px/1 Inter, "Segoe UI", system-ui, sans-serif; box-shadow: 0 8px 24px rgba(0,0,0,0.25);
       animation: demo-badge 2600ms ease-in-out forwards; }

@@ -2,7 +2,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("agent_sessions", "0029_mergerequestownership_merged")]
+    dependencies = [("agent_sessions", "0030_tool_result_media")]
 
     operations = [
         migrations.RemoveConstraint(model_name="inboxevent", name="inbox_event_kind_valid"),

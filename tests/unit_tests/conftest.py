@@ -3,6 +3,7 @@ import io
 import json
 import os
 import tarfile
+import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -310,6 +311,28 @@ class FakeWorkspace:
 
     def for_repo(self, handle: Any) -> Any:
         return replace(self, repo_path=extra_repo_path(handle))
+
+
+@dataclass
+class FakeToolMediaStore:
+    """A ``ToolMediaStore`` a test scripts: ``error`` makes ``astore`` raise; ``stored`` records each call. Ids are
+    UUIDs (``uuid.UUID(int=n)`` for the n-th kept block) so the media URL reverses."""
+
+    error: Exception | None = None
+    stored: list[dict[str, Any]] = field(default_factory=list)
+    max_bytes: int = 10 * 1024 * 1024
+
+    async def astore(self, *, thread_id: str, tool_call_id: str, ordinal: int, mime_type: str, content: bytes) -> str:
+        if self.error is not None:
+            raise self.error
+        self.stored.append({
+            "thread_id": thread_id,
+            "tool_call_id": tool_call_id,
+            "ordinal": ordinal,
+            "mime_type": mime_type,
+            "content": content,
+        })
+        return str(uuid.UUID(int=len(self.stored)))
 
 
 @dataclass
