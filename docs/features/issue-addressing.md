@@ -11,7 +11,7 @@ Issue addressing turns an issue into code. DAIV reads a labelled issue, posts an
 1. You create or update an issue and add a bot label.
 2. DAIV reads the issue title, description, and any attached images.
 3. DAIV posts a plan as a comment on the issue.
-4. You review the plan and approve it, or ask for changes.
+4. You review the plan and approve it, or comment with the changes you want, and DAIV revises the plan.
 5. DAIV implements the plan and opens a merge or pull request.
 
 ```mermaid
@@ -20,7 +20,7 @@ graph TD
     B --> C["Plan posted as comment"]
     C --> D{"Approve?"}
     D -- "@daiv proceed" --> E["DAIV implements changes"]
-    D -- "Update issue" --> B
+    D -- "Comment with changes" --> B
     E --> F["Merge/Pull request created"]
 ```
 
@@ -61,7 +61,7 @@ The `daiv-max` label switches DAIV to the site's max model with its max thinking
 
 ## Run DAIV again
 
-When you run a second plan on an issue DAIV already addressed, DAIV updates the existing merge or pull request instead of creating a new one.
+To run a second plan on an issue DAIV already addressed, add a new comment that mentions `@daiv` and says what you want. DAIV updates the existing merge or pull request instead of creating a new one. Adding the label again does not start a run: DAIV ignores a label on an issue it already reacted to.
 
 ## When a run fails
 

@@ -8,7 +8,7 @@ After DAIV publishes a merge request, it watches the merge request's CI and tell
 
 ## Turn on CI events
 
-Pipeline watch reacts to CI events, and each platform delivers them differently. Until DAIV receives them, pipeline watch never runs, and nothing reports that.
+Pipeline watch reacts to CI events, and each platform delivers them differently. Without these events, DAIV hears of CI only through the reconciler's poll, which re-reads a watched merge request that nothing was heard of for 30 minutes, so a failure can wait 30 minutes or more. On GitHub, DAIV also cannot read CI at all until the App's **Actions** permission is **Read-only**.
 
 ### GitLab
 
@@ -61,9 +61,9 @@ sequenceDiagram
 The steps below give the same flow in text.
 
 1. **The publishing session owns the merge request.** When a run publishes, its session claims the merge request and records the commit DAIV pushed. A later publish from another session of the same person moves the merge request to that session; a publish from another person's session leaves it where it is and tells the owning session. [Which runs claim a merge request](#which-runs-claim-a-merge-request) lists the cases.
-2. **Pipeline event.** a webhook from GitLab (`pipeline_events`) or GitHub (`workflow_run`) delivers the terminal result. CI is also judged right after a publish, because the event can arrive before the claim exists. Only the merge request's head pipeline is judged; a pipeline an older push started is ignored.
-3. **Judgment.** see [Conservative judgment](#conservative-judgment) below.
-4. **Waking the session.** a failure wakes the owning session only when all of these hold. The first one that does not is recorded as the reason the failure was only remembered, and the agent sees it the next time it runs.
+2. **Pipeline event.** A webhook from GitLab (`pipeline_events`) or GitHub (`workflow_run`) delivers the terminal result. CI is also judged right after a publish, because the event can arrive before the claim exists. Only the merge request's head pipeline is judged; a pipeline an older push started is ignored.
+3. **Judgment.** See [Conservative judgment](#conservative-judgment) below.
+4. **Waking the session.** A failure wakes the owning session only when all of these hold. The first one that does not is recorded as the reason the failure was only remembered, and the agent sees it the next time it runs.
 
     | Condition | Reason when it fails |
     |---|---|
@@ -73,10 +73,10 @@ The steps below give the same flow in text.
     | Attempts are left | Attempts spent |
     | DAIV has not started three runs in a row on the session without a person (see [The session inbox](sessions.md#the-session-inbox)) | Too many runs in a row |
 
-5. **The CI run.** runs in the publishing session, on the merge request's branch, with a prompt naming the failed jobs and the pipeline URL. The agent reads the job logs through its `gitlab` / `gh` platform tool, then pushes a fix or explains why it pushed nothing. It can't ask a question: nobody is there to answer. If the session is busy, the failure waits and joins the session's next run.
+5. **The CI run.** DAIV runs it in the publishing session, on the merge request's branch, with a prompt naming the failed jobs and the pipeline URL. The agent reads the job logs through its `gitlab` / `gh` platform tool, then pushes a fix or explains why it pushed nothing. It can't ask a question: nobody is there to answer. If the session is busy, the failure waits and joins the session's next run.
 6. **A run that pushes nothing** explains, without giving up. No push means no new pipeline, so the session shows CI as failing with a link to that run's explanation, and you receive its summary as a run notification. Retrying the same pipeline by hand does not wake the session again: the commit was already examined. If the retry passes, the session shows CI passing.
-7. **Attempts spent.** when a failure on a new DAIV commit finds no attempts left, the merge request's owner is notified once for that commit. A run a person starts that publishes to the merge request gives the attempts back.
-8. **Reconciler.** a cron task runs every 10 minutes and re-reads the CI of each watched merge request nothing was heard of for 30 minutes, whatever it last reported, so a missed webhook (a manual retry's, say) is repaired. On GitLab it reads the branch's latest pipeline; on GitHub, the latest run of each workflow on the branch's head commit. A pipeline already judged in its status is skipped without reading its jobs. Nothing expires: the watch observes until the merge request is merged or closed. Each tick re-reads at most 200 branches, the longest-quiet first, and a branch it could not read is tried again on the next tick.
+7. **Attempts spent.** When a failure on a new DAIV commit finds no attempts left, the merge request's owner is notified once for that commit. A run a person starts that publishes to the merge request gives the attempts back.
+8. **Reconciler.** A cron task runs every 10 minutes and re-reads the CI of each watched merge request nothing was heard of for 30 minutes, whatever it last reported, so a missed webhook (a manual retry's, say) is repaired. On GitLab it reads the branch's latest pipeline; on GitHub, the latest run of each workflow on the branch's head commit. A pipeline already judged in its status is skipped without reading its jobs. Nothing expires: the watch observes until the merge request is merged or closed. Each tick re-reads at most 200 branches, the longest-quiet first, and a branch it could not read is tried again on the next tick.
 
 ---
 

@@ -436,7 +436,7 @@ Watches the CI of merge requests DAIV publishes and spends a bounded number of a
 | Variable | Description | Default |
 |----------------------------------------|----------------------------------------------------------|------------------------|
 | `DAIV_PIPELINE_WATCH_ENABLED` | Watch CI on merge requests DAIV publishes and try to fix failures | `true` |
-| `DAIV_PIPELINE_WATCH_MAX_ATTEMPTS` | How many fix attempts to spend on one merge request before handing back | `3` |
+| `DAIV_PIPELINE_WATCH_MAX_ATTEMPTS` | How many fix attempts to spend on one merge request before handing back (at least 1) | `3` |
 
 ---
 

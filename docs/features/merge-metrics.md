@@ -31,7 +31,7 @@ The steps below give the same flow in text.
 4. **DAIV attributes the lines.** It compares each commit's author email with DAIV's bot commit email, and splits the lines added and removed into DAIV's and people's.
 5. **DAIV shows the totals.** The **Code velocity** section of the **Insights** page uses the same period filter as the agent activity counters: **Today**, **7 days**, **30 days**, **90 days** or **All time**, with **7 days** as the default.
 
-If a platform call fails, DAIV still records the merge, and leaves at zero only the figures whose own fetch failed.
+If a platform call fails, DAIV still records the merge. When only the diff statistics fail, DAIV takes the lines changed from the sum over the commits; a figure whose own fetch failed stays at zero.
 
 ---
 
@@ -59,6 +59,10 @@ DAIV identifies its own commits by matching the commit author email against its 
 ### Mixed authorship
 
 A merge request can hold commits from both DAIV and people. When a person opens one and then asks DAIV for follow-up changes with `@daiv`, DAIV splits the lines by each commit's author.
+
+### Commit limits
+
+On GitLab, DAIV attributes the first 100 commits of a merge request. On GitHub, the platform lists at most 250 commits per pull request.
 
 ### Squash merges
 

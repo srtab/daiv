@@ -33,7 +33,7 @@ The configuration has the following groups, organized by category.
 | **Web Fetch** | Agent tools | Turn the web fetch tool on or off, choose the model that processes fetched pages, set the cache TTL, timeout and maximum content size, and define per-domain auth headers. |
 | **Sandbox** | Runtime | Sandbox request timeout and the sandbox API key. |
 | **Jobs** | Runtime | Per-user rate limit for [Jobs API](../features/jobs-api.md) submissions (e.g. `20/hour`). |
-| **Pipeline Watch** | Runtime | Watch CI on merge requests DAIV publishes and try to fix failures, and how many fix attempts to spend on one merge request before handing back. |
+| **Pipeline Watch** | Runtime | Watch CI on merge requests DAIV publishes and try to fix failures, and how many fix attempts (at least 1) to spend on one merge request before handing back. |
 | **Rocket Chat** | Integrations | Offer Rocket Chat as a notification channel, with the instance URL, bot user ID and auth token. |
 | **Telegram** | Integrations | Offer Telegram as a notification channel, with the bot token from @BotFather. See [Set up Telegram](#set-up-telegram). |
 | **Authentication** | Integrations | OAuth login with your Git platform: the login toggle, open signup, the OAuth client ID and secret and, for GitLab, the instance URLs. See [Turn on OAuth login](#turn-on-oauth-login). |

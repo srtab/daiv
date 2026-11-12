@@ -14,7 +14,7 @@ Use `/help` to list everything available where you are.
 
 ## Built-in commands
 
-These commands have fixed behavior and are always available:
+These commands have fixed behavior:
 
 | Command | Scopes | Description |
 |---------|--------|-------------|
@@ -103,6 +103,17 @@ Analyzes the repository structure and generates an `AGENTS.md` file: short, repo
 ```
 
 Walks you through creating a custom skill for your repository. See [Agent skills](../customization/agent-skills.md) for more on custom skills.
+
+## Turn off slash commands
+
+Slash commands are on by default. To turn them off for a repository, add this to its `.daiv.yml`:
+
+```yaml
+slash_commands:
+  enabled: false
+```
+
+[Repository config](../customization/repository-config.md#feature-toggles) lists every feature toggle.
 
 ## Create a custom command
 
