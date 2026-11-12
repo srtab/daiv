@@ -76,7 +76,7 @@ FAQS = (
             "reads; with a model on your own server, none of that leaves. DAIV also calls your GitLab or GitHub. "
             "Its web search (DuckDuckGo by default) and web fetch tools, and the built-in Context7 MCP server "
             "for library documentation, reach the internet; you can turn each off, or point search at your own "
-            f'<a href="{DOCS_ROOT}/reference/env-variables/#web-search">SearXNG</a>. The '
+            f'<a href="{DOCS_ROOT}/reference/site-configuration/#set-up-searxng">SearXNG</a>. The '
             "sandbox has no network unless a "
             f'<a href="{DOCS_ROOT}/features/sandbox-environments/">sandbox environment</a> '
             "allows specific hosts. LangSmith tracing and Sentry error reporting are off unless you configure them."

@@ -279,6 +279,29 @@ Use [Common Changelog](https://common-changelog.org/) format:
 ```
 ````
 
+## Set branch and commit conventions
+
+DAIV generates the branch names and commit messages for its changes. To make it follow your conventions, describe them in the repository's context file: `AGENTS.md`, or the file that `context_file_name` names in [`.daiv.yml`](repository-config.md#repository-settings). `.daiv.yml` has no option for the conventions themselves.
+
+1. Open the context file in the repository root.
+2. Add a section for each convention you want DAIV to follow.
+3. Commit the file.
+
+For example:
+
+```markdown
+## Branch naming
+Use: pr/<issue-id>-<kebab-summary>
+
+## Commit messages
+Use: (<ISSUE-ID>) <type>: <summary>
+Where <type> is one of: feat, fix, chore, docs, refactor, test
+```
+
+The angle-bracket parts belong to the convention: DAIV fills in the issue ID, type and summary for each change.
+
+Without a convention, DAIV names branches `<type>/<short-kebab-summary>` and writes commit subjects in the Conventional Commits style, `<type>: <short summary>`, with a type of feat, fix, chore, docs, refactor or test.
+
 ## Security considerations
 
 !!! warning "Use skills from trusted sources only"

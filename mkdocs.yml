@@ -176,12 +176,12 @@ nav:
   - Integrations:
     - Request Tracker Triage: integrations/rt/index.md
   - Customization:
-    - Repository Config: customization/repository-config.md
+    - Repository configuration: customization/repository-config.md
     - Agent Skills: customization/agent-skills.md
     - MCP Tools: customization/mcp-tools.md
   - Reference:
-    - Environment Variables: reference/env-variables.md
-    - Site Configuration: reference/site-configuration.md
+    - Environment variables: reference/env-variables.md
+    - Site configuration: reference/site-configuration.md
     - Agent Architecture: reference/agent-architecture.md
     - Monitoring: reference/monitoring.md
     - Benchmarks: reference/benchmarks.md
