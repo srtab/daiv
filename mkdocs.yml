@@ -177,11 +177,11 @@ nav:
     - Sandbox: features/sandbox.md
     - Sandbox environments: features/sandbox-environments.md
   - Integrations:
-    - Request Tracker Triage: integrations/rt/index.md
+    - Request Tracker triage: integrations/rt/index.md
   - Customization:
     - Repository configuration: customization/repository-config.md
-    - Agent Skills: customization/agent-skills.md
-    - MCP Tools: customization/mcp-tools.md
+    - Agent skills: customization/agent-skills.md
+    - MCP tools: customization/mcp-tools.md
   - Reference:
     - Environment variables: reference/env-variables.md
     - Site configuration: reference/site-configuration.md

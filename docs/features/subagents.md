@@ -130,5 +130,5 @@ When an entry names a provider that is unknown, disabled or missing its API key,
 ## Related pages
 
 - [Agent Architecture](../reference/agent-architecture.md): which model each subagent runs, its tool stack, and its fallback behaviour
-- [Agent Skills](../customization/agent-skills.md): author the reusable instruction packages the main agent loads from `.agents/skills/`
+- [Agent skills](../customization/agent-skills.md): author the reusable instruction packages the main agent loads from `.agents/skills/`
 - [Slash commands and skills](slash-commands.md): run `/agents` to list every subagent available in a repository
