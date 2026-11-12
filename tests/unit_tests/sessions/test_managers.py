@@ -460,14 +460,3 @@ class TestArchived:
         assert list(Session.objects.listed_for(member_user, mine=True)) == [shown]
         assert list(Session.objects.listed_for(member_user, mine=True, archived=True)) == [archived]
         assert set(Session.objects.listed_for(member_user, mine=True, archived=None)) == {shown, archived}
-
-    def test_runs_of_an_archived_session_are_left_out(self, member_user):
-        chat = SessionOrigin.CHAT
-        kept = Run.objects.create(
-            session=self._session(member_user), trigger_type=chat, repo_id="a/b", user=member_user
-        )
-        auto = self._session(member_user)
-        Run.objects.create(session=auto, trigger_type=chat, repo_id="a/b", user=member_user)
-        Session.objects.filter(pk=auto.pk).update(archived_at=timezone.now())
-
-        assert list(Run.objects.outside_archived_sessions()) == [kept]

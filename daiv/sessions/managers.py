@@ -216,9 +216,6 @@ class RunQuerySet(models.QuerySet["Run"]):
         they subscribe to."""
         return self.filter(_started_by_q(user))
 
-    def outside_archived_sessions(self) -> models.QuerySet[Run]:
-        return self.filter(session__archived_at__isnull=True)
-
     def that_pushed(self) -> models.QuerySet[Run]:
         """Runs that pushed a commit, to their main repository or to another of their session's repositories."""
         return self.exclude(pushed_sha="", sibling_pushed_shas=[])

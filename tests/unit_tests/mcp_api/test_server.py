@@ -765,8 +765,7 @@ class TestMCPThreadContinuation:
         assert "Unknown provider prefix 'nopesuch'" in json.loads(result)["error"]
 
     async def test_an_archived_session_is_not_continued(self, _default_mcp_user):
-        thread_id = await amake_job_session(user=_default_mcp_user)
-        await Session.objects.filter(pk=thread_id).aupdate(archived_at=timezone.now())
+        thread_id = await amake_job_session(user=_default_mcp_user, archived_at=timezone.now())
 
         result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x", thread_id=thread_id)
 

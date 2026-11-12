@@ -79,7 +79,6 @@ class SessionState:
     header: dict[str, Any]
     can_act: bool
     expired_banner: bool
-    archived: bool
 
 
 async def aload_session_state(session: Session, user: User, *, always_look_up_merge_request: bool) -> SessionState:
@@ -148,7 +147,6 @@ async def aload_session_state(session: Session, user: User, *, always_look_up_me
         header=header,
         can_act=can_act,
         expired_banner=expired_banner,
-        archived=session.archived_at is not None,
     )
 
 
@@ -265,7 +263,7 @@ def turns_payload(state: SessionState, session: Session) -> dict[str, Any]:
         "context_usage": state.hydrated.context_usage,
         "thread_ref": state.thread_ref,
         "title": session_title(session),
-        "archived": state.archived,
+        "archived": session.archived_at is not None,
     }
     if state.merge_request_known:
         payload["merge_request"] = state.merge_request

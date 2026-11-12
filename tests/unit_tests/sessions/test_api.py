@@ -730,8 +730,7 @@ async def test_session_rename_refuses_a_blank_title(client, authed, title):
 @pytest.mark.django_db(transaction=True)
 async def test_session_archive_archives_and_unarchives_it_for_everyone_poking_its_page_on_a_change(client, authed):
     _key_obj, raw, user = authed
-    session = await sync_to_async(_create_session)(user=user)
-    await Session.objects.filter(pk=session.pk).aupdate(archive_pending=True)
+    session = await sync_to_async(_create_session)(user=user, archive_pending=True)
     url = f"/sessions/{session.thread_id}/archive"
 
     with (

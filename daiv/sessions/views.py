@@ -359,7 +359,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["turns"] = state.turns
         ctx["can_act"] = state.can_act
         ctx["header"] = state.header
-        ctx["archived"] = state.archived
+        ctx["archived"] = session.archived_at is not None
         ctx["max_title_length"] = MAX_TITLE_LENGTH
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = state.merge_request

@@ -113,15 +113,12 @@ async def session_archive(request: HttpRequest, thread_id: str, payload: Archive
     """Archive the session for everyone, or bring it back for everyone and start what its inbox kept waiting; either
     needs run access to its repository."""
     session = await _get_runnable_session(request.auth, thread_id)  # ty: ignore[unresolved-attribute]
-    changing = Session.objects.filter(pk=session.pk, archived_at__isnull=payload.archived)
-    if payload.archived:
-        changed = await changing.aupdate(archived_at=timezone.now(), archive_pending=False)
-    else:
-        changed = await changing.aupdate(archived_at=None)
-        if changed:
-            await sync_to_async(Drain(session.pk).start_logged)()
-    if changed:
-        await asession_changed(session.pk)
+    fields = {"archived_at": timezone.now(), "archive_pending": False} if payload.archived else {"archived_at": None}
+    if not await Session.objects.filter(pk=session.pk, archived_at__isnull=payload.archived).aupdate(**fields):
+        return {"archived": payload.archived}
+    if not payload.archived:
+        await sync_to_async(Drain(session.pk).start_logged)()
+    await asession_changed(session.pk)
     return {"archived": payload.archived}
 
 

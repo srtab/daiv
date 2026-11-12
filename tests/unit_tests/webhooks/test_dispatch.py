@@ -262,7 +262,7 @@ async def test_a_trigger_on_an_archived_session_starts_nothing_and_says_so_once(
     body = getattr(steps.client, reply).call_args.args[2]
     assert body.startswith("@alice This session is archived")
     assert thread_id in body
-    assert f"its session {thread_id} is archived" in caplog.text
+    assert f"session {thread_id}: it is archived" in caplog.text
 
 
 @pytest.mark.django_db(transaction=True)

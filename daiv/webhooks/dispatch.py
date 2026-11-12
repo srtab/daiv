@@ -133,11 +133,7 @@ async def dispatch_mr_comment_run(
 
     if (ownership := await Ownerships(repo_id).afind_open(merge_request_iid, title=title)) is not None:
         if ownership.session.archived_at is not None:
-            thread_id = ownership.session.thread_id
-            logger.info(
-                "Ignoring a mention on %s#%s: its owning session %s is archived", repo_id, merge_request_iid, thread_id
-            )
-            await _reply_archived(reply, author, thread_id, note_id=mention.note_id)
+            await _reply_archived(reply, author, ownership.session.thread_id, note_id=mention.note_id)
             return
         if await _post_comment(ownership, client, author, mention, kind=EventKind.MENTION, use_max=use_max):
             await _react(
@@ -252,6 +248,7 @@ async def _reply_archived(
 ) -> None:
     """Tell ``author`` the session ``thread_id`` is archived, once per trigger, so a redelivery posts nothing; a label
     trigger has no ``note_id`` and is told once a day."""
+    logger.info("Ignoring a trigger on session %s: it is archived", thread_id)
     key = f"webhooks:archived-reply:{thread_id}:{note_id or 'label'}"
     if not await cache.aadd(key, True, ARCHIVED_REPLY_TTL):
         return
@@ -301,7 +298,6 @@ async def _start_run(
     """
     thread_id = compute_thread_id(repo_slug=repo_id, scope=scope, entity_iid=iid)
     if await Session.objects.filter(pk=thread_id).archived().aexists():
-        logger.info("Ignoring a trigger on %s#%s: its session %s is archived", repo_id, iid, thread_id)
         await _reply_archived(reply, author, thread_id, note_id=task_kwargs["mention_note_id"])
         return False
     # user=None: the webhook fires for whoever touched the issue/MR, not the agent owner, so USER envs never apply.
