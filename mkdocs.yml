@@ -185,7 +185,7 @@ nav:
   - Reference:
     - Environment variables: reference/env-variables.md
     - Site configuration: reference/site-configuration.md
-    - Agent Architecture: reference/agent-architecture.md
+    - Agent tools: reference/agent-architecture.md
     - Monitoring: reference/monitoring.md
     - Management commands: reference/management-commands.md
     - Benchmarks: reference/benchmarks.md

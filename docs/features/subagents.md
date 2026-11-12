@@ -31,7 +31,7 @@ The main agent delegates to it to locate files, understand code structure, or ga
 
 ### Code-review detectors
 
-The `/code-review` skill delegates to read-only detector subagents: `cr-correctness`, `cr-security`, `cr-performance`, `cr-structure`, `cr-tests` and `cr-custom-rules`. See [Agent Architecture](../reference/agent-architecture.md) for how they run.
+The `/code-review` skill delegates to read-only detector subagents: `cr-correctness`, `cr-security`, `cr-performance`, `cr-structure`, `cr-tests` and `cr-custom-rules`. See [Subagent model precedence](#subagent-model-precedence) for the model they run on.
 
 ## How delegation works
 
@@ -129,6 +129,6 @@ When an entry names a provider that is unknown, disabled or missing its API key,
 
 ## Related pages
 
-- [Agent Architecture](../reference/agent-architecture.md): which model each subagent runs, its tool stack, and its fallback behaviour
+- [Agent tools](../reference/agent-architecture.md): the tools the main agent has, and when each is on
 - [Agent skills](../customization/agent-skills.md): author the reusable instruction packages the main agent loads from `.agents/skills/`
 - [Slash commands and skills](slash-commands.md): run `/agents` to list every subagent available in a repository

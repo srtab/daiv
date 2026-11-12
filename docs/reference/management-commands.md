@@ -95,7 +95,7 @@ Replace `<username>` with the username of the key's owner.
 
 ## `export_session_archives`
 
-Writes each archived session's contexts and runs to `<output>/<thread_id>.json`, for offline analysis. See [Session archive](monitoring.md#session-archive) for what an export holds. It does not run on its own.
+Writes each archived session's contexts and runs to `<output>/<thread_id>.json`, for offline analysis. See [Export session archives](monitoring.md#export-session-archives) for what an export holds. It does not run on its own.
 
 The exports hold full conversations and run prompts. Inside the app container, a relative `output` resolves in the container, so the files never reach the host on their own. Write them to a temporary directory, copy them out, and delete the directory in the container.
 
@@ -143,7 +143,7 @@ docker compose exec app django-admin setup_default_site
 
 ## `setup_langsmith_dashboard`
 
-Creates the LangSmith custom dashboard **DAIV Monitoring**, with the monitoring charts for DAIV. See [Monitoring](monitoring.md#custom-dashboard). It needs `LANGSMITH_API_KEY` set in the container. It does not run on its own.
+Creates the LangSmith custom dashboard **DAIV Monitoring**, with the monitoring charts for DAIV. See [Create the LangSmith dashboard](monitoring.md#create-the-langsmith-dashboard). It needs `LANGSMITH_API_KEY` set in the container. It does not run on its own.
 
 !!! warning
     `--recreate` deletes the existing **DAIV Monitoring** dashboard, including any chart you added to it by hand, and creates it again.

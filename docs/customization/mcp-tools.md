@@ -188,5 +188,5 @@ You cannot rename a server, so you delete the shadowed personal server and creat
 
 - [MCP endpoint](../features/mcp-endpoint.md): the reverse direction, which exposes DAIV itself as an MCP server so Claude Code, Cursor or Codex CLI can delegate to it.
 - [Request Tracker triage](../integrations/rt/index.md): a worked example of DAIV driven from an external system.
-- [Agent Architecture](../reference/agent-architecture.md): how MCP tools join the agent's tool set.
+- [Agent tools](../reference/agent-architecture.md): when MCP tools join the agent's tool set.
 - [Environment variables](../reference/env-variables.md#mcp-tools): the MCP-related settings.

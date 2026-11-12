@@ -26,7 +26,7 @@ DAIV (pronounced "dive", from *dev* + *AI*) integrates directly with **GitLab** 
 
 ## Three ways to put DAIV to work
 
-### In your Git platform — webhooks, zero setup
+### In your git platform
 
 - **[Issue Addressing](features/issue-addressing.md)** — DAIV reads a labelled issue, proposes a plan, and — once you approve — opens a merge/pull request with the implementation.
 - **[Pull Request Assistant](features/pull-request-assistant.md)** — answers reviewer comments, applies requested changes, and repairs failing CI/CD pipelines, all inside the merge/pull request thread.
@@ -67,7 +67,7 @@ DAIV is powered by [Deep Agents](https://github.com/langchain-ai/deepagents), a 
 - **Scalable Workers** — background workers scale horizontally by adding replicas, with a dedicated scheduler for recurring jobs.
 - **[LLM Providers](getting-started/llm-providers.md)** — run on OpenRouter, Anthropic, OpenAI, or Google, or on your own OpenAI-compatible server (vLLM, llama.cpp, LiteLLM) — your keys, your choice.
 
-For how these pieces fit together — the middleware stack, skill loading, and how a single run is assembled — see [Agent Architecture](reference/agent-architecture.md).
+For the tools the agent works with and when each is on, see [Agent tools](reference/agent-architecture.md).
 
 ## Supported platforms
 

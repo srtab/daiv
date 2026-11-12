@@ -57,7 +57,7 @@ FAQS = (
             "DAIV itself costs nothing: there is no per-seat pricing and no paid tier today. You pay for the "
             "servers it runs on and for your LLM provider's usage, billed to your own API keys, or nothing for "
             "the model if you run your own. DAIV records the token usage and "
-            f'<a href="{DOCS_ROOT}/reference/monitoring/#internal-usage-and-cost-tracking">'
+            f'<a href="{DOCS_ROOT}/reference/monitoring/#usage-and-cost">'
             "estimated cost</a> of every run."
         ),
     ),
