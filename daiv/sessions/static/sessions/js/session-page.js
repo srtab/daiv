@@ -115,6 +115,7 @@ document.addEventListener("alpine:init", () => {
     _folds: { ...FOLDED },
     _settling: false,
     _watchAt: -Infinity,
+    _archivedAt: -Infinity,
     _media: null,
     _onMedia: null,
     _provisional: [],
@@ -220,6 +221,7 @@ document.addEventListener("alpine:init", () => {
       if ("delegations" in data) this.delegations = data.delegations ?? null;
       if ("repositories" in data) this._applyRepositories(data.repositories ?? null);
       if ("references" in data) this.references = data.references ?? [];
+      if ("archived" in data && !(data.requestedAt <= this._archivedAt)) this.archived = data.archived;
       if (data.title && !this.editingTitle) this._showTitle(data.title);
     },
     // An unchanged card is left alone, as rewriting its errors would have them announced again.
@@ -381,11 +383,14 @@ document.addEventListener("alpine:init", () => {
     async setArchived(archived) {
       const previous = this.archived;
       this.archived = archived;
+      this._archivedAt = Infinity;
       try {
         const res = await this._send(config.archiveUrl, "POST", { archived });
         if (!res.ok) throw new Error(`archive failed: ${res.status}`);
       } catch {
         this.archived = previous;
+      } finally {
+        this._archivedAt = performance.now();
       }
     },
     async copyText(text) {

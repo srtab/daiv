@@ -19,7 +19,13 @@ from automation.agent.references import ExternalRef, refs_from_stored  # noqa: T
 from core.models import ThinkingLevelChoices
 from sessions.artifacts import ArtifactKind, artifact_kind
 from sessions.executor.result import parse_agent_result
-from sessions.managers import RunArtifactManager, RunManager, SessionManager, ToolResultMediaManager
+from sessions.managers import (
+    MergeRequestOwnershipManager,
+    RunArtifactManager,
+    RunManager,
+    SessionManager,
+    ToolResultMediaManager,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -769,26 +775,6 @@ class ToolResultMedia(models.Model):
         return f"{self.content_type} #{self.ordinal} of tool call {self.tool_call_id} for run {self.run_id}"
 
 
-class HiddenSession(models.Model):
-    """A session one user archived out of their own session list; everyone else still lists it."""
-
-    session = models.ForeignKey(
-        Session, on_delete=models.CASCADE, related_name="hidden_by", verbose_name=_("session"), db_index=False
-    )
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="hidden_sessions", verbose_name=_("user")
-    )
-    hidden_at = models.DateTimeField(_("archived at"), default=timezone.now, editable=False)
-
-    class Meta:
-        verbose_name = _("Archived Session")
-        verbose_name_plural = _("Archived Sessions")
-        constraints = [models.UniqueConstraint(fields=["session", "user"], name="hidden_session_unique")]
-
-    def __str__(self) -> str:
-        return f"Session {self.session_id} archived by {self.user_id}"
-
-
 class SessionArchive(models.Model):
     """One context of a session's agent state, as of the last run archived into it.
 
@@ -866,6 +852,8 @@ class MergeRequestOwnership(models.Model):
     closed_at = models.DateTimeField(_("closed at"), null=True, blank=True)
     created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
     updated_at = models.DateTimeField(_("updated at"), auto_now=True)
+
+    objects = MergeRequestOwnershipManager()
 
     class Meta:
         verbose_name = _("Merge request ownership")

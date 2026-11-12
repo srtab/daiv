@@ -40,7 +40,7 @@ from django.utils import timezone
 from asgiref.sync import sync_to_async
 
 from core.utils import build_absolute_url
-from sessions.auto_archive import archive_settled
+from sessions.auto_archive import MergeArchive
 from sessions.inbox import kinds
 from sessions.inbox.post import Inbox
 from sessions.live.notify import asession_changed, session_changed
@@ -335,9 +335,9 @@ class Ownerships:
 
     async def aclose(self, merge_request_iid: int, *, merged: bool, by_username: str, target_branch: str) -> bool:
         """Stop the watch on a merged or closed merge request and remember it in the owning session, then archive that
-        session and its coordinator if a merge left them waiting on it (:func:`sessions.auto_archive.archive_settled`);
-        returns whether this call closed one a session owned. A redelivered close, even one racing the first, finds it
-        closed and posts nothing.
+        session and its coordinator if a merge left them waiting on it
+        (:meth:`sessions.auto_archive.MergeArchive.settle`); returns whether this call closed one a session owned. A
+        redelivered close, even one racing the first, finds it closed and posts nothing.
         """
         if (owned := await self.afind_open(merge_request_iid)) is None:
             return False
@@ -360,7 +360,7 @@ class Ownerships:
         except Exception:
             await MergeRequestOwnership.objects.filter(pk=owned.pk, closed_at=closed_at).aupdate(closed_at=None)
             raise
-        await sync_to_async(archive_settled)(owned.session.thread_id)
+        await sync_to_async(MergeArchive.settle)(owned.session.thread_id)
         await asession_changed(owned.session_id)
         return True
 

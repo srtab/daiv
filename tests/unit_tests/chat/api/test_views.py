@@ -8,7 +8,7 @@ from django.utils import timezone
 import pytest
 from ninja.testing import TestAsyncClient
 from sessions.inbox.chat_claim import ChatClaim
-from sessions.models import EventKind, HiddenSession, InboxEvent, Run, RunStatus, Session, SessionOrigin
+from sessions.models import EventKind, InboxEvent, Run, RunStatus, Session, SessionOrigin
 from sessions.multi_repo import ais_multi_repo, aload_extra_repos
 
 from accounts.models import APIKey, User
@@ -596,25 +596,7 @@ async def test_an_idle_turn_takes_the_pending_remembered_events(
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_a_turn_on_a_session_you_archived_returns_400(client: TestAsyncClient, authed):
-    _, raw, user = authed
-    session = await Session.objects.acreate(
-        origin=SessionOrigin.CHAT, thread_id="t-archived", user=user, repo_id="a/b", ref="main"
-    )
-    await HiddenSession.objects.acreate(session=session, user=user)
-    response = await client.post(
-        "/chat/completions",
-        json=_run_agent_input(threadId="t-archived"),
-        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
-    )
-    assert response.status_code == 400
-    assert response.json()["detail"] == "This session is archived. Unarchive it to send follow-ups."
-    assert await active_holder("t-archived") is None
-    await user.adelete()
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_a_turn_on_a_session_archived_for_everyone_returns_400(client: TestAsyncClient, authed):
+async def test_a_turn_on_an_archived_session_returns_400(client: TestAsyncClient, authed):
     _, raw, user = authed
     await Session.objects.acreate(
         origin=SessionOrigin.CHAT, thread_id="t-auto", user=user, repo_id="a/b", ref="main", archived_at=timezone.now()

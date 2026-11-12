@@ -2,7 +2,7 @@ import logging
 from functools import cached_property
 from typing import Literal
 
-from sessions.auto_archive import aarchive_merged
+from sessions.auto_archive import MergeArchive
 from sessions.inbox.ownership import Ownerships
 from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
 from sessions.pipeline_watch.service import PipelineWatch
@@ -287,7 +287,7 @@ class MergeRequestCallback(GitLabCallback):
             iid, merged=merged, by_username=self.user.username, target_branch=self.object_attributes.target_branch
         )
         if merged:
-            await aarchive_merged(repo_id, iid)
+            await MergeArchive(repo_id, iid).aarchive()
 
     async def _record_merge_metrics(self):
         from codebase.tasks import record_merge_metrics_task

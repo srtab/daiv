@@ -10,7 +10,7 @@ from django_tasks_db.models import DBTaskResult
 from mcp_connectors.models import MCPServer
 from ninja.testing import TestAsyncClient
 from sessions.executor.tasks import run_job_task
-from sessions.models import EventKind, HiddenSession, InboxEvent, Run, RunStatus, Session, SessionOrigin
+from sessions.models import EventKind, InboxEvent, Run, RunStatus, Session, SessionOrigin
 from sessions.services import BatchSubmitResult
 
 from accounts.models import APIKey, User
@@ -709,19 +709,7 @@ class TestThreadContinuationAPI:
         assert response.status_code == 400
         assert "thread_id not found" in response.json()["detail"]
 
-    async def test_continuation_of_a_session_you_archived_rejects(self, authenticated_client, db):
-        user = await User.objects.aget(username="testuser")
-        thread = str(uuid.uuid4())
-        session = await Session.objects.acreate(
-            thread_id=thread, origin=SessionOrigin.API_JOB, repo_id="a/b", user=user
-        )
-        await HiddenSession.objects.acreate(session=session, user=user)
-        body = _single_repo_body(prompt="x", thread_id=thread)
-        response = await authenticated_client.post("/jobs", json=body)
-        assert response.status_code == 400
-        assert response.json()["detail"] == "thread_id is archived; unarchive the session to continue it"
-
-    async def test_continuation_of_a_session_archived_for_everyone_rejects(self, authenticated_client, db):
+    async def test_continuation_of_an_archived_session_rejects(self, authenticated_client, db):
         user = await User.objects.aget(username="testuser")
         thread = str(uuid.uuid4())
         await Session.objects.acreate(

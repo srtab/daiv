@@ -24,7 +24,6 @@ from sessions.models import (
     EventFailure,
     EventKind,
     EventState,
-    HiddenSession,
     MergeRequestOwnership,
     Run,
     RunStatus,
@@ -1716,7 +1715,7 @@ def test_detail_offers_rename_the_ci_toggle_and_archive_to_a_runner(member_clien
 
 
 @pytest.mark.django_db
-def test_detail_offers_only_archive_to_a_viewer_who_cannot_run(member_client, member_user):
+def test_detail_offers_no_actions_to_a_viewer_who_cannot_run(member_client, member_user):
     session = _create_session(user=member_user, title="Fix the login redirect")
 
     with patch("sessions.page_state.runnable_repo_ids", return_value=set()):
@@ -1724,17 +1723,15 @@ def test_detail_offers_only_archive_to_a_viewer_who_cannot_run(member_client, me
     topbar = _topbar(resp)
 
     assert 'title="Fix the login redirect">Fix the login redirect</h1>' in topbar
-    for testid in ("session-rename", "session-title-input", "session-ci-toggle"):
+    for testid in ("session-rename", "session-title-input", "session-ci-toggle", "session-archive"):
         assert f'data-testid="{testid}"' not in topbar
-    assert 'data-testid="session-archive"' in topbar
-    assert b'data-testid="session-archive-dialog"' in resp.content
+    assert b'data-testid="session-archive-dialog"' not in resp.content
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("archived", [False, True])
-def test_detail_marks_a_session_the_viewer_archived(member_client, member_user, admin_user, archived):
-    session = _create_session(user=member_user)
-    HiddenSession.objects.create(session=session, user=member_user if archived else admin_user)
+def test_detail_marks_an_archived_session(member_client, member_user, archived):
+    session = _create_session(user=member_user, archived_at=timezone.now() if archived else None)
 
     resp = _get_detail(member_client, session)
     topbar = _topbar(resp)
@@ -1750,14 +1747,16 @@ def test_detail_marks_a_session_the_viewer_archived(member_client, member_user, 
 
 
 @pytest.mark.django_db
-def test_detail_marks_a_session_archived_for_everyone(member_client, member_user):
-    session = _create_session(user=member_user)
-    Session.objects.filter(pk=session.pk).update(archived_at=timezone.now())
+def test_an_archived_session_offers_no_unarchive_to_a_viewer_who_cannot_run(member_client, member_user):
+    session = _create_session(user=member_user, archived_at=timezone.now())
 
-    resp = _get_detail(member_client, session)
+    with patch("sessions.page_state.runnable_repo_ids", return_value=set()):
+        resp = _get_detail(member_client, session)
+    html = resp.content.decode()
+    composer = html[html.index('data-testid="composer-archived"') :]
 
-    assert resp.context["archived"] is True
-    assert "archived: true," in resp.content.decode()
+    assert "This session is archived." in composer
+    assert "setArchived(false)" not in html
 
 
 @pytest.mark.django_db

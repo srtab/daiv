@@ -374,7 +374,7 @@ class TestMergeRequestCallback:
 
     @pytest.fixture(autouse=True)
     def archive(self):
-        with patch("webhooks.gitlab.callbacks.aarchive_merged", new=AsyncMock()) as archive:
+        with patch("webhooks.gitlab.callbacks.MergeArchive", autospec=True) as archive:
             yield archive
 
     async def test_a_merge_archives_its_sessions(self, archive):
@@ -384,14 +384,15 @@ class TestMergeRequestCallback:
         ):
             await create_merge_request_callback().process_callback()
 
-        archive.assert_awaited_once_with("group/repo", 1)
+        archive.assert_called_once_with("group/repo", 1)
+        archive.return_value.aarchive.assert_awaited_once_with()
 
     async def test_a_close_without_merge_archives_nothing(self, archive):
         callback = create_merge_request_callback(action=MergeRequestAction.CLOSE, state="closed")
         with patch.object(Ownerships, "aclose", autospec=True):
             await callback.process_callback()
 
-        archive.assert_not_awaited()
+        archive.assert_not_called()
 
     @pytest.mark.parametrize(
         ("action", "state"),

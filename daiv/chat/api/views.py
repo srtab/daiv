@@ -253,7 +253,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     # ``thread.user_id != user.id`` equality check and the ChatThreadFromActivity bridge.
     if not created and not await Session.objects.by_owner(user).filter(pk=session.pk).aexists():
         raise HttpError(403, "Thread not found")
-    if not created and await Session.objects.filter(pk=session.pk).archived_for(user).aexists():
+    if not created and await Session.objects.filter(pk=session.pk).archived().aexists():
         raise HttpError(400, "This session is archived. Unarchive it to send follow-ups.")
     repo_ids = [session.repo_id] if created else await session.arepo_ids()
     if len(repo_ids) > 1:

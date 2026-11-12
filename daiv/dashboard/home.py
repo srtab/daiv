@@ -113,7 +113,7 @@ def _runs_needing(user: User) -> list[dict]:
     return list(
         Run.objects
         .started_by(user)
-        .not_archived_by(user)
+        .outside_archived_sessions()
         .filter(session__last_active_at__gte=now - INBOX_MAX_AGE)
         .latest_in_session()
         .with_retried(user)

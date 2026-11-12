@@ -170,7 +170,7 @@ async def asubmit_jobs(
             raise AdmissionError("thread_id continuation requires exactly one repo")
         if not found:
             raise AdmissionError(THREAD_NOT_FOUND)
-        if await owned.archived_for(user).aexists():
+        if await owned.archived().aexists():
             raise AdmissionError(THREAD_ARCHIVED)
     if shared:
         validate_shared_repos(repos, continuation=thread_id is not None)

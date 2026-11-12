@@ -99,12 +99,12 @@ Filters are combined with AND logic and reflected in the URL query string, so fi
 
 Archived sessions leave the list, the home page's recent sessions and its inbox. The **Archived** control swaps the list for them; links that should show a merge request's or a period's sessions whatever their state (the **view sessions** link in a merge request description, the repository card, **Your week** and **Insights**) open the list with archived sessions included, shown by an **Including archived** chip you can clear. **Your week** and **Insights** count archived sessions too.
 
-A session is archived in one of two ways:
+An archived session is archived for everyone. It gets archived in one of two ways:
 
-- **By you**, from the session's **⋯** menu: it leaves your own lists only.
-- **When its merge request merges**: DAIV archives, for everyone, every session that worked on it — the session that opened it, its review and comment sessions, and issue sessions that published it. A session that still owns another open merge request stays listed and is archived when that one merges. A session with a run still going, or with a delegated session still running or owning an open merge request, is archived once that run ends or that merge request merges or closes. A merge request closed without merging archives nothing.
+- **From its page**, by anyone who can run agents on its repository, from the session's **⋯** menu.
+- **When its merge request merges**: DAIV archives every session that worked on it — the session that opened it, its review and comment sessions, and issue sessions that published it. A session that still owns another open merge request stays listed and is archived when that one merges. A session with a run still going, or with a delegated session still running or owning an open merge request, is archived once that run ends or that merge request merges or closes. A merge request closed without merging archives nothing.
 
-An archived session refuses follow-ups — chat messages, `thread_id` jobs and leg follow-ups — and a mention or label on its issue is ignored without a reply. **Unarchive** from the session's **⋯** menu or its composer brings it back; a session archived on merge comes back for everyone.
+An archived session refuses follow-ups — chat messages, `thread_id` jobs and leg follow-ups — and a mention or label on its issue is ignored without a reply. **Unarchive** from the session's **⋯** menu or its composer, which also needs run access to its repository, brings it back for everyone.
 
 ### Live updates
 
@@ -223,7 +223,7 @@ These selections are fixed at session creation. To use a different model, effort
 
 ### The session page
 
-The header carries only the session's title (rename it from the pencil when you can run agents on the repository), its status and a **⋯** menu with **Copy session link**, the linked issue and Archive. Everything about the work itself sits in the sidebar beside the transcript.
+The header carries only the session's title (rename it from the pencil when you can run agents on the repository), its status and a **⋯** menu with **Copy session link**, the linked issue and, when you can run agents on the repository, Archive. Everything about the work itself sits in the sidebar beside the transcript.
 
 From 1100px wide the sidebar is always open. Below that it is a sheet, which a summary button in the header opens: the main repository, `+N` for the others, the merge request (`!iid`, or a count) and a CI dot. The sheet opens on the Overview tab, scrolled to the repositories with that section unfolded.
 

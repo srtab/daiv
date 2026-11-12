@@ -55,22 +55,6 @@ def _session_runs_newest_first(session: models.OuterRef) -> models.QuerySet[Run]
     return Run.objects.filter(session=session).order_by(*_NEWEST_FIRST)
 
 
-def _open_merge_requests() -> models.QuerySet[MergeRequestOwnership]:
-    from sessions.models import MergeRequestOwnership
-
-    return MergeRequestOwnership.objects.filter(closed_at__isnull=True)
-
-
-def _archived_by(user: User, session_ref: str) -> models.Q:
-    """Rows whose session (``session_ref``: ``"pk"`` or a path to it) is archived for ``user``: by them, or for
-    everyone."""
-    from sessions.models import HiddenSession
-
-    prefix = "" if session_ref == "pk" else f"{session_ref}__"
-    hidden = models.Exists(HiddenSession.objects.filter(session=models.OuterRef(session_ref), user=user))
-    return models.Q(**{f"{prefix}archived_at__isnull": False}) | models.Q(hidden)
-
-
 class SessionQuerySet(models.QuerySet["Session"]):
     def _owner_q(self, user: User) -> models.Q:
         """Ownership predicate shared by ``by_owner``/``visible_to``.
@@ -142,17 +126,19 @@ class SessionQuerySet(models.QuerySet["Session"]):
 
     def without_open_merge_request(self) -> models.QuerySet[Session]:
         """Exclude sessions that own an open merge request."""
-        return self.exclude(models.Exists(_open_merge_requests().filter(session=models.OuterRef("pk"))))
+        from sessions.models import MergeRequestOwnership
+
+        return self.exclude(models.Exists(MergeRequestOwnership.objects.open().filter(session=models.OuterRef("pk"))))
 
     def without_live_work(self) -> models.QuerySet[Session]:
         """Exclude sessions that own an open merge request, have an unfinished run or a waking inbox event, or
         delegated a leg that owns an open merge request or has an unfinished run."""
-        from sessions.models import EventState, InboxEvent, Run, RunStatus
+        from sessions.models import EventState, InboxEvent, MergeRequestOwnership, Run, RunStatus
 
         unfinished = Run.objects.exclude(status__in=RunStatus.terminal())
         waking = InboxEvent.objects.filter(session=models.OuterRef("pk"), state=EventState.PENDING, wake=True)
         return self.without_open_merge_request().exclude(
-            models.Exists(_open_merge_requests().filter(session__parent=models.OuterRef("pk")))
+            models.Exists(MergeRequestOwnership.objects.open().filter(session__parent=models.OuterRef("pk")))
             | models.Exists(unfinished.filter(session=models.OuterRef("pk")))
             | models.Exists(unfinished.filter(session__parent=models.OuterRef("pk")))
             | models.Exists(waking)
@@ -168,22 +154,14 @@ class SessionQuerySet(models.QuerySet["Session"]):
     def listed_for(self, user: User, *, mine: bool = False, archived: bool | None = False) -> models.QuerySet[Session]:
         """The rows the session list shows ``user`` before any filter: their own when ``mine``, else all visible.
 
-        ``archived`` swaps in the sessions archived for ``user``, which every other list leaves out; ``None`` lists
-        both.
+        ``archived`` swaps in the archived sessions, which every other list leaves out; ``None`` lists both.
         """
         sessions = self.owned_by(user) if mine else self.visible_to(user)
-        return sessions.archived_for(user, archived=archived).without_watch_placeholders().with_latest_status()
+        if archived is not None:
+            sessions = sessions.filter(archived_at__isnull=not archived)
+        return sessions.without_watch_placeholders().with_latest_status()
 
-    def archived_for(self, user: User, *, archived: bool | None = True) -> models.QuerySet[Session]:
-        """The sessions archived for ``user`` (by them, or for everyone), or with ``archived=False`` the rest;
-        ``None`` keeps both."""
-        if archived is None:
-            return self.all()
-        hidden = _archived_by(user, "pk")
-        return self.filter(hidden if archived else ~hidden)
-
-    def archived_for_everyone(self) -> models.QuerySet[Session]:
-        """The sessions archived for everyone, as a merge does."""
+    def archived(self) -> models.QuerySet[Session]:
         return self.filter(archived_at__isnull=False)
 
     def with_latest_status(self) -> models.QuerySet[Session]:
@@ -223,15 +201,23 @@ class SessionManager(models.Manager.from_queryset(SessionQuerySet)):
     pass
 
 
+class MergeRequestOwnershipQuerySet(models.QuerySet["MergeRequestOwnership"]):
+    def open(self) -> models.QuerySet[MergeRequestOwnership]:
+        return self.filter(closed_at__isnull=True)
+
+
+class MergeRequestOwnershipManager(models.Manager.from_queryset(MergeRequestOwnershipQuerySet)):
+    pass
+
+
 class RunQuerySet(models.QuerySet["Run"]):
     def started_by(self, user: User) -> models.QuerySet[Run]:
         """Runs the user started, as themselves or through a git platform account they linked; not those of a schedule
         they subscribe to."""
         return self.filter(_started_by_q(user))
 
-    def not_archived_by(self, user: User) -> models.QuerySet[Run]:
-        """Runs outside the sessions archived for ``user``: by them, or for everyone."""
-        return self.filter(~_archived_by(user, "session"))
+    def outside_archived_sessions(self) -> models.QuerySet[Run]:
+        return self.filter(session__archived_at__isnull=True)
 
     def that_pushed(self) -> models.QuerySet[Run]:
         """Runs that pushed a commit, to their main repository or to another of their session's repositories."""

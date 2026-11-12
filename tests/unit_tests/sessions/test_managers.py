@@ -10,7 +10,7 @@ import pytest
 from allauth.socialaccount.models import SocialAccount
 from asgiref.sync import sync_to_async
 from django_tasks_db.models import DBTaskResult
-from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin, SessionRepository
+from sessions.models import Run, RunStatus, Session, SessionOrigin, SessionRepository
 from sessions.signal_defs import run_ended, run_finished
 
 from core.constants import CANCELLED_BY_COORDINATOR_MESSAGE
@@ -448,48 +448,20 @@ class TestWithRetried:
 
 
 @pytest.mark.django_db
-class TestArchivedFor:
+class TestArchived:
     def _session(self, user):
         return Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, user=user)
 
-    def test_it_splits_what_a_user_archived_from_the_rest(self, other_user, member_user):
-        shown = self._session(other_user)
-        hidden = self._session(other_user)
-        HiddenSession.objects.create(session=hidden, user=other_user)
-
-        assert list(Session.objects.archived_for(other_user)) == [hidden]
-        assert list(Session.objects.archived_for(other_user, archived=False)) == [shown]
-        assert set(Session.objects.archived_for(member_user, archived=False)) == {shown, hidden}
-
-    def test_the_list_leaves_out_what_the_user_archived_unless_asked_for_it(self, member_user):
+    def test_the_list_leaves_out_archived_sessions_unless_asked_for_them(self, member_user):
         shown = self._session(member_user)
-        hidden = self._session(member_user)
-        HiddenSession.objects.create(session=hidden, user=member_user)
+        archived = self._session(member_user)
+        Session.objects.filter(pk=archived.pk).update(archived_at=timezone.now())
 
         assert list(Session.objects.listed_for(member_user, mine=True)) == [shown]
-        assert list(Session.objects.listed_for(member_user, mine=True, archived=True)) == [hidden]
+        assert list(Session.objects.listed_for(member_user, mine=True, archived=True)) == [archived]
+        assert set(Session.objects.listed_for(member_user, mine=True, archived=None)) == {shown, archived}
 
-    def test_a_session_archived_for_everyone_is_archived_for_every_user(self, other_user, member_user):
-        shown = self._session(other_user)
-        auto = self._session(other_user)
-        Session.objects.filter(pk=auto.pk).update(archived_at=timezone.now())
-
-        assert list(Session.objects.archived_for(other_user)) == [auto]
-        assert list(Session.objects.archived_for(member_user)) == [auto]
-        assert list(Session.objects.archived_for(member_user, archived=False)) == [shown]
-
-    def test_the_list_can_include_archived_sessions(self, member_user):
-        shown = self._session(member_user)
-        hidden = self._session(member_user)
-        auto = self._session(member_user)
-        HiddenSession.objects.create(session=hidden, user=member_user)
-        Session.objects.filter(pk=auto.pk).update(archived_at=timezone.now())
-
-        assert list(Session.objects.listed_for(member_user, mine=True)) == [shown]
-        assert set(Session.objects.listed_for(member_user, mine=True, archived=True)) == {hidden, auto}
-        assert set(Session.objects.listed_for(member_user, mine=True, archived=None)) == {shown, hidden, auto}
-
-    def test_runs_of_a_session_archived_for_everyone_are_left_out(self, member_user):
+    def test_runs_of_an_archived_session_are_left_out(self, member_user):
         chat = SessionOrigin.CHAT
         kept = Run.objects.create(
             session=self._session(member_user), trigger_type=chat, repo_id="a/b", user=member_user
@@ -498,4 +470,4 @@ class TestArchivedFor:
         Run.objects.create(session=auto, trigger_type=chat, repo_id="a/b", user=member_user)
         Session.objects.filter(pk=auto.pk).update(archived_at=timezone.now())
 
-        assert list(Run.objects.not_archived_by(member_user)) == [kept]
+        assert list(Run.objects.outside_archived_sessions()) == [kept]

@@ -262,7 +262,7 @@ class TestPullRequestCallback:
 
     @pytest.fixture(autouse=True)
     def archive(self):
-        with patch("webhooks.github.callbacks.aarchive_merged", new=AsyncMock()) as archive:
+        with patch("webhooks.github.callbacks.MergeArchive", autospec=True) as archive:
             yield archive
 
     async def test_a_merge_archives_its_sessions(self, archive):
@@ -272,13 +272,14 @@ class TestPullRequestCallback:
         ):
             await create_pull_request_callback().process_callback()
 
-        archive.assert_awaited_once_with("owner/repo", 42)
+        archive.assert_called_once_with("owner/repo", 42)
+        archive.return_value.aarchive.assert_awaited_once_with()
 
     async def test_a_close_without_merge_archives_nothing(self, archive):
         with patch.object(Ownerships, "aclose", autospec=True):
             await create_pull_request_callback(merged=False).process_callback()
 
-        archive.assert_not_awaited()
+        archive.assert_not_called()
 
     @pytest.mark.parametrize(("action", "merged"), [("closed", True), ("closed", False), ("reopened", False)])
     def test_accept_a_close_or_a_reopen(self, action, merged):

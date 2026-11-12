@@ -27,7 +27,6 @@ from sessions.models import (
     LINK_FAILED_PREFIX,
     EventKind,
     EventState,
-    HiddenSession,
     InboxEvent,
     MergeRequestOwnership,
     MergeRequestState,
@@ -1039,26 +1038,11 @@ class TestLegFollowUpRefusals:
             "This leg works on `acme/api`: give that `repo_id`, or delegate a new leg for `acme/web`."
         )
 
-    async def test_the_person_it_acts_for_archived_it(self, admin_user):
-        _, run, leg = await _coordinated(admin_user)
-        await HiddenSession.objects.acreate(session_id=leg.session_id, user=admin_user)
-
-        assert "archived for the person you act for" in await self._refusal(run, _follow_up(leg))
-
-    async def test_a_leg_archived_for_everyone_is_refused(self, admin_user):
+    async def test_an_archived_leg_is_refused(self, admin_user):
         _, run, leg = await _coordinated(admin_user)
         await Session.objects.filter(pk=leg.session_id).aupdate(archived_at=timezone.now())
 
-        assert "archived for the person you act for" in await self._refusal(run, _follow_up(leg))
-
-    async def test_another_persons_archive_does_not_refuse_it(self, admin_user, member_user):
-        _, run, leg = await _coordinated(admin_user)
-        await HiddenSession.objects.acreate(session_id=leg.session_id, user=member_user)
-
-        with patch.object(Drain, "start_logged", autospec=True):
-            result = await _delegate(run, [_follow_up(leg)])
-
-        assert [started.thread_id for started in result.started] == [leg.session_id]
+        assert "The leg's session is archived" in await self._refusal(run, _follow_up(leg))
 
     @pytest.mark.parametrize("busy", ["running", "follow_up_waiting", "waits_for_coordinator"])
     async def test_a_leg_still_working(self, admin_user, busy):

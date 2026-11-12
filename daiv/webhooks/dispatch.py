@@ -250,12 +250,12 @@ async def _start_run(
     """Enqueue ``task`` with ``task_kwargs`` plus what every addressor task takes, and record its ``Run`` on the
     issue's or merge request's ``Session`` in one transaction, for the DAIV user linked to ``author``, whom the task
     acts as. Returns whether it did: ``False`` when the enqueue found an earlier trigger's task, which has its ``Run``
-    already, or when the session is archived for everyone, which ignores the trigger.
+    already, or when the session is archived, which ignores the trigger.
 
     A failed session or ``Run`` write rolls the enqueue back and raises, so the platform redelivers the event.
     """
     thread_id = compute_thread_id(repo_slug=repo_id, scope=scope, entity_iid=iid)
-    if await Session.objects.filter(pk=thread_id).archived_for_everyone().aexists():
+    if await Session.objects.filter(pk=thread_id).archived().aexists():
         logger.info("Ignoring a trigger on %s#%s: its session %s is archived", repo_id, iid, thread_id)
         return False
     # user=None: the webhook fires for whoever touched the issue/MR, not the agent owner, so USER envs never apply.

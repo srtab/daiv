@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import timedelta
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, call, patch
 
 from django.utils import timezone
 
@@ -12,7 +12,7 @@ import pytest
 from asgiref.sync import sync_to_async
 from ninja.testing import TestAsyncClient
 from sessions.hydration import HydratedThread
-from sessions.models import HiddenSession, MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
+from sessions.models import MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import APIKey, User
 from daiv.api import api
@@ -673,13 +673,14 @@ async def test_session_actions_404_on_a_session_the_caller_cannot_see(client, au
 
     assert resp.status_code == 404
     await session.arefresh_from_db()
-    assert session.title == "Theirs"
-    assert not await HiddenSession.objects.aexists()
+    assert (session.title, session.archived_at) == ("Theirs", None)
     assert watch_world.evaluations == []
 
 
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize(("path", "body"), [("", {"title": "New"}), ("/ci-watch", TURN_ON)])
+@pytest.mark.parametrize(
+    ("path", "body"), [("", {"title": "New"}), ("/ci-watch", TURN_ON), ("/archive", {"archived": True})]
+)
 async def test_session_actions_403_for_a_reader_who_cannot_run_on_the_repo(client, authed, watch_world, path, body):
     _key_obj, raw, user = authed
     session = await sync_to_async(_create_session)(user=user, title="Mine")
@@ -690,7 +691,7 @@ async def test_session_actions_403_for_a_reader_who_cannot_run_on_the_repo(clien
 
     assert resp.status_code == 403
     await session.arefresh_from_db()
-    assert session.title == "Mine"
+    assert (session.title, session.archived_at) == ("Mine", None)
     assert watch_world.evaluations == []
 
 
@@ -726,56 +727,24 @@ async def test_session_rename_refuses_a_blank_title(client, authed, title):
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_session_archive_marks_and_unmarks_it_for_the_caller_alone(client, authed):
+async def test_session_archive_archives_and_unarchives_it_for_everyone_poking_its_page_on_a_change(client, authed):
     _key_obj, raw, user = authed
-    other = await User.objects.acreate_user(username="co-owner", email="co-owner@example.com", password="x")  # noqa: S106
     session = await sync_to_async(_create_session)(user=user)
-    await HiddenSession.objects.acreate(session=session, user=other)
+    await Session.objects.filter(pk=session.pk).aupdate(archive_pending=True)
     url = f"/sessions/{session.thread_id}/archive"
 
-    archived = await client.post(url, json={"archived": True}, headers=_auth_headers(raw))
-    again = await client.post(url, json={"archived": True}, headers=_auth_headers(raw))
-    marked = [u async for u in HiddenSession.objects.order_by("user_id").values_list("user_id", flat=True)]
-    restored = await client.post(url, json={"archived": False}, headers=_auth_headers(raw))
-
-    assert (archived.json(), again.json(), restored.json()) == (
-        {"archived": True},
-        {"archived": True},
-        {"archived": False},
-    )
-    assert marked == sorted([user.pk, other.pk])
-    assert [u async for u in HiddenSession.objects.values_list("user_id", flat=True)] == [other.pk]
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_unarchive_brings_a_session_archived_for_everyone_back(client, authed):
-    _key_obj, raw, user = authed
-    session = await sync_to_async(_create_session)(user=user)
-    await Session.objects.filter(pk=session.pk).aupdate(archived_at=timezone.now())
-
     with patch("sessions.api.views.asession_changed", new=AsyncMock()) as poke:
-        response = await client.post(
-            f"/sessions/{session.thread_id}/archive", json={"archived": False}, headers=_auth_headers(raw)
-        )
+        archived = await client.post(url, json={"archived": True}, headers=_auth_headers(raw))
+        again = await client.post(url, json={"archived": True}, headers=_auth_headers(raw))
+        await session.arefresh_from_db()
+        marked = (session.archived_at is not None, session.archive_pending)
+        restored = await client.post(url, json={"archived": False}, headers=_auth_headers(raw))
 
-    assert response.json() == {"archived": False}
+    assert [r.json()["archived"] for r in (archived, again, restored)] == [True, True, False]
+    assert marked == (True, False)
     await session.arefresh_from_db()
     assert session.archived_at is None
-    poke.assert_awaited_once_with(session.pk)
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_session_archive_needs_no_run_access(client, authed):
-    _key_obj, raw, user = authed
-    session = await sync_to_async(_create_session)(user=user)
-
-    with patch("sessions.api.views.can_run", return_value=False):
-        resp = await client.post(
-            f"/sessions/{session.thread_id}/archive", json={"archived": True}, headers=_auth_headers(raw)
-        )
-
-    assert resp.status_code == 200
-    assert await HiddenSession.objects.filter(session=session, user=user).aexists()
+    assert poke.await_args_list == [call(session.pk), call(session.pk)]
 
 
 @pytest.mark.django_db(transaction=True)

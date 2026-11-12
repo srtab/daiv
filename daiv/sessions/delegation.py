@@ -18,7 +18,7 @@ the default branch always does.
 A target that names a leg's ``thread_id`` is a leg follow-up: it continues that leg in its own session, with its
 conversation, on its branch and merge request (:mod:`sessions.inbox.leg_follow_ups`). It is refused, with a reason the
 coordinator can act on and the call's other targets going ahead, unless it names a leg this coordinator delegated, no
-``ref``, the leg's repository, a leg whose merge request is still open, not archived for its user, whose delegated work
+``ref``, the leg's repository, a leg whose merge request is still open, not archived, whose delegated work
 has all ended, and that DAIV did not lose track of (:data:`_REFUSALS`, checked in that order), then on a repository
 its user may still run on, checked with the new legs' and again by the inbox when its run starts. A leg follow-up's run
 carries the call's ``batch_id``, so one batch may hold new legs' first runs and leg follow-ups' runs, and a leg session
@@ -128,8 +128,8 @@ _REFUSALS = {
     "ref": "A leg follow-up works on the leg's own branch: omit `ref`.",
     "repo": "This leg works on `{leg_repo_id}`: give that `repo_id`, or delegate a new leg for `{repo_id}`.",
     "archived": (
-        "The leg's session is archived for the person you act for: they can unarchive it from its session page, or "
-        "you can delegate a new leg."
+        "The leg's session is archived: someone who can run on its repository can unarchive it from its session "
+        "page, or you can delegate a new leg."
     ),
     BUSY: "This leg is still working: you are resumed when its batch finishes, and can follow it up then.",
     "lost": (
@@ -186,7 +186,7 @@ class SessionJobDelegator:
         legs: dict[int, Leg] = {}
         for index, target in enumerate(targets):
             if target.thread_id:
-                leg, refusal = await sync_to_async(self._check_follow_up)(target, user)
+                leg, refusal = await sync_to_async(self._check_follow_up)(target)
                 if refusal is not None:
                     outcomes[index] = FailedLeg(target.repo_id, target.ref, refusal, thread_id=target.thread_id)
                 else:
@@ -283,7 +283,7 @@ class SessionJobDelegator:
             failed=[outcome for outcome in ordered if isinstance(outcome, FailedLeg)],
         )
 
-    def _check_follow_up(self, target: DelegatedTarget, user: User) -> tuple[Leg | None, str | None]:
+    def _check_follow_up(self, target: DelegatedTarget) -> tuple[Leg | None, str | None]:
         """The leg ``target`` follows up, and why it is refused, or ``None`` when it may be sent; the first failing
         check gives the reason. SYNC ONLY."""
         leg = Leg.of(target.thread_id, coordinator=self._thread_id)
@@ -296,7 +296,7 @@ class SessionJobDelegator:
             return leg, _REFUSALS["repo"].format(leg_repo_id=session.repo_id, repo_id=target.repo_id)
         if (state := leg.merge_request_state()) != MergeRequestState.OPEN:
             return leg, _REFUSALS[state]
-        if leg.archived_by(user):
+        if leg.is_archived():
             return leg, _REFUSALS["archived"]
         if leg.is_busy():
             return leg, _REFUSALS[BUSY]

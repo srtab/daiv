@@ -355,7 +355,8 @@
     // from the first render — assigning a *new* key onto an existing reactive
     // proxy after init doesn't always re-render templates.
     thread: config.thread ? { ...config.thread, merge_request: loadInitialMergeRequest() } : null,
-    // Set by sessionPage's Archive through Alpine's merged scope; an archived session takes no follow-ups.
+    // Set by sessionPage, from its Archive and each turns fetch, through Alpine's merged scope; an archived session
+    // takes no follow-ups.
     archived: Boolean(config.archived),
     selectedSandboxEnvId: config.selectedSandboxEnvId || "",
     // The locked model and env labels, kept current by ``daiv:agent-changed`` / ``daiv:env-changed``: on a new chat

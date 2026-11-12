@@ -12,7 +12,7 @@ through its ``SessionOrigin.DELEGATED_JOB`` runs (its first run and any leg foll
   waiting for its coordinator's turn), READY or RUNNING.
 - **Lost** (:meth:`Leg.is_lost`): its latest delegated run reached the task queue but could not be linked to its row,
   so it may still be working while the row shows FAILED.
-- **Archived** (:meth:`Leg.archived_by`): its session is archived for one person, by them or for everyone.
+- **Archived** (:meth:`Leg.is_archived`): its session is archived.
 
 ``sessions.queue`` imports this module, so it imports only ``sessions.models``. SYNC ONLY, but for the async wrappers.
 A leg follow-up that does not run because its leg's merge request was merged or closed finishes its run FAILED with
@@ -37,8 +37,6 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from django.db.models import QuerySet
-
-    from accounts.models import User
 
 NOT_RUN_MERGED = gettext_noop("Not run: its merge request was merged")
 NOT_RUN_CLOSED = gettext_noop("Not run: its merge request was closed")
@@ -143,5 +141,5 @@ class Leg:
         latest = self.delegated_runs().reverse().values_list("status", "error_message").first()
         return latest is not None and latest[0] == RunStatus.FAILED and latest[1].startswith(LINK_FAILED_PREFIX)
 
-    def archived_by(self, user: User) -> bool:
-        return Session.objects.filter(pk=self.session.pk).archived_for(user).exists()
+    def is_archived(self) -> bool:
+        return Session.objects.filter(pk=self.session.pk).archived().exists()

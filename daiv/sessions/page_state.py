@@ -53,7 +53,7 @@ logger = logging.getLogger("daiv.sessions")
 MERGE_REQUEST_CACHE_TIMEOUT = 60
 
 _HEADER_KEYS = ("latest_run", "run_count", "delegations", "ci", "watch", "up_next", "repositories", "references")
-_ROW_FIELDS = ["active_run_id", "last_active_at", "title", "ref", "external_refs"]
+_ROW_FIELDS = ["active_run_id", "last_active_at", "title", "ref", "external_refs", "archived_at"]
 
 
 @dataclass(frozen=True)
@@ -79,12 +79,13 @@ class SessionState:
     header: dict[str, Any]
     can_act: bool
     expired_banner: bool
+    archived: bool
 
 
 async def aload_session_state(session: Session, user: User, *, always_look_up_merge_request: bool) -> SessionState:
     """``session``'s :class:`SessionState` for ``user``; ``always_look_up_merge_request`` asks the platform for a
-    merge request the checkpoint lacks even while a run is in flight. Re-reads the fields of ``session`` that runs and
-    renames change, so ``session`` comes back current."""
+    merge request the checkpoint lacks even while a run is in flight. Re-reads the fields of ``session`` that runs,
+    renames and archiving change, so ``session`` comes back current."""
     revision = await aread_session_revision(session.thread_id)
     await session.arefresh_from_db(fields=_ROW_FIELDS)
     hydrated = await ahydrate_thread(session.thread_id)
@@ -147,6 +148,7 @@ async def aload_session_state(session: Session, user: User, *, always_look_up_me
         header=header,
         can_act=can_act,
         expired_banner=expired_banner,
+        archived=session.archived_at is not None,
     )
 
 
@@ -263,6 +265,7 @@ def turns_payload(state: SessionState, session: Session) -> dict[str, Any]:
         "context_usage": state.hydrated.context_usage,
         "thread_ref": state.thread_ref,
         "title": session_title(session),
+        "archived": state.archived,
     }
     if state.merge_request_known:
         payload["merge_request"] = state.merge_request

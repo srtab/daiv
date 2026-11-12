@@ -743,6 +743,28 @@ def test_a_refused_archive_restores_the_state():
     assert result["seen"][0]["archived"] is False
 
 
+@pytest.mark.parametrize(("initial", "polled"), [(False, {"archived": True}), (True, {"archived": False}), (True, {})])
+def test_a_poll_shows_whether_the_session_is_archived_and_one_without_it_keeps_it(initial, polled):
+    seen = _run([["poll", {"latest_run": DONE, **polled}], ["read", None]], archived=initial)["seen"][0]
+
+    assert seen["archived"] is polled.get("archived", initial)
+
+
+def test_a_poll_asked_for_before_the_archive_answered_does_not_undo_it():
+    unarchived = {"latest_run": DONE, "archived": False}
+    steps = [
+        ["archive", True],
+        ["poll", {**unarchived, "requestedAt": 11}],
+        ["reply", {"body": {"archived": True}}],
+        ["poll", {**unarchived, "requestedAt": 9}],
+        ["read", None],
+        ["poll", {**unarchived, "requestedAt": 11}],
+        ["read", None],
+    ]
+
+    assert [seen["archived"] for seen in _run(steps)["seen"]] == [True, False]
+
+
 RETRYABLE = {"marker_id": "run-status-r2", "label": "Failed", "variant": "failed", "retry": "Please try again."}
 
 
