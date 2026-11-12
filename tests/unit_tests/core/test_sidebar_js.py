@@ -80,7 +80,12 @@ const sandbox = {
 sandbox.getComputedStyle = () => ({ getPropertyValue: (name) => bounds[name] ?? "" });
 sandbox.location = { assign: (url) => { assigned = url; } };
 sandbox.window = sandbox;
-sandbox.Alpine = { store: (name, value) => (stores[name] = value) };
+const ticks = [];
+sandbox.Alpine = { store: (name, value) => (stores[name] = value), nextTick: (cb) => ticks.push(cb) };
+const focused = [];
+const focusedBeforeTick = [];
+const copy = { querySelector: (selector) => ({ focus: (options) => focused.push([selector, options]) }) };
+const from = { closest: (selector) => (selector === '[data-testid="app-sidebar"]' ? copy : null) };
 vm.createContext(sandbox);
 vm.runInContext(readFileSync(src, "utf8"), sandbox);
 
@@ -90,6 +95,11 @@ for (const action of actions) {
   let prevented = false;
   const preventDefault = () => { prevented = true; };
   if (action.click) sidebar.toggle();
+  else if ("settings" in action) {
+    sidebar.showSettings(action.settings, from);
+    focusedBeforeTick.push(focused.length);
+    ticks.splice(0).forEach((cb) => cb());
+  }
   else if (action.reset) sidebar.resetWidth();
   else if (action.drag) {
     const button = action.button ?? 0;
@@ -115,6 +125,7 @@ for (const action of actions) {
 }
 process.stdout.write(JSON.stringify({
   rail: sidebar.rail, attr: dataset.sidebar ?? null, stored, prevented: seen, assigned, fieldFocused,
+  settings: sidebar.settings, focused, focusedBeforeTick,
   width: sidebar.width, minWidth: sidebar.minWidth, maxWidth: sidebar.maxWidth,
   chosen: vars["--app-sidebar-chosen"] ?? null, resizing: "sidebarResizing" in dataset, resizingMidDrag, captured,
   listening: Object.values(listeners).reduce((n, set) => n + set.size, 0),
@@ -161,6 +172,23 @@ def test_the_toggle_flips_the_attribute_and_remembers_it():
 def test_blocked_storage_still_toggles_for_this_page():
     state = drive([{"click": True}], storage="blocked")
     assert (state["rail"], state["attr"], state["stored"]) == (True, "rail", {})
+
+
+@requires_node
+def test_the_cog_slides_settings_in_and_focuses_back_once_it_is_live():
+    state = drive([{"settings": True}])
+
+    assert state["settings"] is True
+    assert state["focusedBeforeTick"] == [0]
+    assert state["focused"] == [['[data-testid="nav-settings-back"]', {"preventScroll": True}]]
+
+
+@requires_node
+def test_back_slides_settings_out_and_returns_focus_to_the_cog():
+    state = drive([{"settings": True}, {"settings": False}])
+
+    assert state["settings"] is False
+    assert state["focused"][-1] == ['[data-testid="nav-settings"]', {"preventScroll": True}]
 
 
 @requires_node

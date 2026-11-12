@@ -165,6 +165,12 @@
       margin-left: 1.25rem;
     }
 
+    /* Too narrow for the cog beside the account chip, so it stacks above it. */
+    & .sidebar__footer {
+      flex-direction: column-reverse;
+      align-items: center;
+    }
+
     /* Its description is hidden here, so the icon drops the nudge that aligned it to the label. */
     & .sidebar__nav-item--described > :first-child {
       margin-top: 0;
@@ -206,6 +212,33 @@
   .sidebar__nav-item {
     @apply relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm
            text-text-muted transition-colors hover:text-text;
+  }
+
+  /* The main and Settings menus side by side in one grid row; `--settings` slides both one
+     width left. `clip`, not `hidden`, so focusing an item can never scroll the track. */
+  .nav-panels {
+    @apply grid min-h-0 flex-1 grid-cols-[100%_100%] grid-rows-[minmax(0,1fr)] overflow-clip;
+  }
+
+  .nav-panel {
+    @apply flex min-h-0 min-w-0 flex-col transition-transform duration-250 ease-out;
+  }
+
+  .nav-panels--settings > .nav-panel {
+    @apply -translate-x-full;
+  }
+
+  .sidebar__footer {
+    @apply flex items-center gap-1;
+  }
+
+  .nav-cog {
+    @apply inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-text-muted
+           transition-colors hover:bg-surface-3 hover:text-text;
+  }
+
+  .nav-cog--active {
+    @apply bg-surface-3 text-text-strong;
   }
 
   /* Straddles the sidebar's border, so its 2px line lands on it. */

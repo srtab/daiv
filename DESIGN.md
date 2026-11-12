@@ -630,8 +630,8 @@ wordmark and a teal New chat `+`) that is the only nav entry point on a phone.
   windows that would leave the content under 48rem), so the clamp also follows window resizes.
   The width shown is what `localStorage` keeps (`daiv.sidebar.width`, dropped at the default),
   and the same head script restores it before first paint. Neither the rail nor the sheet resizes.
-- **Layout.** Top to bottom: brand and toggle, then the `<nav>`, then Settings and the
-  account chip. In the `<nav>`, fixed rows — Home (URL name `dashboard`), Notifications,
+- **Layout.** Top to bottom: brand and toggle, then the `<nav>`, then the account chip with
+  the Settings cog beside it (`.sidebar__footer`; the rail stacks the cog above the chip). In the `<nav>`, fixed rows — Home (URL name `dashboard`), Notifications,
   Artifacts — sit above a scroller holding two lists, `dashboard/_sidebar_lists.html` read from
   `nav_sidebar` (`dashboard/sidebar.py`). Each list's heading carries icon actions
   (`.nav-group-action`). **Sessions**: search (the sessions page's search box, `#search`;
@@ -644,17 +644,20 @@ wordmark and a teal New chat `+`) that is the only nav entry point on a phone.
   newest firings (one row per dispatch, worst status of its sessions, a repository count
   past one) and "All runs". Its heading takes the `schedules` section's active state;
   its list icon links the schedules page. The queries run once per page, behind the lazy
-  `nav_sidebar`, and never on a settings page. Order and contents are pinned by
+  `nav_sidebar`, and never while a settings page loads. Order and contents are pinned by
   `dashboard/test_sidebar.py` and `dashboard/test_sidebar_lists.py`.
-- **Settings mode.** A page whose section is in `_SETTINGS_SECTION_URL_NAMES`
-  (`dashboard/context_processors.py`) renders `_sidebar_settings.html` in place of the
-  fixed rows and lists: Back (Home), **Agent setup** — Sandbox environments, MCP servers,
-  Memory, set up once, so the heading carries a one-line "optional" hint and each item a
-  `.nav-description` (the item takes `sidebar__nav-item--described`, and its `title` repeats
-  both for the rail) — then **Admin** (`is_admin` only), then Help & docs, API documentation
-  and the build line. The Settings row links the first of them and is active in this mode.
-  Schedules and Insights are not settings: their pages keep the lists, and Insights is
-  reached from Home.
+- **Settings menu.** The `<nav>` holds two menus side by side in one clipped grid row
+  (`.nav-panels`, each a `.nav-panel`): the fixed rows and lists, and `_sidebar_settings.html`
+  — Back, **Agent setup** — Sandbox environments, MCP servers, Memory, set up once, so the
+  heading carries a one-line "optional" hint and each item a `.nav-description` (the item takes
+  `sidebar__nav-item--described`, and its `title` repeats both for the rail) — then **Admin**
+  (`is_admin` only), then Help & docs, API documentation and the build line. The cog
+  (`.nav-cog`, a disclosure button) slides Settings in and Back or Escape slides it out, with
+  no page load; focus moves to Back, then back to the cog, and the hidden menu is `inert`.
+  The `sidebar` store's `settings` holds the state for both copies. A page whose section is in
+  `_SETTINGS_SECTION_URL_NAMES` (`dashboard/context_processors.py`) starts on Settings, its
+  lists left out until Back first shows them (`sidebarLists.refresh()`). Schedules and
+  Insights are not settings: their pages keep the lists, and Insights is reached from Home.
 - **Live lists.** The `nav` store announces `daiv:runs-changed` when a frame moves the
   running snapshot of the user's own sessions (`own_running_runs`, `own_latest_running_start`;
   runs they merely see do not count) or the stream reopens; the `sidebarLists` store
@@ -688,7 +691,7 @@ wordmark and a teal New chat `+`) that is the only nav entry point on a phone.
 - **Page bars and side columns.** A page that needs a bar above its scrolling `<main>` or a column beside it
   overrides `{% block app_body %}` and renders its own single `<main>` (the session page's top bar and sidebar do). Keep that `<main>` the only one: chat scrolling and the sticky composer look it up.
 - **Only the lists scroll.** The `<aside>` and `<nav>` carry no `overflow` — the scroller
-  inside the `<nav>` does — so the fixed rows, Settings and the account chip stay pinned and
+  inside the `<nav>` does — so the fixed rows, the cog and the account chip stay pinned and
   the account menu can open past the rail's edge without being clipped.
 - **Account menu.** The chip at the bottom of the sidebar (`.sidebar__account`) opens a
   menu holding the personal pages — notification channels, API keys, passkeys — and

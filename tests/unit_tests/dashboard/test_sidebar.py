@@ -191,6 +191,14 @@ def _testids(sidebar, wanted) -> list[str]:
     return [node["data-testid"] for node in sidebar.select("[data-testid]") if node["data-testid"] in wanted]
 
 
+def _assert_starts_on_settings(sidebar):
+    assert "nav-panels--settings" in sidebar.select_one('[data-testid="nav-panels"]')["class"]
+    assert sidebar.select_one('[data-testid="nav-main-panel"]').has_attr("inert")
+    assert not sidebar.select_one('[data-testid="nav-settings-panel"]').has_attr("inert")
+    assert sidebar.select_one('[data-testid="nav-settings-back"]')
+    assert sidebar["x-init"] == "$store.sidebar.settings = true"
+
+
 def _session_page(client, session):
     with patch(
         "sessions.page_state.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, None, None, None))
@@ -210,7 +218,8 @@ class TestSidebarOrder:
         assert _sidebar(member_client).select_one('[data-testid="nav-home"]')["href"] == reverse("dashboard")
 
     def test_pages_that_left_the_top_level_are_gone(self, admin_client):
-        hrefs = {link["href"] for link in _sidebar(admin_client).select("a[href]")}
+        main = _sidebar(admin_client).select_one('[data-testid="nav-main-panel"]')
+        hrefs = {link["href"] for link in main.select("a[href]")}
         for url_name in ("insights", "user_list", "skills:list", "memory:list", "schedule_template_list"):
             assert reverse(url_name) not in hrefs
 
@@ -221,7 +230,6 @@ class TestSidebarOrder:
     def test_settings_row_sits_outside_the_scrolling_lists(self, member_client):
         sidebar = _sidebar(member_client)
         settings = sidebar.select_one('[data-testid="nav-settings"]')
-        assert settings["href"] == reverse("sandbox_envs:list")
         assert settings["title"]
         assert settings.find_parent(attrs={"data-sidebar-scroll": True}) is None
         assert sidebar.select_one('[data-testid="sidebar-lists"]').find_parent(attrs={"data-sidebar-scroll": True})
@@ -515,25 +523,22 @@ SETTINGS_ORDER = [
 @pytest.mark.django_db
 class TestSidebarSettingsMode:
     @pytest.mark.parametrize("url_name", MEMBER_SETTINGS)
-    def test_member_settings_pages_show_the_settings_menu(self, member_client, url_name):
-        sidebar = _sidebar(member_client, url_name)
-
-        assert sidebar.select_one('[data-testid="nav-settings-back"]')
-        assert not sidebar.select('[data-testid="sidebar-lists"]')
+    def test_member_settings_pages_start_on_the_settings_menu(self, member_client, url_name):
+        _assert_starts_on_settings(_sidebar(member_client, url_name))
 
     @pytest.mark.parametrize("url_name", ADMIN_SETTINGS)
-    def test_admin_settings_pages_show_the_settings_menu(self, admin_client, url_name):
-        sidebar = _sidebar(admin_client, url_name)
-
-        assert sidebar.select_one('[data-testid="nav-settings-back"]')
-        assert not sidebar.select('[data-testid="sidebar-lists"]')
+    def test_admin_settings_pages_start_on_the_settings_menu(self, admin_client, url_name):
+        _assert_starts_on_settings(_sidebar(admin_client, url_name))
 
     @pytest.mark.parametrize("url_name", NORMAL_PAGES)
-    def test_other_pages_show_the_normal_sidebar(self, member_client, url_name):
+    def test_other_pages_start_on_the_main_menu_with_settings_ready(self, member_client, url_name):
         sidebar = _sidebar(member_client, url_name)
 
-        assert sidebar.select_one('[data-testid="sidebar-lists"]')
-        assert not sidebar.select('[data-testid="nav-settings-back"]')
+        assert "nav-panels--settings" not in sidebar.select_one('[data-testid="nav-panels"]')["class"]
+        assert not sidebar.select_one('[data-testid="nav-main-panel"]').has_attr("inert")
+        assert sidebar.select_one('[data-testid="nav-settings-panel"]').has_attr("inert")
+        assert sidebar.select_one('[data-testid="nav-sessions-group"]')
+        assert sidebar.select_one('[data-testid="nav-settings-back"]')
 
     def test_menu_order(self, admin_client):
         assert _testids(_sidebar(admin_client, "sandbox_envs:list"), SETTINGS_ORDER) == SETTINGS_ORDER
@@ -571,12 +576,26 @@ class TestSidebarSettingsMode:
 
         assert [_item_label(item) for item in menu.select(".sidebar__nav-item--active")] == [label]
 
-    def test_settings_row_is_active_only_in_settings_mode(self, member_client):
-        def settings_row(url_name):
+    def test_the_cog_starts_open_only_in_settings_mode(self, member_client):
+        def cog(url_name):
             return _sidebar(member_client, url_name).select_one('[data-testid="nav-settings"]')
 
-        assert "sidebar__nav-item--active" in settings_row("sandbox_envs:list")["class"]
-        assert "sidebar__nav-item--active" not in settings_row("dashboard")["class"]
+        assert "nav-cog--active" in cog("sandbox_envs:list")["class"]
+        assert cog("sandbox_envs:list")["aria-expanded"] == "true"
+        assert "nav-cog--active" not in cog("dashboard")["class"]
+        assert cog("dashboard")["aria-expanded"] == "false"
+
+    def test_the_cog_sits_beside_the_account_and_controls_its_own_copy(self, member_client):
+        soup = _soup(member_client, "dashboard")
+
+        for sidebar in soup.select('[data-testid="app-sidebar"]'):
+            cog = sidebar.select_one('[data-testid="nav-settings"]')
+            assert cog.name == "button"
+            assert cog["aria-label"]
+            assert cog.find_parent(class_="sidebar__footer").select_one('[data-testid="app-user-menu"]')
+            assert sidebar.select_one(f"#{cog['aria-controls']}")["data-testid"] == "nav-settings-panel"
+        controls = [cog["aria-controls"] for cog in soup.select('[data-testid="nav-settings"]')]
+        assert len(set(controls)) == len(controls) == 2
 
     def test_agent_setup_items_say_what_they_are_for(self, member_client):
         group = _sidebar(member_client, "sandbox_envs:list").select_one('[data-testid="nav-setup-group"]')
@@ -597,21 +616,19 @@ class TestSidebarSettingsMode:
         assert heading["title"].startswith("Optional")
 
     def test_docs_api_and_build_line_live_here(self, member_client):
-        settings = _sidebar(member_client, "sandbox_envs:list")
-        home = _sidebar(member_client, "dashboard")
+        sidebar = _sidebar(member_client, "dashboard")
         api_docs = f'a[href="{reverse("api:openapi-view")}"]'
 
         for selector in ('[data-testid="sidebar-docs-link"]', '[data-testid="build-info"]', api_docs):
-            assert settings.select_one(selector)
-            assert not home.select_one(selector)
+            assert sidebar.select_one('[data-testid="nav-settings-panel"]').select_one(selector)
+            assert not sidebar.select_one('[data-testid="nav-main-panel"]').select_one(selector)
 
-    def test_back_goes_home_and_account_stays(self, member_client):
-        sidebar = _sidebar(member_client, "sandbox_envs:list")
+    def test_back_slides_settings_out_without_leaving_the_page(self, member_client):
+        back = _sidebar(member_client, "sandbox_envs:list").select_one('[data-testid="nav-settings-back"]')
 
-        back = sidebar.select_one('[data-testid="nav-settings-back"]')
-        assert back["href"] == reverse("dashboard")
+        assert back.name == "button"
+        assert back["@click"] == "$store.sidebar.showSettings(false, $el)"
         assert back["title"]
-        assert sidebar.select_one('[data-testid="app-user-menu"]')
 
     def test_settings_pages_run_no_sidebar_list_queries(self, member_client, mocker):
         spy = mocker.spy(context_processors, "sidebar_lists")
@@ -619,6 +636,12 @@ class TestSidebarSettingsMode:
         member_client.get(reverse("sandbox_envs:list"))
 
         assert spy.call_count == 0
+
+    def test_settings_pages_load_the_lists_when_back_shows_them(self, member_client):
+        lists = _sidebar(member_client, "sandbox_envs:list").select_one('[data-testid="sidebar-lists"]')
+
+        assert not lists.select('[data-testid="nav-sessions-group"]')
+        assert lists["x-effect"] == "$store.sidebar.settings || $store.sidebarLists.refresh()"
 
     def test_every_page_stays_reachable(self, admin_client):
         home = _soup(admin_client, "dashboard")
@@ -718,11 +741,12 @@ class TestCollapseToggle:
         assert "core/js/sidebar.js" in content
         assert '@keydown.window="$store.sidebar.onKey($event)"' in content
 
-    @pytest.mark.parametrize(("url_name", "at_least"), [("dashboard", 7), ("sandbox_envs:list", 12)])
-    def test_every_rail_icon_keeps_a_name_and_tooltip(self, admin_client, url_name, at_least):
+    @pytest.mark.parametrize("url_name", ["dashboard", "sandbox_envs:list"])
+    def test_every_rail_icon_keeps_a_name_and_tooltip(self, admin_client, url_name):
         """The rail hides each label, so the `title` is what names the icon and shows on hover."""
+        at_least = 18
         sidebar = _soup(admin_client, url_name).select_one("#app-sidebar")
-        links = sidebar.select(".sidebar__nav-item, .sidebar__footer-link")
-        untitled = [link["href"] for link in links if not link.get("title", "").strip()]
+        links = sidebar.select(".sidebar__nav-item, .sidebar__footer-link, .nav-cog")
+        untitled = [str(link)[:80] for link in links if not link.get("title", "").strip()]
         assert len(links) >= at_least
         assert not untitled

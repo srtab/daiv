@@ -1,16 +1,17 @@
 {% load i18n icon_tags nav_tags %}
 {% comment %}
-The sidebar's middle on a settings page, in place of `_sidebar_main.html`: the pages someone sets
-up once, and for admins the instance's own. `nav_settings_mode` picks it.
+The sidebar's Settings menu, which the cog slides in over `_sidebar_main.html`: the pages someone
+sets up once, and for admins the instance's own.
 {% endcomment %}
 <div data-testid="nav-settings-menu" class="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-3 pb-4">
-  <a href="{% url 'dashboard' %}"
-     data-testid="nav-settings-back"
-     title="{% translate 'Back' %}"
-     class="sidebar__nav-item">
+  <button type="button"
+          data-testid="nav-settings-back"
+          @click="$store.sidebar.showSettings(false, $el)"
+          title="{% translate 'Back' %}"
+          class="sidebar__nav-item w-full">
     {% icon "arrow-right" "h-4 w-4 shrink-0 rotate-180" %}
     <span class="sidebar__collapsible">{% translate "Back" %}</span>
-  </a>
+  </button>
 
   {% comment %}
   Pages someone sets up once and most teammates never open. The description says what

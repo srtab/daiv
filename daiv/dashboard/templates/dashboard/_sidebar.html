@@ -2,6 +2,7 @@
 
 <aside data-testid="app-sidebar"
        {% if sheet %}class="flex min-h-0 w-full flex-1 flex-col shrink-0 bg-surface-1"{% else %}id="app-sidebar" class="sidebar sidebar--rail relative hidden w-(--app-sidebar-width) shrink-0 border-r border-border bg-surface-1 md:flex md:flex-col"{% endif %}
+       {% if nav_settings_mode %}x-init="$store.sidebar.settings = true"{% endif %}
        x-cloak>
   <div class="sidebar__brand flex items-center gap-2.5 px-5 pt-5 pb-5">
     <span class="brand-mark"></span>
@@ -26,28 +27,32 @@
     {% endif %}
   </div>
 
+  {% comment %}
+  Both menus are always here, side by side: the cog slides Settings in over the main menu and Back slides
+  it out, without leaving the page. A settings page starts on Settings. The hidden menu is inert.
+  {% endcomment %}
   <nav aria-label="{% translate 'Main' %}" class="flex min-h-0 flex-1 flex-col">
-    {% if nav_settings_mode %}
-    {% include "dashboard/_sidebar_settings.html" %}
-    {% else %}
-    {% include "dashboard/_sidebar_main.html" %}
-    {% endif %}
+    <div data-testid="nav-panels"
+         class="nav-panels{% if nav_settings_mode %} nav-panels--settings{% endif %}"
+         :class="{ 'nav-panels--settings': $store.sidebar.settings }">
+      <div data-testid="nav-main-panel" class="nav-panel"
+           {% if nav_settings_mode %}inert{% endif %} x-effect="$el.inert = $store.sidebar.settings">
+        {% include "dashboard/_sidebar_main.html" %}
+      </div>
+      <div id="nav-settings-panel{% if sheet %}-sheet{% endif %}" data-testid="nav-settings-panel" class="nav-panel"
+           {% if not nav_settings_mode %}inert{% endif %} x-effect="$el.inert = !$store.sidebar.settings"
+           @keydown.escape="$store.sidebar.showSettings(false, $el)">
+        {% include "dashboard/_sidebar_settings.html" %}
+      </div>
+    </div>
   </nav>
 
   {% comment %}
   Outside the <nav> and its scrolling lists on purpose: an overflow ancestor would clip the account menu,
   which opens past the rail's right edge.
   {% endcomment %}
-  <div class="border-t border-border px-3 py-3">
-    <a href="{% url 'sandbox_envs:list' %}"
-       data-testid="nav-settings"
-       title="{% translate 'Settings' %}"
-       class="sidebar__nav-item {% nav_active_if nav_settings_mode %}">
-      {% icon "cog-6-tooth" "h-4 w-4 shrink-0" %}
-      <span class="sidebar__collapsible">{% translate "Settings" %}</span>
-    </a>
-
-    <div data-testid="app-user-menu" x-data="{ open: false }" class="relative mt-1"
+  <div class="sidebar__footer border-t border-border px-3 py-3">
+    <div data-testid="app-user-menu" x-data="{ open: false }" class="relative min-w-0 flex-1"
          @keydown.escape="open = false" @click.outside="open = false">
       <button type="button"
               @click="open = !open"
@@ -84,6 +89,20 @@
         </form>
       </div>
     </div>
+
+    {% translate "Settings" as settings_label %}
+    <button type="button"
+            data-testid="nav-settings"
+            @click="$store.sidebar.showSettings(!$store.sidebar.settings, $el)"
+            aria-controls="nav-settings-panel{% if sheet %}-sheet{% endif %}"
+            aria-expanded="{{ nav_settings_mode|yesno:'true,false' }}"
+            :aria-expanded="$store.sidebar.settings.toString()"
+            aria-label="{{ settings_label }}"
+            title="{{ settings_label }}"
+            class="nav-cog{% if nav_settings_mode %} nav-cog--active{% endif %}"
+            :class="{ 'nav-cog--active': $store.sidebar.settings }">
+      {% icon "cog-6-tooth" "h-4 w-4" %}
+    </button>
   </div>
 
   {% if not sheet %}

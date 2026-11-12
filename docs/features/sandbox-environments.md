@@ -6,7 +6,7 @@ description: "Define named, reusable DAIV sandbox environments with a base image
 
 A sandbox environment is a named, reusable [sandbox](sandbox.md) configuration — base image, CPU and memory limits, network access, encrypted environment variables, and the repositories it applies to. Define it once in the dashboard and DAIV reuses that runtime across every run, chat, scheduled job, and API/MCP call that lands in a matching repository, instead of reconfiguring the container each time.
 
-Manage environments from **Settings** in the sidebar, which opens **Sandbox environments** (`/dashboard/sandbox-envs/`). The page lists your own environments and, separately, the organization-wide ones.
+Manage environments from **Settings** (the cog beside your account at the bottom of the sidebar): pick **Sandbox environments** (`/dashboard/sandbox-envs/`). The page lists your own environments and, separately, the organization-wide ones.
 
 !!! info "When you need one"
     The sandbox runs with **networking disabled** and **no base image** unless an environment supplies them. If the agent needs to install dependencies, run a specific toolchain image, or read a secret (an API token, a private registry credential), capture that in an environment. See [Sandbox](sandbox.md) for what the agent does with the runtime.

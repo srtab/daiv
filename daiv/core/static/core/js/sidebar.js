@@ -22,6 +22,12 @@
  *
  *     <div role="separator" @pointerdown="$store.sidebar.resizeStart($event)"
  *          @keydown="$store.sidebar.resizeKey($event)" @dblclick="$store.sidebar.resetWidth()">
+ *
+ * `settings` is which menu the sidebar shows: the cog slides Settings in, Back and Escape slide it
+ * out, and focus follows to Back or to the cog in the same copy of the sidebar. A settings page
+ * starts on Settings; nothing is remembered across pages.
+ *
+ *     <button @click="$store.sidebar.showSettings(!$store.sidebar.settings, $el)">
  */
 document.addEventListener("alpine:init", () => {
   const STORAGE_KEY = "daiv.sidebar";
@@ -46,6 +52,7 @@ document.addEventListener("alpine:init", () => {
 
   Alpine.store("sidebar", {
     rail: document.documentElement.dataset.sidebar === "rail",
+    settings: false,
     width: null,
     minWidth: null,
     maxWidth: null,
@@ -115,6 +122,15 @@ document.addEventListener("alpine:init", () => {
       } catch {
         // Blocked storage only means the next page load starts at the default width.
       }
+    },
+
+    showSettings(open, from) {
+      this.settings = open;
+      const target = from?.closest('[data-testid="app-sidebar"]')?.querySelector(
+        open ? '[data-testid="nav-settings-back"]' : '[data-testid="nav-settings"]',
+      );
+      // The menu being shown is still inert until Alpine's effects run.
+      Alpine.nextTick(() => target?.focus({ preventScroll: true }));
     },
 
     toggle() {

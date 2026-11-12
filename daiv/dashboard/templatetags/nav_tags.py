@@ -29,13 +29,7 @@ def nav_active(context, section_key: str) -> str:
     The active section is computed once per request by ``dashboard.context_processors.nav``
     and exposed as ``nav_active_section`` in the template context.
     """
-    return nav_active_if(context.get("nav_active_section") == section_key)
-
-
-@register.simple_tag
-def nav_active_if(active: bool) -> str:
-    """``nav_active``'s classes for an item whose active state is not one section, like the Settings row."""
-    return ACTIVE_CLASSES if active else ""
+    return ACTIVE_CLASSES if context.get("nav_active_section") == section_key else ""
 
 
 @register.filter
