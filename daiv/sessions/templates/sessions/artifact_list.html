@@ -27,7 +27,7 @@
             {% icon "magnifying-glass" "h-4 w-4" %}
         </span>
         <input type="text" class="filter-search" x-model="q"
-               placeholder="{% translate 'Search by title or filename' %}"
+               placeholder="{% translate 'Search by title or filename' %}" aria-label="{% translate 'Search by title or filename' %}"
                @input.debounce.350ms="_apply()" @keydown.enter.prevent="_apply()">
     </div>
 

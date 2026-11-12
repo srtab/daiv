@@ -161,6 +161,12 @@ class TestSessionListView:
         assert "setScope('mine')" in html
         assert "setScope('all')" in html
 
+    def test_search_and_date_inputs_have_aria_labels(self, logged_in_client, user):
+        html = logged_in_client.get(reverse("session_list")).content.decode()
+        assert 'aria-label="Search by title or repository"' in html
+        assert 'aria-label="From date"' in html
+        assert 'aria-label="To date"' in html
+
     def test_archived_sessions_have_a_list_of_their_own(self, logged_in_client, user):
         shown = _create_session(user=user)
         hidden = _create_session(user=user)
