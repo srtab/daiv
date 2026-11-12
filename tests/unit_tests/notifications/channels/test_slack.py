@@ -7,7 +7,13 @@ from django.utils import timezone
 import httpx
 import pytest
 from notifications.channels.registry import get_channel
-from notifications.channels.slack import SlackChannel, SlackPermanentError, _slack_post, _SlackClient, verify_member_id
+from notifications.channels.slack import (
+    SlackChannel,
+    SlackPermanentError,
+    SlackTransientError,
+    _SlackClient,
+    verify_member_id,
+)
 from notifications.choices import ChannelType
 from notifications.exceptions import UnrecoverableDeliveryError
 from notifications.models import UserChannelBinding
@@ -45,7 +51,7 @@ class TestResolveAddress:
         assert SlackChannel().resolve_address(member_user) is None
 
 
-class TestSlackPost:
+class TestSlackCall:
     CLIENT = _SlackClient(token="xoxb-test-token")  # noqa: S106 — test constant
 
     def test_success_returns_parsed_body(self, httpx_mock):
@@ -57,46 +63,94 @@ class TestSlackPost:
             match_headers={"Authorization": "Bearer xoxb-test-token"},
             match_json={"channel": "U0123ABCD", "text": "hi"},
         )
-        result = _slack_post(self.CLIENT, "chat.postMessage", {"channel": "U0123ABCD", "text": "hi"})
+        result = self.CLIENT.call("chat.postMessage", {"channel": "U0123ABCD", "text": "hi"})
         assert result["ok"] is True
 
     @pytest.mark.parametrize(
-        "error", ["user_not_found", "channel_not_found", "invalid_auth", "account_inactive", "not_authed"]
+        "error",
+        [
+            "user_not_found",
+            "channel_not_found",
+            "invalid_auth",
+            "account_inactive",
+            "not_authed",
+            "token_revoked",
+            "token_expired",
+            "missing_scope",
+            "not_allowed_token_type",
+            "messages_tab_disabled",
+            "team_access_not_granted",
+            "access_denied",
+            "no_permission",
+            "invalid_arguments",
+            "missing_argument",
+            "too_many_attachments",
+        ],
     )
     def test_permanent_errors_raise_permanent_error(self, httpx_mock, error):
         httpx_mock.add_response(
             method="POST", url=POST_MESSAGE_URL, json={"ok": False, "error": error}, status_code=200
         )
         with pytest.raises(SlackPermanentError) as exc:
-            _slack_post(self.CLIENT, "chat.postMessage", {"channel": "U0123ABCD", "text": "hi"})
+            self.CLIENT.call("chat.postMessage", {"channel": "U0123ABCD", "text": "hi"})
         assert error in str(exc.value)
 
-    def test_unknown_error_in_ok_false_body_is_retryable_not_permanent(self, httpx_mock):
-        """Slack error codes outside the permanent set must bubble as retryable so
+    def test_unknown_error_in_ok_false_body_is_transient_not_permanent(self, httpx_mock):
+        """Slack error codes outside the permanent set must bubble as transient so
         the delivery task retries rather than giving up on potentially-transient failures."""
         httpx_mock.add_response(
-            method="POST", url=POST_MESSAGE_URL, json={"ok": False, "error": "ratelimited"}, status_code=200
+            method="POST", url=POST_MESSAGE_URL, json={"ok": False, "error": "something_weird"}, status_code=200
         )
-        with pytest.raises(RuntimeError) as exc:
-            _slack_post(self.CLIENT, "chat.postMessage", {"channel": "U0123ABCD", "text": "hi"})
+        with pytest.raises(SlackTransientError) as exc:
+            self.CLIENT.call("chat.postMessage", {"channel": "U0123ABCD", "text": "hi"})
         assert not isinstance(exc.value, SlackPermanentError)
-        assert "ratelimited" in str(exc.value)
+        assert "something_weird" in str(exc.value)
 
-    def test_5xx_raises_httpx_status_error(self, httpx_mock):
+    def test_ratelimited_body_is_transient_and_carries_retry_after(self, httpx_mock):
+        httpx_mock.add_response(
+            method="POST",
+            url=POST_MESSAGE_URL,
+            json={"ok": False, "error": "ratelimited"},
+            status_code=200,
+            headers={"Retry-After": "42"},
+        )
+        with pytest.raises(SlackTransientError) as exc:
+            self.CLIENT.call("chat.postMessage", {"channel": "U0123ABCD", "text": "hi"})
+        assert exc.value.retry_after == 42
+
+    def test_429_raises_transient_error_carrying_retry_after(self, httpx_mock):
+        httpx_mock.add_response(method="POST", url=POST_MESSAGE_URL, status_code=429, headers={"Retry-After": "120"})
+        with pytest.raises(SlackTransientError) as exc:
+            self.CLIENT.call("chat.postMessage", {"channel": "U0123ABCD", "text": "hi"})
+        assert exc.value.retry_after == 120
+
+    def test_429_without_retry_after_still_raises_transient(self, httpx_mock):
+        httpx_mock.add_response(method="POST", url=POST_MESSAGE_URL, status_code=429)
+        with pytest.raises(SlackTransientError) as exc:
+            self.CLIENT.call("chat.postMessage", {"channel": "U0123ABCD", "text": "hi"})
+        assert exc.value.retry_after is None
+
+    def test_5xx_raises_transient_error(self, httpx_mock):
         httpx_mock.add_response(method="POST", url=POST_MESSAGE_URL, status_code=503)
-        with pytest.raises(httpx.HTTPStatusError):
-            _slack_post(self.CLIENT, "chat.postMessage", {"channel": "U0123ABCD", "text": "hi"})
+        with pytest.raises(SlackTransientError):
+            self.CLIENT.call("chat.postMessage", {"channel": "U0123ABCD", "text": "hi"})
+
+    def test_other_4xx_raises_permanent_error(self, httpx_mock):
+        httpx_mock.add_response(
+            method="POST", url=POST_MESSAGE_URL, json={"ok": False, "error": "invalid_auth"}, status_code=403
+        )
+        with pytest.raises(SlackPermanentError):
+            self.CLIENT.call("chat.postMessage", {"channel": "U0123ABCD", "text": "hi"})
 
 
 class TestVerifyMemberId:
     def test_success_returns_member_id(self, httpx_mock, slack_configured):
         httpx_mock.add_response(
-            method="POST",
-            url=USERS_INFO_URL,
+            method="GET",
+            url=f"{USERS_INFO_URL}?user=U0123ABCD",
             json={"ok": True, "user": {"id": "U0123ABCD", "name": "alice"}},
             status_code=200,
             match_headers={"Authorization": "Bearer xoxb-test-token"},
-            match_json={"user": "U0123ABCD"},
         )
         member_id, err = verify_member_id("U0123ABCD")
         assert member_id == "U0123ABCD"
@@ -104,19 +158,41 @@ class TestVerifyMemberId:
 
     def test_user_not_found_returns_error(self, httpx_mock, slack_configured):
         httpx_mock.add_response(
-            method="POST", url=USERS_INFO_URL, json={"ok": False, "error": "user_not_found"}, status_code=200
+            method="GET",
+            url=f"{USERS_INFO_URL}?user=U0000NOPE",
+            json={"ok": False, "error": "user_not_found"},
+            status_code=200,
         )
         member_id, err = verify_member_id("U0000NOPE")
         assert member_id is None
         assert err and "not found" in err.lower()
 
-    def test_rejected_bot_token_reports_not_configured(self, httpx_mock, slack_configured):
+    @pytest.mark.parametrize(
+        "error", ["invalid_auth", "token_revoked", "token_expired", "missing_scope", "not_allowed_token_type"]
+    )
+    def test_rejected_bot_token_reports_not_configured(self, httpx_mock, slack_configured, error):
         httpx_mock.add_response(
-            method="POST", url=USERS_INFO_URL, json={"ok": False, "error": "invalid_auth"}, status_code=200
+            method="GET", url=f"{USERS_INFO_URL}?user=U0123ABCD", json={"ok": False, "error": error}, status_code=200
         )
         member_id, err = verify_member_id("U0123ABCD")
         assert member_id is None
         assert err == "Slack is not configured."
+
+    @pytest.mark.parametrize(
+        ("user_body", "fragment"),
+        [
+            ({"id": "U0123ABCD", "deleted": True}, "deactivated"),
+            ({"id": "U0123ABCD", "is_bot": True}, "bot"),
+            ({"id": "U0123ABCD", "is_stranger": True}, "another organisation"),
+        ],
+    )
+    def test_unusable_members_are_rejected(self, httpx_mock, slack_configured, user_body, fragment):
+        httpx_mock.add_response(
+            method="GET", url=f"{USERS_INFO_URL}?user=U0123ABCD", json={"ok": True, "user": user_body}, status_code=200
+        )
+        member_id, err = verify_member_id("U0123ABCD")
+        assert member_id is None
+        assert err and fragment in err.lower()
 
     def test_not_configured_returns_error(self, monkeypatch):
         from core.site_settings import site_settings
@@ -133,13 +209,15 @@ class TestVerifyMemberId:
         assert err == "Slack is temporarily unavailable. Please try again."
 
     def test_non_json_response_returns_generic_invalid(self, httpx_mock, slack_configured):
-        httpx_mock.add_response(method="POST", url=USERS_INFO_URL, status_code=200, content=b"<html>oops</html>")
+        httpx_mock.add_response(
+            method="GET", url=f"{USERS_INFO_URL}?user=U0123ABCD", status_code=200, content=b"<html>oops</html>"
+        )
         member_id, err = verify_member_id("U0123ABCD")
         assert member_id is None
         assert err == "Slack returned an invalid response."
 
     def test_server_error_returns_generic_unavailable(self, httpx_mock, slack_configured):
-        httpx_mock.add_response(method="POST", url=USERS_INFO_URL, status_code=503)
+        httpx_mock.add_response(method="GET", url=f"{USERS_INFO_URL}?user=U0123ABCD", status_code=503)
         member_id, err = verify_member_id("U0123ABCD")
         assert member_id is None
         assert err == "Slack is temporarily unavailable. Please try again."
@@ -267,8 +345,18 @@ class TestSend:
         d.address = "U0123ABCD"
         d.save()
         httpx_mock.add_response(method="POST", url=POST_MESSAGE_URL, status_code=503)
-        with pytest.raises(httpx.HTTPStatusError):
+        with pytest.raises(SlackTransientError):
             SlackChannel().send(n, d)
+
+    def test_429_propagates_retry_after_for_retry(self, httpx_mock, notification_with_delivery, slack_configured):
+        n, d = notification_with_delivery
+        d.channel_type = ChannelType.SLACK
+        d.address = "U0123ABCD"
+        d.save()
+        httpx_mock.add_response(method="POST", url=POST_MESSAGE_URL, status_code=429, headers={"Retry-After": "90"})
+        with pytest.raises(SlackTransientError) as exc:
+            SlackChannel().send(n, d)
+        assert exc.value.retry_after == 90
 
 
 class TestSlackClientFromSiteSettings:

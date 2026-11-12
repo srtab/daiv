@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
@@ -8,6 +10,12 @@ from notifications.channels.slack import verify_member_id
 
 _MSG_USERNAME_REQUIRED = _("Username is required.")
 _MSG_MEMBER_ID_REQUIRED = _("Member ID is required.")
+_MSG_MEMBER_ID_SHAPE = _("Enter a Slack member ID, e.g. U0123ABCD.")
+
+# Slack member IDs start with U (user) or W (workspace app/bot user) and are
+# otherwise uppercase alphanumerics. Checking the shape before calling Slack
+# stops anyone using the form to probe which member IDs exist.
+_MEMBER_ID_RE = re.compile(r"[UW][A-Z0-9]+")
 
 
 class RocketChatBindingForm(forms.Form):
@@ -39,6 +47,8 @@ class SlackBindingForm(forms.Form):
         member_id = self.cleaned_data["username"].strip()
         if not member_id:
             raise forms.ValidationError(_MSG_MEMBER_ID_REQUIRED)
+        if not _MEMBER_ID_RE.fullmatch(member_id):
+            raise forms.ValidationError(_MSG_MEMBER_ID_SHAPE)
         return member_id
 
     def clean(self):
@@ -46,7 +56,9 @@ class SlackBindingForm(forms.Form):
         member_id = cleaned.get("username")
         if not member_id:
             return cleaned
-        _verified_id, error = verify_member_id(member_id)
+        verified_id, error = verify_member_id(member_id)
         if error:
             raise forms.ValidationError(error)
+        # Save the ID Slack returns rather than the typed value.
+        cleaned["username"] = verified_id
         return cleaned

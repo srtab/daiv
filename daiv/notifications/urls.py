@@ -1,14 +1,14 @@
 from django.urls import path
 
 from notifications.choices import ChannelType
+from notifications.forms import RocketChatBindingForm, SlackBindingForm
 from notifications.views import (
     ChannelDisconnectView,
     ConnectTelegramView,
     MarkAllReadView,
     MarkNotificationReadView,
     NotificationListView,
-    UpdateRocketChatBindingView,
-    UpdateSlackBindingView,
+    UpdateChannelBindingView,
 )
 
 app_name = "notifications"
@@ -17,7 +17,11 @@ urlpatterns = [
     path("", NotificationListView.as_view(), name="list"),
     path("<uuid:notification_id>/read/", MarkNotificationReadView.as_view(), name="mark_read"),
     path("read-all/", MarkAllReadView.as_view(), name="mark_all_read"),
-    path("channels/rocketchat/", UpdateRocketChatBindingView.as_view(), name="rocketchat_connect"),
+    path(
+        "channels/rocketchat/",
+        UpdateChannelBindingView.as_view(channel_type=ChannelType.ROCKETCHAT, form_class=RocketChatBindingForm),
+        name="rocketchat_connect",
+    ),
     path(
         "channels/rocketchat/delete/",
         ChannelDisconnectView.as_view(channel_type=ChannelType.ROCKETCHAT),
@@ -29,7 +33,11 @@ urlpatterns = [
         ChannelDisconnectView.as_view(channel_type=ChannelType.TELEGRAM),
         name="telegram_disconnect",
     ),
-    path("channels/slack/", UpdateSlackBindingView.as_view(), name="slack_connect"),
+    path(
+        "channels/slack/",
+        UpdateChannelBindingView.as_view(channel_type=ChannelType.SLACK, form_class=SlackBindingForm),
+        name="slack_connect",
+    ),
     path(
         "channels/slack/delete/", ChannelDisconnectView.as_view(channel_type=ChannelType.SLACK), name="slack_disconnect"
     ),
