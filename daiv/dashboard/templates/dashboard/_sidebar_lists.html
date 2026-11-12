@@ -31,7 +31,11 @@ response of the `sidebar_lists` endpoint, which the sidebar swaps in when runs s
     {% endfor %}
   </ul>
   {% if lists.has_more %}
-  <a href="{% url 'session_list' %}" data-testid="nav-sessions-more" class="nav-row nav-row--quiet">{% translate "Show more" %}</a>
+  <a href="{% url 'session_list' %}"
+     data-testid="nav-sessions-more"
+     data-row-key="more"
+     @click.prevent="$store.sidebarLists.more()"
+     class="nav-row nav-row--quiet">{% translate "Show more" %}</a>
   {% endif %}
 </section>
 
@@ -42,12 +46,15 @@ response of the `sidebar_lists` endpoint, which the sidebar swaps in when runs s
   </div>
   <ul>
     {% for schedule in lists.schedules %}
+    {% with starts_open=schedule.starts_open|yesno:"true,false" %}
     <li data-testid="nav-schedule-row"
         data-schedule="{{ schedule.pk }}"
-        data-starts-open="{{ schedule.starts_open|yesno:'true,false' }}">
+        data-starts-open="{{ starts_open }}">
       <button type="button"
               data-row-key="j:{{ schedule.pk }}"
-              aria-expanded="{{ schedule.starts_open|yesno:'true,false' }}"
+              aria-expanded="{{ starts_open }}"
+              :aria-expanded="$store.sidebarLists.isOpen({{ schedule.pk }}, {{ starts_open }}).toString()"
+              @click="$store.sidebarLists.toggle({{ schedule.pk }}, {{ starts_open }})"
               title="{{ schedule.name }}"
               class="nav-row">
         {% icon "chevron-right" "nav-row__chevron h-3 w-3 shrink-0" %}
@@ -60,7 +67,8 @@ response of the `sidebar_lists` endpoint, which the sidebar swaps in when runs s
           {% endif %}
         </span>
       </button>
-      <ul {% if not schedule.starts_open %}hidden{% endif %}>
+      {# Without JavaScript the server's default stands; a schedule that starts open must not wait on Alpine. #}
+      <ul x-show="$store.sidebarLists.isOpen({{ schedule.pk }}, {{ starts_open }})"{% if not schedule.starts_open %} x-cloak{% endif %}>
         {% for firing in schedule.firings %}
         <li>
           <a href="{{ firing.url }}"
@@ -84,6 +92,7 @@ response of the `sidebar_lists` endpoint, which the sidebar swaps in when runs s
         </li>
       </ul>
     </li>
+    {% endwith %}
     {% empty %}
     <li class="nav-empty">
       {% translate "No schedules yet." %}

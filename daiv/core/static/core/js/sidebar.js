@@ -10,6 +10,9 @@
  *
  * `[` toggles it while its button is on screen, except while typing, with Ctrl or Meta held
  * (AltGr and Option still type `[` on many layouts), or while a dialog, sheet or menu is showing.
+ *
+ * `/` opens the session search under the same rules: it focuses the sessions page's search box
+ * when that page is open, and otherwise follows the sidebar's Search row, if it has one.
  */
 document.addEventListener("alpine:init", () => {
   const STORAGE_KEY = "daiv.sidebar";
@@ -41,15 +44,29 @@ document.addEventListener("alpine:init", () => {
     },
 
     onKey(event) {
-      if (event.key !== "[" || event.repeat || event.defaultPrevented) return;
+      if ((event.key !== "[" && event.key !== "/") || event.repeat || event.defaultPrevented) return;
       if ((event.ctrlKey || event.metaKey) && !event.getModifierState?.("AltGraph")) return;
       const target = event.target;
       if (target?.isContentEditable || target?.closest?.(TYPING)) return;
+      if (event.key === "/") {
+        this._search(event);
+        return;
+      }
       const button = document.querySelector(".sidebar__toggle");
       if (!button || !shown(button)) return;
       if (surfaceOpen()) return;
       event.preventDefault();
       this.toggle();
+    },
+
+    _search(event) {
+      const field = document.getElementById("search");
+      const box = field && shown(field) ? field : null;
+      const link = document.querySelector('[data-testid="nav-search"]');
+      if ((!box && !link) || surfaceOpen()) return;
+      event.preventDefault();
+      if (box) box.focus();
+      else window.location.assign(link.href);
     },
   });
 });

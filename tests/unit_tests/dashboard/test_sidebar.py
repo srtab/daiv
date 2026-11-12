@@ -111,16 +111,15 @@ class TestNotificationsNavItem:
 
 
 @pytest.mark.django_db
-class TestRunningJobsBadge:
-    """The badge's text is Alpine-bound to the `nav` store, so what the server controls
-    is the seed handed to `$store.nav.start(...)` and the store expressions on the badge
-    — the count itself is covered in test_context_processors.py."""
+class TestRunningSeed:
+    """The rail's Sessions dot is bound to the `nav` store, so what the server controls is the
+    seed handed to `$store.nav.start(...)` — the count itself is covered in test_context_processors.py."""
 
     def test_seeds_the_store_with_zero_when_nothing_is_running(self, member_client):
         response = member_client.get(reverse("dashboard"))
         assert "running_runs: 0" in response.content.decode()
 
-    def test_badge_shows_count_when_running(self, member_user, member_client):
+    def test_seeds_the_running_count(self, member_user, member_client):
         session1 = Session.objects.create(
             thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="daiv/api", user=member_user
         )
@@ -143,18 +142,7 @@ class TestRunningJobsBadge:
         )
         response = member_client.get(reverse("dashboard"))
         content = response.content.decode()
-        # The seed the store starts from, and the label template it interpolates into.
         assert "running_runs: 2" in content
-        assert "{count} running" in content
-
-    def test_the_label_reaches_the_page_translated(self, member_client):
-        """Guards the placeholder style, not just the wiring: ``{% translate %}`` doubles
-        every ``%`` before the catalog lookup, so a ``%(count)s`` msgid misses and renders
-        the untranslated source — which reads as correct in the default locale."""
-        with catalog({"{count} running": "{count} a decorrer"}):
-            content = member_client.get(reverse("dashboard")).content.decode()
-        assert "{count} a decorrer" in content
-        assert "{count} running" not in content
 
 
 @pytest.mark.django_db
@@ -295,6 +283,8 @@ class TestSidebarSessionsGroup:
         make_session(member_user, minutes_ago=99)
         (more,) = _sidebar(member_client).select('[data-testid="nav-sessions-more"]')
         assert more["href"] == reverse("session_list")
+        assert more["@click.prevent"] == "$store.sidebarLists.more()"
+        assert more["data-row-key"] == "more"
 
     def test_empty_state_invites_a_chat(self, member_client):
         group = _group(_sidebar(member_client), "nav-sessions-group")
@@ -337,14 +327,28 @@ class TestSidebarScheduledGroup:
 
         assert row["data-starts-open"] == "true"
         assert "Failed" in row.select_one("[data-row-key]").get_text()
-        assert firing.find_parent(attrs={"hidden": True}) is None
+        assert not firing.find_parent("ul").has_attr("x-cloak")
 
-    def test_closed_schedule_keeps_its_firings_hidden(self, member_user, member_client):
+    def test_closed_schedule_keeps_its_firings_hidden_until_the_store_says(self, member_user, member_client):
+        """Without JavaScript the server's default stands; `x-cloak` hides them until Alpine reads the user's choice."""
         make_firing(make_schedule(member_user), RunStatus.SUCCESSFUL)
 
         (firing,) = _sidebar(member_client).select('[data-testid="nav-firing-row"]')
 
-        assert firing.find_parent(attrs={"hidden": True})
+        assert firing.find_parent("ul").has_attr("x-cloak")
+
+    def test_schedule_toggle_is_a_button_bound_to_the_store(self, member_user, member_client):
+        schedule = make_schedule(member_user)
+        make_firing(schedule, RunStatus.FAILED)
+
+        row = _sidebar(member_client).select_one('[data-testid="nav-schedule-row"]')
+        toggle = row.select_one(f'[data-row-key="j:{schedule.pk}"]')
+        firings = row.select_one('[data-testid="nav-firing-row"]').find_parent("ul")
+
+        assert toggle.name == "button"
+        assert toggle["@click"] == f"$store.sidebarLists.toggle({schedule.pk}, true)"
+        assert toggle[":aria-expanded"] == f"$store.sidebarLists.isOpen({schedule.pk}, true).toString()"
+        assert firings["x-show"] == f"$store.sidebarLists.isOpen({schedule.pk}, true)"
 
     def test_multi_repo_firing_shows_the_count_and_links_the_batch(self, member_user, member_client):
         batch_id, _ = make_firing(make_schedule(member_user), RunStatus.SUCCESSFUL, RunStatus.SUCCESSFUL)
@@ -375,6 +379,41 @@ class TestSidebarScheduledGroup:
 
         assert not group.select('[data-testid="nav-schedule-row"]')
         assert group.select_one(f'a[href="{reverse("schedule_create")}"]')
+
+
+@pytest.mark.django_db
+class TestSidebarLiveLists:
+    def test_the_store_script_is_loaded(self, member_client):
+        assert "core/js/sidebar-lists.js" in member_client.get(reverse("dashboard")).content.decode()
+
+    def test_fragment_is_the_lists_only(self, member_user, member_client):
+        make_session(member_user)
+
+        content = member_client.get(reverse("sidebar_lists")).content.decode()
+
+        assert 'data-testid="nav-sessions-group"' in content
+        assert 'data-testid="nav-session-row"' in content
+        assert 'data-testid="app-sidebar"' not in content
+        assert "<html" not in content
+
+    def test_the_persistent_lists_remember_their_scroll(self, member_client):
+        persistent, sheet = _soup(member_client, "dashboard").select("[data-sidebar-scroll]")
+
+        assert persistent["@scroll.throttle.150ms"] == "$store.sidebarLists.saveScroll($el)"
+        assert persistent["x-init"] == "$nextTick(() => $store.sidebarLists.restoreScroll($el))"
+        assert not sheet.has_attr("x-init")
+
+    def test_search_links_the_sessions_page_search(self, member_client):
+        search = _sidebar(member_client).select_one('[data-testid="nav-search"]')
+
+        assert search["href"] == reverse("session_list") + "#search"
+        assert search["aria-keyshortcuts"] == "/"
+
+    def test_the_sessions_page_focuses_its_search_when_asked(self, member_client):
+        field = _soup(member_client, "session_list").select_one("input#search")
+
+        assert "location.hash === '#search'" in field["x-init"]
+        assert "$el.focus()" in field["@hashchange.window"]
 
 
 @pytest.mark.django_db

@@ -18,10 +18,12 @@ HARNESS = """
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
-const { src, initial, wide, legacy, storage, surfaces, actions } = JSON.parse(readFileSync(0, "utf8"));
+const { src, initial, wide, legacy, storage, surfaces, actions, search, field } = JSON.parse(readFileSync(0, "utf8"));
 const stores = {};
 const stored = {};
 const dataset = initial ? { sidebar: initial } : {};
+let assigned = null;
+let fieldFocused = false;
 
 // `legacy` drops `checkVisibility`, as Safari before 17.4 does.
 const element = (s) => ({
@@ -33,7 +35,12 @@ const sandbox = {
   document: {
     documentElement: { dataset },
     addEventListener: (name, cb) => { if (name === "alpine:init") cb(); },
-    querySelector: () => element({ visible: wide }),
+    querySelector: (selector) => {
+      if (!selector.includes("nav-search")) return element({ visible: wide });
+      return search ? { href: "/dashboard/sessions/#search" } : null;
+    },
+    getElementById: (id) =>
+      id === "search" && field ? { ...element({ visible: true }), focus: () => { fieldFocused = true; } } : null,
     querySelectorAll: () => surfaces.map(element),
   },
   localStorage: {
@@ -41,6 +48,8 @@ const sandbox = {
     removeItem: (k) => { if (storage === "blocked") throw new Error("SecurityError"); delete stored[k]; },
   },
 };
+sandbox.location = { assign: (url) => { assigned = url; } };
+sandbox.window = sandbox;
 sandbox.Alpine = { store: (name, value) => (stores[name] = value) };
 vm.createContext(sandbox);
 vm.runInContext(readFileSync(src, "utf8"), sandbox);
@@ -63,12 +72,15 @@ for (const action of actions) {
     seen.push(prevented);
   }
 }
-process.stdout.write(JSON.stringify({ rail: sidebar.rail, attr: dataset.sidebar ?? null, stored, prevented: seen }));
+process.stdout.write(JSON.stringify({
+  rail: sidebar.rail, attr: dataset.sidebar ?? null, stored, prevented: seen, assigned, fieldFocused,
+}));
 """
 
 
-def drive(actions, *, initial=None, wide=True, legacy=False, storage="ok", surfaces=()):
-    """``wide`` is whether the toggle button is on screen, which is what the shortcut follows."""
+def drive(actions, *, initial=None, wide=True, legacy=False, storage="ok", surfaces=(), search=True, field=False):
+    """``wide`` is whether the toggle button is on screen, which is what the shortcut follows. ``search`` is
+    whether the sidebar has its Search row, and ``field`` whether the page has the sessions search box."""
     return run_node(HARNESS, {**locals(), "src": str(SIDEBAR_JS), "surfaces": list(surfaces)})
 
 
@@ -164,3 +176,37 @@ def test_open_surfaces_are_found_by_the_shared_hook():
     blocks `[` without an edit here."""
     surfaces = re.search(r"const SURFACES = '([^']+)'", SIDEBAR_JS.read_text(encoding="utf-8"))
     assert surfaces and "[data-surface]" in surfaces.group(1).split(", ")
+
+
+SLASH = {"key": {"key": "/"}}
+
+
+@requires_node
+def test_a_slash_opens_the_session_search():
+    state = drive([SLASH])
+    assert (state["assigned"], state["prevented"], state["rail"]) == ("/dashboard/sessions/#search", [True], False)
+
+
+@requires_node
+def test_on_the_sessions_page_a_slash_focuses_its_search_box():
+    state = drive([SLASH], field=True)
+    assert (state["fieldFocused"], state["assigned"], state["prevented"]) == (True, None, [True])
+
+
+@requires_node
+def test_a_slash_stands_down_like_the_bracket():
+    for options in (
+        {"actions": [{"key": {"key": "/"}, "typing": "textarea"}]},
+        {"actions": [{"key": {"key": "/", "ctrlKey": True}}]},
+        {"actions": [{"key": {"key": "/", "metaKey": True}}]},
+        {"actions": [{"key": {"key": "/", "repeat": True}}]},
+        {"actions": [SLASH], "surfaces": [{"visible": True}]},
+    ):
+        state = drive(**options)
+        assert (state["assigned"], state["fieldFocused"], state["prevented"]) == (None, False, [False]), options
+
+
+@requires_node
+def test_a_slash_does_nothing_where_the_sidebar_has_no_search():
+    state = drive([SLASH], search=False)
+    assert (state["assigned"], state["prevented"]) == (None, [False])
