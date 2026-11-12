@@ -11,7 +11,7 @@ def test_build_info_exposes_version_under_context_key():
 
 
 def test_build_info_exposes_the_user_docs_url():
-    assert build_info(None)["build_info"]["docs_url"] == "https://srtab.github.io/daiv/latest/"
+    assert build_info(None)["build_info"]["docs_url"] == "https://docs.daivagent.com/latest/"
 
 
 def test_compute_without_stamp(monkeypatch):
