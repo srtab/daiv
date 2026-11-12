@@ -15,6 +15,8 @@ from tests.unit_tests.test_docs_links import DOCS_DIR, docs_pages, read_text
 
 HEADING_TERMS = (
     "GitLab",
+    "Docker",
+    "ReviewBench",
     "GitHub",
     "Docker Compose",
     "Docker Swarm",
@@ -74,15 +76,17 @@ SHORTCODE_RE = re.compile(r":[a-z0-9_+-]+:")
 
 TIMELESS_RE = re.compile(
     r"\bcurrently\b|(?<!\bas )\bsoon\b|\bnot yet\b|\bcoming\b|\bin a future (?:release|version)\b"
-    r"|\bintroduced in\b|\bnew in\b|\blatest (?:version|release)\b|\broadmap\b",
+    r"|\bintroduced in\b|\bnew in (?:v?\d|version|release|this release|DAIV)\b"
+    r"|\blatest (?:version|release)\b|\broadmap\b",
     re.IGNORECASE,
 )
 VOICE_RE = re.compile(r"\b(?:we|our|ours|simply|just|easy|easily|please)\b", re.IGNORECASE)
 US_RE = re.compile(r"\bus\b")
 
+PARAGRAPH_START_RE = re.compile(r"^\s*(?:[-*+]\s|\d+\.\s|\||(?:!!!|\?\?\?|===)\s|#{1,6}\s)")
 ACRONYM_RE = re.compile(r"^[A-Z0-9][A-Z0-9.&-]*s?$")
 TERMS_RE = re.compile(
-    "(?<!\\w)(?:" + "|".join(re.escape(t) for t in sorted(HEADING_TERMS, key=len, reverse=True)) + ")(?!\\w)"
+    "(?<!\\w)(?:" + "|".join(re.escape(t) for t in sorted(HEADING_TERMS, key=len, reverse=True)) + ")s?(?!\\w)"
 )
 STEP_PREFIX_RE = re.compile(r"^(?:Step\s+\d+\b|\d+\.)", re.IGNORECASE)
 
@@ -158,26 +162,38 @@ def _fence_line_findings(lineno: int, language: str, line: str, findings: list[F
             break
 
 
-def _prose_line_findings(lineno: int, line: str, following: list[str], findings: list[Finding]) -> None:
+def _prose_line_findings(
+    lineno: int, line: str, following: list[str], tail: tuple[str, str], findings: list[Finding]
+) -> tuple[str, str]:
+    """Check one prose line, and return the (coded, prose) tail the next line of the paragraph joins to."""
     coded = _strip_code(line)
     prose = _prose(line)
+    if not line.strip() or PARAGRAPH_START_RE.match(line):
+        tail = ("", "")
+    coded_tail, prose_tail = tail
+    joined_coded = f"{coded_tail} {coded}" if coded_tail else coded
+    joined_prose = f"{prose_tail} {prose}" if prose_tail else prose
 
-    for match in TIMELESS_RE.finditer(prose):
-        findings.append(Finding("timeless", lineno, match.group(0)))
+    for match in TIMELESS_RE.finditer(joined_prose):
+        if match.end() > len(prose_tail):
+            findings.append(Finding("timeless", lineno, match.group(0)))
     for match in VOICE_RE.finditer(prose):
         findings.append(Finding("reader-voice", lineno, match.group(0)))
     for match in US_RE.finditer(prose):
         findings.append(Finding("reader-voice", lineno, match.group(0)))
 
-    for match in LINK_RE.finditer(coded):
-        text = re.sub(r"[*_]", "", match.group("text")).strip().lower()
-        if text in BAD_LINK_TEXTS or text.startswith("http"):
+    for match in LINK_RE.finditer(joined_coded):
+        if match.end() <= len(coded_tail):
+            continue
+        text = " ".join(re.sub(r"[*_]", "", match.group("text")).lower().split())
+        if text in BAD_LINK_TEXTS or text.startswith(("http://", "https://")):
             findings.append(Finding("link-text", lineno, match.group("text")))
     for match in AUTOLINK_RE.finditer(coded):
         findings.append(Finding("link-text", lineno, match.group(0)))
 
-    for match in MENU_PATH_RE.finditer(coded):
-        findings.append(Finding("menu-path", lineno, match.group(0)))
+    for match in MENU_PATH_RE.finditer(joined_coded):
+        if match.end() > len(coded_tail):
+            findings.append(Finding("menu-path", lineno, match.group(0)))
     if (admonition := ADMONITION_RE.match(line)) and admonition.group("kind").lower() not in ADMONITION_KINDS:
         findings.append(Finding("admonition-kind", lineno, line.strip()))
 
@@ -192,6 +208,7 @@ def _prose_line_findings(lineno: int, line: str, following: list[str], findings:
 
     for match in SYMBOL_RE.finditer(coded):
         findings.append(Finding("symbol-meaning", lineno, match.group(0)))
+    return coded, prose
 
 
 def find_style_violations(source: str) -> list[Finding]:
@@ -202,6 +219,7 @@ def find_style_violations(source: str) -> list[Finding]:
     fence: tuple[str, int] | None = None
     fence_language = ""
     in_comment = False
+    tail = ("", "")
     previous_level = 0
     h1_count = 0
 
@@ -225,6 +243,7 @@ def find_style_violations(source: str) -> list[Finding]:
             fence_language = language.lstrip("{.").lower()
             if not info:
                 findings.append(Finding("fence-language", lineno, line.strip()))
+            tail = ("", "")
             continue
 
         if in_comment:
@@ -243,7 +262,9 @@ def find_style_violations(source: str) -> list[Finding]:
             h1_count += 1
             previous_level = 1
 
-        _prose_line_findings(lineno, line, lines[index + 1 : index + 6], findings)
+        tail = _prose_line_findings(lineno, line, lines[index + 1 : index + 6], tail, findings)
+        if heading:
+            tail = ("", "")
 
     if h1_count != 1:
         findings.append(Finding("heading-shape", 1, f"{h1_count} H1 headings, expected 1"))
@@ -254,6 +275,11 @@ BAD_SNIPPETS = [
     ("timeless", "It is currently supported."),
     ("timeless", "This arrives soon."),
     ("timeless", "Not yet available."),
+    ("timeless", "# Page\n\nThis is not\nyet available."),
+    ("timeless", "# Page\n\nIt ships in a future\nrelease."),
+    ("timeless", "# Page\n\nNew in version 3."),
+    ("link-text", "# Page\n\nClick [click\nhere](a.md)."),
+    ("menu-path", "# Page\n\nSelect **Settings** >\n**Users**."),
     ("timeless", "Coming with the next update."),
     ("timeless", "Planned in a future release."),
     ("timeless", "Introduced in 2.0."),
@@ -299,6 +325,13 @@ GOOD_SNIPPETS = [
     "# Page\n\nOpen a new merge request.",
     "# Page\n\nThe session's latest run is shown first.",
     "# Page\n\nRuns as soon as the webhook arrives.",
+    "# Page\n\nIt runs as\nsoon as the webhook arrives.",
+    "# Page\n\nAnything new in the merge request is shown.",
+    "# Page\n\nSee the [HTTP API](jobs-api.md) and [HTTPS setup](deployment.md).",
+    "# Page\n\n- one\n- item not\n- yet another item",
+    "# Page\n\n## Create Docker secrets",
+    "# Page\n\n## Manage GitHub Apps",
+    "# Page\n\n## Run reviews on ReviewBench",
     "# Page\n\nRun `just test` in the shell.",
     "# Page\n\nReplace `<token>` and <token> with yours.",
     "# Page\n\n## Configure Docker Compose",
@@ -384,7 +417,6 @@ KNOWN_VIOLATIONS: dict[str, frozenset[str]] = {
         "index.md",
         "integrations/rt/index.md",
         "reference/agent-architecture.md",
-        "reference/benchmarks.md",
         "reference/env-variables.md",
         "reference/monitoring.md",
         "reference/site-configuration.md",
