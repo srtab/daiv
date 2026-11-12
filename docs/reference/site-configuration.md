@@ -148,6 +148,9 @@ The `CODEBASE_CLIENT` setting decides which fields the group shows and which pro
 
 You need a bot token from [@BotFather](https://t.me/botfather), and a `DAIV_EXTERNAL_URL` that Telegram can reach.
 
+!!! warning
+    Give each DAIV instance its own bot. Telegram allows one webhook per bot, so if a second instance uses the same token, the webhook moves to it and the first instance stops receiving Telegram's updates, including the connect handshake. DAIV's reconcile job logs the URL it finds but cannot prevent this.
+
 1. In **Configuration → Telegram**, turn on the toggle next to the group title. It is the **Enable Telegram** setting, and DAIV hides the group's other fields while it is off.
 2. Enter the token in **Telegram Bot Token**.
 3. Select **Save configuration**.

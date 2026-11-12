@@ -40,7 +40,7 @@ DAIV reaches you through channels. In-app notifications are always on. Email, Ro
 | **Rocket Chat** | A direct message from the DAIV bot. | An administrator has enabled Rocket.Chat, and you have connected your `@username`. |
 | **Telegram** | A direct message from the DAIV bot. | An administrator has enabled Telegram, and you have connected your chat. |
 
-Every message to a single run ends with the run's summary. For a run waiting for an answer, that is the list of questions.
+A message about a run includes the run's summary. For a run waiting for an answer, that is the list of questions.
 
 ### The in-app list
 
@@ -90,8 +90,7 @@ The link works for 10 minutes and stops working as soon as any chat is linked to
 A few rules apply to the link:
 
 - DAIV keeps at most one Telegram chat per account and one account per chat. Connecting from a different Telegram account replaces the previous link, and `/start` from a chat that is linked elsewhere moves it to you.
-- The bot links only one-to-one chats. If you add it to a group and send `/start` there, it replies "Message me directly" and links nothing, because notifications are per account.
-- A bot token serves one DAIV instance. Telegram allows a single webhook per bot, so a second instance configured with the same token takes the handshake from the first. DAIV's reconcile job logs the URL it finds, but cannot prevent it, so give each environment its own bot.
+- The bot links only one-to-one chats. If you add it to a group and send `/start` there, it replies `Message me directly — DAIV notifications are per-account and cannot go to a group.` and links nothing.
 
 To stop Telegram delivery, do any one of these: select **Disconnect** on your channels page, send `/stop` to the bot, or block the bot in Telegram. Each unlinks the chat, and the row goes back to **Not configured**; select **Connect** to link again.
 

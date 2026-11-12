@@ -105,7 +105,7 @@ Start with a single pilot queue. Expand only after the pilot looks healthy.
 
 ## Cost considerations
 
-The Scrip requests high reasoning effort by submitting `agent_thinking_level: high` — which applies high effort to the repository's `models.agent` model, else the system default model. This produces better triage but is more expensive. To force the most capable model (rather than the default), also pass an explicit `agent_model` (e.g. the Opus spec). See the [agent-override fields](../../features/jobs-api.md#submit-a-job) on the Jobs API page. For high-volume queues, consider:
+The Scrip requests high reasoning effort by submitting `agent_thinking_level: high` — which applies high effort to the repository's `models.agent` model, else the system default model. This produces better triage but is more expensive. To force the most capable model (rather than the default), also pass an explicit `agent_model` (e.g. the Opus spec). See the [agent-override fields](../../features/jobs-api.md#request-fields) on the Jobs API page. For high-volume queues, consider:
 
 - Lowering or omitting `agent_thinking_level` in the Scrip body for a cheaper first pass — the repository's `models.agent` model, else the system default model, then runs at its default effort.
 - Giving each queue its own DAIV API-key user, so one busy queue cannot use up another's allowance. The jobs throttle is one site-wide rate (`jobs_throttle_rate` in Site Configuration) applied to each user separately; it cannot be set lower for one user.

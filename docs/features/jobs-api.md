@@ -18,7 +18,7 @@ You need:
 
 ## Create an API key
 
-An API key belongs to one user and authenticates both the jobs API and the [MCP endpoint](mcp-endpoint.md#api-key-authentication). Create it from the dashboard, or from the command line for headless provisioning.
+An API key belongs to one user and authenticates the jobs API and every other API surface, including the [MCP endpoint](mcp-endpoint.md#api-key-authentication), chat completions and the sessions API. Create it from the dashboard, or from the command line for headless provisioning.
 
 !!! warning
     DAIV shows the full key once, when you create it, and cannot show it again. Copy it before you leave the page; if you lose it, revoke the key and create another.
@@ -38,7 +38,12 @@ docker compose exec app django-admin create_api_key <username> --name "my-key"
 
 Replace `<username>` with the username of the key's owner. The command prints the key once, in the form `prefix.secret`. For the `--expires-at` option and its time-zone rule, see [`create_api_key`](../reference/management-commands.md#create_api_key).
 
-To stop a key from working, select **Revoke** next to it on the **API keys** page. A revoked key stops authenticating immediately. Admins see every user's keys; other users see their own.
+To stop a key from working, select **Revoke** next to it on the **API keys** page.
+
+!!! warning
+    Revoking a key cannot be undone. The key stops authenticating immediately on every API surface, so any script or client that uses it fails until you give it another key.
+
+Admins see every user's keys; other users see their own.
 
 ## Authenticate a request
 
@@ -172,9 +177,9 @@ These are the fields of the `POST /api/jobs` body.
 | `references`           | array of objects | no       | Up to 20 external work-item references, such as Jira, Sentry or RT tickets and git platform issues, that DAIV links into the merge or pull request it creates. Each item is `{ "key": "PROJ-123", "url": "https://…", "provider": "jira", "relation": "relates" }`, and only `key` is required. The per-field rules are in [References](mcp-endpoint.md#references); DAIV rejects an invalid reference with `422` and stores nothing. |
 | `mcp_overrides`        | object           | no       | MCP servers to switch on or off for every job in the batch, relative to the default set: `{"grafana": true}` adds an on-demand server, `{"sentry": false}` drops an active one. Names are those of the global servers and your own personal ones. DAIV rejects an unknown name with `400`, and a value other than `true` or `false` with `422`. On a continued thread (`thread_id`) the overrides apply on top of the thread's own, so a server you do not name keeps its setting. DAIV returns a continuation that would change them while another run on the thread is unfinished in `failed`, since that run would pick them up too. |
 
-DAIV validates the body strictly and rejects unknown fields with `422`, including the removed `use_max` and `notify_on`. Use `muted` to silence notifications, and `agent_model` and `agent_thinking_level` to choose the model.
+DAIV validates the body strictly and rejects unknown fields with `422`, `use_max` and `notify_on` included. Use `muted` to silence notifications, and `agent_model` and `agent_thinking_level` to choose the model.
 
-### Job status values
+## Job status values
 
 | Status | Meaning |
 |--------|---------|
@@ -185,7 +190,7 @@ DAIV validates the body strictly and rejects unknown fields with `422`, includin
 | `WAITING_INPUT` | The agent stopped to ask you a question. This is a final state, not a step towards `SUCCESSFUL`. `question` holds the questions asked, and `result` their rendered text. |
 | `FAILED` | The agent hit an error, and `error` holds a message. |
 
-### Error responses
+## Error responses
 
 For `GET /api/jobs/{job_id}`:
 
@@ -201,7 +206,7 @@ For `POST /api/jobs`:
 | `400` | The request is invalid: a bad `agent_model` or `agent_thinking_level`; no `agent_model` given and no system default model configured (a model set only in `.daiv.yml` does not count); an unresolvable `environment`; an unknown MCP server in `mcp_overrides`; an invalid `shared_session` list (more than 5 entries, a repository listed twice, or a per-repository `prompt`); or an invalid `thread_id` continuation (an unknown or unowned thread, a session you archived, more than one repository for a single-repository session, a `ref` on a multi-repository session, or anything but the main repository alone or the full list in order). |
 | `401` | The API key is missing or invalid. |
 | `404` | A repository in `repos` is not found, or you lack write access to it. The response does not say which one. |
-| `422` | The body is malformed or has unknown fields, for example the removed `use_max` or `notify_on`, or a `references` entry is invalid. |
+| `422` | The body is malformed or has unknown fields, for example `use_max` or `notify_on`, or a `references` entry is invalid. |
 | `429` | You exceeded the [rate limit](#rate-limiting). |
 
 ## Multi-repository sessions
@@ -257,7 +262,7 @@ A job moves through these statuses:
 2. A `QUEUED` job becomes `READY` when the session's current run finishes.
 3. A worker picks up a `READY` job and it becomes `RUNNING`.
 4. A `RUNNING` job ends as `SUCCESSFUL` when the agent completes, `WAITING_INPUT` when the agent asks a question, or `FAILED` when the agent errors.
-5. A `WAITING_INPUT` job becomes `READY` again only through a new job: `POST /api/jobs` with the same `thread_id` and your answer as `prompt`.
+5. A `WAITING_INPUT` job does not change. Your answer is a new job: `POST /api/jobs` with the same `thread_id` and your answer as `prompt`. It starts at `READY`, or at `QUEUED` when the session is busy.
 
 ```mermaid
 stateDiagram-v2
@@ -268,7 +273,9 @@ stateDiagram-v2
     RUNNING --> SUCCESSFUL: Agent completes
     RUNNING --> WAITING_INPUT: Agent asks a question
     RUNNING --> FAILED: Agent errors
-    WAITING_INPUT --> READY: POST /api/jobs (same thread_id, answer as prompt)
+    SUCCESSFUL --> [*]
+    WAITING_INPUT --> [*]: Answer with a new job on the same thread_id
+    FAILED --> [*]
 ```
 
 A job starts in `QUEUED` only when you supply a `thread_id` and the session is busy. The job then joins the session's next run for its branch (`ref`, or the session's branch when you leave it out), which starts at `READY` once the current run ends. Everything waiting for the session on that branch goes into the same run: another job, a chat message, a CI failure DAIV is fixing. So two jobs sent while the session is busy can return the same `job_id`; poll it once and read one `result` for both. A job on a different branch gets a next run of its own. Every other submission starts at `READY`.

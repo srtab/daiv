@@ -384,7 +384,7 @@ The [Jobs API](../features/jobs-api.md) runs the agent from your own code.
 
 | Variable | Description | Default |
 |-------------------------------|----------------------------------------------|------------------------|
-| `DAIV_JOBS_THROTTLE_RATE` | Rate limit for job submissions per authenticated user. Format: `N/sec`, `N/min`, `N/hour`, or `N/day` | `20/hour` |
+| `DAIV_JOBS_THROTTLE_RATE` | Rate limit for job submissions per authenticated user. Format: `N/sec`, `N/min`, `N/hour`, or `N/day`, or the short forms `N/s`, `N/m`, `N/h` and `N/d` | `20/hour` |
 
 ### Diff to metadata
 

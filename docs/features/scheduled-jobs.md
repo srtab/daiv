@@ -30,7 +30,7 @@ The schedule is active as soon as you save it. To pause it, see [Manage schedule
 | **Name** | A short label for the schedule. |
 | Prompt box | What the agent does. It has the same form as a [jobs API](jobs-api.md) prompt. |
 | Repositories | One to 20 repositories, each with its own branch. A merge or pull request a run opens targets that branch, and DAIV assigns it to the schedule's owner when their DAIV account is OAuth-linked to the git platform. Each run fans out into one agent run per repository. |
-| Agent picker | The model and thinking level the runs use. Leave it on its default to use the repository's `models.agent` model, else the system default. |
+| Agent picker | The model and thinking level the runs use. The picker starts on the instance's default model, and the schedule stores the model it shows. A run tries that model first, then the repository's `models.agent` model as a fallback. A schedule created over MCP without `agent_model` has no stored model and uses the repository's model, else the system default; see [`schedule_job` parameters](mcp-endpoint.md#schedule_job-parameters). |
 | Environment picker | The named [sandbox](sandbox.md) environment the runs use. It defaults to **Auto**, which resolves an environment for each repository. |
 | **Frequency** | How often the schedule runs; see [Frequency options](#frequency-options). |
 | **Time** | The time of day for **Daily**, **Weekdays** and **Weekly** schedules. |
@@ -66,6 +66,8 @@ Every minute, DAIV checks for enabled schedules that are due. For each one it:
 
 If a schedule fails to start, DAIV still moves its next run time forward, so it does not fire again every minute. If even that recovery fails, DAIV disables the schedule. Either way, DAIV records the failure on the schedule and tells the owner; see [When a schedule can't run](#when-a-schedule-cant-run).
 
+A schedule never starts twice when a check overruns the minute, and one schedule's failure does not stop the others. A schedule whose owner is inactive is skipped. After downtime, the times a schedule missed collapse into a single run, and DAIV then moves to the next time after now.
+
 A scheduled run cannot ask you a question, because nobody is there to answer. The agent does not get the ask-the-user tool.
 
 ## Time zone
@@ -79,10 +81,9 @@ On the **Scheduled Jobs** page, each schedule has an actions menu:
 - **Pause** or **Resume** the schedule, without opening the edit page.
 - **Run now** to start a batch immediately instead of waiting for the next scheduled time. You land on the resulting session, or on the [Sessions](sessions.md) list filtered to the batch when it spans several repositories.
 - **Duplicate** the schedule to create a new one pre-filled from it. It is the only way to run a fired one-off schedule again.
-- **Edit** the schedule to change any field, including **Enabled**.
 - **Delete** the schedule; see [Delete a schedule](#delete-a-schedule).
 
-A fired one-off schedule offers only **Duplicate** and **Delete**.
+A fired one-off schedule offers only **Duplicate** and **Delete**. To change a schedule, including its **Enabled** setting, select its card to open the edit page.
 
 Each schedule card shows its name, its status (**Active**, **Failing**, **Paused** or **Fired**), its frequency, its target repository (or "*N* repositories" when it has several), its next and last run times, its run count and its owner's avatar. Selecting the run count opens the **Sessions** list filtered to that schedule's sessions.
 
@@ -91,7 +92,7 @@ Non-admin users see only their own schedules. Admins see everyone's, and the own
 ### Delete a schedule
 
 !!! warning
-    Deleting a schedule removes it permanently and cannot be undone. A run that is already running completes, but DAIV starts no new runs.
+    Deleting a schedule removes it permanently and cannot be undone. A run that is already running completes, but DAIV starts no new runs. The sessions the schedule produced remain, but its subscribers lose access to them.
 
 1. In the schedule's actions menu, select **Delete**, or select **Delete schedule** on its edit page.
 2. On the confirmation page, select **Delete schedule**.
@@ -140,7 +141,7 @@ To create schedules from a script, call the [`schedule_job` tool of the MCP endp
 
 ## Schedule templates
 
-A schedule template is a reusable starting point for a schedule. It carries the same settings as a schedule (prompt, default repositories, frequency, time or cron expression, agent model and thinking level, intent and mute setting), plus an optional description that helps people choose. A template has no sandbox environment and no **Date & time**. When you start a schedule from a template, DAIV copies the template's values into the schedule form, and you can change any of them before you save. The schedule keeps no link to the template, so deleting a template never changes the schedules made from it.
+A schedule template is a reusable starting point for a schedule. It carries the same settings as a schedule (prompt, default repositories, frequency, time or cron expression, agent model and thinking level, intent and mute setting), plus an optional description that helps people choose. A template has no sandbox environment and no **Date & time**. When you start a schedule from a template, DAIV copies the template's values into the schedule form, and you can change any of them before you save. Editing or deleting a template never changes the schedules made from it.
 
 ### Start a schedule from a template
 
@@ -148,7 +149,7 @@ You need at least one template; an admin creates them. Then:
 
 1. Open the template gallery from the **Schedules** page, with **From template** or, on an empty list, **Start from template**. In the create form, use **Browse templates**.
 2. Search for a template. Each card shows its name, frequency, default repositories and description, and you can expand it for the full detail.
-3. Select **Use** on the template you want. If the create form has unsaved changes, DAIV asks you to confirm first, so you do not lose work.
+3. Select **Use** on the template you want. If the create form has unsaved changes, DAIV asks `Discard your current changes and apply this template?` so you do not lose work.
 4. Adjust the pre-filled fields, then select **Create schedule**.
 
 ### Create a schedule template
@@ -160,4 +161,9 @@ Creating templates needs the admin role.
 3. Fill in the **Name** and an optional **Description**, then the same settings as a schedule. Repositories are optional: leave them empty to let people choose when they create the schedule.
 4. Select **Create template**.
 
-To remove a template, open it and select **Delete template**.
+### Delete a schedule template
+
+!!! warning
+    Deleting a template removes it from the gallery and cannot be undone. Schedules made from it are unchanged.
+
+Open the template and select **Delete template**, then confirm with **Delete template**.
