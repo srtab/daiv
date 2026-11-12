@@ -61,7 +61,7 @@ The environment variable for a field is `DAIV_<FIELD_NAME>`; for example, `agent
 
 ## Secrets
 
-DAIV stores API keys, the OAuth client secret, the sandbox key, the Rocket Chat token, the Telegram bot token and webhook secret, and per-domain web fetch header values encrypted in the database. The page never shows a stored secret again: it shows a masked hint. Leave a secret field blank to keep the stored value, or select **Clear** to remove it. The encryption key comes from `DAIV_ENCRYPTION_KEY`; for what happens when it changes, see [External URL and encryption key](env-variables.md#external-url-and-encryption-key).
+DAIV stores the secret fields on this page encrypted in the database: the **Web Search API key**, **Sandbox API key**, **Auth Client Secret**, **Rocketchat Auth Token**, **Telegram Bot Token**, each provider's **API key** and the per-domain web fetch header values. [External URL and encryption key](env-variables.md#external-url-and-encryption-key) lists everything DAIV encrypts. The page never shows a stored secret again: it shows a masked hint. Leave a secret field blank to keep the stored value, or select **Clear** to remove it. The key comes from `DAIV_ENCRYPTION_KEY`.
 
 ## Providers
 
@@ -87,23 +87,31 @@ A model field anywhere in the configuration is rejected on save when its provide
 
 ### Add a custom provider
 
-1. In **Site Configuration → Providers**, select **Add custom provider**.
-2. Enter the **Slug**, choose the **Provider type**, and enter the **Base URL**.
-3. Enter the **API key**.
-4. Select **Save configuration**.
-5. Use `<slug>:<model-name>` wherever a model is specified, with `<slug>` replaced by the slug and `<model-name>` by a model the endpoint serves.
+Add a provider to use models from a server other than the four built-in providers. You need the admin role, the endpoint's URL and its API key.
+
+1. In **Configuration → Providers**, select **Add custom provider**.
+2. In **Slug**, enter the model prefix.
+3. In **Display name**, enter the name to show in the list.
+4. In **Provider type**, choose the wire protocol the server speaks.
+5. In **Base URL**, enter the endpoint's URL.
+6. In **API key**, enter the key.
+7. Select **Save configuration**.
+8. Use `<slug>:<model-name>` wherever a model is specified, with `<slug>` replaced by the slug and `<model-name>` by a model the endpoint serves.
 
 !!! warning
     Turn off **Verify TLS certificates** only for self-hosted endpoints behind an internal or self-signed CA. Without verification, the connection is open to man-in-the-middle attacks. Mount the CA certificate into the DAIV containers instead when you can.
 
 ## Set up SearXNG
 
+!!! warning
+    SearXNG forwards queries to its upstream search engines. Self-hosting does not keep the query text local, and a query can contain repository code or other private information.
+
 By default, web search uses DuckDuckGo. To send the agent's searches to a SearXNG instance instead, you need:
 
 - A SearXNG instance that the DAIV app and workers can reach without authentication, and that allows JSON responses: `json` is in `search.formats` of its settings, for example `[html, json]`.
 - The complete search endpoint, for example `https://search.example.com/search`, or `https://search.example.com/searxng/search` when SearXNG runs under a prefix. It must use `http` or `https` and hold no credentials, query string or fragment.
 
-1. In **Site Configuration → Web Search**, set **Web search engine** to **SearXNG**.
+1. In **Configuration → Web Search**, set **Web search engine** to **SearXNG**.
 2. Enter the endpoint in **SearXNG search URL**.
 3. Optionally, set **SearXNG request timeout**, from 1 to 120 seconds. The default is 15 seconds.
 4. Select **Save configuration**.
@@ -123,14 +131,11 @@ pass_ip = ["192.0.2.10"]
 
 Replace `192.0.2.10` with the address SearXNG sees for the DAIV app and workers, or with a narrow trusted subnet. The list exempts those clients from bot detection, so keep it narrow rather than turning the limiter off. For pass lists and reverse-proxy client addresses, see the [SearXNG limiter documentation](https://docs.searxng.org/admin/searx.limiter). For the JSON format setting and the endpoint contract, see the [SearXNG Search API](https://docs.searxng.org/dev/search_api.html).
 
-!!! warning
-    SearXNG forwards queries to its upstream search engines. Self-hosting does not keep the query text local, and a query can contain repository code or other private information.
-
 ## Turn on OAuth login
 
 OAuth login lets users sign in with their Git platform account. You need an OAuth app on that platform: see [Create the OAuth app](../getting-started/accounts.md#create-the-oauth-app).
 
-1. In **Site Configuration**, open **Authentication**.
+1. In **Configuration**, open **Authentication**.
 2. Turn on the toggle next to the group title. It is the **Enable OAuth login** setting, and DAIV hides the group's other fields while it is off.
 3. Enter the **OAuth client ID** and the **Auth Client Secret**. Enter both: DAIV rejects a save that sets only one.
 4. On GitLab, set **GitLab URL** to the address your users' browsers open. If DAIV reaches GitLab at a different address, such as one inside a Docker network, set **GitLab server URL** to it. GitHub installs do not show these two fields.
@@ -143,7 +148,7 @@ The `CODEBASE_CLIENT` setting decides which fields the group shows and which pro
 
 You need a bot token from [@BotFather](https://t.me/botfather), and a `DAIV_EXTERNAL_URL` that Telegram can reach.
 
-1. In **Site Configuration → Telegram**, turn on the toggle next to the group title. It is the **Enable Telegram** setting, and DAIV hides the group's other fields while it is off.
+1. In **Configuration → Telegram**, turn on the toggle next to the group title. It is the **Enable Telegram** setting, and DAIV hides the group's other fields while it is off.
 2. Enter the token in **Telegram Bot Token**.
 3. Select **Save configuration**.
 

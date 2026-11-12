@@ -82,9 +82,8 @@ Create an OAuth app on your Git platform to get the client ID and secret that DA
 2. Set the callback URL to your DAIV URL followed by `/accounts/github/login/callback/` on GitHub, or by `/accounts/gitlab/login/callback/` on GitLab, for example `https://daiv.example.com/accounts/gitlab/login/callback/`. GitLab calls this field **Redirect URI**.
 3. On GitLab, select the `read_user` scope.
 4. Save the app, then copy its client ID and client secret.
-5. In **Site Configuration → Authentication**, turn on **Enable OAuth login**, enter the **OAuth client ID** and **Auth Client Secret**, and select **Save configuration**. On GitLab, also set **GitLab URL** to your instance's address.
 
-The login page now shows a button for your Git platform. To seed the same values from the environment instead, see [Authentication](../reference/env-variables.md#authentication).
+To turn on OAuth login with the client ID and secret, see [Turn on OAuth login](../reference/site-configuration.md#turn-on-oauth-login). To seed the same values from the environment instead, see [Authentication](../reference/env-variables.md#authentication).
 
 ### Email login-by-code
 

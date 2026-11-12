@@ -137,9 +137,9 @@ OAuth login needs all three of the `DAIV_AUTH_LOGIN_ENABLED` toggle, a client ID
 
 With `EMAIL_BACKEND` set to `django.core.mail.backends.console.EmailBackend`, DAIV writes login-code emails to the app's output instead of sending them, which is enough to sign in without an SMTP server.
 
-### Rocket Chat
+### Rocket.Chat
 
-Enabling Rocket Chat offers it as a notification channel that users can opt into.
+Enabling the **Rocket Chat** group offers Rocket.Chat as a notification channel that users can opt into.
 
 | Variable                | Description                        | Default        | Example         |
 |-------------------------|------------------------------------|:--------------:|-----------------|
@@ -173,7 +173,7 @@ Two more variables exist, but leave them unset: each pins a value that DAIV othe
 
 DAIV uses `DAIV_EXTERNAL_URL` to define webhooks on the Git platform and as the site domain in authentication emails, so the Git platform must be able to reach it.
 
-`DAIV_ENCRYPTION_KEY` protects the secrets DAIV stores in its database: provider API keys, the OAuth client secret, the sandbox key, the Rocket Chat token, the Telegram token and webhook secret, web fetch header values and sandbox environment secrets. DAIV uses a raw Fernet key directly. Any other value is a passphrase, from which DAIV derives a key with HKDF-SHA256. When the variable is unset, DAIV derives the key from `DJANGO_SECRET_KEY`.
+`DAIV_ENCRYPTION_KEY` protects the secrets DAIV stores in its database: provider API keys, the Tavily web search API key, the OAuth client secret, the sandbox API key, the Rocket.Chat token, the Telegram bot token and webhook secret, web fetch header values, MCP server headers, and sandbox environment variables and egress secrets. DAIV uses a raw Fernet key directly. Any other value is a passphrase, from which DAIV derives a key with HKDF-SHA256. When the variable is unset, DAIV derives the key from `DJANGO_SECRET_KEY`.
 
 !!! warning
     Back up `DAIV_ENCRYPTION_KEY`, or `DJANGO_SECRET_KEY` when you leave it unset. If the key is lost or changed, DAIV cannot decrypt the stored secrets, and you must enter them again.
@@ -242,7 +242,7 @@ GitHub uses GitHub App authentication, so you create a GitHub App in your accoun
 Configure at least one provider to use the agent. The [LLM Providers](../getting-started/llm-providers.md) page explains how model specs pick a provider.
 
 !!! warning "Provider keys are seed-only"
-    DAIV reads the provider API key variables once, when it first creates the provider records, and never again. They are not part of the environment, database and default order that other settings follow. Changing or adding a `*_API_KEY` variable or secret after the provider record exists has no effect: edit the provider under **Site Configuration → Providers** instead, which holds the key and the base URL from then on. A provider created without a key starts disabled.
+    DAIV reads the provider API key variables once, when it first creates the provider records, and never again. They are not part of the environment, database and default order that other settings follow. Changing or adding a `*_API_KEY` variable or secret after the provider record exists has no effect: edit the provider under **Configuration → Providers** instead, which holds the key and the base URL from then on. A provider created without a key starts disabled.
 
 DAIV reads each key from a Docker secret named after the variable in lowercase, for example `openrouter_api_key` mounted at `/run/secrets/openrouter_api_key`, or else from the environment variable. The secret wins when both are set. The OpenRouter base URL is a **Base URL** field of the provider and defaults to `https://openrouter.ai/api/v1`. [Providers](site-configuration.md#providers) describes the fields.
 
