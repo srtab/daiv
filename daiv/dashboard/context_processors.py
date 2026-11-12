@@ -4,14 +4,16 @@ import logging
 from typing import Any
 
 from django.db import Error as DatabaseError
-from django.db.models import Count, Max
+from django.db.models import Count, Exists, Max, OuterRef
 from django.utils.functional import SimpleLazyObject
 
-from sessions.models import Run, RunStatus
+from sessions.models import Run, RunStatus, Session
+
+from dashboard.sidebar import Sidebar, SidebarLists
 
 logger = logging.getLogger("daiv.dashboard")
 
-SECTION_URL_NAMES: dict[str, set[str]] = {
+_MAIN_SECTION_URL_NAMES: dict[str, set[str]] = {
     "dashboard": {"dashboard"},
     "insights": {"insights"},
     "sessions": {
@@ -34,12 +36,6 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
         "schedule_toggle",
         "schedule_run_now",
     },
-    "schedule_templates": {
-        "schedule_template_list",
-        "schedule_template_create",
-        "schedule_template_update",
-        "schedule_template_delete",
-    },
     "notifications": {"notifications:list"},
     # The account menu's pages; the mfa_* names are passkey (WebAuthn) pages under /accounts/mfa/.
     "account": {
@@ -53,6 +49,15 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
         "mfa_edit_webauthn",
         "mfa_remove_webauthn",
         "mfa_reauthenticate_webauthn",
+    },
+}
+
+_SETTINGS_SECTION_URL_NAMES: dict[str, set[str]] = {
+    "schedule_templates": {
+        "schedule_template_list",
+        "schedule_template_create",
+        "schedule_template_update",
+        "schedule_template_delete",
     },
     "users": {"user_list", "user_create", "user_update", "user_delete"},
     "configuration": {"site_configuration", "site_configuration_index"},
@@ -81,6 +86,8 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
     "mcp_servers_global": {"mcp_connectors:global_list", "mcp_connectors:global_create"},
 }
 
+SECTION_URL_NAMES: dict[str, set[str]] = {**_MAIN_SECTION_URL_NAMES, **_SETTINGS_SECTION_URL_NAMES}
+
 
 def _resolve_active_section(request) -> str:
     # A view may borrow another URL's section — needed where one URL serves rows of
@@ -93,16 +100,31 @@ def _resolve_active_section(request) -> str:
     return ""
 
 
-def running_snapshot(visible) -> dict[str, Any]:
-    """The RUNNING rows of a ``Run.objects.visible_to(user)`` queryset, under the nav stream's keys.
+def running_snapshot(visible, user) -> dict[str, Any]:
+    """The RUNNING rows of ``visible`` (``Run.objects.visible_to(user)``), under the nav stream's keys.
 
     ``running_runs`` is the badge. ``latest_running_start`` moves whenever another run starts, even when one
     finishing at the same moment leaves the count unchanged; it is kept for session pages loaded before the nav
     stream carried ``session`` frames, which watch it to hear that a run started after they rendered.
+    The ``own_`` pair is the same snapshot over the sessions the user owns, which the sidebar's lists show.
     """
-    stats = visible.filter(status=RunStatus.RUNNING).aggregate(running_runs=Count("pk"), latest=Max("started_at"))
-    latest = stats["latest"]
-    return {"running_runs": stats["running_runs"], "latest_running_start": latest.isoformat() if latest else ""}
+    own = Exists(Session.objects.owned_by(user).filter(pk=OuterRef("session_id")))
+    stats = visible.filter(status=RunStatus.RUNNING).aggregate(
+        running_runs=Count("pk"),
+        latest=Max("started_at"),
+        own_running_runs=Count("pk", filter=own),
+        own_latest=Max("started_at", filter=own),
+    )
+    return {
+        "running_runs": stats["running_runs"],
+        "latest_running_start": _isoformat(stats["latest"]),
+        "own_running_runs": stats["own_running_runs"],
+        "own_latest_running_start": _isoformat(stats["own_latest"]),
+    }
+
+
+def _isoformat(moment) -> str:
+    return moment.isoformat() if moment else ""
 
 
 def query_running_snapshot(user) -> dict[str, Any]:
@@ -116,7 +138,7 @@ def query_running_snapshot(user) -> dict[str, Any]:
 
     SYNC ONLY — ``visible_to`` resolves platform identity with a DB read at query-build time.
     """
-    return running_snapshot(Run.objects.visible_to(user))
+    return running_snapshot(Run.objects.visible_to(user), user)
 
 
 def running_state(request, user) -> dict[str, Any]:
@@ -132,7 +154,7 @@ def running_state(request, user) -> dict[str, Any]:
         state = query_running_snapshot(user)
     except DatabaseError:
         logger.exception("Failed to compute nav_running_jobs for user %s", user.pk)
-        state = {"running_runs": 0, "latest_running_start": ""}
+        state = {"running_runs": 0, "latest_running_start": "", "own_running_runs": 0, "own_latest_running_start": ""}
     request._daiv_running_state = state
     return state
 
@@ -141,18 +163,44 @@ def running_jobs_count(request, user) -> int:
     return running_state(request, user)["running_runs"]
 
 
-def nav(request) -> dict[str, Any]:
-    """Supply ``nav_running_jobs`` and ``nav_active_section`` to every authenticated request.
+def _viewed_thread_id(request) -> str:
+    match = getattr(request, "resolver_match", None)
+    if match is None or match.view_name != "session_detail":
+        return ""
+    return match.kwargs.get("thread_id", "")
 
-    The running values are wrapped in ``SimpleLazyObject`` so the DB query runs only if the
+
+def sidebar_state(request, user) -> SidebarLists:
+    """The sidebar's lists, memoized per-request on ``request._daiv_sidebar_lists``; ``failed`` on a DB error."""
+    cached = getattr(request, "_daiv_sidebar_lists", None)
+    if cached is not None:
+        return cached
+    try:
+        state = Sidebar(user, viewing=_viewed_thread_id(request)).lists()
+    except DatabaseError:
+        logger.exception("Failed to compute the sidebar lists for user %s", user.pk)
+        state = SidebarLists(failed=True)
+    request._daiv_sidebar_lists = state
+    return state
+
+
+def nav(request) -> dict[str, Any]:
+    """Supply the nav's running counts, active section, settings mode and sidebar lists to every authenticated request.
+
+    The running counts and the lists are wrapped in ``SimpleLazyObject`` so their queries run only if the
     template actually references them — non-HTML responses (redirects, HTMX fragments, SSE)
-    skip the query entirely.
+    skip them entirely.
     """
     user = getattr(request, "user", None)
     if user is None or not user.is_authenticated:
         return {}
 
+    active_section = _resolve_active_section(request)
     return {
         "nav_running_jobs": SimpleLazyObject(lambda: running_jobs_count(request, user)),
-        "nav_active_section": _resolve_active_section(request),
+        "nav_own_running_jobs": SimpleLazyObject(lambda: running_state(request, user)["own_running_runs"]),
+        "nav_active_section": active_section,
+        "nav_settings_mode": active_section in _SETTINGS_SECTION_URL_NAMES,
+        "nav_session_thread_id": _viewed_thread_id(request),
+        "nav_sidebar": SimpleLazyObject(lambda: sidebar_state(request, user)),
     }

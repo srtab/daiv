@@ -1,0 +1,81 @@
+{% load i18n icon_tags nav_tags %}
+<div class="px-3">
+  <a href="{% url 'dashboard' %}"
+     data-testid="nav-home"
+     title="{% translate 'Home' %}"
+     class="sidebar__nav-item {% nav_active 'dashboard' %}">
+    {% icon "squares-2x2" "h-4 w-4 shrink-0" %}
+    <span class="sidebar__collapsible">{% translate "Home" %}</span>
+  </a>
+
+  <a href="{% url 'notifications:list' %}"
+     data-testid="nav-notifications"
+     title="{% translate 'Notifications' %}"
+     class="sidebar__nav-item {% nav_active 'notifications' %}">
+    <span class="relative inline-flex shrink-0">
+      {% icon "bell" "h-4 w-4" %}
+      {# The rail hides the count, so it shows this dot in its place. #}
+      <span x-show="$store.nav.unread > 0" x-cloak aria-hidden="true"
+            class="sidebar__rail-only status-dot absolute -top-0.5 -right-0.5 bg-accent"></span>
+    </span>
+    <span class="sidebar__collapsible flex-1">{% translate "Notifications" %}</span>
+    <span data-testid="nav-unread-badge"
+          x-show="$store.nav.unread > 0" x-cloak
+          x-text="$store.nav.unread"
+          class="sidebar__collapsible nav-badge bg-accent font-semibold text-accent-ink"></span>
+  </a>
+
+  <a href="{% url 'artifact_list' %}"
+     data-testid="nav-artifacts"
+     title="{% translate 'Artifacts' %}"
+     class="sidebar__nav-item {% nav_active 'artifacts' %}">
+    {% icon "document-text" "h-4 w-4 shrink-0" %}
+    <span class="sidebar__collapsible">{% translate "Artifacts" %}</span>
+  </a>
+
+  {# The rail hides both lists and their headers, so it carries New chat and links their pages instead. #}
+  <div class="sidebar__rail-only">
+    <a href="{% url 'session_new_chat' %}"
+       data-testid="nav-rail-new-chat"
+       title="{% translate 'New chat' %}"
+       class="sidebar__nav-item nav-group-action--primary">
+      {% icon "plus" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__collapsible">{% translate "New chat" %}</span>
+    </a>
+    <a href="{% url 'session_list' %}#search"
+       data-testid="nav-rail-search"
+       title="{% translate 'Search sessions' %} (/)"
+       aria-keyshortcuts="/"
+       class="sidebar__nav-item">
+      {% icon "magnifying-glass" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__collapsible">{% translate "Search sessions" %}</span>
+    </a>
+    <a href="{% url 'session_list' %}"
+       data-testid="nav-rail-sessions"
+       title="{% translate 'Sessions' %}"
+       class="sidebar__nav-item {% nav_active 'sessions' %}">
+      <span class="relative inline-flex shrink-0">
+        {% icon "chat-bubble" "h-4 w-4" %}
+        <span x-show="$store.nav.running > 0" x-cloak aria-hidden="true"
+              class="status-dot status-dot-running absolute -top-0.5 -right-0.5"></span>
+      </span>
+      <span class="sidebar__collapsible">{% translate "Sessions" %}</span>
+    </a>
+    <a href="{% url 'schedule_list' %}"
+       data-testid="nav-rail-scheduled"
+       title="{% translate 'Scheduled' %}"
+       class="sidebar__nav-item {% nav_active 'schedules' %}">
+      {% icon "clock" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__collapsible">{% translate "Scheduled" %}</span>
+    </a>
+  </div>
+</div>
+
+<div data-sidebar-scroll class="sidebar__collapsible scrollbar-thin min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-4"
+     {% if not sheet %}x-init="$nextTick(() => $store.sidebarLists.restoreScroll($el))"
+     @scroll.throttle.150ms="$store.sidebarLists.saveScroll($el)"{% endif %}>
+  <div data-testid="sidebar-lists" data-url="{% url 'sidebar_lists' %}" data-viewing="{{ nav_session_thread_id }}"
+       data-section="{{ nav_active_section }}">
+    {% include "dashboard/_sidebar_lists.html" %}
+  </div>
+</div>

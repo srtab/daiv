@@ -10,7 +10,7 @@
  * wholesale by each `snapshot` frame — the stream sends state, not deltas, so a
  * reconnect needs no replay.
  *
- *     <div x-data="..." x-init="$store.nav.start({ url, state, runningLabel })">
+ *     <div x-data="..." x-init="$store.nav.start({ url, state })">
  *
  * `state` carries the server's own snapshot keys (`unread_count`, `running_runs`) rather than
  * the store's field names, so the page seed and the SSE frames are one shape read by one
@@ -19,13 +19,11 @@
  * On a session page `url` carries `?session=<thread_id>`, and each `session` frame the stream
  * then sends is re-announced to the page as a `daiv:session-changed` window event.
  *
- * `runningLabel` is the sidebar badge's translated sentence with `{count}` still in it:
- * a live number can't go through `blocktranslate`, and keeping the whole sentence as one
- * msgid (rather than "3" + a translated word) leaves the translator in control of word
- * order. base_app.html passes it because it is what includes the sidebar.
- *
- * Brace-style, not `%(count)s`: `{% translate %}` doubles every `%` before the catalog
- * lookup, so a percent-style msgid misses and silently renders the untranslated source.
+ * A frame that moves the user's own running snapshot (`own_running_runs` or
+ * `own_latest_running_start`) is announced as `daiv:runs-changed`, and so is every reopen after
+ * the tab was hidden, since runs may have started and finished unseen. The page seed never is:
+ * it carries no start, so the first frame's start is only recorded. The sidebar's lists, which
+ * show only the user's own sessions, refetch on it; runs they merely see do not move it.
  */
 document.addEventListener("alpine:init", () => {
   Alpine.store("nav", {
@@ -34,16 +32,13 @@ document.addEventListener("alpine:init", () => {
     _url: "",
     _source: null,
     _ended: false,
-    _runningLabel: "",
-
-    get runningLabel() {
-      return this._runningLabel.replace("{count}", this.running);
-    },
+    _opened: false,
+    _ownRunning: 0,
+    _ownLatestStart: null,
 
     /** Seed from the page render and open the stream. Idempotent per tab. */
-    start({ url, state, runningLabel }) {
+    start({ url, state }) {
       this._applyState(state);
-      this._runningLabel = runningLabel || "";
       if (this._url || !url || !window.EventSource) return;
       this._url = url;
       // Gated on `document.visibilityState`: an ungated stream would hold a worker, a DB
@@ -65,6 +60,8 @@ document.addEventListener("alpine:init", () => {
 
     _open() {
       if (this._source || this._ended || !this._url) return;
+      if (this._opened) this._announceRuns();
+      this._opened = true;
       this._source = new EventSource(this._url);
       this._source.addEventListener("snapshot", (event) => this._apply(event.data));
       this._source.addEventListener("session", (event) => this._announceSession(event.data));
@@ -84,7 +81,23 @@ document.addEventListener("alpine:init", () => {
         console.warn("nav: unreadable snapshot frame");
         return;
       }
+      const moved = this._runsMoved(snapshot);
       this._applyState(snapshot);
+      if (moved) this._announceRuns();
+    },
+
+    _runsMoved(state) {
+      if (!state) return false;
+      const count = state.own_running_runs;
+      const start = state.own_latest_running_start;
+      return (
+        (typeof count === "number" && count !== this._ownRunning) ||
+        (typeof start === "string" && this._ownLatestStart !== null && start !== this._ownLatestStart)
+      );
+    },
+
+    _announceRuns() {
+      window.dispatchEvent(new CustomEvent("daiv:runs-changed"));
     },
 
     _announceSession(data) {
@@ -107,6 +120,8 @@ document.addEventListener("alpine:init", () => {
       if (!state) return;
       if (typeof state.unread_count === "number") this.unread = state.unread_count;
       if (typeof state.running_runs === "number") this.running = state.running_runs;
+      if (typeof state.own_running_runs === "number") this._ownRunning = state.own_running_runs;
+      if (typeof state.own_latest_running_start === "string") this._ownLatestStart = state.own_latest_running_start;
     },
   });
 });

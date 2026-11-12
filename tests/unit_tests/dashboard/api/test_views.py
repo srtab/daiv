@@ -145,7 +145,7 @@ class TestNavFrames:
         await start_run(member_user)
         frames = await read_frames(member_user, FakeStream(), count=2)
         rendered = await sync_to_async(lambda: member_client.get("/dashboard/").content.decode())()
-        for key in snapshots(frames)[0].keys() - {"latest_running_start"}:
+        for key in snapshots(frames)[0].keys() - {"latest_running_start", "own_latest_running_start"}:
             assert f"{key}: " in rendered
 
     async def test_the_snapshot_carries_both_counts_and_the_latest_start(self, member_user):
@@ -155,7 +155,13 @@ class TestNavFrames:
         run = await start_run(member_user)
         frames = await read_frames(member_user, FakeStream(), count=2)
         assert snapshots(frames) == [
-            {"unread_count": 1, "running_runs": 1, "latest_running_start": run.started_at.isoformat()}
+            {
+                "unread_count": 1,
+                "running_runs": 1,
+                "latest_running_start": run.started_at.isoformat(),
+                "own_running_runs": 1,
+                "own_latest_running_start": run.started_at.isoformat(),
+            }
         ]
 
     async def test_another_run_starting_sends_a_fresh_snapshot_though_the_count_held(self, member_user):
@@ -184,6 +190,13 @@ class TestNavFrames:
         await start_run(member_user, status=RunStatus.QUEUED, repo_id="daiv/other")
         frames = await read_frames(member_user, FakeStream(), count=2)
         assert snapshots(frames)[0]["running_runs"] == 0
+
+    async def test_a_run_the_user_only_sees_is_not_their_own(self, member_user, admin_user):
+        await start_run(member_user)
+        frames = await read_frames(admin_user, FakeStream(), count=2)
+        (snapshot,) = snapshots(frames)
+        assert (snapshot["running_runs"], snapshot["own_running_runs"]) == (1, 0)
+        assert snapshot["own_latest_running_start"] == ""
 
     async def test_another_users_notifications_are_not_counted(self, member_user):
         bob = await User.objects.acreate_user(username="bob", email="bob@test.com", password="x123456789")  # noqa: S106

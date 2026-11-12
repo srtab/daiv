@@ -1,0 +1,143 @@
+{% load i18n icon_tags nav_tags session_tags %}
+{% comment %}
+The sidebar's two lists, from `nav_sidebar` (a `dashboard.sidebar.SidebarLists`). Also the whole
+response of the `sidebar_lists` endpoint, which the sidebar swaps in when runs start or finish.
+{% endcomment %}
+{% with lists=nav_sidebar %}
+<section data-testid="nav-sessions-group">
+  <div class="nav-group-heading">
+    <h2 class="nav-group-title">{% translate "Sessions" %}</h2>
+    <div class="nav-group-actions">
+      {% translate "Search sessions" as search_label %}
+      <a href="{% url 'session_list' %}#search"
+         data-testid="nav-sessions-search"
+         data-row-key="sessions-search"
+         title="{{ search_label }} (/)"
+         aria-label="{{ search_label }}"
+         aria-keyshortcuts="/"
+         class="nav-group-action">{% icon "magnifying-glass" "h-3.5 w-3.5" %}</a>
+      <a href="{% url 'session_new_chat' %}"
+         data-testid="nav-new-chat"
+         data-row-key="new-chat"
+         title="{% translate 'New chat' %}"
+         aria-label="{% translate 'New chat' %}"
+         class="nav-group-action nav-group-action--primary">{% icon "plus" "h-4 w-4" %}</a>
+    </div>
+  </div>
+  <ul>
+    {% for row in lists.sessions %}
+    <li>
+      <a href="{% url 'session_detail' thread_id=row.thread_id %}"
+         data-testid="nav-session-row"
+         data-row-key="s:{{ row.thread_id }}"
+         title="{% if row.title %}{{ row.title }}{% else %}{% translate 'generating title…' %}{% endif %}"
+         {% if row.active %}aria-current="page"{% endif %}
+         class="nav-row{% if row.active %} nav-row--active{% endif %}">
+        <span class="status-dot status-dot-{{ row.status|status_variant }}" aria-hidden="true"></span>
+        <span class="nav-row__title">{% if row.title %}{{ row.title }}{% else %}<em>{% translate "generating title…" %}</em>{% endif %}</span>
+        <span class="nav-row__meta">
+          {% with label=row.status|run_status_label %}
+          {% if row.shows_state %}
+          {{ label }}
+          {% else %}
+          {% if label %}<span class="sr-only">{{ label }}</span>{% endif %}
+          {{ row.last_active_at|compact_time }}
+          {% endif %}
+          {% endwith %}
+        </span>
+      </a>
+    </li>
+    {% empty %}
+    <li class="nav-empty">
+      {% if lists.failed %}
+      {% translate "Couldn't load your sessions." %}
+      {% else %}
+      {% translate "No sessions yet." %}
+      <a href="{% url 'session_new_chat' %}" class="nav-empty__link">{% translate "Start a chat" %}</a>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% if lists.has_more %}
+  <a href="{% url 'session_list' %}"
+     data-testid="nav-sessions-more"
+     data-row-key="more"
+     {% if lists.next_limit %}@click.prevent="$store.sidebarLists.more({{ lists.next_limit }})"{% endif %}
+     class="nav-row nav-row--quiet">{% translate "Show more" %}</a>
+  {% endif %}
+</section>
+
+<section data-testid="nav-scheduled-group" class="mt-5">
+  <div class="nav-group-heading">
+    <h2 class="nav-group-title {% nav_active 'schedules' %}">{% translate "Scheduled" %}</h2>
+    <div class="nav-group-actions">
+      <a href="{% url 'schedule_list' %}"
+         data-testid="nav-scheduled-manage"
+         data-row-key="scheduled-manage"
+         title="{% translate 'Manage schedules' %}"
+         aria-label="{% translate 'Manage schedules' %}"
+         class="nav-group-action">{% icon "list-bullet" "h-3.5 w-3.5" %}</a>
+    </div>
+  </div>
+  <ul>
+    {% for schedule in lists.schedules %}
+    {% with starts_open=schedule.starts_open|yesno:"true,false" %}
+    <li data-testid="nav-schedule-row"
+        data-schedule="{{ schedule.pk }}"
+        data-starts-open="{{ starts_open }}">
+      <button type="button"
+              data-row-key="j:{{ schedule.pk }}"
+              aria-expanded="{{ starts_open }}"
+              :aria-expanded="$store.sidebarLists.isOpen({{ schedule.pk }}, {{ starts_open }}).toString()"
+              @click="$store.sidebarLists.toggle({{ schedule.pk }}, {{ starts_open }})"
+              title="{{ schedule.name }}"
+              class="nav-row">
+        {% icon "chevron-right" "nav-row__chevron h-3 w-3 shrink-0" %}
+        <span class="nav-row__title">{{ schedule.name }}</span>
+        <span class="nav-row__meta">
+          {% if schedule.status %}
+          <span class="status-dot status-dot-{{ schedule.status|status_variant }}" aria-hidden="true"></span>{{ schedule.status|run_status_label }}
+          {% elif schedule.next_run_at %}
+          {{ schedule.next_run_at|compact_time }}
+          {% endif %}
+        </span>
+      </button>
+      {# Without JavaScript the server's default stands; a schedule that starts open must not wait on Alpine. #}
+      <ul x-show="$store.sidebarLists.isOpen({{ schedule.pk }}, {{ starts_open }})"{% if not schedule.starts_open %} x-cloak{% endif %}>
+        {% for firing in schedule.firings %}
+        <li>
+          <a href="{{ firing.url }}"
+             data-testid="nav-firing-row"
+             data-row-key="f:{{ firing.batch_id }}"
+             {% if firing.active %}aria-current="page"{% endif %}
+             class="nav-row nav-row--nested{% if firing.active %} nav-row--active{% endif %}">
+            <span class="status-dot status-dot-{{ firing.status|status_variant }}" aria-hidden="true"></span>
+            <span class="nav-row__title font-mono">{{ firing.fired_at|date:"M j, H:i" }}</span>
+            <span class="nav-row__meta">
+              {% if firing.repo_count > 1 %}
+              {% blocktranslate count counter=firing.repo_count %}{{ counter }} repo{% plural %}{{ counter }} repos{% endblocktranslate %} &middot;
+              {% endif %}
+              {{ firing.status|run_status_label }}
+            </span>
+          </a>
+        </li>
+        {% endfor %}
+        <li>
+          <a href="{{ schedule.all_runs_url }}" data-testid="nav-schedule-all-runs" class="nav-row nav-row--nested nav-row--quiet">{% translate "All runs" %}</a>
+        </li>
+      </ul>
+    </li>
+    {% endwith %}
+    {% empty %}
+    <li class="nav-empty">
+      {% if lists.failed %}
+      {% translate "Couldn't load your schedules." %}
+      {% else %}
+      {% translate "No schedules yet." %}
+      <a href="{% url 'schedule_create' %}" class="nav-empty__link">{% translate "Create one" %}</a>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endwith %}

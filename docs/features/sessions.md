@@ -6,7 +6,7 @@ description: "Every DAIV agent execution is recorded as a session: chat with the
 
 DAIV records every agent execution in a **session**: one persistent conversation with the agent, tied to a repository and ref. Every way you can trigger DAIV (webhooks, the jobs API, the MCP endpoint, scheduled jobs, or a chat you type yourself) produces a session, and every time the agent runs in that session adds a **run** to it.
 
-Select **Sessions** in the sidebar (`/dashboard/sessions/`) to see every session you can see. A session's page holds its transcript, its run timeline, and its timing and usage.
+Your own sessions are listed in the [app sidebar](#the-app-sidebar). The search icon beside its **Sessions** heading opens the full list (`/dashboard/sessions/`), with every session you can see. A session's page holds its transcript, its run timeline, and its timing and usage.
 
 ## Who can see a session
 
@@ -43,6 +43,18 @@ Each session carries the origin that created it:
 | **Delegated Run** | A coordinator's `delegate_jobs` call ([orchestration](orchestration.md)), including a leg follow-up that continues the session | One repository's part of a multi-repository change |
 | **Delegation Resume** | The run that resumes a coordinator once its delegated batch has finished ([orchestration](orchestration.md)) | The coordinator checks every leg's outcome and reports |
 
+## The app sidebar
+
+The sidebar lists your sessions, so any of them is one click away from every page:
+
+- **Sessions**: your own sessions, most recently active first, 8 at a time. **Show more** adds 8, up to 80; past that it opens the sessions list. Each has a status dot and, while it is running, waiting for your input or failed, that state; otherwise how long ago it was active. The session you are viewing is always in the list. Sessions a schedule started are listed under their schedule instead. Beside the heading, the search icon (shortcut `/`) opens the sessions list with its search box focused, and **+** starts a chat.
+- **Scheduled**: up to 10 schedules you own or subscribe to that are enabled or ran in the last 14 days, each with its next run. Expand one for its 3 latest runs: one row per run of the schedule, with the worst status across its repositories and, past one, how many repositories it ran on. A run on one repository opens its session; a wider one opens the sessions it started. **All runs** lists every session of the schedule, and the list icon beside the heading opens the schedules page. A schedule whose latest run failed or is waiting for input starts expanded; otherwise this browser remembers whether you expanded it.
+- **Settings**, the cog beside your account, slides in the pages you set up once (**Sandbox environments**, **MCP servers** and **Memory**, under **Agent setup**, and for admins **Users**, **Configuration**, **Schedule templates**, **Skills** and **Global MCP servers**, under **Admin**) along with the documentation links. Nothing changes on the page until you pick one. **Back** (or Escape) slides your sessions back in.
+
+The lists update as runs start and finish, without a reload. Where the sidebar narrows to icons, **+** starts a chat, the magnifier opens the session search, and **Sessions** and **Scheduled** open their pages.
+
+To see more of long titles, drag the sidebar's right edge to widen it, or focus the edge and use the arrow keys; double-click the edge to reset it. This browser remembers the width. The sidebar never takes so much room that the page beside it gets cramped, so on smaller windows it widens less.
+
 ## Home
 
 **Home** (`/dashboard/`) opens with **Needs you**: what is waiting on you, up to 8 items. Questions come first, then failures (**Failed**, **CI still failing**, **Can't run**), then **Found issues**, then **Needs attention**; newest first within each.
@@ -55,14 +67,11 @@ Each session carries the origin that created it:
 
 A session counts once, as the first of these it matches: a question in a session whose CI watch gave up shows as **Needs input**. A session with no activity for 90 days leaves the list.
 
-Below **Needs you**, Home shows, in the main column:
+Below **Needs you**, Home shows **Your week**: what the runs in your own sessions came to over the last 7 days. A column per day is stacked by outcome (**Changed code**, **Done, no changes**, **Needed you**, **Failed**), and the section lists the merge requests those runs worked on and where you started work from. A day's column opens your sessions that ran that day. Your recent sessions are in the [app sidebar](#the-app-sidebar).
 
-- **Your week**: what the runs in your own sessions came to over the last 7 days. A column per day is stacked by outcome (**Changed code**, **Done, no changes**, **Needed you**, **Failed**), and the section lists the merge requests those runs worked on and where you started work from. A day's column opens your sessions that ran that day.
-- **Your recent sessions**: your 5 most recent sessions.
+Last comes **Ways to use DAIV**: how to start work from your Git platform (issue labels, mentions and slash commands), from your editor (this instance's MCP URL), and right here (**New chat** and **New background run**). Fold it away with **Hide**; this browser remembers. A user who has not started a run yet sees only **Needs you** and **Ways to use DAIV**.
 
-**Ways to use DAIV** sits in a side column: how to start work from your Git platform (issue labels, mentions and slash commands), from your editor (this instance's MCP URL), and right here (**New chat** and **New background run**). A user with no sessions yet sees only **Needs you** and **Ways to use DAIV**.
-
-Team statistics are on **Insights**.
+Team statistics are on **Insights**, linked as **Team insights** at the top of Home.
 
 ## Insights
 
@@ -114,7 +123,7 @@ Sessions with a run in flight (**Queued**, **Pending** or **Running**) update in
 
 ### Archived sessions
 
-An archived session is archived for everyone, not only for the person who archived it. It leaves **Sessions**, **Your recent sessions** and **Needs you** on **Home**, and it takes no follow-ups until someone unarchives it.
+An archived session is archived for everyone, not only for the person who archived it. It leaves **Sessions**, the app sidebar and **Needs you** on **Home**, and it takes no follow-ups until someone unarchives it.
 
 A filtered list that hides archived sessions says how many match: select **Show archived** under the list to see them.
 
@@ -252,7 +261,7 @@ A revised artifact stays on the run that first published it, on the dashboard an
 
 A chat is the interactive workspace where you work with the agent turn by turn. You need access to at least one repository that DAIV serves.
 
-1. In the sidebar, select **New chat** (`/dashboard/sessions/new/chat/`).
+1. In the sidebar, select **New chat**, the **+** beside **Sessions** (`/dashboard/sessions/new/chat/`).
 2. In the **Workspace** card, select **Add repository**, and pick the repository the session works on. The ref defaults to the repository's default branch.
 3. To work from another branch, select the branch button on the repository's row, and pick the branch.
 4. Optional: in **Environment**, pick the [sandbox environment](sandbox-environments.md) the agent's commands run in. It stays on **Auto**, resolved for the main repository, until you pick one.
@@ -330,7 +339,6 @@ For job runs (a dashboard submission, the [jobs API](jobs-api.md) or [MCP](mcp-e
 A background run hands a task to the agent without a chat: you describe the task, DAIV runs it, and you are notified when it ends. You need access to at least one repository that DAIV serves.
 
 1. Go to the start screen of a background run, by any of these routes:
-    - In the sidebar, select the chevron next to **New chat**, then **Background run**.
     - On **Sessions**, select **New**, then the **Background run** card.
     - On **Home**, select **New background run**.
 2. In the message box of **Start a run**, describe what the agent should do.

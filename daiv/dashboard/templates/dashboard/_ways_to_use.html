@@ -1,23 +1,34 @@
 {% load i18n icon_tags %}
 {% comment %}
-The three ways into DAIV, specific to this instance.
+The three ways into DAIV, specific to this instance: a fold that stays as the viewer last left it.
 
 Context:
 - ways: the dict ``dashboard.home.ways_to_use`` builds.
-- prominent: True lays the three out side by side with their details open; False stacks them for a side column.
+- has_started_runs: False for someone who has started nothing yet, who gets the intro and the slash commands open.
 {% endcomment %}
-<section aria-labelledby="ways-heading" data-testid="ways-to-use"
-         class="rounded-2xl border border-border bg-surface-2 {% if prominent %}p-6{% else %}p-5{% endif %}">
-    <h2 id="ways-heading" class="font-semibold tracking-tight text-text {% if prominent %}text-[18px]{% else %}text-[15px]{% endif %}">
-        {% translate "Ways to use DAIV" %}
-    </h2>
-    {% if prominent %}
-    <p class="mt-1 text-[14px] text-text-muted">
-        {% translate "Start work from wherever you already are. Everything you start shows up here." %}
-    </p>
-    {% endif %}
+<section aria-labelledby="ways-heading">
+{# A <summary> is a button, which hides a heading inside it from screen readers' heading list. #}
+<h2 id="ways-heading" class="sr-only">{% translate "Ways to use DAIV" %}</h2>
+<details id="ways-to-use" open data-testid="ways-to-use" class="guide">
+    <summary class="guide__summary">
+        {% icon "light-bulb" "h-4 w-4 shrink-0 text-text-faint" %}
+        <span class="guide__title">{% translate "Ways to use DAIV" %}</span>
+        <span class="guide__hint">
+            {% blocktranslate with platform=ways.platform_name %}{{ platform }}, your editor, or right here{% endblocktranslate %}
+        </span>
+        <span class="guide__toggle">
+            <span class="guide__show">{% translate "Show" %}</span>
+            <span class="guide__hide">{% translate "Hide" %}</span>
+            {% icon "chevron-down" "guide__chevron h-3.5 w-3.5" %}
+        </span>
+    </summary>
 
-    <div class="mt-5 grid gap-6 {% if prominent %}lg:grid-cols-3{% endif %}">
+    <div class="guide__body">
+        {% if not has_started_runs %}
+        <p class="text-[14px] text-text-muted lg:col-span-3">
+            {% translate "Start work from wherever you already are. Everything you start shows up in the sidebar." %}
+        </p>
+        {% endif %}
         {# Git platform #}
         <div class="min-w-0" data-testid="ways-git">
             <h3 class="flex items-center gap-2 text-[14px] font-semibold text-text-strong">
@@ -36,7 +47,7 @@ Context:
             <p class="mt-3 text-[13px] text-text-muted">
                 {% blocktranslate with mention=ways.bot_mention mr=ways.mr_term %}Or mention <code class="rounded-md bg-surface-3 px-1.5 py-0.5 font-mono text-[12px] text-text">{{ mention }}</code> in an issue or {{ mr }} comment, with a slash command:{% endblocktranslate %}
             </p>
-            <details class="group mt-2" {% if prominent %}open{% endif %}>
+            <details class="group mt-2" {% if not has_started_runs %}open{% endif %}>
                 <summary class="cursor-pointer list-none text-[13px] text-text-muted transition-colors hover:text-text [&::-webkit-details-marker]:hidden">
                     <span class="inline-flex items-center gap-1">
                         {% icon "chevron-right" "h-3 w-3 transition-transform group-open:rotate-90" %}
@@ -55,7 +66,7 @@ Context:
         </div>
 
         {# Editor #}
-        <div class="min-w-0 {% if not prominent %}border-t border-border pt-5{% endif %}" data-testid="ways-editor">
+        <div class="min-w-0" data-testid="ways-editor">
             <h3 class="flex items-center gap-2 text-[14px] font-semibold text-text-strong">
                 {% icon "code-bracket" "h-4 w-4 text-text-muted" %}
                 {% translate "From your editor" %}
@@ -76,7 +87,7 @@ Context:
         </div>
 
         {# Dashboard #}
-        <div class="min-w-0 {% if not prominent %}border-t border-border pt-5{% endif %}" data-testid="ways-dashboard">
+        <div class="min-w-0" data-testid="ways-dashboard">
             <h3 class="flex items-center gap-2 text-[14px] font-semibold text-text-strong">
                 {% icon "squares-2x2" "h-4 w-4 text-text-muted" %}
                 {% translate "Right here" %}
@@ -96,4 +107,15 @@ Context:
             </div>
         </div>
     </div>
+</details>
 </section>
+<script>
+(() => {
+    const ways = document.getElementById("ways-to-use");
+    const key = "daiv.home.ways";
+    try { if (localStorage.getItem(key) === "folded") ways.open = false; } catch (e) {}
+    ways.addEventListener("toggle", () => {
+        try { if (ways.open) localStorage.removeItem(key); else localStorage.setItem(key, "folded"); } catch (e) {}
+    });
+})();
+</script>

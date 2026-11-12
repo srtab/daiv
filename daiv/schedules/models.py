@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from datetime import time as dt_time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -131,6 +131,14 @@ class ScheduledJobQuerySet(models.QuerySet["ScheduledJob"]):
         return self.filter(failing_since__isnull=False).filter(
             models.Q(is_enabled=True) | models.Q(frequency=Frequency.ONCE)
         )
+
+    def followed_by(self, user: User) -> Self:
+        """Schedules ``user`` owns or subscribes to, each once however many subscribers it has."""
+        return self.filter(models.Q(user=user) | models.Q(pk__in=user.subscribed_schedules.values("pk")))
+
+    def current(self, *, since: datetime) -> Self:
+        """Enabled schedules, and disabled ones that last ran at or after ``since``."""
+        return self.filter(models.Q(is_enabled=True) | models.Q(last_run_at__gte=since))
 
 
 class ScheduledJobManager(models.Manager.from_queryset(ScheduledJobQuerySet)):
