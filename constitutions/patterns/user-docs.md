@@ -36,11 +36,13 @@ page is silent, the
 3. **Each fact has one home.** A setting, its default and its limits are defined on one
    reference page, which lists the whole surface. Other pages repeat only what their task
    needs, and link there. _Prevents_: two pages that disagree after one of them is updated.
-4. **Describe what ships.** Present tense, about the published version. A page has no
-   `currently`, `new`, `soon`, `latest` or `not yet`, no roadmap and no version history; what
-   changed, and what an upgrade needs, is in `CHANGELOG.md`. A limit is a fact of the product:
-   "DAIV does not…". _Prevents_: text that goes stale without an edit, and users planning
-   around a feature that never ships.
+4. **Describe what ships.** Present tense, about the published version. A page has no word
+   that dates it: `currently`, `soon`, `not yet`, `coming`, or `new` and `latest` said of DAIV
+   or a release ("the new scheduler", "the latest version"). A new merge request, or a
+   session's latest run, is a state of the product, not a date. No roadmap and no version
+   history; what changed, and what an upgrade needs, is in `CHANGELOG.md`. A limit is a fact
+   of the product: "DAIV does not…". _Prevents_: text that goes stale without an edit, and
+   users planning around a feature that never ships.
 5. **Checked against the code, and run.** Every name, default, limit and count on a page is
    read from the code that implements it, and a quantifier says how many. A procedure is run
    as written, start to finish, before it is published. _Prevents_: steps that fail on a clean
@@ -70,9 +72,10 @@ page is silent, the
     path. _Prevents_: a reader hunting for a control under another name, and links that say
     nothing out of context.
 11. **Warnings come before the step.** A step that destroys data, exposes a secret or cannot
-    be undone carries a `!!! warning` ahead of it, saying what is lost. Notes and tips hold
-    only what a reader may skip, and are rare. _Prevents_: a destructive command run before
-    its caveat is read, and warnings lost among boxes.
+    be undone carries a `!!! warning` ahead of it, saying what is lost. Boxes are `!!! note`,
+    `!!! tip` and `!!! warning`. Notes and tips hold only what a reader may skip, and are
+    rare. _Prevents_: a destructive command run before its caveat is read, and warnings lost
+    among boxes.
 12. **Nothing is said only by an image.** An image has alt text saying what it shows, a
     diagram comes with the same flow in text, and no meaning rests on colour or an emoji
     alone. _Prevents_: pages that a screen reader, a search engine or an agent reading
