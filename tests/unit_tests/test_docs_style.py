@@ -383,7 +383,6 @@ KNOWN_VIOLATIONS: dict[str, frozenset[str]] = {
         "features/scheduled-jobs.md",
         "features/sessions.md",
         "features/slash-commands.md",
-        "getting-started/deployment.md",
         "getting-started/platform-setup.md",
         "index.md",
         "integrations/rt/index.md",
@@ -391,7 +390,6 @@ KNOWN_VIOLATIONS: dict[str, frozenset[str]] = {
         "reference/monitoring.md",
     }),
     "heading-shape": frozenset({
-        "getting-started/deployment.md",
         "getting-started/platform-setup.md",
         "integrations/rt/index.md",
         "reference/agent-architecture.md",

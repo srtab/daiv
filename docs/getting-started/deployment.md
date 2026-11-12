@@ -4,79 +4,64 @@ description: "Deploy a self-hosted DAIV instance with Docker Swarm or Docker Com
 
 # Deployment
 
-This guide walks you through deploying DAIV using Docker Swarm or Docker Compose. After completing this guide, you'll have a fully functional DAIV instance ready to connect to your codebase.
+This page deploys a self-hosted DAIV with Docker Swarm or Docker Compose, puts it behind an Nginx reverse proxy, and creates the first admin. Afterwards you have a DAIV instance ready to connect to your codebase.
 
-## What You'll Deploy
+To try DAIV on one machine first, follow the [Quickstart](quickstart.md).
 
-**DAIV requires several core services to function properly**. You'll deploy these services using container orchestration:
+## Requirements
 
-* **[PostgreSQL](https://www.postgresql.org/)** — stores application data
-* **[Redis](https://redis.io/) 8 or later** — caching, sessions and the agent's checkpoints, which use the search commands Redis 7 lacks
-* **[DAIV Application](https://github.com/srtab/daiv)** — web dashboard and API
-* **[DAIV Worker](https://docs.djangoproject.com/en/6.0/topics/tasks/)** — background task processor
-* **[DAIV Scheduler](https://pypi.org/project/django-crontask/)** — periodic tasks, among them adding webhooks to your GitLab projects and syncing repository access
-* **[DAIV Sandbox](https://github.com/srtab/daiv-sandbox)** — isolated containers where the agent runs commands and git, through an egress proxy that holds the git credentials (see [Sandbox](../features/sandbox.md))
+| Requirement | Version |
+|-------------|---------|
+| Docker Engine | The samples pin no minimum. Docker Swarm needs Swarm mode enabled on the host. |
+| Docker Compose | v2, which provides the `docker compose` command. Only the Compose deployment needs it. |
+| PostgreSQL | The samples run `postgres:17.6`. DAIV pins no minimum. |
+| Redis | 8 or later. The samples run `redis:8.6-alpine`. The agent's checkpoints use Redis search commands that Redis 7 lacks, and they must stay on database `0`; see [Redis](../reference/env-variables.md#redis). |
+| daiv-sandbox | The samples pull `ghcr.io/srtab/daiv-sandbox:latest`. Update the sandbox together with DAIV: multi-repository sessions need a release with `repos_archive` support and path-scoped egress rules, and DAIV reports an error when the sandbox lacks it. |
 
-!!! tip "Trying DAIV out?"
-    The [Quickstart](quickstart.md) runs the smallest working setup on one machine and gets you to a first merge request in about 15 minutes.
+You also need a domain name that points to your server, with an SSL certificate for it, and a way for your Git platform to reach `DAIV_EXTERNAL_URL`. Your Git platform sends webhooks to that URL.
 
----
+## Services DAIV runs
 
-## :simple-swarm: Docker Swarm (*Recommended*)
+DAIV needs these services. The samples below run all of them:
 
-**Docker Swarm provides better production deployment capabilities** including service discovery, load balancing, and rolling updates. This guide covers single-server deployment, but you can extend it to multiple servers using the [Docker Swarm documentation](https://docs.docker.com/engine/swarm/swarm-tutorial/).
+- **[PostgreSQL](https://www.postgresql.org/)** stores application data.
+- **[Redis](https://redis.io/)** holds the cache, sessions and the agent's checkpoints.
+- **[DAIV app](https://github.com/srtab/daiv)** (`app`) serves the web dashboard and the API.
+- **[DAIV worker](https://docs.djangoproject.com/en/6.0/topics/tasks/)** (`worker` and `worker-interactive`) runs background tasks.
+- **[DAIV scheduler](https://pypi.org/project/django-crontask/)** (`scheduler`) runs periodic tasks, among them adding webhooks to your GitLab projects and syncing repository access.
+- **[DAIV sandbox](https://github.com/srtab/daiv-sandbox)** (`sandbox`) runs the agent's commands and git in isolated containers, through an egress proxy that holds the git credentials. See [Sandbox](../features/sandbox.md).
 
-**Prerequisites**
+!!! note "Task queues"
+    Background work is split in two: `default` carries agent runs, which hold a worker for as long as the run lasts, while `interactive` carries short user-visible work: session titles, run classification and notification delivery. The `worker` and `worker-interactive` services each serve one of them, so a title never queues behind a run. A worker started with no queue argument serves every queue, which suits a small deployment that accepts that wait.
 
- * [Docker installed](https://docs.docker.com/engine/install/) with [Swarm enabled](https://docs.docker.com/engine/swarm/swarm-tutorial/)
- * Internet connection to pull container images
- * Basic understanding of Docker Swarm
+## Deploy with Docker Swarm
 
-### Step 1: Create Docker Secrets
+Docker Swarm gives you service discovery, load balancing and rolling updates, so it suits production. These steps deploy to a single server; to extend the stack to more servers, see the [Docker Swarm documentation](https://docs.docker.com/engine/swarm/swarm-tutorial/).
 
-**Before deploying, you must create these Docker secrets**. These secrets store sensitive configuration data securely:
+Before you start, [install Docker](https://docs.docker.com/engine/install/) and [enable Swarm](https://docs.docker.com/engine/swarm/swarm-tutorial/), and check the [requirements](#requirements).
 
-**Required Secrets:**
+1. Create each Docker secret listed in [Swarm secrets](#swarm-secrets), with this command (see [Docker secret create](https://docs.docker.com/reference/cli/docker/secret/create/)), replacing `<name>` and `<value>`:
 
-* **`django_secret_key`** - Random secret key for Django ([generate one here](https://djecrety.ir/))
-* **`db_password`** - Random password for the PostgreSQL database
-* **`codebase_gitlab_auth_token`** - GitLab personal access token with `api` scope (see [Platform Setup](platform-setup.md#gitlab-configuration))
-* **`codebase_gitlab_webhook_secret`** - Random secret for GitLab webhook validation
-* **`daiv_sandbox_api_key`** - Random API key for Sandbox service authentication
-* **`email_host_password`** - SMTP authentication password (if your relay requires authentication)
-* **`openrouter_api_key`** - [OpenRouter API key](https://openrouter.ai/settings/keys) for LLM access
-* **`allauth_client_id`** - OAuth client ID for the configured Git platform (see [Authentication](../reference/env-variables.md#authentication))
-* **`allauth_client_secret`** - OAuth client secret for the configured Git platform
-* **`daiv_sandbox_egress_ca_cert`** and **`daiv_sandbox_egress_ca_key`** - the certificate authority the sandbox's egress proxy signs with, created below
+    ```bash
+    printf '%s' '<value>' | docker secret create <name> -
+    ```
 
-**Create each secret using this command** (see [Docker Secrets documentation](https://docs.docker.com/reference/cli/docker/secret/create/) for more details):
+2. Create the egress CA. The sandbox reaches your Git platform only through a per-session proxy that adds the credentials, so the token never enters the sandbox, and the proxy signs with this CA:
 
-```bash
-printf '%s' '<value>' | docker secret create <name> -
-```
+    ```bash
+    openssl req -x509 -newkey rsa:4096 -nodes -days 3650 -subj "/CN=daiv-sandbox-egress" \
+      -addext "keyUsage=critical,keyCertSign,cRLSign" \
+      -keyout egress-ca.key -out egress-ca.crt
+    ```
 
-**Create the egress CA and store it as two secrets.** DAIV runs git inside the sandbox, and the sandbox reaches your Git platform only through a per-session proxy that adds the credentials, so the token never enters the sandbox. The proxy needs this CA:
+3. Store the CA as the two secrets the stack reads:
 
-```bash
-openssl req -x509 -newkey rsa:4096 -nodes -days 3650 -subj "/CN=daiv-sandbox-egress" \
-  -addext "keyUsage=critical,keyCertSign,cRLSign" \
-  -keyout egress-ca.key -out egress-ca.crt
-docker secret create daiv_sandbox_egress_ca_cert egress-ca.crt
-docker secret create daiv_sandbox_egress_ca_key egress-ca.key
-```
+    ```bash
+    docker secret create daiv_sandbox_egress_ca_cert egress-ca.crt
+    docker secret create daiv_sandbox_egress_ca_key egress-ca.key
+    ```
 
-!!! warning "Additional Secrets May Be Required"
-    These are the minimal secrets for basic DAIV functionality. Check the [Environment Variables](../reference/env-variables.md) page for additional secrets needed for specific features or services.
-
-### Step 2: Create `stack.yml` file
-
-**Create your deployment configuration file**. This YAML file defines all services, networks, and volumes needed for DAIV.
-
-!!! warning "Customize Environment Variables"
-    **Replace all annotated values with your own configuration**. See the [Environment Variables](../reference/env-variables.md) page for complete configuration options.
-
-!!! warning "Raise the open-file limit (`nofile`)"
-    Each DAIV agent run holds many concurrent sockets (sandbox, LLM API, tracing, database, Redis, git-over-HTTPS). Docker's default soft limit of **1024** open files is too low and surfaces under load as `[Errno 24] Too many open files`. Swarm **ignores** service-level `ulimits`, so raise it on the Docker daemon of **each node** — add to `/etc/docker/daemon.json`:
+4. On each node, add this to `/etc/docker/daemon.json`. Each agent run holds many concurrent sockets (sandbox, LLM API, tracing, database, Redis, git over HTTPS), and Docker's default soft limit of 1024 open files fails under load with `[Errno 24] Too many open files`. Swarm ignores service-level `ulimits`, so the daemon must raise `nofile`:
 
     ```json
     {
@@ -86,7 +71,59 @@ docker secret create daiv_sandbox_egress_ca_key egress-ca.key
     }
     ```
 
-    then restart Docker (e.g. `systemctl restart docker`).
+5. On each node, restart Docker:
+
+    ```bash
+    systemctl restart docker
+    ```
+
+6. Save the [Swarm stack file](#swarm-stack-file) as `stack.yml`, and replace each annotated value with your own. [Environment variables](../reference/env-variables.md) lists the options.
+
+7. From the directory that holds `stack.yml`, deploy the stack:
+
+    ```bash
+    docker stack deploy -c stack.yml daiv
+    ```
+
+8. Wait until every service is healthy, which takes several minutes while Docker pulls the images and DAIV migrates the database:
+
+    ```bash
+    docker stack ps daiv --no-trunc
+    ```
+
+9. [Put DAIV behind Nginx](#put-daiv-behind-nginx), so you can reach it over HTTPS.
+
+10. Create the first admin by running [`bootstrap_admin`](../reference/management-commands.md#bootstrap_admin) in the app's container, replacing `admin@example.com` with the admin's email address:
+
+    ```bash
+    docker exec -it $(docker ps -q -f name=daiv_app | head -n 1) django-admin bootstrap_admin admin@example.com
+    ```
+
+11. Open `/accounts/login/` and sign in with the one-time code DAIV emails to that address.
+
+If you turn on OAuth login before anyone signs in, the first Git platform sign-in becomes the admin instead. [The first admin](accounts.md#the-first-admin) explains both paths, and [Accounts and roles](accounts.md) covers adding users.
+
+### Swarm secrets
+
+The stack reads these Docker secrets. Create the first nine rows in step 1, and the last two in steps 2 and 3.
+
+| Secret | Holds |
+|--------|-------|
+| `django_secret_key` | A random secret key for Django. [Generate one](https://djecrety.ir/). Keep it backed up: see [Django](../reference/env-variables.md#django). |
+| `db_password` | A random password for the PostgreSQL database. |
+| `codebase_gitlab_auth_token` | A GitLab personal access token with the `api` scope. See [Platform Setup](platform-setup.md#gitlab-configuration). |
+| `codebase_gitlab_webhook_secret` | A random secret that GitLab sends with each webhook, for DAIV to validate. |
+| `daiv_sandbox_api_key` | A random API key for the sandbox service. |
+| `email_host_password` | The SMTP password. The stack requires the secret to exist, so create it with any value if your relay needs no authentication. |
+| `openrouter_api_key` | An [OpenRouter API key](https://openrouter.ai/settings/keys). |
+| `allauth_client_id` | The OAuth client ID of your Git platform. See [Authentication](../reference/env-variables.md#authentication). |
+| `allauth_client_secret` | The OAuth client secret of your Git platform. |
+| `daiv_sandbox_egress_ca_cert` | The egress CA certificate. |
+| `daiv_sandbox_egress_ca_key` | The egress CA private key. |
+
+For another provider's key, create a secret named after its variable in lowercase (`openai_api_key`, `anthropic_api_key` or `google_api_key`) and add it to the `secrets:` list of the `app` service, which runs the migration that reads it. DAIV reads each provider key once, at its first start; see [Provider API keys](llm-providers.md#provider-api-keys). For further variables you want as secrets, see [Environment variables](../reference/env-variables.md).
+
+### Swarm stack file
 
 ```yaml
 x-app-environment-defaults: &app_environment_defaults
@@ -153,7 +190,7 @@ services:
         window: 120s
 
   redis:
-    image: redis:8.6-alpine # (12)!
+    image: redis:8.6-alpine # (11)!
     networks:
       - internal
     volumes:
@@ -185,7 +222,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - media-volume:/home/daiv/data/media # (11)!
+      - media-volume:/home/daiv/data/media # (10)!
     deploy:
       <<: *deploy_defaults
 
@@ -205,8 +242,8 @@ services:
     networks:
       - internal
     volumes:
-      - media-volume:/home/daiv/data/media # (11)!
-      # - ./custom-skills:/home/daiv/data/skills:ro  (10)
+      - media-volume:/home/daiv/data/media # (10)!
+      # - ./custom-skills:/home/daiv/data/skills:ro  (9)
     healthcheck:
       test: grep -q 'db_worker' /proc/*/cmdline 2>/dev/null
       interval: 30s
@@ -215,7 +252,7 @@ services:
       start_period: 30s
     deploy:
       <<: *deploy_defaults
-      replicas: 1 # (9)!
+      replicas: 1 # (8)!
 
   worker-interactive:
     image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main} # (5)!
@@ -233,7 +270,7 @@ services:
     networks:
       - internal
     volumes:
-      - media-volume:/home/daiv/data/media # (11)!
+      - media-volume:/home/daiv/data/media # (10)!
     healthcheck:
       test: grep -q 'db_worker' /proc/*/cmdline 2>/dev/null
       interval: 30s
@@ -270,8 +307,7 @@ services:
   sandbox:
     image: ghcr.io/srtab/daiv-sandbox:latest # (5)!
     environment:
-      DAIV_SANDBOX_KEEP_TEMPLATE: true # (6)!
-      DAIV_SANDBOX_EGRESS_CA_CERT_FILE: /run/secrets/daiv_sandbox_egress_ca_cert # (13)!
+      DAIV_SANDBOX_EGRESS_CA_CERT_FILE: /run/secrets/daiv_sandbox_egress_ca_cert # (12)!
       DAIV_SANDBOX_EGRESS_CA_KEY_FILE: /run/secrets/daiv_sandbox_egress_ca_key
       DAIV_SANDBOX_REDIS_URL: redis://daiv_redis:6379/3
     networks:
@@ -281,8 +317,8 @@ services:
       - daiv_sandbox_egress_ca_cert
       - daiv_sandbox_egress_ca_key
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock # (7)!
-      - $HOME/.docker/config.json:/home/app/.docker/config.json # (8)!
+      - /var/run/docker.sock:/var/run/docker.sock # (6)!
+      - $HOME/.docker/config.json:/home/app/.docker/config.json # (7)!
     deploy:
       <<: *deploy_defaults
 
@@ -325,81 +361,61 @@ secrets:
     external: true
 ```
 
-1.   Replace `daiv.example.com` with your domain name, without the scheme (use `daiv.example.com`, not `https://daiv.example.com`). Keep `app` and `127.0.0.1` for internal service communication.
-2.   Replace with your full domain URL including schema (e.g., `https://daiv.example.com`). Your GitLab sends webhooks to this URL, so it must be able to reach it
-3.   Set to your GitLab instance URL (e.g., `https://gitlab.com` for GitLab.com)
-4.   Points to the Sandbox service. Use `http://sandbox:8000` when deploying Sandbox in the same stack
-5.   Continuous deploys track the `main` tag; keep the `${DAIV_IMAGE_TAG:-main}` form on every service so the Deploy workflow can roll back to a pinned per-commit tag (e.g. `DAIV_IMAGE_TAG=sha-XXXXXXX`)
-6.   See [DAIV Sandbox documentation](https://github.com/srtab/daiv-sandbox) for configuration details
-7.   **Required**: Sandbox needs Docker socket access to create isolated containers
-8.   **Optional**: Remove this volume if you don't need private registry access
-9.   **Scaling**: Increase `replicas` to handle more concurrent agent runs (e.g., `replicas: 3`). A worker runs one task to completion before claiming the next, so concurrency is the number of worker containers; each claims independently from the queues named in its command, and adding replicas scales DAIV's throughput with no architecture changes
-10.  **Optional**: Uncomment to mount [custom global skills](../customization/agent-skills.md#custom-global-skills) that are available across all repositories
-11.  **Required**: The web and worker containers must share this directory. It holds the [artifacts](../features/sessions.md#artifacts) (reports and other files) the agent publishes: `app` writes them for chat turns and serves them, and `worker` writes them for jobs and webhook runs. Any shared filesystem works; on a multi-node swarm use a network-backed volume driver
-12.  **Redis 8 or later**: the agent's checkpoints use Redis search commands, which Redis 7 does not have, and they must stay on database `0`, the only one Redis can index
-13.  **Required**: the egress CA you stored as secrets in [Step 1](#step-1-create-docker-secrets). The sandbox's egress proxy signs with it; without it, every agent run fails when the sandbox rejects the session
+1.   Replace `daiv.example.com` with your domain name, without the scheme (`daiv.example.com`, not `https://daiv.example.com`). Keep `app` and `127.0.0.1` for communication between services.
+2.   Replace with your full URL, including the scheme (for example `https://daiv.example.com`). Your GitLab sends webhooks to this URL, so it must be able to reach it.
+3.   Set to your GitLab instance URL (for example `https://gitlab.com` for GitLab.com).
+4.   Points to the sandbox service. Use `http://sandbox:8000` when the sandbox runs in the same stack.
+5.   Continuous deploys track the `main` tag. Keep the `${DAIV_IMAGE_TAG:-main}` form on every service, so the Deploy workflow can roll back to a pinned per-commit tag (for example `DAIV_IMAGE_TAG=sha-XXXXXXX`).
+6.   **Required**: the sandbox needs Docker socket access to create isolated containers.
+7.   **Optional**: remove this volume if you don't need private registry access.
+8.   **Scaling**: increase `replicas` to handle more concurrent agent runs (for example `replicas: 3`). A worker runs one task to completion before it claims the next, so concurrency is the number of worker containers. Each claims independently from the queues named in its command.
+9.   **Optional**: uncomment to mount [custom global skills](../customization/agent-skills.md#custom-global-skills) that are available across all repositories.
+10.  **Required**: the web and worker containers must share this directory. It holds the [artifacts](../features/sessions.md#artifacts) (reports and other files) the agent publishes: `app` writes them for chat turns and serves them, and `worker` writes them for jobs and webhook runs. Any shared filesystem works; on a multi-node swarm, use a network-backed volume driver.
+11.  Redis 8 or later; see [Requirements](#requirements).
+12.  **Required**: the egress CA you stored as secrets in step 3 of [Deploy with Docker Swarm](#deploy-with-docker-swarm). The sandbox's egress proxy signs with it; without it, every agent run fails when the sandbox rejects the session.
 
-!!! note "Task queues"
-    Background work is split in two: `default` carries agent runs, which hold a worker for as long as the run lasts, while `interactive` carries short user-visible work — session titles, run classification and notification delivery. The `worker` and `worker-interactive` services above each serve one of them, so a title never queues behind a run. A worker started with no queue argument serves every queue, which is fine for a small deployment as long as you accept that wait.
+## Deploy with Docker Compose
 
-MCP tools are configured from the dashboard at `/dashboard/mcp-servers/` — see [MCP Tools](../customization/mcp-tools.md).
+Docker Compose runs every service from one file, which suits development and smaller production setups. Before you start, [install Docker](https://docs.docker.com/engine/install/) with [Compose](https://docs.docker.com/compose/install/), and check the [requirements](#requirements).
 
-### Step 3: Deploy the stack
+1. In the directory that will hold your `docker-compose.yml`, create the egress CA for the sandbox. The sandbox reaches your Git platform only through a per-session proxy that adds the credentials, so the token never enters the sandbox, and the proxy signs with this CA:
 
-**Deploy your DAIV stack** by running this command from the directory containing your `stack.yml` file:
+    ```bash
+    mkdir certs
+    openssl req -x509 -newkey rsa:4096 -nodes -days 3650 -subj "/CN=daiv-sandbox-egress" \
+      -addext "keyUsage=critical,keyCertSign,cRLSign" \
+      -keyout certs/egress-ca.key -out certs/egress-ca.crt
+    ```
 
-```bash
-docker stack deploy -c stack.yml daiv
-```
+2. Make the key readable, because the sandbox service runs as UID 1001:
 
-**Monitor deployment progress** with these commands:
+    ```bash
+    chmod 644 certs/egress-ca.key
+    ```
 
-```bash
-# Check service status with full details
-docker stack ps daiv --no-trunc
+3. Save the [Compose file](#compose-file) as `docker-compose.yml`, and replace each annotated value with your own. [Environment variables](../reference/env-variables.md) lists the options.
 
-# Or check running containers
-docker ps
-```
+4. Start the services:
 
-!!! note "Deployment Time"
-    **Services may take several minutes to become fully healthy**, especially during the initial deployment when images are being pulled and databases are being initialized.
+    ```bash
+    docker compose up -d --wait
+    ```
 
-### Step 4: Next steps
+    The command returns once every service is healthy. If one isn't, `docker compose logs <service>` shows why.
 
-Your DAIV deployment is running. Follow the [Reverse Proxy](#reverse-proxy) guide below to configure external access, then proceed to [Platform Setup](platform-setup.md) to connect your first repository.
+5. [Put DAIV behind Nginx](#put-daiv-behind-nginx), so you can reach it over HTTPS.
 
----
+6. Create the first admin by running [`bootstrap_admin`](../reference/management-commands.md#bootstrap_admin), replacing `admin@example.com` with the admin's email address:
 
-## :simple-docker: Docker Compose
+    ```bash
+    docker compose exec app django-admin bootstrap_admin admin@example.com
+    ```
 
-**Docker Compose provides simpler deployment** suitable for development environments or smaller production setups. This method uses a single configuration file to manage all services.
+7. Open `/accounts/login/` and sign in with the one-time code DAIV emails to that address.
 
-**Prerequisites**
+If you turn on OAuth login before anyone signs in, the first Git platform sign-in becomes the admin instead. [The first admin](accounts.md#the-first-admin) explains both paths, and [Accounts and roles](accounts.md) covers adding users.
 
- * [Docker installed](https://docs.docker.com/engine/install/) with [Compose](https://docs.docker.com/compose/install/)
- * Internet connection to pull container images
-
-### Step 1: Create the sandbox egress CA
-
-**Create a certificate authority for the sandbox's egress proxy.** DAIV runs git inside the sandbox, and the sandbox reaches your Git platform only through a per-session proxy that adds the credentials, so the token never enters the sandbox. The proxy needs this CA. In the directory that will hold your `docker-compose.yml`, run:
-
-```bash
-mkdir certs
-openssl req -x509 -newkey rsa:4096 -nodes -days 3650 -subj "/CN=daiv-sandbox-egress" \
-  -addext "keyUsage=critical,keyCertSign,cRLSign" \
-  -keyout certs/egress-ca.key -out certs/egress-ca.crt
-chmod 644 certs/egress-ca.key
-```
-
-The sandbox service runs as UID 1001, so it needs read access to the key.
-
-### Step 2: Create `docker-compose.yml` file
-
-**Create your Docker Compose configuration**. This file defines all services and their configurations in a single place.
-
-!!! note "Environment Variable Configuration"
-    **Replace all annotated values with your specific configuration**. See the [Environment Variables](../reference/env-variables.md) page for additional options.
+### Compose file
 
 ```yaml
 x-app-defaults: &x_app_default
@@ -558,77 +574,45 @@ volumes:
     driver: local
 ```
 
-1.  **Required**: every service built from this anchor shares this directory. It holds the [artifacts](../features/sessions.md#artifacts) the agent publishes: `app` writes them for chat turns and serves them, and `worker` writes them for jobs and webhook runs
-2.  **Raise the open-file limit**: each agent run holds many concurrent sockets (sandbox, LLM API, tracing, database, Redis, git-over-HTTPS). Docker's default soft limit of 1024 open files is too low and surfaces under load as `[Errno 24] Too many open files`. This raises `nofile` for every service built from this anchor
-3.  **Generate a Django secret key**, a long random string such as the output of `openssl rand -hex 32`
-4.  **Replace with your domain name**, without the scheme (e.g., `daiv.example.com`). Keep `app` and `127.0.0.1` for internal service communication
-5.  **Include the full URL with scheme** (e.g., `https://daiv.example.com`). Your GitLab sends webhooks to this URL, so it must be able to reach it
-6.  **Generate a secure random password** for the database, such as the output of `openssl rand -hex 16`
-7.  **Set your GitLab instance URL** (e.g., `https://gitlab.com`)
-8.  **The personal access token of DAIV's own GitLab user**, with the `api` scope and the Maintainer role on your projects. Use a dedicated account: DAIV ignores comments written by the account its token belongs to (see [Platform Setup](platform-setup.md#gitlab-configuration))
-9.  **Generate a random webhook secret** for GitLab webhook validation, such as the output of `openssl rand -hex 32`
-10. **Get an OpenRouter API key** for LLM model access. DAIV copies it into its database on the first start; to change it later, edit the provider under **Configuration → Providers** in the dashboard (see [LLM Providers](llm-providers.md))
-11. **The SMTP server DAIV sends sign-in codes through.** Without one, replace the three `EMAIL_*` lines with `EMAIL_BACKEND: django.core.mail.backends.console.EmailBackend` and read the codes from `docker compose logs app`
-12. **Generate a random API key** for Sandbox service authentication, such as the output of `openssl rand -hex 32`
-13. **Use the same password** as defined in annotation 6
-14. **Redis 8 or later**: the agent's checkpoints use Redis search commands, which Redis 7 does not have, and they must stay on database `0`, the only one Redis can index
-15. **Optional**: Uncomment to mount [custom global skills](../customization/agent-skills.md#custom-global-skills) that are available across all repositories. A service-level `volumes:` replaces the anchor's list instead of merging with it, so keep the `media-volume` line
-16. **Scaling**: Increase `replicas` to handle more concurrent agent runs (e.g., `replicas: 3`). A worker runs one task to completion before claiming the next, so concurrency is the number of worker containers; each claims independently from the queues named in its command, and adding replicas scales DAIV's throughput with no architecture changes
-17. **Replace `987` with the group of the Docker socket**, the output of `stat -c '%g' /var/run/docker.sock`. The sandbox starts a container for each agent run through it
-18. **Use the same API key** as defined in annotation 12
-19. **The egress CA** from [Step 1](#step-1-create-the-sandbox-egress-ca)
+1.  **Required**: every service built from this anchor shares this directory. It holds the [artifacts](../features/sessions.md#artifacts) the agent publishes: `app` writes them for chat turns and serves them, and `worker` writes them for jobs and webhook runs.
+2.  **Raises the open-file limit** for every service built from this anchor. Each agent run holds many concurrent sockets (sandbox, LLM API, tracing, database, Redis, git over HTTPS), and Docker's default soft limit of 1024 open files fails under load with `[Errno 24] Too many open files`.
+3.  Generate a Django secret key, a long random string such as the output of `openssl rand -hex 32`.
+4.  Replace with your domain name, without the scheme (for example `daiv.example.com`). Keep `app` and `127.0.0.1` for communication between services.
+5.  Include the full URL with the scheme (for example `https://daiv.example.com`). Your GitLab sends webhooks to this URL, so it must be able to reach it.
+6.  Generate a random password for the database, such as the output of `openssl rand -hex 16`.
+7.  Set to your GitLab instance URL (for example `https://gitlab.com`).
+8.  The personal access token of DAIV's own GitLab user, with the `api` scope and the Maintainer role on your projects. Use a dedicated account: DAIV ignores comments written by the account its token belongs to. See [Platform Setup](platform-setup.md#gitlab-configuration).
+9.  Generate a random webhook secret for GitLab webhook validation, such as the output of `openssl rand -hex 32`.
+10. An OpenRouter API key for LLM access. DAIV copies it into its database on the first start. To change it later, edit the provider under **Configuration → Providers** in the dashboard; see [LLM providers](llm-providers.md).
+11. The SMTP server DAIV sends sign-in codes through. Without one, replace the three `EMAIL_*` lines with `EMAIL_BACKEND: django.core.mail.backends.console.EmailBackend` and read the codes from `docker compose logs app`.
+12. Generate a random API key for the sandbox service, such as the output of `openssl rand -hex 32`.
+13. Use the same password as in annotation 6.
+14. Redis 8 or later; see [Requirements](#requirements).
+15. **Optional**: uncomment to mount [custom global skills](../customization/agent-skills.md#custom-global-skills) that are available across all repositories. A service-level `volumes:` replaces the anchor's list instead of merging with it, so keep the `media-volume` line.
+16. **Scaling**: increase `replicas` to handle more concurrent agent runs (for example `replicas: 3`). A worker runs one task to completion before it claims the next, so concurrency is the number of worker containers. Each claims independently from the queues named in its command.
+17. Replace `987` with the group of the Docker socket, the output of `stat -c '%g' /var/run/docker.sock`. The sandbox starts a container for each agent run through it.
+18. Use the same API key as in annotation 12.
+19. The egress CA from step 1 of [Deploy with Docker Compose](#deploy-with-docker-compose).
 
-!!! note "Task queues"
-    Background work is split in two: `default` carries agent runs, which hold a worker for as long as the run lasts, while `interactive` carries short user-visible work — session titles, run classification and notification delivery. The `worker` and `worker-interactive` services above each serve one of them, so a title never queues behind a run. A worker started with no queue argument serves every queue, which is fine for a small deployment as long as you accept that wait.
+## Put DAIV behind Nginx
 
-MCP tools are configured from the dashboard at `/dashboard/mcp-servers/` — see [MCP Tools](../customization/mcp-tools.md).
+An Nginx reverse proxy gives your DAIV instance HTTPS access and domain routing. This page gives an Nginx configuration only; it has none for Apache, Traefik or other proxies.
 
-### Step 3: Run the compose file
+DAIV needs HTTPS. Its session cookie, which also carries the CSRF token, is a secure cookie, so a browser keeps it only on `https://` URLs and on `localhost`. Over plain `http://` to any other address, sign-in fails with **CSRF verification failed**.
 
-**Start all DAIV services** by running this command from the directory containing your `docker-compose.yml`:
+Before you start, [install Nginx](https://docs.nginx.com/nginx/admin-guide/installing-nginx/installing-nginx-open-source/), and have an SSL certificate for your domain and a domain name that points to your server.
 
-```bash
-docker compose up -d --wait
-```
+1. Save the [Nginx configuration](#nginx-configuration) as `/etc/nginx/conf.d/daiv.conf`. The path may vary by operating system. Replace each annotated value with your own.
 
-The command returns once every service is healthy. If one isn't, `docker compose logs <service>` shows why.
+2. Restart Nginx:
 
-### Step 4: Create the first admin
+    ```bash
+    systemctl restart nginx
+    ```
 
-**Create an admin account** to sign in to the dashboard, with [`bootstrap_admin`](../reference/management-commands.md#bootstrap_admin):
+3. In a browser, open `https://daiv.example.com/accounts/login/`, replacing the domain with yours. You see the DAIV login page.
 
-```bash
-docker compose exec app django-admin bootstrap_admin admin@example.com
-```
-
-Sign in at `/accounts/login/` with a one-time code DAIV emails to that address. See [Accounts & Roles](accounts.md) for Git platform sign-in and for adding users.
-
-### Step 5: Next steps
-
-Your DAIV instance is running. Continue with the [Reverse Proxy](#reverse-proxy) configuration below, then proceed to [Platform Setup](platform-setup.md) to connect your first repository.
-
----
-
-## :simple-nginx: Reverse Proxy
-
-**Configure a reverse proxy** to provide secure external access to your DAIV instance. This setup enables HTTPS access and proper domain routing.
-
-**This guide covers Nginx configuration**. Basic Nginx knowledge is assumed.
-
-!!! note "Nginx only"
-    This guide provides an Nginx configuration only. Apache, Traefik and other reverse proxies have no configuration here.
-
-**Prerequisites**
-
- * [Nginx installed](https://docs.nginx.com/nginx/admin-guide/installing-nginx/installing-nginx-open-source/)
- * Valid SSL certificate for your domain
- * Domain name pointing to your server
-
-### Step 1: Configure Nginx
-
-**Create a new Nginx configuration file** at `/etc/nginx/conf.d/daiv.conf` (path may vary by operating system).
-
-**Add this configuration and customize the annotated values**:
+### Nginx configuration
 
 ```nginx
 upstream daiv-instance {
@@ -677,50 +661,15 @@ server {
 }
 ```
 
-1.   **Set the internal IP** of your DAIV instance. Use `localhost` or `127.0.0.1` if running on the same server
-2.   **Replace with your domain name** (e.g., `daiv.example.com`)
-3.   **Update the SSL certificate path** - Location varies by operating system
-4.   **Update the SSL certificate key path** - Location varies by operating system
-
-### Step 2: Restart Nginx
-
-**Apply the configuration changes** by restarting Nginx:
-
-```bash
-systemctl restart nginx
-```
-
-**Verify the configuration** by accessing your domain in a web browser. You should see the DAIV login page at `https://daiv.example.com/accounts/login/`.
-
-!!! note "Sign-in needs HTTPS"
-    DAIV's session cookie, which also carries the CSRF token, is a secure cookie, so a browser keeps it only on `https://` URLs and on `localhost`. Over plain `http://` to any other address, sign-in fails with **CSRF verification failed**.
-
----
+1.   Set the internal IP of your DAIV instance. Use `localhost` or `127.0.0.1` if Nginx runs on the same server.
+2.   Replace with your domain name (for example `daiv.example.com`).
+3.   Update the SSL certificate path. The location varies by operating system.
+4.   Update the SSL certificate key path. The location varies by operating system.
 
 ## Next steps
 
-Your DAIV instance is now running and accessible. Continue with:
-
-1. **[Platform Setup](platform-setup.md)** — connect DAIV to your GitLab or GitHub repositories
-2. **[LLM Providers](llm-providers.md)** — configure your LLM provider and API keys
-3. **[Repository Config](../customization/repository-config.md)** — customize DAIV's behavior per repository
-4. **[Site Configuration](../reference/site-configuration.md)** — manage settings from the admin UI instead of environment variables
-
-!!! tip "First Login & User Management"
-    On a fresh install with OAuth enabled, the first user to sign in via a social provider (GitHub or GitLab) is automatically assigned the **admin** role. Alternatively, you can bootstrap the initial admin via the management command, from the directory of your `docker-compose.yml`:
-
-    ```bash
-    docker compose exec app django-admin bootstrap_admin admin@example.com
-    ```
-
-    On Docker Swarm, run it in the app's container:
-
-    ```bash
-    docker exec -it $(docker ps -q -f name=daiv_app | head -n 1) django-admin bootstrap_admin admin@example.com
-    ```
-
-    This creates an admin user who can sign in using login-by-code (a one-time code sent by email) — useful when OAuth is not configured.
-
-    After the initial admin is created, email signup stays disabled and social signup is off unless you set `DAIV_AUTH_SIGNUP_OPEN=true`, so new users must be created by an admin at `/accounts/users/`. Admins can assign users either the **admin** role (full access including user management) or the **member** role (dashboard, API keys, and MCP access).
-
-    OAuth login can be configured and toggled on/off at any time via the **Configuration** page at `/dashboard/configuration/` under the **Authentication** section.
+- **[Platform Setup](platform-setup.md)** connects DAIV to your GitLab or GitHub repositories.
+- **[LLM providers](llm-providers.md)** configures your LLM providers and API keys.
+- **[Repository configuration](../customization/repository-config.md)** customizes DAIV's behavior per repository.
+- **[Site configuration](../reference/site-configuration.md)** manages settings from the dashboard instead of environment variables.
+- **[MCP Tools](../customization/mcp-tools.md)** connects the agent to external MCP servers.
