@@ -200,16 +200,18 @@ class TestNavSidebar:
         with django_assert_num_queries(0):
             nav(_request_at(member_user, "dashboard"))
 
-    def test_sidebar_degrades_to_empty_on_database_error(self, member_user, mocker):
-        mocker.patch("dashboard.context_processors.sidebar_lists", side_effect=DatabaseError("connection lost"))
+    def test_sidebar_is_flagged_failed_on_database_error(self, member_user, mocker):
+        sidebar = mocker.patch("dashboard.context_processors.Sidebar")
+        sidebar.return_value.lists.side_effect = DatabaseError("connection lost")
 
-        assert sidebar_state(_request_at(member_user, "dashboard"), member_user) == SidebarLists()
+        assert sidebar_state(_request_at(member_user, "dashboard"), member_user) == SidebarLists(failed=True)
 
     @pytest.mark.parametrize(
         ("view_name", "viewing"), [("session_detail", "thread-1"), ("session_artifact_detail", ""), ("dashboard", "")]
     )
     def test_viewing_comes_from_the_session_detail_url(self, member_user, mocker, view_name, viewing):
-        spy = mocker.patch("dashboard.context_processors.sidebar_lists", return_value=SidebarLists())
+        spy = mocker.patch("dashboard.context_processors.Sidebar")
+        spy.return_value.lists.return_value = SidebarLists()
         request = _request_at(member_user, view_name, thread_id="thread-1")
 
         sidebar_state(request, member_user)

@@ -11,12 +11,11 @@ from dashboard.sidebar import (
     SCHEDULES_LIMIT,
     SESSIONS_MAX,
     SESSIONS_PAGE,
+    Sidebar,
     SidebarLists,
-    schedule_rows,
-    session_rows,
-    sidebar_lists,
 )
 from sessions.models import RunStatus, Session, SessionOrigin
+from sessions.validators import MAX_REPOS_PER_BATCH
 
 from tests.unit_tests.dashboard.factories import make_firing, make_run, make_schedule, make_session
 
@@ -28,7 +27,7 @@ class TestSessionRows:
         newest = make_session(member_user, minutes_ago=10)
         middle = make_session(member_user, minutes_ago=20)
 
-        rows, _ = session_rows(member_user)
+        rows, _ = Sidebar(member_user).session_rows()
 
         assert [row.thread_id for row in rows] == [newest.thread_id, middle.thread_id, oldest.thread_id]
 
@@ -38,7 +37,7 @@ class TestSessionRows:
         Session.objects.filter(pk=archived.pk).update(archived_at=timezone.now())
         make_session(admin_user)
 
-        rows, has_more = session_rows(member_user)
+        rows, has_more = Sidebar(member_user).session_rows()
 
         assert rows == ()
         assert has_more is False
@@ -47,7 +46,7 @@ class TestSessionRows:
         make_session(member_user)
         own = make_session(admin_user)
 
-        rows, _ = session_rows(admin_user)
+        rows, _ = Sidebar(admin_user).session_rows()
 
         assert [row.thread_id for row in rows] == [own.thread_id]
 
@@ -55,11 +54,11 @@ class TestSessionRows:
         for minutes_ago in range(SESSIONS_PAGE):
             make_session(member_user, minutes_ago=minutes_ago)
 
-        rows, has_more = session_rows(member_user)
+        rows, has_more = Sidebar(member_user).session_rows()
         assert (len(rows), has_more) == (8, False)
 
         make_session(member_user, minutes_ago=99)
-        rows, has_more = session_rows(member_user)
+        rows, has_more = Sidebar(member_user).session_rows()
         assert (len(rows), has_more) == (8, True)
 
     def test_status_is_the_latest_runs(self, member_user):
@@ -67,7 +66,7 @@ class TestSessionRows:
         make_run(session, RunStatus.SUCCESSFUL, minutes_ago=5)
         make_run(session, RunStatus.FAILED, minutes_ago=1)
 
-        (row,), _ = session_rows(member_user)
+        (row,), _ = Sidebar(member_user).session_rows()
 
         assert row.status == RunStatus.FAILED
         assert row.shows_state is True
@@ -75,14 +74,14 @@ class TestSessionRows:
     def test_successful_run_shows_no_state(self, member_user):
         make_run(make_session(member_user), RunStatus.SUCCESSFUL)
 
-        (row,), _ = session_rows(member_user)
+        (row,), _ = Sidebar(member_user).session_rows()
 
         assert row.shows_state is False
 
     def test_session_without_runs_has_blank_status(self, member_user):
         make_session(member_user, title="")
 
-        (row,), _ = session_rows(member_user)
+        (row,), _ = Sidebar(member_user).session_rows()
 
         assert row.status == ""
         assert row.title == ""
@@ -92,7 +91,7 @@ class TestSessionRows:
         viewed = make_session(member_user, minutes_ago=5)
         make_session(member_user)
 
-        rows, _ = session_rows(member_user, viewing=viewed.thread_id)
+        rows, _ = Sidebar(member_user, viewing=viewed.thread_id).session_rows()
 
         assert [row.active for row in rows] == [False, True]
 
@@ -101,7 +100,7 @@ class TestSessionRows:
         for minutes_ago in range(SESSIONS_PAGE):
             make_session(member_user, minutes_ago=minutes_ago)
 
-        rows, has_more = session_rows(member_user, viewing=oldest.thread_id)
+        rows, has_more = Sidebar(member_user, viewing=oldest.thread_id).session_rows()
 
         assert len(rows) == 9
         assert rows[-1].thread_id == oldest.thread_id
@@ -113,7 +112,7 @@ class TestSessionRows:
             make_session(member_user, minutes_ago=minutes_ago)
         theirs = make_session(admin_user)
 
-        rows, _ = session_rows(member_user, viewing=theirs.thread_id)
+        rows, _ = Sidebar(member_user, viewing=theirs.thread_id).session_rows()
 
         assert len(rows) == 8
         assert not any(row.active for row in rows)
@@ -125,9 +124,9 @@ class TestSessionRows:
             make_run(session, RunStatus.RUNNING)
 
         with django_assert_max_num_queries(1):
-            session_rows(member_user)
+            Sidebar(member_user).session_rows()
         with django_assert_max_num_queries(2):
-            session_rows(member_user, viewing=sessions[-1].thread_id)
+            Sidebar(member_user, viewing=sessions[-1].thread_id).session_rows()
 
 
 @pytest.mark.django_db
@@ -137,19 +136,19 @@ class TestScheduleRows:
         make_schedule(admin_user, name="Subscribed").subscribers.add(member_user)
         make_schedule(admin_user, name="Theirs")
 
-        assert {row.name for row in schedule_rows(member_user)} == {"Own", "Subscribed"}
+        assert {row.name for row in Sidebar(member_user).schedule_rows()} == {"Own", "Subscribed"}
 
     def test_schedule_with_several_subscribers_is_listed_once(self, member_user, admin_user):
         shared = make_schedule(member_user)
         shared.subscribers.add(admin_user, member_user)
 
-        assert [row.pk for row in schedule_rows(member_user)] == [shared.pk]
+        assert [row.pk for row in Sidebar(member_user).schedule_rows()] == [shared.pk]
 
     def test_admin_lists_only_their_own(self, admin_user, member_user):
         make_schedule(member_user, name="Member's")
         make_schedule(admin_user, name="Admin's")
 
-        assert [row.name for row in schedule_rows(admin_user)] == ["Admin's"]
+        assert [row.name for row in Sidebar(admin_user).schedule_rows()] == ["Admin's"]
 
     @pytest.mark.parametrize(
         ("fired_days_ago", "listed"), [(FIRED_WITHIN.days - 1, True), (FIRED_WITHIN.days + 1, False), (None, False)]
@@ -158,7 +157,7 @@ class TestScheduleRows:
         last_run_at = None if fired_days_ago is None else timezone.now() - timedelta(days=fired_days_ago)
         make_schedule(member_user, is_enabled=False, last_run_at=last_run_at)
 
-        assert bool(schedule_rows(member_user)) is listed
+        assert bool(Sidebar(member_user).schedule_rows()) is listed
 
     def test_orders_next_run_first_then_most_recently_fired(self, member_user):
         now = timezone.now()
@@ -167,18 +166,18 @@ class TestScheduleRows:
         make_schedule(member_user, name="C", is_enabled=False, last_run_at=now - timedelta(days=1))
         make_schedule(member_user, name="D", is_enabled=False, last_run_at=now - timedelta(days=2))
 
-        assert [row.name for row in schedule_rows(member_user)] == ["B", "A", "C", "D"]
+        assert [row.name for row in Sidebar(member_user).schedule_rows()] == ["B", "A", "C", "D"]
 
     def test_caps_at_ten(self, member_user):
         for index in range(SCHEDULES_LIMIT + 1):
             make_schedule(member_user, name=f"S{index}")
 
-        assert len(schedule_rows(member_user)) == SCHEDULES_LIMIT
+        assert len(Sidebar(member_user).schedule_rows()) == SCHEDULES_LIMIT
 
     def test_all_runs_filters_the_sessions_page_by_schedule(self, member_user):
         schedule = make_schedule(member_user)
 
-        (row,) = schedule_rows(member_user)
+        (row,) = Sidebar(member_user).schedule_rows()
 
         assert row.all_runs_url == reverse("session_list") + f"?schedule={schedule.pk}"
 
@@ -186,7 +185,7 @@ class TestScheduleRows:
         schedule = make_schedule(member_user)
         batch_id, _ = make_firing(schedule, RunStatus.SUCCESSFUL, RunStatus.SUCCESSFUL, RunStatus.SUCCESSFUL)
 
-        ((firing,),) = [row.firings for row in schedule_rows(member_user)]
+        ((firing,),) = [row.firings for row in Sidebar(member_user).schedule_rows()]
 
         assert firing.batch_id == str(batch_id)
         assert firing.repo_count == 3
@@ -195,7 +194,7 @@ class TestScheduleRows:
     def test_single_session_firing_links_the_session(self, member_user):
         _, (session,) = make_firing(make_schedule(member_user), RunStatus.SUCCESSFUL)
 
-        ((firing,),) = [row.firings for row in schedule_rows(member_user)]
+        ((firing,),) = [row.firings for row in Sidebar(member_user).schedule_rows()]
 
         assert firing.repo_count == 1
         assert firing.url == reverse("session_detail", kwargs={"thread_id": session.thread_id})
@@ -204,7 +203,7 @@ class TestScheduleRows:
         batch_id, (session,) = make_firing(make_schedule(member_user), RunStatus.FAILED, minutes_ago=20)
         make_run(session, RunStatus.SUCCESSFUL, minutes_ago=10, batch_id=batch_id)
 
-        ((firing,),) = [row.firings for row in schedule_rows(member_user)]
+        ((firing,),) = [row.firings for row in Sidebar(member_user).schedule_rows()]
 
         assert firing.repo_count == 1
         assert firing.url == reverse("session_detail", kwargs={"thread_id": session.thread_id})
@@ -214,7 +213,7 @@ class TestScheduleRows:
         make_firing(schedule, RunStatus.SUCCESSFUL, RunStatus.RUNNING, RunStatus.FAILED, minutes_ago=60)
         make_firing(schedule, RunStatus.SUCCESSFUL, RunStatus.RUNNING, minutes_ago=10)
 
-        (row,) = schedule_rows(member_user)
+        (row,) = Sidebar(member_user).schedule_rows()
 
         assert [firing.status for firing in row.firings] == [RunStatus.RUNNING, RunStatus.FAILED]
 
@@ -224,7 +223,7 @@ class TestScheduleRows:
         make_run(session, RunStatus.SUCCESSFUL, minutes_ago=20, trigger_type=SessionOrigin.API_JOB, batch_id=api_batch)
         make_run(session, RunStatus.RUNNING, minutes_ago=10, trigger_type=SessionOrigin.CHAT)
 
-        ((firing,),) = [row.firings for row in schedule_rows(member_user)]
+        ((firing,),) = [row.firings for row in Sidebar(member_user).schedule_rows()]
 
         assert firing.status == RunStatus.RUNNING
 
@@ -232,7 +231,7 @@ class TestScheduleRows:
         schedule = make_schedule(member_user)
         sessions = [make_firing(schedule, RunStatus.SUCCESSFUL, minutes_ago=m)[1][0] for m in (50, 40, 30, 20, 10)]
 
-        (row,) = schedule_rows(member_user)
+        (row,) = Sidebar(member_user).schedule_rows()
 
         newest = reversed(sessions[-FIRINGS_PER_SCHEDULE:])
         assert [firing.url for firing in row.firings] == [
@@ -243,7 +242,7 @@ class TestScheduleRows:
         _, (session,) = make_firing(make_schedule(member_user), RunStatus.FAILED)
         Session.objects.filter(pk=session.pk).update(archived_at=timezone.now())
 
-        (row,) = schedule_rows(member_user)
+        (row,) = Sidebar(member_user).schedule_rows()
 
         assert row.firings == ()
         assert row.status == ""
@@ -263,7 +262,7 @@ class TestScheduleRows:
         make_firing(schedule, RunStatus.FAILED, minutes_ago=60)
         make_firing(schedule, latest, minutes_ago=10)
 
-        (row,) = schedule_rows(member_user)
+        (row,) = Sidebar(member_user).schedule_rows()
 
         assert row.starts_open is starts_open
 
@@ -273,7 +272,7 @@ class TestScheduleRows:
         for minutes_ago in (40, 30, 20, 10):
             make_firing(schedule, RunStatus.SUCCESSFUL, minutes_ago=minutes_ago)
 
-        (row,) = schedule_rows(member_user, viewing=viewed.thread_id)
+        (row,) = Sidebar(member_user, viewing=viewed.thread_id).schedule_rows()
 
         assert row.starts_open is True
         assert [firing.active for firing in row.firings] == [False, False, False, True]
@@ -284,7 +283,7 @@ class TestScheduleRows:
             make_firing(schedule, RunStatus.SUCCESSFUL, minutes_ago=minutes_ago)
         _, (viewed,) = make_firing(schedule, RunStatus.SUCCESSFUL, minutes_ago=10)
 
-        (row,) = schedule_rows(member_user, viewing=viewed.thread_id)
+        (row,) = Sidebar(member_user, viewing=viewed.thread_id).schedule_rows()
 
         assert [firing.active for firing in row.firings] == [True, False, False]
 
@@ -292,27 +291,50 @@ class TestScheduleRows:
     def test_status_only_for_state_word_statuses(self, member_user, latest, status):
         make_firing(make_schedule(member_user), latest)
 
-        (row,) = schedule_rows(member_user)
+        (row,) = Sidebar(member_user).schedule_rows()
 
         assert row.status == status
+
+    def test_reads_only_each_schedules_newest_sessions(self, member_user, mocker):
+        mocker.patch("dashboard.sidebar.NEWEST_SESSIONS", 2)
+        schedule = make_schedule(member_user)
+        for minutes_ago in (40, 30, 20, 10):
+            make_firing(schedule, RunStatus.SUCCESSFUL, minutes_ago=minutes_ago)
+
+        (row,) = Sidebar(member_user).schedule_rows()
+
+        assert len(row.firings) == 2
+
+    def test_viewed_firing_past_the_newest_sessions_shows_whole(self, member_user, django_assert_max_num_queries):
+        schedule = make_schedule(member_user)
+        statuses = [RunStatus.SUCCESSFUL] * MAX_REPOS_PER_BATCH
+        _, (viewed, *_) = make_firing(schedule, *statuses, minutes_ago=40)
+        for minutes_ago in (30, 20, 10):
+            make_firing(schedule, *statuses, minutes_ago=minutes_ago)
+
+        with django_assert_max_num_queries(3):
+            (row,) = Sidebar(member_user, viewing=viewed.thread_id).schedule_rows()
+
+        assert [firing.repo_count for firing in row.firings] == [MAX_REPOS_PER_BATCH] * (FIRINGS_PER_SCHEDULE + 1)
+        assert [firing.active for firing in row.firings] == [False, False, False, True]
 
     def test_query_count_is_fixed(self, member_user, django_assert_max_num_queries):
         make_firing(make_schedule(member_user), RunStatus.SUCCESSFUL)
         with django_assert_max_num_queries(3):
-            schedule_rows(member_user)
+            Sidebar(member_user).schedule_rows()
 
         for index in range(SCHEDULES_LIMIT - 1):
             schedule = make_schedule(member_user, name=f"S{index}")
             for minutes_ago in range(FIRINGS_PER_SCHEDULE + 1):
                 _, sessions = make_firing(schedule, RunStatus.FAILED, RunStatus.SUCCESSFUL, minutes_ago=minutes_ago)
         with django_assert_max_num_queries(3):
-            schedule_rows(member_user, viewing=sessions[0].thread_id)
+            Sidebar(member_user, viewing=sessions[0].thread_id).schedule_rows()
 
     def test_sidebar_lists_combines_both(self, member_user):
         own = make_session(member_user)
         schedule = make_schedule(member_user)
 
-        lists = sidebar_lists(member_user)
+        lists = Sidebar(member_user).lists()
 
         assert isinstance(lists, SidebarLists)
         assert [row.thread_id for row in lists.sessions] == [own.thread_id]
@@ -323,7 +345,7 @@ class TestScheduleRows:
         ("asked", "limit"), [(1, SESSIONS_PAGE), (SESSIONS_PAGE * 2, SESSIONS_PAGE * 2), (9999, SESSIONS_MAX)]
     )
     def test_sidebar_lists_clamps_the_limit(self, member_user, asked, limit):
-        assert sidebar_lists(member_user, limit=asked).limit == limit
+        assert Sidebar(member_user).lists(limit=asked).limit == limit
 
 
 class TestNextLimit:

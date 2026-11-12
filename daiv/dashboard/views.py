@@ -11,7 +11,7 @@ from dashboard import home, insights, landing
 from dashboard.comparisons import CHECKED, COMPARISONS, COMPARISONS_BY_SLUG
 from dashboard.conf import settings as dashboard_settings
 from dashboard.context_processors import running_jobs_count
-from dashboard.sidebar import SESSIONS_PAGE, sidebar_lists
+from dashboard.sidebar import SESSIONS_PAGE, Sidebar
 from dashboard.skill_usage import RECENT_RUNS, match_runs, skill_usage
 
 
@@ -127,6 +127,6 @@ class SidebarListsView(LoginRequiredMixin, TemplateView):
             limit = int(query.get("limit", SESSIONS_PAGE))
         except ValueError:
             limit = SESSIONS_PAGE
-        lists = sidebar_lists(self.request.user, limit=limit, viewing=query.get("viewing", ""))
+        lists = Sidebar(self.request.user, viewing=query.get("viewing", "")).lists(limit=limit)
         # The page's section, not this endpoint's: the rows highlight the section the sidebar is on.
         return super().get_context_data(nav_sidebar=lists, nav_active_section=query.get("section", ""), **kwargs)

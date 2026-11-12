@@ -92,6 +92,12 @@ msgstr "Todas as execuções"
 msgid "No schedules yet."
 msgstr "Ainda não há agendamentos."
 
+msgid "Couldn't load your sessions."
+msgstr "Não foi possível carregar as suas sessões."
+
+msgid "Couldn't load your schedules."
+msgstr "Não foi possível carregar os seus agendamentos."
+
 msgid "Create one"
 msgstr "Criar um"
 

@@ -239,7 +239,7 @@
 
   /* Straddles the sidebar's border, so its 2px line lands on it. */
   .sidebar__resize {
-    @apply absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize touch-none outline-none;
+    @apply absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize touch-none;
   }
 
   .sidebar__resize::after {
@@ -247,7 +247,6 @@
   }
 
   .sidebar__resize:hover::after,
-  .sidebar__resize:focus-visible::after,
   :root[data-sidebar-resizing] .sidebar__resize::after {
     @apply bg-accent;
   }
@@ -293,8 +292,8 @@
   }
 
   .nav-group-title {
-    @apply relative -mx-1.5 rounded-md px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em]
-           text-text-faint;
+    @apply relative -mx-1.5 rounded-md px-1.5 py-0.5 font-mono text-[11px] font-semibold uppercase
+           tracking-[0.14em] text-text-faint;
   }
 
   .nav-group-actions {
@@ -333,7 +332,7 @@
   }
 
   .nav-row__meta {
-    @apply flex shrink-0 items-center gap-1.5 text-[11px] tabular-nums text-text-faint;
+    @apply flex shrink-0 items-center gap-1.5 font-mono text-[11px] tabular-nums text-text-faint;
   }
 
   .nav-row__chevron {

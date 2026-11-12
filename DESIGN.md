@@ -412,7 +412,7 @@ All components are Django templates. Reusable partials are **underscore-prefixed
 ### Buttons
 
 **Legacy until migrated** — `.btn-primary`'s white fill predates the token layer, where
-teal `accent` owns "clickable" (see the sidebar's `bg-accent text-accent-ink` CTA). Keep
+teal `accent` owns "clickable" (see the mobile top bar's `bg-accent text-accent-ink` New chat). Keep
 using these classes on pages still on the legacy utilities; a page moved to the tokens
 moves its primary action to `.btn-accent` at the same time.
 
@@ -549,7 +549,7 @@ when there is more than one:
 The title block takes whatever the actions leave and wraps its own text; the actions
 drop to a line of their own once it would go below `16rem`. **Never add a breakpoint
 for this**: a viewport breakpoint can't see the shell beside it — the sidebar is a
-64px rail from `md:` and 240px from `lg:`, so the content area a `sm:`/`lg:` rule
+64px rail from `md:` and 17rem to 32rem from `lg:`, so the content area a `sm:`/`lg:` rule
 switches on is never the width the rule names. The same wrap — grow the
 details, floor them, let the controls fall below — is how list rows with trailing
 controls stack (`mcp_connectors/_server_list.html`), and it adapts per row when the
@@ -625,8 +625,10 @@ wordmark and a teal New chat `+`) that is the only nav entry point on a phone.
   name and tooltip once the label is hidden.
 - **Width.** The full sidebar's right edge (`.sidebar__resize`, a focusable `role="separator"`)
   resizes it: drag it, nudge it with the arrow keys (Home and End jump to the bounds), double-click
-  to reset. At rest it is the plain border; it turns teal under the pointer, on keyboard focus and
-  through a drag. The store writes `--app-sidebar-chosen` on `<html>`, and `input.css` clamps it
+  to reset. At rest it is the plain border; it turns teal under the pointer and through a drag, and
+  keyboard focus draws the global focus ring around it. Its `aria-valuenow`, `aria-valuemin` and
+  `aria-valuemax` are measured as it renders, and again on focus, through a drag and when the
+  sidebar expands. The store writes `--app-sidebar-chosen` on `<html>`, and `input.css` clamps it
   between `--app-sidebar-min` (17rem, the default) and `--app-sidebar-max` (32rem, less on
   windows that would leave the content under 48rem), so the clamp also follows window resizes.
   The width shown is what `localStorage` keeps (`daiv.sidebar.width`, dropped at the default),
@@ -639,12 +641,16 @@ wordmark and a teal New chat `+`) that is the only nav entry point on a phone.
   shortcut `/`) and a teal `+` for New chat; the user's own sessions outside any
   schedule, newest first, 8 at a time with "Show more" (up to 80, then it links the
   sessions page), a status dot, the state word while
-  running, waiting or failed and a short relative time otherwise; the session being viewed
+  running, waiting or failed and a short relative time otherwise, with the state word kept
+  for screen readers (`sr-only`) so no status is colour alone; the session being viewed
   is marked and appended when off the page. **Scheduled**: up to 10 schedules the user owns
   or subscribes to that are enabled or fired in the last 14 days, each expanding to its 3
   newest firings (one row per dispatch, worst status of its sessions, a repository count
   past one) and "All runs". Its heading takes the `schedules` section's active state;
-  its list icon links the schedules page. The queries run once per page, behind the lazy
+  its list icon links the schedules page. Headings are `.nav-group-title` (`label-caps`), and
+  the rows' times and counts (`.nav-row__meta`, a firing's date) are Geist Mono. When the
+  lists cannot be read (`SidebarLists.failed`), each says so in place of its empty state, whose
+  "No sessions yet" would be untrue. The queries run once per page, behind the lazy
   `nav_sidebar`. Order and contents are pinned by
   `dashboard/test_sidebar.py` and `dashboard/test_sidebar_lists.py`.
 - **Settings menu.** The `<nav>` holds two menus side by side in one clipped grid row

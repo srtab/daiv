@@ -137,6 +137,7 @@ document.addEventListener("alpine:init", () => {
       this.rail = !this.rail;
       if (this.rail) document.documentElement.dataset.sidebar = "rail";
       else delete document.documentElement.dataset.sidebar;
+      if (!this.rail) this.measure();
       try {
         if (this.rail) localStorage.setItem(STORAGE_KEY, "rail");
         else localStorage.removeItem(STORAGE_KEY);

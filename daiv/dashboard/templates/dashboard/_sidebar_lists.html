@@ -35,13 +35,24 @@ response of the `sidebar_lists` endpoint, which the sidebar swaps in when runs s
          class="nav-row{% if row.active %} nav-row--active{% endif %}">
         <span class="status-dot status-dot-{{ row.status|status_variant }}" aria-hidden="true"></span>
         <span class="nav-row__title">{% if row.title %}{{ row.title }}{% else %}<em>{% translate "generating title…" %}</em>{% endif %}</span>
-        <span class="nav-row__meta">{% if row.shows_state %}{{ row.status|run_status_label }}{% else %}{{ row.last_active_at|compact_time }}{% endif %}</span>
+        <span class="nav-row__meta">
+          {% if row.shows_state %}
+          {{ row.status|run_status_label }}
+          {% else %}
+          {% with label=row.status|run_status_label %}{% if label %}<span class="sr-only">{{ label }}</span>{% endif %}{% endwith %}
+          {{ row.last_active_at|compact_time }}
+          {% endif %}
+        </span>
       </a>
     </li>
     {% empty %}
     <li class="nav-empty">
+      {% if lists.failed %}
+      {% translate "Couldn't load your sessions." %}
+      {% else %}
       {% translate "No sessions yet." %}
       <a href="{% url 'session_new_chat' %}" class="nav-empty__link">{% translate "Start a chat" %}</a>
+      {% endif %}
     </li>
     {% endfor %}
   </ul>
@@ -99,7 +110,7 @@ response of the `sidebar_lists` endpoint, which the sidebar swaps in when runs s
              {% if firing.active %}aria-current="page"{% endif %}
              class="nav-row nav-row--nested{% if firing.active %} nav-row--active{% endif %}">
             <span class="status-dot status-dot-{{ firing.status|status_variant }}" aria-hidden="true"></span>
-            <span class="nav-row__title">{{ firing.fired_at|date:"M j, H:i" }}</span>
+            <span class="nav-row__title font-mono">{{ firing.fired_at|date:"M j, H:i" }}</span>
             <span class="nav-row__meta">
               {% if firing.repo_count > 1 %}
               {% blocktranslate count counter=firing.repo_count %}{{ counter }} repo{% plural %}{{ counter }} repos{% endblocktranslate %} &middot;
@@ -117,8 +128,12 @@ response of the `sidebar_lists` endpoint, which the sidebar swaps in when runs s
     {% endwith %}
     {% empty %}
     <li class="nav-empty">
+      {% if lists.failed %}
+      {% translate "Couldn't load your schedules." %}
+      {% else %}
       {% translate "No schedules yet." %}
       <a href="{% url 'schedule_create' %}" class="nav-empty__link">{% translate "Create one" %}</a>
+      {% endif %}
     </li>
     {% endfor %}
   </ul>

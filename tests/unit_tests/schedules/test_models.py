@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timedelta
 
 from django.core.exceptions import ValidationError
@@ -5,6 +6,7 @@ from django.db import IntegrityError
 from django.utils import timezone
 
 import pytest
+from sessions.models import Session, SessionOrigin
 
 from schedules.models import DispatchError, Frequency, Intent, ScheduledJob, ScheduleTemplate
 
@@ -439,3 +441,41 @@ def test_failing_selects_the_schedules_is_failing_holds_for(member_user):
     job("healthy")
 
     assert set(ScheduledJob.objects.failing()) == {retired, older}
+
+
+@pytest.mark.django_db
+class TestScheduledJobWithNewestSessionsSince:
+    def _schedule(self, user) -> ScheduledJob:
+        return ScheduledJob.objects.create(
+            user=user, name="s", prompt="p", frequency="daily", time="12:00", repos=[{"repo_id": "x/y", "ref": ""}]
+        )
+
+    def _session(self, user, schedule, *, minutes_ago, archived=False) -> Session:
+        moment = timezone.now() - timedelta(minutes=minutes_ago)
+        return Session.objects.create(
+            thread_id=str(uuid.uuid4()),
+            origin=SessionOrigin.SCHEDULE,
+            repo_id="x/y",
+            user=user,
+            scheduled_job=schedule,
+            created_at=moment,
+            archived_at=moment if archived else None,
+        )
+
+    def test_is_the_creation_of_the_nth_newest_unarchived_session(self, member_user):
+        schedule = self._schedule(member_user)
+        oldest, middle, _ = (self._session(member_user, schedule, minutes_ago=m) for m in (30, 20, 10))
+        self._session(member_user, schedule, minutes_ago=5, archived=True)
+        self._session(member_user, None, minutes_ago=1)
+
+        def since(count):
+            return ScheduledJob.objects.with_newest_sessions_since(count).get(pk=schedule.pk).newest_sessions_since
+
+        assert since(2) == middle.created_at
+        assert since(3) == oldest.created_at
+
+    def test_is_none_while_the_schedule_has_fewer_sessions(self, member_user):
+        schedule = self._schedule(member_user)
+        self._session(member_user, schedule, minutes_ago=0)
+
+        assert ScheduledJob.objects.with_newest_sessions_since(2).get(pk=schedule.pk).newest_sessions_since is None

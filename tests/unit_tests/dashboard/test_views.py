@@ -958,18 +958,21 @@ class TestSidebarListsView:
 
     @pytest.mark.parametrize(("query", "limit"), [("", 8), ("?limit=16", 16), ("?limit=9999", 9999), ("?limit=abc", 8)])
     def test_parses_limit(self, member_user, member_client, mocker, query, limit):
-        spy = mocker.patch("dashboard.views.sidebar_lists", return_value=SidebarLists())
+        spy = mocker.patch("dashboard.views.Sidebar")
+        spy.return_value.lists.return_value = SidebarLists()
 
         member_client.get(reverse("sidebar_lists") + query)
 
-        spy.assert_called_once_with(member_user, limit=limit, viewing="")
+        spy.assert_called_once_with(member_user, viewing="")
+        spy.return_value.lists.assert_called_once_with(limit=limit)
 
     def test_passes_viewing(self, member_user, member_client, mocker):
-        spy = mocker.patch("dashboard.views.sidebar_lists", return_value=SidebarLists())
+        spy = mocker.patch("dashboard.views.Sidebar")
+        spy.return_value.lists.return_value = SidebarLists()
 
         member_client.get(reverse("sidebar_lists") + "?viewing=thread-1")
 
-        spy.assert_called_once_with(member_user, limit=8, viewing="thread-1")
+        spy.assert_called_once_with(member_user, viewing="thread-1")
 
     @pytest.mark.parametrize(("query", "section"), [("?section=schedules", "schedules"), ("", "")])
     def test_highlights_the_section_of_the_page_it_refreshes(self, member_client, query, section):

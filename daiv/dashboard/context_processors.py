@@ -9,7 +9,7 @@ from django.utils.functional import SimpleLazyObject
 
 from sessions.models import Run, RunStatus, Session
 
-from dashboard.sidebar import SidebarLists, sidebar_lists
+from dashboard.sidebar import Sidebar, SidebarLists
 
 logger = logging.getLogger("daiv.dashboard")
 
@@ -171,15 +171,15 @@ def _viewed_thread_id(request) -> str:
 
 
 def sidebar_state(request, user) -> SidebarLists:
-    """``sidebar_lists`` memoized per-request via ``request._daiv_sidebar_lists``; empty on ``DatabaseError``."""
+    """The sidebar's lists, memoized per-request on ``request._daiv_sidebar_lists``; ``failed`` on a DB error."""
     cached = getattr(request, "_daiv_sidebar_lists", None)
     if cached is not None:
         return cached
     try:
-        state = sidebar_lists(user, viewing=_viewed_thread_id(request))
+        state = Sidebar(user, viewing=_viewed_thread_id(request)).lists()
     except DatabaseError:
         logger.exception("Failed to compute the sidebar lists for user %s", user.pk)
-        state = SidebarLists()
+        state = SidebarLists(failed=True)
     request._daiv_sidebar_lists = state
     return state
 

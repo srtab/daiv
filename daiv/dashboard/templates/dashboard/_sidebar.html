@@ -105,6 +105,7 @@
        aria-orientation="vertical"
        aria-label="{% translate 'Resize sidebar' %}"
        title="{% translate 'Drag to resize, double-click to reset' %}"
+       x-init="$nextTick(() => $store.sidebar.measure())"
        :aria-valuenow="$store.sidebar.width"
        :aria-valuemin="$store.sidebar.minWidth"
        :aria-valuemax="$store.sidebar.maxWidth"

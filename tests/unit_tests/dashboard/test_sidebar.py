@@ -2,6 +2,7 @@ import uuid
 from datetime import timedelta
 from unittest.mock import AsyncMock, patch
 
+from django.db import Error as DatabaseError
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
@@ -9,8 +10,7 @@ from django.utils import timezone
 
 import pytest
 from bs4 import BeautifulSoup
-from dashboard import context_processors
-from dashboard.sidebar import SESSIONS_PAGE
+from dashboard.sidebar import SESSIONS_PAGE, Sidebar
 from notifications.models import Notification
 from sessions.hydration import HydratedThread
 from sessions.models import Run, RunStatus, Session, SessionOrigin
@@ -233,6 +233,9 @@ def _group(sidebar, testid):
     return sidebar.select_one(f'[data-testid="{testid}"]')
 
 
+GROUPS = ("nav-sessions-group", "nav-scheduled-group")
+
+
 @pytest.mark.django_db
 class TestSidebarSessionsGroup:
     def test_rows_link_their_sessions(self, member_user, member_client):
@@ -260,13 +263,23 @@ class TestSidebarSessionsGroup:
         assert "Running" in row.get_text()
         assert row.select_one(".status-dot-running")
 
-    def test_finished_session_shows_a_relative_time(self, member_user, member_client):
+    def test_finished_session_shows_a_relative_time_and_tells_screen_readers_its_status(
+        self, member_user, member_client
+    ):
         make_run(make_session(member_user, minutes_ago=5), RunStatus.SUCCESSFUL)
 
         (row,) = _sidebar(member_client).select('[data-testid="nav-session-row"]')
 
-        assert "Done" not in row.get_text()
-        assert "5m" in row.get_text()
+        meta = row.select_one(".nav-row__meta")
+        assert meta.select_one(".sr-only").get_text() == "Done"
+        assert meta.get_text(" ", strip=True) == "Done 5m"
+
+    def test_session_without_runs_tells_screen_readers_nothing(self, member_user, member_client):
+        make_session(member_user)
+
+        (row,) = _sidebar(member_client).select('[data-testid="nav-session-row"]')
+
+        assert not row.select(".sr-only")
 
     def test_viewed_session_row_is_active(self, member_user, member_client):
         viewed = make_session(member_user, minutes_ago=5)
@@ -302,7 +315,17 @@ class TestSidebarSessionsGroup:
         group = _group(_sidebar(member_client), "nav-sessions-group")
 
         assert not group.select('[data-testid="nav-session-row"]')
-        assert group.select_one(f'a[href="{reverse("session_new_chat")}"]')
+        assert group.select_one(f'.nav-empty a[href="{reverse("session_new_chat")}"]')
+
+    def test_failed_read_says_so_instead_of_the_empty_states(self, member_client, mocker):
+        mocker.patch.object(Sidebar, "lists", side_effect=DatabaseError("connection lost"))
+
+        sidebar = _sidebar(member_client)
+
+        sessions, schedules = (_group(sidebar, testid).select_one(".nav-empty") for testid in GROUPS)
+        assert sessions.get_text(strip=True) == "Couldn't load your sessions."
+        assert schedules.get_text(strip=True) == "Couldn't load your schedules."
+        assert not sidebar.select(".nav-empty__link")
 
     def test_lists_container_names_its_endpoint_and_viewed_session(self, member_user, member_client):
         session = make_session(member_user)
@@ -462,7 +485,7 @@ class TestSidebarRail:
 @pytest.mark.django_db
 class TestSidebarQueries:
     def test_both_copies_share_one_computation(self, member_client, mocker):
-        spy = mocker.spy(context_processors, "sidebar_lists")
+        spy = mocker.spy(Sidebar, "lists")
 
         member_client.get(reverse("dashboard"))
 

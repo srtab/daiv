@@ -22,6 +22,7 @@ def make_schedule(user, **fields) -> ScheduledJob:
 
 
 def make_session(user, *, minutes_ago=0, title="A session", scheduled_job=None, origin=SessionOrigin.CHAT) -> Session:
+    moment = timezone.now() - timedelta(minutes=minutes_ago)
     return Session.objects.create(
         thread_id=str(uuid.uuid4()),
         origin=origin,
@@ -29,7 +30,8 @@ def make_session(user, *, minutes_ago=0, title="A session", scheduled_job=None, 
         user=user,
         title=title,
         scheduled_job=scheduled_job,
-        last_active_at=timezone.now() - timedelta(minutes=minutes_ago),
+        created_at=moment,
+        last_active_at=moment,
     )
 
 
