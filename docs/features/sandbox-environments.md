@@ -145,7 +145,7 @@ When you start a run from **Dashboard > Sessions** (or from a [Sessions](session
 
 ### From a chat session
 
-The dashboard [chat session](sessions.md#chat-sessions) workspace remembers the environment chosen when the session is created (sent as the `X-Sandbox-Env` header, by name or UUID). Omitting it auto-resolves the environment for the session's repository. The chosen environment is snapshotted at session creation, so an existing session keeps the environment it started with.
+The dashboard [chat session](sessions.md#start-a-chat-session) workspace remembers the environment chosen when the session is created (sent as the `X-Sandbox-Env` header, by name or UUID). Omitting it auto-resolves the environment for the session's repository. The chosen environment is snapshotted at session creation, so an existing session keeps the environment it started with.
 
 ### From a scheduled job
 

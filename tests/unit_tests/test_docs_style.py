@@ -377,7 +377,6 @@ KNOWN_VIOLATIONS: dict[str, frozenset[str]] = {
         "features/notifications.md",
         "features/sandbox-environments.md",
         "features/scheduled-jobs.md",
-        "features/sessions.md",
         "index.md",
         "integrations/rt/index.md",
         "reference/agent-architecture.md",

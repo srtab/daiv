@@ -125,7 +125,7 @@ External tools provided via [MCP servers](../customization/mcp-tools.md) (Sentry
 |------|-------------|
 | `ask_user_question` | Ask the user 1 to 4 questions and end the turn; the answer arrives as the next message |
 
-See [Answering a question](../features/sessions.md#answering-a-question) for what this looks like from the user's side.
+See [Answer a question](../features/sessions.md#answer-a-question) for what this looks like from the user's side.
 
 ## Middlewares
 

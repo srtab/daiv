@@ -157,7 +157,7 @@ GET /api/jobs/{job_id}
 
 `merge_request_url` is populated when the agent produced code changes that were committed and pushed; `null` otherwise (e.g. read-only triage runs). In a [multi-repository session](#multi-repository-sessions) it is the main repository's merge request, else the first one opened. `thread_id` identifies the thread this job ran on — pass it back as the `thread_id` field on a new submission to continue the conversation.
 
-`artifacts` lists the files the agent published with its `publish_artifact` tool (reports, datasets, charts) — see [Artifacts](sessions.md#artifacts). Each entry carries the viewer page (`url`), a direct download (`download_url`), and a `kind` (`markdown`, `html`, `image`, `text`, or `other`) describing how the viewer renders it. Both `url` and `download_url` require a signed-in DAIV user who can see the run. An artifact that a later job on the same thread revises keeps its id and URLs, and is listed under both the job that first published it and every job that revised it, with its current file ([Revising an artifact](sessions.md#revising-an-artifact)). The list is empty for runs that published nothing, and it is populated as the run progresses, so it can be read while the job is still `RUNNING`. If DAIV cannot list the artifacts, `artifacts` is empty and `artifacts_error` explains why; the rest of the status is unaffected.
+`artifacts` lists the files the agent published with its `publish_artifact` tool (reports, datasets, charts) — see [Artifacts](sessions.md#artifacts). Each entry carries the viewer page (`url`), a direct download (`download_url`), and a `kind` (`markdown`, `html`, `image`, `text`, or `other`) describing how the viewer renders it. Both `url` and `download_url` require a signed-in DAIV user who can see the run. An artifact that a later job on the same thread revises keeps its id and URLs, and is listed under both the job that first published it and every job that revised it, with its current file ([Revise an artifact](sessions.md#revise-an-artifact)). The list is empty for runs that published nothing, and it is populated as the run progresses, so it can be read while the job is still `RUNNING`. If DAIV cannot list the artifacts, `artifacts` is empty and `artifacts_error` explains why; the rest of the status is unaffected.
 
 **Status values:**
 
@@ -223,7 +223,7 @@ By default, several entries in `repos` fan out into independent jobs, one sessio
 }
 ```
 
-- You can also start such a session from the dashboard chat, which takes the same list: see [Starting a chat over several repositories](sessions.md#starting-a-chat-over-several-repositories).
+- You can also start such a session from the dashboard chat, which takes the same list: see [Start a chat over several repositories](sessions.md#start-a-chat-over-several-repositories).
 - `repos` takes up to 5 entries (the first is the main one), each repository at most once, and no per-repository `prompt`: the session runs the one `prompt`.
 - The response holds **one** job and one `thread_id`; the job's `repo_id` is the first entry, the **main repository**.
 - You need write access to every repository. If any is missing or unknown, the call fails with the usual opaque `404`.
