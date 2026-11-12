@@ -1,13 +1,9 @@
 {% extends "base_app.html" %}
-{% load i18n static %}
+{% load i18n %}
 
 {% block title %}Home — DAIV{% endblock %}
 
 {% block container_width %}max-w-6xl{% endblock %}
-
-{% block alpine_plugins %}
-<script defer src="{% static 'sessions/js/session-stream.js' %}"></script>
-{% endblock alpine_plugins %}
 
 {% block app_content %}
 <div class="animate-fade-up page-header">
@@ -17,27 +13,12 @@
             {% blocktranslate with name=user.name|default:user.email %}Welcome back, {{ name }}{% endblocktranslate %}
         </p>
     </div>
-    <div class="flex items-center gap-4">
-        <a href="{% url 'artifact_list' %}" class="text-sm text-text-muted transition-colors hover:text-text">{% translate "Artifacts" %} &rarr;</a>
-        <a href="{% url 'insights' %}" class="text-sm text-text-muted transition-colors hover:text-text">{% translate "Team insights" %} &rarr;</a>
-    </div>
+    <a href="{% url 'insights' %}" class="text-sm text-text-muted transition-colors hover:text-text">{% translate "Team insights" %} &rarr;</a>
 </div>
 
-{% if recent_sessions %}
-<div class="animate-fade-up mt-8 grid items-start gap-8 lg:grid-cols-3" style="animation-delay: 50ms">
-    <div class="min-w-0 space-y-8 lg:col-span-2">
-        {% include "dashboard/_needs_you.html" %}
-        {% include "dashboard/_your_week.html" %}
-        {% include "dashboard/_recent_sessions.html" %}
-    </div>
-    <div class="min-w-0">
-        {% include "dashboard/_ways_to_use.html" with prominent=False %}
-    </div>
-</div>
-{% else %}
 <div class="animate-fade-up mt-8 space-y-8" style="animation-delay: 50ms">
     {% include "dashboard/_needs_you.html" %}
-    {% include "dashboard/_ways_to_use.html" with prominent=True %}
+    {% if your_week %}{% include "dashboard/_your_week.html" %}{% endif %}
+    {% include "dashboard/_ways_to_use.html" %}
 </div>
-{% endif %}
 {% endblock app_content %}

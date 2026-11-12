@@ -123,9 +123,6 @@ def test_the_account_menu_is_not_clipped_by_the_sidebar():
     assert sidebar.index('data-testid="app-user-menu"') > sidebar.index("</nav>"), (
         "the account menu sits inside the scrolling nav, which clips it"
     )
-    assert sidebar.index("_new_split.html") < sidebar.index("<nav"), (
-        "the New menu sits inside the scrolling nav, which clips it on the rail"
-    )
 
 
 def test_no_template_loads_a_font_from_a_cdn():

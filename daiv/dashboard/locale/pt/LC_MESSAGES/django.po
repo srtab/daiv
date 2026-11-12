@@ -74,9 +74,6 @@ msgstr "Abrir navegação"
 msgid "Artifacts"
 msgstr "Artefactos"
 
-msgid "Search"
-msgstr "Pesquisar"
-
 msgid "Search sessions"
 msgstr "Pesquisar sessões"
 
@@ -86,8 +83,8 @@ msgstr "Agendadas"
 msgid "No sessions yet."
 msgstr "Ainda não há sessões."
 
-msgid "Manage"
-msgstr "Gerir"
+msgid "Manage schedules"
+msgstr "Gerir agendamentos"
 
 msgid "All runs"
 msgstr "Todas as execuções"

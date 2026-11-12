@@ -1,14 +1,5 @@
 {% load i18n icon_tags nav_tags %}
 <div class="px-3">
-  <a href="{% url 'session_list' %}#search"
-     data-testid="nav-search"
-     title="{% translate 'Search sessions' %} (/)"
-     aria-keyshortcuts="/"
-     class="sidebar__nav-item">
-    {% icon "magnifying-glass" "h-4 w-4 shrink-0" %}
-    <span class="sidebar__collapsible flex-1">{% translate "Search" %}</span>
-  </a>
-
   <a href="{% url 'dashboard' %}"
      data-testid="nav-home"
      title="{% translate 'Home' %}"
@@ -42,8 +33,15 @@
     <span class="sidebar__collapsible">{% translate "Artifacts" %}</span>
   </a>
 
-  {# The rail hides both lists, so it links their pages instead. #}
+  {# The rail hides both lists and their headers, so it carries New chat and links their pages instead. #}
   <div class="sidebar__rail-only">
+    <a href="{% url 'session_new_chat' %}"
+       data-testid="nav-rail-new-chat"
+       title="{% translate 'New chat' %}"
+       class="sidebar__nav-item text-accent hover:text-accent-bright">
+      {% icon "plus" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__collapsible">{% translate "New chat" %}</span>
+    </a>
     <a href="{% url 'session_list' %}"
        data-testid="nav-rail-sessions"
        title="{% translate 'Sessions' %}"

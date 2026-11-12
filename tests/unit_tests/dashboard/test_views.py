@@ -479,44 +479,6 @@ class TestNeedsYouInbox:
 
 
 @pytest.mark.django_db
-class TestRecentSessions:
-    def test_shows_your_five_newest(self, admin_user, member_user, member_client):
-        mine = [_make_session(member_user, SessionOrigin.CHAT, days_ago=days_ago) for days_ago in range(6)]
-        _make_session(admin_user, SessionOrigin.CHAT)
-
-        response = member_client.get(reverse("dashboard"))
-
-        assert [s.pk for s in response.context["recent_sessions"]] == [s.pk for s in mine[:5]]
-        assert response.context["my_sessions_url"] == f"{reverse('session_list')}?scope=mine"
-
-    def test_rows_leave_the_model_to_the_full_list(self, member_user, member_client):
-        session = _make_session(member_user, SessionOrigin.CHAT)
-        Run.objects.filter(session=session).update(agent_model="claude-test-model")
-
-        home = member_client.get(reverse("dashboard")).content.decode()
-        listed = member_client.get(reverse("session_list")).content.decode()
-
-        assert "claude-test-model" not in home
-        assert "claude-test-model" in listed
-
-    def test_leaves_out_what_you_archived(self, member_user, member_client):
-        shown = _make_session(member_user, SessionOrigin.CHAT, days_ago=1)
-        HiddenSession.objects.create(session=_make_session(member_user, SessionOrigin.CHAT), user=member_user)
-
-        response = member_client.get(reverse("dashboard"))
-
-        assert [s.pk for s in response.context["recent_sessions"]] == [shown.pk]
-
-    def test_hidden_when_you_have_none(self, admin_user, member_client):
-        _make_session(admin_user, SessionOrigin.CHAT)
-
-        response = member_client.get(reverse("dashboard"))
-
-        assert response.context["recent_sessions"] == []
-        assert 'data-testid="recent-sessions"' not in response.content.decode()
-
-
-@pytest.mark.django_db
 class TestWaysToUse:
     def test_gitlab_instance(self, member_client):
         content = member_client.get(reverse("dashboard")).content.decode()
@@ -561,14 +523,15 @@ class TestWaysToUse:
 
         RepoClient.create_instance.assert_not_called()
 
-    def test_prominent_until_you_have_a_session(self, member_user, member_client):
-        before = member_client.get(reverse("dashboard")).content.decode()
+    def test_a_fold_that_starts_open_after_your_week(self, member_user, member_client):
         _make_session(member_user, SessionOrigin.CHAT)
-        after = member_client.get(reverse("dashboard")).content.decode()
 
-        assert "Start work from wherever you already are" in before
-        assert "Start work from wherever you already are" not in after
-        assert 'data-testid="ways-to-use"' in after
+        main = BeautifulSoup(member_client.get(reverse("dashboard")).content, "html.parser").select_one("main")
+        sections = main.select('[data-testid="your-week"], [data-testid="ways-to-use"]')
+
+        assert [node["data-testid"] for node in sections] == ["your-week", "ways-to-use"]
+        assert sections[1].name == "details"
+        assert sections[1].has_attr("open")
 
 
 def _insights(client, **params):
@@ -962,6 +925,11 @@ class TestYourWeek:
 
         assert response.context["your_week"] is None
         assert 'data-testid="your-week"' not in response.content.decode()
+
+    def test_hidden_when_you_archived_all_your_sessions(self, member_user, member_client):
+        HiddenSession.objects.create(session=_make_session(member_user, SessionOrigin.CHAT), user=member_user)
+
+        assert member_client.get(reverse("dashboard")).context["your_week"] is None
 
 
 @pytest.mark.django_db

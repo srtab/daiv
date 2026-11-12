@@ -26,11 +26,6 @@
     {% endif %}
   </div>
 
-  {# Primary action — promoted out of the nav list (shared chrome, D2). Teal = DO/action. #}
-  <div class="mx-3 mb-5">
-    {% include "dashboard/_new_split.html" with testid="nav-new" compact=False %}
-  </div>
-
   <nav aria-label="{% translate 'Main' %}" class="flex min-h-0 flex-1 flex-col">
     {% if nav_settings_mode %}
     {% include "dashboard/_sidebar_settings.html" %}

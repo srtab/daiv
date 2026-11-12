@@ -63,7 +63,7 @@ const sandbox = {
     },
     addEventListener: (name, cb) => { if (name === "alpine:init") cb(); },
     querySelector: (selector) => {
-      if (!selector.includes("nav-search")) return element({ visible: wide });
+      if (!selector.includes("nav-sessions-search")) return element({ visible: wide });
       return search ? { href: "/dashboard/sessions/#search" } : null;
     },
     getElementById: (id) => {

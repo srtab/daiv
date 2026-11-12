@@ -51,9 +51,13 @@
         <span class="brand-mark"></span>
         DAIV
       </a>
-      <div class="ml-auto">
-        {% include "dashboard/_new_split.html" with testid="topbar-new" compact=True %}
-      </div>
+      <a href="{% url 'session_new_chat' %}"
+         data-testid="topbar-new-chat"
+         title="{% translate 'New chat' %}"
+         aria-label="{% translate 'New chat' %}"
+         class="ml-auto inline-flex h-11 w-11 items-center justify-center rounded-lg bg-accent text-accent-ink transition-colors hover:bg-accent-bright">
+        {% icon "plus" "h-5 w-5" %}
+      </a>
     </header>
 
     {# A page that needs a bar or a side column beside its scrolling <main> replaces the whole body. #}

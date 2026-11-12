@@ -7,7 +7,22 @@ response of the `sidebar_lists` endpoint, which the sidebar swaps in when runs s
 <section data-testid="nav-sessions-group">
   <div class="nav-group-heading">
     <h2 class="nav-group-title">{% translate "Sessions" %}</h2>
-    <a href="{% url 'session_list' %}" data-testid="nav-sessions-all" class="nav-group-link">{% translate "All" %}</a>
+    <div class="nav-group-actions">
+      {% translate "Search sessions" as search_label %}
+      <a href="{% url 'session_list' %}#search"
+         data-testid="nav-sessions-search"
+         data-row-key="sessions-search"
+         title="{{ search_label }} (/)"
+         aria-label="{{ search_label }}"
+         aria-keyshortcuts="/"
+         class="nav-group-action">{% icon "magnifying-glass" "h-3.5 w-3.5" %}</a>
+      <a href="{% url 'session_new_chat' %}"
+         data-testid="nav-new-chat"
+         data-row-key="new-chat"
+         title="{% translate 'New chat' %}"
+         aria-label="{% translate 'New chat' %}"
+         class="nav-group-action nav-group-action--primary">{% icon "plus" "h-4 w-4" %}</a>
+    </div>
   </div>
   <ul>
     {% for row in lists.sessions %}
@@ -42,7 +57,14 @@ response of the `sidebar_lists` endpoint, which the sidebar swaps in when runs s
 <section data-testid="nav-scheduled-group" class="mt-5">
   <div class="nav-group-heading">
     <h2 class="nav-group-title {% nav_active 'schedules' %}">{% translate "Scheduled" %}</h2>
-    <a href="{% url 'schedule_list' %}" data-testid="nav-scheduled-manage" class="nav-group-link">{% translate "Manage" %}</a>
+    <div class="nav-group-actions">
+      <a href="{% url 'schedule_list' %}"
+         data-testid="nav-scheduled-manage"
+         data-row-key="scheduled-manage"
+         title="{% translate 'Manage schedules' %}"
+         aria-label="{% translate 'Manage schedules' %}"
+         class="nav-group-action">{% icon "list-bullet" "h-3.5 w-3.5" %}</a>
+    </div>
   </div>
   <ul>
     {% for schedule in lists.schedules %}

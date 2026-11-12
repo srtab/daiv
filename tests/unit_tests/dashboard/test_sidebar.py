@@ -198,7 +198,7 @@ def _session_page(client, session):
         return _sidebar(client, "session_detail", thread_id=session.thread_id)
 
 
-NORMAL_ORDER = ["nav-search", "nav-home", "nav-notifications", "nav-artifacts", "sidebar-lists", "nav-settings"]
+NORMAL_ORDER = ["nav-home", "nav-notifications", "nav-artifacts", "sidebar-lists", "nav-settings"]
 
 
 @pytest.mark.django_db
@@ -302,9 +302,6 @@ class TestSidebarSessionsGroup:
         assert not group.select('[data-testid="nav-session-row"]')
         assert group.select_one(f'a[href="{reverse("session_new_chat")}"]')
 
-    def test_all_links_the_sessions_page(self, member_client):
-        assert _sidebar(member_client).select_one('[data-testid="nav-sessions-all"]')["href"] == reverse("session_list")
-
     def test_lists_container_names_its_endpoint_and_viewed_session(self, member_user, member_client):
         session = make_session(member_user)
 
@@ -391,7 +388,9 @@ class TestSidebarScheduledGroup:
         on_home = _group(_sidebar(member_client), "nav-scheduled-group")
         on_schedules = _group(_sidebar(member_client, "schedule_list"), "nav-scheduled-group")
 
-        assert on_home.select_one('[data-testid="nav-scheduled-manage"]')["href"] == reverse("schedule_list")
+        manage = on_home.select_one('[data-testid="nav-scheduled-manage"]')
+        assert manage["href"] == reverse("schedule_list")
+        assert manage["aria-label"]
         assert not on_home.select(".sidebar__nav-item--active")
         assert on_schedules.select(".sidebar__nav-item--active")
 
@@ -424,11 +423,13 @@ class TestSidebarLiveLists:
         assert persistent["x-init"] == "$nextTick(() => $store.sidebarLists.restoreScroll($el))"
         assert not sheet.has_attr("x-init")
 
-    def test_search_links_the_sessions_page_search(self, member_client):
-        search = _sidebar(member_client).select_one('[data-testid="nav-search"]')
+    def test_sessions_search_links_the_sessions_page_search(self, member_client):
+        group = _group(_sidebar(member_client), "nav-sessions-group")
+        search = group.select_one('[data-testid="nav-sessions-search"]')
 
         assert search["href"] == reverse("session_list") + "#search"
         assert search["aria-keyshortcuts"] == "/"
+        assert search["aria-label"]
 
     def test_the_sessions_page_focuses_its_search_when_asked(self, member_client):
         field = _soup(member_client, "session_list").select_one("input#search")
@@ -443,10 +444,13 @@ class TestSidebarRail:
         sidebar = _sidebar(member_client)
 
         assert sidebar.select_one('[data-testid="sidebar-lists"]').find_parent(class_="sidebar__collapsible")
+        new_chat = sidebar.select_one('[data-testid="nav-rail-new-chat"]')
         sessions = sidebar.select_one('[data-testid="nav-rail-sessions"]')
         scheduled = sidebar.select_one('[data-testid="nav-rail-scheduled"]')
+        assert new_chat.find_parent(class_="sidebar__rail-only")
         assert sessions.find_parent(class_="sidebar__rail-only")
         assert scheduled.find_parent(class_="sidebar__rail-only")
+        assert new_chat["href"] == reverse("session_new_chat")
         assert sessions["href"] == reverse("session_list")
         assert scheduled["href"] == reverse("schedule_list")
         assert sessions.select_one('[x-show="$store.nav.running > 0"]')
@@ -516,7 +520,6 @@ class TestSidebarSettingsMode:
 
         assert sidebar.select_one('[data-testid="nav-settings-back"]')
         assert not sidebar.select('[data-testid="sidebar-lists"]')
-        assert not sidebar.select('[data-testid="nav-search"]')
 
     @pytest.mark.parametrize("url_name", ADMIN_SETTINGS)
     def test_admin_settings_pages_show_the_settings_menu(self, admin_client, url_name):
@@ -602,13 +605,12 @@ class TestSidebarSettingsMode:
             assert settings.select_one(selector)
             assert not home.select_one(selector)
 
-    def test_back_goes_home_and_new_and_account_stay(self, member_client):
+    def test_back_goes_home_and_account_stays(self, member_client):
         sidebar = _sidebar(member_client, "sandbox_envs:list")
 
         back = sidebar.select_one('[data-testid="nav-settings-back"]')
         assert back["href"] == reverse("dashboard")
         assert back["title"]
-        assert sidebar.select_one('[data-testid="nav-new"]')
         assert sidebar.select_one('[data-testid="app-user-menu"]')
 
     def test_settings_pages_run_no_sidebar_list_queries(self, member_client, mocker):
@@ -632,63 +634,33 @@ class TestSidebarSettingsMode:
 
 @pytest.mark.django_db
 class TestHome:
-    def test_links_artifacts(self, member_client):
+    def test_leaves_artifacts_to_the_sidebar(self, member_client):
         main = _soup(member_client, "dashboard").select_one("main")
 
-        assert main.select_one(f'a[href="{reverse("artifact_list")}"]')
+        assert not main.select_one(f'a[href="{reverse("artifact_list")}"]')
 
 
 @pytest.mark.django_db
-class TestNewSplitButton:
-    @pytest.mark.parametrize("testid", ["nav-new", "topbar-new"])
-    def test_main_part_starts_a_chat(self, member_client, testid):
-        split = _soup(member_client).select_one(f'[data-testid="{testid}"]')
-        assert split.select_one(f'[data-testid="{testid}-chat"]')["href"] == reverse("session_new_chat")
+class TestNewChat:
+    def test_sessions_header_starts_a_chat(self, member_client):
+        group = _group(_sidebar(member_client), "nav-sessions-group")
+        new_chat = group.select_one('[data-testid="nav-new-chat"]')
 
-    @pytest.mark.parametrize("testid", ["nav-new", "topbar-new"])
-    def test_menu_offers_chat_and_background_run(self, member_client, testid):
-        split = _soup(member_client).select_one(f'[data-testid="{testid}"]')
-        items = split.select('[role="menu"] [role="menuitem"]')
-        assert [(a["href"], a.select_one("span span").get_text(strip=True)) for a in items] == [
-            (reverse("session_new_chat"), "Chat"),
-            (reverse("runs:agent_run_new"), "Background run"),
-        ]
-        # Items are reached with the arrow keys, not Tab (menu button pattern).
-        assert all(a["tabindex"] == "-1" for a in items)
+        assert new_chat["href"] == reverse("session_new_chat")
+        assert new_chat["aria-label"]
 
-    def test_toggle_is_a_keyboard_menu_button(self, member_client):
-        split = _soup(member_client).select_one('[data-testid="nav-new"]')
-        toggle = split.select_one('[data-testid="nav-new-toggle"]')
-        assert toggle.name == "button"
-        assert toggle["aria-haspopup"] == "menu"
-        assert toggle["aria-label"]
-        assert toggle[":aria-expanded"] == "open.toString()"
-        assert toggle[":aria-controls"] == split.select_one('[role="menu"]')[":id"]
-        assert split["x-data"] == "menuButton"
-        assert split["@keydown.escape"] == "onEscape($event)"
-
-    def test_component_script_is_loaded(self, member_client):
-        assert "core/js/menu-button.js" in member_client.get(reverse("dashboard")).content.decode()
-
-    def test_rail_hides_the_label_but_keeps_the_icon(self, member_client):
-        main = _soup(member_client).select_one('[data-testid="nav-new-chat"]')
-        assert "sidebar__cta" in main["class"]
-        assert main.select_one(".sidebar__collapsible").get_text(strip=True) == "New chat"
-
-    def test_sidebar_no_longer_routes_through_the_chooser(self, member_client):
-        sidebar = _soup(member_client).select_one('[data-testid="app-sidebar"]')
-        assert not sidebar.select(f'a[href="{reverse("session_new")}"]')
-
-
-@pytest.mark.django_db
-class TestMobileTopBarNew:
-    def test_top_bar_holds_the_new_split_button(self, member_client):
+    def test_top_bar_starts_a_chat(self, member_client):
         bar = _soup(member_client).select_one('[data-testid="mobile-top-bar"]')
-        split = bar.select_one('[data-testid="topbar-new"]')
-        assert "new-split--compact" in split["class"]
 
-    def test_only_one_top_bar_copy(self, member_client):
-        assert len(_soup(member_client).select('[data-testid="topbar-new"]')) == 1
+        assert bar.select_one('[data-testid="topbar-new-chat"]')["href"] == reverse("session_new_chat")
+
+    def test_background_runs_start_from_the_sessions_page(self, member_client):
+        soup = _soup(member_client, "session_list")
+        sidebar = soup.select_one('[data-testid="app-sidebar"]')
+
+        assert not sidebar.select(f'a[href="{reverse("runs:agent_run_new")}"]')
+        assert not sidebar.select(f'a[href="{reverse("session_new")}"]')
+        assert soup.select_one("main").select_one(f'a[href="{reverse("session_new")}"]')
 
 
 @pytest.mark.django_db
@@ -746,11 +718,11 @@ class TestCollapseToggle:
         assert "core/js/sidebar.js" in content
         assert '@keydown.window="$store.sidebar.onKey($event)"' in content
 
-    @pytest.mark.parametrize(("url_name", "at_least"), [("dashboard", 7), ("sandbox_envs:list", 13)])
+    @pytest.mark.parametrize(("url_name", "at_least"), [("dashboard", 7), ("sandbox_envs:list", 12)])
     def test_every_rail_icon_keeps_a_name_and_tooltip(self, admin_client, url_name, at_least):
         """The rail hides each label, so the `title` is what names the icon and shows on hover."""
         sidebar = _soup(admin_client, url_name).select_one("#app-sidebar")
-        links = sidebar.select(".sidebar__nav-item, .sidebar__footer-link, .sidebar__cta")
+        links = sidebar.select(".sidebar__nav-item, .sidebar__footer-link")
         untitled = [link["href"] for link in links if not link.get("title", "").strip()]
         assert len(links) >= at_least
         assert not untitled

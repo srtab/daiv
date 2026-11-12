@@ -141,7 +141,7 @@ You don't have to bind an environment to a repository — you can pick one expli
 
 ### From the dashboard run composer
 
-When you start a run from **New > Background run** (or from a [Sessions](sessions.md) detail page), the composer includes a **Sandbox environment** picker listing your User environments and all Global ones. Leave it on **(global default)** to use [auto-resolution](#how-an-environment-is-resolved).
+When you start a run from **New > Background run** on the Sessions page (or from a [Sessions](sessions.md) detail page), the composer includes a **Sandbox environment** picker listing your User environments and all Global ones. Leave it on **(global default)** to use [auto-resolution](#how-an-environment-is-resolved).
 
 ### From a chat session
 

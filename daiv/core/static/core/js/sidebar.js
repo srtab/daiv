@@ -12,7 +12,7 @@
  * (AltGr and Option still type `[` on many layouts), or while a dialog, sheet or menu is showing.
  *
  * `/` opens the session search under the same rules: it focuses the sessions page's search box
- * when that page is open, and otherwise follows the sidebar's Search row, if it has one.
+ * when that page is open, and otherwise follows the Sessions search icon, if the sidebar has one.
  *
  * The full sidebar's width follows its right edge, `.sidebar__resize`: drag it, nudge it with the
  * arrow keys, or double-click it to reset. The store writes `--app-sidebar-chosen` on `<html>` and
@@ -148,7 +148,7 @@ document.addEventListener("alpine:init", () => {
     _search(event) {
       const field = document.getElementById("search");
       const box = field && shown(field) ? field : null;
-      const link = document.querySelector('[data-testid="nav-search"]');
+      const link = document.querySelector('[data-testid="nav-sessions-search"]');
       if ((!box && !link) || surfaceOpen()) return;
       event.preventDefault();
       if (box) box.focus();

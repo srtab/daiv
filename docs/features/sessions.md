@@ -36,7 +36,7 @@ Each session is tagged with the origin that created it:
 | **API Run** | [Jobs API](jobs-api.md) `POST /api/jobs` | A CI pipeline or script submits a prompt |
 | **MCP Run** | [MCP Endpoint](mcp-endpoint.md) `submit_job` tool | Claude Code or Cursor delegates a task |
 | **Scheduled Run** | [Scheduled Jobs](scheduled-jobs.md) cron dispatch | A weekly dependency audit fires on Monday |
-| **UI Run** | Dashboard run composer (see below) | You pick **New > Background run** in the sidebar |
+| **UI Run** | Dashboard run composer (see below) | You pick **New > Background run** on the Sessions page |
 | **Issue Webhook** | GitLab/GitHub issue event | An issue is labelled `daiv` |
 | **MR/PR Webhook** | GitLab/GitHub merge request event | A reviewer mentions `@daiv` on a merge request |
 | **Delegated Run** | A coordinator's `delegate_jobs` call ([Orchestration](orchestration.md)), including a leg follow-up that continues the session | One repository's part of a multi-repository change |
@@ -47,12 +47,11 @@ Each session is tagged with the origin that created it:
 
 The sidebar lists your sessions, so any of them is one click away from every page:
 
-- **Sessions** — your own sessions, most recently active first, eight at a time (**Show more** adds eight, up to 80; past that it opens the sessions list). Each has a status dot and, while it is running, waiting for your input or failed, that state; otherwise how long ago it was active. The session you are viewing is always in the list. **All** opens the sessions list. Sessions a schedule started are listed under their schedule instead.
-- **Scheduled** — up to ten schedules you own or subscribe to that are enabled or ran in the last 14 days, each with its next run. Expand one for its three latest runs: one row per run of the schedule, with the worst status across its repositories and, past one, how many repositories it ran on. A run on one repository opens its session; a wider one opens the sessions it started. **All runs** lists every session of the schedule, and **Manage** opens the schedules page. A schedule whose latest run failed or is waiting for input starts expanded; otherwise it remembers, in this browser, whether you expanded it.
-- **Search** (shortcut `/`) opens the sessions list with its search box focused.
+- **Sessions** — your own sessions, most recently active first, eight at a time (**Show more** adds eight, up to 80; past that it opens the sessions list). Each has a status dot and, while it is running, waiting for your input or failed, that state; otherwise how long ago it was active. The session you are viewing is always in the list. Sessions a schedule started are listed under their schedule instead. Beside the heading, the search icon (shortcut `/`) opens the sessions list with its search box focused, and **+** starts a chat.
+- **Scheduled** — up to ten schedules you own or subscribe to that are enabled or ran in the last 14 days, each with its next run. Expand one for its three latest runs: one row per run of the schedule, with the worst status across its repositories and, past one, how many repositories it ran on. A run on one repository opens its session; a wider one opens the sessions it started. **All runs** lists every session of the schedule, and the list icon beside the heading opens the schedules page. A schedule whose latest run failed or is waiting for input starts expanded; otherwise it remembers, in this browser, whether you expanded it.
 - **Settings**, above your account, opens the pages you set up once — sandbox environments, MCP servers and memory, and for admins users, configuration, schedule templates, skills and global MCP servers — along with the documentation links. **Back** returns to Home.
 
-The lists update as runs start and finish, without a reload. Where the sidebar narrows to icons, **Sessions** and **Scheduled** open their pages instead.
+The lists update as runs start and finish, without a reload. Where the sidebar narrows to icons, **+** starts a chat and **Sessions** and **Scheduled** open their pages.
 
 To see more of long titles, drag the sidebar's right edge to widen it (or focus the edge and use the arrow keys); double-click the edge to reset it. This browser remembers the width. The sidebar never takes so much room that the page beside it gets cramped, so on smaller windows it widens less.
 
@@ -68,7 +67,7 @@ The Home page (`/dashboard/`) opens with **Needs you**: what is waiting on you, 
 
 A session counts once, as the first of these it matches: a question in a session whose CI watch gave up shows as Needs input. A session with no activity for 90 days leaves the list.
 
-Below it are your five most recent sessions, the ways to start work (issue labels, mentions and slash commands on your Git platform; this instance's MCP URL for your editor; Chat and Background run here), and **Your week**: what the runs in your own sessions came to over the last 7 days, a column a day stacked by outcome (changed code, done without changes, needed you, failed), the merge requests its runs worked on, and where you started work from. A day's column opens your sessions that ran that day. Team statistics are on Insights.
+Below it is **Your week**: what the runs in your own sessions came to over the last 7 days, a column a day stacked by outcome (changed code, done without changes, needed you, failed), the merge requests its runs worked on, and where you started work from. A day's column opens your sessions that ran that day. Team statistics are on Insights. Last comes **Ways to use DAIV**: issue labels, mentions and slash commands on your Git platform, this instance's MCP URL for your editor, and Chat and Background run here. Fold it away with **Hide**; this browser remembers.
 
 ## Insights
 
@@ -305,7 +304,7 @@ Admins can turn both off for the whole instance (**Settings > Agent > Link sessi
 
 ## Starting a background run from the dashboard
 
-You can launch an agent background run without typing in the chat workspace. Click **Start a run** on the Sessions page (or pick **New > Background run** in the sidebar) to reach the run composer.
+You can launch an agent background run without typing in the chat workspace. Click **New** on the Sessions page and pick **Background run** (or **New background run** under Ways to use DAIV on Home) to reach the run composer.
 
 The composer accepts:
 
