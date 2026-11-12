@@ -19,7 +19,7 @@ DAIV binds these tools to the model at the start of every run.
 | `skill` | Run a [skill](../customization/agent-skills.md) | Always |
 | `task` | Hand work to a [subagent](../features/subagents.md) | Always |
 | `ask_user_question` | Ask you 1 to 4 questions and end the turn, and your answer arrives as the next message | On the main agent only, and not on a run nobody can answer: a scheduled run, a [pipeline watch](../features/pipeline-watch.md) run or a delegated job. [Answer a question](../features/sessions.md#answer-a-question) shows it from your side. |
-| `delegate_jobs` | Start independent jobs on other repositories or on the same one, and resume when they finish | When [orchestration](../features/orchestration.md) is on for the repository |
+| `delegate_jobs` | Start independent jobs on other repositories or on the same one, and resume when they finish | When [orchestration](../features/orchestration.md) is on, which is the default, and the run is not a delegated leg |
 
 ## Tools loaded on demand
 

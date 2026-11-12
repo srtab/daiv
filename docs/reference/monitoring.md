@@ -10,8 +10,9 @@ DAIV reports on its agent runs in two places. [LangSmith](https://smith.langchai
 
 DAIV sends a trace of every agent run to LangSmith once you set three variables. You need a LangSmith account.
 
-1. In [LangSmith](https://smith.langchain.com), select **Settings** → **API Keys** → **Create API Key**, and copy the key.
-2. Set `LANGSMITH_TRACING` to `true`, `LANGSMITH_PROJECT` to the project to write traces to, and `LANGSMITH_API_KEY` to the key. [Monitoring (LangSmith)](env-variables.md#monitoring-langsmith) describes each variable, including the Docker secret form of the key and the EU endpoint.
+1. In [LangSmith](https://smith.langchain.com), select **Settings** → **API Keys** → **Create API Key**.
+2. Copy the key.
+3. Set `LANGSMITH_TRACING` to `true`, `LANGSMITH_PROJECT` to the project to write traces to, and `LANGSMITH_API_KEY` to the key. [Monitoring (LangSmith)](env-variables.md#monitoring-langsmith) describes each variable, including the Docker secret form of the key and the EU endpoint.
 
     ```yaml
     x-app-defaults: &x_app_default
@@ -23,19 +24,25 @@ DAIV sends a trace of every agent run to LangSmith once you set three variables.
 
     Replace `<langsmith-api-key>` with your LangSmith API key.
 
-3. Recreate the services so they read the variables:
+4. Recreate the services so they read the variables. On Docker Compose, run:
 
     ```bash
     docker compose up -d
     ```
 
-4. Start a run, for example a chat in the dashboard. A trace appears in your LangSmith project.
+    On Docker Swarm, run:
+
+    ```bash
+    docker stack deploy -c stack.yml daiv
+    ```
+
+5. Start a run, for example a chat in the dashboard. A trace appears in your LangSmith project.
 
 ## Trace tags and metadata
 
-Every root run carries tags and metadata that you can filter and group by in LangSmith.
+Every agent run carries tags and metadata that you can filter and group by in LangSmith. The title and commit message generation run has its own, described below.
 
-A root run has these tags:
+An agent run has these tags:
 
 | Tag | Description | Example |
 |-----|-------------|---------|
@@ -65,7 +72,9 @@ Its metadata holds these fields:
 | `ref` | string | The branch the run was asked to use (job runs) |
 | `override_source` | string or null | `explicit` when the request picked the model, otherwise `null` (job and chat runs) |
 
-A run on a labelled issue has `trigger` set to `label`, and a run started by an `@daiv` mention on an issue or a merge request has it set to `mention`. A job through the [jobs API](../features/jobs-api.md), a schedule or the MCP endpoint has `job`, and a chat in the dashboard has `chat`. Job and chat runs have the `Global` scope. The pull request title and commit message generation runs on its own trace, with `trigger` set to `diff_to_metadata`.
+A run on a labelled issue has `trigger` set to `label`, and a run started by an `@daiv` mention on an issue, or on a merge request no session owns, has it set to `mention`. A chat message that starts a run on an idle session has `chat` and the `Global` scope. Every run DAIV takes from a session's inbox has `job` and the `Global` scope, as do runs from the [jobs API](../features/jobs-api.md), a schedule or the MCP endpoint. The inbox holds pipeline watch fixes, chat messages queued while the session was busy, delegation resumes and leg follow-ups, and `@daiv` mentions on a merge request the session owns.
+
+The pull request title and commit message generation runs as a separate run named and tagged `DiffToMetadata`, with `trigger` set to `diff_to_metadata`. It carries the git platform, repository and scope tags and no agent name tag. It nests under the agent trace when DAIV publishes at the end of a run, and stands alone when DAIV recovers a draft.
 
 ## Create the LangSmith dashboard
 
@@ -117,8 +126,8 @@ A run records:
 
 Two limits apply:
 
-- A run's cost is empty when any of its models has no price, for example a model that genai-prices does not list. The tokens are still recorded, and DAIV logs a warning naming the model.
-- The cost is an estimate from published list prices. Your provider's bill can differ.
+- For a call DAIV prices from list prices, the cost is empty when genai-prices does not list the model, and a run's cost is empty when any of its calls has no price. The tokens are still recorded, and DAIV logs a warning naming the model.
+- A cost priced from list prices is an estimate. Your provider's bill can differ.
 
 You see the figures in three places. A row in the sessions list shows the session's cost, the **Spend** section of a session's **Overview** shows what the session cost, and a run's downloaded Markdown result holds `total_tokens` and `cost_usd` in its front matter. [Sessions](../features/sessions.md) describes the pages.
 

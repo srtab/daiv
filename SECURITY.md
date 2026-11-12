@@ -30,4 +30,4 @@ Vulnerabilities in the sandbox itself can be reported here or in [srtab/daiv-san
 
 Prompt injection through issue text, comments or repository files is a known risk for any coding agent. Report it when it gets past one of the controls above; a prompt that only makes the agent write bad code into a merge request a person then reviews is not a vulnerability on its own.
 
-How the sandbox and its network controls work is described in [Sandbox](https://docs.daivagent.com/dev/features/sandbox/) and [Sandbox Environments](https://docs.daivagent.com/dev/features/sandbox-environments/).
+How the sandbox and its network controls work is described in [Sandbox](https://docs.daivagent.com/dev/features/sandbox/) and [Sandbox environments](https://docs.daivagent.com/dev/features/sandbox-environments/).
