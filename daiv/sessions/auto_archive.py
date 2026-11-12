@@ -17,7 +17,7 @@ from sessions.live.notify import asession_changed
 from sessions.models import MergeRequestOwnership, Session
 
 if TYPE_CHECKING:
-    from django.db.models import QuerySet
+    from sessions.managers import SessionQuerySet
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -37,7 +37,7 @@ async def aarchive_merged(repo_id: str, merge_request_iid: int) -> list[str]:
     return archived
 
 
-async def _aarchive(sessions: QuerySet[Session]) -> list[str]:
+async def _aarchive(sessions: SessionQuerySet) -> list[str]:
     """Archive each of ``sessions`` that is unarchived and has no live work; returns the thread ids it archived."""
     now = timezone.now()
     eligible = sessions.filter(archived_at__isnull=True).without_live_work()
