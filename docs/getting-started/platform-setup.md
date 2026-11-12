@@ -29,26 +29,38 @@ You need:
         GitLab shows the token once. Anyone who holds it acts as DAIV's user in every project that user belongs to. Store it in a secret manager, and never commit it to version control.
 
 9. Copy the token.
-10. Generate the webhook secret, a random value that GitLab sends with each webhook for DAIV to validate:
+10. If Deployment has not set a webhook secret, generate one. It is a random value that GitLab sends with each webhook for DAIV to validate. DAIV registers each webhook with the secret it already holds, so keep an existing one:
 
     ```bash
     openssl rand -hex 32
     ```
 
+    !!! warning
+        A Compose file holds the token and the webhook secret in plain text. Keep it out of version control, and readable only by the users who deploy DAIV.
+
 11. On Docker Compose, in the `environment` of `x-app-defaults` in your `docker-compose.yml`, set `CODEBASE_GITLAB_URL` to your GitLab URL (for example `https://gitlab.com`), `CODEBASE_GITLAB_AUTH_TOKEN` to the token and `CODEBASE_GITLAB_WEBHOOK_SECRET` to the webhook secret.
+12. On Docker Swarm, set `CODEBASE_GITLAB_URL` in `x-app-environment-defaults` of `stack.yml`.
+13. On Docker Swarm, check whether the `codebase_gitlab_auth_token` secret, which step 1 of [Deploy with Docker Swarm](deployment.md#deploy-with-docker-swarm) created, already holds the token from step 9. If it does, skip to the redeploy step. Otherwise Docker cannot change it, so replace it with the next steps.
+14. On Docker Swarm, remove the stack: `docker stack rm daiv`.
+15. On Docker Swarm, remove the secret: `docker secret rm codebase_gitlab_auth_token`.
 
     !!! warning
-        A Compose file holds these values in plain text. Keep it out of version control, and readable only by the users who deploy DAIV.
+        A value you type in a command is saved in your shell history and visible in the process list. Run the next command from a shell that does not record history.
 
-12. On Docker Swarm, set `CODEBASE_GITLAB_URL` in `x-app-environment-defaults` of `stack.yml`. Step 1 of [Deploy with Docker Swarm](deployment.md#deploy-with-docker-swarm) created the `codebase_gitlab_auth_token` and `codebase_gitlab_webhook_secret` secrets, so give them the token and the webhook secret there. Docker cannot change a secret that exists: to replace one, remove the stack and the secret, then create the secret again.
-13. Redeploy DAIV so it reads the values: `docker compose up -d` on Compose, or `docker stack deploy -c stack.yml daiv` on Swarm.
-14. Wait up to 5 minutes. DAIV's scheduler adds a webhook to each project where its user is a Maintainer or Owner. To add them at once, run [`setup_webhooks`](../reference/management-commands.md#setup_webhooks).
-15. In a project, open **Settings** → **Webhooks** and check for a webhook that points to `https://daiv.example.com/api/codebase/callbacks/gitlab/`, with the events in [GitLab token, role and webhooks](#gitlab-token-role-and-webhooks).
-16. Select **Test** → **Push events**, and check that GitLab reports a successful delivery.
-17. Create an issue titled "Add hello world function" in the project.
-18. Add the `daiv` label to the issue. If the project has no `daiv` label, create it from the label picker.
-19. Wait a few seconds. DAIV reacts with 👀, then comments with a plan.
-20. From your own account, comment on the issue mentioning DAIV's user, for example `@daiv proceed`. DAIV implements the plan and opens a merge request.
+16. On Docker Swarm, create the secret again, replacing `<token>`:
+
+    ```bash
+    printf '%s' '<token>' | docker secret create codebase_gitlab_auth_token -
+    ```
+
+17. Redeploy DAIV so it reads the values: `docker compose up -d` on Compose, or `docker stack deploy -c stack.yml daiv` on Swarm.
+18. Wait up to 5 minutes. DAIV's scheduler adds a webhook to each project where its user is a Maintainer or Owner. To add them at once, run [`setup_webhooks`](../reference/management-commands.md#setup_webhooks).
+19. In a project, open **Settings** → **Webhooks** and check for a webhook that points to `https://daiv.example.com/api/codebase/callbacks/gitlab/`, with the events in [GitLab token, role and webhooks](#gitlab-token-role-and-webhooks).
+20. Select **Test** → **Push events**, and check that GitLab reports a successful delivery.
+21. Create an issue titled "Add hello world function" in the project.
+22. Add the `daiv` label to the issue. If the project has no `daiv` label, create it from the label picker.
+23. Wait a few seconds. DAIV reacts with 👀, then comments with a plan.
+24. From your own account, comment on the issue mentioning DAIV's user, for example `@daiv proceed`. DAIV implements the plan and opens a merge request.
 
 To change DAIV's behavior in a repository, add a `.daiv.yml` file to its root; [Repository configuration](../customization/repository-config.md) lists the options. [Issue addressing](../features/issue-addressing.md) explains what DAIV does with an issue.
 
@@ -96,12 +108,12 @@ DAIV comments "An unexpected error occurred" when a run fails. The worker and sa
 
 DAIV authenticates to GitHub as a GitHub App, which you create and install on the repositories DAIV works on. You need:
 
-- DAIV running, from [Deployment](deployment.md), with `CODEBASE_CLIENT` set to `github`.
+- DAIV running, from [Deployment](deployment.md).
 - Permission to create and install a GitHub App on your account or organization.
 
 1. Open **Settings** → **Developer settings** → **GitHub Apps** in your account, or in **Organization Settings** for an organization.
 2. Select **New GitHub App**.
-3. Enter `DAIV` as the **GitHub App name**, or `DAIV - <org-name>` for an organization.
+3. Enter a unique name as the **GitHub App name**, for example `DAIV - <org-name>`, replacing `<org-name>` with your organization or account name. GitHub rejects a name another App uses.
 4. Enter your DAIV URL, for example `https://daiv.example.com`, as the **Homepage URL**.
 5. Enter `https://daiv.example.com/api/codebase/callbacks/github/` as the **Webhook URL**.
 6. Generate the webhook secret, and keep it for a later step:
@@ -143,31 +155,42 @@ DAIV authenticates to GitHub as a GitHub App, which you create and install on th
         file: <private-key-path>
     ```
 
-    Replace `<private-key-path>` with the path of the `.pem` file. DAIV reads it from `/run/secrets/codebase_github_private_key`. The `secrets:` key in `x-app-defaults` reaches only the services that merge that anchor with `<<: *x_app_default`, which the [Compose file](deployment.md#compose-file) does for `app`, `worker`, `worker-interactive` and `scheduler`. Compose keeps the file's permissions, so the `.pem` must be readable by the user DAIV runs as, `daiv` with UID 1001.
+    Replace `<private-key-path>` with the path of the `.pem` file. DAIV reads it from `/run/secrets/codebase_github_private_key`. The `secrets:` key in `x-app-defaults` reaches only the services that merge that anchor with `<<: *x_app_default`, which the [Compose file](deployment.md#compose-file) does for `app`, `worker`, `worker-interactive` and `scheduler`.
+21. On Docker Compose, give the `.pem` file to the user DAIV runs as, `daiv` with UID 1001, because Compose keeps the file's owner and permissions. Replace `<private-key-path>` with the path of the `.pem` file:
 
-21. On Docker Swarm, in `x-app-environment-defaults` of `stack.yml`, set `CODEBASE_CLIENT: github`, `CODEBASE_GITHUB_APP_ID` and `CODEBASE_GITHUB_INSTALLATION_ID`. For GitHub Enterprise Server, also set `CODEBASE_GITHUB_URL`.
+    ```bash
+    sudo chown 1001:1001 <private-key-path>
+    ```
+
+22. On Docker Compose, make the file readable by that user only:
+
+    ```bash
+    chmod 600 <private-key-path>
+    ```
+
+23. On Docker Swarm, in `x-app-environment-defaults` of `stack.yml`, set `CODEBASE_CLIENT: github`, `CODEBASE_GITHUB_APP_ID` and `CODEBASE_GITHUB_INSTALLATION_ID`. For GitHub Enterprise Server, also set `CODEBASE_GITHUB_URL`.
 
     !!! warning
         A value you type in a command is saved in your shell history and visible in the process list. Run the next command from a shell that does not record history, or from a script that reads the value from a protected file.
 
-22. On Docker Swarm, create the webhook secret, replacing `<webhook-secret>`:
+24. On Docker Swarm, create the webhook secret, replacing `<webhook-secret>`:
 
     ```bash
     printf '%s' '<webhook-secret>' | docker secret create codebase_github_webhook_secret -
     ```
 
-23. On Docker Swarm, create the private key secret from the `.pem` file, replacing `<private-key-path>`:
+25. On Docker Swarm, create the private key secret from the `.pem` file, replacing `<private-key-path>`:
 
     ```bash
     docker secret create codebase_github_private_key <private-key-path>
     ```
 
-24. On Docker Swarm, add `codebase_github_private_key` and `codebase_github_webhook_secret` to the `secrets:` list of `app`, `worker`, `worker-interactive` and `scheduler`, and declare both under the top-level `secrets:` with `external: true`, as the stack file does for the other secrets.
-25. Redeploy DAIV so it reads the values: `docker compose up -d` on Compose, or `docker stack deploy -c stack.yml daiv` on Swarm.
-26. Create an issue titled "Add hello world function" in a repository where you installed the App.
-27. Add the `daiv` label to the issue. If the repository has no `daiv` label, create it.
-28. Wait a few seconds. DAIV comments with a plan.
-29. In your GitHub App's settings, open **Advanced** → **Recent Deliveries**, and check that the deliveries show a `204` response.
+26. On Docker Swarm, add `codebase_github_private_key` and `codebase_github_webhook_secret` to the `secrets:` list of `app`, `worker`, `worker-interactive` and `scheduler`, and declare both under the top-level `secrets:` with `external: true`, as the stack file does for the other secrets.
+27. Redeploy DAIV so it reads the values: `docker compose up -d` on Compose, or `docker stack deploy -c stack.yml daiv` on Swarm.
+28. Create an issue titled "Add hello world function" in a repository where you installed the App.
+29. Add the `daiv` label to the issue. If the repository has no `daiv` label, create it.
+30. Wait a few seconds. DAIV comments with a plan.
+31. In your GitHub App's settings, open **Advanced** → **Recent Deliveries**, and check that the `issues` delivery for the test issue shows a `204` response. The `ping` and `installation` deliveries from before DAIV was configured show an error, and you can ignore them.
 
 To change DAIV's behavior in a repository, add a `.daiv.yml` file to its root; [Repository configuration](../customization/repository-config.md) lists the options. [Issue addressing](../features/issue-addressing.md) explains what DAIV does with an issue.
 
@@ -189,7 +212,6 @@ Subscribe the App to these events:
 - **Push**
 - **Issues**
 - **Issue comment**
-- **Pull request review**
 - **Pull request review comment**, for mentions and comments on diff lines of a pull request a DAIV session owns
 - **Pull request**
 - **Workflow run**, which GitHub lists only once **Actions** is **Read-only**
@@ -203,6 +225,7 @@ If you grant a new permission to an App that is already installed, each installa
 - Check that `DAIV_EXTERNAL_URL` is reachable from GitHub and has a valid SSL certificate.
 - Check that the **Webhook secret** in the GitHub App matches `CODEBASE_GITHUB_WEBHOOK_SECRET`. Without a match, DAIV answers 401.
 - Check that `CODEBASE_CLIENT` is `github`. Otherwise DAIV answers 403.
+- A `ping` or `installation` delivery fails even when DAIV is configured, because it has no repository. DAIV answers 422. Check the `issues` delivery instead.
 - Check DAIV's logs for the incoming requests.
 
 ### DAIV ignores an issue
@@ -216,6 +239,10 @@ If you grant a new permission to an App that is already installed, each installa
 
 - The App is not subscribed to **Issue comment**, **Pull request review comment** or both. See [GitHub App permissions and events](#github-app-permissions-and-events).
 - The App is not installed on the repository.
+
+### DAIV fails to start with permission denied on the private key
+
+The log shows `permission denied` on `/run/secrets/codebase_github_private_key`. The `.pem` file is not readable by UID 1001. Run `sudo chown 1001:1001 <private-key-path>` and `chmod 600 <private-key-path>`, then restart DAIV.
 
 ### Authentication fails
 
