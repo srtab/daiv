@@ -7,562 +7,464 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+_If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
+
 ### Changed
 
-- The sidebar lists your sessions and your scheduled sessions, each one click away from any page and updating as runs start and finish. Scheduled sessions sit under their schedule, one row per run with its worst status and repository count. Beside the **Sessions** heading, a search icon (shortcut `/`) opens the session search and **+** starts a chat; background runs start from the Sessions page. Schedules moved to the icon beside the **Scheduled** heading, Insights to **Team insights** on Home, and the setup and admin pages behind the **Settings** cog beside your account, which slides them into the sidebar without leaving the page. Home no longer lists your recent sessions, which the sidebar now shows, and its **Ways to use DAIV** can be folded away.
-- The documentation moved to [docs.daivagent.com](https://docs.daivagent.com/latest/). Links to `srtab.github.io/daiv` redirect there, and the dashboard's **Documentation** link and the links DAIV prints point to the new address.
-- A skill's page in the dashboard is split into **SKILL.md**, **Files**, **Models** and **Usage** tabs, each its own URL. The Usage tab's recent activity lists the runs that invoked the skill, each opening that run in its session, in place of raw session ids.
-- Session titles are easier to find in the session list: they keep the ticket, issue, merge request and error IDs and the file, class and setting names a request names, in the request's language, and run up to 12 words instead of 3-6. A slash command is titled the same way every time (`/triage-issue 4521 mode=auto` → `Triage issue 4521 (auto mode)`) instead of padded with words such as "Request Processing", and a greeting is titled "Greeting" instead of an invented task.
-- The chat composer is now a single line: the options `+`, the message, then the model and its thinking level (`glm-5.2 · xhigh`) and Send. The new-session page docks it at the bottom, as a running session does, with the repository picker under it. The `2/5` progress pill is replaced by a drawer tucked behind the composer that names the step DAIV is on and opens into the todos and files changed.
-- The agent's bash commands now time out after 5 minutes instead of running until the sandbox request itself timed out, which the agent was told was a temporary sandbox fault. The agent can give a longer-running command, such as a full test suite, a `timeout` of up to the sandbox timeout (`DAIV_SANDBOX_TIMEOUT`, 10 minutes by default). With a daiv-sandbox release after 0.5.0, a timed-out command is stopped and the agent sees what it printed before the timeout; with 0.5.0 it may keep running in the container, and the agent is told to stop it before running it again.
-- Memory extraction no longer records facts about DAIV's own tools, subagents, skills or workspace (such as a tool that has to be loaded before use, or a command the workspace lacks), or details that stop mattering once the run's task is done (the bug it fixed, test counts, commit hashes). On production, such facts took up about a fifth of repository memory and crowded out real codebase facts.
-- **Breaking:** The GitLab and GitHub webhook endpoints now reject every request with `401` when `CODEBASE_GITLAB_WEBHOOK_SECRET` / `CODEBASE_GITHUB_WEBHOOK_SECRET` is unset, instead of accepting unauthenticated requests, and `django-admin check` (run by `migrate` at startup) fails with `webhooks.E001` / `webhooks.E002` until the active platform's secret is set. The token or signature is now verified before the payload is parsed, so an unauthenticated request no longer triggers GitLab/GitHub API calls. **Upgrade note:** on GitLab, after setting the secret run `django-admin setup_webhooks --update` so existing project webhooks send it; on GitHub, set the same secret on the GitHub App's webhook.
-- **Breaking:** A session or run that a GitLab/GitHub webhook starts now belongs to the DAIV user who signed in with the author's GitLab/GitHub account, matched by account id, instead of a DAIV user who shares the author's username or email: that user could be someone else, and the session's CI fixes would then run with their personal tools and notify them. An author who never signed in to DAIV with that account, or whose DAIV account is deactivated, owns nothing until they do; the ownerless sessions and runs they started from this release on, the merge requests those sessions own and their waiting requests then pass to them. Signing up no longer assigns sessions by username, and a DAIV user who only shares a platform username no longer sees, continues, stops or mutes that account's sessions. Sessions from before this release keep their owner, but those a user saw only by a username match are no longer theirs.
-- Claude Opus 4.6 and Sonnet 4.6 on the Anthropic provider now think adaptively, with the thinking level sent as `effort`, instead of with a fixed thinking-token budget, which Anthropic deprecates on 4.6. These models have no `xhigh` effort, so **Extra high** is sent as `max`.
-- OpenRouter requests now try providers cheapest first (`provider.sort: price`). Without it, open-weight models such as GLM could be routed to a priority ("fast") endpoint at about twice the price, and prompt-cache routing kept the rest of the run there.
-- Default models moved to the current generation: the agent runs on Claude Sonnet 5.5 (fallback GPT 6.1 Sol), `daiv-max` on Claude Opus 5.5, and the explore subagent, `web_fetch`, titling, memory extraction and the run classifier on Claude Haiku 5.5 and GPT 6 Luna; diff-to-metadata uses Gemini 3.8 Flash with DeepSeek V4.1 Flash as fallback. Only unset settings change: values saved in site configuration or set through the environment are kept.
-- **Breaking:** Notifications are now driven by run classification: DAIV notifies only when a run **found issues, needs attention, or failed** — clean (`all-clear`) runs are silent and appear only in the Feed. Webhook and API/MCP/UI job runs are now classified and notify their initiator on a notify-worthy outcome (previously only scheduled runs notified, triggered by raw success/failure status). Every channel now carries *why*: the classifier's summary reaches Rocket Chat as well as email and in-app notifications, a run's findings render as a list, and a multi-repo rollup names which repositories need a look — worst first, capped with an overflow count — instead of only counting them.
-- The run classifier now sees what the run was asked to do. A run that could not finish its job (a tool, reviewer or check unavailable, or it stopped early) now notifies instead of being silently classified `all-clear`, and the summary is written in the report's language.
-- **Breaking:** The 4-way **Notify on** preference (schedule-, run-, and user-level) is removed and replaced by a single per-schedule **Mute** toggle (per-run overridable). Schedules and users previously set to `on_success`/`on_failure`/`always` now receive classification-driven notifications automatically; those previously set to `never` will now receive notifications — re-mute per schedule with one click, or disconnect the email channel to suppress external delivery for non-scheduled runs.
-- **Breaking:** API/MCP `notify_on` inputs are removed; use `muted`. The Jobs API returns `422` for a stray `notify_on` field, and the MCP tools reject it as an unknown argument. The MCP `schedule_job` response now returns `muted` instead of `notify_on` (breaking for agent-facing responses).
-- **Breaking:** The `Activity` and `ChatThread` models are replaced by unified `Session` and `Run` models (new `sessions` app). All job execution — Jobs API, MCP, chat, schedules, and webhooks — now runs on the unified session model with a claim/heartbeat execution lock. Existing rows are migrated automatically.
-- **Breaking:** Per-user max mode (`use_max` flag) is replaced by an explicit agent override pair (`agent_model` + `agent_thinking_level`) on runs, schedules, chat threads, and `submit_job`. The agent picker in the run/chat composers now lets you choose any catalog model and thinking level per run; the fallback model may carry its own thinking effort. A per-run override now requires an explicit model — the picker's `Auto` option was dropped.
-- **Breaking:** LLM providers are now configurable via a database-backed `Provider` table (admin UI), alongside site settings, with support for Docker secrets and explicit `provider:model_name` syntax in model settings.
-- Repository access is now authorized per user, mirrored from the git platform. Members only see and act on repositories they can access on GitLab/GitHub: viewing (pickers, branch lists, memory, MCP `list_repositories`) requires platform read access, and triggering agent runs, chat, or schedules requires platform write access. Access levels are synced every 15 minutes (configurable via `CODEBASE_REPO_ACCESS_SYNC_CRON`); a verified platform login (OAuth) is required, so invited users who only used login-by-code have no repository access until they connect their GitLab/GitHub account. Admins are exempt. Previously, any authenticated user could enumerate and run the agent against every repository the DAIV bot credential could reach.
-- Built-in MCP servers (Sentry, Context7) are now database rows seeded to the official remote endpoints (`mcp.sentry.dev`, `mcp.context7.com`) and fully editable from the dashboard — URL, headers, and tool filter included. The `mcp_sentry`/`mcp_context7` supergateway containers, and their `MCP_SENTRY_URL`/`MCP_CONTEXT7_URL` settings, were removed from `docker-compose.yml`. **Upgrade note:** upgrading from v2.0.0 or earlier seeds the remote defaults (Sentry disabled until an `Authorization: Sentry-Bearer <token>` header is configured; Context7 enabled keyless) — if you were running the optional supergateway bridge containers, edit the `sentry`/`context7` row URL to point at your bridge and re-enable it. For on-premise Sentry, run your own bridge and point the row at it (see the MCP tools docs).
-- **Upgrade note — existing network-enabled sandbox environments become network-isolated.** The legacy `network_enabled` flag is replaced by the per-environment egress policy (network is now derived from the presence of a policy). There is no automatic conversion: after upgrade those environments run network-isolated. The repository's own git platform stays reachable (DAIV injects it at runtime, so runs still clone and publish), but any other outbound access — package registries, external APIs — is blocked until an operator sets **Network** to **On** and defines an egress allow-list. This is deliberate: the new model has no unrestricted-network mode, and auto-granting allow-all would fail closed on deployments without the egress proxy CA configured.
-- Chat runs now survive page refreshes and connection drops. The agent run executes server-side detached from the browser connection, publishing its events to a short-lived Redis stream; the chat page (re)joins that stream with full replay, so refreshing mid-run resumes live streaming instead of killing the run. **Stop** now explicitly cancels the run server-side (previously it worked by disconnecting). API note: `POST /api/chat/completions` returns a JSON run handle unless the caller sends `Accept: text/event-stream`, which preserves the inline AG-UI SSE behavior.
-- Session pages now stream every in-flight run live, token by token, whatever started it. That covers Jobs API, MCP, schedules, UI jobs, CI fixes and issue/MR webhooks; previously only chat runs streamed, and other sessions refreshed their whole transcript every 5 seconds.
-  - Anyone who can read the repository can now watch a run live. **Stop** is still offered only to the session's owner, and only on chat runs.
-  - **API note:** `/api/chat/stream` no longer sends ag-ui `RAW` or `MESSAGES_SNAPSHOT` events or `rawEvent` fields, `STATE_SNAPSHOT` carries only `merge_request` and `diff_stats`, and a failed run now streams a generic `RUN_ERROR` message instead of the raw exception text.
-- `job_id` in `submit_job` / `get_job_status` responses now corresponds to `Run.id` (was previously `DBTaskResult.id`). Capture the new id from `submit_job` responses going forward — old ids will no longer resolve.
-- `submit_job` and `get_job_status` responses now include `thread_id` and a `QUEUED` status value.
-- **Breaking:** The MCP `list_repositories` tool now cursor-paginates like the other listing tools (`limit`, default 20/max 50, plus `cursor`), instead of hard-capping at 40 results with a "narrow your search" warning. Repositories beyond the first page — including a `search` or `topics` filter that still matches more than `limit` — are now reachable by paging. The `warning` key is gone; a non-null `next_cursor` is the signal that more rows exist. A client that ignores `next_cursor` now sees 20 rows where it previously saw 40.
-- The repository picker popover now loads more repositories as you scroll instead of stopping at the first 10 matches, so a search term that matches more repositories than fit one page no longer hides the rest. A picker fragment that fails to load now shows an error row instead of an indefinite loading skeleton.
-- The agent workspace is now sandbox-authoritative: the agent commits and opens the MR/PR itself from inside the sandbox (deepagents `SandboxFileBackend`), instead of DAIV pulling changed files back and publishing them host-side.
-- **Breaking:** The `/code-review` skill was restructured: detectors (correctness, security, performance, structure, per-repo custom rules from `.agents/review-rules.md`) are now self-contained subagents selected by what the change touches, and each review is delivered as a single summary report comment on the merge/pull request — inline per-line comments are no longer posted. On GitLab, reviews stack: a re-review covers only the commits since the previous report and posts a new comment. **Upgrade note:** if you tracked `main` between the previous unreleased revision and this one, the report marker format changed, so a merge request reviewed under the old pipeline is not recognized as already reviewed — the next review covers the full change again, and the inline comments and summary discussion it left behind are never deduped or cleaned up. Deployments upgrading from v2.0.0 or earlier never had the old pipeline and are unaffected.
-- GitLab git clone/push now uses a short-lived (~48–72h), project-scoped access token (`write_repository`, Developer role) minted per repository, instead of embedding the configured PAT in the clone URL — so the credential persisted in the workspace's `.git/config` (which travels into the sandbox) can no longer reach the full API or other projects. Minting requires the PAT user to have at least the Maintainer role on the project; when token creation is unavailable (e.g. GitLab.com Free tier), DAIV logs a warning and falls back to the previous PAT behavior. Note: the token pushes at Developer level — branch protection rules that restrict pushes on DAIV's branches to Maintainers must now allow Developers.
-- Sandbox runtime is now configured exclusively through `SandboxEnvironment` rows; the `sandbox:` block in `.daiv.yml` is no longer honored and is ignored without a warning. Recreate per-repo runtime configuration by creating an environment and listing the repo under its repository assignments. The env picker gains an `Auto` mode (the new default): the environment claiming the repository wins (USER-scoped beats GLOBAL-scoped); otherwise the GLOBAL default applies. **Upgrade note:** environments have no command policy, so `sandbox.command_policy` rules have no per-repo replacement — move their `disallow` entries to the global `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW`, which applies to every repository, or those commands are no longer blocked.
-- Sandbox sessions are now reused across the turns of a chat conversation: the `thread_id → session_id` mapping is cached (Redis, TTL 12h) and the session is warmed and reused on the next turn, skipping the repo re-seed. Requires the matching daiv-sandbox release (stop-on-close + reaper).
-- Reworked sandbox file sync: `write_file` and `edit_file` now push changes to the sandbox eagerly per tool call, and `bash_tool` no longer tarballs the entire working tree on every invocation. **Breaking:** requires the matching daiv-sandbox release with the new mutation/seed wire protocol.
-- Sandbox file tools (`ls`/`read_file`/`grep`/`glob`/`write_file`/`edit_file`) now surface structured, machine-branchable errors from the sandbox instead of free-form strings: a missing path reads as "does not exist", reading a directory or creating over an existing file is rejected with a hint pointing at the right tool, and deletes are idempotent. **Breaking:** requires the matching daiv-sandbox release with the structured `fs/*` error responses (`FsError`/`FsErrorCode`).
-- Renamed several environment variables to use the `DAIV_` prefix consistently: `AUTOMATION_WEB_SEARCH_*` → `DAIV_WEB_SEARCH_*`, `AUTOMATION_WEB_FETCH_*` → `DAIV_WEB_FETCH_*`, `AUTOMATION_SUGGEST_CONTEXT_FILE_ENABLED` → `DAIV_SUGGEST_CONTEXT_FILE_ENABLED`, `DIFF_TO_METADATA_*` → `DAIV_DIFF_TO_METADATA_*`, `JOBS_THROTTLE_RATE` → `DAIV_JOBS_THROTTLE_RATE`. Provider API key env vars (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `OPENROUTER_API_KEY`) are unchanged.
-- Changed diff-to-metadata default model from Claude Haiku 4.5 to GPT-5.4-mini (with Claude Haiku 4.5 as fallback), and improved its prompts to enforce repository conventions from memory, incorporate ticket identifiers and external references (Sentry/Jira URLs), and reduce vague language in generated PR titles, descriptions, and commit messages.
-- Changed `setup_webhooks` command to only create new webhooks by default, skipping existing ones.
-- Increased Claude max output tokens from 4,096 to 16,384.
-- Upgraded `deepagents` from 0.4.12 to 0.5.1, adding prompt caching, large message eviction, CRLF normalization, and multimodal file support.
-- OpenRouter's Anthropic branch now uses `reasoning.effort` (with a five-level taxonomy including a new `xhigh` thinking level) so OpenRouter derives the reasoning budget server-side.
-- Activity result downloads are now owner-scoped (previously any authenticated user with a run UUID could download any user's result).
-- Deactivated users are now rejected on the API-key and MCP OAuth bearer paths (previously outstanding keys/tokens kept working).
-- MCP `submit_job` now enforces the same per-user rate limit as the REST jobs and chat endpoints.
-- MCP `get_job_status` and job pollers are now scoped to the authenticated user.
-- Upgraded `deepagents` to 0.7.0, whose leaner tool descriptions reduce the tool-schema tokens sent on every agent turn. Each agent now declares its filesystem tool set explicitly: the recursive `delete` tool 0.7 adds is deliberately not exposed (the sandbox's delete RPC removes a single file, not a directory tree), and the read-only subagents (`explore` and the code-review detectors) no longer carry write tools in their schema at all.
-- Upgraded pinned dependencies: `deepagents` to 0.7.3, `genai-prices` to 0.1.1, `ipython` to 9.16.1, `langsmith` to 0.10.15, `markdown` to 3.10.3, and `uvicorn` to 0.52.1; dev dependencies `coverage` to 7.15.3, `prek` to 0.4.12, `pyproject-fmt` to 2.27.0, `ruff` to 0.16.1, and `ty` to 0.0.66.
-- The chat page no longer shows a breadcrumb. It only pushed the transcript and composer down; the sidebar already links back to the sessions list.
-- Background tasks are now split across two queues: `default` carries agent runs, and a new `interactive` queue carries short user-visible work — session titles, run classification and notification delivery. A worker runs one task at a time, so those short tasks previously waited behind every queued agent run, which is why a session could sit on "generating title…" for as long as the runs ahead of it took. Within `interactive`, titling is prioritized over its queue mates. **Upgrade note:** a worker started without arguments serves every queue, so existing deployments keep working unchanged; to get the isolation, add a second worker service running `sh /home/daiv/start-worker interactive` and pass `default` to the existing one (see the deployment guide).
-- Merge/pull request descriptions are now prose-first: a short statement of what now behaves differently and why, with a **Key Changes:** list only when a change has genuinely separate concerns and a **Notes:** section only when the run reported a caveat — a test suite it could not run, work it left unfinished. The reviewer-instructions footer is now one line inside the existing notice instead of its own section.
-- Merge/pull request titles, descriptions and commit messages are now generated by `gemini-3.7-flash`, falling back to `deepseek-v4-flash`. Deployments that set these models explicitly keep their own value.
-- Bash commands blocked by `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` are now reported as `global_disallow` (in the agent's error and the `reason_category` log field) instead of `repo_disallow`; update any log alert that matches `repo_disallow`.
-- Editing a sandbox environment now applies to existing sessions on their next turn: a session's stopped container is replaced when its environment's base image, memory, CPUs, environment variables or network rules changed since it started. A container started before this release has no recorded environment, so its next turn reuses it unchecked; edits made after that turn replace it as usual.
-- The MCP client moved from `langchain-mcp-adapters` to `langchain.mcp`, and DAIV's MCP client and `/mcp` endpoint now run on the MCP Python SDK 2.x. **Test connection** HTTP errors now read `HTTP 401 Unauthorized for url '…'` instead of `HTTPStatusError: Client error '401 Unauthorized' for url '…'`, and a blank or malformed URL is rejected before probing. Tool-load failures now log as `Failed to load tools from MCP server …`; update any log alert that matches `Timed out loading tools` or `Transient error loading tools`.
-- Per-run agent settings are now resolved once, when a run starts. Memory injection, which re-checked the site switch on every model call, and the merge request session link, the context-file (`AGENTS.md`) suggestion and the commit and PR writer model, which were read when the run published its changes, are now fixed for the run, so a site-settings change to them applies from the next run: turning memory off mid-run no longer stops its injection in that run.
-- Issue runs now start with the issue's title, labels and description already in the conversation, marked as untrusted data, so the agent no longer spends its first turns fetching the issue. A description over 20,000 characters is cut, with a pointer to read the full issue. The issue is added again after `/clear` and whenever its title, labels or description change. The `daiv-auto` prompt now also tells the agent to say so, instead of guessing, when a code change cannot resolve the issue or the issue is unclear.
-- The agent can now load a skill in the same turn as other tool calls: the `skill` tool returns the skill's instructions as its result, so the rule that it must be called alone is gone. A file write called in the same turn as a read-only skill such as `plan` is refused.
-- The Jobs API now rejects a batch with 400 when no agent model is given and no system default is configured, as MCP already did. This includes a repository whose `.daiv.yml` sets a model.
-- **Retry** on the session page now retries a failed run in place: the button sits on the latest run's failure marker and sends a follow-up message in the same session (asking the agent to try again, or resending the prompt of a run that failed before it started), instead of opening the run composer to start a new session. Done, webhook and delegated runs no longer offer it, and the session top bar no longer has its own Retry.
-- **Stop** on a chat message DAIV hasn't started answering, and has spent no tokens on, takes the message back: it leaves the conversation and the agent's context, and its text returns to the composer of the page you pressed Stop on. Once DAIV has started, Stop leaves the answer where it ended, without the *Stopped by user* marker under it; a stop that left no answer keeps the marker.
-- The chat composer now sends on **Enter**; **Ctrl+Enter** (**⌘+Enter** on macOS) or **Shift+Enter** starts a new line. On a touch keyboard, Enter still starts a new line and the Send button sends.
-- The session page now updates when the session changes instead of polling every 5 seconds, no longer reloads when a run ends, and streams a chat turn started from another tab or by another user.
+- **Breaking:** Replace the OpenAI-compatible chat API with the AG-UI protocol of the dashboard chat: `POST /api/chat/completions` takes an AG-UI `RunAgentInput` and returns a run handle, or AG-UI events with `Accept: text/event-stream` ([#859](https://github.com/srtab/daiv/pull/859), [#1382](https://github.com/srtab/daiv/pull/1382))
+- **Breaking:** Reject GitLab and GitHub webhooks with `401` while `CODEBASE_GITLAB_WEBHOOK_SECRET` or `CODEBASE_GITHUB_WEBHOOK_SECRET` is unset, and fail `django-admin check` until the active platform's secret is set ([#1675](https://github.com/srtab/daiv/pull/1675))
+- **Breaking:** Manage LLM providers, their API keys and base URLs under **Configuration → Providers**; the environment variables and Docker secrets seed them once, on upgrade ([#1195](https://github.com/srtab/daiv/pull/1195), [#1829](https://github.com/srtab/daiv/pull/1829))
+- **Breaking:** Run the agent's workspace inside the sandbox, where the agent commits and opens merge requests itself; this needs daiv-sandbox 0.5.0 or later, with an egress CA ([#1279](https://github.com/srtab/daiv/pull/1279))
+- **Breaking:** Require the scheduler, which now also syncs repository access and runs schedules, sweeps and memory consolidation ([#1365](https://github.com/srtab/daiv/pull/1365), [#1030](https://github.com/srtab/daiv/pull/1030))
+- **Breaking:** Close sandbox networking except to the repository's git platform, unless the run's sandbox environment allows more hosts through the egress proxy ([#1331](https://github.com/srtab/daiv/pull/1331), [#1340](https://github.com/srtab/daiv/pull/1340))
+- **Breaking:** Rename `AUTOMATION_WEB_SEARCH_*`, `AUTOMATION_WEB_FETCH_*` and `DIFF_TO_METADATA_*` to `DAIV_WEB_SEARCH_*`, `DAIV_WEB_FETCH_*` and `DAIV_DIFF_TO_METADATA_*` ([#1022](https://github.com/srtab/daiv/pull/1022))
+- **Breaking:** Match `git` rules of the sandbox command policy on the git subcommand, and block commands that switch branches or commit behind DAIV's back, such as `git checkout <branch>`, `git pull` and `git cherry-pick` ([#1615](https://github.com/srtab/daiv/pull/1615))
+- Change the default models to Claude Sonnet 5.5 with GPT 6.1 Sol as fallback for the agent, Claude Opus 5.5 for `daiv-max`, and Gemini 3.8 Flash with DeepSeek V4.1 Flash for commit messages and merge request text ([#1637](https://github.com/srtab/daiv/pull/1637))
+- Post one summary report per `/code-review` instead of inline comments, from detector subagents chosen by what the change touches and rules in `.agents/review-rules.md` ([#1432](https://github.com/srtab/daiv/pull/1432), [#1711](https://github.com/srtab/daiv/pull/1711))
+- Stop the sandbox container when a run ends and reuse it on the session's next turn, instead of removing it ([#1279](https://github.com/srtab/daiv/pull/1279), [#1588](https://github.com/srtab/daiv/pull/1588))
+- Change the default sandbox image from `python:3.12-bookworm` to `ghcr.io/astral-sh/uv:python3.14-bookworm`, about 1.1 GB ([#1791](https://github.com/srtab/daiv/pull/1791))
+- Clone and push GitLab repositories with short-lived project access tokens instead of the configured personal access token, and keep git credentials out of the workspace so they never reach the sandbox ([#1300](https://github.com/srtab/daiv/pull/1300), [#1366](https://github.com/srtab/daiv/pull/1366))
+- Open DAIV's merge requests against the branch the run started from, and assign them to the issue's assignee or author, or to the user who started the run ([#1547](https://github.com/srtab/daiv/pull/1547), [#1467](https://github.com/srtab/daiv/pull/1467))
+- Write merge request descriptions as short prose, with **Key Changes** and **Notes** sections only when they are needed ([#1538](https://github.com/srtab/daiv/pull/1538))
+- Start issue runs with the issue's title, labels and description in the conversation, so the agent no longer fetches them first ([#1618](https://github.com/srtab/daiv/pull/1618))
+- Stop the agent's bash commands after 5 minutes by default, or after up to `DAIV_SANDBOX_TIMEOUT` when the agent asks for longer, instead of failing the call when the sandbox request times out ([#1759](https://github.com/srtab/daiv/pull/1759))
+- Think adaptively on Claude Opus 4.6 and Sonnet 4.6 on the Anthropic provider, with the thinking level sent as `effort` ([#1693](https://github.com/srtab/daiv/pull/1693))
+- Route OpenRouter requests to the cheapest provider first (`provider.sort: price`) ([#1652](https://github.com/srtab/daiv/pull/1652))
+- Keep Anthropic prompt-cache entries for 5 minutes instead of 1 hour, which lowers the cost of cache writes ([#1171](https://github.com/srtab/daiv/pull/1171))
+- Raise Claude's maximum output tokens from 4,096 to 16,384 ([#951](https://github.com/srtab/daiv/pull/951))
+- Expire agent checkpoints in Redis after 7 days instead of 90, set with `DJANGO_REDIS_CHECKPOINT_TTL_MINUTES` ([#981](https://github.com/srtab/daiv/pull/981))
+- Run short user-visible tasks, such as titles and notifications, on an `interactive` queue apart from the agent runs on `default` ([#1516](https://github.com/srtab/daiv/pull/1516))
+- Run background tasks on Django's built-in `django.tasks`, so worker logs move from the `django_tasks` logger to `django.tasks` ([#1685](https://github.com/srtab/daiv/pull/1685))
+- Report commands blocked by `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` as `global_disallow` instead of `repo_disallow` ([#1581](https://github.com/srtab/daiv/pull/1581))
+- Accept thinking levels in any case, and `off` instead of `None` to turn thinking off, in the thinking-level variables ([#1650](https://github.com/srtab/daiv/pull/1650))
+- Make `setup_webhooks` create missing webhooks only; pass `--update` to update existing ones ([#943](https://github.com/srtab/daiv/pull/943))
+- Deprecate `DAIV_AGENT_EXPLORE_MODEL_NAME` in favour of an `explore` entry in `DAIV_AGENT_SUBAGENT_MODELS`; `django-admin check` warns with `core.W001` while it is set ([#1727](https://github.com/srtab/daiv/pull/1727))
+- Move the documentation to [docs.daivagent.com](https://docs.daivagent.com/) ([#1826](https://github.com/srtab/daiv/pull/1826))
 
 ### Added
 
-- **Archive on merge** — when a merge request (GitLab) or pull request (GitHub) merges, DAIV archives every session that worked on it, for everyone: the session that opened it, its review and comment sessions, and issue sessions that published it. A session that still owns another open merge request stays listed and is archived when that one merges; one with a run still going, or with a delegated session still running or owning an open merge request, is archived once that run ends or that merge request merges or closes. An archived session refuses follow-ups until someone unarchives it: a mention or label on it gets a reply linking the session instead of a run, and CI failures and delegation results wait for the unarchive. Archiving a session from its page now archives it for everyone too, and archiving or unarchiving needs run access to its repository; a session its owner archived before this release stays archived, now for everyone, while other people's archives are dropped. Sessions from merges before this release are left as they are. The dashboard's **Your week** chart and **Insights** now count archived sessions and open the session list with archived sessions included, as does the session link DAIV writes into merge request descriptions.
-- Optional, cookieless [Umami](https://umami.is/) analytics on the public homepage and `/compare/` pages: set `DAIV_UMAMI_WEBSITE_ID` (and `DAIV_UMAMI_SCRIPT_URL` for a self-hosted Umami). It is off by default, so an install sends no visitor data anywhere, and it never loads for signed-in users.
-- **Skill and subagent models** — run a skill, the general-purpose or explore subagent, a code-review detector or a repository subagent on a chosen model by name, without editing or copying its file. Set entries for every repository in the dashboard, on the **Models** tab of a skill's page (which holds the code-review detectors too) and under **Configuration → Agent → Subagent models** for the general-purpose and explore subagents, or with `DAIV_AGENT_SKILL_MODELS` / `DAIV_AGENT_SUBAGENT_MODELS`, and override them per repository with `models.skills` / `models.subagents` in `.daiv.yml`. An entry beats the model the file declares and the model picked for the run. When an entry can't be used, the skill or subagent runs on the model it would use without the entry, logged at ERROR.
-- **Leg follow-ups** — the orchestration coordinator can continue a delegated job instead of starting a new one: a `delegate_jobs` target that names a job's `thread_id` continues it in its own session, with its earlier conversation, on its branch and merge request, so a fix to an incomplete job lands on the merge request it already opened. A leg follow-up joins the call's batch, waits while its job's session is busy, always runs alone, runs once and is never retried. It is refused, with a reason the coordinator can act on, when it names a session that is not one of its jobs, a branch or another repository, a job still working, one DAIV lost track of, one whose merge request was merged or closed, or an archived one, or one on a repository closed to the person it runs as; one whose merge request merges or closes, or whose session is archived, while it waits is reported as not run. The coordinator now reads each job's reply from its full final answer, up to 4,000 characters (1,000 in the overview of its latest batches), with a note pointing to the job's session when it is cut, and each job's session id. **Upgrade note:** migration `sessions.0031_leg_follow_up_choices` cannot be reversed once a leg follow-up has been sent.
-- The session transcript shows the images and files a tool hands the agent: a screenshot from an MCP browser tool, or an image, PDF, audio or video file it opened with `read_file`. Images show as thumbnails in the tool's row, live and after a reload; PDFs, audio and video show as a chip that downloads the file. DAIV keeps these files with the run under `MEDIA_ROOT`, up to `DAIV_TOOL_MEDIA_MAX_BYTES` each (10 MiB) and `DAIV_TOOL_MEDIA_PER_RUN_MAX` per run (100). Before, the row showed the image as raw base64 JSON while the run streamed and nothing after a reload.
-- A [Quickstart](https://docs.daivagent.com/dev/getting-started/quickstart/) page that runs DAIV on one Linux machine with Docker Compose and turns a GitLab issue into a merge request in about 15 minutes. The Deployment and Platform Setup pages now also cover the sandbox's egress CA, a dedicated GitLab account for DAIV, and sign-in without SMTP.
-- Add SearXNG as a web-search backend with a configurable JSON search endpoint and bounded timeout, available through Site Configuration and environment variables for all agent entry points.
-- **Multi-repository sessions** — the Jobs API and MCP `submit_job` accept `shared_session: true` with up to 5 `repos` to run one session across several repositories. The first is the main one; each changed repository gets its own merge request, linked to the others and CI-watched in the session, whose `@daiv` mentions reach it too, and job status gains `merge_requests` and `publish_errors`. **Upgrade note:** deploy a daiv-sandbox release with path-scoped egress rules and `repos_archive` seeding first; single-repository runs are unaffected.
-- A new chat starts from a **Workspace** card: pick up to 5 repositories, each on its own branch, make any of them the main one, and see the environment Auto picks for it before sending. More than one repository opens a multi-repository session. The environment moved there from the composer's `+` sheet, which now holds only Tools.
-- `web_fetch` now honours a URL `#fragment`: on an HTML page it processes only the section that anchor names, so one section of a long page such as release notes can be read. A page too large to process now lists its section anchors to fetch instead of suggesting an anchor the tool ignored, and a section still too large lists its subsections.
-- Every LLM API call is now bounded by a per-request timeout (default 120 s) and a retry count (default 2), set with `model_request_timeout_seconds` / `model_max_retries` in the Agent site settings or `DAIV_MODEL_REQUEST_TIMEOUT_SECONDS` / `DAIV_MODEL_MAX_RETRIES`. Previously a stalled provider could hang a run indefinitely.
-- **Session inbox** — everything that asks an existing session to act now reaches it through its inbox, and a busy session gathers it into one next run per branch and requester instead of answering `409` or stacking runs: requests from different people run separately, each as its requester. See [The session inbox](docs/features/sessions.md#the-session-inbox).
-  - The CI watch handles a failure in the session that published the merge request, with its context, instead of a separate fix run, and a merge request has one owning session. Pushes by people, merges and closes are remembered there, and the next run is told about them.
-  - Chat messages sent while a session is busy are queued for its next run; a builtin slash command such as `/help` among them runs on its own, in the order it was sent. The session's owner can stop a run DAIV started itself. After three runs in a row that no person started, CI and delegation events stop waking the session until someone does, and its owner is told.
-  - Mentions on a merge request a DAIV session owns go to that session, including mentions on diff lines, and are answered in the mention's thread; the run acts as the person who mentioned DAIV, through the DAIV account linked to their GitLab/GitHub account, never as the session's owner or as a DAIV user who only shares their username. Comments that mention no one are remembered for the next run.
-  - A Jobs API or MCP job sent with `thread_id` to a busy session joins its sender's next run, so two such jobs from one person can return the same `job_id`; one sent without a branch follows the session to the branch its current run publishes to. A finished delegated batch resumes the coordinator the same way, and the coordinator remembers how CI ended on its delegated jobs' merge requests.
-  - **Upgrade note:** subscribe the GitHub App to **Pull request review comment** for diff-line mentions. Migration `sessions.0021_session_inbox` turns open CI watches into merge request ownerships, which finish in the merge request's own session, and fails any extra queued run the old queue stacked on one session branch, asking to resubmit it.
-- **Orchestration** — the agent can fan work out as tailored jobs, on other repositories or as new sessions on its own, with a new `delegate_jobs` tool, end its turn, and be resumed with every job's outcome, branch, merge request and reply once they have all finished, to report the combined result, merge a job's branch into its own, or delegate more. Every delegated job publishes to a new branch and merge request of its own; one given the coordinator's current branch, the default branch included, waits until the coordinator's turn ends and starts from the branch that turn published to. A target can carry `references`, linked into its job's merge request. On by default; turn it off per repository with `orchestration.enabled: false` in `.daiv.yml`. Delegated jobs run as the user who triggered the coordinator's run and keep its mute, need write access to their repository, cannot ask questions, and cannot delegate further; after three runs in a row that no person started, finished batches stop resuming the coordinator until someone does. The coordinator can follow its jobs with `check_delegated_jobs` and cancel the unfinished ones with `cancel_delegated_jobs`: a running job stops within seconds, and a batch whose every job was cancelled resumes nothing. The coordinator's session page shows each job's current status, on a Delegated jobs card in the transcript and in the details panel, and a delegated job's page links back to the session that delegated it. See the Orchestration docs.
-- The Jobs API and MCP `submit_job` accept an optional `prompt` per entry in `repos`, which replaces the batch `prompt` for that repository; a `shared_session` submission refuses it, since its one run takes one prompt.
-- The Jobs API and MCP `submit_job` and `schedule_job` accept an optional `mcp_overrides` object that switches MCP servers on or off for the jobs they start, e.g. `{"grafana": true}` to load an on-demand server; on a continued thread they apply on top of the thread's own. Until now only the dashboard, chat and schedules could. An unknown server name is refused.
-- Expired sessions now resume instead of silently starting over. DAIV archives each session's conversation in the database when a run ends: a session whose checkpoint expired keeps its transcript, and the next message — or `@daiv` mention on its issue or merge request — resumes from the archive. If the archive can't be restored, the run fails instead of starting without it. `/clear` now starts a new context and keeps the earlier conversation in the session's history. **Upgrade note:** run `python manage.py archive_sessions` once after migrating, so sessions still in Redis are archived before their checkpoints expire.
-- `python manage.py export_session_archives <dir>` writes each archived session's transcript and run metadata as JSON, for analysis beyond LangSmith's retention.
-- The agent can now merge a branch into the one it works on and resolve the conflicts, for example when you ask it to resolve a merge request's conflicts with its target branch. It runs `git merge --no-commit --no-ff`, edits the conflicted files, and DAIV commits the result as a merge commit at the end of the turn, with git's merge subject and the files that conflicted. If a conflicted file still contains conflict markers, DAIV commits and pushes nothing and says so in its reply. Rebasing is still unsupported.
-- **Artifact revisions** — the agent can now change an artifact it already published instead of publishing a near-duplicate: `publish_artifact` takes an optional `artifact_id` that replaces that artifact's file in place, keeping its id and URL, and a new `fetch_artifact` tool copies an artifact of the session back into `/workspace/tmp` so a later run can revise it. Only artifacts of the same session can be read or revised, revisions do not count towards `DAIV_ARTIFACTS_PER_RUN_MAX`, and only the latest version is kept. The Jobs API and MCP job status of a revising job list the artifacts it revised, the transcript shows a revised artifact's current title, type and size on every row for it, marked **Updated**, and the artifact viewer shows when it was last updated.
-- **Run artifacts** — the agent can now publish files it generates (HTML or Markdown reports, CSV/JSON datasets, chart images, logs) with a new `publish_artifact` tool instead of pasting them into its reply or committing them. Published files are stored by DAIV (default file storage under `MEDIA_ROOT`, `~/data/media` — shared between web and worker) and appear inline in the session transcript, grouped into an **Artifacts** card per batch of adjacent publishes, and on a new **Artifacts** dashboard page (`/dashboard/artifacts/`) listing every artifact across your sessions, searchable and filterable by kind and repository. Each file renders at its own URL: Markdown server-side, HTML inside a sandboxed frame (opaque origin, no DAIV cookies, no fetch/XHR or form posts), images inline, text/CSV/JSON as preformatted text, other types as downloads. The Jobs API (`GET /api/jobs/{id}`) and the MCP `get_job_status`/`submit_job` responses gain an `artifacts` list with absolute viewer and download URLs plus a `kind` field. Limits: `DAIV_ARTIFACT_MAX_BYTES` (10 MiB) per file and `DAIV_ARTIFACTS_PER_RUN_MAX` (20) per run. **Upgrade note:** mount one shared volume at `/home/daiv/data/media` on the `app` and every `worker` container (see the deployment guide); without it, artifacts published by jobs and webhook runs are invisible to the web app and lost when a worker is recreated.
-- The agent can stop and ask you a question when a request is ambiguous or the decision is yours, instead of guessing. In chat it shows as a card with options and a free-text field; on issues and merge requests it is posted as a comment you answer by mentioning `@daiv`; through the Jobs API and MCP the job ends with the new `WAITING_INPUT` status and a `question` field, and you answer by submitting a job with the same `thread_id`. Scheduled runs never ask.
-- Pipeline watch: after DAIV publishes a merge request it now watches CI and spends up to a configurable number of agent runs trying to make it green, commenting on the merge request with a diagnosis when it gives up. This covers merge requests published by issue addressing, by job runs (API, MCP, scheduled) and by chat turns; review addressing is excluded on purpose, since it pushes to a merge request someone else may own. Enable or disable per repository with `pipeline_watch.enabled` in `.daiv.yml`, or site-wide in **Configuration → Pipeline Watch**. **Rollout note:** the CI event has to be enabled once per platform, or the feature is inert. On GitLab, run `python manage.py setup_webhooks --update` to add `pipeline_events` to already-onboarded repositories. On GitHub, grant the GitHub App the **Actions: Read-only** permission and subscribe it to **Workflow run** in its settings; each installation owner must then accept the new permission. `setup_webhooks` is a no-op there, since an App's event subscriptions are centralized rather than per repository.
-- The agent can now publish GitHub releases: `gh release create` is allowed by the GitHub CLI tool's policy (deleting a release stays denied). No GitHub App permission change is needed — release creation uses the `contents: write` permission DAIV already requires.
-- Telegram is now a notification delivery channel alongside email and Rocket Chat, with per-event rich messages and a "View in DAIV" button. Administrators enable it under **Dashboard > Configuration > Telegram** with a bot token from @BotFather; users link their chat from `/accounts/channels/` with a single **Connect** button that hands off to the bot. Blocking the bot, sending `/stop`, or selecting **Disconnect** all unlink the chat. Connecting requires DAIV to be reachable from the internet over HTTPS (delivery does not), and one bot token serves exactly one instance — Telegram allows a single webhook per bot.
-- The chat composer now shows a **context meter**: a ring beside the model label tracking how much of the model's context window the conversation has used (amber at 75%, red at 90%, count-only when no window is known for the model), with a usage panel showing exact token counts, cached/output breakdown, and per-model session spend refreshed at the end of every turn.
-- Added a server-sent-events stream (`GET /api/nav/events`) behind the dashboard's live badges: the sidebar's unread-notification and **N running** counts arrive by push over one stream per tab, which sends a frame only when a count actually changed. Run transitions and notification writes publish a poke over Redis pub/sub, so a run finishing in a worker updates a browser immediately. Requires Redis, which chat and caching already require; where it is unconfigured the badges fall back to their page-load values.
-- Added per-user (member-scoped) MCP servers: members manage their own servers from the dashboard alongside the admin-managed global ones. Global rows win on name collisions (the shadowed personal server is flagged in the list), and member server headers are literal-only (no env-var references).
-- Added a live model catalog to the agent picker: models are fetched dynamically from each configured provider (OpenAI, Anthropic, Google GenAI, OpenRouter) with caching, and the picker falls back to free-text entry when a provider has no catalog.
-- Added Claude 5 model support (`claude-sonnet-5`, `claude-fable-5`, including OpenRouter slugs) and enabled extended thinking for `claude-opus-4.7`/`4.8` and `gpt-5.4`–`5.6`. Claude 5's removed `temperature` parameter is handled automatically.
-- Added agent "dreaming" memory: the agent captures observations from runs, a scheduled `consolidate_memory` task consolidates them into per-repository memory, and relevant memories are injected into future runs. Low-volume repositories consolidate once their oldest pending observation reaches `DAIV_MEMORY_CONSOLIDATION_MAX_PENDING_AGE_DAYS` (default 7) instead of waiting for the pending-observation threshold. Includes a memory registries dashboard.
-- Added skills management to the dashboard: upload/download/delete global custom skills as zip packages (validated and size-limited), browse built-in skills, and per-skill usage tracking with invocation counts and a 30-day chart. A custom skill with the same name shadows the built-in.
-- Added new MCP tools: `list_jobs`, `list_repositories`, `list_environments`, `get_environment`, `schedule_job`, and `list_scheduled_jobs` (all with cursor-based pagination), plus a `wait` parameter on `submit_job`/`get_job_status` for long-polling.
-- Added `thread_id` continuation to `submit_job` (MCP and HTTP API): a job submitted on a thread with an in-flight run is queued and dispatched FIFO after it terminates.
-- Added scheduled run envelopes: each finished scheduled run derives a `RunEnvelope` with an `actionable[]` summary, and schedules can declare their intent on jobs and templates.
-- Added one-off schedules and schedule templates; schedules now have run history, subscribers with notification fan-out and self-unsubscribe, and a "Run now" action.
-- Added repoless agent runs (no repository attached) and multi-repository batch jobs, with one shared generated title per batch.
-- Added per-run sandbox environments with USER/GLOBAL scopes, and a per-environment **network egress policy**: restrict outbound traffic to an allow-list of hosts (glob patterns), attach per-host HTTP credentials (encrypted at rest, never rendered back), scope each host to all methods or read-only, and set the default (deny/allow) reachability for unlisted hosts. The egress proxy is mandatory for network-enabled sessions — a network-enabled run is rejected if no egress proxy is configured rather than falling back to unrestricted network.
-- Sandbox environments now automatically allow and authenticate their repository's git platform for git-over-HTTPS in the sandbox: DAIV injects a short-lived token at the egress proxy, so `git fetch`/clone/push works without a per-environment host rule — even in **Network Off** environments, which are opened solely for the git platform. The credential is refreshed on warm session reuse, and the rule takes precedence over a user-defined rule for the same host.
-- Added in-app notifications (a **Notifications** list in the sidebar with a live unread count; opening a notification marks it read) with email subjects prefixed and structured job-result emails, plus Rocket.Chat notifications rendered as event-typed attachments.
-- Added token and cost usage tracking per run, propagated through a ContextVar-based usage handler and included in notification context.
-- Added a database-backed configuration interface at `/dashboard/configuration/` (admin-only) for global settings — agent models, thinking levels, web search/fetch options, sandbox defaults, feature flags, rate limits, and API keys — without redeployment. API keys are encrypted at rest using Fernet; environment variables still act as hard overrides.
-- Added a dashboard Skills section, a "Start a run" page with a ChatGPT-style prompt box, a "Retry" button on terminal runs, collapsible prompts, copy-to-clipboard buttons, markdown download of run results, and merge-request links on results.
-- Added per-domain auth headers for the `web_fetch` tool, configurable from the dashboard (domain → header name/value, encrypted at rest) or via `DAIV_WEB_FETCH_AUTH_HEADERS`.
-- Added configurable models for the titling task (chat thread and run titles) via `DAIV_TITLING_MODEL_NAME` / `DAIV_TITLING_FALLBACK_MODEL_NAME` or the configuration UI. Defaults: `gpt-5.4-mini` (primary), `claude-haiku-4.5` (fallback).
-- Added model fallback support to all subagents (general-purpose, explore, and custom), with a new `DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME` setting (default: `gpt-5-4-mini`).
-- Added web-based authentication via django-allauth with GitHub and GitLab social login, passwordless login-by-code, a toggle for open social signup, and first-admin bootstrapping on fresh installs.
-- Added role-based user management (admin/member) with role-based data scoping across all views, distinguishable user avatars, and a landing page for anonymous users.
-- Added dashboard activity counters (jobs processed, success rate, issues resolved, MRs assisted, active API keys) with temporal filtering and today's deltas, plus code merge analytics (lines added/removed, files changed, DAIV vs human attribution) under a "Code Velocity" section.
-- Added MCP (Model Context Protocol) server endpoint at `/mcp/` with OAuth 2.0 + PKCE authentication, metadata discovery, and dynamic client registration — MCP clients like Claude Code can connect to DAIV remotely.
-- Added async Jobs API (`POST /api/jobs`, `GET /api/jobs/{id}`) with configurable per-user rate limiting (`DAIV_JOBS_THROTTLE_RATE`).
-- Added `release_orphan_queued_threads` management command to recover `QUEUED` runs left behind on threads with no active sibling.
-- Added `setup_langsmith_dashboard` management command (27 monitoring charts) and `model`/`thinking_level` metadata on all LangSmith traces.
-- Added `EnsureNonEmptyResponseMiddleware` to recover from empty LLM responses by injecting a no-op tool call that prompts the model to retry.
-- Added `--update` and `--repo-id` options to the `setup_webhooks` command.
-- Added `allowed_usernames` option to `.daiv.yml` to restrict which users can interact with DAIV per repository.
-- Added automatic suggestion to create an `AGENTS.md` file when DAIV opens a merge request for a repository that lacks one. Disable globally via `DAIV_SUGGEST_CONTEXT_FILE_ENABLED=False` or per repository with `context_file_name: null` in `.daiv.yml`.
-- Added support for custom subagents per repository (markdown files in `.agents/subagents/` with YAML frontmatter) and custom global skills mounted at `/home/daiv/data/skills/` (configurable via `DAIV_AGENT_CUSTOM_SKILLS_PATH`).
-- Added deferred tool loading: the agent starts with a minimal tool set and loads additional tools on demand based on task context.
-- Added a **Test connection** button to the MCP server form that probes the URL/headers and swaps the tool-filter free-text field for checkboxes of the discovered tools.
-- Added SMTP email relay configuration and branded HTML email templates (welcome, sign-in code) with Portuguese translations.
-- Added SEO assets: favicon, meta tags, sitemap, robots.txt, and llms.txt.
-- Added deploy build identity: production images are stamped with the git commit SHA, build date, and source repo URL (`DAIV_GIT_SHA`/`DAIV_BUILD_DATE`/`DAIV_REPO_URL`), shown in the dashboard sidebar footer (linking to the commit on the stamped repo, so forks link to their own commits), exposed via a new `/-/version/` endpoint, and appended to the Sentry `release` (e.g. `2.0.0+5e4f0d0`) so every deploy from `main` is a distinct release. Docker builds now also push an immutable per-commit tag (`ghcr.io/srtab/daiv:sha-XXXXXXX`), and the Deploy workflow verifies the built commit is actually serving after rollout (tolerating being superseded by a newer `main` build; pinned rollbacks verify strictly) and accepts an `image_tag` input to roll back to a pinned tag. **Upgrade note (self-hosted):** rollback via `image_tag` requires every service in the server compose file (app, worker, scheduler) to reference the image as `ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main}`.
-
-### Fixed
-
-- Fixed every agent run failing with `git: not found` on a fresh install: the seeded global **Default** sandbox environment used `python:3.12-alpine`, which has no git, and DAIV now runs git inside the sandbox. It now seeds `ghcr.io/astral-sh/uv:python3.14-bookworm`, and the upgrade moves a Default environment still on `python:3.12-alpine` to it. The new image is about 1.1 GB, which the sandbox pulls on the first run.
-- Fixed `web_fetch` page summaries, and the summariser's thinking, streaming into a live session as if the agent had written them. Two fetches at once mixed their text mid-sentence. The agent still receives the summary as the tool's result.
-- Fixed run and session costs for OpenRouter models being overstated, about twice OpenRouter's bill for GLM-5.2. Every call was priced at one list rate for the model, while OpenRouter routes each call to the cheapest available provider. Costs now come from the charge OpenRouter reports for each call, including the provider's charge on bring-your-own-key calls, and a model missing from the price list no longer leaves a run unpriced. Other providers' costs are still estimated from list prices, and runs from before this release keep their recorded cost.
-- GitLab OAuth now links a confirmed primary email to an admin-created account when social signup is closed. Existing emails no longer unlock account creation, and pending signup forms cannot bypass closed registration by changing the email.
-- Fixed the session page never showing the external references a session was given (Jira, Sentry or RT tickets, issues) through the Jobs API, the MCP `submit_job` tool or a delegated job: its details panel now lists them in a **References** section at the end of the **Overview** tab, one card each with its provider's icon (GitLab, GitHub, Sentry or Jira), a link to it, its provider and host, and whether its merge request closes it.
-- Fixed a mention or CI result on a session that pins a model sometimes not starting its run until the inbox sweep retried it, and the run then dropping the pinned model for the default. Loading the providers, site configuration or `web_fetch` auth headers while their 5-minute cache was empty closed the database connection of the transaction it ran in, so the provider list came back empty and the run could not be created.
-- Fixed runs on OpenAI-compatible providers with their own base URL, such as a self-hosted vLLM, recording no token usage or cost when the model's reply was streamed. Chat runs on those providers never had usage, and since session pages stream every run live, no run on them did.
-- Fixed `web_fetch` returning its summarising model's raw output, encrypted reasoning included, instead of the answer when that model replies in content blocks, as OpenAI models on the Responses API do. On production about 70% of each summary was reasoning the agent could not read.
-- Fixed the Skills pages showing a replaced custom skill's first upload date. The skill list, the skill's page and the "already exists" notice on upload now show when it was last uploaded, matching the uploader they name.
-- Fixed tool calls that the agent's middleware rejects without running the tool, such as a second parallel edit to the same file, spinning in the live transcript until the run ended. They now show as failed as soon as they are rejected. The agent is also told to send at most one `edit_file` or `write_file` call per file in a response, since deepagents rejects the rest.
-- Fixed OpenAI and OpenRouter calls made from background tasks failing on every other call with `Event loop is closed`. A model client shared across the worker's per-task event loops caused it. About half of memory extraction and consolidation rounds hit it and quietly fell back to their fallback model.
-- Fixed follow-ups, Retry included, failing with "Conversation not found." on a session whose job was submitted without a branch and never synced one back, such as a job that failed early. Such a follow-up now runs on the repository's default branch. **API note:** `POST /api/chat/completions` now treats a missing or blank `X-Ref` header as the default branch instead of returning `404`.
-- Fixed an MCP tool call that failed before the server answered ending the whole run. An HTTP error, a dropped stream or a result too large to receive now reaches the agent as a failed tool result, which for a tool not marked read-only warns that the server may have run it anyway. Results from Streamable HTTP servers may now be up to 5 MiB, up from mcp's 1 MiB, which a single base64-encoded screenshot from an RT ticket exceeded.
-- Fixed the agent being unable to see a file that an MCP server returns as base64 text instead of as MCP image content, such as a ticket screenshot inside a JSON result. A base64 run that decodes to an image, PDF, audio or video file is now saved beside the large tool results, and the result names the file, which the agent opens with `read_file`. The base64 no longer fills the context, and a result it made too large is no longer moved to a file.
-- Fixed DAIV on GitHub failing to push any change to a file under `.github/workflows/`, such as resolving a conflict in a workflow, even when the GitHub App has the **Workflows** permission. Its git token now carries that permission when the installation grants it, and without the grant the run fails with a message naming the missing permission instead of an unexpected error.
-- Fixed a job left `READY` forever when its submitter stopped before queueing it (a client that disconnected mid-submit, for example), which on an API or MCP thread also kept every later job on that thread queued. The `sync_stuck_runs` sweep now fails such a job ten minutes after it was created and releases its thread's queue.
-- Fixed the session page letting you send a message while the session's run was still waiting to start, which started a chat turn ahead of the queued job. A message sent meanwhile, from the page, another tab or the API, now waits for the session's next run, and the page shows the run's prompt as pending with a "Waiting in queue" line in place of the boxed queue card.
-- Fixed concurrent GitHub API calls able to send each other's request: the GitHub client is shared by the whole process, and PyGithub kept each request on the shared connection between building and sending it, so two calls at once, such as two webhooks, could both send the same request and one of them act on the other's response.
-- Fixed the Jobs API and MCP `get_job_status` cutting a job's `result` at 2,000 characters. It now returns the agent's whole last response.
-- Fixed a job, schedule or webhook run on the default model pinning its session to the model it resolved, so a chat turn on that session later failed with "the model pinned to this thread is no longer available" or a `409` for a model nobody chose. The resolved model is now recorded on the run only, and the session list shows the model the latest run used.
-- Fixed an issue run that could not start because no model is configured ending as an empty success: it now fails, like a merge request comment run, so it shows as failed and notifies.
-- Fixed the dashboard's "with code changes" count leaving out chat runs.
-- Fixed the session page's live transcript polling for a background run: a user who can read the repository but owns nothing in the session got `404`s, a session whose transcript expired dropped its failed runs on the first poll, and a run whose worker crashed kept the page polling forever.
-- Fixed webhook duplicate suppression never taking effect. Webhook tasks are enqueued asynchronously and the deduplicating task backend only checked synchronous enqueues, so a redelivered webhook, or an edit to a GitLab merge request comment or a GitHub comment that mentioned DAIV, each started another run. They now reuse the first one, while every new mention, including a reply in the same GitLab discussion, still starts its own run.
-- Fixed Claude models on OpenRouter running without extended thinking. The prompt-caching middleware sends `cache_control` in a per-call `extra_body`, which replaced the model's own and dropped its `reasoning` setting from every agent request.
-- Fixed run costs and the chat context meter ignoring cached tokens when OpenRouter serves a call from a priority ("fast") endpoint: langchain-openai renames the cache counts for those responses, so every cached token was priced at the full input rate. Affected runs were reported at up to five times their real cost.
-- Fixed the `gh` and `gitlab` tools dropping a failed command's output. `gh pr checks` exits 1 whenever a check failed and prints the checks on stdout, so the agent debugging a red pipeline got an empty error. A failed command's stdout is now included.
-- Fixed repository subagents (`.agents/subagents/`) never loading on sandbox runs: they were listed before the run's sandbox existed. The sandbox is now started before the agent is built, and `/agents` lists them too; other builtin slash commands such as `/help` still run without one.
-- Fixed commit messages and merge request descriptions ignoring edits the agent made to `AGENTS.md` during a sandbox run: they are now written from the sandbox's copy instead of the one cloned at the start of the run.
-- Fixed the agent being able to switch branches in the sandbox (`git switch`, `git checkout <branch>`), which made DAIV push the other branch's history onto the branch the run started on. Branch switching is now blocked, as are other commands that create commits behind DAIV's back (`git pull`, `git cherry-pick`, `git revert`, `git am`); the agent restores files with `git restore` instead of `git checkout`. In built-in `git` rules, and `git` entries in `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW`, the first argument must now be the git subcommand, so read-only commands such as `git log --grep revert` are no longer blocked. **Upgrade note:** a `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` entry whose first argument is a git option rather than a subcommand, such as `git -c`, no longer blocks anything.
-- Fixed `.daiv.yml` `models.diff_to_metadata` being ignored. Commit messages and merge request titles and descriptions are now written with the repository's model and fallback, each falling back to the site setting when `.daiv.yml` leaves it out.
-- Fixed the agent being told to rewrite the repository's `AGENTS.md` whenever a user gave feedback. The upstream memory guidelines that wrap `AGENTS.md` in the agent's prompt asked it to save corrections into that file with `edit_file`, and DAIV commits workspace changes, so feedback could end up as an `AGENTS.md` edit in the merge request. DAIV now wraps the file in its own short guidelines: follow it as repository context, prefer the user and verified evidence when they disagree, and change it only when asked. The rule against writing credentials into files, which lived in the upstream guidelines, is now part of DAIV's own system prompt. The commit and pull-request metadata agent, which has no tools and its own rules for following `AGENTS.md` conventions, now gets the file with no guidelines around it.
-- Fixed `context_file_name: null` in `.daiv.yml` being read as a file name: the agent looked for a file named `None` at the repository root and loaded it as instructions if one existed. The agent and the commit and pull-request metadata agent now skip the context file when it is disabled.
-- Fixed the agent and its subagents rewriting messages they had already sent. Once a conversation passed 20 messages (or 85% of the context window, for models whose window deepagents knows), tool-call arguments over 2,000 characters in older messages were cut to their first 20 characters, one message at a time, which restarted the prompt cache on each cut and, on Claude models that bind thinking to the exact history, invalidated later thinking blocks. That truncation is now off whenever the model's context window is known, from the model's profile or DAIV's model catalog, so history only changes when the conversation is compacted. For a model reached through OpenRouter whose catalog window is under 170,000 tokens, compaction now starts at 85% of that window instead of at 170,000 tokens, a point such a model never reached. Models whose window is unknown keep the truncation, since it is what delays an overflow for them.
-- Fixed the session list hiding the branch and merge request of job, webhook and chat sessions. A job or issue session that started on the default branch never recorded its branch, and a row's merge request pill only read the merge request a session was scoped to, so a run that opened one showed nothing. Chat runs never recorded their merge request at all, so chat sessions were also missing from merge-request links and filtering. Rows now show the branch a session works on and link the newest merge request its runs opened.
-- Fixed every call to OpenAI GPT-6 models (`gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`, including their OpenRouter slugs) failing with a 400 (`Unsupported parameter: 'temperature'`). DAIV now drops `temperature` for GPT-6. A selected thinking effort, which was previously silently ignored on the OpenAI provider, is now sent to GPT-6: `minimal` maps to `low` because GPT-6 rejects `minimal`, and `xhigh` passes through unchanged. Bare `gpt-6-*` model names now resolve to the OpenAI provider.
-- Fixed the thinking effort sent to OpenAI GPT-5.2–5.6 on the OpenAI provider. **Minimal** was sent unchanged, although none of these models accept it, so it now maps to `low`. **Extra high** was downgraded to `high` even though every one of these models supports `xhigh`, so it is now sent as-is.
-- Fixed schedules that could no longer run still showing as healthy. When a scheduled run was skipped, most often because DAIV couldn't confirm the owner's write access to a repository, the schedule still said **Active** and only a warning reached the logs, so a schedule could stop running for months without anyone noticing. The schedule card now shows **Failing** with the reason, the edit page explains how to fix it, and the owner gets one notification per failing streak (sent even when the schedule is muted). A batch in which every repository fails to start now counts as a failed run instead of a successful one. The failing state clears at the next scheduled run that starts, or when the schedule's repositories are changed.
-- Fixed sandbox containers left running after a run failed or a chat turn was stopped: the container kept running until the session's next turn. DAIV now stops it when the run ends, however it ends, and a turn stopped while its container was still starting no longer leaves that container behind. The one exception is a command the agent started that is still running when the turn is stopped: the sandbox keeps the container busy until the command finishes, and DAIV now logs it as an error instead of treating it as closed.
-- Fixed the sandbox command policy skipping commands inside `if`/`elif`/`else` bodies, `case` arms and after `!`, `time` or `coproc`, so `if true; then git push; fi` ran despite the built-in `git push` block. A leading variable assignment hid a command the same way, so `HUSKY=0 git commit` ran despite the `git commit` block. Both are now checked, and an invocation that is only a `case` statement or a `time`/`!`/`coproc` command (e.g. `time make test`) is no longer rejected as unparseable.
-- Fixed MCP tools rejecting every numeric, boolean, array or object argument on Claude models (`Invalid parameters: [limit]: Expected number, received string`). To keep the prompt cache intact, Claude models receive deferred tool schemas inside `tool_search` results rather than in the API tools list, and Anthropic only types tool-call arguments against tools declared in that list — so every value of a deferred tool call arrived as a string (`"50"`, `"true"`, `"[11, 22]"`). Tools that validate strictly, such as the UptimeRobot MCP server, rejected them no matter how the agent retried. Deferred tool calls now have a string argument decoded before they run wherever the tool's schema declares a non-string type for it; anything else — including values the schema also allows as strings, and non-finite numbers — is left as sent, and a decoding failure never blocks the call.
-- Fixed rate-limited Telegram notifications being thrown away. Telegram answers a flood-controlled send with the number of seconds to wait, which was discarded: the delivery retried on its own fixed 60-second backoff, was rate-limited again, and after three attempts the notification was marked failed and never arrived. The wait Telegram asks for is now honoured as a floor on the retry delay (capped at an hour, so one bad value cannot park a delivery for days).
-- Fixed a failed web search killing an entire agent run. When a search backend was unreachable, `ddgs` raised, and the `web_search` tool let that exception escape — LangGraph re-raises anything a tool raises that is not a schema error, so the whole run aborted and every completed step was discarded, including when the search happened inside a subagent. A backend failure is now returned to the model as an `error:` string — the same convention the bash and fetch tools already use — so it continues without web results instead, and is logged at ERROR so a persistently broken backend is visible to operators instead of silently degrading every run. A search that legitimately matches nothing still reads as an empty result, not a failure. A genuine misconfiguration (unrecognized engine, missing or empty API key) still fails the run.
-- Fixed a follow-up comment on an issue throwing the agent's work away. The second turn re-cloned the repository's default branch while the checkpoint still pointed at the merge request the first turn had opened, so the publish pushed a commit that was a *sibling* of that branch's tip instead of a descendant: the push was rejected, the automatic rebase onto the branch conflicted, and the run failed with "the remote branch moved while DAIV was working" — when nothing but DAIV had ever touched it. The agent had already posted its answer, so the issue was left describing changes that were never committed. Issue sessions now remember the branch they are working on and continue on it, adding to the same merge request; and if a checkpointed merge request ever names a branch other than the one checked out, DAIV opens a fresh branch and merge request rather than pushing onto it — so a turn can no longer be lost this way.
-- Fixed a turn's cost being silently dropped, and the chat context meter losing its ring and percentage, on models routed through OpenRouter. The provider stamps a finish reason on more than one streaming chunk, and LangChain concatenates repeated metadata strings rather than deduping them, so the model name arrived doubled (`z-ai/glm-5.2z-ai/glm-5.2`). That name matches no pricing entry and no context window, so the turn priced as unknown, the session total showed as a floor, one model split into two rows in the usage panel, and a reloaded session reported no known context size. The OpenRouter model now drops the repeated metadata as it streams, so nothing corrupt is written to checkpoints or traces in the first place — on that path this also covers `finish_reason`, `system_fingerprint` and `service_tier`, which doubled the same way. The model name alone is additionally repaired where it is read, which is what covers OpenAI-compatible gateways configured as plain OpenAI providers and sessions recorded before the fix — those collapse their split rows on the next view, though costs already recorded as unknown stay unknown, since the price was never computed.
-- Trimmed the chat usage panel: a model with no resolvable context window no longer prints a sentence saying so (the missing limit and hidden bar already show it), and the Spend section no longer repeats every unpriced model's name in a footnote (each row's `—` marks it, and the `+` on the total marks the floor). Its status glyphs and the context-meter trigger are also correctly aligned now.
-- A session where nothing could be priced no longer reports its spend as `$0.00+`, which read as "almost free" rather than "unknown". The total is now omitted entirely in that case, leaving the token counts and the per-model `—`. A session that genuinely cost nothing, or where at least one model priced, is unchanged.
-- Fixed the pickers and composer sheets opening as a full-screen slab on tablets and on phones in landscape. Below 1100px these are bottom sheets flush to the viewport edges, which is right only while the viewport is the whole content area: from `sm:` up the sidebar is on screen, so the sheet also spanned the nav — and a browser that clips a fixed panel at the scrolling `<main>` it lives in cut the left of every line off mid-word. Sheets are now inset to the content column from `sm:` up, capped at 32rem and centred in what is left. Phones (no sidebar) and desktop (anchored popovers) are unchanged.
-- Fixed the agent answering with nothing in chat whenever it replies without consulting the model — a slash command (`/agents`, `/help`), or the loop breaker stopping a repeated tool call. The AG-UI translator only turns model tokens into the text frames the chat renders, so these replies reached the browser only inside the closing messages snapshot, which the chat ignores, and the turn painted empty. The answer was never lost: reloading the page showed it, because the transcript rebuilds from the checkpoint. Such replies are now streamed as they are produced.
-- Restored pinch-to-zoom on mobile: the viewport no longer sets `maximum-scale=1, user-scalable=no` (a WCAG 1.4.4 accessibility regression on Android Chrome). The two annoyances the lock addressed are now handled without blocking zoom: `touch-action: manipulation` suppresses double-tap-to-zoom, and form controls render at 16px on touch devices so iOS Safari no longer auto-zooms on input focus.
-- Fixed MCP `get_environment` resolving GLOBAL sandbox environments for a credential revoked between authentication and execution; it now rejects the request like every other tool. `get_job_status` no longer leaks the raw exception text to the client when user resolution hits a transient DB error.
-- Fixed MCP bearer-token handling: API-key requests are routed by token shape/type instead of always probing the OAuth table first and overloading `client_id` (an OAuth application whose `client_id` starts with `api-key:` no longer breaks its own tokens), a warning is logged again when an OAuth token disappears between verification and execution, and unexpected resolution errors are logged once instead of twice.
-- Fixed MCP `test_connection` hiding genuinely unexpected errors: connection-level failures still log as warnings without a traceback, but anything else (a bug in our own code) logs with a traceback again.
-- Fixed DAIV never acknowledging a comment on a GitHub pull request with the 👀 reaction: the reaction was posted to the pull-request *review* comment endpoint, but a comment on the pull request conversation is an issue comment, so GitHub rejected every one of them. The agent itself still ran — only the acknowledgement was missing. Failed reactions (both platforms, issues and merge requests) are now logged at error level rather than warning, so they reach monitoring instead of only the container log.
-- Fixed OpenRouter models throwing away their own reasoning between turns: the thinking that led to a tool call was captured for the chat UI but never sent back alongside that call's results, so the model re-derived it from scratch on every turn — at a documented cost of degraded coherence and lost prompt-cache hits. This is the mechanism behind Z.ai's interleaved thinking (GLM-4.5 and later, on by default for GLM-4.7/5.x) and it also carries Anthropic's signed thinking blocks when routing through OpenRouter. Reasoning is now captured on the non-streaming path as well as the streaming one — subagents call `ainvoke`, so previously every subagent turn was reasoning-blind — and echoed back unmodified as `reasoning_details`.
-- Fixed periodic tasks silently stopping forever after a worker died mid-run: their distributed lock was acquired without an expiry, so a holder killed by an OOM, a container replacement, or a host reboot left the lock held permanently, and every later run was skipped while still reporting success. This stranded the repository access sync, whose data then aged past its freshness TTL and emptied the repository pickers for everyone while members lost access to run agents — the staleness backstop could not recover it, because the syncs it enqueued were skipped by the same lock. Locks now always expire. The same defect made every GitHub token fetch on a thread block forever after a crash, and is fixed too.
-- Fixed every agent run and chat turn failing with a 400 (`"thinking.type.enabled" is not supported for this model`) on Claude Opus 4.7, Opus 4.8, Opus 5, Sonnet 5, and Fable 5 whenever a thinking effort was selected: that model generation removed the manual extended-thinking budget and the sampling parameters. DAIV now sends adaptive thinking with `output_config.effort` (and summarized thinking, so reasoning still renders in chat) and drops `temperature` for those models on both the Anthropic and OpenRouter paths. Older models keep the `budget_tokens` behaviour.
-- Fixed the agent losing its work when a long sandbox turn outlived the git-platform token: the publish push runs in-sandbox authenticated by the egress proxy's token, which is minted at turn start and expires (GitHub installation tokens after 1h), so a turn running longer than that (e.g. a dependency bump that runs the test suite repeatedly) failed to push with an authentication error. The publisher now re-mints the token and delivers it onto the live session right before publishing, so the push runs with a fresh credential.
-- Fixed the configured GitLab PAT being embedded in clone URLs, leaking the full-access credential into the workspace's `.git/config` and the sandbox: git clone/push now uses a short-lived, project-scoped token (see the GitLab token entry under Changed).
-- Fixed the agent failing to publish after a non-fast-forward push rejection, and failing when the source branch is protected (it now opens a new MR).
-- Fixed `web_fetch` to limit same-host redirects (max 5) and re-validate SSRF protection on each redirect, preventing redirect loops and DNS rebinding.
-- Fixed `PullRequestMetadata.branch` validation accepting invalid branch names (e.g. with spaces or uppercase) through an incomplete regex.
-- Fixed `/clear` not dropping the agent's in-memory conversation history.
-- Fixed intermittent database reconnects on some deployments by adding libpq TCP keepalives.
-- Fixed `__version__` in `daiv/daiv/__init__.py` reporting `1.1.0` instead of the released version.
-- Fixed `set -eu pipefail` in shell scripts — `pipefail` is not valid in POSIX `#!/bin/sh`.
-- Fixed the agent's step-budget, repeated-tool-call and empty-reply reminders vanishing from the conversation after the call that carried them, which restarted the prompt cache and could invalidate thinking blocks on Claude models. Reminders now stay in the conversation but are hidden from the session transcript, and the step-budget reminder is sent once per band (warning, then finalize) instead of on every call.
-- Fixed sandbox paths such as `/workspace/repo/daiv/x.py` appearing in what DAIV posts: replies on issues and merge requests, notes, discussions and release notes posted through the GitLab and GitHub tools, and merge-request titles and descriptions now show repo-relative paths. A URL whose path contains `/workspace/repo/` is left intact.
-- Chat runs now honour the site's agent recursion limit instead of a fixed 500.
-- A DAIV mention on a merge or pull request labelled `daiv-max` now runs on the max model instead of the default one.
-- CI fix runs now use the model and thinking level of the session they fix, falling back to the default when that model can no longer be used. A `daiv-max` session whose max thinking level is Off still gets the agent thinking level on these runs.
-- The site thinking levels (agent and daiv-max) can now be set to Off in the settings UI; an empty value used to fall back to the default although the help text said it disabled thinking. Values saved before this release keep their behaviour. The thinking-level environment variables now accept `off` and ignore case; `High` used to disable thinking.
+- Add a web dashboard, signed in with a GitLab or GitHub account, an emailed code or a passkey, with admin and member roles ([#993](https://github.com/srtab/daiv/pull/993), [#1559](https://github.com/srtab/daiv/pull/1559))
+- Add sessions: every run, whether started from chat, a webhook, the Jobs API, MCP or a schedule, is a session you can watch live, continue, retry, stop and archive in the dashboard ([#1374](https://github.com/srtab/daiv/pull/1374), [#1691](https://github.com/srtab/daiv/pull/1691))
+- Give a webhook's session to the DAIV user who signed in with the author's GitLab or GitHub account, who then gets its notifications ([#1744](https://github.com/srtab/daiv/pull/1744))
+- Add a dashboard chat that works on one or more repositories, with a model and thinking-level picker, a context and spend meter, and slash-command completion ([#859](https://github.com/srtab/daiv/pull/859), [#1764](https://github.com/srtab/daiv/pull/1764))
+- Add a **Home** page listing what needs you, and a **Team insights** page with run and code-velocity trends ([#1708](https://github.com/srtab/daiv/pull/1708), [#1710](https://github.com/srtab/daiv/pull/1710))
+- Add the Jobs API (`POST /api/jobs`, `GET /api/jobs/{id}`) to run the agent from code on up to 20 repositories per batch, rate-limited per user by `DAIV_JOBS_THROTTLE_RATE` ([#987](https://github.com/srtab/daiv/pull/987), [#1123](https://github.com/srtab/daiv/pull/1123))
+- Add an MCP server at `/mcp/`, authenticated with OAuth 2.0 or a DAIV API key, whose tools submit, schedule and follow jobs and list repositories and sandbox environments ([#1014](https://github.com/srtab/daiv/pull/1014), [#1352](https://github.com/srtab/daiv/pull/1352))
+- Add scheduled jobs: recurring and one-off schedules, templates, subscribers and **Run now** ([#1030](https://github.com/srtab/daiv/pull/1030), [#1213](https://github.com/srtab/daiv/pull/1213))
+- Add notifications by email, in the dashboard, Rocket.Chat and Telegram, sent when a run found issues, needs attention or failed, as judged by a run classifier ([#1520](https://github.com/srtab/daiv/pull/1520), [#1523](https://github.com/srtab/daiv/pull/1523))
+- Add **Configuration** pages where admins set models, providers, web search and fetch, sandbox defaults, feature flags and rate limits without redeploying ([#1022](https://github.com/srtab/daiv/pull/1022), [#1195](https://github.com/srtab/daiv/pull/1195))
+- Add sandbox environments, global or personal and assigned to repositories, each with its own image, resources, environment variables and egress allow-list with per-host credentials ([#1194](https://github.com/srtab/daiv/pull/1194), [#1331](https://github.com/srtab/daiv/pull/1331))
+- Add per-user repository access mirrored from GitLab or GitHub: members see the repositories they can read and run the agent where they can write ([#1365](https://github.com/srtab/daiv/pull/1365))
+- Add MCP server management in the dashboard, global for admins and personal for members, with **Test connection**, tool filters and per-session switches ([#1256](https://github.com/srtab/daiv/pull/1256), [#1472](https://github.com/srtab/daiv/pull/1472))
+- Add the `bootstrap_admin` command to create the first admin of a fresh install ([#1093](https://github.com/srtab/daiv/pull/1093))
+- Add custom global skills, uploaded in the dashboard as zip packages or mounted at `DAIV_AGENT_CUSTOM_SKILLS_PATH`, with per-skill usage; a custom skill shadows a built-in of the same name ([#1250](https://github.com/srtab/daiv/pull/1250), [#1253](https://github.com/srtab/daiv/pull/1253))
+- Add custom subagents per repository, from Markdown files in `.agents/subagents/` ([#972](https://github.com/srtab/daiv/pull/972))
+- Add skill and subagent models by name, set in the dashboard, `DAIV_AGENT_SKILL_MODELS` / `DAIV_AGENT_SUBAGENT_MODELS`, or `models.skills` / `models.subagents` in `.daiv.yml` ([#1727](https://github.com/srtab/daiv/pull/1727))
+- Add repository memory: the agent records what it learns in runs, consolidates it per repository and recalls it later; it is on by default, and turned off with `DAIV_MEMORY_ENABLED` or `memory.enabled` in `.daiv.yml` ([#1308](https://github.com/srtab/daiv/pull/1308), [#1461](https://github.com/srtab/daiv/pull/1461))
+- Add run artifacts: the agent publishes and revises files it generates, such as reports and charts, shown in its session and on an **Artifacts** page ([#1573](https://github.com/srtab/daiv/pull/1573), [#1628](https://github.com/srtab/daiv/pull/1628))
+- Let the agent stop and ask you a question, in chat, as an issue or merge request comment, or as a job in `WAITING_INPUT` ([#1582](https://github.com/srtab/daiv/pull/1582))
+- Add pipeline watch: after DAIV publishes a merge request it watches CI and tries to fix a failing pipeline, up to `DAIV_PIPELINE_WATCH_MAX_ATTEMPTS` runs; it is on by default, and turned off with `DAIV_PIPELINE_WATCH_ENABLED` or `pipeline_watch.enabled` in `.daiv.yml` ([#1529](https://github.com/srtab/daiv/pull/1529))
+- Add orchestration: the agent delegates tailored jobs to other repositories or new sessions with `delegate_jobs`, and resumes with their results; turn it off with `orchestration.enabled` in `.daiv.yml` ([#1677](https://github.com/srtab/daiv/pull/1677), [#1781](https://github.com/srtab/daiv/pull/1781))
+- Add multi-repository sessions that work across up to 5 repositories and open one linked merge request per changed repository ([#1700](https://github.com/srtab/daiv/pull/1700))
+- Add runs without a repository ([#1192](https://github.com/srtab/daiv/pull/1192))
+- Add a session inbox: mentions on a merge request a session owns, its CI failures and messages sent while it is busy go to that session's next run ([#1744](https://github.com/srtab/daiv/pull/1744))
+- Archive every session that worked on a merge request when it merges ([#1825](https://github.com/srtab/daiv/pull/1825))
+- Resume a session whose checkpoint expired from its archive in Postgres, and export archives with `export_session_archives` ([#1649](https://github.com/srtab/daiv/pull/1649))
+- Let the agent merge a branch into the one it works on and resolve the conflicts ([#1615](https://github.com/srtab/daiv/pull/1615))
+- Let the agent create GitHub releases with `gh release create` ([#1545](https://github.com/srtab/daiv/pull/1545))
+- Choose the agent model and thinking level per run, in chat, schedules and jobs ([#1254](https://github.com/srtab/daiv/pull/1254))
+- Support Claude 5 and GPT-6 models, and an **Extra high** (`xhigh`) thinking level ([#1405](https://github.com/srtab/daiv/pull/1405), [#1254](https://github.com/srtab/daiv/pull/1254))
+- Add a per-request timeout and retry count for LLM calls, `DAIV_MODEL_REQUEST_TIMEOUT_SECONDS` (120) and `DAIV_MODEL_MAX_RETRIES` (2) ([#1740](https://github.com/srtab/daiv/pull/1740))
+- Add deferred tool loading: the agent starts with a small tool set and loads MCP and other tools when a task needs them ([#1140](https://github.com/srtab/daiv/pull/1140), [#1465](https://github.com/srtab/daiv/pull/1465))
+- Show the images and files a tool returns in the session transcript, and let the agent open base64 files an MCP server returns ([#1782](https://github.com/srtab/daiv/pull/1782), [#1736](https://github.com/srtab/daiv/pull/1736))
+- Add SearXNG as a web-search backend ([#1779](https://github.com/srtab/daiv/pull/1779)) (Tobi)
+- Read one section of a page with `web_fetch` by passing its URL `#fragment` ([#1752](https://github.com/srtab/daiv/pull/1752))
+- Track token usage and cost per run and session ([#1077](https://github.com/srtab/daiv/pull/1077), [#1776](https://github.com/srtab/daiv/pull/1776))
+- Link the merge requests DAIV opens to their session, with a `DAIV-Session` commit trailer; turn it off with `DAIV_SESSION_LINK_ENABLED` or `session_link` in `.daiv.yml` ([#1497](https://github.com/srtab/daiv/pull/1497))
+- Accept up to 20 external `references` on Jobs API and MCP jobs, linked from the merge request with the platform's closing syntax ([#1527](https://github.com/srtab/daiv/pull/1527))
+- Add `allowed_usernames` to `.daiv.yml` to restrict who can trigger DAIV in a repository ([#948](https://github.com/srtab/daiv/pull/948))
+- Suggest an `AGENTS.md` when DAIV opens a merge request in a repository without one; turn it off with `DAIV_SUGGEST_CONTEXT_FILE_ENABLED` or `suggest_context_file` in `.daiv.yml` ([#970](https://github.com/srtab/daiv/pull/970))
+- Add `DAIV_TITLING_MODEL_NAME` and `DAIV_TITLING_FALLBACK_MODEL_NAME` for the model that titles sessions ([#1150](https://github.com/srtab/daiv/pull/1150))
+- Add the `--update` and `--repo-id` options to `setup_webhooks` ([#943](https://github.com/srtab/daiv/pull/943))
+- Add the `setup_langsmith_dashboard` command and model metadata on LangSmith traces ([#988](https://github.com/srtab/daiv/pull/988))
+- Add SMTP settings for sending email (`EMAIL_HOST` and related variables) ([#999](https://github.com/srtab/daiv/pull/999))
+- Stamp images with their commit and build date, shown in the sidebar and at `/-/version/`, and publish an immutable `sha-` image tag per commit ([#1482](https://github.com/srtab/daiv/pull/1482))
+- Add a public homepage and comparison pages for signed-out visitors, with optional cookieless Umami analytics (`DAIV_UMAMI_WEBSITE_ID`) ([#994](https://github.com/srtab/daiv/pull/994), [#1826](https://github.com/srtab/daiv/pull/1826))
+- Add `DJANGO_SESSION_COOKIE_NAME` so several instances on one host keep separate sign-ins ([#1733](https://github.com/srtab/daiv/pull/1733))
+- Add a Quickstart guide that runs DAIV on one machine with Docker Compose ([#1791](https://github.com/srtab/daiv/pull/1791))
 
 ### Removed
 
-- **Breaking:** The explore model settings (`DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME`, the explore fields in site configuration and, after a deprecation period, `DAIV_AGENT_EXPLORE_MODEL_NAME`). The explore subagent is set like any other, with an `explore` entry in the subagent models; an explore model saved in site configuration moves there on upgrade. Until it is removed, `DAIV_AGENT_EXPLORE_MODEL_NAME` is read as the `explore` entry when there is none, logged at ERROR. Explore still defaults to Claude Haiku 5.5, without thinking; an `explore` entry runs with the run's thinking level, like any subagent entry. Explore now falls back to the main agent's fallback models, and a saved explore fallback model is dropped, with a warning logged by the migration. **Upgrade note:** move `DAIV_AGENT_EXPLORE_MODEL_NAME` into `DAIV_AGENT_SUBAGENT_MODELS` as `{"explore": "<model>"}` and unset `DAIV_AGENT_EXPLORE_FALLBACK_MODEL_NAME`; `django-admin check` reports either one still set as `core.W001`.
-- **Breaking:** `CODEBASE_CLIENT=swe` is no longer accepted; only `gitlab` and `github` are. The SWE-bench client now lives in `evals/` and the eval passes it to each run itself (run the eval with `python -m evals.swebench`).
-- The unused `GET /api/codebase/repositories/search` endpoint, along with the `repoSearch` Alpine component it fed. Both were superseded by the HTMX repository picker and had no remaining callers.
-- **Breaking:** Removed the `mcp-proxy` container, its API configuration endpoint, and the `MCP_PROXY_HOST`/`MCP_PROXY_ADDR`/`MCP_PROXY_AUTH_TOKEN`/`MCP_CONFIG_API_KEY` settings. MCP servers are managed as database rows from the dashboard; existing `docker-compose.yml` and stack files must be updated.
-- Removed the `sandbox:` block from `.daiv.yml` — sandbox runtime is configured exclusively through Sandbox Environments in the dashboard.
-- Removed the deployment-level `DAIV_SANDBOX_BASE_IMAGE`, `DAIV_SANDBOX_CPU`, and `DAIV_SANDBOX_MEMORY` settings — manage runtime values through the Sandbox Environments UI (`DAIV_SANDBOX_TIMEOUT` and `DAIV_SANDBOX_API_KEY` remain).
-- Removed GPT-4.1-mini, GPT-4.1, and GPT-5.2 from the model catalog; added GPT-5.4, GPT-5.4-mini, Z-AI GLM-5-turbo, and MiniMax M2-7.
+- **Breaking:** Remove `GET /api/models` and `GET /api/models/{id}`, the OpenAI-compatible model list ([#859](https://github.com/srtab/daiv/pull/859))
+- **Breaking:** Remove the `mcp-proxy` service, `GET /api/automation/mcp-proxy/config/` and the `MCP_PROXY_*`, `MCP_SENTRY_*` and `MCP_CONTEXT7_*` settings; Sentry and Context7 are now MCP servers you manage in the dashboard ([#957](https://github.com/srtab/daiv/pull/957), [#1256](https://github.com/srtab/daiv/pull/1256))
+- **Breaking:** Remove `DAIV_SANDBOX_BASE_IMAGE`, `DAIV_SANDBOX_CPU`, `DAIV_SANDBOX_MEMORY`, `DAIV_SANDBOX_EPHEMERAL`, `DAIV_SANDBOX_NETWORK_ENABLED` and the `.daiv.yml` `sandbox:` block, which sandbox environments replace ([#1194](https://github.com/srtab/daiv/pull/1194), [#1331](https://github.com/srtab/daiv/pull/1331))
+- **Breaking:** Remove `OPENROUTER_API_BASE`, which the OpenRouter provider's base URL replaces ([#1195](https://github.com/srtab/daiv/pull/1195))
+- **Breaking:** Remove the `/clone-to-topics` slash command ([#1754](https://github.com/srtab/daiv/pull/1754))
+- **Breaking:** Stop accepting `CODEBASE_CLIENT=swe`; only `gitlab` and `github` are valid ([#1683](https://github.com/srtab/daiv/pull/1683))
+
+### Fixed
+
+- Refuse agent file-tool writes under `.git`, and run DAIV's host-side git without hooks, fsmonitor or external diff, closing a prompt-injection path to the worker ([#1676](https://github.com/srtab/daiv/pull/1676))
+- Fix `web_fetch` following unlimited same-host redirects without checking SSRF protection again; it now follows at most 5 and checks each one ([#971](https://github.com/srtab/daiv/pull/971))
+- Fix the sandbox command policy skipping commands inside `if`, `case`, `!`, `time` or `coproc`, or after a variable assignment, so a blocked command such as `git push` could run ([#1581](https://github.com/srtab/daiv/pull/1581))
+- Reject API keys that belong to deactivated users ([#1365](https://github.com/srtab/daiv/pull/1365))
+- Fix webhook duplicate suppression, so a redelivered webhook or an edited comment that mentions DAIV no longer starts another run ([#1670](https://github.com/srtab/daiv/pull/1670))
+- Fix a failed web search ending the whole run; the agent now continues without results and the failure is logged at ERROR ([#1542](https://github.com/srtab/daiv/pull/1542))
+- Fix an MCP tool call that fails before the server answers ending the whole run; the agent now gets a failed tool result ([#1722](https://github.com/srtab/daiv/pull/1722))
+- Fix publishing failing after a non-fast-forward push rejection, and open a new merge request when the source branch is protected ([#1349](https://github.com/srtab/daiv/pull/1349), [#1183](https://github.com/srtab/daiv/pull/1183))
+- Fix publishing failing after ten branch-name collisions, by adding a random suffix to a taken name ([#1438](https://github.com/srtab/daiv/pull/1438))
+- Fix DAIV on GitHub failing to push changes under `.github/workflows/` when the GitHub App has the **Workflows** permission ([#1721](https://github.com/srtab/daiv/pull/1721))
+- Mark a draft GitHub pull request ready for review after DAIV pushes changes to it, as on GitLab ([#1655](https://github.com/srtab/daiv/pull/1655))
+- Post the "unable to address" comment when an issue or merge request run fails before the agent starts, such as on a clone failure ([#1572](https://github.com/srtab/daiv/pull/1572))
+- Accept webhook payloads up to 10 MB, so large GitLab events are no longer rejected ([#1047](https://github.com/srtab/daiv/pull/1047))
+- Fix `/clear` not dropping the conversation history ([#1267](https://github.com/srtab/daiv/pull/1267))
+- Fix a mention on a merge request labelled `daiv-max` running on the default model instead of the max model ([#1650](https://github.com/srtab/daiv/pull/1650))
+- Fix `.daiv.yml` `models.diff_to_metadata` being ignored ([#1611](https://github.com/srtab/daiv/pull/1611))
+- Fix `context_file_name: null` in `.daiv.yml` loading a file named `None` from the repository root as instructions ([#1613](https://github.com/srtab/daiv/pull/1613))
+- Fix the agent writing user feedback into the repository's `AGENTS.md`, which could put an `AGENTS.md` edit in the merge request ([#1613](https://github.com/srtab/daiv/pull/1613))
+- Fix the agent cutting long tool-call arguments in its earlier messages, which reset the prompt cache, on models whose context window is known ([#1613](https://github.com/srtab/daiv/pull/1613))
+- Fix Claude models on OpenRouter running without extended thinking ([#1652](https://github.com/srtab/daiv/pull/1652))
+- Fix OpenRouter models losing their reasoning between turns, such as GLM's interleaved thinking and Anthropic's thinking blocks ([#1451](https://github.com/srtab/daiv/pull/1451))
+- Fix the **Minimal** thinking level failing on OpenAI GPT-5 models, which now receive `low` ([#1595](https://github.com/srtab/daiv/pull/1595))
+- Fix `web_fetch` returning its summarising model's raw output, reasoning included, when that model replies in content blocks, as OpenAI models on the Responses API do ([#1752](https://github.com/srtab/daiv/pull/1752))
+- Fix the `gh` and `gitlab` tools dropping a failed command's standard output ([#1654](https://github.com/srtab/daiv/pull/1654))
+- Fix sandbox containers left running after a run fails or is stopped ([#1588](https://github.com/srtab/daiv/pull/1588))
+- Fix a worker that died while fetching a GitHub token blocking every later token fetch ([#1435](https://github.com/srtab/daiv/pull/1435))
+- Fix intermittent database reconnects by enabling libpq TCP keepalives, tuned with `DB_KEEPALIVES_*` ([#1157](https://github.com/srtab/daiv/pull/1157))
 
 ## [2.0.0] - 2026-03-14
 
-### Added
-
-- Added `create_api_key` management command to create API keys from the command line without opening a Django shell.
-- Added `/agents` slash command to list all available sub-agents with their names and descriptions.
-- Added `/clear` slash command to reset conversation context in issues and merge requests.
-- Added code review, security audit, plan, and skill creator builtin skills for structured guidance during agent execution.
-- Added a deduplicating Django Tasks backend to prevent duplicate async task execution.
-- Added support for issue labels to configure agent behavior:
-  - `daiv-auto`: Automatically approve the plan and proceed with implementation without manual approval.
-  - `daiv-max`: Use high-performance mode with a more capable model and higher thinking level.
-- Added `MAX_MODEL_NAME` and `MAX_THINKING_LEVEL` configuration settings for high-performance mode.
-- Added `django-crontask` integration and scheduler service for periodic tasks, including automatic webhook setup for GitLab.
-- Added GitHub CLI (`gh`) and GitLab specialized tools for git platform operations.
-- Added support for `.agents/skills` directory as an additional location for project-specific skills.
-- Added `web_fetch` tool with SSRF protection (multicast and IPv6 checks), replacing the MCP fetch tool.
-- Added configurable command policy for the sandbox `bash` tool, allowing repositories to define allowed and disallowed commands via `.daiv.yml`.
-- Added Context7 MCP server integration for up-to-date library documentation lookups.
-- Added support for inline comments on merge request reviews.
-- Added the ability for the Review Addressor to push code changes directly to the repository as a draft merge request.
-- Added per-repository model configuration support through the `models` section in `.daiv.yml`.
-- Added Sentry AI integrations for Anthropic, OpenAI, Google GenAI, LangChain, and LangGraph tracing.
-- Added configurable Sentry settings: `SENTRY_TRACES_SAMPLE_RATE`, `SENTRY_PROFILES_SAMPLE_RATE`, and `SENTRY_SEND_DEFAULT_PII`.
-- Added support for `claude-opus-4.6`, `claude-sonnet-4.6`, `gpt-5.2`, `gpt-5.3-codex`, `glm-5`, `minimax-m2.5`, and `kimi-k2.5` models.
-
 ### Changed
 
-- Integrated the `deepagents` library to power the core agent framework, replacing the custom `PlanAndExecuteAgent`, `CodebaseChatAgent`, and `PullRequestDescriberAgent` implementations with a unified middleware-based architecture.
-- Migrated agent checkpoints from Postgres to Redis to prevent sub-agent hangs during concurrent execution.
-- Migrated background processing from Celery to Django Tasks using the `django-tasks` database backend.
-- Migrated pre-commit tooling to prek.
-- Migrated type checking from mypy to ty.
-- Updated issue addressing to accept DAIV trigger labels (`daiv`, `daiv-auto`, `daiv-max`) to launch the agent, with `daiv-auto` enabling auto-approval mode. **BREAKING CHANGE**: Issue title prefix (`DAIV:`) is no longer supported as a trigger. Use labels instead.
-- Completely rewrote the pull request metadata generation as the `diff_to_metadata` module with improved structure, including `AGENTS.md` context integration.
-- Updated default models to `claude-sonnet-4.6` and `gpt-5.3-codex`.
-- Deferred sandbox session creation until the first `bash` tool invocation.
-- Changed base sandbox image to include the `git` command.
-- Migrated Anthropic prompt caching to automatic cache control for OpenRouter.
-- Updated Redis configuration to use persistence (`appendonly yes`) with memory limits.
-- Increased default worker replicas to 2.
-- Updated merge request creation to return full metadata, including web URLs, for GitHub and GitLab clients.
-- Renamed `quick_actions` module to `slash_commands` and merged behavior with skills system.
-- Improved documentation for Review Addressor, Slash Commands, and Issue Addressor with clearer examples and configuration guides.
+- **Breaking:** Trigger issue addressing with the DAIV labels (`daiv`, `daiv-auto`, `daiv-max`), with `daiv-auto` enabling auto-approval mode. The issue title prefix (`DAIV:`) no longer triggers the agent; use labels instead.
+- Integrate the `deepagents` library to power the core agent framework, replacing the custom `PlanAndExecuteAgent`, `CodebaseChatAgent`, and `PullRequestDescriberAgent` implementations with a unified middleware-based architecture.
+- Migrate agent checkpoints from Postgres to Redis to prevent sub-agent hangs during concurrent execution.
+- Migrate background processing from Celery to Django Tasks using the `django-tasks` database backend.
+- Migrate pre-commit tooling to prek.
+- Migrate type checking from mypy to ty.
+- Rewrite the pull request metadata generation as the `diff_to_metadata` module with improved structure, including `AGENTS.md` context integration.
+- Update default models to `claude-sonnet-4.6` and `gpt-5.3-codex`.
+- Defer sandbox session creation until the first `bash` tool invocation.
+- Change the base sandbox image to include the `git` command.
+- Migrate Anthropic prompt caching to automatic cache control for OpenRouter.
+- Update Redis configuration to use persistence (`appendonly yes`) with memory limits.
+- Increase default worker replicas to 2.
+- Return full metadata, including web URLs, when creating merge requests with the GitHub and GitLab clients.
+- Rename the `quick_actions` module to `slash_commands` and merge its behavior with the skills system.
+- Improve documentation for Review Addressor, Slash Commands, and Issue Addressor with clearer examples and configuration guides.
 
-### Fixed
+### Added
 
-- Fixed health check endpoints (`/-/alive/`) generating irrelevant Sentry transactions by adding a `traces_sampler` function.
-- Fixed handling of empty GitHub repositories when reading config files; the client now gracefully returns `None` instead of raising an exception.
+- Add `create_api_key` management command to create API keys from the command line without opening a Django shell.
+- Add `/agents` slash command to list all available sub-agents with their names and descriptions.
+- Add `/clear` slash command to reset conversation context in issues and merge requests.
+- Add code review, security audit, plan, and skill creator builtin skills for structured guidance during agent execution.
+- Add a deduplicating Django Tasks backend to prevent duplicate async task execution.
+- Add support for issue labels to configure agent behavior:
+  - `daiv-auto`: Automatically approve the plan and proceed with implementation without manual approval.
+  - `daiv-max`: Use high-performance mode with a more capable model and higher thinking level.
+- Add `MAX_MODEL_NAME` and `MAX_THINKING_LEVEL` configuration settings for high-performance mode.
+- Add `django-crontask` integration and scheduler service for periodic tasks, including automatic webhook setup for GitLab.
+- Add GitHub CLI (`gh`) and GitLab specialized tools for git platform operations.
+- Add support for the `.agents/skills` directory as an additional location for project-specific skills.
+- Add `web_fetch` tool with SSRF protection (multicast and IPv6 checks), replacing the MCP fetch tool.
+- Add configurable command policy for the sandbox `bash` tool, allowing repositories to define allowed and disallowed commands via `.daiv.yml`.
+- Add Context7 MCP server integration for up-to-date library documentation lookups.
+- Add support for inline comments on merge request reviews.
+- Let the Review Addressor push code changes directly to the repository as a draft merge request.
+- Add per-repository model configuration support through the `models` section in `.daiv.yml`.
+- Add Sentry AI integrations for Anthropic, OpenAI, Google GenAI, LangChain, and LangGraph tracing.
+- Add configurable Sentry settings: `SENTRY_TRACES_SAMPLE_RATE`, `SENTRY_PROFILES_SAMPLE_RATE`, and `SENTRY_SEND_DEFAULT_PII`.
+- Add support for `claude-opus-4.6`, `claude-sonnet-4.6`, `gpt-5.2`, `gpt-5.3-codex`, `glm-5`, `minimax-m2.5`, and `kimi-k2.5` models.
 
 ### Removed
 
-- Removed builtin `maintaining-changelog` skill.
-- Removed `PlanAndExecuteAgent`, `CodebaseChatAgent`, and `PullRequestDescriberAgent` classes, replaced by the `deepagents`-based agent framework.
-- Removed `pull_request.branch_name_convention` from `.daiv.yml`. **BREAKING CHANGE**: Branch name convention must now be defined in the `AGENTS.md` file instead.
-- Removed Celery worker configuration and bootstrap scripts.
-- Removed the `quick_actions` Django app in favor of the `slash_commands` module.
-- Removed support for `gpt-5.1`, `gpt-5.1-codex`, `deepseek-v3.1-terminus`, `gemini-2.5-pro`, `grok-code-fast-1`, `glm-4.6`, `qwen3-max`, `qwen3-coder-plus`, `kimi-k2-thinking`, and `minimax-m2` models.
-
-## [1.1.0] - 2025-12-04
-
-### Added
-
-- Added Agent Skills system implementing Anthropic's progressive disclosure pattern.
-- Added `creating-agents-md-file` skill to help generate `AGENTS.md` files for repositories, following the [AGENTS.md](https://agents.md/) format.
-- Added `maintaining-changelog` skill to help maintain changelog files for pull requests, following existing format conventions or creating new files using Keep a Changelog format.
-- Added `creating-daiv-yml-config` skill to help create `.daiv.yml` configuration files with sandbox settings (base_image and format_code commands) based on repository content.
-- Added chunked reading capability to `read_tool` with `start_line` and `max_lines` parameters. The tool now supports reading files in segments rather than loading entire file contents, limiting output to a default maximum of 2000 lines. When content is truncated, a message indicates the range shown and total lines available, guiding further reads. This addresses the issue of costly full-file reads for large files.
-- Added `SWERepoClient` to support SWE-bench style evaluations with public OSS repositories. This client clones repositories to temporary directories without requiring credentials and is designed for automated testing scenarios.
-- Added support to `gpt-5.1`, `gpt-5.1-codex`, `gpt-5.1-codex-mini` models from OpenAI.
-- Added OpenRouter support to Anthropic caching middleware, reducing costs.
-- Added `FileNavigationMiddleware`, `FileEditingMiddleware`, `MergeRequestMiddleware` and `WebSearchMiddleware` in replacement of toolkits, leveraging LangChain v1 middlewares capabilities to inject the system prompt and tools into the model call.
-- Added `EXECUTION_THINKING_LEVEL` configuration to `PlanAndExecuteAgent` to allow users to enable thinking for execution tasks.
-- Added `/clone-to-topic` quick action to clone issues to all repositories matching specified topics, enabling bulk distribution of issues across multiple repositories.
-
-### Changed
-
-- Changed default model for `PlanAndExecuteAgent` to `gpt-5.1` and `gpt-5.1-codex-mini` for planning fallback and code review respectively.
-- Improved `PlanAndExecuteAgent` planning output to be more structured and easier to human understand.
-- Improved `PlanAndExecuteAgent` planning prompts with "Code minimalism" guidelines to prevent over-engineering and unnecessary changes.
-- Migrated all prompt templates from Jinja2 to Mustache format to prevent code injection attacks.
-- Replaced `plan_think_tool` with `TodoListMiddleware` to allow the agent to maintain a todo list of the tasks to be completed during the planning phase.
+- **Breaking:** Remove `pull_request.branch_name_convention` from `.daiv.yml`; define the branch name convention in the `AGENTS.md` file instead.
+- Remove builtin `maintaining-changelog` skill.
+- Remove `PlanAndExecuteAgent`, `CodebaseChatAgent`, and `PullRequestDescriberAgent` classes, replaced by the `deepagents`-based agent framework.
+- Remove Celery worker configuration and bootstrap scripts.
+- Remove the `quick_actions` Django app in favor of the `slash_commands` module.
+- Remove support for `gpt-5.1`, `gpt-5.1-codex`, `deepseek-v3.1-terminus`, `gemini-2.5-pro`, `grok-code-fast-1`, `glm-4.6`, `qwen3-max`, `qwen3-coder-plus`, `kimi-k2-thinking`, and `minimax-m2` models.
 
 ### Fixed
 
-- Fixed `format_code_tool` to properly apply the patch to the repository even when the command fails.
-- Fixed inclusion of `.git` directory in the sandbox archive, preventing the agent from accessing the repository and reducing archive size.
-- Fixed `InvalidNamespaceError` when branch names contain periods (e.g., `fix/python-version-3.11`) by sanitizing namespace labels for LangGraph store.
-- Fixed `PlanAndExecuteAgent` to use `ToolStrategy` for execution tasks instead of `AutoStrategy` to handle union types.
+- Fix health check endpoints (`/-/alive/`) generating irrelevant Sentry transactions by adding a `traces_sampler` function.
+- Fix handling of empty GitHub repositories when reading config files; the client now gracefully returns `None` instead of raising an exception.
 
-## [1.0.0] - 2025-11-17
+## [1.1.0] - 2025-12-04
+
+### Changed
+
+- Change default model for `PlanAndExecuteAgent` to `gpt-5.1` and `gpt-5.1-codex-mini` for planning fallback and code review respectively.
+- Improve `PlanAndExecuteAgent` planning output to be more structured and easier to human understand.
+- Improve `PlanAndExecuteAgent` planning prompts with "Code minimalism" guidelines to prevent over-engineering and unnecessary changes.
+- Migrate all prompt templates from Jinja2 to Mustache format to prevent code injection attacks.
+- Replace `plan_think_tool` with `TodoListMiddleware` to allow the agent to maintain a todo list of the tasks to be completed during the planning phase.
 
 ### Added
 
-- Added support to `github` client type to allow users to use GitHub as the client for the codebase.
-- Added to `PlanAndExecuteAgent` the capability to:
+- Add Agent Skills system implementing Anthropic's progressive disclosure pattern.
+- Add `creating-agents-md-file` skill to help generate `AGENTS.md` files for repositories, following the [AGENTS.md](https://agents.md/) format.
+- Add `maintaining-changelog` skill to help maintain changelog files for pull requests, following existing format conventions or creating new files using Keep a Changelog format.
+- Add `creating-daiv-yml-config` skill to help create `.daiv.yml` configuration files with sandbox settings (base_image and format_code commands) based on repository content.
+- Add chunked reading capability to `read_tool` with `start_line` and `max_lines` parameters. The tool now supports reading files in segments rather than loading entire file contents, limiting output to a default maximum of 2000 lines. When content is truncated, a message indicates the range shown and total lines available, guiding further reads. This addresses the issue of costly full-file reads for large files.
+- Add `SWERepoClient` to support SWE-bench style evaluations with public OSS repositories. This client clones repositories to temporary directories without requiring credentials and is designed for automated testing scenarios.
+- Add support for `gpt-5.1`, `gpt-5.1-codex`, `gpt-5.1-codex-mini` models from OpenAI.
+- Add OpenRouter support to Anthropic caching middleware, reducing costs.
+- Add `FileNavigationMiddleware`, `FileEditingMiddleware`, `MergeRequestMiddleware` and `WebSearchMiddleware` in replacement of toolkits, leveraging LangChain v1 middlewares capabilities to inject the system prompt and tools into the model call.
+- Add `EXECUTION_THINKING_LEVEL` configuration to `PlanAndExecuteAgent` to allow users to enable thinking for execution tasks.
+- Add `/clone-to-topic` quick action to clone issues to all repositories matching specified topics, enabling bulk distribution of issues across multiple repositories.
+
+### Fixed
+
+- Fix `format_code_tool` to properly apply the patch to the repository even when the command fails.
+- Fix inclusion of `.git` directory in the sandbox archive, preventing the agent from accessing the repository and reducing archive size.
+- Fix `InvalidNamespaceError` when branch names contain periods (e.g., `fix/python-version-3.11`) by sanitizing namespace labels for LangGraph store.
+- Fix `PlanAndExecuteAgent` to use `ToolStrategy` for execution tasks instead of `AutoStrategy` to handle union types.
+
+## [1.0.0] - 2025-11-17
+
+### Changed
+
+- **Breaking:** Limit `CodebaseChatAgent` to answering questions about one repository at a time, given by the repository id passed as a header. This is a direct consequence of removing codebase indexation, which made answering questions about several repositories at once difficult.
+- **Breaking:** Refactor the repository configuration file schema to be more flexible and easier to use.
+- **Breaking:** Activate the `help` quick action as `@daiv /help` instead of `@daiv help`.
+- **Breaking:** Activate the `plan execute` quick action as `@daiv /approve-plan` instead of `@daiv plan execute`.
+- **Breaking:** Activate the `plan revise` quick action as `@daiv /revise-plan` instead of `@daiv plan revise`.
+- Fix async Celery tasks to properly handle Django connection pooling by implementing `ThreadSensitiveContext` wrapper and worker process signal handlers, preventing connection pool exhaustion.
+- Migrate LangChain and LangGraph to v1.x with updated imports and API patterns.
+- Improve planning prompt of `PlanAndExecuteAgent` to deal better with asking for clarification, ensuring the agent will ask questions contextualized to the current state of the codebase.
+- Change `PullRequestDescriberAgent` to use diffs to describe the changes instead of commit messages, making it more accurate and concise.
+- Replace repository read tools `search_code_snippets`, `retrieve_file_content`, and `repository_structure` with the new `glob`, `grep`, `ls`, and `read` tools.
+- Replace repository write tools `create_new_repository_file`, `replace_snippet_in_file`, `rename_repository_file` and `delete_repository_file` with the new `write`, `edit`, `delete` and `rename` tools.
+- Replace sandbox tools `run_sandbox_commands` and `run_sandbox_code` with the new `bash` tool.
+- Replace LLM-based image extraction in `PlanAndExecuteAgent` with regex-based utility function for improved performance and reduced costs.
+- Migrate in-memory store based file changes to actual filesystem based file changes and commits tracking using GitPython.
+- Migrate default database from `pgvector/pgvector:pg17` to `postgres:17.6`.
+- Migrate project from Python 3.13 to Python 3.14.
+- Move tools from `daiv/automation/tools` to `daiv/automation/agents/tools`.
+- Move quick actions from `daiv/automation/quick_actions` to `daiv/quick_actions`.
+- Update project dependencies.
+- Update documentation.
+
+### Added
+
+- Add support for the `github` client type to allow users to use GitHub as the client for the codebase.
+- Add to `PlanAndExecuteAgent` the capability to:
   - load images from the user message to help the agent to visualize them (using `InjectImagesMiddleware`).
   - plan and execute commands using the DAIV Sandbox tools. This will allow the agent to perform actions on the codebase, such as installing/updating dependencies ensuring lock files are updated, generating translations, etc.
   - load the repository instructions from a `AGENTS.md` file, which is a markdown file that follows the [AGENTS.md](https://agents.md/) format.
   - fix pipelines by retrieving the pipeline status and job logs when planning using the new `pipeline` and `job_logs` tools.
   - review code changes against the plan tasks using the new `review_code_changes` tool ensuring the changes are correct and complete.
-- Added `InjectImagesMiddleware` LangChain v1 middleware to automatically extract and process images from markdown/HTML syntax in user messages, supporting GitHub user-attachments, GitLab uploads, and external URLs.
-- Added `AGENTS.md` file to the project.
-- Added `omit_content_patterns` to DAIV configuration to allow users to omit files content, but visible for the agents (the agent will only be able to see that the file exists, but not its content).
-- Added evaluation tests for `CodebaseChatAgent`, `PullRequestDescriberAgent` and `PlanAndExecuteAgent`.
-- Added support to `gpt-5`, `gpt-5-nano`, `gpt-5-mini` and `gpt-5-codex` models from OpenAI.
-- Added support to `grok-code-fast-1` model from Grok.
-- Added support to `claude-sonnet-4.5`, `claude-opus-4.1` and `claude-haiku-4.5` models from Anthropic.
-- Added support to `deepseek-v3.1-terminus` model from DeepSeek.
-- Added support to `glm-4.6` model from Z-AI.
-- Added support to `qwen3-max` and `qwen3-coder-plus` models from Qwen.
-- Added support to `kimi-k2-thinking` model from MoonshotAI.
-- Added `RECURSION_LIMIT` configuration to `CodebaseChatAgent` to allow users to change the limit of recursive calls to the agent.
-- Added support to delete entire directories with the `delete` tool.
-
-### Changed
-
-- Fixed async Celery tasks to properly handle Django connection pooling by implementing `ThreadSensitiveContext` wrapper and worker process signal handlers, preventing connection pool exhaustion.
-- Migrated LangChain and LangGraph to v1.x with updated imports and API patterns.
-- Improved planning prompt of `PlanAndExecuteAgent` to deal better with asking for clarification, ensuring the agent will ask questions contextualized to the current state of the codebase.
-- Changed `CodebaseChatAgent` to only be able to answer questions about a repository at a time by passing the repository id as a header. This is direct consequence of removing codebase indexation, making it difficult to answer questions about multiple repositories at the same time. **BREAKING CHANGE**
-- Changed `PullRequestDescriberAgent` to use diffs to describe the changes instead of commit messages, making it more accurate and concise.
-- Replaced repository read tools `search_code_snippets`, `retrieve_file_content`, and `repository_structure` with the new `glob`, `grep`, `ls`, and `read` tools.
-- Replaced repository write tools `create_new_repository_file`, `replace_snippet_in_file`, `rename_repository_file` and `delete_repository_file` with the new `write`, `edit`, `delete` and `rename` tools.
-- Replaced sandbox tools `run_sandbox_commands` and `run_sandbox_code` with the new `bash` tool.
-- Replaced LLM-based image extraction in `PlanAndExecuteAgent` with regex-based utility function for improved performance and reduced costs.
-- Migrated in-memory store based file changes to actual filesystem based file changes and commits tracking using GitPython.
-- Migrated default database from `pgvector/pgvector:pg17` to `postgres:17.6`.
-- Migrated project from Python 3.13 to Python 3.14.
-- Refactored repository configuration file schema to be more flexible and easier to use. **BREAKING CHANGE**
-- Moved tools from `daiv/automation/tools` to `daiv/automation/agents/tools`.
-- Moved quick actions from `daiv/automation/quick_actions` to `daiv/quick_actions`.
-- Migrated quick action `help` to activate as `@daiv /help` instead of `@daiv help`. **BREAKING CHANGE**
-- Migrated quick action `plan execute` to activate as `@daiv /approve-plan` instead of `@daiv plan execute`. **BREAKING CHANGE**
-- Migrated quick action `plan revise` to activate as `@daiv /revise-plan` instead of `@daiv plan revise`. **BREAKING CHANGE**
-- Updated project dependencies.
-- Updated documentation.
-
-### Fixed
-
-- Current date time format is now excluded hours and minutes, making prompts cacheable.
-- Blocked GitLab and GitHub callbacks if client type is not set to the corresponding client.
-- Fixed `PlanAndExecuteAgent` to avoid reading the same files twice before executing the planned changes.
-- Fixed `write` and `rename` tools to create parent directories automatically when they don't exist, preventing `FileNotFoundError`.
-- Fixed sandbox session management to properly reuse sessions across multiple `bash` tool invocations by replacing ContextVar-based storage with LangGraph store-based persistence.
-- Fixed DuckDuckGo search tool to use the new `ddgs` package instead of the deprecated `duckduckgo-search` package.
+- Add `InjectImagesMiddleware` LangChain v1 middleware to automatically extract and process images from markdown/HTML syntax in user messages, supporting GitHub user-attachments, GitLab uploads, and external URLs.
+- Add `AGENTS.md` file to the project.
+- Add `omit_content_patterns` to DAIV configuration to allow users to omit files content, but visible for the agents (the agent will only be able to see that the file exists, but not its content).
+- Add evaluation tests for `CodebaseChatAgent`, `PullRequestDescriberAgent` and `PlanAndExecuteAgent`.
+- Add support for `gpt-5`, `gpt-5-nano`, `gpt-5-mini` and `gpt-5-codex` models from OpenAI.
+- Add support for `grok-code-fast-1` model from Grok.
+- Add support for `claude-sonnet-4.5`, `claude-opus-4.1` and `claude-haiku-4.5` models from Anthropic.
+- Add support for `deepseek-v3.1-terminus` model from DeepSeek.
+- Add support for `glm-4.6` model from Z-AI.
+- Add support for `qwen3-max` and `qwen3-coder-plus` models from Qwen.
+- Add support for `kimi-k2-thinking` model from MoonshotAI.
+- Add `RECURSION_LIMIT` configuration to `CodebaseChatAgent` to allow users to change the limit of recursive calls to the agent.
+- Add support for deleting entire directories with the `delete` tool.
 
 ### Removed
 
-- Removed codebase indexation feature in favor of the new navigation tools.
-- Removed `CodeDescriberAgent`.
-- Removed `CodebaseSearchAgent`.
-- Removed `ImageURLExtractorAgent`.
-- Removed `SnippetReplacerAgent`.
-- Removed `RunSandboxCodeTool`.
-- Removed `IssueAddressorAgent` (replaced by `PlanAndExecuteAgent`).
-- Removed `PipelineFixerAgent` (replaced by `ReviewAddressorAgent` + `pipeline` and `job_logs` tools).
-- Removed all notebooks from the project.
-- Removed support to `claude-sonnet-4` and `claude-opus-4` models from Anthropic.
-- Removed support to `deepseek-chat-v3.1` model from DeepSeek.
-- Removed support to `o4-mini` model from OpenAI.
+- Remove codebase indexation feature in favor of the new navigation tools.
+- Remove `CodeDescriberAgent`.
+- Remove `CodebaseSearchAgent`.
+- Remove `ImageURLExtractorAgent`.
+- Remove `SnippetReplacerAgent`.
+- Remove `RunSandboxCodeTool`.
+- Remove `IssueAddressorAgent` (replaced by `PlanAndExecuteAgent`).
+- Remove `PipelineFixerAgent` (replaced by `ReviewAddressorAgent` + `pipeline` and `job_logs` tools).
+- Remove all notebooks from the project.
+- Remove support for `claude-sonnet-4` and `claude-opus-4` models from Anthropic.
+- Remove support for `deepseek-chat-v3.1` model from DeepSeek.
+- Remove support for `o4-mini` model from OpenAI.
+
+### Fixed
+
+- Exclude hours and minutes from the current date time format, making prompts cacheable.
+- Block GitLab and GitHub callbacks if the client type is not set to the corresponding client.
+- Fix `PlanAndExecuteAgent` to avoid reading the same files twice before executing the planned changes.
+- Fix `write` and `rename` tools to create parent directories automatically when they don't exist, preventing `FileNotFoundError`.
+- Fix sandbox session management to properly reuse sessions across multiple `bash` tool invocations by replacing ContextVar-based storage with LangGraph store-based persistence.
+- Fix DuckDuckGo search tool to use the new `ddgs` package instead of the deprecated `duckduckgo-search` package.
 
 ## [0.3.0] - 2025-07-25
 
-### Added
-
-- Added quick actions feature to allow users perform actions by commenting on the merge request or issue.
-- Added quick actions to allow users to trigger plan revision by commenting `@daiv plan revise` on the issue.
-
 ### Changed
 
-- Migrated `RunSandboxCommandsTool` and `RunSandboxCodeTool` to be async only.
-- Migrated `PipelineFixerAgent` to be triggered by a quick action instead of a webhook, allowing users to request a repair plan to fix pipelines by commenting `@daiv pipeline repair` on the merge request.
-- Migrated `IssueAddressorAgent` plan approval to be triggered by a quick action, allowing users to request a plan approval by commenting `@daiv plan execute` on the issue.
+- Make `RunSandboxCommandsTool` and `RunSandboxCodeTool` async only.
+- Trigger `PipelineFixerAgent` with a quick action instead of a webhook, so users request a repair plan to fix pipelines by commenting `@daiv pipeline repair` on the merge request.
+- Trigger `IssueAddressorAgent` plan approval with a quick action, so users request a plan approval by commenting `@daiv plan execute` on the issue.
+
+### Added
+
+- Add quick actions feature to allow users perform actions by commenting on the merge request or issue.
+- Add quick actions to allow users to trigger plan revision by commenting `@daiv plan revise` on the issue.
 
 ### Fixed
 
-- `ReviewAddressorAgent` was not handling single line notes without line range, leading to empty diff content.
-- `IssueAddressorAgent` was not handling correctly issues with the bot label on the title, leading to errors. Now it will remove the bot label from the title. #435
-- Mentions to the bot on the review comments were not being handled correctly, leading the agent to ask for clarification about who is being mentioned in this context. #436
+- Fix `ReviewAddressorAgent` not handling single line notes without line range, which led to empty diff content.
+- Fix `IssueAddressorAgent` not handling issues with the bot label on the title, which led to errors; it now removes the bot label from the title ([#435](https://github.com/srtab/daiv/issues/435)).
+- Fix mentions to the bot on review comments not being handled, which led the agent to ask for clarification about who is being mentioned in this context ([#436](https://github.com/srtab/daiv/issues/436)).
 
 ## [0.2.1] - 2025-06-17
 
-### Added
-
-- Added support to `o3` model from OpenAI.
-- Added build and push docker image to `main` branch to allow testing edge versions of the project.
-
 ### Changed
 
-- Changed default model for `CodebaseChatAgent` to `gpt-4.1`.
-- Changed `PlanAndExecuteAgent` planning phase to use `medium` thinking level by default.
-- Updated deployment documentation to include information about the MCP proxy.
-- Improved `PipelineFixerAgent` to ensure the `troubleshoot_analysis_result` (renamed to `complete_task`) tool is called exactly once at the end of the workflow.
-- Improved `PipelineFixerAgent` troubleshooting details to include more context about the issue.
-- `ReviewAddressorAgent` now will only accept reviews for merge requests that have DAIV mentions on the discussion thread.
-- Updated MCP `@sentry/mcp-server` to `0.12.0` version.
-- Updated base python image to `3.13.5`.
+- Change default model for `CodebaseChatAgent` to `gpt-4.1`.
+- Use the `medium` thinking level by default in the `PlanAndExecuteAgent` planning phase.
+- Update deployment documentation to include information about the MCP proxy.
+- Improve `PipelineFixerAgent` to ensure the `troubleshoot_analysis_result` (renamed to `complete_task`) tool is called exactly once at the end of the workflow.
+- Improve `PipelineFixerAgent` troubleshooting details to include more context about the issue.
+- Accept reviews in `ReviewAddressorAgent` only for merge requests that have DAIV mentions on the discussion thread.
+- Update MCP `@sentry/mcp-server` to `0.12.0` version.
+- Update base python image to `3.13.5`.
 
-### Fixed
+### Added
 
-- `MCPServer.get_connection` now attaches an `Authorization: Bearer` header when `MCP_PROXY_AUTH_TOKEN` secret is configured, ensuring authenticated requests to the MCP proxy. (#419)
+- Add support for `o3` model from OpenAI.
+- Build and push the docker image from the `main` branch to allow testing edge versions of the project.
 
 ### Removed
 
-- Support to `claude-3-7-sonnet` model from Anthropic.
+- Remove support for `claude-3-7-sonnet` model from Anthropic.
+
+### Fixed
+
+- Attach an `Authorization: Bearer` header in `MCPServer.get_connection` when the `MCP_PROXY_AUTH_TOKEN` secret is configured, ensuring authenticated requests to the MCP proxy ([#419](https://github.com/srtab/daiv/issues/419)).
 
 ## [0.2.0] - 2025-06-09
 
-### Added
-
-- Added `author` to metadata on `ReviewAddressorAgent` and `IssueAddressorAgent` to track the agent executions on the `langsmith` platform.
-- Added MCP tools support to allow the agent to use external tools through MCP servers: #274.
-
 ### Changed
 
-- Improved `PlanAndExecuteAgent`:
+- Improve `PlanAndExecuteAgent`:
   - Completely rewrote planning system prompt to be more structured and concise with clear workflow steps and rules of thumb.
   - Enhanced execution system prompt with better organization and clearer instructions for applying change plans.
   - Simplified plan template format for better readability and reduced verbosity.
   - Enhanced tools schema docstrings with more detailed field descriptions and usage guidelines.
   - These improvements affect all agents that use `PlanAndExecuteAgent`: `ReviewAddressorAgent`, `IssueAddressorAgent`, and `PipelineFixerAgent`.
-- Improved `ReviewAddressorAgent`:
+- Improve `ReviewAddressorAgent`:
   - Completely rewrote reviewer response prompt with structured workflow steps, better context handling, and improved reasoning with the `think` tool.
   - Enhanced review planning prompt with clear workflow steps, better diff handling guidance, and structured reasoning process.
   - Improved prompt organization with visual separators and clearer section headers for better readability.
-- Improved `PipelineFixerAgent`:
+- Improve `PipelineFixerAgent`:
   - Completely rewrote troubleshooting system prompt to be more structured and concise with clear workflow steps and rules of thumb.
   - Enhanced troubleshooting human prompt with better context handling.
   - Simplified troubleshooting template format for better readability and reduced verbosity.
-- Migrated project to be async by default.
-- Updated project dependencies.
+- Make the project async by default.
+- Update project dependencies.
+
+### Added
+
+- Add `author` to metadata on `ReviewAddressorAgent` and `IssueAddressorAgent` to track the agent executions on the `langsmith` platform.
+- Add MCP tools support to allow the agent to use external tools through MCP servers ([#274](https://github.com/srtab/daiv/issues/274)).
 
 ### Fixed
 
-- When changing the state of an Issue (from `closed` to `opened`), the webhook was being ignored by the GitLab callback.
-- Planning questions on Issue Addressor Agent were not being handled correctly.
-- Recursion limit was not being correctly passed to `PlanAndExecuteAgent`, limiting the agent to only 25 calls.
+- Fix the GitLab callback ignoring the webhook when an issue changes state from `closed` to `opened`.
+- Fix planning questions on Issue Addressor Agent not being handled.
+- Fix the recursion limit not being passed to `PlanAndExecuteAgent`, which limited the agent to 25 calls.
 
 ## [0.1.5] - 2025-05-26
 
 ### Added
 
-- Added `cleanup_indexes` command to clean up outdated indexes and inaccessible repositories.
+- Add `cleanup_indexes` command to clean up outdated indexes and inaccessible repositories.
 
 ### Fixed
 
-- Fixed connection closed or lost on `ConnectionPool` by using `check_connection` to verify if the connection is still working.
-- Fixed chunks length check to use the correct number of tokens instead of the number of characters.
+- Fix connection closed or lost on `ConnectionPool` by using `check_connection` to verify if the connection is still working.
+- Fix chunks length check to use the correct number of tokens instead of the number of characters.
 
 ## [0.1.4] - 2025-05-22
 
-### Added
-
-- Added support to `claude-sonnet-4` and `claude-opus-4` models from Anthropic.
-
 ### Changed
 
-- Optimized `PullRequestDescriberAgent` prompt to improve the quality of the responses for a 0-shot agent.
-- Optimized `CodebaseChatAgent` prompts to improve the quality of the responses, reduce hallucinations, gatekeeping first and improve the reasoning capabilities of the agent.
-- Updated `PlanAndExecuteAgent` to use `claude-sonnet-4` as the default model for planning and execution.
+- Optimize `PullRequestDescriberAgent` prompt to improve the quality of the responses for a 0-shot agent.
+- Optimize `CodebaseChatAgent` prompts to improve the quality of the responses, reduce hallucinations, gatekeeping first and improve the reasoning capabilities of the agent.
+- Use `claude-sonnet-4` as the default model for `PlanAndExecuteAgent` planning and execution.
+
+### Added
+
+- Add support for `claude-sonnet-4` and `claude-opus-4` models from Anthropic.
 
 ### Fixed
 
-- `reply_reviewer` node of `ReviewAddressorAgent` was not using the correct tool to reply to the reviewer comments. We completely refactored the agent to turn it more reliable and robust.
-- `SearchCodeSnippetsTool` was being called with `repository` parameter even when `repo_id` was being provided, leading to errors. Now we support conditionally add the `repository` parameter to the signature of the tool.
-- Sometimes `Document.id` was being defined as an uuid when retrieving the document from the database, leading to errors..
+- Fix the `reply_reviewer` node of `ReviewAddressorAgent` not using the correct tool to reply to the reviewer comments, by refactoring the agent to make it more reliable and robust.
+- Fix `SearchCodeSnippetsTool` being called with the `repository` parameter even when `repo_id` was provided, which led to errors; the `repository` parameter is now added to the tool's signature conditionally.
+- Fix `Document.id` sometimes being defined as a uuid when retrieving the document from the database, which led to errors.
 
 ## [0.1.3] - 2025-05-20
 
 ### Added
 
-- Added mapping for `yaml` language for `.yaml` and `.yml` extensions.
+- Add mapping for `yaml` language for `.yaml` and `.yml` extensions.
 
 ### Fixed
 
-- Temperature is being sent on `o4-mini` model, which is not supported.
-- Large chunks were being indexed, causing errors on the embedding process. Now it will skip chunks that are too large (more than 2x the chunk size). #378
+- Stop sending temperature to the `o4-mini` model, which does not support it.
+- Skip chunks that are too large (more than 2x the chunk size) when indexing, which caused errors in the embedding process ([#378](https://github.com/srtab/daiv/issues/378)).
 
 ## [0.1.2] - 2025-05-15
 
-### Added
-
-- Added support to `04-mini` model from OpenAI.
-- Added support to define `LANGSMITH_API_KEY` as docker secrets.
-
 ### Changed
 
-- Improved plan comment template readability by adding a separator between the each step of the plan.
-- Normalized `WEB_SEARCH_API_KEY` to be `AUTOMATION_WEB_SEARCH_API_KEY` and followed the same pattern for other keys.
+- Improve plan comment template readability by adding a separator between each step of the plan.
+- Rename `WEB_SEARCH_API_KEY` to `AUTOMATION_WEB_SEARCH_API_KEY` and follow the same pattern for other keys.
+
+### Added
+
+- Add support for `o4-mini` model from OpenAI.
+- Add support for defining `LANGSMITH_API_KEY` as docker secrets.
 
 ### Fixed
 
-- Fixed `ImportError` when `LanguageParser` try to parse a files with `tree-sitter-languages`, which is not installed.
-- Fixed system checks to verify if required environment variables or docker secrets are set up.
-- Fixed `PushCallback` to consider only merge requests created by DAIV to avoid indexing every merge request on the project.
+- Fix `ImportError` when `LanguageParser` tries to parse files with `tree-sitter-languages`, which is not installed.
+- Fix system checks to verify if required environment variables or docker secrets are set up.
+- Fix `PushCallback` to consider only merge requests created by DAIV to avoid indexing every merge request on the project.
 
 ## [0.1.1] - 2025-05-14
 
 ### Fixed
 
-- Fixed `start-app` script passing iligal option `-o`.
+- Fix `start-app` script passing illegal option `-o`.
 
 ## [0.1.0] - 2025-05-13
 
-### Added
-
-- Added security check to the GitLab callback to validate the `X-Gitlab-Token` header: #93.
-- Added posibility to configure `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `WEB_SEARCH_API_KEY` and `EMBEDDINGS_API_KEY` using docker secrets.
-
 ### Changed
 
-- Improved how to set up a test project on local GitLab in the README.md file.
-- Replaced `gpt-4o` and `gpt-4o-mini` with the new OpenAI models `gpt-4.1` and `gpt-4.1-mini`.
-- Replaced `o3-mini` with the new reasoning OpenAI model `o4-mini`.
-- Replaced `gemini-2.0-flash` and `gemini-2.0-flash-lite-001` with `gpt-4.1-mini` and `gpt-4.1-nano` respectively.
-- Simplified `CodebaseChatAgent` and `PullRequestDescriberAgent` prompts to make the agent job—and the prompt reader's job—simpler and less error‑prone.
-- Migrated all evaluators/assessments logics to standalone agents to allow testing and customizing them independently from the main agents.
-- Parallelized `update_index` process to improve performance.
-- Improved codebase chunking process by replacing `RecursiveCharacterTextSplitter` and integrating more specialized splitters for Markdown and all languages supported by tree-sitter-language-pack using Chonkie package. `RecursiveCharacterTextSplitter` is now used as a fallback splitter.
-- Added Roadmap section to the README.md.
-- Updated project urls declared in `pyproject.toml` to use standard labels.
-- Updated sensible `pydantic` settings to use `SecretStr` to avoid exposing sensitive information.
+- Improve how to set up a test project on local GitLab in the README.md file.
+- Replace `gpt-4o` and `gpt-4o-mini` with the new OpenAI models `gpt-4.1` and `gpt-4.1-mini`.
+- Replace `o3-mini` with the new reasoning OpenAI model `o4-mini`.
+- Replace `gemini-2.0-flash` and `gemini-2.0-flash-lite-001` with `gpt-4.1-mini` and `gpt-4.1-nano` respectively.
+- Simplify `CodebaseChatAgent` and `PullRequestDescriberAgent` prompts to make the agent job—and the prompt reader's job—simpler and less error‑prone.
+- Migrate all evaluators/assessments logics to standalone agents to allow testing and customizing them independently from the main agents.
+- Parallelize `update_index` process to improve performance.
+- Improve codebase chunking process by replacing `RecursiveCharacterTextSplitter` and integrating more specialized splitters for Markdown and all languages supported by tree-sitter-language-pack using Chonkie package. `RecursiveCharacterTextSplitter` is now used as a fallback splitter.
+- Add Roadmap section to the README.md.
+- Update project urls declared in `pyproject.toml` to use standard labels.
+- Use `SecretStr` for sensitive `pydantic` settings to avoid exposing sensitive information.
 
-### Fixed
+### Added
 
-- Turned Sandbox tools more resilient and prevent failing the whole agent execution when the sandbox is unavailable.
-- Empty repositories case was not being considered on the repository structure tool, causing an not found error.
-- Repository index was not updating the `sha` field on the `CodebaseIndex` model, causing the index to be considered as outdated even when it's not.
+- Add security check to the GitLab callback to validate the `X-Gitlab-Token` header ([#93](https://github.com/srtab/daiv/issues/93)).
+- Add the possibility to configure `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `WEB_SEARCH_API_KEY` and `EMBEDDINGS_API_KEY` using docker secrets.
 
 ### Removed
 
-- Removed dependency on `gunicorn` and used `uvicorn` as the default server.
+- Remove dependency on `gunicorn` and use `uvicorn` as the default server.
 
+### Fixed
+
+- Make Sandbox tools more resilient and prevent failing the whole agent execution when the sandbox is unavailable.
+- Fix empty repositories not being considered by the repository structure tool, which caused a not found error.
+- Fix the repository index not updating the `sha` field on the `CodebaseIndex` model, which caused the index to be considered outdated even when it was not.
 
 [Unreleased]: https://github.com/srtab/daiv/compare/v2.0.0...HEAD
 [2.0.0]: https://github.com/srtab/daiv/compare/v1.1.0...v2.0.0
