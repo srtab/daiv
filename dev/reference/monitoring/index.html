@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Trace DAIV agent executions with LangSmith: setup, trace tags and metadata, dashboards, usage and cost tracking, and troubleshooting.">
+        <meta name="description" content="Trace DAIV agent runs with LangSmith, read the trace tags and metadata, build the dashboard, check token usage and cost, export session archives and read the log events.">
       
       
         <meta name="author" content="Sandro Rodrigues">
@@ -18,7 +18,7 @@
         <link rel="prev" href="../agent-architecture/">
       
       
-        <link rel="next" href="../benchmarks/">
+        <link rel="next" href="../management-commands/">
       
       
         
@@ -431,7 +431,7 @@
   <span class="md-ellipsis">
     
   
-    Platform Setup
+    Platform setup
   
 
     
@@ -459,7 +459,7 @@
   <span class="md-ellipsis">
     
   
-    Accounts & Roles
+    Accounts and roles
   
 
     
@@ -487,7 +487,7 @@
   <span class="md-ellipsis">
     
   
-    LLM Providers
+    LLM providers
   
 
     
@@ -569,7 +569,7 @@
   <span class="md-ellipsis">
     
   
-    Issue Addressing
+    Issue addressing
   
 
     
@@ -597,7 +597,7 @@
   <span class="md-ellipsis">
     
   
-    Pull Request Assistant
+    Pull request assistant
   
 
     
@@ -625,7 +625,35 @@
   <span class="md-ellipsis">
     
   
-    Pipeline Watch
+    Pipeline watch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository memory
   
 
     
@@ -709,7 +737,7 @@
   <span class="md-ellipsis">
     
   
-    Scheduled Jobs
+    Scheduled jobs
   
 
     
@@ -765,7 +793,7 @@
   <span class="md-ellipsis">
     
   
-    MCP Endpoint
+    MCP endpoint
   
 
     
@@ -821,7 +849,7 @@
   <span class="md-ellipsis">
     
   
-    Merge Metrics
+    Merge metrics
   
 
     
@@ -849,7 +877,7 @@
   <span class="md-ellipsis">
     
   
-    Slash Commands & Skills
+    Slash commands and skills
   
 
     
@@ -933,7 +961,7 @@
   <span class="md-ellipsis">
     
   
-    Sandbox Environments
+    Sandbox environments
   
 
     
@@ -1015,7 +1043,7 @@
   <span class="md-ellipsis">
     
   
-    Request Tracker Triage
+    Request Tracker triage
   
 
     
@@ -1097,7 +1125,7 @@
   <span class="md-ellipsis">
     
   
-    Repository Config
+    Repository configuration
   
 
     
@@ -1125,7 +1153,7 @@
   <span class="md-ellipsis">
     
   
-    Agent Skills
+    Agent skills
   
 
     
@@ -1153,7 +1181,7 @@
   <span class="md-ellipsis">
     
   
-    MCP Tools
+    MCP tools
   
 
     
@@ -1237,7 +1265,7 @@
   <span class="md-ellipsis">
     
   
-    Environment Variables
+    Environment variables
   
 
     
@@ -1265,7 +1293,7 @@
   <span class="md-ellipsis">
     
   
-    Site Configuration
+    Site configuration
   
 
     
@@ -1293,7 +1321,7 @@
   <span class="md-ellipsis">
     
   
-    Agent Architecture
+    Agent tools
   
 
     
@@ -1374,91 +1402,13 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#setup" class="md-nav__link">
+  <a href="#trace-runs-with-langsmith" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Setup
+        Trace runs with LangSmith
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Setup">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#1-get-an-api-key" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        1. Get an API key
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#2-configure-environment-variables" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        2. Configure environment variables
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="2. Configure environment variables">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#docker-compose" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Docker Compose
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#docker-swarm" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Docker Swarm
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#3-restart-services" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        3. Restart services
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#4-verify" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        4. Verify
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1471,185 +1421,13 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Trace tags and metadata">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#tags" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Tags
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#metadata-by-trigger" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Metadata by trigger
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#metadata-fields-reference" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Metadata fields reference
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
 </li>
       
         <li class="md-nav__item">
-  <a href="#custom-dashboard" class="md-nav__link">
+  <a href="#create-the-langsmith-dashboard" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Custom dashboard
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Custom dashboard">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#setup_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Setup
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#options" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Options
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#recreating-the-dashboard" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Recreating the dashboard
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#dashboard-tips" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Dashboard tips
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#internal-usage-and-cost-tracking" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Internal usage and cost tracking
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Internal usage and cost tracking">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#how-it-works" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        How it works
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#whats-tracked" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What's tracked
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#where-to-see-it" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Where to see it
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#known-limitations" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Known limitations
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#relationship-to-langsmith" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Relationship to LangSmith
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#session-archive" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Session archive
+        Create the LangSmith dashboard
       
     </span>
   </a>
@@ -1657,18 +1435,28 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#bash-command-policy-logs" class="md-nav__link">
+  <a href="#usage-and-cost" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Bash command policy logs
+        Usage and cost
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Bash command policy logs">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#export-session-archives" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Export session archives
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#log-events" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1677,13 +1465,14 @@
     </span>
   </a>
   
-</li>
+    <nav class="md-nav" aria-label="Log events">
+      <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#log-fields" class="md-nav__link">
+  <a href="#archive-events" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Log fields
+        Archive events
       
     </span>
   </a>
@@ -1691,10 +1480,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#monitoring-recommendations" class="md-nav__link">
+  <a href="#bash-policy-events" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Monitoring recommendations
+        Bash policy events
       
     </span>
   </a>
@@ -1715,12 +1504,68 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#no-traces-appear-in-langsmith" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        No traces appear in LangSmith
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-trace-is-incomplete" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A trace is incomplete
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../management-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Management commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1815,91 +1660,13 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#setup" class="md-nav__link">
+  <a href="#trace-runs-with-langsmith" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Setup
+        Trace runs with LangSmith
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Setup">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#1-get-an-api-key" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        1. Get an API key
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#2-configure-environment-variables" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        2. Configure environment variables
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="2. Configure environment variables">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#docker-compose" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Docker Compose
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#docker-swarm" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Docker Swarm
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#3-restart-services" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        3. Restart services
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#4-verify" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        4. Verify
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1912,185 +1679,13 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Trace tags and metadata">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#tags" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Tags
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#metadata-by-trigger" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Metadata by trigger
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#metadata-fields-reference" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Metadata fields reference
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
 </li>
       
         <li class="md-nav__item">
-  <a href="#custom-dashboard" class="md-nav__link">
+  <a href="#create-the-langsmith-dashboard" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Custom dashboard
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Custom dashboard">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#setup_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Setup
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#options" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Options
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#recreating-the-dashboard" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Recreating the dashboard
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#dashboard-tips" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Dashboard tips
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#internal-usage-and-cost-tracking" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Internal usage and cost tracking
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Internal usage and cost tracking">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#how-it-works" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        How it works
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#whats-tracked" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What's tracked
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#where-to-see-it" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Where to see it
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#known-limitations" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Known limitations
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#relationship-to-langsmith" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Relationship to LangSmith
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#session-archive" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Session archive
+        Create the LangSmith dashboard
       
     </span>
   </a>
@@ -2098,18 +1693,28 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#bash-command-policy-logs" class="md-nav__link">
+  <a href="#usage-and-cost" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Bash command policy logs
+        Usage and cost
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Bash command policy logs">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#export-session-archives" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Export session archives
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#log-events" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2118,13 +1723,14 @@
     </span>
   </a>
   
-</li>
+    <nav class="md-nav" aria-label="Log events">
+      <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#log-fields" class="md-nav__link">
+  <a href="#archive-events" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Log fields
+        Archive events
       
     </span>
   </a>
@@ -2132,10 +1738,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#monitoring-recommendations" class="md-nav__link">
+  <a href="#bash-policy-events" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Monitoring recommendations
+        Bash policy events
       
     </span>
   </a>
@@ -2155,6 +1761,34 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#no-traces-appear-in-langsmith" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        No traces appear in LangSmith
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-trace-is-incomplete" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A trace is incomplete
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2232,70 +1866,41 @@
 
 
 <h1 id="monitoring">Monitoring</h1>
-<p>DAIV supports <a href="https://smith.langchain.com">LangSmith</a> for tracing agent executions. This page covers how to set it up and what data is available.</p>
-<hr />
-<h2 id="setup">Setup</h2>
-<h3 id="1-get-an-api-key">1. Get an API key</h3>
+<p>DAIV reports on its agent runs in two places. <a href="https://smith.langchain.com">LangSmith</a> holds the trace of each run: latency, tool calls and intermediate steps. DAIV's own database holds each run's token usage and estimated cost, and a copy of each session's conversation. This page covers both, and the log events DAIV writes when something needs an operator.</p>
+<h2 id="trace-runs-with-langsmith">Trace runs with LangSmith</h2>
+<p>DAIV sends a trace of every agent run to LangSmith once you set three variables. You need a LangSmith account.</p>
 <ol>
-<li>Sign in at <a href="https://smith.langchain.com">smith.langchain.com</a></li>
-<li>Go to <strong>Settings</strong> → <strong>API Keys</strong> → <strong>Create API Key</strong></li>
-<li>Copy the key (format: <code>lsv2_pt_...</code>)</li>
-</ol>
-<h3 id="2-configure-environment-variables">2. Configure environment variables</h3>
-<h4 id="docker-compose">Docker Compose</h4>
+<li>In <a href="https://smith.langchain.com">LangSmith</a>, select <strong>Settings</strong> → <strong>API Keys</strong> → <strong>Create API Key</strong>.</li>
+<li>Copy the key.</li>
+<li>
+<p>Set <code>LANGSMITH_TRACING</code> to <code>true</code>, <code>LANGSMITH_PROJECT</code> to the project to write traces to, and <code>LANGSMITH_API_KEY</code> to the key. <a href="../env-variables/#monitoring-langsmith">Monitoring (LangSmith)</a> describes each variable, including the Docker secret form of the key and the EU endpoint.</p>
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span>
 <span class="normal"><a href="#__codelineno-0-2">2</a></span>
 <span class="normal"><a href="#__codelineno-0-3">3</a></span>
 <span class="normal"><a href="#__codelineno-0-4">4</a></span>
-<span class="normal"><a href="#__codelineno-0-5">5</a></span>
-<span class="normal"><a href="#__codelineno-0-6">6</a></span>
-<span class="normal"><a href="#__codelineno-0-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="nt">x-app-defaults</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;x_app_default</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2"></a><span class="w">  </span><span class="c1"># ...</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3"></a><span class="w">  </span><span class="nt">environment</span><span class="p">:</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4"></a><span class="w">    </span><span class="nt">LANGSMITH_TRACING</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5"></a><span class="w">    </span><span class="nt">LANGSMITH_PROJECT</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-production</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6"></a><span class="w">    </span><span class="nt">LANGSMITH_API_KEY</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">lsv2_pt_xxxxxxxxxxxxxxxxxxxxxxxx_yyyyyyyyyyyy</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7"></a><span class="w">  </span><span class="c1"># ...</span>
+<span class="normal"><a href="#__codelineno-0-5">5</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="nt">x-app-defaults</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;x_app_default</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2"></a><span class="w">  </span><span class="nt">environment</span><span class="p">:</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3"></a><span class="w">    </span><span class="nt">LANGSMITH_TRACING</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4"></a><span class="w">    </span><span class="nt">LANGSMITH_PROJECT</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">daiv-production</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5"></a><span class="w">    </span><span class="nt">LANGSMITH_API_KEY</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;langsmith-api-key&gt;</span>
 </code></pre></div></td></tr></table></div>
-<h4 id="docker-swarm">Docker Swarm</h4>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span>
-<span class="normal"><a href="#__codelineno-1-2">2</a></span>
-<span class="normal"><a href="#__codelineno-1-3">3</a></span>
-<span class="normal"><a href="#__codelineno-1-4">4</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a><span class="c1"># Environment</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2"></a><span class="nv">LANGSMITH_TRACING</span><span class="o">=</span><span class="nb">true</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3"></a><span class="nv">LANGSMITH_PROJECT</span><span class="o">=</span>daiv-production
-<a id="__codelineno-1-4" name="__codelineno-1-4"></a><span class="nv">LANGSMITH_API_KEY_FILE</span><span class="o">=</span>/run/secrets/langsmith_api_key
+<p>Replace <code>&lt;langsmith-api-key&gt;</code> with your LangSmith API key.</p>
+</li>
+<li>
+<p>Recreate the services so they read the variables. On Docker Compose, run:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d
 </code></pre></div></td></tr></table></div>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span>
-<span class="normal"><a href="#__codelineno-2-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a><span class="c1"># Create secret</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">"lsv2_pt_xxxxxxxxxxxxxxxxxxxxxxxx_yyyyyyyyyyyy"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>langsmith_api_key<span class="w"> </span>-
+<p>On Docker Swarm, run:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a>docker<span class="w"> </span>stack<span class="w"> </span>deploy<span class="w"> </span>-c<span class="w"> </span>stack.yml<span class="w"> </span>daiv
 </code></pre></div></td></tr></table></div>
-<div class="admonition tip">
-<p class="admonition-title">EU endpoint</p>
-<p>If you're in Europe, set <code>LANGSMITH_ENDPOINT=https://eu.api.smith.langchain.com</code>.</p>
-</div>
-<h3 id="3-restart-services">3. Restart services</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span>
-<span class="normal"><a href="#__codelineno-3-2">2</a></span>
-<span class="normal"><a href="#__codelineno-3-3">3</a></span>
-<span class="normal"><a href="#__codelineno-3-4">4</a></span>
-<span class="normal"><a href="#__codelineno-3-5">5</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a><span class="c1"># Docker Compose</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2"></a>docker<span class="w"> </span>compose<span class="w"> </span>restart
-<a id="__codelineno-3-3" name="__codelineno-3-3"></a>
-<a id="__codelineno-3-4" name="__codelineno-3-4"></a><span class="c1"># Docker Swarm</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5"></a>docker<span class="w"> </span>stack<span class="w"> </span>deploy<span class="w"> </span>-c<span class="w"> </span>stack.yml<span class="w"> </span>daiv
-</code></pre></div></td></tr></table></div>
-<h3 id="4-verify">4. Verify</h3>
-<ol>
-<li>Create a test issue with the <code>daiv</code> label</li>
-<li>Open your LangSmith project — traces should appear within a few minutes</li>
+</li>
+<li>
+<p>Start a run, for example a chat in the dashboard. A trace appears in your LangSmith project.</p>
+</li>
 </ol>
-<p>See <a href="../env-variables/#monitoring-langsmith">Environment Variables</a> for all LangSmith-related variables.</p>
-<hr />
 <h2 id="trace-tags-and-metadata">Trace tags and metadata</h2>
-<p>Every agent run includes tags and metadata that make it easy to filter and build dashboards in LangSmith.</p>
-<h3 id="tags">Tags</h3>
-<p>Every root run carries the following tags:</p>
+<p>Every agent run carries tags and metadata that you can filter and group by in LangSmith. The title and commit message generation run has its own, described below.</p>
+<p>An agent run has these tags:</p>
 <table>
 <thead>
 <tr>
@@ -2307,7 +1912,7 @@
 <tbody>
 <tr>
 <td>Git platform</td>
-<td>The platform handling the request</td>
+<td>The platform of the repository</td>
 <td><code>gitlab</code>, <code>github</code></td>
 </tr>
 <tr>
@@ -2317,90 +1922,18 @@
 </tr>
 <tr>
 <td>Scope</td>
-<td>Conversation scope, present when one is set</td>
+<td>The conversation scope</td>
 <td><code>Issue</code>, <code>Merge Request</code>, <code>Global</code></td>
 </tr>
 <tr>
 <td>Agent name</td>
-<td>The agent name</td>
+<td>The agent that ran</td>
 <td><code>DAIV Agent</code></td>
 </tr>
 </tbody>
 </table>
-<p>A typical labelled-issue run therefore carries the tags <code>gitlab</code>, <code>group/project</code>, <code>Issue</code>, <code>DAIV Agent</code>. Individual callsites may append additional tags.</p>
-<h3 id="metadata-by-trigger">Metadata by trigger</h3>
-<p><strong>Issue addressing</strong> (triggered by labelled issues):</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">JSON</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1"> 1</a></span>
-<span class="normal"><a href="#__codelineno-4-2"> 2</a></span>
-<span class="normal"><a href="#__codelineno-4-3"> 3</a></span>
-<span class="normal"><a href="#__codelineno-4-4"> 4</a></span>
-<span class="normal"><a href="#__codelineno-4-5"> 5</a></span>
-<span class="normal"><a href="#__codelineno-4-6"> 6</a></span>
-<span class="normal"><a href="#__codelineno-4-7"> 7</a></span>
-<span class="normal"><a href="#__codelineno-4-8"> 8</a></span>
-<span class="normal"><a href="#__codelineno-4-9"> 9</a></span>
-<span class="normal"><a href="#__codelineno-4-10">10</a></span>
-<span class="normal"><a href="#__codelineno-4-11">11</a></span>
-<span class="normal"><a href="#__codelineno-4-12">12</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a><span class="p">{</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2"></a><span class="w">  </span><span class="nt">"author"</span><span class="p">:</span><span class="w"> </span><span class="s2">"username"</span><span class="p">,</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3"></a><span class="w">  </span><span class="nt">"triggered_by"</span><span class="p">:</span><span class="w"> </span><span class="s2">"username"</span><span class="p">,</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4"></a><span class="w">  </span><span class="nt">"trigger"</span><span class="p">:</span><span class="w"> </span><span class="s2">"label"</span><span class="p">,</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5"></a><span class="w">  </span><span class="nt">"repository"</span><span class="p">:</span><span class="w"> </span><span class="s2">"group/project"</span><span class="p">,</span>
-<a id="__codelineno-4-6" name="__codelineno-4-6"></a><span class="w">  </span><span class="nt">"git_platform"</span><span class="p">:</span><span class="w"> </span><span class="s2">"gitlab"</span><span class="p">,</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7"></a><span class="w">  </span><span class="nt">"issue_id"</span><span class="p">:</span><span class="w"> </span><span class="mi">42</span><span class="p">,</span>
-<a id="__codelineno-4-8" name="__codelineno-4-8"></a><span class="w">  </span><span class="nt">"labels"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"daiv"</span><span class="p">,</span><span class="w"> </span><span class="s2">"bug"</span><span class="p">],</span>
-<a id="__codelineno-4-9" name="__codelineno-4-9"></a><span class="w">  </span><span class="nt">"scope"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Issue"</span><span class="p">,</span>
-<a id="__codelineno-4-10" name="__codelineno-4-10"></a><span class="w">  </span><span class="nt">"model"</span><span class="p">:</span><span class="w"> </span><span class="s2">"openrouter:anthropic/claude-sonnet-5.5"</span><span class="p">,</span>
-<a id="__codelineno-4-11" name="__codelineno-4-11"></a><span class="w">  </span><span class="nt">"thinking_level"</span><span class="p">:</span><span class="w"> </span><span class="s2">"medium"</span>
-<a id="__codelineno-4-12" name="__codelineno-4-12"></a><span class="p">}</span>
-</code></pre></div></td></tr></table></div>
-<p><strong>Comment addressing</strong> (triggered by <code>@daiv</code> mentions on merge requests):</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">JSON</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1"> 1</a></span>
-<span class="normal"><a href="#__codelineno-5-2"> 2</a></span>
-<span class="normal"><a href="#__codelineno-5-3"> 3</a></span>
-<span class="normal"><a href="#__codelineno-5-4"> 4</a></span>
-<span class="normal"><a href="#__codelineno-5-5"> 5</a></span>
-<span class="normal"><a href="#__codelineno-5-6"> 6</a></span>
-<span class="normal"><a href="#__codelineno-5-7"> 7</a></span>
-<span class="normal"><a href="#__codelineno-5-8"> 8</a></span>
-<span class="normal"><a href="#__codelineno-5-9"> 9</a></span>
-<span class="normal"><a href="#__codelineno-5-10">10</a></span>
-<span class="normal"><a href="#__codelineno-5-11">11</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a><span class="p">{</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2"></a><span class="w">  </span><span class="nt">"author"</span><span class="p">:</span><span class="w"> </span><span class="s2">"reviewer-username"</span><span class="p">,</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3"></a><span class="w">  </span><span class="nt">"triggered_by"</span><span class="p">:</span><span class="w"> </span><span class="s2">"commenter-username"</span><span class="p">,</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4"></a><span class="w">  </span><span class="nt">"trigger"</span><span class="p">:</span><span class="w"> </span><span class="s2">"mention"</span><span class="p">,</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5"></a><span class="w">  </span><span class="nt">"repository"</span><span class="p">:</span><span class="w"> </span><span class="s2">"group/project"</span><span class="p">,</span>
-<a id="__codelineno-5-6" name="__codelineno-5-6"></a><span class="w">  </span><span class="nt">"git_platform"</span><span class="p">:</span><span class="w"> </span><span class="s2">"gitlab"</span><span class="p">,</span>
-<a id="__codelineno-5-7" name="__codelineno-5-7"></a><span class="w">  </span><span class="nt">"merge_request_id"</span><span class="p">:</span><span class="w"> </span><span class="mi">123</span><span class="p">,</span>
-<a id="__codelineno-5-8" name="__codelineno-5-8"></a><span class="w">  </span><span class="nt">"scope"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Merge Request"</span><span class="p">,</span>
-<a id="__codelineno-5-9" name="__codelineno-5-9"></a><span class="w">  </span><span class="nt">"model"</span><span class="p">:</span><span class="w"> </span><span class="s2">"openrouter:anthropic/claude-sonnet-5.5"</span><span class="p">,</span>
-<a id="__codelineno-5-10" name="__codelineno-5-10"></a><span class="w">  </span><span class="nt">"thinking_level"</span><span class="p">:</span><span class="w"> </span><span class="s2">"medium"</span>
-<a id="__codelineno-5-11" name="__codelineno-5-11"></a><span class="p">}</span>
-</code></pre></div></td></tr></table></div>
-<p><strong>Job execution</strong> (triggered via the Jobs API):</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">JSON</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1"> 1</a></span>
-<span class="normal"><a href="#__codelineno-6-2"> 2</a></span>
-<span class="normal"><a href="#__codelineno-6-3"> 3</a></span>
-<span class="normal"><a href="#__codelineno-6-4"> 4</a></span>
-<span class="normal"><a href="#__codelineno-6-5"> 5</a></span>
-<span class="normal"><a href="#__codelineno-6-6"> 6</a></span>
-<span class="normal"><a href="#__codelineno-6-7"> 7</a></span>
-<span class="normal"><a href="#__codelineno-6-8"> 8</a></span>
-<span class="normal"><a href="#__codelineno-6-9"> 9</a></span>
-<span class="normal"><a href="#__codelineno-6-10">10</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a><span class="p">{</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2"></a><span class="w">  </span><span class="nt">"repository"</span><span class="p">:</span><span class="w"> </span><span class="s2">"group/project"</span><span class="p">,</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3"></a><span class="w">  </span><span class="nt">"git_platform"</span><span class="p">:</span><span class="w"> </span><span class="s2">"gitlab"</span><span class="p">,</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4"></a><span class="w">  </span><span class="nt">"scope"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Global"</span><span class="p">,</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5"></a><span class="w">  </span><span class="nt">"trigger"</span><span class="p">:</span><span class="w"> </span><span class="s2">"job"</span><span class="p">,</span>
-<a id="__codelineno-6-6" name="__codelineno-6-6"></a><span class="w">  </span><span class="nt">"model"</span><span class="p">:</span><span class="w"> </span><span class="s2">"openrouter:anthropic/claude-sonnet-5.5"</span><span class="p">,</span>
-<a id="__codelineno-6-7" name="__codelineno-6-7"></a><span class="w">  </span><span class="nt">"thinking_level"</span><span class="p">:</span><span class="w"> </span><span class="s2">"medium"</span><span class="p">,</span>
-<a id="__codelineno-6-8" name="__codelineno-6-8"></a><span class="w">  </span><span class="nt">"ref"</span><span class="p">:</span><span class="w"> </span><span class="s2">"main"</span><span class="p">,</span>
-<a id="__codelineno-6-9" name="__codelineno-6-9"></a><span class="w">  </span><span class="nt">"override_source"</span><span class="p">:</span><span class="w"> </span><span class="s2">"explicit"</span>
-<a id="__codelineno-6-10" name="__codelineno-6-10"></a><span class="p">}</span>
-</code></pre></div></td></tr></table></div>
-<p>The <code>override_source</code> field is <code>explicit</code> when the job supplied an explicit model override, otherwise <code>null</code>.</p>
-<p>The <code>scope</code> field distinguishes how the agent was triggered: <code>Issue</code>, <code>Merge Request</code>, or <code>Global</code>.</p>
-<h3 id="metadata-fields-reference">Metadata fields reference</h3>
+<p>The scope tag is absent when the run has no scope. A run on a labelled GitLab issue carries <code>gitlab</code>, <code>group/project</code>, <code>Issue</code> and <code>DAIV Agent</code>.</p>
+<p>Its metadata holds these fields:</p>
 <table>
 <thead>
 <tr>
@@ -2411,69 +1944,97 @@
 </thead>
 <tbody>
 <tr>
-<td><code>author</code></td>
-<td>string</td>
-<td>User who created the issue or merge request</td>
-</tr>
-<tr>
-<td><code>triggered_by</code></td>
-<td>string</td>
-<td>User who triggered the agent (may differ from author for mentions)</td>
-</tr>
-<tr>
-<td><code>trigger</code></td>
-<td>string</td>
-<td>How the agent was triggered: <code>label</code>, <code>mention</code>, or <code>job</code></td>
-</tr>
-<tr>
 <td><code>repository</code></td>
 <td>string</td>
-<td>Repository slug (e.g. <code>group/project</code>)</td>
+<td>Repository slug, for example <code>group/project</code></td>
 </tr>
 <tr>
 <td><code>git_platform</code></td>
 <td>string</td>
-<td>Git platform: <code>gitlab</code> or <code>github</code></td>
+<td><code>gitlab</code> or <code>github</code></td>
 </tr>
 <tr>
 <td><code>scope</code></td>
 <td>string</td>
-<td>Conversation scope: <code>Issue</code>, <code>Merge Request</code>, or <code>Global</code></td>
+<td><code>Issue</code>, <code>Merge Request</code> or <code>Global</code></td>
+</tr>
+<tr>
+<td><code>trigger</code></td>
+<td>string</td>
+<td>What started the run: <code>label</code>, <code>mention</code>, <code>job</code>, <code>chat</code> or <code>diff_to_metadata</code></td>
 </tr>
 <tr>
 <td><code>model</code></td>
 <td>string</td>
-<td>Primary model used for the agent run</td>
+<td>Primary model of the run, as a full model spec such as <code>openrouter:anthropic/claude-sonnet-5.5</code></td>
 </tr>
 <tr>
 <td><code>thinking_level</code></td>
-<td>string or null</td>
-<td>Thinking level: <code>low</code>, <code>medium</code>, <code>high</code>, or <code>null</code> if disabled</td>
+<td>string</td>
+<td>Thinking level of the run; absent when the run has none</td>
+</tr>
+<tr>
+<td><code>lc_agent_name</code></td>
+<td>string</td>
+<td>The agent name, <code>DAIV Agent</code></td>
+</tr>
+<tr>
+<td><code>author</code></td>
+<td>string</td>
+<td>User who created the issue or merge request (issue and merge request runs)</td>
+</tr>
+<tr>
+<td><code>triggered_by</code></td>
+<td>string</td>
+<td>User who triggered the run, who differs from the author on a mention (issue and merge request runs)</td>
 </tr>
 <tr>
 <td><code>issue_id</code></td>
 <td>int</td>
-<td>Issue IID (issue triggers only)</td>
-</tr>
-<tr>
-<td><code>merge_request_id</code></td>
-<td>int</td>
-<td>Merge request ID (MR triggers only)</td>
+<td>Issue IID (issue runs)</td>
 </tr>
 <tr>
 <td><code>labels</code></td>
 <td>list</td>
-<td>Issue labels, lowercased (issue triggers only)</td>
+<td>The issue's labels, lowercased (issue runs)</td>
+</tr>
+<tr>
+<td><code>merge_request_id</code></td>
+<td>int</td>
+<td>Merge request ID (merge request runs)</td>
+</tr>
+<tr>
+<td><code>ref</code></td>
+<td>string</td>
+<td>The branch the run was asked to use (job runs)</td>
+</tr>
+<tr>
+<td><code>override_source</code></td>
+<td>string or null</td>
+<td><code>explicit</code> when the request picked the model, otherwise <code>null</code> (job and chat runs)</td>
 </tr>
 </tbody>
 </table>
-<hr />
-<h2 id="custom-dashboard">Custom dashboard</h2>
-<p>DAIV includes a management command to create a pre-configured LangSmith custom dashboard with charts covering all key metrics.</p>
-<h3 id="setup_1">Setup</h3>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a>django-admin<span class="w"> </span>setup_langsmith_dashboard<span class="w"> </span>--project<span class="w"> </span>&lt;project-name&gt;
+<p>A run on a labelled issue has <code>trigger</code> set to <code>label</code>, and a run started by an <code>@daiv</code> mention on an issue, or on a merge request no session owns, has it set to <code>mention</code>. A chat message that starts a run on an idle session has <code>chat</code> and the <code>Global</code> scope. Every run DAIV takes from a session's inbox has <code>job</code> and the <code>Global</code> scope, as do runs from the <a href="../../features/jobs-api/">jobs API</a>, a schedule or the MCP endpoint. The inbox holds pipeline watch fixes, chat messages queued while the session was busy, delegation resumes and leg follow-ups, and <code>@daiv</code> mentions on a merge request the session owns.</p>
+<p>The pull request title and commit message generation runs as a separate run named and tagged <code>DiffToMetadata</code>, with <code>trigger</code> set to <code>diff_to_metadata</code>. It carries the git platform, repository and scope tags and no agent name tag. It nests under the agent trace when DAIV publishes at the end of a run, and stands alone when DAIV recovers a draft.</p>
+<h2 id="create-the-langsmith-dashboard">Create the LangSmith dashboard</h2>
+<p>DAIV creates a LangSmith dashboard named <strong>DAIV Monitoring</strong> with 27 charts in 8 groups, built on the tags and metadata above. You need the LangSmith variables from <a href="#trace-runs-with-langsmith">Trace runs with LangSmith</a> set in the container.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Recreating the dashboard with <code>--recreate</code> deletes the existing <strong>DAIV Monitoring</strong> dashboard, including any chart you added by hand. <a href="../management-commands/#setup_langsmith_dashboard"><code>setup_langsmith_dashboard</code></a> describes it.</p>
+</div>
+<ol>
+<li>
+<p>Run the command, with your project name:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>app<span class="w"> </span>django-admin<span class="w"> </span>setup_langsmith_dashboard<span class="w"> </span>--project<span class="w"> </span>&lt;project-name&gt;
 </code></pre></div></td></tr></table></div>
-<p>The command creates a single dashboard named <strong>DAIV Monitoring</strong> with 27 charts organized into 8 groups:</p>
+<p>Replace <code>&lt;project-name&gt;</code> with your LangSmith project.</p>
+</li>
+<li>
+<p>In LangSmith, open the <strong>DAIV Monitoring</strong> dashboard of your project.</p>
+</li>
+</ol>
+<p>After you upgrade DAIV, run the command with <code>--recreate</code> to add the charts the upgrade brings.</p>
 <table>
 <thead>
 <tr>
@@ -2485,87 +2046,51 @@
 <tbody>
 <tr>
 <td><strong>Overview</strong></td>
-<td>Trace Volume, Error Rate, Trigger Breakdown</td>
-<td>High-level activity and reliability</td>
+<td>Trace volume and error rate by scope, trigger breakdown</td>
+<td>Activity and reliability</td>
 </tr>
 <tr>
 <td><strong>Latency</strong></td>
-<td>P50/P99 by Scope, by Repository</td>
+<td>Median and P99 latency by scope, latency by repository</td>
 <td>Response times</td>
 </tr>
 <tr>
 <td><strong>Cost</strong></td>
-<td>Total/Prompt/Completion Cost, Token Usage, P99 Cost</td>
-<td>Spend tracking</td>
+<td>Total cost by scope, prompt against completion cost, token usage by repository, P99 cost per run by trigger</td>
+<td>Spend</td>
 </tr>
 <tr>
 <td><strong>Platform</strong></td>
-<td>Volume and Error Rate by Platform, Top Repos</td>
+<td>Volume and error rate by git platform, top repositories by volume</td>
 <td>Platform and repository breakdown</td>
 </tr>
 <tr>
 <td><strong>Tools</strong></td>
-<td>Subagent Usage, Tool Calls, Tool Errors, MCP Tools</td>
-<td>Agent internals</td>
+<td>Subagent usage, tool call volume, tool error rate, MCP server tool usage</td>
+<td>What the agent calls</td>
 </tr>
 <tr>
 <td><strong>LLM</strong></td>
-<td>Call Count, Latency, Token Usage</td>
-<td>Model-level metrics</td>
+<td>Call count, latency, prompt against completion tokens</td>
+<td>Model calls</td>
 </tr>
 <tr>
 <td><strong>Model</strong></td>
-<td>Volume, Latency, Cost, Error Rate by Model</td>
+<td>Trace volume, latency, cost and error rate by model</td>
 <td>Per-model comparison</td>
 </tr>
 <tr>
 <td><strong>DiffToMetadata</strong></td>
-<td>Volume, Latency, Error Rate</td>
-<td>Diff-to-metadata pipeline health</td>
+<td>Volume, latency, error rate</td>
+<td>Title and commit message generation</td>
 </tr>
 </tbody>
 </table>
-<h3 id="options">Options</h3>
-<table>
-<thead>
-<tr>
-<th>Flag</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>--project</code></td>
-<td>LangSmith project name (default: <code>LANGCHAIN_PROJECT</code> or <code>LANGSMITH_PROJECT</code> env var)</td>
-</tr>
-<tr>
-<td><code>--recreate</code></td>
-<td>Delete the existing dashboard and recreate it from scratch</td>
-</tr>
-</tbody>
-</table>
-<h3 id="recreating-the-dashboard">Recreating the dashboard</h3>
-<p>To update the dashboard after upgrading DAIV (which may add new charts):</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1"></a>django-admin<span class="w"> </span>setup_langsmith_dashboard<span class="w"> </span>--recreate
-</code></pre></div></td></tr></table></div>
-<h3 id="dashboard-tips">Dashboard tips</h3>
-<ul>
-<li><strong>By trigger type</strong> — filter by <code>scope</code> or by metadata key <code>issue_id</code> vs <code>merge_request_id</code></li>
-<li><strong>By user</strong> — filter or group by <code>author</code></li>
-<li><strong>By model</strong> — group by <code>model</code> to compare performance across models (the value is the full configured model identifier, e.g. <code>openrouter:anthropic/claude-sonnet-5.5</code> vs <code>openrouter:anthropic/claude-opus-5.5</code>)</li>
-<li><strong>Performance</strong> — monitor execution time and token usage per run</li>
-</ul>
-<hr />
-<h2 id="internal-usage-and-cost-tracking">Internal usage and cost tracking</h2>
-<p>DAIV tracks token usage and estimated cost for every agent execution internally — independent of LangSmith.</p>
-<h3 id="how-it-works">How it works</h3>
-<ol>
-<li>Each agent invocation runs inside the <code>track_usage_metadata()</code> context manager (in <code>daiv/automation/agent/usage_tracking.py</code>), which binds a <code>CostAwareUsageMetadataCallbackHandler</code> (a subclass of LangChain's <code>UsageMetadataCallbackHandler</code> that prices each LLM call individually) to a module-level <code>ContextVar</code> registered with LangChain's <code>register_configure_hook</code>. The handler is automatically inherited by every nested <code>Runnable</code> — including subagent invocations — without needing to thread callbacks through <code>RunnableConfig</code>.</li>
-<li>The handler captures <code>usage_metadata</code> from every LLM call during graph execution — including fallback model invocations, tool-internal model calls, and subagents spawned via the <code>task</code> tool.</li>
-<li>Each call is priced on its own. An OpenRouter call uses the charge OpenRouter reports for it, which depends on the provider it routed the call to; any other call is estimated from the model's list price in <a href="https://github.com/pydantic/genai-prices">genai-prices</a> (maintained by Pydantic). After the run, token counts and costs are aggregated per model.</li>
-<li>The usage summary is stored in the <code>AgentResult</code> and denormalized onto the <code>Run</code> record for long-term retention.</li>
-</ol>
-<h3 id="whats-tracked">What's tracked</h3>
+<p>To compare models, group a chart by the <code>model</code> metadata field. To see who starts the runs, group by <code>author</code> or <code>triggered_by</code>.</p>
+<h2 id="usage-and-cost">Usage and cost</h2>
+<p>DAIV records the token usage and an estimated cost for every agent run in its own database, without a LangSmith account.</p>
+<p>DAIV counts the tokens of every model call in the run, including fallback models, models that tools call, and subagents, and prices each call on its own. For a call through OpenRouter, the cost is the charge OpenRouter reports, which depends on the provider it routed the call to. For any other call, DAIV estimates it from the model's list price in <a href="https://github.com/pydantic/genai-prices">genai-prices</a>. DAIV then totals the tokens and cost per model, and stores the totals on the run.</p>
+<p>A run records:</p>
 <table>
 <thead>
 <tr>
@@ -2576,54 +2101,47 @@
 <tbody>
 <tr>
 <td><code>input_tokens</code></td>
-<td>Total input (prompt) tokens across all model calls</td>
+<td>Input tokens across all model calls</td>
 </tr>
 <tr>
 <td><code>output_tokens</code></td>
-<td>Total output (completion) tokens</td>
+<td>Output tokens across all model calls</td>
 </tr>
 <tr>
 <td><code>total_tokens</code></td>
-<td>Sum of input + output</td>
+<td>Input plus output tokens</td>
 </tr>
 <tr>
 <td><code>cost_usd</code></td>
-<td>USD cost: OpenRouter's reported charge, or a genai-prices estimate for other providers</td>
+<td>The run's cost in US dollars</td>
 </tr>
 <tr>
 <td><code>usage_by_model</code></td>
-<td>Per-model breakdown of tokens and cost</td>
+<td>The same figures per model, with the cache and reasoning token counts the provider reports</td>
 </tr>
 </tbody>
 </table>
-<p>Token detail buckets (when available from the provider):</p>
+<p>Two limits apply:</p>
 <ul>
-<li><strong>Cache creation / cache read</strong> — Anthropic prompt caching tokens</li>
-<li><strong>Reasoning tokens</strong> — thinking/chain-of-thought tokens (Anthropic extended thinking, OpenAI reasoning)</li>
+<li>For a call DAIV prices from list prices, the cost is empty when genai-prices does not list the model, and a run's cost is empty when any of its calls has no price. The tokens are still recorded, and DAIV logs a warning naming the model.</li>
+<li>A cost priced from list prices is an estimate. Your provider's bill can differ.</li>
 </ul>
-<h3 id="where-to-see-it">Where to see it</h3>
-<ul>
-<li><strong>Sessions list</strong> — cost or token count shown per session row</li>
-<li><strong>Session detail run timeline</strong> — full breakdown with per-model details per run</li>
-<li><strong>Markdown export</strong> — usage metadata included in YAML frontmatter</li>
-</ul>
-<h3 id="known-limitations">Known limitations</h3>
-<ul>
-<li><strong>Summarization middleware calls</strong> may not be tracked if the middleware overrides the config.</li>
-<li>If a model is <strong>not in the genai-prices database</strong>, token usage is still recorded but cost is stored as <code>null</code>. A warning is logged.</li>
-<li>Cost estimates are <strong>approximations</strong> based on published list prices. Actual billing may differ based on your provider agreement.</li>
-<li><strong>OpenAI-compatible chat API flows</strong> (the <code>/api/chat/</code> endpoint, separate from the dashboard session workspace) do not attach the usage tracker and do not persist usage to Run records.</li>
-</ul>
-<h3 id="relationship-to-langsmith">Relationship to LangSmith</h3>
-<p>LangSmith remains the recommended tool for detailed <strong>trace-level</strong> observability (latency, tool calls, intermediate steps, debugging). Internal cost tracking provides <strong>run-level</strong> usage summaries that persist on Run records and do not require a LangSmith account.</p>
-<hr />
-<h2 id="session-archive">Session archive</h2>
-<p>DAIV keeps a copy of each session's conversation in its database, written when each run ends, so transcripts outlive the checkpointer TTL and LangSmith's retention. Export them for offline analysis:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-9-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1"></a>django-admin<span class="w"> </span>export_session_archives<span class="w"> </span>./session-exports<span class="w"> </span>--since<span class="w"> </span><span class="m">2026</span>-10-01<span class="w"> </span>--repo<span class="w"> </span>group/project
-</code></pre></div></td></tr></table></div>
-<p>Each archived session becomes <code>&lt;thread_id&gt;.json</code>. It holds the session's repository, origin and title, every context in order (a <code>/clear</code> closes one and starts the next; <code>closed_at</code> says when) with its messages in LangChain's <code>messages_to_dict</code> format, and its runs' status, model, tokens and cost. The archive holds the session's messages, not each model request: system prompts, tool schemas, summaries and subagent internals stay in LangSmith. A session that fails to export is logged and named, and the command exits with an error once the rest are written.</p>
-<p>Exports contain full conversations and run prompts, so treat the output directory as sensitive.</p>
-<p>These <code>daiv.sessions</code> log records report archive trouble; the errors reach Sentry:</p>
+<p>You see the figures in three places. A row in the sessions list shows the session's cost, the <strong>Spend</strong> section of a session's <strong>Overview</strong> shows what the session cost, and a run's downloaded Markdown result holds <code>total_tokens</code> and <code>cost_usd</code> in its front matter. <a href="../../features/sessions/">Sessions</a> describes the pages.</p>
+<h2 id="export-session-archives">Export session archives</h2>
+<p>DAIV writes a copy of each session's conversation to its database when each run ends. This session archive is the saved copy, not a session's <strong>Archived</strong> state. The copy outlives the checkpointer's time to live and LangSmith's retention, and you can export it for offline analysis.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>An export holds full conversations and run prompts. Store the output directory as you would the repositories' contents, and delete it when you finish.</p>
+</div>
+<ol>
+<li>Run <a href="../management-commands/#export_session_archives"><code>export_session_archives</code></a> with an output directory, and with <code>--since</code> and <code>--repo</code> to narrow the sessions. The command's page holds the commands that write the files inside the container, copy them to the host and remove them.</li>
+<li>Open <code>&lt;thread_id&gt;.json</code> for each session.</li>
+</ol>
+<p>Each file holds the session's repository, origin and title, and its contexts in order, where a <code>/clear</code> closes one context and starts the next and <code>closed_at</code> says when. Each context holds its messages in LangChain's <code>messages_to_dict</code> format. The file also holds each run's status, model, tokens and cost. The archive holds the session's messages, not each model request: system prompts, tool schemas, summaries and subagent internals stay in LangSmith. When a session fails to export, the command logs and names it, writes the rest, then exits with an error.</p>
+<h2 id="log-events">Log events</h2>
+<p>DAIV writes these events to its logs. Alert on them or search for them to find a problem early.</p>
+<h3 id="archive-events">Archive events</h3>
+<p>The <code>daiv.sessions</code> logger reports archive trouble. Errors reach Sentry.</p>
 <table>
 <thead>
 <tr>
@@ -2636,22 +2154,22 @@
 <tr>
 <td>ERROR</td>
 <td><code>executor: failed to archive thread_id=…</code></td>
-<td>A run's end was not archived (the traceback says why, a timeout included); the next run's archive catches up.</td>
+<td>A run's end was not archived, and the traceback says why, a timeout included. The next run's archive catches up.</td>
 </tr>
 <tr>
 <td>ERROR</td>
 <td><code>Thread … holds N messages, fewer than its archived M; keeping the archive</code></td>
-<td>The live thread lost messages the archive holds; the archive is left as it was.</td>
+<td>The live thread lost messages the archive holds. DAIV leaves the archive as it was.</td>
 </tr>
 <tr>
 <td>ERROR</td>
 <td><code>Failed to load archived context N of thread …; leaving it out</code></td>
-<td>An archive row no longer decodes; the transcript is shown without it.</td>
+<td>An archive row no longer decodes, and the transcript shows without it.</td>
 </tr>
 <tr>
 <td>WARNING</td>
 <td><code>No session … to archive its thread under</code></td>
-<td>A thread with no <code>Session</code> row; nothing is archived.</td>
+<td>A thread has no session, so DAIV archives nothing.</td>
 </tr>
 <tr>
 <td>INFO</td>
@@ -2660,18 +2178,14 @@
 </tr>
 </tbody>
 </table>
-<p>A context that exists but fails to restore fails the run with <code>ArchiveRestoreError</code> instead of being logged.</p>
-<hr />
-<h2 id="bash-command-policy-logs">Bash command policy logs</h2>
-<p>DAIV emits structured warning logs whenever the sandbox bash tool blocks a command due to policy evaluation or a parse failure. These logs use the <code>daiv.tools</code> logger.</p>
-<h3 id="log-events">Log events</h3>
-<p><strong><code>bash_policy_denied</code></strong> — a command segment matched a disallow rule:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-10-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1"></a>[bash] bash_policy_denied: command denied (id=&lt;call_id&gt;, reason=default_disallow, rule='git push', segment='git push origin main')
+<p>A context that exists but fails to restore fails the run with <code>ArchiveRestoreError</code> and is not logged as one of these events.</p>
+<h3 id="bash-policy-events">Bash policy events</h3>
+<p>The <code>daiv.tools</code> logger writes a warning when the <a href="../../features/sandbox/">sandbox</a> <code>bash</code> tool blocks a command, or cannot parse one and so blocks it.</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a>[bash] bash_policy_denied: command denied (id=&lt;call_id&gt;, reason=default_disallow, rule='git push', segment='git push origin main')
 </code></pre></div></td></tr></table></div>
-<p><strong><code>bash_policy_parse_failed</code></strong> — the command string could not be parsed (fail-closed):</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-11-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1"></a>[bash] bash_policy_parse_failed: command could not be parsed (id=&lt;call_id&gt;, reason='Parse error: ...')
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a>[bash] bash_policy_parse_failed: command could not be parsed (id=&lt;call_id&gt;, reason='Parse error: ...')
 </code></pre></div></td></tr></table></div>
-<h3 id="log-fields">Log fields</h3>
+<p>Each record carries these fields:</p>
 <table>
 <thead>
 <tr>
@@ -2686,42 +2200,28 @@
 </tr>
 <tr>
 <td><code>reason_category</code></td>
-<td><code>default_disallow</code>, <code>global_disallow</code>, or <code>parse_failure</code></td>
+<td><code>default_disallow</code>, <code>global_disallow</code> or <code>parse_failure</code></td>
 </tr>
 <tr>
 <td><code>matched_rule</code></td>
-<td>The rule that triggered denial (e.g. <code>"git push"</code>)</td>
+<td>The rule that blocked the command, for example <code>git push</code>; on <code>bash_policy_denied</code> only</td>
 </tr>
 <tr>
 <td><code>denied_segment</code></td>
-<td>The specific argv segment that was blocked</td>
+<td>The part of the command that was blocked; on <code>bash_policy_denied</code> only</td>
 </tr>
 <tr>
 <td><code>tool_call_id</code></td>
-<td>The agent tool-call ID for correlation with LangSmith traces</td>
+<td>The agent's tool call ID, which matches the tool call in the LangSmith trace</td>
 </tr>
 </tbody>
 </table>
-<h3 id="monitoring-recommendations">Monitoring recommendations</h3>
-<ul>
-<li><strong>Alert on high denial rates</strong> — a spike in <code>bash_policy_denied</code> may indicate the agent is repeatedly attempting prohibited operations.</li>
-<li><strong>Tune policy rules</strong> — use <code>reason_category</code> to tell built-in denials (<code>default_disallow</code>) from denials by your <code>DAIV_SANDBOX_COMMAND_POLICY_DISALLOW</code> rules (<code>global_disallow</code>).</li>
-<li><strong>Correlate with LangSmith</strong> — the <code>tool_call_id</code> links each denial to the full agent trace for deeper investigation.</li>
-</ul>
-<hr />
+<p><code>default_disallow</code> is a built-in rule, and <code>global_disallow</code> is a rule you set in <code>DAIV_SANDBOX_COMMAND_POLICY_DISALLOW</code>. A spike in <code>bash_policy_denied</code> means the agent keeps attempting a blocked command.</p>
 <h2 id="troubleshooting">Troubleshooting</h2>
-<p><strong>No traces appearing</strong>:</p>
-<ul>
-<li>Verify <code>LANGSMITH_TRACING=true</code> is set</li>
-<li>Check the API key is correct</li>
-<li>Ensure network connectivity to LangSmith endpoints</li>
-<li>Review application logs for authentication errors</li>
-</ul>
-<p><strong>Incomplete trace data</strong>:</p>
-<ul>
-<li>Verify the project name matches across all services</li>
-<li>Ensure Docker secrets are properly mounted (Swarm deployments)</li>
-</ul>
+<h3 id="no-traces-appear-in-langsmith">No traces appear in LangSmith</h3>
+<p>Check that <code>LANGSMITH_TRACING</code> is <code>true</code> and that the API key is correct. Check that the containers can reach the LangSmith endpoint, and read the application logs for authentication errors.</p>
+<h3 id="a-trace-is-incomplete">A trace is incomplete</h3>
+<p>Check that the project name is the same in every service. On Docker Swarm, check that the secret holding the API key is mounted.</p>
 
 
 
@@ -2744,7 +2244,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 10, 2026 17:23:40 UTC">November 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 12, 2026 16:02:09 UTC">November 12, 2026</span>
   </span>
 
     

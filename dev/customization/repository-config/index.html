@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Configure DAIV per repository with a .daiv.yml file: access control, file access, feature toggles, branch naming, commit messages and model overrides.">
+        <meta name="description" content="Configure DAIV per repository with a .daiv.yml file: who can trigger it, which diff content it omits, feature toggles and model overrides.">
       
       
         <meta name="author" content="Sandro Rodrigues">
@@ -31,7 +31,7 @@
   
     
       
-        <title>Repository Config - DAIV</title>
+        <title>Repository configuration - DAIV</title>
       
     
   
@@ -100,7 +100,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#repository-config" class="md-skip">
+        <a href="#repository-configuration" class="md-skip">
           Skip to content
         </a>
       
@@ -139,7 +139,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Repository Config
+              Repository configuration
             
           </span>
         </div>
@@ -431,7 +431,7 @@
   <span class="md-ellipsis">
     
   
-    Platform Setup
+    Platform setup
   
 
     
@@ -459,7 +459,7 @@
   <span class="md-ellipsis">
     
   
-    Accounts & Roles
+    Accounts and roles
   
 
     
@@ -487,7 +487,7 @@
   <span class="md-ellipsis">
     
   
-    LLM Providers
+    LLM providers
   
 
     
@@ -569,7 +569,7 @@
   <span class="md-ellipsis">
     
   
-    Issue Addressing
+    Issue addressing
   
 
     
@@ -597,7 +597,7 @@
   <span class="md-ellipsis">
     
   
-    Pull Request Assistant
+    Pull request assistant
   
 
     
@@ -625,7 +625,35 @@
   <span class="md-ellipsis">
     
   
-    Pipeline Watch
+    Pipeline watch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository memory
   
 
     
@@ -709,7 +737,7 @@
   <span class="md-ellipsis">
     
   
-    Scheduled Jobs
+    Scheduled jobs
   
 
     
@@ -765,7 +793,7 @@
   <span class="md-ellipsis">
     
   
-    MCP Endpoint
+    MCP endpoint
   
 
     
@@ -821,7 +849,7 @@
   <span class="md-ellipsis">
     
   
-    Merge Metrics
+    Merge metrics
   
 
     
@@ -849,7 +877,7 @@
   <span class="md-ellipsis">
     
   
-    Slash Commands & Skills
+    Slash commands and skills
   
 
     
@@ -933,7 +961,7 @@
   <span class="md-ellipsis">
     
   
-    Sandbox Environments
+    Sandbox environments
   
 
     
@@ -1015,7 +1043,7 @@
   <span class="md-ellipsis">
     
   
-    Request Tracker Triage
+    Request Tracker triage
   
 
     
@@ -1108,7 +1136,7 @@
   <span class="md-ellipsis">
     
   
-    Repository Config
+    Repository configuration
   
 
     
@@ -1126,7 +1154,7 @@
   <span class="md-ellipsis">
     
   
-    Repository Config
+    Repository configuration
   
 
     
@@ -1163,6 +1191,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#how-daiv-reads-the-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How DAIV reads the file
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#repository-settings" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1185,10 +1224,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#file-access" class="md-nav__link">
+  <a href="#omitted-diff-content" class="md-nav__link">
     <span class="md-ellipsis">
       
-        File access
+        Omitted diff content
       
     </span>
   </a>
@@ -1200,17 +1239,6 @@
     <span class="md-ellipsis">
       
         Feature toggles
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#branch-naming-and-commit-conventions" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Branch naming and commit conventions
       
     </span>
   </a>
@@ -1290,7 +1318,7 @@
   <span class="md-ellipsis">
     
   
-    Agent Skills
+    Agent skills
   
 
     
@@ -1318,7 +1346,7 @@
   <span class="md-ellipsis">
     
   
-    MCP Tools
+    MCP tools
   
 
     
@@ -1400,7 +1428,7 @@
   <span class="md-ellipsis">
     
   
-    Environment Variables
+    Environment variables
   
 
     
@@ -1428,7 +1456,7 @@
   <span class="md-ellipsis">
     
   
-    Site Configuration
+    Site configuration
   
 
     
@@ -1456,7 +1484,7 @@
   <span class="md-ellipsis">
     
   
-    Agent Architecture
+    Agent tools
   
 
     
@@ -1485,6 +1513,34 @@
     
   
     Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/management-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Management commands
   
 
     
@@ -1598,6 +1654,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#how-daiv-reads-the-file" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How DAIV reads the file
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#repository-settings" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1620,10 +1687,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#file-access" class="md-nav__link">
+  <a href="#omitted-diff-content" class="md-nav__link">
     <span class="md-ellipsis">
       
-        File access
+        Omitted diff content
       
     </span>
   </a>
@@ -1635,17 +1702,6 @@
     <span class="md-ellipsis">
       
         Feature toggles
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#branch-naming-and-commit-conventions" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Branch naming and commit conventions
       
     </span>
   </a>
@@ -1775,8 +1831,8 @@
   
 
 
-<h1 id="repository-config">Repository Config</h1>
-<p>Customize DAIV's behavior per repository using a <code>.daiv.yml</code> file in the root of the default branch.</p>
+<h1 id="repository-configuration">Repository configuration</h1>
+<p>A <code>.daiv.yml</code> file in the root of a repository's default branch changes how DAIV behaves in that repository: who can trigger it, which features run, and which models it uses. A repository without the file uses the defaults on this page and the site-wide settings.</p>
 <h2 id="full-example">Full example</h2>
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1"> 1</a></span>
 <span class="normal"><a href="#__codelineno-0-2"> 2</a></span>
@@ -1824,7 +1880,10 @@
 <span class="normal"><a href="#__codelineno-0-44">44</a></span>
 <span class="normal"><a href="#__codelineno-0-45">45</a></span>
 <span class="normal"><a href="#__codelineno-0-46">46</a></span>
-<span class="normal"><a href="#__codelineno-0-47">47</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="c1"># Repository settings</span>
+<span class="normal"><a href="#__codelineno-0-47">47</a></span>
+<span class="normal"><a href="#__codelineno-0-48">48</a></span>
+<span class="normal"><a href="#__codelineno-0-49">49</a></span>
+<span class="normal"><a href="#__codelineno-0-50">50</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="c1"># Repository settings</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2"></a><span class="nt">default_branch</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">main</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3"></a><span class="nt">context_file_name</span><span class="p">:</span><span class="w"> </span><span class="s">"AGENTS.md"</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4"></a><span class="nt">suggest_context_file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
@@ -1835,7 +1894,7 @@
 <a id="__codelineno-0-9" name="__codelineno-0-9"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
 <a id="__codelineno-0-10" name="__codelineno-0-10"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bob</span>
 <a id="__codelineno-0-11" name="__codelineno-0-11"></a>
-<a id="__codelineno-0-12" name="__codelineno-0-12"></a><span class="c1"># Files the agent can see but won't read</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12"></a><span class="c1"># Files whose diff content the commit and merge request writer does not see</span>
 <a id="__codelineno-0-13" name="__codelineno-0-13"></a><span class="nt">omit_content_patterns</span><span class="p">:</span>
 <a id="__codelineno-0-14" name="__codelineno-0-14"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"*.min.js"</span>
 <a id="__codelineno-0-15" name="__codelineno-0-15"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"*.svg"</span>
@@ -1858,20 +1917,25 @@
 <a id="__codelineno-0-32" name="__codelineno-0-32"></a><span class="nt">orchestration</span><span class="p">:</span>
 <a id="__codelineno-0-33" name="__codelineno-0-33"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 <a id="__codelineno-0-34" name="__codelineno-0-34"></a>
-<a id="__codelineno-0-35" name="__codelineno-0-35"></a><span class="c1"># Model overrides</span>
-<a id="__codelineno-0-36" name="__codelineno-0-36"></a><span class="nt">models</span><span class="p">:</span>
-<a id="__codelineno-0-37" name="__codelineno-0-37"></a><span class="w">  </span><span class="nt">agent</span><span class="p">:</span>
-<a id="__codelineno-0-38" name="__codelineno-0-38"></a><span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">"openrouter:anthropic/claude-sonnet-5.5"</span>
-<a id="__codelineno-0-39" name="__codelineno-0-39"></a><span class="w">    </span><span class="nt">fallback_model</span><span class="p">:</span><span class="w"> </span><span class="s">"openrouter:openai/gpt-6.1-sol"</span>
-<a id="__codelineno-0-40" name="__codelineno-0-40"></a><span class="w">    </span><span class="nt">thinking_level</span><span class="p">:</span><span class="w"> </span><span class="s">"medium"</span>
-<a id="__codelineno-0-41" name="__codelineno-0-41"></a><span class="w">  </span><span class="nt">diff_to_metadata</span><span class="p">:</span>
-<a id="__codelineno-0-42" name="__codelineno-0-42"></a><span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">"openrouter:anthropic/claude-sonnet-5.5"</span>
-<a id="__codelineno-0-43" name="__codelineno-0-43"></a><span class="w">    </span><span class="nt">fallback_model</span><span class="p">:</span><span class="w"> </span><span class="s">"openrouter:openai/gpt-6.1-sol"</span>
-<a id="__codelineno-0-44" name="__codelineno-0-44"></a><span class="w">  </span><span class="nt">skills</span><span class="p">:</span>
-<a id="__codelineno-0-45" name="__codelineno-0-45"></a><span class="w">    </span><span class="nt">code-review</span><span class="p">:</span><span class="w"> </span><span class="s">"openrouter:anthropic/claude-sonnet-5.5"</span>
-<a id="__codelineno-0-46" name="__codelineno-0-46"></a><span class="w">  </span><span class="nt">subagents</span><span class="p">:</span>
-<a id="__codelineno-0-47" name="__codelineno-0-47"></a><span class="w">    </span><span class="nt">cr-security</span><span class="p">:</span><span class="w"> </span><span class="s">"openrouter:anthropic/claude-opus-5.5"</span>
+<a id="__codelineno-0-35" name="__codelineno-0-35"></a><span class="nt">memory</span><span class="p">:</span>
+<a id="__codelineno-0-36" name="__codelineno-0-36"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-0-37" name="__codelineno-0-37"></a>
+<a id="__codelineno-0-38" name="__codelineno-0-38"></a><span class="c1"># Model overrides</span>
+<a id="__codelineno-0-39" name="__codelineno-0-39"></a><span class="nt">models</span><span class="p">:</span>
+<a id="__codelineno-0-40" name="__codelineno-0-40"></a><span class="w">  </span><span class="nt">agent</span><span class="p">:</span>
+<a id="__codelineno-0-41" name="__codelineno-0-41"></a><span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">"openrouter:anthropic/claude-sonnet-5.5"</span>
+<a id="__codelineno-0-42" name="__codelineno-0-42"></a><span class="w">    </span><span class="nt">fallback_model</span><span class="p">:</span><span class="w"> </span><span class="s">"openrouter:openai/gpt-6.1-sol"</span>
+<a id="__codelineno-0-43" name="__codelineno-0-43"></a><span class="w">    </span><span class="nt">thinking_level</span><span class="p">:</span><span class="w"> </span><span class="s">"medium"</span>
+<a id="__codelineno-0-44" name="__codelineno-0-44"></a><span class="w">  </span><span class="nt">diff_to_metadata</span><span class="p">:</span>
+<a id="__codelineno-0-45" name="__codelineno-0-45"></a><span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">"openrouter:anthropic/claude-sonnet-5.5"</span>
+<a id="__codelineno-0-46" name="__codelineno-0-46"></a><span class="w">    </span><span class="nt">fallback_model</span><span class="p">:</span><span class="w"> </span><span class="s">"openrouter:openai/gpt-6.1-sol"</span>
+<a id="__codelineno-0-47" name="__codelineno-0-47"></a><span class="w">  </span><span class="nt">skills</span><span class="p">:</span>
+<a id="__codelineno-0-48" name="__codelineno-0-48"></a><span class="w">    </span><span class="nt">code-review</span><span class="p">:</span><span class="w"> </span><span class="s">"openrouter:anthropic/claude-sonnet-5.5"</span>
+<a id="__codelineno-0-49" name="__codelineno-0-49"></a><span class="w">  </span><span class="nt">subagents</span><span class="p">:</span>
+<a id="__codelineno-0-50" name="__codelineno-0-50"></a><span class="w">    </span><span class="nt">cr-security</span><span class="p">:</span><span class="w"> </span><span class="s">"openrouter:anthropic/claude-opus-5.5"</span>
 </code></pre></div></td></tr></table></div>
+<h2 id="how-daiv-reads-the-file">How DAIV reads the file</h2>
+<p>DAIV always reads <code>.daiv.yml</code> from the platform's default branch, whatever the <code>default_branch</code> option says. It caches the file for 1 hour per repository, and a push to the default branch clears the cache, so a change you merge takes effect after that push. If the file is missing, DAIV uses the defaults. If DAIV cannot parse the file or one of its values, it logs an error and uses the defaults for the whole file. Model entries under <code>models.skills</code> and <code>models.subagents</code> are the exception: DAIV checks them when a run uses them, so a typo there never drops the rest of the file.</p>
 <h2 id="repository-settings">Repository settings</h2>
 <table>
 <thead>
@@ -1887,7 +1951,7 @@
 <td><code>default_branch</code></td>
 <td><code>str \| null</code></td>
 <td>Repository default</td>
-<td>Branch DAIV uses to load <code>.daiv.yml</code> and as the base for merge requests.</td>
+<td>Base branch for merge requests.</td>
 </tr>
 <tr>
 <td><code>context_file_name</code></td>
@@ -1909,12 +1973,10 @@
 </tr>
 </tbody>
 </table>
-<div class="admonition tip">
-<p class="admonition-title">Tip</p>
-<p>The <code>AGENTS.md</code> file helps DAIV understand your repository's structure, conventions, and constraints. You can generate one using the <code>/init</code> skill — see <a href="../../features/slash-commands/#init">Slash Commands &amp; Skills</a>.</p>
-</div>
+<p>The context file tells DAIV about your repository's structure, conventions and constraints. Generate one with the <code>/init</code> skill; see <a href="../../features/slash-commands/#init">Slash commands and skills</a>. For branch names and commit messages, see <a href="../agent-skills/#set-branch-and-commit-conventions">Set branch and commit conventions</a>.</p>
+<p><code>suggest_context_file</code> and <code>session_link</code> also have site-wide switches in <a href="../../reference/site-configuration/">Site configuration</a>. DAIV applies them only when both the repository and the site allow them, so <code>true</code> here cannot turn on a feature the site turned off.</p>
 <h2 id="access-control">Access control</h2>
-<p>Restrict which users can interact with DAIV on this repository. This is particularly useful for <strong>public repositories</strong> where you want to prevent arbitrary users from triggering DAIV.</p>
+<p>Access control restricts which users can interact with DAIV on this repository. It matters most on public repositories, where you want to stop arbitrary users from triggering DAIV.</p>
 <table>
 <thead>
 <tr>
@@ -1941,17 +2003,13 @@
 <a id="__codelineno-1-3" name="__codelineno-1-3"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bob</span>
 <a id="__codelineno-1-4" name="__codelineno-1-4"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">charlie</span>
 </code></pre></div></td></tr></table></div>
-<p>When the list is empty or omitted, <strong>all users</strong> can interact with DAIV (default behavior). When populated, only the listed users can trigger DAIV through issues, comments, and merge request reviews. Username matching is case-insensitive.</p>
-<div class="admonition tip">
-<p class="admonition-title">Tip</p>
-<p>Push events (e.g., configuration cache invalidation) are not affected by the allowlist — they are system-level operations tied to the webhook, not to individual users.</p>
-</div>
+<p>When the list is empty or omitted, all users can interact with DAIV. When it lists users, only they can trigger DAIV through issues, comments and merge request reviews. Username matching is case-insensitive.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
 <p>The allowlist decides who can <strong>trigger</strong> DAIV, not who it reads. On a merge request a DAIV session owns, a comment that doesn't mention DAIV is remembered from anyone and shown to that session's next run as context (see <a href="../../features/pull-request-assistant/#a-merge-request-daiv-published">Pull request assistant</a>). On a public repository, treat those comments as untrusted input.</p>
 </div>
-<h2 id="file-access">File access</h2>
-<p>Control which files DAIV can read.</p>
+<h2 id="omitted-diff-content">Omitted diff content</h2>
+<p><code>omit_content_patterns</code> lists files whose changes stay in the diff, but whose content DAIV replaces with a placeholder before the diff reaches the model that writes commit messages and merge request descriptions. It keeps large generated files out of that model's input.</p>
 <table>
 <thead>
 <tr>
@@ -1966,13 +2024,13 @@
 <td><code>omit_content_patterns</code></td>
 <td><code>list[str]</code></td>
 <td><code>["*package-lock.json", "*pnpm-lock.yaml", "*.lock", "*.svg"]</code></td>
-<td>Files matching these patterns are visible to the agent but their content is not read. Useful for large generated files.</td>
+<td>Path patterns whose diff content is left out of generated commit messages and merge request descriptions.</td>
 </tr>
 </tbody>
 </table>
-<p>Patterns follow <a href="https://docs.python.org/3/library/fnmatch.html">fnmatch</a> syntax.</p>
+<p>Patterns follow <a href="https://docs.python.org/3/library/fnmatch.html">fnmatch</a> syntax and match against the file's path in the repository.</p>
 <h2 id="feature-toggles">Feature toggles</h2>
-<p>All features are enabled by default. Disable any you don't need:</p>
+<p>All features are on by default. To turn one off, set its <code>enabled</code> option to <code>false</code>:</p>
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span>
 <span class="normal"><a href="#__codelineno-2-2">2</a></span>
 <span class="normal"><a href="#__codelineno-2-3">3</a></span>
@@ -2003,70 +2061,59 @@
 <td><code>issue_addressing</code></td>
 <td><code>enabled</code></td>
 <td><code>true</code></td>
-<td><a href="../../features/issue-addressing/">Issue Addressing</a></td>
+<td><a href="../../features/issue-addressing/">Issue addressing</a></td>
 </tr>
 <tr>
 <td><code>pull_request_assistant</code></td>
 <td><code>enabled</code></td>
 <td><code>true</code></td>
-<td><a href="../../features/pull-request-assistant/">Pull Request Assistant</a></td>
+<td><a href="../../features/pull-request-assistant/">Pull request assistant</a></td>
 </tr>
 <tr>
 <td><code>slash_commands</code></td>
 <td><code>enabled</code></td>
 <td><code>true</code></td>
-<td><a href="../../features/slash-commands/">Slash Commands &amp; Skills</a></td>
+<td><a href="../../features/slash-commands/">Slash commands and skills</a></td>
 </tr>
 <tr>
 <td><code>pipeline_watch</code></td>
 <td><code>enabled</code></td>
-<td>site-wide</td>
-<td><a href="../../features/pipeline-watch/">Pipeline Watch</a> — disable to stop DAIV watching CI on published MRs.</td>
+<td><code>true</code></td>
+<td><a href="../../features/pipeline-watch/">Pipeline watch</a>: set it to <code>false</code> to stop DAIV watching CI on the merge requests it publishes.</td>
 </tr>
 <tr>
 <td><code>pipeline_watch</code></td>
 <td><code>max_attempts</code></td>
 <td>site-wide</td>
-<td><a href="../../features/pipeline-watch/">Pipeline Watch</a> — maximum fix attempts before giving up, clamped to the site-wide cap.</td>
+<td><a href="../../features/pipeline-watch/">Pipeline watch</a>: the maximum number of fix attempts before DAIV hands the merge request back. DAIV caps it at the site-wide limit.</td>
 </tr>
 <tr>
 <td><code>orchestration</code></td>
 <td><code>enabled</code></td>
 <td><code>true</code></td>
-<td><a href="../../features/orchestration/">Orchestration</a> — let the agent delegate sub-jobs to other repositories, or to new sessions on this one.</td>
+<td><a href="../../features/orchestration/">Orchestration</a>: let the agent delegate sub-jobs to other repositories, or to new sessions on this one.</td>
+</tr>
+<tr>
+<td><code>memory</code></td>
+<td><code>enabled</code></td>
+<td><code>true</code></td>
+<td>Repository memory: capture observations from finished runs, consolidate them, and add them to the system prompt of later runs. Set it to <code>false</code> to opt this repository out.</td>
 </tr>
 </tbody>
 </table>
-<h2 id="branch-naming-and-commit-conventions">Branch naming and commit conventions</h2>
-<p>DAIV generates branch names and commit messages automatically. You can define your conventions in <code>AGENTS.md</code>:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Markdown</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span>
-<span class="normal"><a href="#__codelineno-3-2">2</a></span>
-<span class="normal"><a href="#__codelineno-3-3">3</a></span>
-<span class="normal"><a href="#__codelineno-3-4">4</a></span>
-<span class="normal"><a href="#__codelineno-3-5">5</a></span>
-<span class="normal"><a href="#__codelineno-3-6">6</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a><span class="gu">## Branch naming</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2"></a>Use: pr/&lt;issue-id&gt;-&lt;kebab-summary&gt;
-<a id="__codelineno-3-3" name="__codelineno-3-3"></a>
-<a id="__codelineno-3-4" name="__codelineno-3-4"></a><span class="gu">## Commit messages</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5"></a>Use: (&lt;ISSUE-ID&gt;) &lt;type&gt;: &lt;summary&gt;
-<a id="__codelineno-3-6" name="__codelineno-3-6"></a>Where &lt;type&gt; is one of: feat, fix, chore, docs, refactor, test
-</code></pre></div></td></tr></table></div>
-<p>If no conventions are defined, DAIV defaults to:</p>
-<ul>
-<li><strong>Branches</strong>: <code>&lt;type&gt;/&lt;short-kebab-summary&gt;</code></li>
-<li><strong>Commits</strong>: Conventional Commits style <code>&lt;type&gt;: &lt;short summary&gt;</code></li>
-</ul>
+<p><code>pipeline_watch.enabled</code> and <code>memory.enabled</code> apply only while the matching site-wide setting is on too: <strong>Pipeline Watch</strong> and <strong>Memory</strong> in <a href="../../reference/site-configuration/">Site configuration</a>. The other toggles apply to the repository alone.</p>
 <h2 id="model-overrides">Model overrides</h2>
-<p>Override the default models on a per-repository basis. Useful for using smaller models on simple projects or larger models on complex ones.</p>
-<p>Configuration priority (highest to lowest):</p>
+<p>A repository can use different models from the site's, for example smaller models on simple projects and larger ones on complex projects. A model is written as a model spec such as <code>openrouter:anthropic/claude-sonnet-5.5</code>; see <a href="../../getting-started/llm-providers/">LLM providers</a>.</p>
+<p>The model for a run comes from the first source in this list that sets one, highest priority first:</p>
 <ol>
-<li><strong>A model picked for the run</strong> — in the agent picker, or as <code>agent_model</code> through the API and MCP</li>
-<li><strong>Issue labels</strong> (<code>daiv-max</code>) — see <a href="../../features/issue-addressing/#max-mode">Issue Addressing</a>; max mode uses the site's max thinking level, not <code>thinking_level</code></li>
-<li><strong><code>.daiv.yml</code> models section</strong> — per-repository overrides</li>
-<li><strong>Site settings</strong> — global defaults (environment variables or the configuration page)</li>
+<li><strong>A model picked for the run</strong>, in the agent picker or as <code>agent_model</code> through the API and MCP.</li>
+<li><strong>The <code>daiv-max</code> issue label</strong>, described in <a href="../../features/issue-addressing/#max-mode">Issue addressing</a>. Max mode uses the site's max thinking level, not <code>thinking_level</code>.</li>
+<li><strong>The <code>models</code> section of <code>.daiv.yml</code>.</strong></li>
+<li><strong>Site settings</strong>: environment variables or the Site Configuration page.</li>
 </ol>
+<p>DAIV tries the model from the highest source that sets one first. The <code>models.agent</code> model and fallback follow it, or the site's models where the file sets none.</p>
 <h3 id="agent">Agent</h3>
-<p>The main DAIV agent used for issue addressing, pull request assistance, and all interactive tasks.</p>
+<p>The main DAIV agent handles issue addressing, pull request assistance and all interactive tasks.</p>
 <table>
 <thead>
 <tr>
@@ -2097,9 +2144,9 @@
 </tr>
 </tbody>
 </table>
-<p>A model picked for a single run (in the agent picker, or as <code>agent_model</code> through the API and MCP) is tried first, with the model and fallback above after it, and a thinking level picked for a run beats <code>thinking_level</code>.</p>
+<p>A model picked for a single run is tried first, with the model and fallback above after it, and a thinking level picked for a run beats <code>thinking_level</code>.</p>
 <h3 id="diff-to-metadata">Diff to metadata</h3>
-<p>Generates pull request titles, descriptions, and commit messages from diffs.</p>
+<p>The diff to metadata agent generates pull request titles, descriptions and commit messages from diffs.</p>
 <table>
 <thead>
 <tr>
@@ -2124,12 +2171,8 @@
 </tr>
 </tbody>
 </table>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>The diff to metadata agent reads your <code>AGENTS.md</code> file to follow your branch naming and commit message conventions.</p>
-</div>
 <h3 id="skill-and-subagent-models">Skill and subagent models</h3>
-<p>Run a skill or a subagent on a chosen model in this repository, by name. An entry overrides the site's entry for the same name only; every other site entry still applies. Site entries are set in the dashboard: a skill's on the <strong>Models</strong> tab of its page, which also holds the code-review detectors', and the general-purpose and explore subagents' under <strong>Configuration → Agent</strong>.</p>
+<p>Run a skill or a subagent on a chosen model in this repository, by name. An entry overrides the site's entry for the same name only; every other site entry still applies. Site entries are set in the dashboard: a skill's on the <strong>Models</strong> tab of its page, which also holds the code-review detectors', and the general-purpose and explore subagents' under <strong>Configuration</strong> → <strong>Agent</strong>.</p>
 <table>
 <thead>
 <tr>
@@ -2154,29 +2197,29 @@
 </tr>
 </tbody>
 </table>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span>
-<span class="normal"><a href="#__codelineno-4-2">2</a></span>
-<span class="normal"><a href="#__codelineno-4-3">3</a></span>
-<span class="normal"><a href="#__codelineno-4-4">4</a></span>
-<span class="normal"><a href="#__codelineno-4-5">5</a></span>
-<span class="normal"><a href="#__codelineno-4-6">6</a></span>
-<span class="normal"><a href="#__codelineno-4-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a><span class="nt">models</span><span class="p">:</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2"></a><span class="w">  </span><span class="nt">skills</span><span class="p">:</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3"></a><span class="w">    </span><span class="nt">code-review</span><span class="p">:</span><span class="w"> </span><span class="s">"openrouter:anthropic/claude-sonnet-5.5"</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4"></a><span class="w">    </span><span class="nt">plan</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">   </span><span class="c1"># unset: the site entry, if any, applies</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5"></a><span class="w">  </span><span class="nt">subagents</span><span class="p">:</span>
-<a id="__codelineno-4-6" name="__codelineno-4-6"></a><span class="w">    </span><span class="nt">cr-security</span><span class="p">:</span><span class="w"> </span><span class="s">"openrouter:anthropic/claude-opus-5.5"</span>
-<a id="__codelineno-4-7" name="__codelineno-4-7"></a><span class="w">    </span><span class="nt">my-repo-subagent</span><span class="p">:</span><span class="w"> </span><span class="s">"openrouter:z-ai/glm-5.2"</span>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span>
+<span class="normal"><a href="#__codelineno-3-2">2</a></span>
+<span class="normal"><a href="#__codelineno-3-3">3</a></span>
+<span class="normal"><a href="#__codelineno-3-4">4</a></span>
+<span class="normal"><a href="#__codelineno-3-5">5</a></span>
+<span class="normal"><a href="#__codelineno-3-6">6</a></span>
+<span class="normal"><a href="#__codelineno-3-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a><span class="nt">models</span><span class="p">:</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2"></a><span class="w">  </span><span class="nt">skills</span><span class="p">:</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3"></a><span class="w">    </span><span class="nt">code-review</span><span class="p">:</span><span class="w"> </span><span class="s">"openrouter:anthropic/claude-sonnet-5.5"</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4"></a><span class="w">    </span><span class="nt">plan</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">   </span><span class="c1"># unset: the site entry, if any, applies</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5"></a><span class="w">  </span><span class="nt">subagents</span><span class="p">:</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6"></a><span class="w">    </span><span class="nt">cr-security</span><span class="p">:</span><span class="w"> </span><span class="s">"openrouter:anthropic/claude-opus-5.5"</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7"></a><span class="w">    </span><span class="nt">my-repo-subagent</span><span class="p">:</span><span class="w"> </span><span class="s">"openrouter:z-ai/glm-5.2"</span>
 </code></pre></div></td></tr></table></div>
-<p>For a given name, the model resolves in this order, first match wins:</p>
+<p>Replace <code>&lt;name&gt;</code> with the name of a skill or subagent. For a given name, the model resolves in this order, first match wins:</p>
 <ol>
 <li>this repository's entry;</li>
-<li>the site's entry (a skill page's <strong>Models</strong> tab, or <strong>Configuration → Agent → Subagent models</strong>);</li>
+<li>the site's entry (a skill page's <strong>Models</strong> tab, or <strong>Configuration</strong> → <strong>Agent</strong> → <strong>Subagent models</strong>);</li>
 <li>the model the subagent file, or a built-in or global skill file, declares (a repository skill's <code>metadata.model</code> is ignored);</li>
 <li>the run's model.</li>
 </ol>
 <p>A model picked for the run, <code>daiv-max</code>, or an exact model passed to the jobs API does not override these entries. Configured models run with the run's thinking level.</p>
-<p>Values are checked when a run uses them, not when the file loads, so a typo never drops the rest of <code>.daiv.yml</code>. An entry that can't be used falls back to the model the file declares, else the run's model, not to the site entry; the failure is logged at ERROR. Names that match no skill or subagent are ignored. See <a href="../agent-skills/#running-a-skill-on-another-model">Agent Skills</a> and <a href="../../features/subagents/#choosing-a-subagents-model">Subagents</a>.</p>
+<p>DAIV checks the values when a run uses them, not when the file loads, so a typo never drops the rest of <code>.daiv.yml</code>. An entry that can't be used falls back to the model the file declares, else the run's model, not to the site entry, and DAIV logs the failure as an error. Names that match no skill or subagent are ignored. See <a href="../agent-skills/#run-a-skill-on-another-model">Agent skills</a> and <a href="../../features/subagents/#subagent-model-precedence">Subagents</a>.</p>
 
 
 
@@ -2199,7 +2242,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 11, 2026 18:05:50 UTC">November 11, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 12, 2026 15:27:46 UTC">November 12, 2026</span>
   </span>
 
     

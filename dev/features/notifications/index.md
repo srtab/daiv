@@ -1,162 +1,119 @@
 # Notifications
 
-DAIV tells you when your work needs attention. When a run finishes with something to look at — an issue found, a situation that needs review, or an outright failure — DAIV writes an in-app notification and delivers it to external channels like email, Rocket Chat, and Telegram. Clean runs stay silent and appear only in the Feed.
+DAIV tells you when your work needs attention. When a run finishes with something to look at, such as an issue found, a situation that needs review or an outright failure, DAIV writes an in-app notification and delivers it to external channels: email, Rocket.Chat and Telegram. Clean runs stay silent and appear only in their session, under **Sessions**.
 
-Notifications are per-user: each recipient gets their own copy, with delivery resolved against that user's own channel bindings.
+Notifications are per user. Each recipient gets their own copy, delivered through that user's own channels.
 
 ## What produces a notification
 
-DAIV classifies every finished run and notifies only when the outcome warrants it. The four notify-worthy classifications are **found-issues**, **needs-attention**, **needs-input**, and **failed**. Runs classified **all-clear** are silent — they live in the Feed but generate no notification.
+DAIV classifies every finished run and notifies only when the outcome warrants it. The classifications that notify are **found-issues**, **needs-attention**, **needs-input** and **failed**. A run classified **all-clear** is silent: it appears in its session, under **Sessions**, and produces no notification. The exception is a run that a CI failure woke: it always notifies its owner, all-clear included (see [pipeline watch](https://docs.daivagent.com/dev/features/pipeline-watch/#notifications)).
 
-A run is classified **needs-input** when the agent stopped to ask you a question instead of guessing. The notification's subject says the run is waiting for your answer and its body lists the questions; open the session to answer them. Runs triggered by an issue or merge/pull-request webhook are the exception: their question is posted as a comment on the issue or MR/PR that @-mentions whoever triggered the run, so DAIV sends no separate notification for it.
+A run is **needs-input** when the agent stopped to ask you a question instead of guessing. The notification's subject says the run is waiting for your answer, and its body lists the questions; open the session to answer them. A run that an issue or merge or pull request webhook started is the exception: DAIV posts its question as a comment on the issue or request, which mentions whoever triggered the run, so DAIV sends no separate notification for it.
 
-There are four event types for runs and schedules:
+Runs that webhooks start, such as [issue addressing](https://docs.daivagent.com/dev/features/issue-addressing/index.md) and the [pull request assistant](https://docs.daivagent.com/dev/features/pull-request-assistant/index.md), report back in the issue or request thread. Like runs you start from the dashboard, the [jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md) or the [MCP endpoint](https://docs.daivagent.com/dev/features/mcp-endpoint/index.md), they also notify their initiator when the outcome notifies. To silence a run you start through the API or MCP, pass the `muted` flag.
 
-| Event                                               | When it fires                                                                                                                                                                           | Recipients                                                                                                                       |
-| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| **Job finished** (`job.finished`)                   | A single agent run finishes with a notify-worthy classification                                                                                                                         | The user who started the run                                                                                                     |
-| **Job batch finished** (`job_batch.finished`)       | Every run in a multi-run batch is terminal — a single rollup, not one message per run                                                                                                   | The batch owner (and, for [scheduled](https://docs.daivagent.com/dev/features/scheduled-jobs/index.md) batches, any subscribers) |
-| **Schedule finished** (`schedule.finished`)         | A run tied to a [scheduled job](https://docs.daivagent.com/dev/features/scheduled-jobs/index.md) finishes with a notify-worthy classification                                           | The schedule owner and its subscribers                                                                                           |
-| **Schedule can't run** (`schedule_dispatch.failed`) | A [scheduled job](https://docs.daivagent.com/dev/features/scheduled-jobs/#when-a-schedule-cant-run) fails to start a run. Sent once per failing streak, even when the schedule is muted | The schedule owner                                                                                                               |
+These events cover runs and schedules:
 
-Batches collapse into one message
+| Event                                               | When it fires                                                                                                                                                                                     | Recipients                                                                                                                      |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| **Job finished** (`job.finished`)                   | A single agent run finishes with an outcome that notifies.                                                                                                                                        | The user who started the run.                                                                                                   |
+| **Job batch finished** (`job_batch.finished`)       | Every run in a multi-run batch has finished. DAIV sends one rollup, not one message per run.                                                                                                      | The batch owner and, for a [scheduled](https://docs.daivagent.com/dev/features/scheduled-jobs/index.md) batch, its subscribers. |
+| **Schedule finished** (`schedule.finished`)         | A run of a [scheduled job](https://docs.daivagent.com/dev/features/scheduled-jobs/index.md) finishes with an outcome that notifies.                                                               | The schedule's owner and subscribers.                                                                                           |
+| **Schedule can't run** (`schedule_dispatch.failed`) | A [scheduled job](https://docs.daivagent.com/dev/features/scheduled-jobs/#when-a-schedule-cant-run) fails to start a run. DAIV sends it once per failing streak, even when the schedule is muted. | The schedule's owner.                                                                                                           |
 
-A batch is a group of runs sharing a batch ID — for example a [scheduled job](https://docs.daivagent.com/dev/features/scheduled-jobs/index.md) that fans out across several repositories. DAIV suppresses the per-run notifications for a multi-run batch and sends a single **Job batch finished** rollup once the last sibling is terminal, summarising how many runs were notify-worthy and how many were all-clear. A run waiting for an answer counts as notify-worthy in the rollup and is listed right after failures.
+A batch is a group of runs that share a batch ID, for example a scheduled job that fans out across several repositories. For a multi-run batch, DAIV suppresses the per-run notifications and sends one **Job batch finished** rollup once the last run has finished. The rollup says how many runs notified and how many were all-clear. A run waiting for an answer counts as notifying, and the rollup lists it right after the failures.
 
-Webhook-triggered runs notify on worthy outcomes
-
-Runs triggered by a GitLab/GitHub issue or merge/pull-request webhook (for example [issue addressing](https://docs.daivagent.com/dev/features/issue-addressing/index.md) or the [pull request assistant](https://docs.daivagent.com/dev/features/pull-request-assistant/index.md)) report back inside the issue or MR/PR thread and, like prompt-driven job runs (via the dashboard, [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md), or [MCP endpoint](https://docs.daivagent.com/dev/features/mcp-endpoint/index.md)), also notify their initiator when the outcome is notify-worthy. The exception is a run waiting for an answer, whose question comment already mentions you (see above). All-clear runs stay silent on both paths.
+Other notifications, such as the one DAIV sends when [pipeline watch](https://docs.daivagent.com/dev/features/pipeline-watch/#notifications) runs out of attempts, are described with their features.
 
 ## Channels
 
-DAIV reaches you through channels. In-app notifications are always available; email, Rocket Chat, and Telegram are external delivery channels.
+DAIV reaches you through channels. In-app notifications are always on. Email, Rocket.Chat and Telegram are external channels, and your administrator decides which of the last two appear.
 
-- **In-app**
+| Channel         | What you get                                                                                                         | What it needs                                                                                                   |
+| --------------- | -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| In-app          | **Notifications** in the sidebar shows your unread count and opens your full history at `/dashboard/notifications/`. | Nothing.                                                                                                        |
+| Email           | A message to your account email address.                                                                             | Nothing. DAIV keeps a verified email channel in sync with your account address, so there is nothing to connect. |
+| **Rocket Chat** | A direct message from the DAIV bot.                                                                                  | An administrator has enabled Rocket.Chat, and you have connected your `@username`.                              |
+| **Telegram**    | A direct message from the DAIV bot.                                                                                  | An administrator has enabled Telegram, and you have connected your chat.                                        |
 
-  **Notifications** in the sidebar shows your unread count and opens your full history at `/dashboard/notifications/`.
-
-- **Email**
-
-  Delivered to your account email. DAIV keeps an email channel binding in sync with your account address automatically — there is nothing to connect.
-
-- **Rocket Chat**
-
-  A direct message from the DAIV bot, when your administrator has enabled Rocket Chat and you have bound your `@username`.
-
-- **Telegram**
-
-  A direct message from the DAIV bot, when your administrator has enabled Telegram and you have linked your chat.
+A message about a run includes the run's summary. For a run waiting for an answer, that is the list of questions.
 
 ### The in-app list
 
-The in-app entry is written for **notify-worthy** runs — those classified as found-issues, needs-attention, needs-input, or failed. All-clear runs are silent and do not produce an in-app entry.
+DAIV writes an in-app entry for each run whose outcome notifies, and none for an all-clear run.
 
-- `/dashboard/notifications/` lists your full history with `All` / `Unread` / `Read` filters and a **Mark all as read** action. Opening a notification marks it read.
-- The unread badge next to *Notifications* — and the **N running** badge next to *Sessions* — update live over a server-sent-events stream (`GET /api/nav/events`), so a new notification or a run starting or finishing shows up without a page reload. The stream requires Redis (already required for chat and caching); without it the badges simply show their page-load values.
+- `/dashboard/notifications/` lists your full history. Filter it with **All**, **Unread** and **Read**, or select **Mark all as read**. Opening a notification marks it read. The **Settings** link opens your [notification channels](#connect-a-channel).
+- The unread badge next to **Notifications**, and the running-count badge next to **Sessions**, update live over a server-sent events stream (`GET /api/nav/events`), so a new notification or a run starting or finishing appears without a reload. The stream needs Redis. Without it, the badges show their values from when the page loaded.
 
-### Email
+## Connect a channel
 
-Email needs no setup. When your account is created (or your email changes), DAIV maintains a verified email channel binding pointing at your account address. Email is delivered for any notify-worthy, un-muted run.
+Email and in-app need no setup. Rocket.Chat and Telegram need an administrator to enable them first, and you then connect your own account on the channels page.
 
-### Rocket Chat
+You need:
 
-Rocket Chat is an optional integration. It appears as a channel only when an administrator has enabled it for the instance, after which you bind your own Rocket Chat handle so DAIV can DM you.
+- For Rocket.Chat, an administrator who has enabled it in **Configuration** → **Rocket Chat**, with the instance URL, bot user ID and auth token. See [Site configuration](https://docs.daivagent.com/dev/reference/site-configuration/#setting-groups).
+- For Telegram, an administrator who has enabled it in **Configuration** → **Telegram**, as described in [Set up Telegram](https://docs.daivagent.com/dev/reference/site-configuration/#set-up-telegram). Telegram delivery to chats that are already linked needs only outbound internet access, but connecting a new chat needs DAIV reachable from the internet over HTTPS. On an instance without public ingress, you cannot link new chats.
+- Until the channel is enabled, its row does not appear on your channels page.
 
-### Telegram
+To open the channels page, select **Notification channels** in the account menu at the bottom of the sidebar (`/accounts/channels/`).
 
-Telegram is an optional integration. It appears as a channel only when an administrator has enabled it for the instance, after which you link your own Telegram chat so the DAIV bot can message you.
+### Connect Rocket.Chat
 
-Unlike Rocket Chat, a Telegram bot cannot start a conversation with you — you have to message it first. So connecting is a handshake rather than a username you type.
+1. On the **Notification channels** page, find the **Rocket Chat** row.
+1. Enter your Rocket.Chat `@username`. DAIV strips a leading `@`.
+1. Select **Connect**.
 
-Single-run messages end with the run's summary — for a run waiting for an answer, that is the list of questions.
+DAIV checks the username against the Rocket.Chat instance. On success, the row shows a **Verified** badge and your handle. If the user is unknown or the instance is unreachable, DAIV shows an error and saves nothing: it stores no unverified binding.
+
+To stop Rocket.Chat delivery, select **Disconnect** in the same row.
+
+### Connect Telegram
+
+A Telegram bot cannot start a conversation with you, so connecting is a handshake: you message the bot first, through a single-use link that DAIV gives you.
+
+Warning
+
+The link links whichever Telegram chat opens it first to your DAIV account. Do not forward it or share it.
+
+1. On the **Notification channels** page, find the **Telegram** row.
+1. Select **Connect**. DAIV hands you off to Telegram.
+1. In Telegram, open the chat with the DAIV bot. Telegram sends `/start` for you.
+1. Read the bot's reply, which confirms the connection, and check that the row on your channels page shows **Verified** and your Telegram handle.
+
+You have nothing else to confirm, because messaging the bot is the verification.
+
+The link works for 10 minutes and stops working as soon as any chat is linked to your account. If it expires, the bot tells you, and you start again from the channels page. If the row shows `Not ready — ask an administrator to finish the Telegram setup.` instead of **Connect**, ask your administrator to finish the setup.
+
+A few rules apply to the link:
+
+- DAIV keeps at most one Telegram chat per account and one account per chat. Connecting from a different Telegram account replaces the previous link, and `/start` from a chat that is linked elsewhere moves it to you.
+- The bot links only one-to-one chats. If you add it to a group and send `/start` there, it replies `Message me directly — DAIV notifications are per-account and cannot go to a group.` and links nothing.
+
+To stop Telegram delivery, do any one of these: select **Disconnect** on your channels page, send `/stop` to the bot, or block the bot in Telegram. Each unlinks the chat, and the row goes back to **Not configured**; select **Connect** to link again.
+
+If DAIV could not be told that you blocked the bot, for example because its webhook was unreachable or Telegram refused the chat for another reason, the link stays on the row marked **Unverified** and delivers nothing. Select **Connect** to redo the handshake. If that does not clear it, select **Disconnect**, then **Connect**.
 
 ## Muting
 
-Notifications fire automatically on notify-worthy classifications — there is no per-outcome preference to configure. The only control is **Mute**.
+Notifications fire on outcomes that notify, and you have no per-outcome setting. The only control is muting:
 
-**Per-schedule mute** — each schedule has a **Mute** checkbox (default off). When enabled, it silences *all* notifications for that schedule's runs: no in-app entry and no external delivery. It doesn't silence **Schedule can't run**, which is about the schedule not running at all. A per-run override is available via `Run.muted` (the same field the `muted` flag on the API/MCP call sets) for schedule runs when you need to silence a single dispatch without muting the whole schedule.
+- **Scheduled runs.** A schedule's **Mute notifications** setting, off by default, silences every notification for that schedule's runs: no in-app entry and no external delivery. It does not silence **Schedule can't run**, which reports that the schedule did not run at all. Muting applies to the owner and every subscriber alike.
+- **Other runs.** Runs you start from the dashboard, the [jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md) or the [MCP endpoint](https://docs.daivagent.com/dev/features/mcp-endpoint/index.md) notify you on an outcome that notifies. Pass the `muted` flag in the API or MCP call to silence a run.
 
-**Non-scheduled runs** — runs started from the dashboard, [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md), or [MCP endpoint](https://docs.daivagent.com/dev/features/mcp-endpoint/index.md) notify their initiator on a notify-worthy outcome. Pass the `muted` flag in the API or MCP call to silence a specific run.
-
-Muting a schedule silences its runs completely. Disconnecting your email channel (from `/accounts/channels/`) suppresses email delivery without silencing in-app notifications.
-
-## Connecting Rocket Chat
-
-If your administrator has enabled Rocket Chat for the instance, bind your handle so DAIV can message you:
-
-1. Open **`/accounts/channels/`**.
-1. In the **Rocket Chat** row, enter your `@username` and select **Connect**. (DAIV strips a leading `@` for you.)
-1. DAIV verifies the username against the Rocket Chat instance. On success the row shows a **Verified** badge and your handle; an unknown user or an unreachable instance surfaces an error and nothing is saved.
-
-Select **Disconnect** in the same row to remove the binding and stop Rocket Chat delivery.
-
-Verification can fail
-
-Connecting only succeeds when the configured Rocket Chat bot can look your username up. If the instance is temporarily unavailable or the user is not found, DAIV shows a message and leaves your channel unbound — no unverified binding is stored.
-
-Enabling Rocket Chat is an administrator task
-
-The Rocket Chat instance URL, bot user ID, and auth token are configured under **Dashboard > Configuration > Rocket Chat** (`/dashboard/configuration/rocketchat/`), which requires the **admin** role. Until an admin enables it there, the channel does not appear on your channels page.
-
-## Connecting Telegram
-
-If your administrator has enabled Telegram for the instance, link your chat so DAIV can message you:
-
-1. Open **`/accounts/channels/`**.
-1. In the **Telegram** row, select **Connect**. DAIV hands you off to Telegram with a single-use link.
-1. Telegram opens a chat with the DAIV bot and sends `/start` for you. The bot replies to confirm, and the row on your channels page shows a **Verified** badge with your Telegram handle.
-
-Verification is inherent to this flow — you demonstrably messaged the bot — so there is nothing else to confirm.
-
-To stop delivery, either select **Disconnect** on your channels page, send `/stop` to the bot, or block the bot in Telegram. All three unlink the chat, and the row goes back to **Not configured** — select **Connect** again whenever you want it back.
-
-If the row reads Unverified
-
-Blocking the bot normally removes the link outright, but if DAIV could not be told at the time (its webhook was unreachable, or Telegram was refusing the chat for another reason), the link stays on the row marked **Unverified**. It delivers nothing in that state. Select **Connect** on the row to redo the handshake; if that does not clear it, **Disconnect** first and then **Connect**.
-
-The link expires in 10 minutes
-
-The **Connect** link is valid for 10 minutes and stops working as soon as any chat is linked to your account. If it expires, the bot tells you so — start again from your channels page. Do not forward the link to anyone: whoever opens it first links *their* chat to *your* account.
-
-One chat, one account
-
-DAIV keeps at most one Telegram chat per account and one account per chat. Connecting from a different Telegram account replaces the previous link rather than adding a second one, and `/start` from a chat already linked elsewhere re-points it to you.
-
-Group chats are refused
-
-DAIV notifications are per-account, so the bot only links one-to-one chats. Adding it to a group and sending `/start` there gets a "message me directly" reply and links nothing.
-
-Enabling Telegram is an administrator task
-
-The bot token is configured under **Dashboard > Configuration > Telegram** (`/dashboard/configuration/telegram/`), which requires the **admin** role. Until an admin enables it there, the channel does not appear on your channels page. Sending notifications only needs outbound internet access, but the connect handshake needs DAIV to be reachable from the internet over HTTPS — on an instance without public ingress, Telegram delivery works for chats already linked, but new links cannot be made.
-
-One bot token serves exactly one instance
-
-Telegram allows a single webhook per bot, so a second environment configured with the same token steals the handshake from the first. DAIV's reconcile job surfaces that in the logs — naming the URL it found — but it cannot prevent it. Give staging its own bot.
+A muted run produces no in-app entry at all: muting is full silence. DAIV has no setting for turning email off while keeping in-app notifications.
 
 ## How delivery works
 
-When a run finishes with a notify-worthy classification, DAIV records the notification and one delivery row per external channel, then dispatches each delivery on a background worker:
+When a run finishes with an outcome that notifies, DAIV records the notification, then one delivery for each external channel, and sends each delivery from a background worker:
 
-- A channel with no usable binding (for example Rocket Chat or Telegram before you connect, or an unknown channel) is recorded as **skipped** rather than attempted.
-- Transient failures are retried up to three attempts with a backoff between tries; a permanent failure (such as a refused recipient or a disabled channel) is marked **failed** and not retried. When the provider names its own wait — Telegram's flood control does — the next attempt is delayed to at least that long instead of the standard backoff.
-- Blocking the DAIV bot in Telegram unlinks your chat. Telegram normally tells DAIV directly, and the link is removed — your channels page reads **Not configured**. When that message does not arrive, the refusal is noticed on the next delivery instead, and the link is kept but flipped to **unverified**: that condition never recovers on its own, so continuing to retry would only burn attempts. Later notifications record as **skipped**, and the row shows **Unverified** alongside a **Connect** control until you redo the handshake.
-- The in-app entry is independent of external delivery — it is written even when every external channel is skipped or fails. (A muted run produces no in-app entry at all — muting is full silence.)
+- A channel with no usable connection, such as Rocket.Chat or Telegram before you connect, or a channel DAIV does not know, is recorded as **skipped** rather than attempted.
+- DAIV retries a transient failure, up to three attempts in all, waiting 1 minute before the second and 5 minutes before the third. A permanent failure, such as a refused recipient or a disabled channel, is marked **failed** and not retried. When the provider names its own wait, as Telegram's flood control does, DAIV delays the next attempt to at least that long, up to one hour.
+- Blocking the DAIV bot in Telegram normally unlinks your chat at once. When that message does not reach DAIV, DAIV notices the refusal on the next delivery instead. It keeps the link and marks it **Unverified**, because that condition never recovers by itself and retrying would only use up attempts. Later notifications are **skipped**, until you redo the handshake.
+- The in-app entry does not depend on external delivery. DAIV writes it even when every external channel is skipped or fails.
 
 ## Related pages
 
-- **[Scheduled Jobs](https://docs.daivagent.com/dev/features/scheduled-jobs/index.md)**
-
-  Recurring runs with a mute toggle and subscriber list.
-
-- **[Jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md)**
-
-  Submit runs programmatically with a `muted` flag.
-
-- **[Sessions](https://docs.daivagent.com/dev/features/sessions/index.md)**
-
-  Every notification links to the session or batch in the sessions list.
-
-- **[MCP Endpoint](https://docs.daivagent.com/dev/features/mcp-endpoint/index.md)**
-
-  Submit jobs from MCP clients, with a `muted` flag.
+- [Scheduled jobs](https://docs.daivagent.com/dev/features/scheduled-jobs/index.md): recurring runs with a mute setting and a subscriber list.
+- [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md): submit runs programmatically, with a `muted` flag.
+- [Sessions](https://docs.daivagent.com/dev/features/sessions/index.md): every notification links to its session or batch in the sessions list.
+- [MCP endpoint](https://docs.daivagent.com/dev/features/mcp-endpoint/index.md): submit jobs from MCP clients, with a `muted` flag.

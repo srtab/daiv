@@ -18,7 +18,7 @@
         <link rel="prev" href="../pull-request-assistant/">
       
       
-        <link rel="next" href="../sessions/">
+        <link rel="next" href="../memory/">
       
       
         
@@ -31,7 +31,7 @@
   
     
       
-        <title>Pipeline Watch - DAIV</title>
+        <title>Pipeline watch - DAIV</title>
       
     
   
@@ -139,7 +139,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Pipeline Watch
+              Pipeline watch
             
           </span>
         </div>
@@ -431,7 +431,7 @@
   <span class="md-ellipsis">
     
   
-    Platform Setup
+    Platform setup
   
 
     
@@ -459,7 +459,7 @@
   <span class="md-ellipsis">
     
   
-    Accounts & Roles
+    Accounts and roles
   
 
     
@@ -487,7 +487,7 @@
   <span class="md-ellipsis">
     
   
-    LLM Providers
+    LLM providers
   
 
     
@@ -571,7 +571,7 @@
   <span class="md-ellipsis">
     
   
-    Issue Addressing
+    Issue addressing
   
 
     
@@ -599,7 +599,7 @@
   <span class="md-ellipsis">
     
   
-    Pull Request Assistant
+    Pull request assistant
   
 
     
@@ -636,7 +636,7 @@
   <span class="md-ellipsis">
     
   
-    Pipeline Watch
+    Pipeline watch
   
 
     
@@ -654,7 +654,7 @@
   <span class="md-ellipsis">
     
   
-    Pipeline Watch
+    Pipeline watch
   
 
     
@@ -680,6 +680,45 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#turn-on-ci-events" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Turn on CI events
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Turn on CI events">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#gitlab" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GitLab
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#github" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GitHub
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#how-it-works" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -702,10 +741,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-session-page" class="md-nav__link">
+  <a href="#ci-status-on-the-session-page" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The session page
+        CI status on the session page
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#turn-the-watch-on-or-off-for-a-merge-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Turn the watch on or off for a merge request
       
     </span>
   </a>
@@ -724,41 +774,13 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#settings" class="md-nav__link">
+  <a href="#limit-or-turn-off-pipeline-watch" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Settings
+        Limit or turn off pipeline watch
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Settings">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#site-wide" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Site-wide
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#per-repository" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Per repository
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -824,10 +846,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#which-runs-claim-the-merge-request" class="md-nav__link">
+  <a href="#which-runs-claim-a-merge-request" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Which runs claim the merge request
+        Which runs claim a merge request
       
     </span>
   </a>
@@ -846,45 +868,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#rollout-required-step-per-platform" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Rollout: required step per platform
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Rollout: required step per platform">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#gitlab-run-the-management-command" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        GitLab — run the management command
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#github-change-the-github-app-subscription" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        GitHub — change the GitHub App subscription
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#related-pages" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -899,6 +882,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -974,7 +985,7 @@
   <span class="md-ellipsis">
     
   
-    Scheduled Jobs
+    Scheduled jobs
   
 
     
@@ -1030,7 +1041,7 @@
   <span class="md-ellipsis">
     
   
-    MCP Endpoint
+    MCP endpoint
   
 
     
@@ -1086,7 +1097,7 @@
   <span class="md-ellipsis">
     
   
-    Merge Metrics
+    Merge metrics
   
 
     
@@ -1114,7 +1125,7 @@
   <span class="md-ellipsis">
     
   
-    Slash Commands & Skills
+    Slash commands and skills
   
 
     
@@ -1198,7 +1209,7 @@
   <span class="md-ellipsis">
     
   
-    Sandbox Environments
+    Sandbox environments
   
 
     
@@ -1280,7 +1291,7 @@
   <span class="md-ellipsis">
     
   
-    Request Tracker Triage
+    Request Tracker triage
   
 
     
@@ -1362,7 +1373,7 @@
   <span class="md-ellipsis">
     
   
-    Repository Config
+    Repository configuration
   
 
     
@@ -1390,7 +1401,7 @@
   <span class="md-ellipsis">
     
   
-    Agent Skills
+    Agent skills
   
 
     
@@ -1418,7 +1429,7 @@
   <span class="md-ellipsis">
     
   
-    MCP Tools
+    MCP tools
   
 
     
@@ -1500,7 +1511,7 @@
   <span class="md-ellipsis">
     
   
-    Environment Variables
+    Environment variables
   
 
     
@@ -1528,7 +1539,7 @@
   <span class="md-ellipsis">
     
   
-    Site Configuration
+    Site configuration
   
 
     
@@ -1556,7 +1567,7 @@
   <span class="md-ellipsis">
     
   
-    Agent Architecture
+    Agent tools
   
 
     
@@ -1585,6 +1596,34 @@
     
   
     Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/management-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Management commands
   
 
     
@@ -1687,6 +1726,45 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#turn-on-ci-events" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Turn on CI events
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Turn on CI events">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#gitlab" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GitLab
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#github" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GitHub
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#how-it-works" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1709,10 +1787,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-session-page" class="md-nav__link">
+  <a href="#ci-status-on-the-session-page" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The session page
+        CI status on the session page
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#turn-the-watch-on-or-off-for-a-merge-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Turn the watch on or off for a merge request
       
     </span>
   </a>
@@ -1731,41 +1820,13 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#settings" class="md-nav__link">
+  <a href="#limit-or-turn-off-pipeline-watch" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Settings
+        Limit or turn off pipeline watch
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="Settings">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#site-wide" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Site-wide
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#per-repository" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Per repository
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1831,10 +1892,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#which-runs-claim-the-merge-request" class="md-nav__link">
+  <a href="#which-runs-claim-a-merge-request" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Which runs claim the merge request
+        Which runs claim a merge request
       
     </span>
   </a>
@@ -1849,45 +1910,6 @@
       
     </span>
   </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#rollout-required-step-per-platform" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Rollout: required step per platform
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Rollout: required step per platform">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#gitlab-run-the-management-command" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        GitLab — run the management command
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#github-change-the-github-app-subscription" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        GitHub — change the GitHub App subscription
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1975,8 +1997,26 @@
   
 
 
-<h1 id="pipeline-watch">Pipeline Watch</h1>
+<h1 id="pipeline-watch">Pipeline watch</h1>
 <p>After DAIV publishes a merge request, it watches the merge request's CI and tells the session that published it what happened. A CI failure on a commit DAIV pushed wakes that session, up to a configurable number of times, to look at the failure and fix it; if the failure is not something a code change can fix, the run explains why instead of pushing. Everything else CI reports, a pass or a pipeline that needs a person, is remembered by the session and shown to the agent the next time it runs.</p>
+<h2 id="turn-on-ci-events">Turn on CI events</h2>
+<p>Pipeline watch reacts to CI events, and each platform delivers them differently. Without these events, DAIV hears of CI only through the reconciler's poll, which re-reads a watched merge request that nothing was heard of for 30 minutes, so a failure can wait 30 minutes or more. On GitHub, DAIV also cannot read CI at all until the App's <strong>Actions</strong> permission is <strong>Read-only</strong>.</p>
+<h3 id="gitlab">GitLab</h3>
+<p>DAIV registers <code>pipeline_events</code> on a repository's webhook when it creates the webhook. To add the event to webhooks DAIV registered earlier, run this on the host that runs DAIV:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>app<span class="w"> </span>django-admin<span class="w"> </span>setup_webhooks<span class="w"> </span>--update
+</code></pre></div></td></tr></table></div>
+<p><a href="../../reference/management-commands/#setup_webhooks"><code>setup_webhooks</code></a> describes the command.</p>
+<h3 id="github">GitHub</h3>
+<p><code>setup_webhooks</code> does nothing on GitHub, because a GitHub App's event subscriptions are central, not per repository. Subscribing the App covers every repository it is installed on:</p>
+<ol>
+<li>Open your GitHub App's settings page and select <strong>Permissions &amp; events</strong>.</li>
+<li>Under <strong>Repository permissions</strong>, set <strong>Actions</strong> to <strong>Read-only</strong>. This permission lets the App subscribe to <strong>Workflow run</strong> and read job logs.</li>
+<li>Under <strong>Subscribe to events</strong>, select <strong>Workflow run</strong>.</li>
+<li>Select <strong>Save changes</strong>.</li>
+<li>If <strong>Actions</strong> is a new permission for the App, ask each installation owner to accept it, from GitHub's email or the installation's <strong>Configure</strong> page. Pipeline watch stays off on an installation until its owner accepts.</li>
+<li>After the next workflow run, open <strong>Advanced</strong> → <strong>Recent Deliveries</strong> and check for a <code>workflow_run</code> delivery.</li>
+</ol>
+<p><a href="../../getting-started/platform-setup/#github-app-permissions-and-events">Platform setup</a> lists every event the App needs.</p>
 <hr />
 <h2 id="how-it-works">How it works</h2>
 <pre class="mermaid"><code>sequenceDiagram
@@ -1997,12 +2037,13 @@
         Session-&gt;&gt;Agent: run with the failed jobs and the pipeline link
         Agent-&gt;&gt;CI: push a fix, or explain and push nothing
     end</code></pre>
+<p>The steps below give the same flow in text.</p>
 <ol>
-<li><strong>The publishing session owns the merge request</strong> — when a run publishes, its session claims the merge request and records the commit DAIV pushed. A later publish from another session of the same person moves the merge request to that session; a publish from another person's session leaves it where it is and tells the owning session. See <a href="#which-runs-claim-the-merge-request">Which runs claim the merge request</a>.</li>
-<li><strong>Pipeline event</strong> — a webhook from GitLab (<code>pipeline_events</code>) or GitHub (<code>workflow_run</code>) delivers the terminal result. CI is also judged right after a publish, because the event can arrive before the claim exists. Only the merge request's head pipeline is judged; a pipeline an older push started is ignored.</li>
-<li><strong>Judgment</strong> — see <a href="#conservative-judgment">Conservative judgment</a> below.</li>
+<li><strong>The publishing session owns the merge request.</strong> When a run publishes, its session claims the merge request and records the commit DAIV pushed. A later publish from another session of the same person moves the merge request to that session; a publish from another person's session leaves it where it is and tells the owning session. <a href="#which-runs-claim-a-merge-request">Which runs claim a merge request</a> lists the cases.</li>
+<li><strong>Pipeline event.</strong> A webhook from GitLab (<code>pipeline_events</code>) or GitHub (<code>workflow_run</code>) delivers the terminal result. CI is also judged right after a publish, because the event can arrive before the claim exists. Only the merge request's head pipeline is judged; a pipeline an older push started is ignored.</li>
+<li><strong>Judgment.</strong> See <a href="#conservative-judgment">Conservative judgment</a> below.</li>
 <li>
-<p><strong>Waking the session</strong> — a failure wakes the owning session only when all of these hold. The first one that does not is recorded as the reason the failure was only remembered, and the agent sees it the next time it runs.</p>
+<p><strong>Waking the session.</strong> A failure wakes the owning session only when all of these hold. The first one that does not is recorded as the reason the failure was only remembered, and the agent sees it the next time it runs.</p>
 <table>
 <thead>
 <tr>
@@ -2028,18 +2069,18 @@
 <td>Attempts spent</td>
 </tr>
 <tr>
-<td>DAIV has not started three runs in a row on the session without a person</td>
+<td>DAIV has not started three runs in a row on the session without a person (see <a href="../sessions/#the-session-inbox">The session inbox</a>)</td>
 <td>Too many runs in a row</td>
 </tr>
 </tbody>
 </table>
 </li>
 <li>
-<p><strong>The CI run</strong> — runs in the publishing session, on the merge request's branch, with a prompt naming the failed jobs and the pipeline URL. The agent reads the job logs through its <code>gitlab</code> / <code>gh</code> platform tool, then pushes a fix or explains why it pushed nothing. It can't ask a question: nobody is there to answer. If the session is busy, the failure waits and joins the session's next run.</p>
+<p><strong>The CI run.</strong> DAIV runs it in the publishing session, on the merge request's branch, with a prompt naming the failed jobs and the pipeline URL. The agent reads the job logs through its <code>gitlab</code> / <code>gh</code> platform tool, then pushes a fix or explains why it pushed nothing. It can't ask a question: nobody is there to answer. If the session is busy, the failure waits and joins the session's next run.</p>
 </li>
 <li><strong>A run that pushes nothing</strong> explains, without giving up. No push means no new pipeline, so the session shows CI as failing with a link to that run's explanation, and you receive its summary as a run notification. Retrying the same pipeline by hand does not wake the session again: the commit was already examined. If the retry passes, the session shows CI passing.</li>
-<li><strong>Attempts spent</strong> — when a failure on a new DAIV commit finds no attempts left, the merge request's owner is notified once for that commit. A run a person starts that publishes to the merge request gives the attempts back.</li>
-<li><strong>Reconciler</strong> — a cron task runs every 10 minutes and re-reads the CI of each watched merge request nothing was heard of for 30 minutes, whatever it last reported, so a missed webhook (a manual retry's, say) is repaired. On GitLab it reads the branch's latest pipeline; on GitHub, the latest run of each workflow on the branch's head commit. A pipeline already judged in its status is skipped without reading its jobs. Nothing expires: the watch observes until the merge request is merged or closed. Each tick re-reads at most 200 branches, the longest-quiet first, and a branch it could not read is tried again on the next tick.</li>
+<li><strong>Attempts spent.</strong> When a failure on a new DAIV commit finds no attempts left, the merge request's owner is notified once for that commit. A run a person starts that publishes to the merge request gives the attempts back.</li>
+<li><strong>Reconciler.</strong> A cron task runs every 10 minutes and re-reads the CI of each watched merge request nothing was heard of for 30 minutes, whatever it last reported, so a missed webhook (a manual retry's, say) is repaired. On GitLab it reads the branch's latest pipeline; on GitHub, the latest run of each workflow on the branch's head commit. A pipeline already judged in its status is skipped without reading its jobs. Nothing expires: the watch observes until the merge request is merged or closed. Each tick re-reads at most 200 branches, the longest-quiet first, and a branch it could not read is tried again on the next tick.</li>
 </ol>
 <hr />
 <h2 id="conservative-judgment">Conservative judgment</h2>
@@ -2099,73 +2140,33 @@
 <p><strong>Why zero-job pipelines are stopped, not passed:</strong> a GitLab <code>.gitlab-ci.yml</code> that includes a cross-project template from a private repository resolves as the pushing identity. An ephemeral project-scoped token cannot read that private repository, so GitLab produces a pipeline with no jobs. Treating it as green would let a misconfigured pipeline pass silently; treating it as a failure would burn every attempt on a pipeline that was never going to run.</p>
 <p><strong>Why blocked/manual/skipped/canceled are stopped:</strong> these states reflect a human decision or an external gate. DAIV does not know whether to wait or act, so it remembers the result and lets you decide.</p>
 <hr />
-<h2 id="the-session-page">The session page</h2>
-<p>The sidebar's repository cards show CI for each open merge request the session owns: <strong>Waiting for CI</strong> while no result has arrived since DAIV last pushed or a run is looking at a failure, then <strong>Passing</strong>, <strong>Failing</strong> or <strong>Needs a person</strong>. A failing merge request links the last run that looked at a failure, whose summary says what it found.</p>
-<p><strong>Fix CI failures</strong> in the repository card's <strong>⋯</strong> menu turns the watch on or off for that merge request only. Turned off, CI results are still remembered but never wake the session. Turning it back on gives the merge request its attempts back and judges the branch's latest pipelines again at once (on GitHub, every workflow's), so a failure reported while the watch was off, or out of attempts, wakes the session; a commit a run already looked at is not looked at again. Turning it on when it is already on changes nothing.</p>
+<h2 id="ci-status-on-the-session-page">CI status on the session page</h2>
+<p>The sidebar's repository cards show CI for each open merge request the session owns. A card shows <strong>Waiting for CI</strong> while no result has arrived since DAIV last pushed or while a run is looking at a failure. It then shows <strong>Passing</strong>, <strong>Failing</strong> or <strong>Needs a person</strong>. A failing merge request links the last run that looked at a failure, whose summary says what it found.</p>
+<h2 id="turn-the-watch-on-or-off-for-a-merge-request">Turn the watch on or off for a merge request</h2>
+<p>The <strong>Fix CI failures</strong> switch turns the watch on or off for one merge request. With it off, DAIV still remembers CI results but never wakes the session. Turning it on gives the merge request its attempts back and judges the branch's latest pipelines again at once (on GitHub, every workflow's), so a failure reported while the watch was off, or while no attempts were left, wakes the session. A commit a run already looked at is not looked at again. You need to be able to run agents on the repository.</p>
+<ol>
+<li>Open the session that owns the merge request.</li>
+<li>In the repository card, open the <strong>⋯</strong> menu.</li>
+<li>Select <strong>Fix CI failures</strong>. A check mark shows the watch is on.</li>
+</ol>
 <hr />
 <h2 id="notifications">Notifications</h2>
 <p>Every CI run produces the usual run notification, with the run's summary, so you hear what it found whether it pushed a fix or explained why it didn't. When attempts run out on a new DAIV commit, the merge request's owner gets one <strong>CI still failing</strong> notification for that commit, linking the owning session. A merge request whose owning session has no DAIV user behind it gets that outcome, and each CI run's summary, as a merge request comment instead.</p>
 <hr />
-<h2 id="settings">Settings</h2>
-<h3 id="site-wide">Site-wide</h3>
-<p>Configure under <strong>Configuration → Pipeline Watch</strong> in the dashboard (admin only). Both settings can also be set via environment variable or Docker secret, which takes precedence over the UI.</p>
-<table>
-<thead>
-<tr>
-<th>Setting</th>
-<th>Default</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>pipeline_watch_enabled</code></td>
-<td><code>true</code></td>
-<td>Master switch. Set to <code>false</code> and no CI failure wakes a session; owning sessions still remember every CI result, a failure with the reason <em>Watch off</em>. Env var: <code>DAIV_PIPELINE_WATCH_ENABLED</code>.</td>
-</tr>
-<tr>
-<td><code>pipeline_watch_max_attempts</code></td>
-<td><code>3</code></td>
-<td>Maximum fix attempts per merge request (minimum 1). Env var: <code>DAIV_PIPELINE_WATCH_MAX_ATTEMPTS</code>.</td>
-</tr>
-</tbody>
-</table>
-<h3 id="per-repository">Per repository</h3>
-<p>Override either setting per repository in <code>.daiv.yml</code>. A repository can only tighten or disable: the cap is clamped to the site-wide value, and <code>enabled: true</code> cannot switch the watch back on where the operator turned it off site-wide.</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span>
-<span class="normal"><a href="#__codelineno-0-2">2</a></span>
-<span class="normal"><a href="#__codelineno-0-3">3</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="nt">pipeline_watch</span><span class="p">:</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3"></a><span class="w">  </span><span class="nt">max_attempts</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+<h2 id="limit-or-turn-off-pipeline-watch">Limit or turn off pipeline watch</h2>
+<p>An administrator sets the site-wide switch and attempt cap under <strong>Configuration</strong> → <strong>Pipeline Watch</strong>, or with <code>DAIV_PIPELINE_WATCH_ENABLED</code> and <code>DAIV_PIPELINE_WATCH_MAX_ATTEMPTS</code>. With the switch off, no CI failure wakes a session, and sessions remember each failure with the reason <em>Watch off</em>. By default a merge request gets 3 fix attempts. <a href="../../reference/site-configuration/">Site configuration</a> and the <a href="../../reference/env-variables/">environment variables reference</a> describe both settings.</p>
+<p>A repository can only tighten the site-wide values. Set its options in <code>.daiv.yml</code>:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span>
+<span class="normal"><a href="#__codelineno-1-2">2</a></span>
+<span class="normal"><a href="#__codelineno-1-3">3</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a><span class="nt">pipeline_watch</span><span class="p">:</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3"></a><span class="w">  </span><span class="nt">max_attempts</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
 </code></pre></div></td></tr></table></div>
-<table>
-<thead>
-<tr>
-<th>Option</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>pipeline_watch.enabled</code></td>
-<td><code>bool</code></td>
-<td>site-wide</td>
-<td>Set to <code>false</code> and CI failures on this repository never wake a session; they are still remembered, with the reason <em>Watch off</em>.</td>
-</tr>
-<tr>
-<td><code>pipeline_watch.max_attempts</code></td>
-<td><code>int</code></td>
-<td>site-wide</td>
-<td>Fix attempts before giving up on this repository.</td>
-</tr>
-</tbody>
-</table>
+<p><code>enabled: false</code> stops CI failures on the repository from waking a session. <code>max_attempts</code> is capped at the site-wide value, and <code>enabled: true</code> does not turn the watch on where the site turned it off. <a href="../../customization/repository-config/#feature-toggles">Repository configuration</a> lists both options.</p>
 <hr />
 <h2 id="platform-notes">Platform notes</h2>
 <h3 id="github-allow_failure-jobs">GitHub: <code>allow_failure</code> jobs</h3>
-<p>GitHub Actions does not expose per-job required-ness through the API, so DAIV treats every failed job as required. The verdict itself still comes from the workflow run's own conclusion, so a tolerated job's failure cannot by itself spend an attempt — a run that concludes <code>success</code> is green. What differs from GitLab is narrower: DAIV cannot exclude a tolerated job from the failure list it hands the agent, and it never reads a failed run as green on the grounds that every failure was tolerated.</p>
+<p>The GitHub Actions API does not say which jobs are required, so DAIV treats every failed job as required. The verdict itself still comes from the workflow run's own conclusion, so a tolerated job's failure cannot by itself spend an attempt — a run that concludes <code>success</code> is green. What differs from GitLab is narrower: DAIV cannot exclude a tolerated job from the failure list it hands the agent, and it never reads a failed run as green on the grounds that every failure was tolerated.</p>
 <h3 id="github-one-event-per-workflow-not-per-push">GitHub: one event per workflow, not per push</h3>
 <p>A <code>workflow_run</code> event reports a single workflow, not the branch's whole CI. A repository with several workflows on one push delivers one event per workflow, each judged on its own — so the first workflow to finish green can show CI as passing while another is still running or about to fail. Repositories that split required checks across workflows should expect the status to flip as each workflow reports. A session that delegated the work is told its CI passed only once the latest run of every workflow on the commit has passed.</p>
 <h3 id="gitlab-child-pipelines">GitLab: child pipelines</h3>
@@ -2173,7 +2174,7 @@
 <h3 id="gitlab-merge-request-pipelines-and-the-reconciler-poll">GitLab: merge-request pipelines and the reconciler poll</h3>
 <p>The reconciler's fallback poll lists pipelines by branch (<code>ref=&lt;source branch&gt;</code>). Detached merge-request pipelines are not on the branch ref — GitLab records them under <code>refs/merge-requests/&lt;iid&gt;/head</code> — so on projects that run <em>only</em> merge-request pipelines the poll finds nothing. This is harmless: a read that finds no pipeline posts nothing, so those repositories are driven entirely by the pipeline webhook.</p>
 <hr />
-<h2 id="which-runs-claim-the-merge-request">Which runs claim the merge request</h2>
+<h2 id="which-runs-claim-a-merge-request">Which runs claim a merge request</h2>
 <table>
 <thead>
 <tr>
@@ -2183,7 +2184,7 @@
 </thead>
 <tbody>
 <tr>
-<td>Issue addressing (<code>daiv</code> / <code>daiv-auto</code> label, or a mention on an issue)</td>
+<td>Issue addressing (<code>daiv</code>, <code>daiv-auto</code> or <code>daiv-max</code> label, or a mention on an issue)</td>
 <td>The issue's session</td>
 </tr>
 <tr>
@@ -2213,37 +2214,13 @@
 <li><strong>Does not react to CI on the default branch.</strong> The watch is scoped to the merge request's branch.</li>
 </ul>
 <hr />
-<h2 id="rollout-required-step-per-platform">Rollout: required step per platform</h2>
-<p>Pipeline watch needs a CI event to react to, and enabling that event is a different action on each platform. Until it is done the feature is <strong>inert</strong> — it never receives an event. That is a safe failure, but a silent one.</p>
-<h3 id="gitlab-run-the-management-command">GitLab — run the management command</h3>
-<p>GitLab webhooks are per repository, and <code>setup_webhooks</code> only creates hooks that do not exist yet; it skips repositories already onboarded. Adding <code>pipeline_events</code> to those existing hooks requires:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a>django-admin<span class="w"> </span>setup_webhooks<span class="w"> </span>--update
-</code></pre></div></td></tr></table></div>
-<p>Repositories onboarded after the upgrade get <code>pipeline_events</code> automatically.</p>
-<h3 id="github-change-the-github-app-subscription">GitHub — change the GitHub App subscription</h3>
-<div class="admonition warning">
-<p class="admonition-title">The management command does nothing on GitHub</p>
-<p><code>setup_webhooks</code> exits immediately when DAIV is configured for GitHub: an App's event
-subscriptions are centralized, not per repository, so there is no per-repository hook to
-update. Running <code>--update</code> on a GitHub install is a no-op.</p>
-</div>
-<p>Subscribe the App instead — this covers every repository it is installed on at once:</p>
-<ol>
-<li>Open your GitHub App's settings page → <strong>Permissions &amp; events</strong>.</li>
-<li>Under <strong>Repository permissions</strong>, set <strong>Actions</strong> to <strong>Read-only</strong>. This is required to subscribe to <strong>Workflow run</strong> and to read job logs.</li>
-<li>Under <strong>Subscribe to events</strong>, check <strong>Workflow run</strong>.</li>
-<li>Save. If Actions is a new permission for the App, each installation owner must accept it, from GitHub's email or the installation's <strong>Configure</strong> page; until then, pipeline watch is inert on that installation.</li>
-<li>After the next workflow run, check <strong>Advanced → Recent Deliveries</strong> for a <code>workflow_run</code> delivery.</li>
-</ol>
-<p>See <a href="../../getting-started/platform-setup/">Platform Setup</a> for the full event checklist.</p>
-<hr />
 <h2 id="related-pages">Related pages</h2>
 <ul>
-<li><a href="../issue-addressing/">Issue Addressing</a> — the workflow that produces most DAIV-published merge requests</li>
-<li><a href="../pull-request-assistant/">Pull Request Assistant</a> — mention DAIV in a comment to request a manual pipeline fix</li>
+<li><a href="../issue-addressing/">Issue addressing</a> — the workflow that produces most DAIV-published merge requests</li>
+<li><a href="../pull-request-assistant/">Pull request assistant</a> — mention DAIV in a comment to request a manual pipeline fix</li>
 <li><a href="../sessions/">Sessions</a> — CI runs appear in the session that published the merge request</li>
 <li><a href="../notifications/">Notifications</a> — how run and give-up notifications are delivered</li>
-<li><a href="../../customization/repository-config/">Repository Config</a> — full <code>.daiv.yml</code> reference</li>
+<li><a href="../../customization/repository-config/">Repository configuration</a> — the full <code>.daiv.yml</code> reference</li>
 </ul>
 
 
@@ -2267,7 +2244,7 @@ update. Running <code>--update</code> on a GitHub install is a no-op.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 10, 2026 17:23:40 UTC">November 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 12, 2026 15:27:46 UTC">November 12, 2026</span>
   </span>
 
     

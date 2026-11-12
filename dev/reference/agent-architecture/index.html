@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Technical architecture of the DAIV agent, built on LangChain Deep Agents and LangGraph, with subagents, middleware and a virtual filesystem.">
+        <meta name="description" content="The tools the DAIV agent has, when each is available, and how it loads the ones it uses less often.">
       
       
         <meta name="author" content="Sandro Rodrigues">
@@ -31,7 +31,7 @@
   
     
       
-        <title>Agent Architecture - DAIV</title>
+        <title>Agent tools - DAIV</title>
       
     
   
@@ -100,7 +100,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#agent-architecture" class="md-skip">
+        <a href="#agent-tools" class="md-skip">
           Skip to content
         </a>
       
@@ -139,7 +139,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Agent Architecture
+              Agent tools
             
           </span>
         </div>
@@ -431,7 +431,7 @@
   <span class="md-ellipsis">
     
   
-    Platform Setup
+    Platform setup
   
 
     
@@ -459,7 +459,7 @@
   <span class="md-ellipsis">
     
   
-    Accounts & Roles
+    Accounts and roles
   
 
     
@@ -487,7 +487,7 @@
   <span class="md-ellipsis">
     
   
-    LLM Providers
+    LLM providers
   
 
     
@@ -569,7 +569,7 @@
   <span class="md-ellipsis">
     
   
-    Issue Addressing
+    Issue addressing
   
 
     
@@ -597,7 +597,7 @@
   <span class="md-ellipsis">
     
   
-    Pull Request Assistant
+    Pull request assistant
   
 
     
@@ -625,7 +625,35 @@
   <span class="md-ellipsis">
     
   
-    Pipeline Watch
+    Pipeline watch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository memory
   
 
     
@@ -709,7 +737,7 @@
   <span class="md-ellipsis">
     
   
-    Scheduled Jobs
+    Scheduled jobs
   
 
     
@@ -765,7 +793,7 @@
   <span class="md-ellipsis">
     
   
-    MCP Endpoint
+    MCP endpoint
   
 
     
@@ -821,7 +849,7 @@
   <span class="md-ellipsis">
     
   
-    Merge Metrics
+    Merge metrics
   
 
     
@@ -849,7 +877,7 @@
   <span class="md-ellipsis">
     
   
-    Slash Commands & Skills
+    Slash commands and skills
   
 
     
@@ -933,7 +961,7 @@
   <span class="md-ellipsis">
     
   
-    Sandbox Environments
+    Sandbox environments
   
 
     
@@ -1015,7 +1043,7 @@
   <span class="md-ellipsis">
     
   
-    Request Tracker Triage
+    Request Tracker triage
   
 
     
@@ -1097,7 +1125,7 @@
   <span class="md-ellipsis">
     
   
-    Repository Config
+    Repository configuration
   
 
     
@@ -1125,7 +1153,7 @@
   <span class="md-ellipsis">
     
   
-    Agent Skills
+    Agent skills
   
 
     
@@ -1153,7 +1181,7 @@
   <span class="md-ellipsis">
     
   
-    MCP Tools
+    MCP tools
   
 
     
@@ -1237,7 +1265,7 @@
   <span class="md-ellipsis">
     
   
-    Environment Variables
+    Environment variables
   
 
     
@@ -1265,7 +1293,7 @@
   <span class="md-ellipsis">
     
   
-    Site Configuration
+    Site configuration
   
 
     
@@ -1302,7 +1330,7 @@
   <span class="md-ellipsis">
     
   
-    Agent Architecture
+    Agent tools
   
 
     
@@ -1320,7 +1348,7 @@
   <span class="md-ellipsis">
     
   
-    Agent Architecture
+    Agent tools
   
 
     
@@ -1346,10 +1374,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#overview" class="md-nav__link">
+  <a href="#tools-bound-up-front" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Overview
+        Tools bound up front
       
     </span>
   </a>
@@ -1357,182 +1385,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#end-to-end-flow" class="md-nav__link">
+  <a href="#tools-loaded-on-demand" class="md-nav__link">
     <span class="md-ellipsis">
       
-        End-to-end flow
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="End-to-end flow">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#managers" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Managers
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#tools" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Tools
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Tools">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#filesystem" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Filesystem
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#git-platform" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Git platform
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#sandbox" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Sandbox
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#web" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Web
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#skills" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Skills
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#artifacts" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Artifacts
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#mcp" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        MCP
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#asking-the-user" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Asking the user
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#middlewares" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Middlewares
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Middlewares">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#always-enabled" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Always enabled
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#conditionally-enabled" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Conditionally enabled
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#subagents" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Subagents
+        Tools loaded on demand
       
     </span>
   </a>
@@ -1540,21 +1396,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#dynamic-system-prompt" class="md-nav__link">
+  <a href="#model-priority" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Dynamic system prompt
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#model-configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Model configuration
+        Model priority
       
     </span>
   </a>
@@ -1585,6 +1430,34 @@
     
   
     Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../management-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Management commands
   
 
     
@@ -1687,10 +1560,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#overview" class="md-nav__link">
+  <a href="#tools-bound-up-front" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Overview
+        Tools bound up front
       
     </span>
   </a>
@@ -1698,182 +1571,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#end-to-end-flow" class="md-nav__link">
+  <a href="#tools-loaded-on-demand" class="md-nav__link">
     <span class="md-ellipsis">
       
-        End-to-end flow
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="End-to-end flow">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#managers" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Managers
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#tools" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Tools
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Tools">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#filesystem" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Filesystem
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#git-platform" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Git platform
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#sandbox" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Sandbox
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#web" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Web
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#skills" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Skills
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#artifacts" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Artifacts
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#mcp" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        MCP
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#asking-the-user" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Asking the user
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#middlewares" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Middlewares
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Middlewares">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#always-enabled" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Always enabled
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#conditionally-enabled" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Conditionally enabled
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#subagents" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Subagents
+        Tools loaded on demand
       
     </span>
   </a>
@@ -1881,21 +1582,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#dynamic-system-prompt" class="md-nav__link">
+  <a href="#model-priority" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Dynamic system prompt
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#model-configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Model configuration
+        Model priority
       
     </span>
   </a>
@@ -1975,377 +1665,116 @@
   
 
 
-<h1 id="agent-architecture">Agent Architecture</h1>
-<p>DAIV uses a single AI agent built on <a href="https://github.com/langchain-ai/deepagents">Deep Agents</a>, a general-purpose deep agent framework from <a href="https://python.langchain.com/">LangChain</a> with sub-agent spawning, middleware-based architecture, and virtual filesystem — all running on <a href="https://langchain-ai.github.io/langgraph/">LangGraph</a>. This page covers the technical architecture for those who want to understand how DAIV works under the hood.</p>
-<h2 id="overview">Overview</h2>
-<p>DAIV's architecture consists of:</p>
-<ul>
-<li><strong>One main agent</strong> — handles all tasks (issue addressing, code review, slash commands)</li>
-<li><strong>Built-in subagents</strong> — general-purpose (full tools), explore (read-only, fast), and a fan-out of read-only <code>cr-*</code> code-review detector subagents</li>
-<li><strong>Middleware stack</strong> — modular capabilities injected based on configuration</li>
-<li><strong>MCP servers</strong> — external tool integrations (Sentry, Context7)</li>
-</ul>
-<pre class="mermaid"><code>graph TB
-    WH[Webhook Event] --&gt; CB[Callback Handler]
-    CB --&gt; TQ[Task Queue]
-    JOB[Jobs API] --&gt; TQ
-    TQ --&gt; MGR[Manager / Task]
-    MGR --&gt; AGENT[DAIV Agent]
-
-    AGENT --&gt; MW[Middleware Stack]
-    MW --&gt; FS[Filesystem Tools]
-    MW --&gt; GIT[Git Tools]
-    MW --&gt; GP[Git Platform Tools]
-    MW --&gt; SB[Sandbox]
-    MW --&gt; WS[Web Search / Fetch]
-    MW --&gt; SK[Skills]
-    MW --&gt; SA[Subagents]
-    MW --&gt; MCP[MCP Tools]
-
-    SA --&gt; GPAgent[General-Purpose]
-    SA --&gt; EXAgent[Explore]
-    SA --&gt; CRAgent[Code-Review Detectors cr-*]
-
-    AGENT --&gt; PUB[Git Change Publisher]
-    PUB --&gt; COMMIT[Commit &amp; Push]
-    PUB --&gt; MR[Create / Update MR]</code></pre>
-<h2 id="end-to-end-flow">End-to-end flow</h2>
-<ol>
-<li><strong>Trigger</strong> — a webhook event from GitLab/GitHub, or a <a href="../../features/jobs-api/">Jobs API</a> request</li>
-<li><strong>Dispatch</strong> — the callback handler (webhooks) or API view (jobs) enqueues a background task</li>
-<li><strong>Context setup</strong> — the task sets up the runtime context (repository, branch, scope) and creates the agent</li>
-<li><strong>Agent execution</strong> — LangGraph runs the agent loop: call LLM → execute tools → repeat</li>
-<li><strong>Output</strong> — the agent commits changes and creates/updates a merge request (webhooks), or the text result is stored for polling (jobs)</li>
-</ol>
-<h3 id="managers">Managers</h3>
-<p>Two managers orchestrate the agent:</p>
-<table>
-<thead>
-<tr>
-<th>Manager</th>
-<th>Trigger</th>
-<th>Purpose</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>IssueAddressorManager</code></td>
-<td>Issue with <code>daiv</code> label</td>
-<td>Plans and implements issue solutions</td>
-</tr>
-<tr>
-<td><code>CommentsAddressorManager</code></td>
-<td><code>@daiv</code> mention on MR</td>
-<td>Responds to code review comments</td>
-</tr>
-</tbody>
-</table>
-<p>Both create a persistent conversation thread so the agent retains context across multiple interactions on the same issue or MR. The thread's working state lives in Redis with a 7-day TTL by default (configurable via <code>DJANGO_REDIS_CHECKPOINT_TTL_MINUTES</code>); DAIV archives it in the database when each run ends and restores it from there when a later interaction finds it expired.</p>
-<h2 id="tools">Tools</h2>
-<p>The agent's tools are injected via middlewares. Each middleware provides one or more tools and can be conditionally enabled.</p>
-<div class="admonition note">
-<p class="admonition-title">Tools are deferred by default</p>
-<p>Only a small core (<code>ls</code>, <code>read_file</code>, <code>write_file</code>, <code>edit_file</code>, <code>glob</code>, <code>grep</code>, <code>bash</code>, <code>write_todos</code>, <code>skill</code>, <code>ask_user_question</code>, and the <code>task</code> delegation tool) is bound to the model up front. Everything else — web search/fetch, <code>publish_artifact</code>, <code>fetch_artifact</code>, the git platform tool, and all MCP tools — is hidden behind a <code>tool_search</code> capability provided by <code>DeferredToolsMiddleware</code> and loaded on demand. Once loaded, a tool stays available for the rest of the session. This keeps the model's tool list small without giving up access to the full toolset.</p>
-<p>How a loaded tool reaches the model depends on the model, so that loading one doesn't throw away the provider's prompt cache. Models that take tool definitions mid-conversation (recent Claude models on the Anthropic API, recent GPT models on the OpenAI Responses API) get the tool declared right after the <code>tool_search</code> result. Models listed in <code>DEFERRED_TOOLS_FROZEN_TOOLS_MODELS</code> read its schema from that result. Any other model gets the tool added to its tools array, which costs one cache miss per newly loaded tool.</p>
-</div>
-<h3 id="filesystem">Filesystem</h3>
+<h1 id="agent-tools">Agent tools</h1>
+<p>DAIV's agent works through tools: it reads and edits files, runs commands, searches the web and reports back on your git platform. This page lists each tool, when the agent has it, and which settings turn it on or off. The agent is built on <a href="https://github.com/langchain-ai/deepagents">Deep Agents</a> and runs on <a href="https://langchain-ai.github.io/langgraph/">LangGraph</a>.</p>
+<h2 id="tools-bound-up-front">Tools bound up front</h2>
+<p>DAIV binds these tools to the model at the start of every run.</p>
 <table>
 <thead>
 <tr>
 <th>Tool</th>
-<th>Description</th>
+<th>What it does</th>
+<th>When the agent has it</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>glob</code></td>
-<td>Find files by pattern matching</td>
+<td><code>ls</code>, <code>read_file</code>, <code>glob</code>, <code>grep</code></td>
+<td>List directories, read files, find files by pattern and search file contents by regular expression</td>
+<td>Always</td>
 </tr>
 <tr>
-<td><code>grep</code></td>
-<td>Search file contents with regex</td>
+<td><code>write_file</code>, <code>edit_file</code></td>
+<td>Create a file, or change an existing one</td>
+<td>Always</td>
 </tr>
-<tr>
-<td><code>read_file</code></td>
-<td>Read file contents</td>
-</tr>
-<tr>
-<td><code>edit_file</code></td>
-<td>Modify existing files</td>
-</tr>
-<tr>
-<td><code>write_file</code></td>
-<td>Create new files</td>
-</tr>
-<tr>
-<td><code>ls</code></td>
-<td>List directory contents</td>
-</tr>
-</tbody>
-</table>
-<h3 id="git-platform">Git platform</h3>
-<table>
-<thead>
-<tr>
-<th>Tool</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>gitlab</code> / <code>gh</code></td>
-<td>Inspect and update issues, merge/pull requests, pipelines, job logs, and releases (the GitHub tool exposes the <code>gh</code> CLI)</td>
-</tr>
-</tbody>
-</table>
-<h3 id="sandbox">Sandbox</h3>
-<table>
-<thead>
-<tr>
-<th>Tool</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
 <tr>
 <td><code>bash</code></td>
-<td>Execute commands in a persistent, isolated Docker container</td>
+<td>Run a command in the persistent, isolated <a href="../../features/sandbox/">sandbox</a>, after the command policy checks it</td>
+<td>When the run has a sandbox. <a href="../../features/sandbox-environments/#how-an-environment-is-resolved">How an environment is resolved</a> says when it has one.</td>
+</tr>
+<tr>
+<td><code>write_todos</code></td>
+<td>Track the steps of a task</td>
+<td>Always</td>
+</tr>
+<tr>
+<td><code>skill</code></td>
+<td>Run a <a href="../../customization/agent-skills/">skill</a></td>
+<td>Always</td>
+</tr>
+<tr>
+<td><code>task</code></td>
+<td>Hand work to a <a href="../../features/subagents/">subagent</a></td>
+<td>Always</td>
+</tr>
+<tr>
+<td><code>ask_user_question</code></td>
+<td>Ask you 1 to 4 questions and end the turn, and your answer arrives as the next message</td>
+<td>On the main agent only, and not on a run nobody can answer: a scheduled run, a <a href="../../features/pipeline-watch/">pipeline watch</a> run or a delegated job. <a href="../../features/sessions/#answer-a-question">Answer a question</a> shows it from your side.</td>
+</tr>
+<tr>
+<td><code>delegate_jobs</code></td>
+<td>Start independent jobs on other repositories or on the same one, and resume when they finish</td>
+<td>When <a href="../../features/orchestration/">orchestration</a> is on, which is the default, and the run is not a delegated leg</td>
 </tr>
 </tbody>
 </table>
-<p>Commands are evaluated against a <a href="../../features/sandbox/">command policy</a> before execution. See <a href="../../features/sandbox/">Sandbox</a> for details.</p>
-<h3 id="web">Web</h3>
+<h2 id="tools-loaded-on-demand">Tools loaded on demand</h2>
+<p>The agent loads these tools through <code>tool_search</code>, a tool that finds a tool by what it does and loads its definition. This keeps the list of tools the model sees short. A tool the agent loads stays available for the rest of the session. Setting <code>DEFERRED_TOOLS_ENABLED</code> to <code>false</code> binds every tool up front instead; <a href="../env-variables/#deferred-tools">Deferred tools</a> describes it and its related settings.</p>
 <table>
 <thead>
 <tr>
 <th>Tool</th>
-<th>Description</th>
+<th>What it does</th>
+<th>When the agent has it</th>
 </tr>
 </thead>
 <tbody>
 <tr>
+<td><code>gitlab</code></td>
+<td>Inspect and update issues, merge requests, pipelines, job logs and releases</td>
+<td>On a GitLab repository</td>
+</tr>
+<tr>
+<td><code>gh</code></td>
+<td>The same, through the <code>gh</code> command line</td>
+<td>On a GitHub repository</td>
+</tr>
+<tr>
 <td><code>web_search</code></td>
-<td>Search the web (DuckDuckGo, Tavily or SearXNG)</td>
+<td>Search the web through DuckDuckGo, Tavily or SearXNG</td>
+<td>When web search is on, which is the default. <a href="../env-variables/#web-search">Web search</a> describes the settings.</td>
 </tr>
 <tr>
 <td><code>web_fetch</code></td>
-<td>Fetch a URL, convert to markdown, and answer a prompt about its content</td>
+<td>Fetch a URL, convert it to Markdown and answer a prompt about its content</td>
+<td>When web fetch is on, which is the default. <a href="../env-variables/#web-fetch">Web fetch</a> describes the settings.</td>
 </tr>
-</tbody>
-</table>
-<h3 id="skills">Skills</h3>
-<table>
-<thead>
-<tr>
-<th>Tool</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>skill</code></td>
-<td>Execute a <a href="../../customization/agent-skills/">skill</a> (slash command)</td>
-</tr>
-</tbody>
-</table>
-<h3 id="artifacts">Artifacts</h3>
-<table>
-<thead>
-<tr>
-<th>Tool</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
 <tr>
 <td><code>publish_artifact</code></td>
-<td>Copy a workspace file (an HTML/Markdown report, a CSV, a chart) into DAIV as a run <a href="../../features/sessions/#artifacts">artifact</a> and return its viewer URL; with <code>artifact_id</code>, replace the file of an artifact the session already published, keeping its URL</td>
+<td>Copy a workspace file, such as an HTML report, a CSV or a chart, into DAIV as an <a href="../../features/sessions/#artifacts">artifact</a> and return its viewer URL. With <code>artifact_id</code>, it replaces the file of an artifact the session already published.</td>
+<td>Always</td>
 </tr>
 <tr>
 <td><code>fetch_artifact</code></td>
-<td>Copy an artifact the session already published back into <code>/workspace/tmp</code>, so it can be revised</td>
+<td>Copy an artifact the session already published back into <code>/workspace/tmp</code>, so the agent can revise it</td>
+<td>Always</td>
+</tr>
+<tr>
+<td><code>check_delegated_jobs</code>, <code>cancel_delegated_jobs</code></td>
+<td>Check, or cancel, the jobs the agent delegated</td>
+<td>When <code>delegate_jobs</code> is available</td>
+</tr>
+<tr>
+<td>MCP tools</td>
+<td>The tools of the <a href="../../customization/mcp-tools/">MCP servers</a> the run has, such as Sentry or Context7</td>
+<td>When an MCP server is enabled for the run</td>
 </tr>
 </tbody>
 </table>
-<h3 id="mcp">MCP</h3>
-<p>External tools provided via <a href="../../customization/mcp-tools/">MCP servers</a> (Sentry error tracking, Context7 documentation lookup).</p>
-<h3 id="asking-the-user">Asking the user</h3>
-<table>
-<thead>
-<tr>
-<th>Tool</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>ask_user_question</code></td>
-<td>Ask the user 1 to 4 questions and end the turn; the answer arrives as the next message</td>
-</tr>
-</tbody>
-</table>
-<p>See <a href="../../features/sessions/#answering-a-question">Answering a question</a> for what this looks like from the user's side.</p>
-<h2 id="middlewares">Middlewares</h2>
-<p>Middlewares are the backbone of the agent — they inject tools, system prompts, and lifecycle hooks. The agent is assembled dynamically based on which middlewares are enabled.</p>
-<h3 id="always-enabled">Always enabled</h3>
-<table>
-<thead>
-<tr>
-<th>Middleware</th>
-<th>Purpose</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>FilesystemMiddleware</code></td>
-<td>File operations (glob, grep, read, edit, write)</td>
-</tr>
-<tr>
-<td><code>GitMiddleware</code></td>
-<td>Branch management, auto-commit, MR creation</td>
-</tr>
-<tr>
-<td><code>GitPlatformMiddleware</code></td>
-<td>Git platform CLI tool (issues, MRs, pipelines)</td>
-</tr>
-<tr>
-<td><code>SkillsMiddleware</code></td>
-<td>Skill loading and slash command execution</td>
-</tr>
-<tr>
-<td><code>ArtifactsMiddleware</code></td>
-<td>The <code>publish_artifact</code> and <code>fetch_artifact</code> tools and their system-prompt section — stores a workspace file as a run artifact, or revises one</td>
-</tr>
-<tr>
-<td><code>SubAgentMiddleware</code></td>
-<td>Delegates tasks to subagents</td>
-</tr>
-<tr>
-<td><code>MemoryMiddleware</code></td>
-<td>Loads <code>AGENTS.md</code> and repository context</td>
-</tr>
-<tr>
-<td><code>TodoListMiddleware</code></td>
-<td>Task tracking within conversations</td>
-</tr>
-<tr>
-<td><code>SummarizationMiddleware</code></td>
-<td>Compresses conversation history when it grows too long</td>
-</tr>
-<tr>
-<td><code>AnthropicPromptCachingMiddleware</code></td>
-<td>Prompt caching for Anthropic models</td>
-</tr>
-<tr>
-<td><code>ToolCallLoggingMiddleware</code></td>
-<td>Logs all tool calls</td>
-</tr>
-<tr>
-<td><code>PatchToolCallsMiddleware</code></td>
-<td>Fixes malformed tool calls from the LLM</td>
-</tr>
-<tr>
-<td><code>DeferredToolsMiddleware</code></td>
-<td>Defers non-core tools behind a <code>tool_search</code> capability, loaded on demand</td>
-</tr>
-<tr>
-<td><code>LoopBreakerMiddleware</code></td>
-<td>Detects verbatim tool-call repetition and finalizes the run (instead of raising) so end-of-run hooks still execute</td>
-</tr>
-<tr>
-<td><code>StepBudgetMiddleware</code></td>
-<td>Warns the model as the run approaches its per-run step budget</td>
-</tr>
-<tr>
-<td><code>EnsureResponseMiddleware</code></td>
-<td>Guarantees a non-empty final response by retrying empty LLM responses</td>
-</tr>
-</tbody>
-</table>
-<h3 id="conditionally-enabled">Conditionally enabled</h3>
-<table>
-<thead>
-<tr>
-<th>Middleware</th>
-<th>Condition</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>SandboxMiddleware</code></td>
-<td>A SandboxEnvironment is resolvable for the run (per-run pick or GLOBAL default exists)</td>
-</tr>
-<tr>
-<td><code>WebSearchMiddleware</code></td>
-<td><code>DAIV_WEB_SEARCH_ENABLED</code> is <code>true</code></td>
-</tr>
-<tr>
-<td><code>WebFetchMiddleware</code></td>
-<td><code>DAIV_WEB_FETCH_ENABLED</code> is <code>true</code></td>
-</tr>
-<tr>
-<td><code>ModelFallbackMiddleware</code></td>
-<td>A fallback model is configured</td>
-</tr>
-<tr>
-<td><code>SlashCommandMiddleware</code></td>
-<td>Slash commands enabled in <code>.daiv.yml</code> (default on) — parses and dispatches <code>/commands</code> like <code>/agents</code> and <code>/help</code></td>
-</tr>
-</tbody>
-</table>
-<h2 id="subagents">Subagents</h2>
-<p>The main agent can delegate work to two general-use subagents. See <a href="../../features/subagents/">Subagents</a> for the user-facing explanation.</p>
-<table>
-<thead>
-<tr>
-<th>Subagent</th>
-<th>Model</th>
-<th>Fallback</th>
-<th>Tools</th>
-<th>Use case</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>General-purpose</td>
-<td>Same as main agent</td>
-<td>Same as main agent</td>
-<td>Full tool access</td>
-<td>Complex searches, multi-step research</td>
-</tr>
-<tr>
-<td>Explore</td>
-<td>Claude Haiku 5.5 (fast)</td>
-<td>Same as main agent</td>
-<td>Read-only filesystem</td>
-<td>Quick file lookups, code structure questions</td>
-</tr>
-</tbody>
-</table>
-<p>In addition, a set of read-only <strong>code-review detector subagents</strong> (<code>cr-correctness</code>, <code>cr-security</code>, <code>cr-performance</code>, <code>cr-structure</code>, <code>cr-tests</code>, <code>cr-custom-rules</code>) is built and registered on every run. The <a href="../../features/pull-request-assistant/">code review</a> skill picks the detectors applicable to the change, fans out across them in parallel, and aggregates their markdown reports into a single review report; each detector runs with a read-only tool stack. <a href="../../features/subagents/#custom-subagents">Custom subagents</a> defined per repository are also added to the available-agents list.</p>
-<p>All subagents (including custom subagents) support automatic model fallback via <code>ModelFallbackMiddleware</code>. When the primary model fails, the subagent retries with the configured fallback model. Every subagent uses the main agent's fallback model.</p>
-<p>No subagent is given <code>ask_user_question</code> — only the main agent can stop a run to ask the user.</p>
-<h2 id="dynamic-system-prompt">Dynamic system prompt</h2>
-<p>The agent's system prompt is assembled at runtime and includes:</p>
-<ul>
-<li>Current date</li>
-<li>Bot username</li>
-<li>Repository URL and git platform</li>
-<li>Current branch and default branch</li>
-<li>Available tools and their descriptions</li>
-<li>Loaded skill metadata</li>
-<li><code>AGENTS.md</code> content (if present in the repository)</li>
-</ul>
-<p>This ensures the agent always has up-to-date context about the repository it's working in.</p>
-<h2 id="model-configuration">Model configuration</h2>
-<p>Models are resolved at four levels (highest priority first):</p>
-<ol>
-<li><strong>Per-run model</strong> — a model picked in the agent picker, or <code>agent_model</code> through the API and MCP</li>
-<li><strong>Issue labels</strong> — <code>daiv-max</code> switches to a stronger model with higher thinking</li>
-<li><strong>Repository config</strong> — <code>.daiv.yml</code> <a href="../../customization/repository-config/#model-overrides">model overrides</a></li>
-<li><strong>Environment variables</strong> — global defaults (<code>DAIV_AGENT_*</code>)</li>
-</ol>
-<p>See <a href="../env-variables/#daiv-agent">Environment Variables</a> for all agent model settings.</p>
+<h2 id="model-priority">Model priority</h2>
+<p>The agent runs on the first model that a source sets, from a model you pick for the run, through the <code>daiv-max</code> issue label and the repository's <code>.daiv.yml</code>, to the site's settings. <a href="../../customization/repository-config/#model-overrides">Model overrides</a> lists the order. A subagent follows its own order, described in <a href="../../features/subagents/#subagent-model-precedence">Subagent model precedence</a>, and <a href="../env-variables/#daiv-agent">Environment variables</a> lists the settings.</p>
 
 
 
@@ -2368,7 +1797,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 10, 2026 09:54:22 UTC">November 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 12, 2026 15:04:33 UTC">November 12, 2026</span>
   </span>
 
     

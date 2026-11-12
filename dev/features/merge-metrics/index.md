@@ -1,6 +1,6 @@
-# Merge Metrics
+# Merge metrics
 
-DAIV automatically tracks code merge activity across your repositories. Every time a merge request (GitLab) or pull request (GitHub) is merged into a default branch, DAIV records diff statistics and attributes code changes to DAIV or human authors at the commit level.
+DAIV records every merge request (GitLab) or pull request (GitHub) merged into a default branch. For each merge it counts the lines changed and attributes them to DAIV or to people, commit by commit. The dashboard's **Insights** page shows the totals as code velocity.
 
 ______________________________________________________________________
 
@@ -9,128 +9,71 @@ ______________________________________________________________________
 ```
 sequenceDiagram
     participant Platform as GitLab / GitHub
-    participant Webhook as DAIV Webhook
-    participant Task as Background Task
-    participant DB as Database
-    participant Dashboard as Dashboard
+    participant DAIV as DAIV
+    participant Dashboard as Insights page
 
-    Platform->>Webhook: MR/PR merged event
-    Webhook->>Webhook: Verify target is default branch
-    Webhook->>Task: Enqueue record_merge_metrics_task
-    Task->>Platform: Fetch diff stats + pre-squash commit list
-    Task->>Task: Classify commits by author email
-    Task->>DB: Store MergeMetric with split attribution
-    Dashboard->>DB: Aggregate metrics by period
-    Dashboard->>Dashboard: Display Code Velocity
+    Platform->>DAIV: merge event
+    DAIV->>DAIV: skip unless the target is the default branch
+    DAIV->>Platform: fetch diff statistics and the commit list
+    DAIV->>DAIV: attribute each commit by author email
+    Dashboard->>DAIV: read the totals for the chosen period
 ```
 
-1. **Webhook receives a merge event** — GitLab sends a `merge_request` webhook with `action: merge`; GitHub sends a `pull_request` webhook with `action: closed` and `merged: true`.
-1. **Default branch filter** — Only merges targeting the repository's default branch are recorded. Merges to feature or release branches are ignored.
-1. **Background task** — A task fetches MR-level diff statistics and the pre-squash commit list from the platform API.
-1. **Commit-based attribution** — Each commit's author email is compared against DAIV's known commit email. Lines added/removed are split into DAIV and human contributions. This works correctly even with squash merges because the platform API retains the original commit list.
-1. **Insights** — The metrics are displayed in the "Code velocity" section of the Insights page at `/dashboard/insights/`, using the same period filter (Today / 7 days / 30 days / 90 days / All time, defaulting to 7 days) as the agent activity counters.
+The steps below give the same flow in text.
+
+1. **DAIV receives a merge event.** GitLab sends a `merge_request` webhook with `action: merge`; GitHub sends a `pull_request` webhook with `action: closed` and `merged: true`.
+1. **DAIV checks the target branch.** It records only merges into the repository's default branch, and ignores merges into feature or release branches.
+1. **DAIV fetches the data.** A background task fetches the merge's diff statistics and its commit list from the platform API.
+1. **DAIV attributes the lines.** It compares each commit's author email with DAIV's bot commit email, and splits the lines added and removed into DAIV's and people's.
+1. **DAIV shows the totals.** The **Code velocity** section of the **Insights** page uses the same period filter as the agent activity counters: **Today**, **7 days**, **30 days**, **90 days** or **All time**, with **7 days** as the default.
+
+If a platform call fails, DAIV still records the merge. When only the diff statistics fail, DAIV takes the lines changed from the sum over the commits; a figure whose own fetch failed stays at zero.
 
 ______________________________________________________________________
 
-## Insights
+## Code velocity metrics
 
-Everyone sees the Code velocity section, counted over the repositories they can read (admins: every repository). It is hidden when there were no merges in the period.
+Everyone sees the **Code velocity** section, counted over the repositories they can read (administrators: every repository). It stays hidden when the period has no merges. The period filter at the top of the page applies to every figure.
 
-| Metric               | Description                                                                                                                                    |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Merges**           | MRs/PRs merged into default branches                                                                                                           |
-| **Involved DAIV**    | Share of merges with at least one DAIV-authored commit, with both counts                                                                       |
-| **Commits by DAIV**  | Share of commits authored by DAIV, with both counts                                                                                            |
-| **Lines changed**    | Lines added and removed across all merges                                                                                                      |
-| **Merges over time** | Merges per day (weeks for 30 and 90 days, months for all time), split into those that involved DAIV and those by people only; hidden for Today |
-
-All metrics respect the period filter at the top of the page.
+| Figure on the page     | What it counts                                                                                                                                           |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **merges**             | Merge and pull requests merged into default branches                                                                                                     |
+| **involved DAIV**      | The share of merges with at least one DAIV-authored commit, with both counts                                                                             |
+| **of commits by DAIV** | The share of commits authored by DAIV, with both counts                                                                                                  |
+| **lines changed**      | Lines added and removed across all merges                                                                                                                |
+| **Merges over time**   | Merges per day (per week for 30 and 90 days, per month for all time), split into those that involved DAIV and those by people only. Hidden for **Today** |
 
 ______________________________________________________________________
 
 ## Attribution
 
-DAIV identifies its own commits by matching the commit author email against its configured bot email:
+DAIV identifies its own commits by matching the commit author email against its bot email:
 
-- **GitLab**: The bot's commit email (configured via `commit_email`, `public_email`, `email`, or fallback `{username}@users.noreply.gitlab.com`)
-- **GitHub**: `{user_id}+{app_slug}[bot]@users.noreply.github.com`
+- **GitLab:** the bot user's `commit_email`, else its `public_email`, else its `email`, else `<username>@users.noreply.gitlab.com`
+- **GitHub:** `<user_id>+<app_slug>[bot]@users.noreply.github.com`
 
 ### Mixed authorship
 
-A single MR/PR can contain commits from both DAIV and human authors. For example, a human creates an MR, then asks DAIV to make follow-up changes via `@daiv`. The attribution correctly splits lines between DAIV and human based on individual commit authorship.
+A merge request can hold commits from both DAIV and people. When a person opens one and then asks DAIV for follow-up changes with `@daiv`, DAIV splits the lines by each commit's author.
+
+### Commit limits
+
+On GitLab, DAIV attributes the first 100 commits of a merge request. On GitHub, the platform lists at most 250 commits per pull request.
 
 ### Squash merges
 
-When a MR/PR is squash-merged, the individual commits are collapsed into a single commit on the target branch. However, the platform API retains the original pre-squash commit list, so DAIV can still analyze individual commit authorship for accurate attribution.
+A squash merge collapses the commits into one on the target branch, but the platform API keeps the original commit list. DAIV attributes lines from that list, so squash merges are attributed like any other.
 
 ______________________________________________________________________
 
-## Setup
+## Turn on merge metrics
 
-Merge metrics collection is enabled automatically. No configuration is required.
+Merge metrics need no configuration: DAIV records merges as soon as it receives merge events.
 
-### Webhook events
-
-DAIV registers the necessary webhook events on both platforms:
-
-- **GitLab**: `merge_requests_events` (added alongside existing `push_events`, `issues_events`, `note_events`)
-- **GitHub**: `pull_request` (added alongside existing `push`, `issues`, `pull_request_review`, `issue_comment`)
-
-### Updating existing webhooks
-
-If you already have DAIV connected to repositories, existing webhooks need to be updated to include the new event types.
-
-**GitLab** — Run the setup command with the `--update` flag:
-
-```
-django-admin setup_webhooks --update
-```
-
-The periodic webhook setup cron task does **not** pass `--update` by default, so this one-time manual step is needed after deploying the update.
-
-**GitHub** — Update the webhook events in your GitHub App configuration to include `Pull requests` (if not already enabled). Alternatively, re-run webhook setup for your repositories.
-
-______________________________________________________________________
-
-## Diff stats
-
-The way diff statistics are collected differs between platforms:
-
-| Platform   | MR-level stats                                                    | Per-commit stats                                                                       |
-| ---------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| **GitLab** | Parses unified diff text from `mr.changes()` API                  | Fetches `project.commits.get(sha).stats` per commit (N+1 calls, capped at 100 commits) |
-| **GitHub** | Reads `pr.additions`, `pr.deletions`, `pr.changed_files` directly | Fetches `commit.stats` per commit via lazy loading (N+1 calls, handled by PyGithub)    |
-
-The merge is always recorded even on partial failure (e.g., due to API rate limits or network errors). Each data source — MR-level diff stats, the bot commit email, and the commit list — is fetched independently. If MR-level diff stats fail while the commit list succeeds, the totals are derived from the per-commit sums, so only the field whose own fetch actually failed is left at zero.
-
-______________________________________________________________________
-
-## Data model
-
-Each merge event is stored as a `MergeMetric` record:
-
-| Field                 | Type     | Description                                                   |
-| --------------------- | -------- | ------------------------------------------------------------- |
-| `repo_id`             | string   | Repository identifier (e.g., `group/project` or `owner/repo`) |
-| `merge_request_iid`   | integer  | MR IID (GitLab) or PR number (GitHub)                         |
-| `title`               | string   | Merge request title (max 512 chars)                           |
-| `lines_added`         | integer  | Total lines added in the merge                                |
-| `lines_removed`       | integer  | Total lines removed in the merge                              |
-| `files_changed`       | integer  | Number of files changed                                       |
-| `daiv_lines_added`    | integer  | Lines added in DAIV-authored commits                          |
-| `daiv_lines_removed`  | integer  | Lines removed in DAIV-authored commits                        |
-| `human_lines_added`   | integer  | Lines added in human-authored commits                         |
-| `human_lines_removed` | integer  | Lines removed in human-authored commits                       |
-| `total_commits`       | integer  | Total number of commits in the MR                             |
-| `daiv_commits`        | integer  | Number of commits authored by DAIV                            |
-| `merged_at`           | datetime | When the merge occurred                                       |
-| `source_branch`       | string   | Source branch name                                            |
-| `target_branch`       | string   | Target branch name                                            |
-| `platform`            | enum     | `gitlab` or `github`                                          |
-
-Records are unique per `(repo_id, merge_request_iid, platform)`. Duplicate webhook deliveries are handled via upsert.
+- **GitLab:** DAIV registers `merge_requests_events` on each repository's webhook when it creates it. To add the event to webhooks registered earlier, run `docker compose exec app django-admin setup_webhooks --update`; see [`setup_webhooks`](https://docs.daivagent.com/dev/reference/management-commands/#setup_webhooks).
+- **GitHub:** DAIV registers nothing. Subscribe your GitHub App to **Pull request**; [Platform setup](https://docs.daivagent.com/dev/getting-started/platform-setup/#github-app-permissions-and-events) lists every event the App needs.
 
 ## Related pages
 
 - [Sessions](https://docs.daivagent.com/dev/features/sessions/index.md) — the run history behind the DAIV-authored commits these metrics attribute
-- [Issue Addressing](https://docs.daivagent.com/dev/features/issue-addressing/index.md) — the workflow that produces most DAIV-authored merges
+- [Issue addressing](https://docs.daivagent.com/dev/features/issue-addressing/index.md) — the workflow that produces most DAIV-authored merges

@@ -1,31 +1,31 @@
-# Agent Skills
+# Agent skills
 
 Skills are modular capabilities that extend DAIV's agent with specialized knowledge and workflows. Each skill is a directory containing a `SKILL.md` file with instructions the agent follows when the skill is triggered.
 
-DAIV ships with [built-in skills](https://docs.daivagent.com/dev/features/slash-commands/#built-in-skills) (`/plan`, `/code-review`, `/security-audit`, `/init`, `/skill-creator`). You can also create your own.
+DAIV ships with [built-in skills](https://docs.daivagent.com/dev/features/slash-commands/#built-in-skills). You can also write your own, for one repository or for all of them.
 
 ## How skills work
 
 Skills use a **progressive disclosure** pattern:
 
-1. **At startup** — DAIV reads the `name` and `description` from each skill's YAML frontmatter (~100 tokens per skill)
-1. **When triggered** — DAIV reads the full `SKILL.md` content and follows its instructions
-1. **As needed** — the agent accesses supporting files bundled with the skill (scripts, templates, configs)
+1. **At startup**, DAIV reads the `name` and `description` from each skill's YAML frontmatter (about 100 tokens per skill).
+1. **When triggered**, DAIV reads the full `SKILL.md` content and follows its instructions.
+1. **As needed**, the agent reads the supporting files bundled with the skill (scripts, templates, configs).
 
-This keeps context usage minimal until a skill is actually needed.
+This keeps context usage minimal until a skill is needed.
 
 ## Directory structure
 
 Skills can live in any of these directories at the repository root:
 
 - `.agents/skills/`
-- `.cursor/skills/`
 - `.claude/skills/`
+- `.cursor/skills/`
 
-DAIV scans all three and loads skills from each. If multiple directories contain a skill with the same name, the last one loaded wins.
+DAIV scans all three. When more than one holds a skill with the same name, `.agents/skills/` wins over `.claude/skills/`, which wins over `.cursor/skills/`.
 
 ```
-your-repository/
+my-repository/
 ├── .agents/
 │   └── skills/
 │       └── my-custom-skill/
@@ -35,90 +35,44 @@ your-repository/
 └── src/
 ```
 
-Built-in skills are **not** copied into your repository. They are loaded from DAIV's own global skills location (`/workspace/skills` inside the agent), registered as a separate "Global" source alongside the per-repository directories above. Nothing is written to `.agents/skills/` and no `.gitignore` is generated.
+DAIV does not copy built-in skills into your repository, and writes nothing to `.agents/skills/`. It loads them from its own global skills location (`/workspace/skills` inside the agent), a separate source next to the per-repository directories.
 
-You can still override any built-in skill by creating one with the same name in one of the per-repository directories and committing it: per-repository sources take precedence over the global source (see [Override priority](#override-priority)).
+## Override priority
 
-## Custom global skills
+DAIV resolves a skill name in this order, highest priority first:
 
-Custom global skills are user-defined skills that are available across **all repositories**, unlike per-repository skills. They follow the same directory format as built-in skills (a directory containing a `SKILL.md` file) and are loaded from a configurable path on the host filesystem.
+1. **Per-repository skills**, committed in the repository's `.agents/skills/`, `.claude/skills/` or `.cursor/skills/`.
+1. **Custom global skills**, [mounted from the host or uploaded in the dashboard](#custom-global-skills).
+1. **Built-in skills**, shipped with DAIV.
 
-### Setup
+A custom global skill overrides the built-in skill of the same name, and a per-repository skill overrides both. To override a built-in skill in one repository, commit a skill with the same name to that repository.
 
-1. Create a directory with your custom skills on the host machine:
+The agent's system prompt lists the global source as `Global Skills`, and marks the last source, `.agents/skills`, `(higher priority)`.
 
-   ```
-   custom-skills/
-   ├── my-workflow/
-   │   ├── SKILL.md
-   │   └── scripts/
-   │       └── helper.py
-   └── team-review/
-       └── SKILL.md
-   ```
+## Skill security
 
-1. Mount it as a Docker volume into the DAIV worker container at `/home/daiv/data/skills/`:
+Use skills from trusted sources only
 
-   ```
-   # In your docker-compose.yml or stack.yml
-   worker:
-     volumes:
-       - ./custom-skills:/home/daiv/data/skills:ro
-   ```
+Skills give the agent instructions and access to scripts. Use only skills you wrote or got from a source you trust.
 
-   The path inside the container is configurable via the `DAIV_AGENT_CUSTOM_SKILLS_PATH` environment variable (see [Environment Variables](https://docs.daivagent.com/dev/reference/env-variables/#daiv-agent)).
+Before you commit or upload a skill:
 
-### Manage skills from the dashboard
+- Audit every file in it.
+- Review its scripts carefully, because the agent can run any executable code in a skill.
+- Check its external references, because a skill that fetches data from external URLs adds risk.
 
-Admin only
+## Create a skill
 
-The Skills dashboard requires an admin account.
+To add a skill to one repository, create a directory for it and commit it. You need write access to the repository.
 
-Admins can manage custom global skills from the web dashboard at **Skills** (`/dashboard/skills/`) instead of editing the mounted directory by hand. Both approaches write to the same `DAIV_AGENT_CUSTOM_SKILLS_PATH` location, so they coexist — the dashboard is an alternative to, not a replacement for, the Docker-volume approach.
+1. In `.agents/skills/` at the repository root, create a directory named after the skill, with lowercase letters, digits and hyphens only (for example `changelog`).
+1. In that directory, create `SKILL.md`.
+1. Add the YAML frontmatter with a `name` that matches the directory name and a `description`.
+1. Below the frontmatter, write the instructions the agent follows.
+1. Optional: add supporting files next to `SKILL.md`, such as scripts or templates.
+1. Commit the directory to the repository.
 
-From the Skills page you can:
-
-- **List skills** — built-in and custom global skills are shown together, each with its invocation count and, when it has one, the model its entry names. A custom skill whose name matches a built-in shadows it and is flagged **Overrides built-in**.
-- **Upload a skill** as a ZIP archive (see constraints below). Uploading a skill whose name already exists asks you to confirm before it replaces the existing one.
-- **View a skill** — its page has four tabs: **SKILL.md**, **Files**, **Models** (the model it runs on; see [Running a skill on another model](#running-a-skill-on-another-model)) and **Usage** (invocations over the last 30 days, and the latest runs that invoked it, each linking to the run in its session).
-- **Download** a custom skill's original ZIP.
-- **Delete** a custom skill (built-in skills cannot be deleted; deleting a custom skill that shadowed a built-in restores the built-in).
-
-A successful upload writes the skill into `DAIV_AGENT_CUSTOM_SKILLS_PATH` and records an audit row attributing it to the uploading admin.
-
-#### ZIP requirements
-
-The uploaded archive is validated before it is stored:
-
-| Constraint          | Limit                                                                                                          |
-| ------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Top-level directory | Exactly one, named after the skill (a valid slug: lowercase alphanumeric and hyphens, max 63 chars)            |
-| `SKILL.md`          | Required at `<skill-name>/SKILL.md`, with `name` (matching the directory) and `description` in its frontmatter |
-| Compressed size     | 5 MiB max                                                                                                      |
-| Unpacked size       | 25 MiB max                                                                                                     |
-| File count          | 200 max                                                                                                        |
-| Path depth          | 8 levels max                                                                                                   |
-| Per-file size       | 1 MiB max                                                                                                      |
-| Allowed file types  | `.md`, `.py`, `.json`, `.yaml`, `.yml`, `.txt`, `.sh`, `.toml`, `.png`, `.jpg`, `.jpeg`, `.svg`, `.gif`        |
-
-Symlinks, absolute paths, `..` path traversal, and hidden path segments are rejected; `__pycache__` and `.pyc` entries are dropped silently.
-
-### Override priority
-
-Skills are resolved in this order (highest priority wins):
-
-1. **Per-repository skills** — committed in the repository's `.agents/skills/`, `.cursor/skills/`, or `.claude/skills/`
-1. **Custom global skills** — mounted via Docker volume or uploaded from the dashboard
-1. **Built-in skills** — shipped with DAIV
-
-This means custom global skills override built-in skills with the same name, and per-repository skills override both.
-
-### Notes
-
-- Skills are materialized at each agent invocation, so changes to the mounted volume take effect on the next task without a container restart.
-- Custom global skills load from the agent's global skills source, which appears as **Global Skills** in the system prompt's skills-locations block. Per-repository sources are listed after it and marked `(higher priority)`, so the agent knows a per-repository skill of the same name wins.
-
-## Creating a skill
+DAIV loads the skill in runs on a branch that contains it. To have the agent walk you through these steps instead, run `@daiv /skill-creator` (see [`/skill-creator`](https://docs.daivagent.com/dev/features/slash-commands/#skill-creator)).
 
 ### SKILL.md format
 
@@ -139,14 +93,14 @@ description: Brief description of what this skill does and when the agent should
 3. Finally, verify the result
 ```
 
-### Required fields
+Required fields:
 
-| Field         | Constraints                                                                 | Description                                                                                                                |
-| ------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `name`        | Max 64 chars, lowercase alphanumeric and hyphens, must match directory name | Unique identifier for the skill. This is what users type after `/`.                                                        |
-| `description` | Max 1024 chars                                                              | What the skill does **and when to use it**. The agent matches user requests against this text, so include trigger phrases. |
+| Field         | Constraints                                                                     | Description                                                                                                                |
+| ------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `name`        | Max 64 chars, lowercase alphanumeric and hyphens, must match the directory name | Unique identifier for the skill. This is what users type after `/`.                                                        |
+| `description` | Max 1024 chars                                                                  | What the skill does **and when to use it**. The agent matches user requests against this text, so include trigger phrases. |
 
-### Optional fields
+Optional fields:
 
 | Field           | Description                                                   |
 | --------------- | ------------------------------------------------------------- |
@@ -155,53 +109,21 @@ description: Brief description of what this skill does and when the agent should
 | `metadata`      | Arbitrary key-value pairs for additional properties           |
 | `allowed-tools` | Space-delimited list of tool names the skill recommends using |
 
-### Running a skill on another model
-
-Once the agent invokes a skill, its model calls run on the skill's model until your next message. The first of these that is set names that model:
-
-1. the skill's entry under `models.skills` in the repository's `.daiv.yml` (see [Model overrides](https://docs.daivagent.com/dev/customization/repository-config/#skill-and-subagent-models));
-1. the skill's entry on its **Models** tab in the dashboard's Skills pages (or in `DAIV_AGENT_SKILL_MODELS`);
-1. the `metadata.model` of a built-in or global skill file;
-1. the run's model.
-
-The **Models** tab changes a skill's model for every repository, built-in skills included, without copying or editing the skill file. On `/code-review` it also sets the model of each detector the skill ships (see [Subagents](https://docs.daivagent.com/dev/features/subagents/#choosing-a-subagents-model)). A model the user picks for the run, even an exact model passed to the jobs API, does not override an entry.
-
-A skill that exists only in repositories has no page: give it a model with a `models.skills` entry in each repository's `.daiv.yml`.
-
-A built-in or global skill file can name its own model in `metadata.model`, as a model spec (`provider-slug:model`, as in [subagents](https://docs.daivagent.com/dev/features/subagents/index.md)):
-
-```
----
-name: changelog
-description: Update CHANGELOG.md for the current changes.
-metadata:
-  model: openrouter:anthropic/claude-haiku-5.5
----
-```
-
-A repository skill's `metadata.model` is ignored, because the file comes from the branch the run works on, which the author of a merge request controls. Give a repository skill a model with a `models.skills` entry in `.daiv.yml` instead.
-
-The run's thinking level carries over. The run's model serves any model call whose conversation no longer fits the skill model's context window, and, once the skill model fails a call, that call and every later one in the run, before the run's fallback models. Switching models starts a fresh prompt cache on each side, so a cheaper skill model pays off only for skills that do substantial work.
-
-When a configured entry names a provider that is unknown, disabled or missing its API key, the skill runs on its `metadata.model`, else the run's model. The failure is logged at ERROR. A `metadata.model` that can't be used keeps the run's model, logged the same way.
-
-### Writing a good description
+### Write a good description
 
 The `description` field is how the agent decides whether to use your skill. Include specific trigger phrases:
 
 ```
-# Good — includes trigger phrases the agent can match
+# Good: includes trigger phrases the agent can match
 description: >
   Diagnose and fix CI/CD pipeline failures. Use when the user mentions
   "pipeline is failing", "CI broken", "fix the build", or "debug the tests".
 
-# Bad — too vague for the agent to match
+# Bad: too vague for the agent to match
 description: Helps with CI/CD issues.
 ```
 
-## Authoring best practices
-
-### Be specific and actionable
+### Write specific instructions
 
 Tell the agent exactly what steps to follow:
 
@@ -218,7 +140,7 @@ Tell the agent exactly what steps to follow:
 
 ### Bundle supporting files
 
-Skills can include helper scripts, templates, and reference documents. Reference them using relative paths from the skill directory:
+Skills can include helper scripts, templates and reference documents. Reference them by paths relative to the skill directory:
 
 ```
 my-skill/
@@ -233,14 +155,6 @@ my-skill/
 ## Resources
 - Run `scripts/validate.py` to check prerequisites
 - Use `templates/report.md` as the output format
-```
-
-### Use the skill-creator
-
-DAIV includes a built-in `/skill-creator` skill that walks you through creating a new skill:
-
-```
-@daiv /skill-creator
 ```
 
 ## Example: changelog skill
@@ -262,7 +176,7 @@ description: >
 2. Determine the change type: Added, Changed, Fixed, Removed
 3. Add an entry under the `## Unreleased` section
 4. Follow the existing format and style in the file
-5. Keep entries concise — one line per change
+5. Keep entries concise: one line per change
 
 ## Format
 
@@ -275,15 +189,142 @@ Use [Common Changelog](https://common-changelog.org/) format:
 - New feature description
 ````
 
+```
+
+## Set branch and commit conventions
+
+DAIV generates the branch names and commit messages for its changes. To make it follow your conventions, describe them in the repository's context file: `AGENTS.md`, or the file that `context_file_name` names in [`.daiv.yml`](https://docs.daivagent.com/dev/customization/repository-config/#repository-settings). `.daiv.yml` has no option for the conventions themselves.
+
+1. Open the context file in the repository root.
+2. Add a section for each convention you want DAIV to follow.
+3. Commit the file.
+
+For example:
+
+```
+
+## Branch naming
+
+Use: pr/<issue-id>-<kebab-summary>
+
+## Commit messages
+
+Use: (<ISSUE-ID>) <type>: <summary> Where <type> is one of: feat, fix, chore, docs, refactor, test
+
+```
+
+The angle-bracket parts belong to the convention: DAIV fills in the issue ID, type and summary for each change.
+
+Without a convention, DAIV names branches `<type>/<short-kebab-summary>` and writes commit subjects in the Conventional Commits style, `<type>: <short summary>`, with a type of feat, fix, chore, docs, refactor or test.
+
+## Custom global skills
+
+A custom global skill is available in **all repositories**, unlike a per-repository skill. It has the same format as a built-in skill, a directory containing a `SKILL.md` file, and DAIV loads it from a directory on the host. You put skills there in one of two ways:
+
+- [Mount a directory](#mount-a-directory-of-global-skills) of skills into the containers.
+- [Upload a ZIP archive](#upload-a-global-skill) in the dashboard, as an admin.
+
+Both use the same directory, `DAIV_AGENT_CUSTOM_SKILLS_PATH`, once it is mounted into the `app` container and into every container that runs the agent, so you can use both. A mounted skill appears in runs but not on the **Skills** page, which lists only uploaded skills.
+
+DAIV materializes the skills at each agent invocation, so a new skill or a new file takes effect on the next task without a container restart. DAIV does not pick up an edit to a file it has already loaded, so replace the skill by upload, or recreate the containers that run the agent after editing a mounted file. A plain restart is not enough, because the cache lives in the container's `/tmp`. With Docker Compose, run `docker compose up -d --force-recreate worker worker-interactive`. With Docker Swarm, run `docker service update --force <stack>_worker` and `docker service update --force <stack>_worker-interactive`, replacing `<stack>` with your stack name.
+
+### Mount a directory of global skills
+
+1. On the host, create a directory with your skills, one subdirectory per skill:
+
+```
+
+custom-skills/ ├── my-workflow/ │ ├── SKILL.md │ └── scripts/ │ └── helper.py └── team-review/ └── SKILL.md
+
+```
+2. In your `docker-compose.yml` or `stack.yml`, mount the directory at `/home/daiv/data/skills` into `app`, which receives dashboard uploads and needs it read-write, and into `worker` and `worker-interactive`, which run the agent and can mount it read-only:
+
+```
+
+app: volumes: - ./custom-skills:/home/daiv/data/skills worker: volumes: - ./custom-skills:/home/daiv/data/skills:ro worker-interactive: volumes: - ./custom-skills:/home/daiv/data/skills:ro
+
+```
+3. Recreate the three containers.
+
+A service-level `volumes:` replaces the list it inherits, so keep each service's existing `media-volume` line (see [Deployment](https://docs.daivagent.com/dev/getting-started/deployment/index.md)). To mount the directory elsewhere, set `DAIV_AGENT_CUSTOM_SKILLS_PATH` (see [Environment variables](https://docs.daivagent.com/dev/reference/env-variables/#daiv-agent)).
+
+### Upload a global skill
+
+An upload replaces a skill of the same name
+
+If a custom skill with the same name exists, uploading replaces it for every repository. DAIV moves the old version to `.trash/` under `DAIV_AGENT_CUSTOM_SKILLS_PATH` and removes it on the next upload or delete after 24 hours.
+
+You need an admin account and a ZIP archive that meets the [ZIP requirements](#zip-requirements).
+
+1. In the sidebar, under **Admin**, select **Skills**.
+2. Select **Upload skill**.
+3. Under **Skill zip**, choose the ZIP archive.
+4. Select **Upload**.
+5. If DAIV shows **Replace existing skill**, choose the ZIP archive again and select **Replace**.
+
+The skill appears under **Custom skills**. DAIV records which admin uploaded it.
+
+#### ZIP requirements
+
+DAIV validates the archive before it stores it:
+
+| Constraint | Limit |
+| --- | --- |
+| Top-level directory | Exactly one, named after the skill (a valid slug: lowercase alphanumeric and hyphens, max 63 chars) |
+| `SKILL.md` | Required at `<skill-name>/SKILL.md`, with `name` (matching the directory) and `description` in its frontmatter |
+| Compressed size | 5 MiB max |
+| Unpacked size | 25 MiB max |
+| File count | 200 max |
+| Path depth | 8 levels max |
+| Per-file size | 1 MiB max |
+| Allowed file types | `.md`, `.py`, `.json`, `.yaml`, `.yml`, `.txt`, `.sh`, `.toml`, `.png`, `.jpg`, `.jpeg`, `.svg`, `.gif` |
+
+DAIV rejects symlinks, absolute paths, `..` path traversal and hidden path segments. It drops `__pycache__`, `.pyc`, `.git` and `.gitignore` entries silently.
+
+### Manage global skills in the dashboard
+
+The **Skills** page needs an admin account. **Custom skills** lists the skills uploaded in the dashboard, and **Built-in skills** lists the ones DAIV ships. Each card shows the skill's invocation count and, when its entry names one, its model. A custom skill whose name matches a built-in skill shadows it, and its card carries an **Overrides built-in** warning icon. A skill that you only mounted loads in runs but has no card or page, so it cannot be downloaded or deleted here.
+
+Select a skill to open its page, which has four tabs:
+
+- **SKILL.md**: the skill's instructions.
+- **Files**: the files in the skill.
+- **Models**: the model the skill runs on (see [Run a skill on another model](#run-a-skill-on-another-model)).
+- **Usage**: the invocations over the last 30 days, and the latest runs that invoked the skill, each linking to its run in its session.
+
+To download a custom skill's original ZIP archive, select **Download zip** on its card menu or its page.
+
+#### Delete a custom skill
+
+Deleting removes the skill from every repository
+
+DAIV moves the skill to a recycle bin for 24 hours before it removes it permanently. Download the ZIP archive first if you may need it. A custom skill that shadowed a built-in skill stops doing so: the built-in skill applies again.
+
+You cannot delete a built-in skill.
+
+1. On the **Skills** page, find the skill under **Custom skills**.
+2. Open its card menu and select **Delete**.
+3. Select **Delete skill**.
+
+## Run a skill on another model
+
+Once the agent invokes a skill, its model calls run on the skill's model until your next message. The model comes from the skill's `models.skills` entry in the repository's `.daiv.yml`, else its entry on the **Models** tab or in `DAIV_AGENT_SKILL_MODELS`, else the skill file's `metadata.model`, else the run's model. [Skill and subagent models](https://docs.daivagent.com/dev/customization/repository-config/#skill-and-subagent-models) gives the order and the entry format.
+
+The **Models** tab changes a skill's model for every repository, built-in skills included, without copying or editing the skill file. On `/code-review` it also sets the model of each detector the skill ships (see [Subagent model precedence](https://docs.daivagent.com/dev/features/subagents/#subagent-model-precedence)). A skill that exists only in repositories, or that you only mounted, has no page: give it a model with `DAIV_AGENT_SKILL_MODELS`, or with a `models.skills` entry in each repository's `.daiv.yml`.
+
+A built-in or global skill file can name its own model in `metadata.model`, as a model spec (`provider-slug:model`, as in [subagents](https://docs.daivagent.com/dev/features/subagents/index.md)):
+
+```
+
+______________________________________________________________________
+
+## name: changelog description: Update CHANGELOG.md for the current changes. metadata: model: openrouter:anthropic/claude-haiku-5.5
+
 ````
 
-## Security considerations
+DAIV ignores a repository skill's `metadata.model`, because the file comes from the branch the run works on, which the author of a merge request controls.
 
-Use skills from trusted sources only
+The run's thinking level carries over. The run's model serves any model call whose conversation no longer fits the skill model's context window. Once the skill model fails a call, the run's model serves that call and every later one in the run, before the run's fallback models. Switching models starts a fresh prompt cache on each side, so a cheaper skill model pays off only for skills that do substantial work.
 
-Skills provide agents with instructions and access to scripts. Only use skills you created yourself or obtained from trusted sources.
-
-- **Audit all files** in a skill before committing it to your repository
-- **Review scripts carefully** — any executable code in a skill can be run by the agent
-- **Check external references** — skills that fetch data from external URLs pose additional risk```
+When a configured entry names a provider that is unknown, disabled or missing its API key, the skill runs on its `metadata.model`, else the run's model, and DAIV logs the failure at ERROR. A `metadata.model` that DAIV can't use keeps the run's model, logged the same way.```
 ````

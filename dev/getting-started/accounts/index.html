@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="How sign-in works in the DAIV dashboard: admin and member roles, Git platform OAuth or one-time email codes, the first admin, and managing users.">
+        <meta name="description" content="How sign-in works in the DAIV dashboard: admin and member roles, Git platform OAuth, one-time email codes or passkeys, the first admin, and managing users.">
       
       
         <meta name="author" content="Sandro Rodrigues">
@@ -31,7 +31,7 @@
   
     
       
-        <title>Accounts & Roles - DAIV</title>
+        <title>Accounts and roles - DAIV</title>
       
     
   
@@ -100,7 +100,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#accounts-roles" class="md-skip">
+        <a href="#accounts-and-roles" class="md-skip">
           Skip to content
         </a>
       
@@ -139,7 +139,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Accounts & Roles
+              Accounts and roles
             
           </span>
         </div>
@@ -433,7 +433,7 @@
   <span class="md-ellipsis">
     
   
-    Platform Setup
+    Platform setup
   
 
     
@@ -470,7 +470,7 @@
   <span class="md-ellipsis">
     
   
-    Accounts & Roles
+    Accounts and roles
   
 
     
@@ -488,7 +488,7 @@
   <span class="md-ellipsis">
     
   
-    Accounts & Roles
+    Accounts and roles
   
 
     
@@ -536,22 +536,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#signing-in" class="md-nav__link">
+  <a href="#sign-in" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Signing in
+        Sign in
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Signing in">
+    <nav class="md-nav" aria-label="Sign in">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#git-platform-login-oauth" class="md-nav__link">
+  <a href="#sign-in-with-an-email-code" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Git platform login (OAuth)
+        Sign in with an email code
       
     </span>
   </a>
@@ -559,10 +559,32 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#email-login-by-code" class="md-nav__link">
+  <a href="#sign-in-with-github-or-gitlab" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Email login-by-code
+        Sign in with GitHub or GitLab
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sign-in-with-a-passkey" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sign in with a passkey
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#create-the-oauth-app" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Create the OAuth app
       
     </span>
   </a>
@@ -587,10 +609,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#first-oauth-sign-in-becomes-admin" class="md-nav__link">
+  <a href="#make-the-first-oauth-sign-in-the-admin" class="md-nav__link">
     <span class="md-ellipsis">
       
-        First OAuth sign-in becomes admin
+        Make the first OAuth sign-in the admin
       
     </span>
   </a>
@@ -598,10 +620,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#bootstrap-command-headless" class="md-nav__link">
+  <a href="#create-the-first-admin-from-a-shell" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Bootstrap command (headless)
+        Create the first admin from a shell
       
     </span>
   </a>
@@ -614,21 +636,71 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#managing-users-admin-only" class="md-nav__link">
+  <a href="#manage-users" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Managing users (admin only)
+        Manage users
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Manage users">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#create-a-user" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Create a user
       
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#per-user-settings" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#edit-a-user" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Per-user settings
+        Edit a user
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deactivate-a-user" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deactivate a user
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#delete-a-user" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Delete a user
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#account-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Account pages
       
     </span>
   </a>
@@ -669,7 +741,7 @@
   <span class="md-ellipsis">
     
   
-    LLM Providers
+    LLM providers
   
 
     
@@ -751,7 +823,7 @@
   <span class="md-ellipsis">
     
   
-    Issue Addressing
+    Issue addressing
   
 
     
@@ -779,7 +851,7 @@
   <span class="md-ellipsis">
     
   
-    Pull Request Assistant
+    Pull request assistant
   
 
     
@@ -807,7 +879,35 @@
   <span class="md-ellipsis">
     
   
-    Pipeline Watch
+    Pipeline watch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository memory
   
 
     
@@ -891,7 +991,7 @@
   <span class="md-ellipsis">
     
   
-    Scheduled Jobs
+    Scheduled jobs
   
 
     
@@ -947,7 +1047,7 @@
   <span class="md-ellipsis">
     
   
-    MCP Endpoint
+    MCP endpoint
   
 
     
@@ -1003,7 +1103,7 @@
   <span class="md-ellipsis">
     
   
-    Merge Metrics
+    Merge metrics
   
 
     
@@ -1031,7 +1131,7 @@
   <span class="md-ellipsis">
     
   
-    Slash Commands & Skills
+    Slash commands and skills
   
 
     
@@ -1115,7 +1215,7 @@
   <span class="md-ellipsis">
     
   
-    Sandbox Environments
+    Sandbox environments
   
 
     
@@ -1197,7 +1297,7 @@
   <span class="md-ellipsis">
     
   
-    Request Tracker Triage
+    Request Tracker triage
   
 
     
@@ -1279,7 +1379,7 @@
   <span class="md-ellipsis">
     
   
-    Repository Config
+    Repository configuration
   
 
     
@@ -1307,7 +1407,7 @@
   <span class="md-ellipsis">
     
   
-    Agent Skills
+    Agent skills
   
 
     
@@ -1335,7 +1435,7 @@
   <span class="md-ellipsis">
     
   
-    MCP Tools
+    MCP tools
   
 
     
@@ -1417,7 +1517,7 @@
   <span class="md-ellipsis">
     
   
-    Environment Variables
+    Environment variables
   
 
     
@@ -1445,7 +1545,7 @@
   <span class="md-ellipsis">
     
   
-    Site Configuration
+    Site configuration
   
 
     
@@ -1473,7 +1573,7 @@
   <span class="md-ellipsis">
     
   
-    Agent Architecture
+    Agent tools
   
 
     
@@ -1502,6 +1602,34 @@
     
   
     Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/management-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Management commands
   
 
     
@@ -1626,22 +1754,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#signing-in" class="md-nav__link">
+  <a href="#sign-in" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Signing in
+        Sign in
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Signing in">
+    <nav class="md-nav" aria-label="Sign in">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#git-platform-login-oauth" class="md-nav__link">
+  <a href="#sign-in-with-an-email-code" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Git platform login (OAuth)
+        Sign in with an email code
       
     </span>
   </a>
@@ -1649,10 +1777,32 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#email-login-by-code" class="md-nav__link">
+  <a href="#sign-in-with-github-or-gitlab" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Email login-by-code
+        Sign in with GitHub or GitLab
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sign-in-with-a-passkey" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sign in with a passkey
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#create-the-oauth-app" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Create the OAuth app
       
     </span>
   </a>
@@ -1677,10 +1827,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#first-oauth-sign-in-becomes-admin" class="md-nav__link">
+  <a href="#make-the-first-oauth-sign-in-the-admin" class="md-nav__link">
     <span class="md-ellipsis">
       
-        First OAuth sign-in becomes admin
+        Make the first OAuth sign-in the admin
       
     </span>
   </a>
@@ -1688,10 +1838,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#bootstrap-command-headless" class="md-nav__link">
+  <a href="#create-the-first-admin-from-a-shell" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Bootstrap command (headless)
+        Create the first admin from a shell
       
     </span>
   </a>
@@ -1704,21 +1854,71 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#managing-users-admin-only" class="md-nav__link">
+  <a href="#manage-users" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Managing users (admin only)
+        Manage users
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Manage users">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#create-a-user" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Create a user
       
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#per-user-settings" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#edit-a-user" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Per-user settings
+        Edit a user
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deactivate-a-user" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deactivate a user
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#delete-a-user" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Delete a user
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#account-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Account pages
       
     </span>
   </a>
@@ -1809,36 +2009,86 @@
   
 
 
-<h1 id="accounts-roles">Accounts &amp; Roles</h1>
-<p>DAIV's web dashboard requires you to sign in. Every authenticated user has one of two roles — <strong>admin</strong> or <strong>member</strong> — which decide what they can see and change. Members manage their own work (agent runs, chats, schedules, and API keys); admins additionally manage the deployment: site configuration, users, global skills, and global sandbox environments.</p>
-<p>Self-service signup is <strong>disabled</strong>. Users either sign in with their Git platform account (when OAuth is enabled) or are pre-created by an admin and sign in with a one-time email code.</p>
+<h1 id="accounts-and-roles">Accounts and roles</h1>
+<p>DAIV's web dashboard requires you to sign in. Every signed-in user has one of two roles, <strong>admin</strong> or <strong>member</strong>, which decide what they can see and change. Members manage their own work: agent runs, chats, schedules and API keys. Admins also manage the deployment: users, site configuration, schedule templates, skills, and global MCP servers and sandbox environments.</p>
+<p>DAIV does not offer email-and-password signup. Signup through your Git platform is off by default: an admin turns it on with <strong>Open social signup</strong>, described in <a href="../../reference/site-configuration/#turn-on-oauth-login">Turn on OAuth login</a>. Otherwise an admin creates each user, who then signs in with a one-time email code, a passkey, or the Git platform account when OAuth login is on.</p>
 <h2 id="roles">Roles</h2>
-<p>DAIV ships exactly two roles. New users default to <strong>member</strong>.</p>
+<p>DAIV has two roles. New users are members.</p>
 <table>
 <thead>
 <tr>
-<th>Role</th>
-<th>Can do</th>
+<th>Capability</th>
+<th>Member</th>
+<th>Admin</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>Member</strong></td>
-<td>Start and view agent runs, chat, and <a href="../../features/scheduled-jobs/">scheduled jobs</a> — scoped to the repositories they can access on the connected Git platform (see <a href="#repository-access">Repository access</a>); create and revoke their own API keys; manage their own notification channels.</td>
+<td>Start and view agent runs and chats</td>
+<td>On the repositories they can access (see <a href="#repository-access">Repository access</a>)</td>
+<td>On every repository</td>
 </tr>
 <tr>
-<td><strong>Admin</strong></td>
-<td>Everything a member can, but without the repository restriction — admins see and act on every repository. Plus: edit <strong>Site Configuration</strong> at <code>/dashboard/configuration/</code>; create, edit, and delete users at <code>/accounts/users/</code>; manage global (shared) skills and global sandbox environments; view system-wide velocity metrics and the full API-key list on the dashboard.</td>
+<td>Create and view <a href="../../features/scheduled-jobs/">scheduled jobs</a></td>
+<td>Their own, on repositories they can write to</td>
+<td>Everyone's, on every repository</td>
+</tr>
+<tr>
+<td>Create API keys</td>
+<td>Their own</td>
+<td>Their own</td>
+</tr>
+<tr>
+<td>Revoke API keys</td>
+<td>Their own</td>
+<td>Any user's key</td>
+</tr>
+<tr>
+<td>Manage notification channels</td>
+<td>Their own</td>
+<td>Their own</td>
+</tr>
+<tr>
+<td><strong>Users</strong>: create, edit and delete users</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><strong>Configuration</strong>: edit the site configuration</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><strong>Schedule templates</strong>: create, edit and delete them</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><strong>Skills</strong>: open the skills dashboard</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><strong>Global MCP servers</strong>: manage the servers every user gets</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Create and change global sandbox environments</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Consolidate a repository's memory on demand</td>
+<td>No</td>
+<td>Yes</td>
 </tr>
 </tbody>
 </table>
-<div class="admonition note">
-<p class="admonition-title">How role checks work</p>
-<p>Admin-only pages are guarded by <code>AdminRequiredMixin</code>, which raises <em>permission denied</em> for any signed-in user whose role is not <code>admin</code>. In code this is the <code>user.is_admin</code> property. There are no other privilege levels — a user is either an admin or a member.</p>
-</div>
+<p>The admin-only pages are under <strong>Admin</strong> in the dashboard sidebar.</p>
 <h2 id="repository-access">Repository access</h2>
-<p>Being a member does not, by itself, grant access to any repository. DAIV mirrors each user's repository membership from the connected Git platform (GitLab or GitHub) and enforces it before letting the user see or act on a repository — there is no separate DAIV-side permission to manage.</p>
-<p>Two access tiers are checked, matched to the platform's own roles:</p>
+<p>A member sees and acts on a repository only when they have access to it on the connected Git platform, GitLab or GitHub. DAIV mirrors each user's repository membership from the platform and checks it before it shows or runs anything on a repository. There is no separate DAIV-side permission to manage. Admins skip these checks.</p>
+<p>DAIV checks two tiers, matched to the platform's own roles:</p>
 <table>
 <thead>
 <tr>
@@ -1851,128 +2101,118 @@
 <tr>
 <td><strong>Read</strong></td>
 <td>GitLab Reporter or above, GitHub read (or higher) collaborator</td>
-<td>Repository/branch pickers, the memory dashboard, and the MCP <code>list_repositories</code> tool.</td>
+<td>Repository and branch pickers, the <a href="../../features/memory/">memory dashboard</a>, and the MCP <code>list_repositories</code> tool.</td>
 </tr>
 <tr>
 <td><strong>Write</strong></td>
 <td>GitLab Developer or above, GitHub write (or higher) collaborator</td>
-<td>Starting an agent run or chat, and creating or running a <a href="../../features/scheduled-jobs/">scheduled job</a> — from the dashboard, the Jobs API, or MCP.</td>
+<td>Starting an agent run or chat, and creating or running a <a href="../../features/scheduled-jobs/">scheduled job</a>, from the dashboard, the Jobs API or MCP.</td>
 </tr>
 </tbody>
 </table>
-<p>A repository the user can't read never appears in a listing; one they can read but not write to appears but rejects run/chat/schedule attempts with a friendly "not accessible" message rather than a stack trace.</p>
-<p><strong>Access requires a verified platform identity.</strong> DAIV only knows what a user can access on GitLab/GitHub once that user has signed in via OAuth at least once (see <a href="#git-platform-login-oauth">Git platform login</a>) — the platform account is matched to the DAIV user by email. A user created by an admin who has only ever used email login-by-code has no repository access until they connect their GitLab/GitHub account by logging in with it once.</p>
-<p><strong>Admins bypass all repository checks</strong> — the pre-existing "admin sees everything" behavior is unchanged.</p>
-<p>Access data is refreshed by a periodic background sync (every 15 minutes by default, <code>CODEBASE_REPO_ACCESS_SYNC_CRON</code>), so a permission change on the Git platform (added, removed, or role-changed) takes effect on the next sync rather than immediately. Freshness is tracked <strong>per repository</strong>: if a repository's sync stops succeeding, its access data is served from the last known-good data for a grace period, and beyond <code>CODEBASE_REPO_ACCESS_HARD_TTL_HOURS</code> (24 hours by default) that repository's member access <strong>fails closed</strong> rather than trusting stale grants — repositories that keep syncing cleanly are unaffected. Admin access is never affected by sync health.</p>
-<div class="admonition note">
-<p class="admonition-title">Deactivation revokes access immediately</p>
-<p>Setting a user to inactive (see <a href="#managing-users-admin-only">Managing users</a>) immediately blocks that user's API keys and MCP tokens, in addition to signing them out of the dashboard — outstanding credentials stop working right away rather than at the next sync.</p>
-</div>
-<h2 id="signing-in">Signing in</h2>
-<p>The login page lives at <code>/accounts/login/</code>. Two sign-in methods are available, depending on how the deployment is configured.</p>
-<h3 id="git-platform-login-oauth">Git platform login (OAuth)</h3>
-<p>When OAuth login is enabled, users can sign in with the same Git platform DAIV is connected to — <strong>GitHub</strong> or <strong>GitLab</strong> (including self-hosted GitLab). DAIV offers the provider that matches your configured platform; it does not offer both at once.</p>
-<p>With social signup closed, create each permitted account under <strong>Accounts → Users</strong>
-using the email address confirmed by its Git platform. For GitLab, DAIV uses the
-authenticated profile's <code>confirmed_at</code> to verify that exact primary email before
-allauth looks up an existing account. Matching is case-insensitive and preserves
-the existing user's role. Missing or invalid confirmation does not authorize
-email-based linking. An already-linked platform user ID continues to identify
-the same DAIV account when its platform email changes.</p>
-<p>Closed signup is checked again before saving a new account. A pending signup
-form cannot create another user by replacing an email that already exists.</p>
-<p>OAuth is configured by an admin in <strong>Site Configuration</strong> under the <strong>Authentication</strong> section, not in code. The relevant settings are:</p>
-<table>
-<thead>
-<tr>
-<th>Setting</th>
-<th>Purpose</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Enable OAuth login</strong> (<code>auth_login_enabled</code>)</td>
-<td>Master toggle. When off, no social provider is offered on the login page.</td>
-</tr>
-<tr>
-<td><strong>Open social signup</strong> (<code>auth_signup_open</code>)</td>
-<td>When on, anyone who authenticates via your Git platform gets an account. When off, only pre-registered emails can sign in.</td>
-</tr>
-<tr>
-<td><strong>OAuth client ID</strong> / <strong>OAuth client secret</strong></td>
-<td>The OAuth application credentials for your platform. Set both, or neither.</td>
-</tr>
-<tr>
-<td><strong>GitLab URL</strong></td>
-<td>Browser-facing URL of your GitLab instance (GitLab only).</td>
-</tr>
-<tr>
-<td><strong>GitLab server URL</strong></td>
-<td>Optional server-to-server URL for GitLab API calls inside a Docker-internal network. Leave empty to reuse the GitLab URL.</td>
-</tr>
-</tbody>
-</table>
-<div class="admonition tip">
-<p class="admonition-title">Tip</p>
-<p>OAuth can be toggled on and off at any time from <code>/dashboard/configuration/</code> — you do not need to redeploy. The same credentials can also be seeded from the <code>ALLAUTH_CLIENT_ID</code>, <code>ALLAUTH_CLIENT_SECRET</code>, <code>ALLAUTH_GITLAB_URL</code>, and <code>ALLAUTH_GITLAB_SERVER_URL</code> environment variables. See <a href="../../reference/env-variables/#authentication">Authentication in the env-variables reference</a> and <a href="../deployment/">Deployment</a>.</p>
-</div>
-<h3 id="email-login-by-code">Email login-by-code</h3>
-<p>Users can also sign in <strong>without a password</strong> using a one-time code emailed to them:</p>
+<p>A repository a user cannot read never appears in a listing. A repository they can read but not write to appears, and DAIV rejects their run, chat and schedule attempts with a "not accessible" message.</p>
+<p>DAIV learns what a user can access on the platform only after that user signs in with their Git platform account once, and matches the platform account to the DAIV user by email. A user an admin created, who has only ever signed in with an email code, has no repository access until they sign in with GitLab or GitHub once.</p>
+<p>A periodic sync copies repository membership from the platform, so a permission change on the platform takes effect at the next sync, not immediately. <a href="../../reference/env-variables/#git-platform">Git platform</a> gives the sync schedule and how long DAIV keeps trusting access data after a sync fails.</p>
+<h2 id="sign-in">Sign in</h2>
+<p>The login page is at <code>/accounts/login/</code>. A user signs in with any of these methods:</p>
+<ul>
+<li><strong>Email code.</strong> Works without further setup, as long as DAIV can send email.</li>
+<li><strong>Git platform account.</strong> Works once an admin has turned on OAuth login.</li>
+<li><strong>Passkey.</strong> Works once the user has added one.</li>
+</ul>
+<h3 id="sign-in-with-an-email-code">Sign in with an email code</h3>
+<p>DAIV emails a one-time code that signs a user in without a password. Admin-created users and the first admin use this method.</p>
 <ol>
-<li>On the login page, request a login code for your email address.</li>
-<li>DAIV emails a short, single-use code.</li>
-<li>Enter the code to complete sign-in.</li>
+<li>On the login page, enter your email address and select <strong>Continue with email</strong>.</li>
+<li>Read the code in the email DAIV sends. The code expires after 5 minutes and accepts 3 attempts.</li>
+<li>Enter the code and select <strong>Verify &amp; sign in</strong>.</li>
 </ol>
-<p>This is the path used by admin-created users and by the bootstrapped first admin — it works even when OAuth is not configured, as long as DAIV can send email.</p>
-<div class="admonition warning">
-<p class="admonition-title">No password signup</p>
-<p>Standard email-and-password registration is turned off (<code>AccountAdapter.is_open_for_signup</code> returns <code>False</code>). Visiting the signup URL simply redirects back to the login page. New accounts come only from OAuth (when open signup is on) or from an admin creating them.</p>
-</div>
+<p>Without an SMTP server, set <code>EMAIL_BACKEND</code> to <code>django.core.mail.backends.console.EmailBackend</code> and read the code from the app's log with <code>docker compose logs app</code>. <a href="../../reference/env-variables/#authentication">Environment variables</a> lists the email settings.</p>
+<h3 id="sign-in-with-github-or-gitlab">Sign in with GitHub or GitLab</h3>
+<p>DAIV offers the platform it is connected to, <strong>GitHub</strong> or <strong>GitLab</strong> including a self-managed GitLab, and never both at once. On the login page, select <strong>Continue with GitHub</strong> or <strong>Continue with GitLab</strong>.</p>
+<p>With <strong>Open social signup</strong> off, create each permitted user under <strong>Admin</strong> → <strong>Users</strong> with the email address their Git platform account confirms. For GitLab, DAIV checks the profile's <code>confirmed_at</code> to verify that this primary email address is confirmed before it looks up an existing account. Matching ignores case and keeps the existing user's role. If GitLab sends no confirmation or an invalid one, DAIV does not link the account by email. An account already linked to a platform user ID stays linked when the platform email changes.</p>
+<p>DAIV checks again, before it saves a new account, that signup is open. A pending signup form cannot create a second user by replacing an email address that already exists.</p>
+<p>To turn on Git platform sign-in, <a href="#create-the-oauth-app">create the OAuth app</a>, then follow <a href="../../reference/site-configuration/#turn-on-oauth-login">Turn on OAuth login</a>.</p>
+<h3 id="sign-in-with-a-passkey">Sign in with a passkey</h3>
+<p>A passkey is Touch ID, Face ID, Windows Hello or a security key. After a user signs in, they add one under <strong>Passkeys</strong> in the account menu at the bottom of the sidebar. On the login page they then select <strong>Sign in with a passkey</strong>. Email sign-in stays available, so a lost passkey does not lock the user out.</p>
+<h3 id="create-the-oauth-app">Create the OAuth app</h3>
+<p>Create an OAuth app on your Git platform to get the client ID and client secret that DAIV needs for OAuth login. You need an account that can create the app on that platform, and the URL DAIV is served from (<code>DAIV_EXTERNAL_URL</code>), for example <code>https://daiv.example.com</code>.</p>
+<p>To create the app on GitHub:</p>
+<ol>
+<li>Open <a href="https://github.com/settings/developers">github.com/settings/developers</a>.</li>
+<li>Select <strong>OAuth Apps</strong> → <strong>New OAuth App</strong>.</li>
+<li>In <strong>Application name</strong>, enter a name, for example <code>DAIV</code>.</li>
+<li>In <strong>Homepage URL</strong>, enter your DAIV URL, for example <code>https://daiv.example.com</code>.</li>
+<li>In <strong>Authorization callback URL</strong>, enter your DAIV URL followed by <code>/accounts/github/login/callback/</code>, for example <code>https://daiv.example.com/accounts/github/login/callback/</code>.</li>
+<li>Select <strong>Register application</strong>.</li>
+<li>Copy the <strong>Client ID</strong>.</li>
+<li>Select <strong>Generate a new client secret</strong>, and copy the secret.</li>
+</ol>
+<p>To create the app on GitLab:</p>
+<ol>
+<li>Open <strong>Admin Area</strong> → <strong>Applications</strong> or <strong>User Settings</strong> → <strong>Applications</strong>.</li>
+<li>Add a new application.</li>
+<li>In <strong>Name</strong>, enter a name, for example <code>DAIV</code>.</li>
+<li>In <strong>Redirect URI</strong>, enter your DAIV URL followed by <code>/accounts/gitlab/login/callback/</code>, for example <code>https://daiv.example.com/accounts/gitlab/login/callback/</code>.</li>
+<li>Under <strong>Scopes</strong>, select <code>read_user</code>.</li>
+<li>Select <strong>Save application</strong>.</li>
+<li>Copy the <strong>Application ID</strong> and the <strong>Secret</strong>.</li>
+</ol>
+<p>Enter the client ID and secret under <strong>Configuration</strong> → <strong>Authentication</strong>, where DAIV calls the secret <strong>Auth Client Secret</strong>: <a href="../../reference/site-configuration/#turn-on-oauth-login">Turn on OAuth login</a> gives the steps, and <a href="../../reference/env-variables/#authentication">Authentication</a> lists the variables that override the same fields and lock them.</p>
 <h2 id="the-first-admin">The first admin</h2>
-<p>A fresh DAIV install has no users, so it has no admin. There are two ways to establish the first one.</p>
-<h3 id="first-oauth-sign-in-becomes-admin">First OAuth sign-in becomes admin</h3>
-<p>On a fresh install with OAuth enabled, the <strong>first user to sign in via a social provider is automatically promoted to admin</strong>. The trigger is the <em>absence of any admin user</em> (not the absence of any user), so if two people happen to sign in at the same moment, the result is multiple admins (safe) rather than none.</p>
-<h3 id="bootstrap-command-headless">Bootstrap command (headless)</h3>
-<p>When OAuth is not yet configured, create the initial admin from a shell:</p>
+<p>A new DAIV install has no users, so it has no admin. Two paths create the first one: the first Git platform sign-in, and a command in a shell.</p>
+<h3 id="make-the-first-oauth-sign-in-the-admin">Make the first OAuth sign-in the admin</h3>
+<p>With OAuth login on and no user in DAIV, the first person who signs in with the Git platform account gets an account even when <strong>Open social signup</strong> is off, and DAIV makes them an admin. DAIV makes a new account an admin whenever the install has no admin, not whenever it has no user. If two people sign in at the same moment, both become admins rather than neither.</p>
+<h3 id="create-the-first-admin-from-a-shell">Create the first admin from a shell</h3>
+<p>Use this path when OAuth login is off. The <a href="../../reference/management-commands/#bootstrap_admin"><code>bootstrap_admin</code></a> command refuses to run if an admin already exists, or if a user with that email already exists: promote that user from <strong>Users</strong> instead.</p>
+<ol>
+<li>
+<p>Run the command, replacing <code>admin@example.com</code> with the admin's email address:</p>
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>app<span class="w"> </span>django-admin<span class="w"> </span>bootstrap_admin<span class="w"> </span>admin@example.com
 </code></pre></div></td></tr></table></div>
-<p>The <code>bootstrap_admin</code> command creates an admin user and prints how to sign in. It is a one-shot bootstrap: it refuses to run if an admin already exists, and refuses if a user with that email already exists (promote that user via the dashboard instead). The new admin signs in via login-by-code (the one-time email code). Without an SMTP server, set <code>EMAIL_BACKEND</code> to <code>django.core.mail.backends.console.EmailBackend</code> and read the code from the app's log (<code>docker compose logs app</code>).</p>
-<div class="admonition info">
-<p class="admonition-title">Info</p>
-<p>For end-to-end first-run setup including OAuth credentials and email, see the first-admin notes in <a href="../deployment/">Deployment</a>.</p>
-</div>
-<h2 id="managing-users-admin-only">Managing users (admin only)</h2>
-<p>Admins manage accounts at <code>/accounts/users/</code>. The list supports searching by name, email, or username and filtering by role.</p>
-<div class="grid cards">
-<ul>
-<li>
-<p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M7.9 8.548h-.001a5.53 5.53 0 0 1 3.1 4.659.75.75 0 1 1-1.498.086A4.01 4.01 0 0 0 5.5 9.5a4.01 4.01 0 0 0-4.001 3.793.75.75 0 1 1-1.498-.085 5.53 5.53 0 0 1 3.1-4.66 3.5 3.5 0 1 1 4.799 0M13.25 0a.75.75 0 0 1 .75.75V2h1.25a.75.75 0 0 1 0 1.5H14v1.25a.75.75 0 0 1-1.5 0V3.5h-1.25a.75.75 0 0 1 0-1.5h1.25V.75a.75.75 0 0 1 .75-.75M5.5 4a2 2 0 1 0-.001 3.999A2 2 0 0 0 5.5 4"/></svg></span> <strong>Create a user</strong></p>
-<hr />
-<p>At <code>/accounts/users/create/</code>, set the user's <strong>name</strong>, <strong>email</strong>, and <strong>role</strong>. DAIV emails a welcome message with a sign-in link. The new account has no password — the user signs in via OAuth or login-by-code.</p>
 </li>
 <li>
-<p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.927-.928l.929-3.25c.081-.286.235-.547.445-.758l8.61-8.61Zm.176 4.823L9.75 4.81l-6.286 6.287a.25.25 0 0 0-.064.108l-.558 1.953 1.953-.558a.25.25 0 0 0 .108-.064Zm1.238-3.763a.25.25 0 0 0-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 0 0 0-.354Z"/></svg></span> <strong>Edit a user</strong></p>
-<hr />
-<p>At <code>/accounts/users/&lt;id&gt;/edit/</code>, change <strong>name</strong>, <strong>email</strong>, <strong>role</strong>, and <strong>active</strong> status. Use this to promote a member to admin or demote an admin to member.</p>
+<p><a href="#sign-in-with-an-email-code">Sign in with an email code</a> as that address.</p>
 </li>
-<li>
-<p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M11 1.75V3h2.25a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75M4.496 6.675l.66 6.6a.25.25 0 0 0 .249.225h5.19a.25.25 0 0 0 .249-.225l.66-6.6a.75.75 0 0 1 1.492.149l-.66 6.6A1.75 1.75 0 0 1 10.595 15h-5.19a1.75 1.75 0 0 1-1.741-1.575l-.66-6.6a.75.75 0 1 1 1.492-.15M6.5 1.75V3h3V1.75a.25.25 0 0 0-.25-.25h-2.5a.25.25 0 0 0-.25.25"/></svg></span> <strong>Delete a user</strong></p>
-<hr />
-<p>At <code>/accounts/users/&lt;id&gt;/delete/</code>, permanently remove an account after confirmation.</p>
-</li>
-</ul>
+</ol>
+<p><a href="../deployment/">Deployment</a> covers the first-run setup, including email.</p>
+<h2 id="manage-users">Manage users</h2>
+<p>Admins manage users under <strong>Admin</strong> → <strong>Users</strong>, at <code>/accounts/users/</code>. The list searches by name or email address and filters by role.</p>
+<h3 id="create-a-user">Create a user</h3>
+<ol>
+<li>Under <strong>Admin</strong> → <strong>Users</strong>, select <strong>Create user</strong>.</li>
+<li>In <strong>Name</strong>, <strong>Email</strong> and <strong>Role</strong>, enter the user's details.</li>
+<li>Select <strong>Create user</strong>.</li>
+</ol>
+<p>DAIV emails the user a welcome message with a sign-in link. The new account has no password: the user signs in with an email code, a passkey, or the Git platform account.</p>
+<h3 id="edit-a-user">Edit a user</h3>
+<ol>
+<li>Under <strong>Admin</strong> → <strong>Users</strong>, select the user.</li>
+<li>Change <strong>Name</strong>, <strong>Email</strong>, <strong>Role</strong> or <strong>Active</strong>. Change <strong>Role</strong> to promote a member to admin or demote an admin to member.</li>
+<li>Select <strong>Save changes</strong>.</li>
+</ol>
+<p>DAIV keeps at least one active admin. You cannot deactivate your own account, and you cannot demote or delete the last active admin: promote another user first.</p>
+<h3 id="deactivate-a-user">Deactivate a user</h3>
+<p>Deactivate a user when you may want to restore their access later.</p>
+<ol>
+<li>Under <strong>Admin</strong> → <strong>Users</strong>, select the user.</li>
+<li>Clear <strong>Active</strong>.</li>
+<li>Select <strong>Save changes</strong>.</li>
+</ol>
+<p>An inactive user cannot sign in, and their API keys and MCP tokens stop working at once, not at the next sync. DAIV keeps their history and the runs they own.</p>
+<h3 id="delete-a-user">Delete a user</h3>
+<p>Delete a user only when you will never restore their access. Deactivating keeps their history and ownership of runs: see <a href="#deactivate-a-user">Deactivate a user</a>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Deleting a user cannot be undone</p>
+<p>Deleting removes the user's account, their API keys and all data associated with them. You cannot delete your own account.</p>
 </div>
-<p>DAIV enforces a few guardrails so a deployment can never be locked out of administration:</p>
-<ul>
-<li><strong>You cannot delete your own account</strong> from the user-management screen.</li>
-<li><strong>The last active admin cannot be deleted, deactivated, or demoted.</strong> Promote another user to admin first — the guard is <code>user.is_last_active_admin()</code>, applied on delete and on role/active changes.</li>
-</ul>
-<div class="admonition note">
-<p class="admonition-title">Deactivate vs. delete</p>
-<p>Setting a user to inactive blocks them from signing in while preserving their history and ownership of runs. Deleting removes the account outright. Prefer deactivation when you may want to restore access later.</p>
-</div>
-<h2 id="per-user-settings">Per-user settings</h2>
-<p>Every signed-in user — member or admin — has these self-service pages. All but the Dashboard open from the account menu at the bottom of the sidebar:</p>
+<ol>
+<li>Under <strong>Admin</strong> → <strong>Users</strong>, select the user.</li>
+<li>Select <strong>Delete user</strong>.</li>
+<li>On the confirmation page, select <strong>Delete user</strong>.</li>
+</ol>
+<h2 id="account-pages">Account pages</h2>
+<p>Every signed-in user, member or admin, has these pages. All but <strong>Home</strong> open from the account menu at the bottom of the sidebar.</p>
 <table>
 <thead>
 <tr>
@@ -1983,9 +2223,9 @@ form cannot create another user by replacing an email that already exists.</p>
 </thead>
 <tbody>
 <tr>
-<td><strong>Dashboard</strong></td>
+<td><strong>Home</strong></td>
 <td><code>/dashboard/</code></td>
-<td>Your activity summary and quick links. Admins also see system-wide velocity metrics and total user count.</td>
+<td>Your landing page after sign-in, with a link to <strong>Team insights</strong>.</td>
 </tr>
 <tr>
 <td><strong>API keys</strong></td>
@@ -1995,25 +2235,30 @@ form cannot create another user by replacing an email that already exists.</p>
 <tr>
 <td><strong>Notification channels</strong></td>
 <td><code>/accounts/channels/</code></td>
-<td>Choose how you're notified about your agent runs (in-app, email, and Rocket.Chat when enabled).</td>
+<td>Choose how DAIV notifies you about your agent runs. <a href="../../features/notifications/">Notifications</a> lists the channels.</td>
+</tr>
+<tr>
+<td><strong>Passkeys</strong></td>
+<td><code>/accounts/mfa/</code></td>
+<td>Add and remove the passkeys you sign in with.</td>
 </tr>
 </tbody>
 </table>
-<p>API keys authenticate calls to the <a href="../../features/jobs-api/">Jobs API</a> and the <a href="../../features/mcp-endpoint/">MCP endpoint</a>. Members see only their own keys; admins see every user's keys in the list.</p>
+<p>API keys authenticate calls to the <a href="../../features/jobs-api/">Jobs API</a> and the <a href="../../features/mcp-endpoint/">MCP endpoint</a>. A member sees only their own keys, and an admin sees every user's keys in the list.</p>
 <h2 id="related-pages">Related pages</h2>
 <div class="grid cards">
 <ul>
 <li>
 <p><strong>Deployment</strong></p>
 <hr />
-<p>Install DAIV, configure email, and bring up the first admin.</p>
+<p>Install DAIV, configure email, and create the first admin.</p>
 <p><a href="../deployment/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.22 19.03a.75.75 0 0 1 0-1.06L18.19 13H3.75a.75.75 0 0 1 0-1.5h14.44l-4.97-4.97a.749.749 0 0 1 .326-1.275.75.75 0 0 1 .734.215l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0"/></svg></span> Deployment</a></p>
 </li>
 <li>
-<p><strong>Platform Setup</strong></p>
+<p><strong>Platform setup</strong></p>
 <hr />
-<p>Connect DAIV to GitLab or GitHub — the same platform used for OAuth login.</p>
-<p><a href="../platform-setup/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.22 19.03a.75.75 0 0 1 0-1.06L18.19 13H3.75a.75.75 0 0 1 0-1.5h14.44l-4.97-4.97a.749.749 0 0 1 .326-1.275.75.75 0 0 1 .734.215l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0"/></svg></span> Platform Setup</a></p>
+<p>Connect DAIV to GitLab or GitHub, the same platform used for OAuth login.</p>
+<p><a href="../platform-setup/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.22 19.03a.75.75 0 0 1 0-1.06L18.19 13H3.75a.75.75 0 0 1 0-1.5h14.44l-4.97-4.97a.749.749 0 0 1 .326-1.275.75.75 0 0 1 .734.215l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0"/></svg></span> Platform setup</a></p>
 </li>
 <li>
 <p><strong>Jobs API</strong></p>
@@ -2045,7 +2290,7 @@ form cannot create another user by replacing an email that already exists.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 10, 2026 17:23:40 UTC">November 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 12, 2026 15:27:46 UTC">November 12, 2026</span>
   </span>
 
     

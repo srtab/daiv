@@ -431,7 +431,7 @@
   <span class="md-ellipsis">
     
   
-    Platform Setup
+    Platform setup
   
 
     
@@ -459,7 +459,7 @@
   <span class="md-ellipsis">
     
   
-    Accounts & Roles
+    Accounts and roles
   
 
     
@@ -487,7 +487,7 @@
   <span class="md-ellipsis">
     
   
-    LLM Providers
+    LLM providers
   
 
     
@@ -571,7 +571,7 @@
   <span class="md-ellipsis">
     
   
-    Issue Addressing
+    Issue addressing
   
 
     
@@ -599,7 +599,7 @@
   <span class="md-ellipsis">
     
   
-    Pull Request Assistant
+    Pull request assistant
   
 
     
@@ -627,7 +627,35 @@
   <span class="md-ellipsis">
     
   
-    Pipeline Watch
+    Pipeline watch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository memory
   
 
     
@@ -711,7 +739,7 @@
   <span class="md-ellipsis">
     
   
-    Scheduled Jobs
+    Scheduled jobs
   
 
     
@@ -803,10 +831,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#turning-it-off" class="md-nav__link">
+  <a href="#turn-off-orchestration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Turning it off
+        Turn off orchestration
       
     </span>
   </a>
@@ -847,10 +875,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#choosing-between-task-and-delegate_jobs" class="md-nav__link">
+  <a href="#choose-between-task-and-delegate_jobs" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Choosing between task and delegate_jobs
+        Choose between task and delegate_jobs
       
     </span>
   </a>
@@ -858,10 +886,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#writing-the-prompts" class="md-nav__link">
+  <a href="#write-the-prompts" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Writing the prompts
+        Write the prompts
       
     </span>
   </a>
@@ -974,7 +1002,7 @@
   <span class="md-ellipsis">
     
   
-    MCP Endpoint
+    MCP endpoint
   
 
     
@@ -1030,7 +1058,7 @@
   <span class="md-ellipsis">
     
   
-    Merge Metrics
+    Merge metrics
   
 
     
@@ -1058,7 +1086,7 @@
   <span class="md-ellipsis">
     
   
-    Slash Commands & Skills
+    Slash commands and skills
   
 
     
@@ -1142,7 +1170,7 @@
   <span class="md-ellipsis">
     
   
-    Sandbox Environments
+    Sandbox environments
   
 
     
@@ -1224,7 +1252,7 @@
   <span class="md-ellipsis">
     
   
-    Request Tracker Triage
+    Request Tracker triage
   
 
     
@@ -1306,7 +1334,7 @@
   <span class="md-ellipsis">
     
   
-    Repository Config
+    Repository configuration
   
 
     
@@ -1334,7 +1362,7 @@
   <span class="md-ellipsis">
     
   
-    Agent Skills
+    Agent skills
   
 
     
@@ -1362,7 +1390,7 @@
   <span class="md-ellipsis">
     
   
-    MCP Tools
+    MCP tools
   
 
     
@@ -1444,7 +1472,7 @@
   <span class="md-ellipsis">
     
   
-    Environment Variables
+    Environment variables
   
 
     
@@ -1472,7 +1500,7 @@
   <span class="md-ellipsis">
     
   
-    Site Configuration
+    Site configuration
   
 
     
@@ -1500,7 +1528,7 @@
   <span class="md-ellipsis">
     
   
-    Agent Architecture
+    Agent tools
   
 
     
@@ -1529,6 +1557,34 @@
     
   
     Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/management-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Management commands
   
 
     
@@ -1642,10 +1698,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#turning-it-off" class="md-nav__link">
+  <a href="#turn-off-orchestration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Turning it off
+        Turn off orchestration
       
     </span>
   </a>
@@ -1686,10 +1742,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#choosing-between-task-and-delegate_jobs" class="md-nav__link">
+  <a href="#choose-between-task-and-delegate_jobs" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Choosing between task and delegate_jobs
+        Choose between task and delegate_jobs
       
     </span>
   </a>
@@ -1697,10 +1753,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#writing-the-prompts" class="md-nav__link">
+  <a href="#write-the-prompts" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Writing the prompts
+        Write the prompts
       
     </span>
   </a>
@@ -1887,15 +1943,16 @@
     A--&gt;&gt;Coord: finished
     B--&gt;&gt;Coord: finished
     Note over Coord: resumed with every leg's outcome</code></pre>
+<p>The flow in text: the coordinator calls <code>delegate_jobs</code> and ends its turn, each leg runs on its own, and DAIV resumes the coordinator once every leg has finished, with every leg's outcome.</p>
 <p>Nothing polls while the legs run: the coordinator holds no worker and spends no tokens until it is resumed.</p>
 <p>When a leg comes back incomplete or wrong, the coordinator does not have to start over: a target that names the leg's session id (<code>thread_id</code>) is a <strong>leg follow-up</strong>. It continues that leg in its own session, with its earlier conversation, on its branch and merge request, so the fix lands where the leg's work already is. A leg follow-up joins the batch of the call that sent it, alongside any new legs, and the coordinator is resumed once all of them have finished.</p>
-<h2 id="turning-it-off">Turning it off</h2>
-<p>Orchestration is <strong>on by default</strong> on every repository. Turn it off in the <code>.daiv.yml</code> of a repository whose agent should never split work off:</p>
+<h2 id="turn-off-orchestration">Turn off orchestration</h2>
+<p>Orchestration is on by default on every repository. To stop a repository's agent from splitting work off, add this to its <code>.daiv.yml</code>:</p>
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span>
 <span class="normal"><a href="#__codelineno-0-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="nt">orchestration</span><span class="p">:</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2"></a><span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 </code></pre></div></td></tr></table></div>
-<p>A repository needs no configuration to <em>receive</em> delegated work; a leg is a normal job.</p>
+<p>A repository needs no configuration to receive delegated work: a leg is a normal job. <a href="../../customization/repository-config/#feature-toggles">Repository configuration</a> lists every feature toggle.</p>
 <h2 id="where-a-legs-work-lands">Where a leg's work lands</h2>
 <p>A target's <code>ref</code> is the branch the leg starts from and the branch its merge request targets:</p>
 <ul>
@@ -1909,7 +1966,7 @@
 <li><strong>Works where the leg's work is.</strong> It runs in the leg's session, with the leg's earlier conversation, and pushes to the leg's branch and merge request, even one a reviewer approved or set to merge when its pipeline passes: your platform's approval rules decide whether that push resets the approvals. A leg that published nothing opens a branch and merge request of its own, as a new leg would, never the branch it started from.</li>
 <li><strong>Waits its turn.</strong> When the leg's session is busy — fixing CI on its merge request, or answering a person's chat — the leg follow-up waits in its inbox, as <strong>Leg follow-up</strong>, until the session is free. It then runs alone, never in the same run as other waiting requests, and sees what happened meanwhile (a push to the branch, for example) as context.</li>
 <li><strong>Runs once.</strong> It is never retried: if its run fails, the batch reports it as failed and the coordinator decides whether to send another.</li>
-<li><strong>Stops when its merge request is gone or its session is archived.</strong> If the leg's merge request was merged or closed while the leg follow-up waited, it stops when it would start, without changing anything, and the coordinator reads <em>not run: its merge request was merged</em> (or <em>closed</em>) with the advice to delegate a new leg. If the leg's session is archived while it waits, it stops at once and the coordinator reads <em>not run: its session was archived</em>.</li>
+<li><strong>Stops when its merge request is gone or its session is archived.</strong> If the leg's merge request was merged or closed while the leg follow-up waited, it stops when it would start, without changing anything, and the coordinator reads <em>not run: its merge request was merged</em> (or <em>closed</em>) with the advice to delegate a new leg. If the leg's <a href="../sessions/#archived-sessions">session is archived</a> while it waits, it stops at once and the coordinator reads <em>not run: its session was archived</em>.</li>
 </ul>
 <p>It runs as the user who triggered the coordinator's run, keeps the coordinator's mute and cannot ask questions, like a leg. That user's repository access is checked when it is sent, as for a new leg, and again when its run starts: one refused there is reported as failed.</p>
 <h2 id="following-and-cancelling-the-legs">Following and cancelling the legs</h2>
@@ -1919,7 +1976,7 @@
 <li><code>cancel_delegated_jobs</code> cancels a batch's unfinished legs, or only the ones it names by <code>thread_id</code>, leg follow-ups included. A queued leg never starts, and cancelling a waiting leg follow-up leaves every other request waiting on the leg's session in place. A running leg shows as <code>stopping</code> until it stops, within about ten seconds, and may push to its branch or open a merge request before then. If it finishes first, it keeps its outcome. A cancelled leg's session shows it as stopped, and <a href="../notifications/">Notifications</a> count it as failed.</li>
 </ul>
 <p>The agent cancels when you ask it to, or when the work a leg does is no longer wanted. The coordinator is still resumed once the batch has finished, with the cancelled legs marked as such, unless every leg was cancelled: then no resume comes.</p>
-<h2 id="choosing-between-task-and-delegate_jobs">Choosing between <code>task</code> and <code>delegate_jobs</code></h2>
+<h2 id="choose-between-task-and-delegate_jobs">Choose between <code>task</code> and <code>delegate_jobs</code></h2>
 <table>
 <thead>
 <tr>
@@ -1942,7 +1999,7 @@
 </tr>
 </tbody>
 </table>
-<h2 id="writing-the-prompts">Writing the prompts</h2>
+<h2 id="write-the-prompts">Write the prompts</h2>
 <p>A leg sees only its own prompt — not the coordinator's conversation, the ticket, or anything the coordinator looked up. Each target's prompt must therefore carry everything that leg needs, and should end with the no-change convention: <em>"If there is nothing to change, reply saying so and make no changes."</em></p>
 <p>A target can also carry <code>references</code>, linked into the leg's merge request like the <a href="../jobs-api/">Jobs API</a>'s; <code>relation: closes</code> resolves the issue on merge where the provider supports it.</p>
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">JSON</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span>
@@ -2019,7 +2076,7 @@
 </tr>
 <tr>
 <td>At most <strong>3 runs in a row</strong> nobody asked for</td>
-<td>After three runs in a row on the coordinator's session that no person started, a finished batch is only remembered instead of resuming it, until a person starts a run there, and its owner is told, so failing legs cannot loop it.</td>
+<td>After three runs in a row on the coordinator's session that no person started, DAIV only remembers a finished batch instead of resuming it, until a person starts a run there, and tells the session's owner. Failing legs cannot loop the coordinator. <a href="../sessions/#the-session-inbox">The session inbox</a> describes the limit.</td>
 </tr>
 </tbody>
 </table>
@@ -2044,7 +2101,7 @@
 </code></pre></div></td></tr></table></div>
 </li>
 <li>
-<p><strong>Trigger it</strong> with a <a href="../scheduled-jobs/">Scheduled Job</a> that polls the queue, or from your ticketing system through the <a href="../jobs-api/">Jobs API</a>:</p>
+<p><strong>Trigger it</strong> with a <a href="../scheduled-jobs/">scheduled job</a> that polls the queue, or from your ticketing system through the <a href="../jobs-api/">Jobs API</a>:</p>
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span>
 <span class="normal"><a href="#__codelineno-3-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a>Fetch the open tickets not yet dispatched. Route each one with the rules in AGENTS.md and delegate one
 <a id="__codelineno-3-2" name="__codelineno-3-2"></a>target per ticket. When the legs finish, comment the merge request links on each ticket.
@@ -2052,7 +2109,7 @@
 </li>
 </ol>
 <h3 id="one-fix-per-sentry-finding">One fix per Sentry finding</h3>
-<p>With orchestration on in the application's own repository and the Sentry <a href="../../customization/mcp-tools/">MCP server</a> enabled, a single prompt — run by hand or from a <a href="../scheduled-jobs/">Scheduled Job</a> — triages and fans out:</p>
+<p>With orchestration on in the application's own repository and the Sentry <a href="../../customization/mcp-tools/">MCP server</a> enabled, a single prompt — run by hand or from a <a href="../scheduled-jobs/">scheduled job</a> — triages and fans out:</p>
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span>
 <span class="normal"><a href="#__codelineno-4-2">2</a></span>
 <span class="normal"><a href="#__codelineno-4-3">3</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a>Triage the unresolved Sentry issues of the last 24 hours. For each one worth fixing, delegate a fix on this
@@ -2076,8 +2133,8 @@
 </div>
 <h2 id="see-also">See also</h2>
 <ul>
-<li><a href="../../customization/repository-config/">Repository Config</a> — the <code>orchestration</code> toggle</li>
-<li><a href="../jobs-api/">Jobs API</a> and <a href="../mcp-endpoint/">MCP Endpoint</a> — a batch can also give each repository its own <code>prompt</code></li>
+<li><a href="../../customization/repository-config/">Repository configuration</a> — the <code>orchestration</code> toggle</li>
+<li><a href="../jobs-api/">Jobs API</a> and <a href="../mcp-endpoint/">MCP endpoint</a> — a batch can also give each repository its own <code>prompt</code></li>
 <li><a href="../subagents/">Subagents</a> — parallel work inside one turn</li>
 </ul>
 
@@ -2102,7 +2159,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 12, 2026 12:14:09 UTC">November 12, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 12, 2026 14:52:59 UTC">November 12, 2026</span>
   </span>
 
     

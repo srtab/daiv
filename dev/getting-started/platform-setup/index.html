@@ -31,7 +31,7 @@
   
     
       
-        <title>Platform Setup - DAIV</title>
+        <title>Platform setup - DAIV</title>
       
     
   
@@ -139,7 +139,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Platform Setup
+              Platform setup
             
           </span>
         </div>
@@ -442,7 +442,7 @@
   <span class="md-ellipsis">
     
   
-    Platform Setup
+    Platform setup
   
 
     
@@ -460,7 +460,7 @@
   <span class="md-ellipsis">
     
   
-    Platform Setup
+    Platform setup
   
 
     
@@ -486,22 +486,44 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#gitlab-configuration" class="md-nav__link">
+  <a href="#connect-gitlab" class="md-nav__link">
     <span class="md-ellipsis">
       
-        GitLab Configuration
+        Connect GitLab
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="GitLab Configuration">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gitlab-token-role-and-webhooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GitLab token, role and webhooks
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshoot-gitlab" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshoot GitLab
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Troubleshoot GitLab">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
+  <a href="#webhook-delivery-fails" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Prerequisites
+        Webhook delivery fails
       
     </span>
   </a>
@@ -509,10 +531,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#step-1-create-a-gitlab-user-and-token-for-daiv" class="md-nav__link">
+  <a href="#daiv-ignores-an-issue" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 1: Create a GitLab User and Token for DAIV
+        DAIV ignores an issue
       
     </span>
   </a>
@@ -520,22 +542,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#step-2-configure-environment-variables" class="md-nav__link">
+  <a href="#daiv-ignores-your-comments" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 2: Configure Environment Variables
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Step 2: Configure Environment Variables">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#for-docker-compose-setup" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        For Docker Compose Setup
+        DAIV ignores your comments
       
     </span>
   </a>
@@ -543,26 +553,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#for-docker-swarm-setup" class="md-nav__link">
+  <a href="#daiv-does-not-respond-to-merge-request-comments" class="md-nav__link">
     <span class="md-ellipsis">
       
-        For Docker Swarm Setup
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-3-repository-webhooks" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 3: Repository Webhooks
+        DAIV does not respond to merge request comments
       
     </span>
   </a>
@@ -570,32 +564,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#step-4-configure-repository-behavior" class="md-nav__link">
+  <a href="#daiv-reports-an-error-in-a-comment" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 4: Configure Repository Behavior
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-5-test-the-integration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 5: Test the Integration
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#troubleshooting" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Troubleshooting
+        DAIV reports an error in a comment
       
     </span>
   </a>
@@ -608,22 +580,44 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#github-configuration" class="md-nav__link">
+  <a href="#connect-github" class="md-nav__link">
     <span class="md-ellipsis">
       
-        GitHub Configuration
+        Connect GitHub
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="GitHub Configuration">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#github-app-permissions-and-events" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GitHub App permissions and events
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshoot-github" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshoot GitHub
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Troubleshoot GitHub">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#prerequisites_1" class="md-nav__link">
+  <a href="#webhook-delivery-fails_1" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Prerequisites
+        Webhook delivery fails
       
     </span>
   </a>
@@ -631,10 +625,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#step-1-create-github-app" class="md-nav__link">
+  <a href="#daiv-ignores-an-issue_1" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 1: Create GitHub App
+        DAIV ignores an issue
       
     </span>
   </a>
@@ -642,10 +636,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#step-2-install-github-app" class="md-nav__link">
+  <a href="#daiv-does-not-respond-to-comments" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 2: Install GitHub App
+        DAIV does not respond to comments
       
     </span>
   </a>
@@ -653,22 +647,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#step-3-configure-environment-variables" class="md-nav__link">
+  <a href="#daiv-fails-to-start-with-permission-denied-on-the-private-key" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 3: Configure Environment Variables
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Step 3: Configure Environment Variables">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#for-docker-compose-setup_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        For Docker Compose Setup
+        DAIV fails to start with permission denied on the private key
       
     </span>
   </a>
@@ -676,76 +658,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#for-docker-swarm-setup_1" class="md-nav__link">
+  <a href="#authentication-fails" class="md-nav__link">
     <span class="md-ellipsis">
       
-        For Docker Swarm Setup
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-4-verify-webhook-configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 4: Verify Webhook Configuration
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Step 4: Verify Webhook Configuration">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#verify-webhook-settings" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Verify Webhook Settings
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-5-configure-repository-behavior" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 5: Configure Repository Behavior
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-6-test-the-integration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 6: Test the Integration
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#troubleshooting_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Troubleshooting
+        Authentication fails
       
     </span>
   </a>
@@ -791,7 +707,7 @@
   <span class="md-ellipsis">
     
   
-    Accounts & Roles
+    Accounts and roles
   
 
     
@@ -819,7 +735,7 @@
   <span class="md-ellipsis">
     
   
-    LLM Providers
+    LLM providers
   
 
     
@@ -901,7 +817,7 @@
   <span class="md-ellipsis">
     
   
-    Issue Addressing
+    Issue addressing
   
 
     
@@ -929,7 +845,7 @@
   <span class="md-ellipsis">
     
   
-    Pull Request Assistant
+    Pull request assistant
   
 
     
@@ -957,7 +873,35 @@
   <span class="md-ellipsis">
     
   
-    Pipeline Watch
+    Pipeline watch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository memory
   
 
     
@@ -1041,7 +985,7 @@
   <span class="md-ellipsis">
     
   
-    Scheduled Jobs
+    Scheduled jobs
   
 
     
@@ -1097,7 +1041,7 @@
   <span class="md-ellipsis">
     
   
-    MCP Endpoint
+    MCP endpoint
   
 
     
@@ -1153,7 +1097,7 @@
   <span class="md-ellipsis">
     
   
-    Merge Metrics
+    Merge metrics
   
 
     
@@ -1181,7 +1125,7 @@
   <span class="md-ellipsis">
     
   
-    Slash Commands & Skills
+    Slash commands and skills
   
 
     
@@ -1265,7 +1209,7 @@
   <span class="md-ellipsis">
     
   
-    Sandbox Environments
+    Sandbox environments
   
 
     
@@ -1347,7 +1291,7 @@
   <span class="md-ellipsis">
     
   
-    Request Tracker Triage
+    Request Tracker triage
   
 
     
@@ -1429,7 +1373,7 @@
   <span class="md-ellipsis">
     
   
-    Repository Config
+    Repository configuration
   
 
     
@@ -1457,7 +1401,7 @@
   <span class="md-ellipsis">
     
   
-    Agent Skills
+    Agent skills
   
 
     
@@ -1485,7 +1429,7 @@
   <span class="md-ellipsis">
     
   
-    MCP Tools
+    MCP tools
   
 
     
@@ -1567,7 +1511,7 @@
   <span class="md-ellipsis">
     
   
-    Environment Variables
+    Environment variables
   
 
     
@@ -1595,7 +1539,7 @@
   <span class="md-ellipsis">
     
   
-    Site Configuration
+    Site configuration
   
 
     
@@ -1623,7 +1567,7 @@
   <span class="md-ellipsis">
     
   
-    Agent Architecture
+    Agent tools
   
 
     
@@ -1652,6 +1596,34 @@
     
   
     Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/management-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Management commands
   
 
     
@@ -1754,22 +1726,44 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#gitlab-configuration" class="md-nav__link">
+  <a href="#connect-gitlab" class="md-nav__link">
     <span class="md-ellipsis">
       
-        GitLab Configuration
+        Connect GitLab
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="GitLab Configuration">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gitlab-token-role-and-webhooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GitLab token, role and webhooks
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshoot-gitlab" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshoot GitLab
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Troubleshoot GitLab">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
+  <a href="#webhook-delivery-fails" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Prerequisites
+        Webhook delivery fails
       
     </span>
   </a>
@@ -1777,10 +1771,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#step-1-create-a-gitlab-user-and-token-for-daiv" class="md-nav__link">
+  <a href="#daiv-ignores-an-issue" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 1: Create a GitLab User and Token for DAIV
+        DAIV ignores an issue
       
     </span>
   </a>
@@ -1788,22 +1782,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#step-2-configure-environment-variables" class="md-nav__link">
+  <a href="#daiv-ignores-your-comments" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 2: Configure Environment Variables
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Step 2: Configure Environment Variables">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#for-docker-compose-setup" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        For Docker Compose Setup
+        DAIV ignores your comments
       
     </span>
   </a>
@@ -1811,26 +1793,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#for-docker-swarm-setup" class="md-nav__link">
+  <a href="#daiv-does-not-respond-to-merge-request-comments" class="md-nav__link">
     <span class="md-ellipsis">
       
-        For Docker Swarm Setup
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-3-repository-webhooks" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 3: Repository Webhooks
+        DAIV does not respond to merge request comments
       
     </span>
   </a>
@@ -1838,32 +1804,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#step-4-configure-repository-behavior" class="md-nav__link">
+  <a href="#daiv-reports-an-error-in-a-comment" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 4: Configure Repository Behavior
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-5-test-the-integration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 5: Test the Integration
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#troubleshooting" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Troubleshooting
+        DAIV reports an error in a comment
       
     </span>
   </a>
@@ -1876,22 +1820,44 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#github-configuration" class="md-nav__link">
+  <a href="#connect-github" class="md-nav__link">
     <span class="md-ellipsis">
       
-        GitHub Configuration
+        Connect GitHub
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="GitHub Configuration">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#github-app-permissions-and-events" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GitHub App permissions and events
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshoot-github" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshoot GitHub
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Troubleshoot GitHub">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#prerequisites_1" class="md-nav__link">
+  <a href="#webhook-delivery-fails_1" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Prerequisites
+        Webhook delivery fails
       
     </span>
   </a>
@@ -1899,10 +1865,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#step-1-create-github-app" class="md-nav__link">
+  <a href="#daiv-ignores-an-issue_1" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 1: Create GitHub App
+        DAIV ignores an issue
       
     </span>
   </a>
@@ -1910,10 +1876,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#step-2-install-github-app" class="md-nav__link">
+  <a href="#daiv-does-not-respond-to-comments" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 2: Install GitHub App
+        DAIV does not respond to comments
       
     </span>
   </a>
@@ -1921,22 +1887,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#step-3-configure-environment-variables" class="md-nav__link">
+  <a href="#daiv-fails-to-start-with-permission-denied-on-the-private-key" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 3: Configure Environment Variables
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Step 3: Configure Environment Variables">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#for-docker-compose-setup_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        For Docker Compose Setup
+        DAIV fails to start with permission denied on the private key
       
     </span>
   </a>
@@ -1944,76 +1898,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#for-docker-swarm-setup_1" class="md-nav__link">
+  <a href="#authentication-fails" class="md-nav__link">
     <span class="md-ellipsis">
       
-        For Docker Swarm Setup
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-4-verify-webhook-configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 4: Verify Webhook Configuration
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Step 4: Verify Webhook Configuration">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#verify-webhook-settings" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Verify Webhook Settings
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-5-configure-repository-behavior" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 5: Configure Repository Behavior
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#step-6-test-the-integration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 6: Test the Integration
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#troubleshooting_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Troubleshooting
+        Authentication fails
       
     </span>
   </a>
@@ -2109,441 +1997,319 @@
   
 
 
-<h1 id="platform-setup">Platform Setup</h1>
-<p>This guide walks you through connecting DAIV to your GitLab or GitHub repository. Once configured, DAIV will automatically address issues, review pull requests, and more.</p>
-<p>DAIV supports both platforms:</p>
-<ul>
-<li><strong><a href="#gitlab-configuration">GitLab</a></strong> — GitLab.com or self-hosted GitLab instances</li>
-<li><strong><a href="#github-configuration">GitHub</a></strong> — GitHub.com or GitHub Enterprise</li>
-</ul>
-<hr />
-<h2 id="gitlab-configuration">GitLab Configuration</h2>
-<h3 id="prerequisites">Prerequisites</h3>
-<p>Before configuring a GitLab repository, ensure you have:</p>
-<ul>
-<li><strong>DAIV installed and running</strong> - Follow the <a href="../deployment/">Deployment</a> guide first</li>
-<li><strong>GitLab repository access</strong> - Admin or maintainer permissions on the repository you want to connect</li>
-<li><strong>A GitLab account for DAIV</strong> - A separate user that DAIV acts as, created in Step 1</li>
-</ul>
-<h3 id="step-1-create-a-gitlab-user-and-token-for-daiv">Step 1: Create a GitLab User and Token for DAIV</h3>
+<h1 id="platform-setup">Platform setup</h1>
+<p>DAIV connects to one Git platform at a time, set by <code>CODEBASE_CLIENT</code>: GitLab (GitLab.com or self-managed) or GitHub (GitHub.com or GitHub Enterprise Server). Once connected, DAIV addresses labeled issues and reviews merge and pull requests in the repositories it can reach. Follow <a href="#connect-gitlab">Connect GitLab</a> or <a href="#connect-github">Connect GitHub</a>.</p>
+<h2 id="connect-gitlab">Connect GitLab</h2>
 <p>DAIV works as a GitLab user: it comments, pushes and opens merge requests as the user its token belongs to, and it ignores comments written by that user. Give DAIV its own account. With a token from your own account, DAIV ignores your comments, including the one that approves its plan.</p>
-<ol>
-<li>
-<p><strong>Create the user</strong>:</p>
+<p>You need:</p>
 <ul>
-<li>Create a GitLab user for DAIV, for example <code>daiv</code>. Its username is how you mention DAIV (<code>@daiv</code>). On GitLab.com, sign up a separate account; on a self-managed instance, an admin creates it under <strong>Admin → Users → New user</strong></li>
-<li>Add it to each project DAIV should work on with the <strong>Maintainer</strong> role. DAIV only sets up webhooks on projects where its user is a Maintainer or Owner</li>
-</ul>
+<li>DAIV running, from <a href="../deployment/">Deployment</a>.</li>
+<li>Permission to add a member to each project DAIV works on.</li>
+<li>
+<p>On GitLab.com, a second account for DAIV. On a self-managed instance, an admin to create the user.</p>
 </li>
 <li>
-<p><strong>Navigate to the user's settings</strong>:</p>
-<ul>
-<li>Sign in to your GitLab instance (e.g., <code>https://gitlab.com</code>) as the DAIV user</li>
-<li>Click your avatar → <strong>Edit profile</strong> → <strong>Access Tokens</strong></li>
-</ul>
+<p>Create a GitLab user for DAIV, for example <code>daiv</code>. On GitLab.com, sign up a second account; on a self-managed instance, an admin creates it under <strong>Admin</strong> → <strong>Users</strong> → <strong>New user</strong>. The username is how you mention DAIV, for example <code>@daiv</code>.</p>
 </li>
+<li>Add the user to each project DAIV works on, with the <strong>Maintainer</strong> role.</li>
+<li>Sign in to GitLab as the DAIV user.</li>
+<li>Select your avatar → <strong>Edit profile</strong> → <strong>Access tokens</strong>.</li>
+<li>Enter <code>DAIV Integration</code> as the token <strong>Name</strong>.</li>
+<li>Set the expiration according to your security policy.</li>
+<li>Select the <code>api</code> scope.</li>
 <li>
-<p><strong>Create New Token</strong>:</p>
-<ul>
-<li><strong>Name</strong>: <code>DAIV Integration</code></li>
-<li><strong>Expiration</strong>: Set according to your security policy (recommended: 1 year)</li>
-<li><strong>Scopes</strong>: Select <code>api</code> (full API access)</li>
-<li>Click <strong>Create personal access token</strong></li>
-</ul>
-</li>
-<li>
-<p><strong>Copy the Token</strong>:</p>
-<ul>
-<li><strong>Important</strong>: Copy and save the token immediately - you won't see it again</li>
-<li>The token format looks like: <code>glpat-xxxxxxxxxxxxxxxxxxxx</code></li>
-</ul>
-</li>
-</ol>
+<p>Select <strong>Create personal access token</strong>.</p>
 <div class="admonition warning">
-<p class="admonition-title">Token Security</p>
-<p>Store your token securely. Never commit it to version control or share it publicly.</p>
+<p class="admonition-title">Warning</p>
+<p>GitLab shows the token once. Anyone who holds it acts as DAIV's user in every project that user belongs to. Store it in a secret manager, and never commit it to version control.</p>
 </div>
-<h3 id="step-2-configure-environment-variables">Step 2: Configure Environment Variables</h3>
-<p>Add your GitLab token and webhook secret to DAIV's environment configuration.</p>
-<h4 id="for-docker-compose-setup">For Docker Compose Setup</h4>
-<p>Edit your <code>docker-compose.yml</code> file:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span>
-<span class="normal"><a href="#__codelineno-0-2">2</a></span>
-<span class="normal"><a href="#__codelineno-0-3">3</a></span>
-<span class="normal"><a href="#__codelineno-0-4">4</a></span>
-<span class="normal"><a href="#__codelineno-0-5">5</a></span>
-<span class="normal"><a href="#__codelineno-0-6">6</a></span>
-<span class="normal"><a href="#__codelineno-0-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="nt">x-app-defaults</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;x_app_default</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2"></a><span class="w">  </span><span class="c1"># ...</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3"></a><span class="w">  </span><span class="nt">environment</span><span class="p">:</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4"></a><span class="w">    </span><span class="nt">CODEBASE_GITLAB_URL</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://gitlab.com</span><span class="w"> </span><span class="c1"># or your GitLab instance URL</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5"></a><span class="w">    </span><span class="nt">CODEBASE_GITLAB_AUTH_TOKEN</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">glpat-xxxxxxxxxxxxxxxxxxxx</span><span class="w"> </span><span class="c1"># Your personal access token</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6"></a><span class="w">    </span><span class="nt">CODEBASE_GITLAB_WEBHOOK_SECRET</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your-webhook-secret-here</span><span class="w"> </span><span class="c1"># Random secret for webhook validation</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7"></a><span class="w">  </span><span class="c1"># ...</span>
+</li>
+<li>
+<p>Copy the token.</p>
+</li>
+<li>
+<p>If Deployment has not set a webhook secret, generate one. It is a random value that GitLab sends with each webhook for DAIV to validate. DAIV registers each webhook with the secret it already holds, so keep an existing one:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>openssl<span class="w"> </span>rand<span class="w"> </span>-hex<span class="w"> </span><span class="m">32</span>
 </code></pre></div></td></tr></table></div>
-<h4 id="for-docker-swarm-setup">For Docker Swarm Setup</h4>
-<p>Create Docker secrets:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span>
-<span class="normal"><a href="#__codelineno-1-2">2</a></span>
-<span class="normal"><a href="#__codelineno-1-3">3</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a><span class="c1"># Create secrets for GitLab integration</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">"glpat-xxxxxxxxxxxxxxxxxxxx"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>codebase_gitlab_auth_token<span class="w"> </span>-
-<a id="__codelineno-1-3" name="__codelineno-1-3"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">"your-webhook-secret-here"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>codebase_gitlab_webhook_secret<span class="w"> </span>-
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>A Compose file holds the token and the webhook secret in plain text. Keep it out of version control, and readable only by the users who deploy DAIV.</p>
+</div>
+</li>
+<li>
+<p>On Docker Compose, in the <code>environment</code> of <code>x-app-defaults</code> in your <code>docker-compose.yml</code>, set <code>CODEBASE_GITLAB_URL</code> to your GitLab URL (for example <code>https://gitlab.com</code>), <code>CODEBASE_GITLAB_AUTH_TOKEN</code> to the token and <code>CODEBASE_GITLAB_WEBHOOK_SECRET</code> to the webhook secret.</p>
+</li>
+<li>On Docker Swarm, set <code>CODEBASE_GITLAB_URL</code> in <code>x-app-environment-defaults</code> of <code>stack.yml</code>.</li>
+<li>On Docker Swarm, check whether the <code>codebase_gitlab_auth_token</code> secret, which step 1 of <a href="../deployment/#deploy-with-docker-swarm">Deploy with Docker Swarm</a> created, already holds the token from step 9. If it does, skip to the redeploy step. Otherwise Docker cannot change it, so replace it with the next steps.</li>
+<li>On Docker Swarm, remove the stack: <code>docker stack rm daiv</code>.</li>
+<li>
+<p>On Docker Swarm, remove the secret: <code>docker secret rm codebase_gitlab_auth_token</code>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>A value you type in a command is saved in your shell history and visible in the process list. Run the next command from a shell that does not record history.</p>
+</div>
+</li>
+<li>
+<p>On Docker Swarm, create the secret again, replacing <code>&lt;token&gt;</code>:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a><span class="nb">printf</span><span class="w"> </span><span class="s1">'%s'</span><span class="w"> </span><span class="s1">'&lt;token&gt;'</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>codebase_gitlab_auth_token<span class="w"> </span>-
 </code></pre></div></td></tr></table></div>
-<div class="admonition tip">
-<p class="admonition-title">Generating Webhook Secret</p>
-<p>Generate a secure random webhook secret:
+</li>
+<li>
+<p>Redeploy DAIV so it reads the values: <code>docker compose up -d</code> on Compose, or <code>docker stack deploy -c stack.yml daiv</code> on Swarm.</p>
+</li>
+<li>Wait up to 5 minutes. DAIV's scheduler adds a webhook to each project where its user is a Maintainer or Owner. To add them at once, run <a href="../../reference/management-commands/#setup_webhooks"><code>setup_webhooks</code></a>.</li>
+<li>In a project, open <strong>Settings</strong> → <strong>Webhooks</strong> and check for a webhook that points to <code>https://daiv.example.com/api/codebase/callbacks/gitlab/</code>, with the events in <a href="#gitlab-token-role-and-webhooks">GitLab token, role and webhooks</a>.</li>
+<li>Select <strong>Test</strong> → <strong>Push events</strong>, and check that GitLab reports a successful delivery.</li>
+<li>Create an issue titled "Add hello world function" in the project.</li>
+<li>Add the <code>daiv</code> label to the issue. If the project has no <code>daiv</code> label, create it from the label picker.</li>
+<li>Wait a few seconds. DAIV reacts with 👀, then comments with a plan.</li>
+<li>From your own account, comment on the issue mentioning DAIV's user, for example <code>@daiv proceed</code>. DAIV implements the plan and opens a merge request.</li>
+</ul>
+<p>To change DAIV's behavior in a repository, add a <code>.daiv.yml</code> file to its root; <a href="../../customization/repository-config/">Repository configuration</a> lists the options. <a href="../../features/issue-addressing/">Issue addressing</a> explains what DAIV does with an issue.</p>
+<h2 id="gitlab-token-role-and-webhooks">GitLab token, role and webhooks</h2>
+<table>
+<thead>
+<tr>
+<th>Item</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Token</td>
+<td>A personal access token of DAIV's user, with the <code>api</code> scope.</td>
+</tr>
+<tr>
+<td>Role</td>
+<td>DAIV lists only the projects where its user is a Maintainer or Owner, and sets up webhooks on those.</td>
+</tr>
+<tr>
+<td>Webhook URL</td>
+<td><code>&lt;DAIV_EXTERNAL_URL&gt;/api/codebase/callbacks/gitlab/</code>. GitLab must be able to reach <code>DAIV_EXTERNAL_URL</code>.</td>
+</tr>
+<tr>
+<td>Webhook events</td>
+<td>Push events, Issues events, Comments (Note events), Merge request events and Pipeline events.</td>
+</tr>
+<tr>
+<td>Webhook creation</td>
+<td>DAIV's scheduler runs <code>setup_webhooks</code> on the <code>CODEBASE_WEBHOOK_SETUP_CRON</code> schedule, every 5 minutes by default. See <a href="../../reference/management-commands/#setup_webhooks">Management commands</a> and <a href="../../reference/env-variables/">Environment variables</a>.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="troubleshoot-gitlab">Troubleshoot GitLab</h2>
+<h3 id="webhook-delivery-fails">Webhook delivery fails</h3>
+<p>The webhook URL is not reachable from GitLab, or the certificate is invalid. Check that <code>DAIV_EXTERNAL_URL</code> is reachable from GitLab, that its SSL certificate is valid, and that no firewall blocks GitLab.</p>
+<p>A self-managed GitLab refuses webhooks to private network addresses by default, with the error <code>Url is blocked: Requests to the local network are not allowed</code>. An admin allows them under <strong>Admin</strong> → <strong>Settings</strong> → <strong>Network</strong> → <strong>Outbound requests</strong>.</p>
+<h3 id="daiv-ignores-an-issue">DAIV ignores an issue</h3>
+<ul>
+<li>The issue has no <code>daiv</code> label. Add it.</li>
+<li>DAIV's user is not a Maintainer or Owner of the project, so the project has no webhook. Change its role.</li>
+<li><code>issue_addressing.enabled</code> is <code>false</code> in <code>.daiv.yml</code>. It is <code>true</code> by default.</li>
+<li>Check DAIV's logs for errors.</li>
+</ul>
+<h3 id="daiv-ignores-your-comments">DAIV ignores your comments</h3>
+<ul>
+<li>DAIV ignores comments written by its own user. Comment from another account.</li>
+<li>Mention DAIV's username, for example <code>@daiv</code>.</li>
+</ul>
+<h3 id="daiv-does-not-respond-to-merge-request-comments">DAIV does not respond to merge request comments</h3>
+<ul>
+<li>The webhook does not send <strong>Comments (Note events)</strong>. Run <code>setup_webhooks --update</code>.</li>
+<li>The webhook secret in GitLab does not match <code>CODEBASE_GITLAB_WEBHOOK_SECRET</code>. DAIV rejects the request.</li>
+<li>DAIV's user lacks access to the project.</li>
+</ul>
+<h3 id="daiv-reports-an-error-in-a-comment">DAIV reports an error in a comment</h3>
+<p>DAIV comments "An unexpected error occurred" when a run fails. The worker and sandbox logs show why, for example <code>docker compose logs worker sandbox</code>.</p>
+<h2 id="connect-github">Connect GitHub</h2>
+<p>DAIV authenticates to GitHub as a GitHub App, which you create and install on the repositories DAIV works on. You need:</p>
+<ul>
+<li>DAIV running, from <a href="../deployment/">Deployment</a>.</li>
+<li>
+<p>Permission to create and install a GitHub App on your account or organization.</p>
+</li>
+<li>
+<p>Open <strong>Settings</strong> → <strong>Developer settings</strong> → <strong>GitHub Apps</strong> in your account, or in <strong>Organization Settings</strong> for an organization.</p>
+</li>
+<li>Select <strong>New GitHub App</strong>.</li>
+<li>Enter a unique name as the <strong>GitHub App name</strong>, for example <code>DAIV - &lt;org-name&gt;</code>, replacing <code>&lt;org-name&gt;</code> with your organization or account name. GitHub rejects a name another App uses.</li>
+<li>Enter your DAIV URL, for example <code>https://daiv.example.com</code>, as the <strong>Homepage URL</strong>.</li>
+<li>Enter <code>https://daiv.example.com/api/codebase/callbacks/github/</code> as the <strong>Webhook URL</strong>.</li>
+<li>
+<p>Generate the webhook secret, and keep it for a later step:</p>
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a>openssl<span class="w"> </span>rand<span class="w"> </span>-hex<span class="w"> </span><span class="m">32</span>
-</code></pre></div></td></tr></table></div></p>
-</div>
-<h3 id="step-3-repository-webhooks">Step 3: Repository Webhooks</h3>
-<p>DAIV uses webhooks to receive real-time notifications from GitLab about repository events.</p>
-<p>DAIV's scheduler adds a webhook to every repository its user maintains, every 5 minutes. No manual setup is required — once DAIV is running with valid GitLab credentials, webhooks are created automatically for new repositories. To add them right away, or to update existing ones after changing <code>DAIV_EXTERNAL_URL</code> or the webhook secret, run the command in the app container:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span>
-<span class="normal"><a href="#__codelineno-3-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>app<span class="w"> </span>django-admin<span class="w"> </span>setup_webhooks<span class="w">           </span><span class="c1"># add missing webhooks now</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>app<span class="w"> </span>django-admin<span class="w"> </span>setup_webhooks<span class="w"> </span>--update<span class="w">  </span><span class="c1"># also update existing ones</span>
 </code></pre></div></td></tr></table></div>
-<p>GitLab sends each event to <code>DAIV_EXTERNAL_URL</code>, so that URL must be reachable from your GitLab. A self-managed GitLab refuses webhooks to private network addresses by default (<code>Url is blocked: Requests to the local network are not allowed</code>); an admin allows them under <strong>Admin → Settings → Network → Outbound requests</strong>.</p>
-<div class="admonition tip">
-<p class="admonition-title">Verifying webhook setup</p>
-<p>To confirm webhooks are configured, go to your GitLab repository → <strong>Settings</strong> → <strong>Webhooks</strong>. You should see a webhook pointing to <code>https://your-daiv-instance.com/api/codebase/callbacks/gitlab/</code> with the following trigger events:</p>
-<ul>
-<li>✅ Push events</li>
-<li>✅ Issues events</li>
-<li>✅ Comments (Note events)</li>
-<li>✅ Merge request events</li>
-<li>✅ Pipeline events</li>
-</ul>
-<p>Click <strong>Test</strong> → <strong>Push events</strong> to verify connectivity.</p>
-</div>
-<h3 id="step-4-configure-repository-behavior">Step 4: Configure Repository Behavior</h3>
-<p>To customize DAIV's behavior, create a <code>.daiv.yml</code> file in your repository's root.</p>
-<p>For complete configuration options, see <a href="../../customization/repository-config/">Repository Config</a>.</p>
-<h3 id="step-5-test-the-integration">Step 5: Test the Integration</h3>
-<p>Verify that DAIV is properly connected to your repository.</p>
-<ol>
-<li>
-<p><strong>Create a Test Issue</strong>:</p>
-<ul>
-<li>Go to your GitLab repository</li>
-<li>Create a new issue with title: "Add hello world function"</li>
-<li>Add the <code>daiv</code> label to the issue. If the project has no <code>daiv</code> label yet, create it from the label picker</li>
-</ul>
 </li>
 <li>
-<p><strong>Wait for DAIV Response</strong>:</p>
-<ul>
-<li>DAIV reacts with 👀 within seconds, then comments with a plan to address the issue</li>
-<li>Check the issue comments for DAIV's response</li>
-</ul>
-</li>
-<li>
-<p><strong>Approve the Plan</strong>:</p>
-<ul>
-<li>From your own account, comment on the issue mentioning DAIV's user, for example <code>@daiv proceed</code></li>
-<li>DAIV implements the plan and opens a merge request</li>
-</ul>
-</li>
-</ol>
-<div class="admonition tip">
-<p class="admonition-title">Tip</p>
-<p>For more on how issue addressing works, see <a href="../../features/issue-addressing/">Issue Addressing</a>.</p>
-</div>
-<h3 id="troubleshooting">Troubleshooting</h3>
-<p><strong>Webhook delivery fails</strong>:</p>
-<ul>
-<li>Verify the webhook URL is accessible from GitLab</li>
-<li>Check SSL certificate validity</li>
-<li>Review firewall settings</li>
-<li>On a self-managed GitLab, allow requests to the local network if DAIV has a private address (see <a href="#step-3-repository-webhooks">Step 3</a>)</li>
-</ul>
-<p><strong>Issues not being processed</strong>:</p>
-<ul>
-<li>Ensure the <code>daiv</code> label is added to issues</li>
-<li>Check that the project has a webhook: DAIV's user must be a Maintainer or Owner of it</li>
-<li>Verify <code>issue_addressing.enabled: true</code> in <code>.daiv.yml</code> (enabled by default)</li>
-<li>Check DAIV logs for errors</li>
-</ul>
-<p><strong>DAIV ignores your comments</strong>:</p>
-<ul>
-<li>Comment from an account other than DAIV's own: DAIV ignores what its own user writes</li>
-<li>Mention DAIV's username, for example <code>@daiv</code></li>
-</ul>
-<p><strong>DAIV comments "An unexpected error occurred"</strong>:</p>
-<ul>
-<li>The run failed. The worker and sandbox logs show why, for example <code>docker compose logs worker sandbox</code></li>
-</ul>
-<p><strong>No response to merge request comments</strong>:</p>
-<ul>
-<li>Verify webhook events include "Comments (Note events)"</li>
-<li>Check that webhook secret matches environment variable</li>
-<li>Review repository permissions</li>
-</ul>
-<hr />
-<h2 id="github-configuration">GitHub Configuration</h2>
-<h3 id="prerequisites_1">Prerequisites</h3>
-<p>Before configuring a GitHub repository, ensure you have:</p>
-<ul>
-<li><strong>DAIV installed and running</strong> - Follow the <a href="../deployment/">Deployment</a> guide first</li>
-<li><strong>GitHub repository or organization access</strong> - Admin permissions to create and install GitHub Apps</li>
-<li><strong>GitHub account</strong> - On GitHub.com or GitHub Enterprise</li>
-</ul>
-<h3 id="step-1-create-github-app">Step 1: Create GitHub App</h3>
-<p>DAIV uses GitHub App authentication to securely interact with your repositories.</p>
-<ol>
-<li>
-<p><strong>Navigate to GitHub App Settings</strong>:</p>
-<ul>
-<li>For personal account: Go to <strong>Settings</strong> → <strong>Developer settings</strong> → <strong>GitHub Apps</strong> → <strong>New GitHub App</strong></li>
-<li>For organization: Go to <strong>Organization Settings</strong> → <strong>Developer settings</strong> → <strong>GitHub Apps</strong> → <strong>New GitHub App</strong></li>
-</ul>
-</li>
-<li>
-<p><strong>Configure GitHub App</strong>:</p>
-<p><strong>Basic Information:</strong>
-- <strong>GitHub App name</strong>: <code>DAIV</code> (or <code>DAIV - YourOrgName</code>)
-- <strong>Homepage URL</strong>: Your DAIV instance URL (e.g., <code>https://daiv.example.com</code>)
-- <strong>Webhook URL</strong>: <code>https://your-daiv-instance.com/api/codebase/callbacks/github/</code>
-- <strong>Webhook secret</strong>: Generate a secure random secret (save this for later)
-  <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a>openssl<span class="w"> </span>rand<span class="w"> </span>-hex<span class="w"> </span><span class="m">32</span>
-</code></pre></div></td></tr></table></div></p>
-<p><strong>Permissions:</strong>
-- <strong>Repository permissions:</strong>
-    - Contents: <strong>Read &amp; Write</strong> (to create branches and commits)
-    - Issues: <strong>Read &amp; Write</strong> (to read and comment on issues)
-    - Pull requests: <strong>Read &amp; Write</strong> (to create and update pull requests)
-    - Actions: <strong>Read-only</strong> (to read workflow runs and job logs for <a href="../../features/pipeline-watch/">Pipeline Watch</a>)
-    - Workflows: <strong>Read &amp; Write</strong> (optional; lets DAIV push changes to files under <code>.github/workflows/</code>, such as a conflict resolved there. Code running in the sandbox can then change workflows too, and they run with the repository's Actions secrets)
-    - Metadata: <strong>Read-only</strong> (automatically selected)
-- <strong>Subscribe to events:</strong>
-    - ✅ Push
-    - ✅ Issues
-    - ✅ Issue comment
-    - ✅ Pull request review
-    - ✅ Pull request review comment (mentions and comments on diff lines of a pull request a DAIV session owns)
-    - ✅ Pull request
-    - ✅ Workflow run</p>
-<div class="admonition info">
-<p class="admonition-title">Centralized Webhook Configuration</p>
-<p>Unlike GitLab where webhooks are configured per repository, GitHub Apps use centralized webhook configuration. The webhook you configure here will automatically apply to all repositories where you install the app.</p>
-</div>
-</li>
-<li>
-<p><strong>Create the App</strong>:</p>
-<ul>
-<li>Click <strong>Create GitHub App</strong></li>
-<li>You'll be redirected to the app's settings page</li>
-</ul>
-</li>
-<li>
-<p><strong>Generate Private Key</strong>:</p>
-<ul>
-<li>Scroll down to <strong>Private keys</strong> section</li>
-<li>Click <strong>Generate a private key</strong></li>
-<li>Save the downloaded <code>.pem</code> file securely</li>
-</ul>
-</li>
-<li>
-<p><strong>Note App ID</strong>:</p>
-<ul>
-<li>At the top of the app settings page, note the <strong>App ID</strong> (you'll need this)</li>
-</ul>
-</li>
-</ol>
-<h3 id="step-2-install-github-app">Step 2: Install GitHub App</h3>
-<p>Install the GitHub App on repositories where you want DAIV to work:</p>
-<ol>
-<li>
-<p><strong>Navigate to Install App</strong>:</p>
-<ul>
-<li>Go to your GitHub App settings page</li>
-<li>Click <strong>Install App</strong> in the left sidebar</li>
-<li>Select your account or organization</li>
-</ul>
-</li>
-<li>
-<p><strong>Choose Repository Access</strong>:</p>
-<ul>
-<li>Select <strong>All repositories</strong> or <strong>Only select repositories</strong></li>
-<li>Choose the repositories you want DAIV to access</li>
-<li>Click <strong>Install</strong></li>
-</ul>
-</li>
-<li>
-<p><strong>Note Installation ID</strong>:</p>
-<ul>
-<li>After installation, check the URL: <code>https://github.com/settings/installations/INSTALLATION_ID</code></li>
-<li>Note the <strong>Installation ID</strong> from the URL or use the GitHub API to find it</li>
-</ul>
-</li>
-</ol>
-<h3 id="step-3-configure-environment-variables">Step 3: Configure Environment Variables</h3>
-<p>Add your GitHub App credentials to DAIV's environment configuration.</p>
-<h4 id="for-docker-compose-setup_1">For Docker Compose Setup</h4>
-<p>Edit your <code>docker-compose.yml</code> file:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1"> 1</a></span>
-<span class="normal"><a href="#__codelineno-5-2"> 2</a></span>
-<span class="normal"><a href="#__codelineno-5-3"> 3</a></span>
-<span class="normal"><a href="#__codelineno-5-4"> 4</a></span>
-<span class="normal"><a href="#__codelineno-5-5"> 5</a></span>
-<span class="normal"><a href="#__codelineno-5-6"> 6</a></span>
-<span class="normal"><a href="#__codelineno-5-7"> 7</a></span>
-<span class="normal"><a href="#__codelineno-5-8"> 8</a></span>
-<span class="normal"><a href="#__codelineno-5-9"> 9</a></span>
-<span class="normal"><a href="#__codelineno-5-10">10</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a><span class="nt">x-app-defaults</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;x_app_default</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2"></a><span class="w">  </span><span class="c1"># ...</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3"></a><span class="w">  </span><span class="nt">environment</span><span class="p">:</span>
-<a id="__codelineno-5-4" name="__codelineno-5-4"></a><span class="w">    </span><span class="nt">CODEBASE_CLIENT</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5"></a><span class="w">    </span><span class="nt">CODEBASE_GITHUB_APP_ID</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">123456</span><span class="w"> </span><span class="c1"># Your GitHub App ID</span>
-<a id="__codelineno-5-6" name="__codelineno-5-6"></a><span class="w">    </span><span class="nt">CODEBASE_GITHUB_INSTALLATION_ID</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">789012</span><span class="w"> </span><span class="c1"># Your Installation ID</span>
-<a id="__codelineno-5-7" name="__codelineno-5-7"></a><span class="w">    </span><span class="nt">CODEBASE_GITHUB_WEBHOOK_SECRET</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">your-webhook-secret-here</span><span class="w"> </span><span class="c1"># The secret you generated</span>
-<a id="__codelineno-5-8" name="__codelineno-5-8"></a><span class="w">    </span><span class="c1"># For GitHub Enterprise, also set:</span>
-<a id="__codelineno-5-9" name="__codelineno-5-9"></a><span class="w">    </span><span class="c1"># CODEBASE_GITHUB_URL: https://github.your-company.com</span>
-<a id="__codelineno-5-10" name="__codelineno-5-10"></a><span class="w">  </span><span class="c1"># ...</span>
-</code></pre></div></td></tr></table></div>
-<p>For the private key, you have two options:</p>
-<p><strong>Option 1: Use Docker secrets (recommended)</strong></p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span>
-<span class="normal"><a href="#__codelineno-6-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a><span class="c1"># Create secret from the downloaded .pem file</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2"></a>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>codebase_github_private_key<span class="w"> </span>/path/to/your-private-key.pem
-</code></pre></div></td></tr></table></div>
-<p><strong>Option 2: Set as environment variable</strong></p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span>
-<span class="normal"><a href="#__codelineno-7-2">2</a></span>
-<span class="normal"><a href="#__codelineno-7-3">3</a></span>
-<span class="normal"><a href="#__codelineno-7-4">4</a></span>
-<span class="normal"><a href="#__codelineno-7-5">5</a></span>
-<span class="normal"><a href="#__codelineno-7-6">6</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a><span class="nt">x-app-defaults</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;x_app_default</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2"></a><span class="w">  </span><span class="nt">environment</span><span class="p">:</span>
-<a id="__codelineno-7-3" name="__codelineno-7-3"></a><span class="w">    </span><span class="nt">CODEBASE_GITHUB_PRIVATE_KEY</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
-<a id="__codelineno-7-4" name="__codelineno-7-4"></a><span class="w">      </span><span class="no">-----BEGIN RSA PRIVATE KEY-----</span>
-<a id="__codelineno-7-5" name="__codelineno-7-5"></a><span class="w">      </span><span class="no">Your private key content here...</span>
-<a id="__codelineno-7-6" name="__codelineno-7-6"></a><span class="w">      </span><span class="no">-----END RSA PRIVATE KEY-----</span>
-</code></pre></div></td></tr></table></div>
-<h4 id="for-docker-swarm-setup_1">For Docker Swarm Setup</h4>
-<p>Create Docker secrets:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1">1</a></span>
-<span class="normal"><a href="#__codelineno-8-2">2</a></span>
-<span class="normal"><a href="#__codelineno-8-3">3</a></span>
-<span class="normal"><a href="#__codelineno-8-4">4</a></span>
-<span class="normal"><a href="#__codelineno-8-5">5</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1"></a><span class="c1"># Create secrets for GitHub integration</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">"123456"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>codebase_github_app_id<span class="w"> </span>-
-<a id="__codelineno-8-3" name="__codelineno-8-3"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">"789012"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>codebase_github_installation_id<span class="w"> </span>-
-<a id="__codelineno-8-4" name="__codelineno-8-4"></a>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>codebase_github_private_key<span class="w"> </span>/path/to/your-private-key.pem
-<a id="__codelineno-8-5" name="__codelineno-8-5"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">"your-webhook-secret-here"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>codebase_github_webhook_secret<span class="w"> </span>-
-</code></pre></div></td></tr></table></div>
+<p>Enter the webhook secret as the <strong>Webhook secret</strong>.</p>
 <div class="admonition warning">
-<p class="admonition-title">Private Key Format</p>
-<p>The private key must be in PEM format. Keep the entire key including the header and footer lines (<code>-----BEGIN RSA PRIVATE KEY-----</code> and <code>-----END RSA PRIVATE KEY-----</code>).</p>
+<p class="admonition-title">Warning</p>
+<p>The <strong>Workflows</strong> permission is optional, and it lets code that runs in the sandbox change files under <code>.github/workflows/</code>. Those workflows run with the repository's Actions secrets, which exposes the secrets to that code. Set it only if DAIV must push to those files.</p>
 </div>
-<h3 id="step-4-verify-webhook-configuration">Step 4: Verify Webhook Configuration</h3>
-<p>Webhooks are configured at the GitHub App level and automatically apply to all repositories where the app is installed. The webhook configuration you set up in Step 1 should already be active.</p>
-<h4 id="verify-webhook-settings">Verify Webhook Settings</h4>
-<ol>
-<li>
-<p><strong>Check Webhook Configuration</strong>:</p>
-<ul>
-<li>Go to your GitHub App settings page</li>
-<li>Scroll down to the <strong>Webhook</strong> section</li>
-<li>Verify the following settings:<ul>
-<li><strong>Webhook URL</strong>: <code>https://your-daiv-instance.com/api/codebase/callbacks/github/</code></li>
-<li><strong>Webhook secret</strong>: The secret you generated earlier</li>
-<li><strong>SSL verification</strong>: Enabled (unless using self-signed certificates)</li>
-<li><strong>Active</strong>: Checked</li>
-</ul>
-</li>
-</ul>
 </li>
 <li>
-<p><strong>Verify Subscribed Events</strong>:</p>
-<ul>
-<li>Scroll down to <strong>Permissions &amp; events</strong> section</li>
-<li>Under <strong>Subscribe to events</strong>, ensure these are checked:<ul>
-<li>✅ Push</li>
-<li>✅ Issues</li>
-<li>✅ Issue comment</li>
-<li>✅ Pull request review</li>
-<li>✅ Pull request review comment (mentions and comments on diff lines of a pull request a DAIV session owns)</li>
-<li>✅ Pull request</li>
-<li>✅ Workflow run (only listed once <strong>Actions</strong> is set to <strong>Read-only</strong>, see Step 1)</li>
-</ul>
+<p>Set the repository permissions listed in <a href="#github-app-permissions-and-events">GitHub App permissions and events</a>.</p>
 </li>
-</ul>
-</li>
+<li>Subscribe the App to the events listed there.</li>
 <li>
-<p><strong>Test Webhook Delivery</strong>:</p>
-<ul>
-<li>Create a test issue in one of your repositories where the app is installed</li>
-<li>Go back to your GitHub App settings</li>
-<li>Click on <strong>Advanced</strong> → <strong>Recent Deliveries</strong></li>
-<li>Check for successful deliveries (200 response code)</li>
-<li>If you see a delivery, click on it to view the request and response details</li>
-</ul>
-</li>
-</ol>
-<div class="admonition tip">
-<p class="admonition-title">Troubleshooting Webhook Delivery</p>
-<p>If webhook deliveries are failing:</p>
-<ul>
-<li>Verify the webhook URL is accessible from GitHub</li>
-<li>Check that SSL certificates are valid (or disable SSL verification for testing)</li>
-<li>Ensure the webhook secret in GitHub App matches <code>CODEBASE_GITHUB_WEBHOOK_SECRET</code></li>
-<li>Review DAIV logs for incoming webhook requests</li>
-</ul>
+<p>Select <strong>Create GitHub App</strong>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>The private key lets whoever holds it act as the App on every installed repository. GitHub offers the <code>.pem</code> file once, so store it where only DAIV's operators can read it.</p>
 </div>
-<h3 id="step-5-configure-repository-behavior">Step 5: Configure Repository Behavior</h3>
-<p>To customize DAIV's behavior, create a <code>.daiv.yml</code> file in your repository's root.</p>
-<p>For complete configuration options, see <a href="../../customization/repository-config/">Repository Config</a>.</p>
-<h3 id="step-6-test-the-integration">Step 6: Test the Integration</h3>
-<p>Verify that DAIV is properly connected to your GitHub repository.</p>
-<ol>
-<li>
-<p><strong>Create a Test Issue</strong>:</p>
-<ul>
-<li>Go to your GitHub repository</li>
-<li>Create a new issue with title: "Add hello world function"</li>
-<li>Add the <code>daiv</code> label to the issue</li>
-</ul>
 </li>
 <li>
-<p><strong>Wait for DAIV Response</strong>:</p>
-<ul>
-<li>DAIV should automatically comment with a plan to address the issue</li>
-<li>Check the issue comments for DAIV's response</li>
-</ul>
+<p>Under <strong>Private keys</strong>, select <strong>Generate a private key</strong>. Your browser downloads a <code>.pem</code> file.</p>
 </li>
-</ol>
-<div class="admonition tip">
-<p class="admonition-title">Tip</p>
-<p>For more on how issue addressing works, see <a href="../../features/issue-addressing/">Issue Addressing</a>.</p>
+<li>Copy the <strong>App ID</strong> from the top of the App's settings page.</li>
+<li>Select <strong>Install App</strong> in the left sidebar.</li>
+<li>Select your account or organization.</li>
+<li>Select <strong>All repositories</strong> or <strong>Only select repositories</strong>, and choose the repositories DAIV works on.</li>
+<li>Select <strong>Install</strong>.</li>
+<li>Copy the installation ID from the page's URL, <code>https://github.com/settings/installations/&lt;installation-id&gt;</code>.</li>
+<li>
+<p>On Docker Compose, in the <code>environment</code> of <code>x-app-defaults</code> in your <code>docker-compose.yml</code>, set <code>CODEBASE_CLIENT: github</code>, <code>CODEBASE_GITHUB_APP_ID</code> to the App ID and <code>CODEBASE_GITHUB_INSTALLATION_ID</code> to the installation ID. For GitHub Enterprise Server, also set <code>CODEBASE_GITHUB_URL</code>, for example <code>https://github.example.com</code>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>A Compose file holds the webhook secret in plain text. Keep it out of version control, and readable only by the users who deploy DAIV.</p>
 </div>
-<h3 id="troubleshooting_1">Troubleshooting</h3>
-<p><strong>Issues not being processed</strong>:</p>
-<ul>
-<li>Ensure the <code>daiv</code> label exists and is added to issues</li>
-<li>Verify the GitHub App has proper permissions (Issues: Read &amp; Write)</li>
-<li>Check DAIV logs for errors</li>
-<li>Verify <code>issue_addressing.enabled: true</code> in <code>.daiv.yml</code> (enabled by default)</li>
+</li>
+<li>
+<p>On Docker Compose, set <code>CODEBASE_GITHUB_WEBHOOK_SECRET</code> in the same <code>environment</code> to the webhook secret.</p>
+</li>
+<li>
+<p>On Docker Compose, add the private key as a file-based secret. Under <code>x-app-defaults</code>, add <code>secrets: [codebase_github_private_key]</code>. At the top level, add:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span>
+<span class="normal"><a href="#__codelineno-3-2">2</a></span>
+<span class="normal"><a href="#__codelineno-3-3">3</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a><span class="nt">secrets</span><span class="p">:</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2"></a><span class="w">  </span><span class="nt">codebase_github_private_key</span><span class="p">:</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3"></a><span class="w">    </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;private-key-path&gt;</span>
+</code></pre></div></td></tr></table></div>
+<p>Replace <code>&lt;private-key-path&gt;</code> with the path of the <code>.pem</code> file. DAIV reads it from <code>/run/secrets/codebase_github_private_key</code>. The <code>secrets:</code> key in <code>x-app-defaults</code> reaches only the services that merge that anchor with <code>&lt;&lt;: *x_app_default</code>, which the <a href="../deployment/#compose-file">Compose file</a> does for <code>app</code>, <code>worker</code>, <code>worker-interactive</code> and <code>scheduler</code>.
+21. On Docker Compose, give the <code>.pem</code> file to the user DAIV runs as, <code>daiv</code> with UID 1001, because Compose keeps the file's owner and permissions. Replace <code>&lt;private-key-path&gt;</code> with the path of the <code>.pem</code> file:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a>sudo<span class="w"> </span>chown<span class="w"> </span><span class="m">1001</span>:1001<span class="w"> </span>&lt;private-key-path&gt;
+</code></pre></div></td></tr></table></div>
+</li>
+<li>
+<p>On Docker Compose, make the file readable by that user only:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a>chmod<span class="w"> </span><span class="m">600</span><span class="w"> </span>&lt;private-key-path&gt;
+</code></pre></div></td></tr></table></div>
+</li>
+<li>
+<p>On Docker Swarm, in <code>x-app-environment-defaults</code> of <code>stack.yml</code>, set <code>CODEBASE_CLIENT: github</code>, <code>CODEBASE_GITHUB_APP_ID</code> and <code>CODEBASE_GITHUB_INSTALLATION_ID</code>. For GitHub Enterprise Server, also set <code>CODEBASE_GITHUB_URL</code>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>A value you type in a command is saved in your shell history and visible in the process list. Run the next command from a shell that does not record history, or from a script that reads the value from a protected file.</p>
+</div>
+</li>
+<li>
+<p>On Docker Swarm, create the webhook secret, replacing <code>&lt;webhook-secret&gt;</code>:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a><span class="nb">printf</span><span class="w"> </span><span class="s1">'%s'</span><span class="w"> </span><span class="s1">'&lt;webhook-secret&gt;'</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>codebase_github_webhook_secret<span class="w"> </span>-
+</code></pre></div></td></tr></table></div>
+</li>
+<li>
+<p>On Docker Swarm, create the private key secret from the <code>.pem</code> file, replacing <code>&lt;private-key-path&gt;</code>:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a>docker<span class="w"> </span>secret<span class="w"> </span>create<span class="w"> </span>codebase_github_private_key<span class="w"> </span>&lt;private-key-path&gt;
+</code></pre></div></td></tr></table></div>
+</li>
+<li>
+<p>On Docker Swarm, add <code>codebase_github_private_key</code> and <code>codebase_github_webhook_secret</code> to the <code>secrets:</code> list of <code>app</code>, <code>worker</code>, <code>worker-interactive</code> and <code>scheduler</code>, and declare both under the top-level <code>secrets:</code> with <code>external: true</code>, as the stack file does for the other secrets.</p>
+</li>
+<li>Redeploy DAIV so it reads the values: <code>docker compose up -d</code> on Compose, or <code>docker stack deploy -c stack.yml daiv</code> on Swarm.</li>
+<li>Create an issue titled "Add hello world function" in a repository where you installed the App.</li>
+<li>Add the <code>daiv</code> label to the issue. If the repository has no <code>daiv</code> label, create it.</li>
+<li>Wait a few seconds. DAIV comments with a plan.</li>
+<li>In your GitHub App's settings, open <strong>Advanced</strong> → <strong>Recent Deliveries</strong>, and check that the <code>issues</code> delivery for the test issue shows a <code>204</code> response. The <code>ping</code> and <code>installation</code> deliveries from before DAIV was configured show an error, and you can ignore them.</li>
 </ul>
-<p><strong>No response to comments</strong>:</p>
+<p>To change DAIV's behavior in a repository, add a <code>.daiv.yml</code> file to its root; <a href="../../customization/repository-config/">Repository configuration</a> lists the options. <a href="../../features/issue-addressing/">Issue addressing</a> explains what DAIV does with an issue.</p>
+<h2 id="github-app-permissions-and-events">GitHub App permissions and events</h2>
+<p>GitHub sends the events of every repository that has the App installed to the one webhook set on the App. DAIV does not create webhooks on GitHub, and <a href="../../reference/management-commands/#setup_webhooks"><code>setup_webhooks</code></a> does nothing there.</p>
+<table>
+<thead>
+<tr>
+<th>Repository permission</th>
+<th>Access</th>
+<th>DAIV uses it to</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Contents</td>
+<td>Read &amp; Write</td>
+<td>Create branches and commits.</td>
+</tr>
+<tr>
+<td>Issues</td>
+<td>Read &amp; Write</td>
+<td>Read and comment on issues.</td>
+</tr>
+<tr>
+<td>Pull requests</td>
+<td>Read &amp; Write</td>
+<td>Create and update pull requests.</td>
+</tr>
+<tr>
+<td>Actions</td>
+<td>Read-only</td>
+<td>Read workflow runs and job logs for <a href="../../features/pipeline-watch/">pipeline watch</a>.</td>
+</tr>
+<tr>
+<td>Workflows</td>
+<td>Read &amp; Write (optional)</td>
+<td>Push changes to files under <code>.github/workflows/</code>, such as a conflict resolved there.</td>
+</tr>
+<tr>
+<td>Metadata</td>
+<td>Read-only</td>
+<td>GitHub selects it for you.</td>
+</tr>
+</tbody>
+</table>
+<p>Subscribe the App to these events:</p>
 <ul>
-<li>Verify webhook events include "Issue comments" and "Pull request reviews"</li>
-<li>Check that webhook secret matches environment variable</li>
-<li>Ensure the app is installed on the repository</li>
+<li><strong>Push</strong></li>
+<li><strong>Issues</strong></li>
+<li><strong>Issue comment</strong></li>
+<li><strong>Pull request review comment</strong>, for mentions and comments on diff lines of a pull request a DAIV session owns</li>
+<li><strong>Pull request</strong></li>
+<li><strong>Workflow run</strong>, which GitHub lists only once <strong>Actions</strong> is <strong>Read-only</strong></li>
 </ul>
-<p><strong>Authentication errors</strong>:</p>
+<p>If you grant a new permission to an App that is already installed, each installation owner must accept it. Until they do, the features that need it do not run on that installation.</p>
+<h2 id="troubleshoot-github">Troubleshoot GitHub</h2>
+<h3 id="webhook-delivery-fails_1">Webhook delivery fails</h3>
 <ul>
-<li>Verify the private key format is correct (PEM format with header/footer)</li>
-<li>Check App ID and Installation ID are correct</li>
-<li>Ensure the GitHub App is installed on the target repositories</li>
+<li>Check that <code>DAIV_EXTERNAL_URL</code> is reachable from GitHub and has a valid SSL certificate.</li>
+<li>Check that the <strong>Webhook secret</strong> in the GitHub App matches <code>CODEBASE_GITHUB_WEBHOOK_SECRET</code>. Without a match, DAIV answers 401.</li>
+<li>Check that <code>CODEBASE_CLIENT</code> is <code>github</code>. Otherwise DAIV answers 403.</li>
+<li>A <code>ping</code> or <code>installation</code> delivery fails even when DAIV is configured, because it has no repository. DAIV answers 422. Check the <code>issues</code> delivery instead.</li>
+<li>Check DAIV's logs for the incoming requests.</li>
 </ul>
-<hr />
+<h3 id="daiv-ignores-an-issue_1">DAIV ignores an issue</h3>
+<ul>
+<li>The issue has no <code>daiv</code> label. Add it.</li>
+<li>The App lacks the <strong>Issues</strong> permission with <strong>Read &amp; Write</strong> access.</li>
+<li><code>issue_addressing.enabled</code> is <code>false</code> in <code>.daiv.yml</code>. It is <code>true</code> by default.</li>
+<li>Check DAIV's logs for errors.</li>
+</ul>
+<h3 id="daiv-does-not-respond-to-comments">DAIV does not respond to comments</h3>
+<ul>
+<li>The App is not subscribed to <strong>Issue comment</strong>, <strong>Pull request review comment</strong> or both. See <a href="#github-app-permissions-and-events">GitHub App permissions and events</a>.</li>
+<li>The App is not installed on the repository.</li>
+</ul>
+<h3 id="daiv-fails-to-start-with-permission-denied-on-the-private-key">DAIV fails to start with permission denied on the private key</h3>
+<p>The log shows <code>permission denied</code> on <code>/run/secrets/codebase_github_private_key</code>. The <code>.pem</code> file is not readable by UID 1001. Run <code>sudo chown 1001:1001 &lt;private-key-path&gt;</code> and <code>chmod 600 &lt;private-key-path&gt;</code>, then restart DAIV.</p>
+<h3 id="authentication-fails">Authentication fails</h3>
+<ul>
+<li>The private key is not in PEM format, or lacks its header and footer lines.</li>
+<li><code>CODEBASE_GITHUB_APP_ID</code> or <code>CODEBASE_GITHUB_INSTALLATION_ID</code> is wrong.</li>
+<li>The App is not installed on the repositories DAIV works on.</li>
+</ul>
 <h2 id="next-steps">Next steps</h2>
-<p>With your repository connected, you can now:</p>
 <ul>
-<li><strong><a href="../llm-providers/">LLM Providers</a></strong> — configure your LLM provider and API keys</li>
-<li><strong><a href="../../customization/repository-config/">Repository Config</a></strong> — customize DAIV's behavior per repository</li>
-<li><strong><a href="../../features/issue-addressing/">Issue Addressing</a></strong> — learn how DAIV handles issues</li>
-<li><strong><a href="../../features/pull-request-assistant/">Pull Request Assistant</a></strong> — learn how DAIV reviews code</li>
+<li><strong><a href="../llm-providers/">LLM providers</a></strong> configures your LLM provider and API keys.</li>
+<li><strong><a href="../../customization/repository-config/">Repository configuration</a></strong> customizes DAIV's behavior per repository.</li>
+<li><strong><a href="../../features/issue-addressing/">Issue addressing</a></strong> explains how DAIV handles issues.</li>
+<li><strong><a href="../../features/pull-request-assistant/">Pull request assistant</a></strong> explains how DAIV reviews code.</li>
 </ul>
 
 
@@ -2567,7 +2333,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 10, 2026 17:23:40 UTC">November 10, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 12, 2026 15:27:46 UTC">November 12, 2026</span>
   </span>
 
     

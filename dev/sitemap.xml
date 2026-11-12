@@ -33,6 +33,10 @@
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
+         <loc>https://docs.daivagent.com/dev/features/memory/</loc>
+         <lastmod>2026-11-12</lastmod>
+    </url>
+    <url>
          <loc>https://docs.daivagent.com/dev/features/merge-metrics/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
@@ -110,6 +114,10 @@
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/reference/env-variables/</loc>
+         <lastmod>2026-11-12</lastmod>
+    </url>
+    <url>
+         <loc>https://docs.daivagent.com/dev/reference/management-commands/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>

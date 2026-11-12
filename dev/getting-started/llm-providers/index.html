@@ -31,7 +31,7 @@
   
     
       
-        <title>LLM Providers - DAIV</title>
+        <title>LLM providers - DAIV</title>
       
     
   
@@ -139,7 +139,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              LLM Providers
+              LLM providers
             
           </span>
         </div>
@@ -433,7 +433,7 @@
   <span class="md-ellipsis">
     
   
-    Platform Setup
+    Platform setup
   
 
     
@@ -461,7 +461,7 @@
   <span class="md-ellipsis">
     
   
-    Accounts & Roles
+    Accounts and roles
   
 
     
@@ -498,7 +498,7 @@
   <span class="md-ellipsis">
     
   
-    LLM Providers
+    LLM providers
   
 
     
@@ -516,7 +516,7 @@
   <span class="md-ellipsis">
     
   
-    LLM Providers
+    LLM providers
   
 
     
@@ -542,18 +542,39 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#how-models-are-specified" class="md-nav__link">
+  <a href="#provider-api-keys" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How models are specified
+        Provider API keys
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="How models are specified">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#set-up-a-provider" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Set up a provider
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#model-specs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model specs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#default-models" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -563,50 +584,12 @@
   </a>
   
 </li>
-        
-      </ul>
-    </nav>
-  
-</li>
       
         <li class="md-nav__item">
-  <a href="#openrouter" class="md-nav__link">
+  <a href="#retries-on-provider-errors" class="md-nav__link">
     <span class="md-ellipsis">
       
-        OpenRouter
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#openai" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        OpenAI
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#anthropic" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Anthropic
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#google-gemini" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Google Gemini
+        Retries on provider errors
       
     </span>
   </a>
@@ -621,6 +604,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Custom providers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#keep-prompt-caching-on-a-self-hosted-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keep prompt caching on a self-hosted model
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -701,7 +701,7 @@
   <span class="md-ellipsis">
     
   
-    Issue Addressing
+    Issue addressing
   
 
     
@@ -729,7 +729,7 @@
   <span class="md-ellipsis">
     
   
-    Pull Request Assistant
+    Pull request assistant
   
 
     
@@ -757,7 +757,35 @@
   <span class="md-ellipsis">
     
   
-    Pipeline Watch
+    Pipeline watch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository memory
   
 
     
@@ -841,7 +869,7 @@
   <span class="md-ellipsis">
     
   
-    Scheduled Jobs
+    Scheduled jobs
   
 
     
@@ -897,7 +925,7 @@
   <span class="md-ellipsis">
     
   
-    MCP Endpoint
+    MCP endpoint
   
 
     
@@ -953,7 +981,7 @@
   <span class="md-ellipsis">
     
   
-    Merge Metrics
+    Merge metrics
   
 
     
@@ -981,7 +1009,7 @@
   <span class="md-ellipsis">
     
   
-    Slash Commands & Skills
+    Slash commands and skills
   
 
     
@@ -1065,7 +1093,7 @@
   <span class="md-ellipsis">
     
   
-    Sandbox Environments
+    Sandbox environments
   
 
     
@@ -1147,7 +1175,7 @@
   <span class="md-ellipsis">
     
   
-    Request Tracker Triage
+    Request Tracker triage
   
 
     
@@ -1229,7 +1257,7 @@
   <span class="md-ellipsis">
     
   
-    Repository Config
+    Repository configuration
   
 
     
@@ -1257,7 +1285,7 @@
   <span class="md-ellipsis">
     
   
-    Agent Skills
+    Agent skills
   
 
     
@@ -1285,7 +1313,7 @@
   <span class="md-ellipsis">
     
   
-    MCP Tools
+    MCP tools
   
 
     
@@ -1367,7 +1395,7 @@
   <span class="md-ellipsis">
     
   
-    Environment Variables
+    Environment variables
   
 
     
@@ -1395,7 +1423,7 @@
   <span class="md-ellipsis">
     
   
-    Site Configuration
+    Site configuration
   
 
     
@@ -1423,7 +1451,7 @@
   <span class="md-ellipsis">
     
   
-    Agent Architecture
+    Agent tools
   
 
     
@@ -1452,6 +1480,34 @@
     
   
     Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/management-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Management commands
   
 
     
@@ -1554,18 +1610,39 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#how-models-are-specified" class="md-nav__link">
+  <a href="#provider-api-keys" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How models are specified
+        Provider API keys
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="How models are specified">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#set-up-a-provider" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Set up a provider
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#model-specs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model specs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#default-models" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1575,50 +1652,12 @@
   </a>
   
 </li>
-        
-      </ul>
-    </nav>
-  
-</li>
       
         <li class="md-nav__item">
-  <a href="#openrouter" class="md-nav__link">
+  <a href="#retries-on-provider-errors" class="md-nav__link">
     <span class="md-ellipsis">
       
-        OpenRouter
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#openai" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        OpenAI
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#anthropic" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Anthropic
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#google-gemini" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Google Gemini
+        Retries on provider errors
       
     </span>
   </a>
@@ -1633,6 +1672,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Custom providers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#keep-prompt-caching-on-a-self-hosted-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keep prompt caching on a self-hosted model
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1709,54 +1765,100 @@
   
 
 
-<h1 id="llm-providers">LLM Providers</h1>
-<p>DAIV supports the following LLM providers:</p>
+<h1 id="llm-providers">LLM providers</h1>
+<p>DAIV runs on these LLM providers:</p>
 <ul>
-<li><a href="https://openrouter.ai">OpenRouter</a> (<strong>default</strong>)</li>
+<li><a href="https://openrouter.ai">OpenRouter</a> (default)</li>
 <li><a href="https://openai.com">OpenAI</a></li>
 <li><a href="https://anthropic.com">Anthropic</a></li>
 <li><a href="https://gemini.google.com">Google Gemini</a></li>
 </ul>
-<p>You can mix providers — for example, use OpenRouter for the main agent and a direct provider for a specific model override.</p>
-<h2 id="how-models-are-specified">How models are specified</h2>
-<p>Models use a <strong>prefix system</strong> to identify the provider:</p>
+<p>You can mix providers, for example OpenRouter for the main agent and a direct provider for one model override. An admin can add any other OpenAI-compatible endpoint as a <a href="#custom-providers">custom provider</a>.</p>
+<h2 id="provider-api-keys">Provider API keys</h2>
+<p>DAIV reads a provider's API key once, at its first start, from the provider's environment variable or from a Docker secret named after the variable in lowercase, such as <code>openrouter_api_key</code>. From then on you change the keys, and the providers' other settings, under <strong>Configuration</strong> → <strong>Providers</strong> in the dashboard. A change to the variable or the secret after the first start has no effect.</p>
+<p><a href="../../reference/env-variables/#llm-providers">LLM providers</a> in the environment variables reference lists the variables. <a href="../../reference/site-configuration/#providers">Providers</a> in the site configuration reference describes the fields of a provider.</p>
+<h2 id="set-up-a-provider">Set up a provider</h2>
+<p>Set up a provider before DAIV's first start. You need an API key from the provider, and the default models need only OpenRouter's key.</p>
 <table>
 <thead>
 <tr>
-<th>Prefix</th>
 <th>Provider</th>
+<th>Get an API key</th>
+<th>Variable</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>OpenRouter</td>
+<td><a href="https://openrouter.ai/settings/keys">OpenRouter Settings</a></td>
+<td><code>OPENROUTER_API_KEY</code></td>
+</tr>
+<tr>
+<td>OpenAI</td>
+<td><a href="https://platform.openai.com/api-keys">OpenAI</a></td>
+<td><code>OPENAI_API_KEY</code></td>
+</tr>
+<tr>
+<td>Anthropic</td>
+<td><a href="https://console.anthropic.com/settings/keys">Anthropic</a></td>
+<td><code>ANTHROPIC_API_KEY</code></td>
+</tr>
+<tr>
+<td>Google Gemini</td>
+<td><a href="https://aistudio.google.com/apikey">AI Studio</a></td>
+<td><code>GOOGLE_API_KEY</code></td>
+</tr>
+</tbody>
+</table>
+<ol>
+<li>Get an API key from the provider's page in the table.</li>
+<li>In DAIV's <code>.env</code> file, set the provider's variable to the key. Alternatively, mount a Docker secret named after the variable in lowercase.</li>
+<li>Start DAIV.</li>
+</ol>
+<p>A provider whose key was not set at the first start begins disabled. To set up a provider on a running install, open <strong>Configuration</strong> → <strong>Providers</strong>, set the provider's <strong>API key</strong>, turn on <strong>Enabled</strong>, and select <strong>Save configuration</strong>. Saving a key does not enable a disabled provider. <a href="../../reference/site-configuration/#providers">Providers</a> describes the fields.</p>
+<h2 id="model-specs">Model specs</h2>
+<p>A model spec names a model and its provider. OpenRouter models take the <code>openrouter:</code> prefix. Direct providers' models take no prefix, and DAIV picks the provider from the start of the name:</p>
+<table>
+<thead>
+<tr>
+<th>Provider</th>
+<th>Model spec</th>
 <th>Example</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>openrouter:</code></td>
 <td>OpenRouter</td>
+<td><code>openrouter:</code> followed by the <a href="https://openrouter.ai/models">model name from OpenRouter</a></td>
 <td><code>openrouter:anthropic/claude-sonnet-5.5</code></td>
 </tr>
 <tr>
-<td><code>claude</code></td>
 <td>Anthropic (direct)</td>
+<td>A name starting with <code>claude</code>, from the <a href="https://docs.anthropic.com/en/docs/about-claude/models/all-models#model-names">model names Anthropic lists</a></td>
 <td><code>claude-sonnet-5-5</code></td>
 </tr>
 <tr>
-<td><code>gpt-4</code>, <code>gpt-5</code>, <code>gpt-6</code>, <code>o4</code></td>
 <td>OpenAI (direct)</td>
+<td>A name starting with <code>gpt-4</code>, <code>gpt-5</code>, <code>gpt-6</code> or <code>o4</code>, from the <a href="https://platform.openai.com/docs/models">model names OpenAI lists</a></td>
 <td><code>gpt-6.1-sol</code></td>
 </tr>
 <tr>
-<td><code>gemini</code></td>
 <td>Google Gemini (direct)</td>
+<td>A name starting with <code>gemini</code>, from the <a href="https://ai.google.dev/gemini-api/docs/models">model names Gemini lists</a></td>
 <td><code>gemini-3.8-flash</code></td>
 </tr>
 </tbody>
 </table>
-<p>DAIV resolves the provider automatically from the model name. No extra configuration is needed beyond setting the API key for the provider you want to use, before DAIV's first start, as an environment variable or as a Docker secret named after it in lowercase (<code>openrouter_api_key</code>): DAIV copies the keys into its database then, and from there on you change them under <strong>Configuration → Providers</strong> in the dashboard, not in the environment (see <a href="../../reference/env-variables/#automation-llm-providers">Provider keys are seed-only</a>).</p>
-<div class="admonition tip">
-<p class="admonition-title">Tip</p>
-<p>In the dashboard, the agent picker offers a live model dropdown built from each enabled provider's API (cached for 15 minutes), so you can choose a model without memorizing its full spec. Free-text entry remains available as a fallback.</p>
-</div>
-<h3 id="default-models">Default models</h3>
+<p>A provider's slug also works as a prefix, so <code>anthropic:claude-sonnet-5-5</code> is the same model as <code>claude-sonnet-5-5</code>. The slug of Google Gemini is <code>google_genai</code>, and DAIV also accepts <code>google:</code>.</p>
+<p>To use a model spec for one repository, set it in <code>.daiv.yml</code>; <a href="../../customization/repository-config/#model-overrides">Model overrides</a> lists every option. For example:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span>
+<span class="normal"><a href="#__codelineno-0-2">2</a></span>
+<span class="normal"><a href="#__codelineno-0-3">3</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="nt">models</span><span class="p">:</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2"></a><span class="w">  </span><span class="nt">agent</span><span class="p">:</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3"></a><span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">"claude-sonnet-5-5"</span>
+</code></pre></div></td></tr></table></div>
+<p>In the dashboard, the agent picker offers a model dropdown built from each enabled provider's API and cached for 15 minutes, so you can choose a model without typing its spec. Free-text entry stays available as a fallback.</p>
+<h2 id="default-models">Default models</h2>
 <table>
 <thead>
 <tr>
@@ -1768,172 +1870,35 @@
 <tbody>
 <tr>
 <td>Main agent</td>
-<td>Claude Sonnet 5.5</td>
-<td>GPT-6.1 Sol</td>
+<td><code>openrouter:anthropic/claude-sonnet-5.5</code></td>
+<td><code>openrouter:openai/gpt-6.1-sol</code></td>
 </tr>
 <tr>
 <td>Max mode</td>
-<td>Claude Opus 5.5</td>
+<td><code>openrouter:anthropic/claude-opus-5.5</code></td>
 <td>The main agent's models</td>
 </tr>
 <tr>
 <td>Explore subagent</td>
-<td>Claude Haiku 5.5</td>
+<td><code>openrouter:anthropic/claude-haiku-5.5</code></td>
 <td>The main agent's models</td>
 </tr>
 </tbody>
 </table>
-<p>Smaller tasks such as titling, merge request metadata and memory have their own defaults, listed in <a href="../../reference/env-variables/">Environment Variables</a>. All defaults route through OpenRouter, so only <code>OPENROUTER_API_KEY</code> is required for a basic setup. Choose the explore subagent's model with an <code>explore</code> entry in the subagent models (see <a href="../../features/subagents/#choosing-a-subagents-model">Subagents</a>). Override models per repository in <code>.daiv.yml</code> — see <a href="../../customization/repository-config/#model-overrides">Repository Config</a>.</p>
-<hr />
-<h2 id="openrouter">OpenRouter</h2>
-<p>OpenRouter is the <strong>default provider</strong> for DAIV. It provides access to models from multiple vendors with built-in fallback support.</p>
-<p><strong>Setup:</strong></p>
-<ol>
-<li>Obtain an API key from <a href="https://openrouter.ai/settings/keys">OpenRouter Settings</a></li>
-<li>Set the environment variable:
-   <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>OPENROUTER_API_KEY=your-api-key-here
-</code></pre></div></td></tr></table></div></li>
-</ol>
-<p><strong>Model format:</strong></p>
-<p>Use the <code>openrouter:</code> prefix followed by the <a href="https://openrouter.ai/models">model name from OpenRouter</a>:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span>
-<span class="normal"><a href="#__codelineno-1-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a>openrouter:anthropic/claude-sonnet-5.5
-<a id="__codelineno-1-2" name="__codelineno-1-2"></a>openrouter:openai/gpt-6.1-sol
-</code></pre></div></td></tr></table></div>
-<p><strong>Per-repository override</strong> (<code>.daiv.yml</code>):</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span>
-<span class="normal"><a href="#__codelineno-2-2">2</a></span>
-<span class="normal"><a href="#__codelineno-2-3">3</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a><span class="nt">models</span><span class="p">:</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2"></a><span class="w">  </span><span class="nt">agent</span><span class="p">:</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3"></a><span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">"openrouter:anthropic/claude-sonnet-5.5"</span>
-</code></pre></div></td></tr></table></div>
-<hr />
-<h2 id="openai">OpenAI</h2>
-<p><strong>Setup:</strong></p>
-<ol>
-<li>Obtain an API key from <a href="https://platform.openai.com/api-keys">OpenAI</a></li>
-<li>Set the environment variable:
-   <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a>OPENAI_API_KEY=your-api-key-here
-</code></pre></div></td></tr></table></div></li>
-</ol>
-<p><strong>Model format:</strong></p>
-<p>Use the <a href="https://platform.openai.com/docs/models">model name from OpenAI</a> directly (no prefix needed):</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span>
-<span class="normal"><a href="#__codelineno-4-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a>gpt-6.1-sol
-<a id="__codelineno-4-2" name="__codelineno-4-2"></a>gpt-6-luna
-</code></pre></div></td></tr></table></div>
-<p><strong>Per-repository override</strong> (<code>.daiv.yml</code>):</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1">1</a></span>
-<span class="normal"><a href="#__codelineno-5-2">2</a></span>
-<span class="normal"><a href="#__codelineno-5-3">3</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a><span class="nt">models</span><span class="p">:</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2"></a><span class="w">  </span><span class="nt">agent</span><span class="p">:</span>
-<a id="__codelineno-5-3" name="__codelineno-5-3"></a><span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">"gpt-6.1-sol"</span>
-</code></pre></div></td></tr></table></div>
-<hr />
-<h2 id="anthropic">Anthropic</h2>
-<p><strong>Setup:</strong></p>
-<ol>
-<li>Obtain an API key from <a href="https://console.anthropic.com/settings/keys">Anthropic</a></li>
-<li>Set the environment variable:
-   <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a>ANTHROPIC_API_KEY=your-api-key-here
-</code></pre></div></td></tr></table></div></li>
-</ol>
-<p><strong>Model format:</strong></p>
-<p>Use the <a href="https://docs.anthropic.com/en/docs/about-claude/models/all-models#model-names">model name from Anthropic</a> directly (no prefix needed):</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span>
-<span class="normal"><a href="#__codelineno-7-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a>claude-sonnet-5-5
-<a id="__codelineno-7-2" name="__codelineno-7-2"></a>claude-opus-5-5
-</code></pre></div></td></tr></table></div>
-<p><strong>Per-repository override</strong> (<code>.daiv.yml</code>):</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1">1</a></span>
-<span class="normal"><a href="#__codelineno-8-2">2</a></span>
-<span class="normal"><a href="#__codelineno-8-3">3</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1"></a><span class="nt">models</span><span class="p">:</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2"></a><span class="w">  </span><span class="nt">agent</span><span class="p">:</span>
-<a id="__codelineno-8-3" name="__codelineno-8-3"></a><span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">"claude-sonnet-5-5"</span>
-</code></pre></div></td></tr></table></div>
-<div class="admonition warning">
-<p class="admonition-title">Warning</p>
-<p>We love Anthropic, but unfortunately their API is very unstable and often returns errors.
-Also, the rate limits could be exceeded very quickly.</p>
-</div>
-<hr />
-<h2 id="google-gemini">Google Gemini</h2>
-<p><strong>Setup:</strong></p>
-<ol>
-<li>Obtain an API key from <a href="https://aistudio.google.com/apikey">AI Studio</a></li>
-<li>Set the environment variable:
-   <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-9-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1"></a>GOOGLE_API_KEY=your-api-key-here
-</code></pre></div></td></tr></table></div></li>
-</ol>
-<p><strong>Model format:</strong></p>
-<p>Use the <a href="https://ai.google.dev/gemini-api/docs/models">model name from Gemini</a> directly (no prefix needed):</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-10-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1"></a>gemini-3.8-flash
-</code></pre></div></td></tr></table></div>
-<p><strong>Per-repository override</strong> (<code>.daiv.yml</code>):</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-11-1">1</a></span>
-<span class="normal"><a href="#__codelineno-11-2">2</a></span>
-<span class="normal"><a href="#__codelineno-11-3">3</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1"></a><span class="nt">models</span><span class="p">:</span>
-<a id="__codelineno-11-2" name="__codelineno-11-2"></a><span class="w">  </span><span class="nt">agent</span><span class="p">:</span>
-<a id="__codelineno-11-3" name="__codelineno-11-3"></a><span class="w">    </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="s">"gemini-3.8-flash"</span>
-</code></pre></div></td></tr></table></div>
-<hr />
+<p>Smaller tasks such as titling, merge request metadata and memory have their own defaults, listed in <a href="../../reference/env-variables/">Environment variables</a>. All defaults route through OpenRouter, so only <code>OPENROUTER_API_KEY</code> is required for a basic setup. Choose the explore subagent's model with an <code>explore</code> entry in the subagent models: see <a href="../../features/subagents/#subagent-model-precedence">Subagents</a>.</p>
+<h2 id="retries-on-provider-errors">Retries on provider errors</h2>
+<p>DAIV retries a failed call to a provider's API when the failure is transient. For Anthropic's API, that means a connection error, or a 408, 409, 429 or 5xx response. DAIV retries up to <code>DAIV_MODEL_MAX_RETRIES</code> times (default <code>2</code>; see <a href="../../reference/env-variables/#model-requests">Model requests</a>). A 400 or 401 response is not retried. If the call still fails, DAIV tries the fallback model, when one is set. If that fails too, the run ends with the error.</p>
+<p>If runs end on rate-limit errors, raise <code>DAIV_MODEL_MAX_RETRIES</code> or ask Anthropic for a higher rate limit.</p>
 <h2 id="custom-providers">Custom providers</h2>
-<p>Beyond the four providers above, admins can register additional providers from the <strong>Configuration UI</strong> at <code>/dashboard/configuration/</code> (under the providers section). This is mainly for self-hosted, OpenAI-compatible endpoints — vLLM, llama.cpp, LiteLLM, or an internal gateway — but applies to any of the supported wire protocols.</p>
-<p>When you add a provider, you choose:</p>
-<table>
-<thead>
-<tr>
-<th>Field</th>
-<th>Purpose</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Slug</strong></td>
-<td>A short identifier that becomes the model prefix (<code>your-slug:model_name</code>). Must start with a lowercase letter; lowercase letters, digits, <code>-</code>, <code>_</code>; max 32 chars. Immutable after creation.</td>
-</tr>
-<tr>
-<td><strong>Provider type</strong></td>
-<td>The wire protocol used to talk to the server — one of OpenAI, Anthropic, Google Gemini, or OpenRouter.</td>
-</tr>
-<tr>
-<td><strong>Base URL</strong></td>
-<td>The endpoint to call instead of the provider's default (for example, your vLLM server). For OpenAI-typed servers, include the version segment (e.g. <code>/v1</code>).</td>
-</tr>
-<tr>
-<td><strong>API key</strong></td>
-<td>The credential for the endpoint (encrypted at rest).</td>
-</tr>
-<tr>
-<td><strong>Extra headers</strong></td>
-<td>A JSON object of additional request headers (e.g. <code>{"X-Foo": "bar"}</code>). Agent-managed headers take precedence.</td>
-</tr>
-<tr>
-<td><strong>Use Responses API</strong></td>
-<td>Only honored for OpenAI-typed providers. Enable for servers that expose <code>/v1/responses</code>; leave off for <code>/v1/chat/completions</code>-only servers (vLLM, llama.cpp, most LiteLLM setups).</td>
-</tr>
-<tr>
-<td><strong>Verify TLS certificates</strong></td>
-<td>Disable only for self-hosted endpoints behind an internal or self-signed CA. Skipping verification exposes the connection to MITM attacks — prefer mounting the CA into the DAIV containers when possible. Honored only for OpenAI- and OpenRouter-typed providers.</td>
-</tr>
-</tbody>
-</table>
-<p>Once the row exists, reference its models using the slug as a prefix:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-12-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1"></a>your-slug:model_name
+<p>An admin can register providers beyond the four above, mainly self-hosted, OpenAI-compatible endpoints such as vLLM, llama.cpp, LiteLLM or an internal gateway. A custom provider works with any of the supported wire protocols.</p>
+<p>You need the admin role to add a custom provider. Under <strong>Configuration</strong> → <strong>Providers</strong>, the steps in <a href="../../reference/site-configuration/#add-a-custom-provider">Add a custom provider</a> create the provider with a slug, a provider type, a base URL, an API key and a few options. <a href="../../reference/site-configuration/#provider-fields">Provider fields</a> describes them.</p>
+<p>Once the provider exists, reference its models with the slug as a prefix:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a>&lt;slug&gt;:&lt;model-name&gt;
 </code></pre></div></td></tr></table></div>
-<p>You can use this prefix anywhere a model is specified, including the <code>.daiv.yml</code> <a href="../../customization/repository-config/#model-overrides">model overrides</a>.</p>
-<div class="admonition tip">
-<p class="admonition-title">Prompt caching with on-demand tools</p>
-<p>The agent loads most of its tools on demand. On models listed in <code>DEFERRED_TOOLS_FROZEN_TOOLS_MODELS</code>, loading a tool keeps the provider's prompt cache; on any other model, the first use of each tool re-sends the conversation uncached. Before adding a self-hosted model to that list, check that it can call a tool it only saw in a <code>tool_search</code> result: run <code>tests/integration_tests/test_deferred_tools_frozen.py</code> against it (the command is in that file's docstring). List the model name without your provider slug, e.g. <code>qwen3-coder</code> for <code>vllm:qwen3-coder</code>.</p>
-</div>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>The four built-in providers (OpenRouter, OpenAI, Anthropic, Google Gemini) are locked: their slug and provider type cannot be changed and the rows cannot be deleted. Custom providers you add are fully editable and removable.</p>
-</div>
-<div class="admonition info">
-<p class="admonition-title">Admin only</p>
-<p>Managing providers requires an admin account. See <a href="../../reference/env-variables/#automation-llm-providers">Automation: LLM Providers</a> for how the built-in providers map to environment variables.</p>
-</div>
+<p>Replace <code>&lt;slug&gt;</code> with the provider's slug and <code>&lt;model-name&gt;</code> with a model the endpoint serves. You can use this prefix anywhere a model is specified, including the <code>.daiv.yml</code> <a href="../../customization/repository-config/#model-overrides">model overrides</a>.</p>
+<h3 id="keep-prompt-caching-on-a-self-hosted-model">Keep prompt caching on a self-hosted model</h3>
+<p>The agent loads most of its tools on demand. On models listed in <code>DEFERRED_TOOLS_FROZEN_TOOLS_MODELS</code>, loading a tool keeps the provider's prompt cache. On any other model, the first use of each tool re-sends the conversation uncached.</p>
+<p>Before you add a self-hosted model to that list, check that it can call a tool it only saw in a <code>tool_search</code> result: run <code>tests/integration_tests/test_deferred_tools_frozen.py</code> against it, using the command in that file's docstring. List the model name without your provider slug, for example <code>qwen3-coder</code> for <code>vllm:qwen3-coder</code>. <a href="../../reference/env-variables/">Environment variables</a> describes the setting.</p>
 
 
 
@@ -1956,7 +1921,7 @@ Also, the rate limits could be exceeded very quickly.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 12, 2026 10:51:27 UTC">November 12, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 12, 2026 15:27:46 UTC">November 12, 2026</span>
   </span>
 
     

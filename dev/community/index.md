@@ -22,7 +22,7 @@ Everyone taking part in the project is expected to follow the [Code of Conduct](
 
 ## License and funding
 
-DAIV is [Apache-2.0](https://github.com/srtab/daiv/blob/main/LICENSE) and will stay that way. There is no paid tier today; if paid support or hosting is ever offered, it will run the same open-source code, not a separately licensed edition. It is maintained by Sandro Rodrigues.
+DAIV is [Apache-2.0](https://github.com/srtab/daiv/blob/main/LICENSE) licensed, and it has no paid tier. It is maintained by Sandro Rodrigues.
 
 ## Resources
 
