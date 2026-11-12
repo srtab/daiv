@@ -185,6 +185,16 @@ Two more fields follow the same `DAIV_<FIELD_NAME>` convention and so are env-lo
 !!! note
     `DAIV_ENCRYPTION_KEY` protects API keys and other secrets stored in the configuration database. If you provide a raw Fernet key it is used directly; otherwise the value is treated as a passphrase and a key is derived via HKDF-SHA256. When omitted, the key is derived from `DJANGO_SECRET_KEY` — changing the Django secret key in that case will make existing encrypted values unreadable.
 
+### Analytics
+
+| Variable                | Description                        | Default        | Example         |
+|-------------------------|------------------------------------|:--------------:|-----------------|
+| `DAIV_UMAMI_WEBSITE_ID` | [Umami](https://umami.is/) website ID. When set, the public homepage and `/compare/` pages load Umami's tracker for signed-out visitors. | *(none)* | `0b6bd0c4-5d6c-4f2e-9a43-1d2e3f4a5b6c` |
+| `DAIV_UMAMI_SCRIPT_URL` | URL of Umami's tracker script; set it to use a self-hosted Umami. | `https://cloud.umami.is/script.js` | `https://stats.example.com/script.js` |
+
+!!! note
+    Analytics is off unless `DAIV_UMAMI_WEBSITE_ID` is set, so a DAIV install sends no visitor data anywhere by default. When it is set, the tracker uses no cookies, honours the browser's Do Not Track setting, and never loads for signed-in users or on dashboard pages.
+
 ---
 
 ## Codebase
@@ -259,7 +269,7 @@ This section documents the environment variables for each LLM provider.
     At least one of the [supported providers](../getting-started/llm-providers.md) should be configured to use the automation features.
 
 !!! warning "Provider keys are seed-only"
-    Unlike the rest of the configurable settings on this page, these provider API key variables are **not** part of the env > database > default override chain. They are read **only once** — on first run / upgrade — to seed the provider records, after which the authoritative, runtime-editable key and base URL live on the **Providers** section of the Configuration UI at `/dashboard/configuration/`. Changing a `*_API_KEY` environment variable after the provider record exists has no effect; edit the provider in the UI instead. The OpenRouter base URL is likewise a per-provider **Base URL** field in that section (it defaults to `https://openrouter.ai/api/v1`).
+    Unlike the rest of the configurable settings on this page, these provider API key variables are **not** part of the env > database > default override chain. They are read **only once** — on first run / upgrade — to seed the provider records, after which the authoritative, runtime-editable key and base URL live on the **Providers** section of the Configuration UI at `/dashboard/configuration/`. Each key is read from a Docker secret named after the variable in lowercase (for example `openrouter_api_key`, mounted at `/run/secrets/openrouter_api_key`), or else from the environment variable; the secret wins when both are set. Changing, or adding, a `*_API_KEY` variable or secret after the provider record exists has no effect; edit the provider in the UI instead. The OpenRouter base URL is likewise a per-provider **Base URL** field in that section (it defaults to `https://openrouter.ai/api/v1`).
 
 ### OpenRouter (*default*)
 

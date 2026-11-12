@@ -39,7 +39,7 @@ class Command(BaseCommand):
         if codebase_settings.CLIENT == GitPlatform.GITHUB:
             logger.warning(
                 "GitHub webhooks must be set on the GitHub App configuration: "
-                "https://srtab.github.io/daiv/dev/getting-started/platform-setup/#step-4-verify-webhook-configuration"
+                "https://docs.daivagent.com/dev/getting-started/platform-setup/#step-4-verify-webhook-configuration"
             )
             return
 

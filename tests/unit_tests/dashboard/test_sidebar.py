@@ -48,7 +48,7 @@ class TestSidebarDocsLink:
     def test_footer_links_the_user_docs_with_a_collapsible_label(self, member_client):
         content = member_client.get(reverse("sandbox_envs:list")).content.decode()
         link = BeautifulSoup(content, "html.parser").select_one('[data-testid="sidebar-docs-link"]')
-        assert link["href"] == "https://srtab.github.io/daiv/latest/"
+        assert link["href"] == "https://docs.daivagent.com/latest/"
         assert link["target"] == "_blank"
         assert "sidebar__footer-link" in link["class"]
         assert link.select_one(".sidebar__collapsible").get_text() == "Help & docs"

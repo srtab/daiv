@@ -9,6 +9,7 @@ from skills.pages import SkillPageMixin
 from core.mixins import AdminRequiredMixin
 from dashboard import home, insights, landing
 from dashboard.comparisons import CHECKED, COMPARISONS, COMPARISONS_BY_SLUG
+from dashboard.conf import settings as dashboard_settings
 from dashboard.context_processors import running_jobs_count
 from dashboard.sidebar import SESSIONS_PAGE, sidebar_lists
 from dashboard.skill_usage import RECENT_RUNS, match_runs, skill_usage
@@ -17,8 +18,17 @@ from dashboard.skill_usage import RECENT_RUNS, match_runs, skill_usage
 class LandingPageView(TemplateView):
     def get_context_data(self, **kwargs):
         return super().get_context_data(
-            quickstart_url=landing.QUICKSTART_URL, deployment_url=landing.DEPLOYMENT_URL, **kwargs
+            quickstart_url=landing.QUICKSTART_URL, deployment_url=landing.DEPLOYMENT_URL, umami=self.umami(), **kwargs
         )
+
+    def umami(self) -> dict[str, str] | None:
+        """Umami's tracker settings, for a signed-out visitor on an install that set a website ID."""
+        if dashboard_settings.UMAMI_WEBSITE_ID is None or self.request.user.is_authenticated:
+            return None
+        return {
+            "script_url": str(dashboard_settings.UMAMI_SCRIPT_URL),
+            "website_id": str(dashboard_settings.UMAMI_WEBSITE_ID),
+        }
 
 
 class HomepageView(LandingPageView):

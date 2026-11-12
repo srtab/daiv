@@ -13,6 +13,8 @@ import pytest
 from bs4 import BeautifulSoup
 from dashboard import landing
 from dashboard.comparisons import COMPARISONS
+from dashboard.conf import DashboardSettings
+from dashboard.conf import settings as dashboard_settings
 from dashboard.home import INBOX_LIMIT
 from dashboard.sidebar import SidebarLists
 from dashboard.tasks import BOT_USERNAME_CACHE_KEY, BOT_USERNAME_PENDING_KEY
@@ -124,6 +126,40 @@ class TestComparison:
 
         for comparison in COMPARISONS:
             assert reverse("comparison", args=[comparison.slug]) in content
+
+
+UMAMI_WEBSITE_ID = uuid.UUID("0b6bd0c4-5d6c-4f2e-9a43-1d2e3f4a5b6c")
+UMAMI_TAG = f'data-website-id="{UMAMI_WEBSITE_ID}"'
+COMPARISON = ("comparison", [COMPARISONS[0].slug])
+
+
+@pytest.mark.django_db
+class TestUmamiAnalytics:
+    @pytest.fixture
+    def umami(self, monkeypatch):
+        monkeypatch.setattr(dashboard_settings, "UMAMI_WEBSITE_ID", UMAMI_WEBSITE_ID)
+        monkeypatch.setattr(dashboard_settings, "UMAMI_SCRIPT_URL", "https://stats.example.com/script.js")
+
+    def test_off_unless_an_install_sets_a_website_id(self, monkeypatch):
+        monkeypatch.delenv("DAIV_UMAMI_WEBSITE_ID", raising=False)
+        monkeypatch.setattr(dashboard_settings, "UMAMI_WEBSITE_ID", DashboardSettings().UMAMI_WEBSITE_ID)
+
+        assert "data-website-id" not in Client().get(reverse("homepage")).content.decode()
+
+    @pytest.mark.usefixtures("umami")
+    @pytest.mark.parametrize(("name", "args"), [("homepage", []), COMPARISON])
+    def test_public_pages_load_the_tracker_for_signed_out_visitors(self, name, args):
+        content = Client().get(reverse(name, args=args)).content.decode()
+
+        assert f'<script defer src="https://stats.example.com/script.js" {UMAMI_TAG}' in content
+
+    @pytest.mark.usefixtures("umami")
+    @pytest.mark.parametrize(("name", "args"), [COMPARISON, ("dashboard", [])])
+    def test_signed_in_users_are_never_tracked(self, member_client, name, args):
+        response = member_client.get(reverse(name, args=args))
+
+        assert response.status_code == 200
+        assert UMAMI_TAG not in response.content.decode()
 
 
 @pytest.mark.django_db
