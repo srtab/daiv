@@ -1598,7 +1598,7 @@ Models use a **prefix system** to identify the provider:
 | `gpt-4`, `gpt-5`, `gpt-6`, `o4` | OpenAI (direct)        | `gpt-6.1-sol`                            |
 | `gemini`                        | Google Gemini (direct) | `gemini-3.8-flash`                       |
 
-DAIV resolves the provider automatically from the model name. No extra configuration is needed beyond setting the API key for the provider you want to use, before DAIV's first start: DAIV copies the keys into its database then, and from there on you change them under **Configuration → Providers** in the dashboard, not in the environment (see [Provider keys are seed-only](https://srtab.github.io/daiv/dev/reference/env-variables/#automation-llm-providers)).
+DAIV resolves the provider automatically from the model name. No extra configuration is needed beyond setting the API key for the provider you want to use, before DAIV's first start, as an environment variable or as a Docker secret named after it in lowercase (`openrouter_api_key`): DAIV copies the keys into its database then, and from there on you change them under **Configuration → Providers** in the dashboard, not in the environment (see [Provider keys are seed-only](https://srtab.github.io/daiv/dev/reference/env-variables/#automation-llm-providers)).
 
 Tip
 
@@ -5242,7 +5242,7 @@ At least one of the [supported providers](https://srtab.github.io/daiv/dev/getti
 
 Provider keys are seed-only
 
-Unlike the rest of the configurable settings on this page, these provider API key variables are **not** part of the env > database > default override chain. They are read **only once** — on first run / upgrade — to seed the provider records, after which the authoritative, runtime-editable key and base URL live on the **Providers** section of the Configuration UI at `/dashboard/configuration/`. Changing a `*_API_KEY` environment variable after the provider record exists has no effect; edit the provider in the UI instead. The OpenRouter base URL is likewise a per-provider **Base URL** field in that section (it defaults to `https://openrouter.ai/api/v1`).
+Unlike the rest of the configurable settings on this page, these provider API key variables are **not** part of the env > database > default override chain. They are read **only once** — on first run / upgrade — to seed the provider records, after which the authoritative, runtime-editable key and base URL live on the **Providers** section of the Configuration UI at `/dashboard/configuration/`. Each key is read from a Docker secret named after the variable in lowercase (for example `openrouter_api_key`, mounted at `/run/secrets/openrouter_api_key`), or else from the environment variable; the secret wins when both are set. Changing, or adding, a `*_API_KEY` variable or secret after the provider record exists has no effect; edit the provider in the UI instead. The OpenRouter base URL is likewise a per-provider **Base URL** field in that section (it defaults to `https://openrouter.ai/api/v1`).
 
 ### OpenRouter (*default*)
 
