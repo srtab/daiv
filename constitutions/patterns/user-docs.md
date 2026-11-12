@@ -44,9 +44,9 @@ page is silent, the
    that dates it: `currently`, `soon`, `not yet`, `coming`, or `new` and `latest` said of DAIV
    or a release ("the new scheduler", "the latest version"). A new merge request, or a
    session's latest run, is a state of the product, not a date. No roadmap and no version
-   history; what changed, and what an upgrade needs, is in `CHANGELOG.md`. A limit is a fact
-   of the product: "DAIV does not…". _Prevents_: text that goes stale without an edit, and
-   users planning around a feature that never ships.
+   history; what changed is in `CHANGELOG.md`, and what an upgrade needs in `UPGRADING.md`.
+   A limit is a fact of the product: "DAIV does not…". _Prevents_: text that goes stale
+   without an edit, and users planning around a feature that never ships.
 5. **Checked against the code, and run.** Every name, default, limit and count on a page is
    read from the code that implements it, and a quantifier says how many. A procedure is run
    as written, start to finish, before it is published. _Prevents_: steps that fail on a clean
