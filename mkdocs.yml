@@ -144,7 +144,7 @@ extra:
   analytics:
     provider: umami
     script_url: https://cloud.umami.is/script.js
-    website_id:
+    website_id: f2d8b948-0c1b-48e7-b0ca-e296f9d48863
     # Builds served from any other host, such as `mkdocs serve` or a fork's Pages, send nothing.
     domains: docs.daivagent.com
   version:
