@@ -135,7 +135,7 @@ pipeline_watch:
   max_attempts: 2
 ```
 
-`enabled: false` stops CI failures on the repository from waking a session. `max_attempts` is capped at the site-wide value, and `enabled: true` does not turn the watch on where the site turned it off. [Repository config](../customization/repository-config.md#feature-toggles) lists both options.
+`enabled: false` stops CI failures on the repository from waking a session. `max_attempts` is capped at the site-wide value, and `enabled: true` does not turn the watch on where the site turned it off. [Repository configuration](../customization/repository-config.md#feature-toggles) lists both options.
 
 ---
 
@@ -187,4 +187,4 @@ Review addressing is excluded deliberately. It pushes to a merge request someone
 - [Pull request assistant](pull-request-assistant.md) — mention DAIV in a comment to request a manual pipeline fix
 - [Sessions](sessions.md) — CI runs appear in the session that published the merge request
 - [Notifications](notifications.md) — how run and give-up notifications are delivered
-- [Repository config](../customization/repository-config.md) — the full `.daiv.yml` reference
+- [Repository configuration](../customization/repository-config.md) — the full `.daiv.yml` reference

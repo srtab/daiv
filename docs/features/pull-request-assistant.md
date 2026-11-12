@@ -126,11 +126,11 @@ pull_request_assistant:
   enabled: false
 ```
 
-[Repository config](../customization/repository-config.md) lists every feature toggle.
+[Repository configuration](../customization/repository-config.md) lists every feature toggle.
 
 ## Related pages
 
 - [Slash commands and skills](slash-commands.md) — invoke `/code-review` from a merge request, and write custom skills to extend it
 - [Sandbox](sandbox.md) — the isolated container where DAIV reproduces and repairs failing pipelines
 - [Sessions](sessions.md) — follow a running review and revisit what the agent changed
-- [Repository config](../customization/repository-config.md) — tune review behaviour per repository with `.daiv.yml`
+- [Repository configuration](../customization/repository-config.md) — tune review behaviour per repository with `.daiv.yml`

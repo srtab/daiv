@@ -8,7 +8,7 @@ This page lists the environment variables DAIV reads, with the default and an ex
 
 In the tables, :material-lock: marks a sensitive variable (an API key, password or token) that you should provide as a Docker secret or from a secure credential manager, and :material-asterisk: marks a variable you must set.
 
-[Site Configuration](site-configuration.md) can change many of these settings at runtime. A variable that has a Site Configuration field overrides the stored value and locks the field; [How environment variables and the UI interact](site-configuration.md#how-environment-variables-and-the-ui-interact) gives the order. Variables marked *env-only* have no field there. The provider API key variables are a different case: DAIV reads them once, as [LLM providers](#llm-providers) explains.
+[Site configuration](site-configuration.md) can change many of these settings at runtime. A variable that has a Site Configuration field overrides the stored value and locks the field; [How environment variables and the UI interact](site-configuration.md#how-environment-variables-and-the-ui-interact) gives the order. Variables marked *env-only* have no field there. The provider API key variables are a different case: DAIV reads them once, as [LLM providers](#llm-providers) explains.
 
 ## Core
 
@@ -326,7 +326,7 @@ The `publish_artifact` tool stores files the agent generates (reports, datasets,
 
 ### MCP tools
 
-MCP (Model Context Protocol) tools give the agent access to external services. DAIV stores MCP servers as database rows, which you manage at `/dashboard/mcp-servers/`, and connects to them directly, with no sidecar containers. For user-defined servers, see [MCP Tools](../customization/mcp-tools.md).
+MCP (Model Context Protocol) tools give the agent access to external services. DAIV stores MCP servers as database rows, which you manage at `/dashboard/mcp-servers/`, and connects to them directly, with no sidecar containers. For user-defined servers, see [MCP tools](../customization/mcp-tools.md).
 
 | Variable                        | Description                                                    | Default                        | Example |
 |---------------------------------|----------------------------------------------------------------|:------------------------------:|---------|
@@ -431,7 +431,7 @@ Classifies the report of each finished scheduled run into an envelope.
 
 ### Pipeline watch
 
-Watches the CI of merge requests DAIV publishes and spends a bounded number of agent runs fixing failures; see [Pipeline Watch](../features/pipeline-watch.md).
+Watches the CI of merge requests DAIV publishes and spends a bounded number of agent runs fixing failures; see [Pipeline watch](../features/pipeline-watch.md).
 
 | Variable | Description | Default |
 |----------------------------------------|----------------------------------------------------------|------------------------|

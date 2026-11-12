@@ -254,5 +254,5 @@ The log shows `permission denied` on `/run/secrets/codebase_github_private_key`.
 
 - **[LLM providers](llm-providers.md)** configures your LLM provider and API keys.
 - **[Repository configuration](../customization/repository-config.md)** customizes DAIV's behavior per repository.
-- **[Issue Addressing](../features/issue-addressing.md)** explains how DAIV handles issues.
-- **[Pull Request Assistant](../features/pull-request-assistant.md)** explains how DAIV reviews code.
+- **[Issue addressing](../features/issue-addressing.md)** explains how DAIV handles issues.
+- **[Pull request assistant](../features/pull-request-assistant.md)** explains how DAIV reviews code.

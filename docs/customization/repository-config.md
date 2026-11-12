@@ -74,9 +74,9 @@ DAIV always reads `.daiv.yml` from the platform's default branch, whatever the `
 | `suggest_context_file` | `bool` | `true` | Suggest creating the context file when DAIV opens a merge request and the file is missing. See [AGENTS.md suggestion](../features/issue-addressing.md#agentsmd-suggestion). |
 | `session_link` | `bool` | `true` | Link back to the DAIV sessions that produced the changes, from the description of merge requests DAIV opens and from a `DAIV-Session` trailer on every commit. See [Linking back to sessions](../features/sessions.md#linking-back-to-sessions). |
 
-The context file tells DAIV about your repository's structure, conventions and constraints. Generate one with the `/init` skill; see [Slash Commands & Skills](../features/slash-commands.md#init). For branch names and commit messages, see [Set branch and commit conventions](agent-skills.md#set-branch-and-commit-conventions).
+The context file tells DAIV about your repository's structure, conventions and constraints. Generate one with the `/init` skill; see [Slash commands and skills](../features/slash-commands.md#init). For branch names and commit messages, see [Set branch and commit conventions](agent-skills.md#set-branch-and-commit-conventions).
 
-`suggest_context_file` and `session_link` also have site-wide switches in [Site Configuration](../reference/site-configuration.md). DAIV applies them only when both the repository and the site allow them, so `true` here cannot turn on a feature the site turned off.
+`suggest_context_file` and `session_link` also have site-wide switches in [Site configuration](../reference/site-configuration.md). DAIV applies them only when both the repository and the site allow them, so `true` here cannot turn on a feature the site turned off.
 
 ## Access control
 
@@ -125,15 +125,15 @@ slash_commands:
 
 | Section | Option | Default | Description |
 |---------|--------|---------|-------------|
-| `issue_addressing` | `enabled` | `true` | [Issue Addressing](../features/issue-addressing.md) |
-| `pull_request_assistant` | `enabled` | `true` | [Pull Request Assistant](../features/pull-request-assistant.md) |
-| `slash_commands` | `enabled` | `true` | [Slash Commands & Skills](../features/slash-commands.md) |
-| `pipeline_watch` | `enabled` | `true` | [Pipeline Watch](../features/pipeline-watch.md): set it to `false` to stop DAIV watching CI on the merge requests it publishes. |
-| `pipeline_watch` | `max_attempts` | site-wide | [Pipeline Watch](../features/pipeline-watch.md): the maximum number of fix attempts before DAIV hands the merge request back. DAIV caps it at the site-wide limit. |
+| `issue_addressing` | `enabled` | `true` | [Issue addressing](../features/issue-addressing.md) |
+| `pull_request_assistant` | `enabled` | `true` | [Pull request assistant](../features/pull-request-assistant.md) |
+| `slash_commands` | `enabled` | `true` | [Slash commands and skills](../features/slash-commands.md) |
+| `pipeline_watch` | `enabled` | `true` | [Pipeline watch](../features/pipeline-watch.md): set it to `false` to stop DAIV watching CI on the merge requests it publishes. |
+| `pipeline_watch` | `max_attempts` | site-wide | [Pipeline watch](../features/pipeline-watch.md): the maximum number of fix attempts before DAIV hands the merge request back. DAIV caps it at the site-wide limit. |
 | `orchestration` | `enabled` | `true` | [Orchestration](../features/orchestration.md): let the agent delegate sub-jobs to other repositories, or to new sessions on this one. |
 | `memory` | `enabled` | `true` | Repository memory: capture observations from finished runs, consolidate them, and add them to the system prompt of later runs. Set it to `false` to opt this repository out. |
 
-`pipeline_watch.enabled` and `memory.enabled` apply only while the matching site-wide setting is on too: **Pipeline Watch** and **Memory** in [Site Configuration](../reference/site-configuration.md). The other toggles apply to the repository alone.
+`pipeline_watch.enabled` and `memory.enabled` apply only while the matching site-wide setting is on too: **Pipeline Watch** and **Memory** in [Site configuration](../reference/site-configuration.md). The other toggles apply to the repository alone.
 
 ## Model overrides
 
@@ -142,7 +142,7 @@ A repository can use different models from the site's, for example smaller model
 The model for a run comes from the first source in this list that sets one, highest priority first:
 
 1. **A model picked for the run**, in the agent picker or as `agent_model` through the API and MCP.
-2. **The `daiv-max` issue label**, described in [Issue Addressing](../features/issue-addressing.md#max-mode). Max mode uses the site's max thinking level, not `thinking_level`.
+2. **The `daiv-max` issue label**, described in [Issue addressing](../features/issue-addressing.md#max-mode). Max mode uses the site's max thinking level, not `thinking_level`.
 3. **The `models` section of `.daiv.yml`.**
 4. **Site settings**: environment variables or the Site Configuration page.
 

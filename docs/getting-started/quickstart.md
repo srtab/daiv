@@ -236,7 +236,7 @@ DAIV adds a webhook to every project its user maintains within five minutes. To 
 4. Approve the plan with a comment that mentions DAIV's user, for example `@daiv proceed`.
 5. Wait for the merge request. DAIV implements the plan and opens a merge request, usually within a few minutes. The first run takes longer while the sandbox pulls its image.
 
-See [Issue Addressing](../features/issue-addressing.md) for what else you can do on an issue.
+See [Issue addressing](../features/issue-addressing.md) for what else you can do on an issue.
 
 ## Troubleshooting
 
@@ -271,4 +271,4 @@ Remove DAIV and everything it stored when you are done with the trial.
 
 - **[Deployment](deployment.md)** — a production install: Docker Swarm, a reverse proxy with HTTPS, email and single sign-on
 - **[Repository configuration](../customization/repository-config.md)** — tune DAIV per repository with `.daiv.yml`
-- **[Pull Request Assistant](../features/pull-request-assistant.md)** — mention DAIV on a merge request to get a review or a fix
+- **[Pull request assistant](../features/pull-request-assistant.md)** — mention DAIV on a merge request to get a review or a fix

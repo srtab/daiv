@@ -682,4 +682,4 @@ server {
 - **[LLM providers](llm-providers.md)** configures your LLM providers and API keys.
 - **[Repository configuration](../customization/repository-config.md)** customizes DAIV's behavior per repository.
 - **[Site configuration](../reference/site-configuration.md)** manages settings from the dashboard instead of environment variables.
-- **[MCP Tools](../customization/mcp-tools.md)** connects the agent to external MCP servers.
+- **[MCP tools](../customization/mcp-tools.md)** connects the agent to external MCP servers.

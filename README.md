@@ -39,23 +39,23 @@ DAIV (pronounced "dive", from *dev* + *AI*) integrates directly with **GitLab** 
 
 ### In your Git platform — webhooks, zero setup
 
-- **[Issue Addressing](https://docs.daivagent.com/dev/features/issue-addressing/)** — DAIV reads a labelled issue, proposes a plan, and — once you approve — opens a merge/pull request with the implementation.
-- **[Pull Request Assistant](https://docs.daivagent.com/dev/features/pull-request-assistant/)** — answers reviewer comments, applies requested changes, and repairs failing CI/CD pipelines, all inside the merge/pull request thread.
-- **[Slash Commands & Skills](https://docs.daivagent.com/dev/features/slash-commands/)** — invoke `/plan`, `/code-review`, `/help`, and your own custom skills straight from issues and merge requests.
+- **[Issue addressing](https://docs.daivagent.com/dev/features/issue-addressing/)** — DAIV reads a labelled issue, proposes a plan, and — once you approve — opens a merge/pull request with the implementation.
+- **[Pull request assistant](https://docs.daivagent.com/dev/features/pull-request-assistant/)** — answers reviewer comments, applies requested changes, and repairs failing CI/CD pipelines, all inside the merge/pull request thread.
+- **[Slash commands and skills](https://docs.daivagent.com/dev/features/slash-commands/)** — invoke `/plan`, `/code-review`, `/help`, and your own custom skills straight from issues and merge requests.
 
 ### From your editor and pipelines
 
-- **[MCP Endpoint](https://docs.daivagent.com/dev/features/mcp-endpoint/)** — connect Claude Code, Cursor, or Codex CLI over the [Model Context Protocol](https://modelcontextprotocol.io/) and delegate tasks without leaving your editor.
+- **[MCP endpoint](https://docs.daivagent.com/dev/features/mcp-endpoint/)** — connect Claude Code, Cursor, or Codex CLI over the [Model Context Protocol](https://modelcontextprotocol.io/) and delegate tasks without leaving your editor.
 - **[Jobs API](https://docs.daivagent.com/dev/features/jobs-api/)** — trigger agents programmatically from CI, scripts, or other tools, then poll for the result.
 
 ### From the dashboard
 
 - **[Sessions](https://docs.daivagent.com/dev/features/sessions/)** — a unified workspace and history: chat with the agent live, start background runs, and see every execution — webhook, API, MCP, scheduled, or manual — in one list, with retries.
-- **[Scheduled Jobs](https://docs.daivagent.com/dev/features/scheduled-jobs/)** — run agents on any cron schedule: dependency audits, code-quality scans, stale-branch cleanup, and more.
-- **[Sandbox Environments](https://docs.daivagent.com/dev/features/sandbox-environments/)** — define a reusable runtime once: base image, CPU/memory, **network egress policy**, and encrypted secrets, scoped to the repositories you choose.
+- **[Scheduled jobs](https://docs.daivagent.com/dev/features/scheduled-jobs/)** — run agents on any cron schedule: dependency audits, code-quality scans, stale-branch cleanup, and more.
+- **[Sandbox environments](https://docs.daivagent.com/dev/features/sandbox-environments/)** — define a reusable runtime once: base image, CPU/memory, **network egress policy**, and encrypted secrets, scoped to the repositories you choose.
 - **Per-run model & effort** — pick the LLM and thinking effort for each run.
 - **[Notifications](https://docs.daivagent.com/dev/features/notifications/)** — know the moment work finishes, via the in-app bell, email, Rocket Chat or Telegram.
-- **[Merge Metrics](https://docs.daivagent.com/dev/features/merge-metrics/)** — track code velocity with commit-level DAIV-vs-human attribution.
+- **[Merge metrics](https://docs.daivagent.com/dev/features/merge-metrics/)** — track code velocity with commit-level DAIV-vs-human attribution.
 
 ## Quick example
 
@@ -95,10 +95,10 @@ DAIV is powered by [Deep Agents](https://github.com/langchain-ai/deepagents), a 
 
 - **[Subagents](https://docs.daivagent.com/dev/features/subagents/)** — specialized agents for fast codebase exploration and complex multi-step tasks.
 - **[Sandbox](https://docs.daivagent.com/dev/features/sandbox/)** — secure command execution for tests, builds, linters, and package management inside an isolated Docker container.
-- **[MCP Tools](https://docs.daivagent.com/dev/customization/mcp-tools/)** — external integrations over the [Model Context Protocol](https://modelcontextprotocol.io/), such as Sentry for error tracking.
+- **[MCP tools](https://docs.daivagent.com/dev/customization/mcp-tools/)** — external integrations over the [Model Context Protocol](https://modelcontextprotocol.io/), such as Sentry for error tracking.
 - **[Monitoring](https://docs.daivagent.com/dev/reference/monitoring/)** — trace every agent execution with [LangSmith](https://www.langchain.com/langsmith) to analyze performance and spot issues.
 - **Scalable Workers** — background workers scale horizontally by adding replicas, with a dedicated scheduler for recurring jobs.
-- **[LLM Providers](https://docs.daivagent.com/dev/getting-started/llm-providers/)** — run on OpenRouter, Anthropic, OpenAI, or Google, or on your own OpenAI-compatible server (vLLM, llama.cpp, LiteLLM) — your keys, your choice. Tested with Claude Sonnet 5.5, Opus 5.5 and Haiku 5.5, GPT-6.1 Sol and GPT-6 Luna, GLM-5.2 through OpenRouter, and Qwen3.8 on a self-hosted vLLM server.
+- **[LLM providers](https://docs.daivagent.com/dev/getting-started/llm-providers/)** — run on OpenRouter, Anthropic, OpenAI, or Google, or on your own OpenAI-compatible server (vLLM, llama.cpp, LiteLLM) — your keys, your choice. Tested with Claude Sonnet 5.5, Opus 5.5 and Haiku 5.5, GPT-6.1 Sol and GPT-6 Luna, GLM-5.2 through OpenRouter, and Qwen3.8 on a self-hosted vLLM server.
 
 ## Technology Stack
 
@@ -128,7 +128,7 @@ container start — then bring the stack up:
 docker compose up --build  # db, redis, app, worker, worker-interactive, scheduler
 ```
 
-- **Running DAIV for real** → [Deployment](https://docs.daivagent.com/dev/getting-started/deployment/), then [Platform Setup](https://docs.daivagent.com/dev/getting-started/platform-setup/) to connect GitLab or GitHub.
+- **Running DAIV for real** → [Deployment](https://docs.daivagent.com/dev/getting-started/deployment/), then [Platform setup](https://docs.daivagent.com/dev/getting-started/platform-setup/) to connect GitLab or GitHub.
 - **Developing DAIV** → [CONTRIBUTING.md](CONTRIBUTING.md) covers Compose profiles, the local GitLab instance, webhooks, tests, and linting.
 
 ## Roadmap

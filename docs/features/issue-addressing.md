@@ -71,7 +71,7 @@ If an unexpected error stops DAIV while it implements a plan, DAIV opens a **dra
 
 When DAIV creates a merge request for a repository that doesn't have an [`AGENTS.md`](https://agents.md/) file (or whatever `context_file_name` is configured to), DAIV adds a comment suggesting you create one. The comment includes a one-click link that opens an issue with the `daiv-auto` label already set. When you submit that issue, DAIV runs the [`/init` skill](slash-commands.md#init) at once, with no approval step, and opens a merge or pull request with the generated `AGENTS.md`.
 
-To stop the suggestion on one repository, set `suggest_context_file: false` in its `.daiv.yml`. To stop it on every repository, set `DAIV_SUGGEST_CONTEXT_FILE_ENABLED` to `false`. [Repository config](../customization/repository-config.md) and the [environment variables reference](../reference/env-variables.md) describe both.
+To stop the suggestion on one repository, set `suggest_context_file: false` in its `.daiv.yml`. To stop it on every repository, set `DAIV_SUGGEST_CONTEXT_FILE_ENABLED` to `false`. [Repository configuration](../customization/repository-config.md) and the [environment variables reference](../reference/env-variables.md) describe both.
 
 ## Turn off issue addressing
 
@@ -82,11 +82,11 @@ issue_addressing:
   enabled: false
 ```
 
-[Repository config](../customization/repository-config.md) lists every feature toggle and who can trigger DAIV.
+[Repository configuration](../customization/repository-config.md) lists every feature toggle and who can trigger DAIV.
 
 ## Related pages
 
-- [Repository config](../customization/repository-config.md) — restrict who can trigger DAIV and turn features on or off
+- [Repository configuration](../customization/repository-config.md) — restrict who can trigger DAIV and turn features on or off
 - [Slash commands and skills](slash-commands.md) — steer an issue with `/plan` and custom skills
 - [Pull request assistant](pull-request-assistant.md) — what happens once the merge request is open
 - [Sandbox](sandbox.md) — where the implementation is built and tested

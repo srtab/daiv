@@ -113,7 +113,7 @@ slash_commands:
   enabled: false
 ```
 
-[Repository config](../customization/repository-config.md#feature-toggles) lists every feature toggle.
+[Repository configuration](../customization/repository-config.md#feature-toggles) lists every feature toggle.
 
 ## Create a custom command
 

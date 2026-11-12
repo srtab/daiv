@@ -50,7 +50,7 @@ orchestration:
   enabled: false
 ```
 
-A repository needs no configuration to receive delegated work: a leg is a normal job. [Repository config](../customization/repository-config.md#feature-toggles) lists every feature toggle.
+A repository needs no configuration to receive delegated work: a leg is a normal job. [Repository configuration](../customization/repository-config.md#feature-toggles) lists every feature toggle.
 
 ## Where a leg's work lands
 
@@ -146,7 +146,7 @@ A coordination repository can hold no production code at all and act as a routin
     - Unclassified tickets → skip, comment "needs triage label"
     ```
 
-3. **Trigger it** with a [Scheduled Job](scheduled-jobs.md) that polls the queue, or from your ticketing system through the [Jobs API](jobs-api.md):
+3. **Trigger it** with a [scheduled job](scheduled-jobs.md) that polls the queue, or from your ticketing system through the [Jobs API](jobs-api.md):
 
     ```text
     Fetch the open tickets not yet dispatched. Route each one with the rules in AGENTS.md and delegate one
@@ -155,7 +155,7 @@ A coordination repository can hold no production code at all and act as a routin
 
 ### One fix per Sentry finding
 
-With orchestration on in the application's own repository and the Sentry [MCP server](../customization/mcp-tools.md) enabled, a single prompt — run by hand or from a [Scheduled Job](scheduled-jobs.md) — triages and fans out:
+With orchestration on in the application's own repository and the Sentry [MCP server](../customization/mcp-tools.md) enabled, a single prompt — run by hand or from a [scheduled job](scheduled-jobs.md) — triages and fans out:
 
 ```text
 Triage the unresolved Sentry issues of the last 24 hours. For each one worth fixing, delegate a fix on this
@@ -185,6 +185,6 @@ The coordinator's session then shows the resumed run with the legs' summary. [No
 
 ## See also
 
-- [Repository config](../customization/repository-config.md) — the `orchestration` toggle
-- [Jobs API](jobs-api.md) and [MCP Endpoint](mcp-endpoint.md) — a batch can also give each repository its own `prompt`
+- [Repository configuration](../customization/repository-config.md) — the `orchestration` toggle
+- [Jobs API](jobs-api.md) and [MCP endpoint](mcp-endpoint.md) — a batch can also give each repository its own `prompt`
 - [Subagents](subagents.md) — parallel work inside one turn
