@@ -38,13 +38,14 @@
     <a href="{% url 'session_new_chat' %}"
        data-testid="nav-rail-new-chat"
        title="{% translate 'New chat' %}"
-       class="sidebar__nav-item text-accent hover:text-accent-bright">
+       class="sidebar__nav-item nav-group-action--primary">
       {% icon "plus" "h-4 w-4 shrink-0" %}
       <span class="sidebar__collapsible">{% translate "New chat" %}</span>
     </a>
     <a href="{% url 'session_list' %}#search"
        data-testid="nav-rail-search"
        title="{% translate 'Search sessions' %} (/)"
+       aria-keyshortcuts="/"
        class="sidebar__nav-item">
       {% icon "magnifying-glass" "h-4 w-4 shrink-0" %}
       <span class="sidebar__collapsible">{% translate "Search sessions" %}</span>

@@ -18,8 +18,9 @@ HARNESS = """
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
-const { src, initial, wide, legacy, storage, surfaces, actions, search, field, remembered, maxWidth } =
-  JSON.parse(readFileSync(0, "utf8"));
+const {
+  src, initial, wide, legacy, storage, surfaces, actions, search, field, remembered, maxWidth, startsOnSettings,
+} = JSON.parse(readFileSync(0, "utf8"));
 const MIN_WIDTH = 272;
 const stores = {};
 const stored = { ...remembered };
@@ -80,23 +81,27 @@ const sandbox = {
 sandbox.getComputedStyle = () => ({ getPropertyValue: (name) => bounds[name] ?? "" });
 sandbox.location = { assign: (url) => { assigned = url; } };
 sandbox.window = sandbox;
-const ticks = [];
-sandbox.Alpine = { store: (name, value) => (stores[name] = value), nextTick: (cb) => ticks.push(cb) };
-const focused = [];
-const focusedBeforeTick = [];
-const copy = { querySelector: (selector) => ({ focus: (options) => focused.push([selector, options]) }) };
-const from = { closest: (selector) => (selector === '[data-testid="app-sidebar"]' ? copy : null) };
+const components = {};
+sandbox.Alpine = { store: (name, value) => (stores[name] = value), data: (name, fn) => (components[name] = fn) };
 vm.createContext(sandbox);
 vm.runInContext(readFileSync(src, "utf8"), sandbox);
 
 const sidebar = stores.sidebar;
+const ticks = [];
+const focused = [];
+const focusedBeforeTick = [];
+const ref = (name) => ({ focus: (options) => focused.push([name, options]) });
+const menus = Object.assign(components.sidebarMenus(Boolean(startsOnSettings)), {
+  $refs: { back: ref("back"), cog: ref("cog") },
+  $nextTick: (cb) => ticks.push(cb),
+});
 const seen = [];
 for (const action of actions) {
   let prevented = false;
   const preventDefault = () => { prevented = true; };
   if (action.click) sidebar.toggle();
   else if ("settings" in action) {
-    sidebar.showSettings(action.settings, from);
+    menus.showSettings(action.settings);
     focusedBeforeTick.push(focused.length);
     ticks.splice(0).forEach((cb) => cb());
   }
@@ -125,7 +130,7 @@ for (const action of actions) {
 }
 process.stdout.write(JSON.stringify({
   rail: sidebar.rail, attr: dataset.sidebar ?? null, stored, prevented: seen, assigned, fieldFocused,
-  settings: sidebar.settings, focused, focusedBeforeTick,
+  settings: menus.settings, focused, focusedBeforeTick,
   width: sidebar.width, minWidth: sidebar.minWidth, maxWidth: sidebar.maxWidth,
   chosen: vars["--app-sidebar-chosen"] ?? null, resizing: "sidebarResizing" in dataset, resizingMidDrag, captured,
   listening: Object.values(listeners).reduce((n, set) => n + set.size, 0),
@@ -145,12 +150,13 @@ def drive(
     field=False,
     remembered=None,
     max_width=512,
+    starts_on_settings=False,
 ):
     """``wide`` is whether the toggle button is on screen, which is what the shortcut follows. ``search`` is
     whether the sidebar has its Search row, and ``field`` whether the page has the sessions search box.
     The sidebar shows 272px (17rem) clamped up to ``max_width``, or the width ``remembered`` holds."""
     payload = {**locals(), "src": str(SIDEBAR_JS), "surfaces": list(surfaces), "remembered": remembered or {}}
-    return run_node(HARNESS, {**payload, "maxWidth": max_width})
+    return run_node(HARNESS, {**payload, "maxWidth": max_width, "startsOnSettings": starts_on_settings})
 
 
 @requires_node
@@ -180,15 +186,15 @@ def test_the_cog_slides_settings_in_and_focuses_back_once_it_is_live():
 
     assert state["settings"] is True
     assert state["focusedBeforeTick"] == [0]
-    assert state["focused"] == [['[data-testid="nav-settings-back"]', {"preventScroll": True}]]
+    assert state["focused"] == [["back", {"preventScroll": True}]]
 
 
 @requires_node
 def test_back_slides_settings_out_and_returns_focus_to_the_cog():
-    state = drive([{"settings": True}, {"settings": False}])
+    state = drive([{"settings": False}], starts_on_settings=True)
 
     assert state["settings"] is False
-    assert state["focused"][-1] == ['[data-testid="nav-settings"]', {"preventScroll": True}]
+    assert state["focused"] == [["cog", {"preventScroll": True}]]
 
 
 @requires_node

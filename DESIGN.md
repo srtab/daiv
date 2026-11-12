@@ -655,9 +655,9 @@ wordmark and a teal New chat `+`) that is the only nav entry point on a phone.
   (`is_admin` only), then Help & docs, API documentation and the build line. The cog
   (`.nav-cog`, a disclosure button) slides Settings in and Back or Escape slides it out, with
   no page load; focus moves to Back, then back to the cog, and the hidden menu is `inert`.
-  The `sidebar` store's `settings` holds the state for both copies. A page whose section is in
-  `_SETTINGS_SECTION_URL_NAMES` (`dashboard/context_processors.py`) starts on Settings, with
-  the lists already behind it for Back. Schedules and Insights are not settings: their pages
+  Each sidebar copy keeps its own state in a `sidebarMenus` component (`core/js/sidebar.js`),
+  started open on a page whose section is in `_SETTINGS_SECTION_URL_NAMES`
+  (`dashboard/context_processors.py`), with the lists already behind it for Back. Schedules and Insights are not settings: their pages
   open on the lists, and Insights is reached from Home.
 - **Live lists.** The `nav` store announces `daiv:runs-changed` when a frame moves the
   running snapshot of the user's own sessions (`own_running_runs`, `own_latest_running_start`;

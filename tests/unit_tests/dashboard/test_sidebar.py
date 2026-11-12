@@ -192,11 +192,8 @@ def _testids(sidebar, wanted) -> list[str]:
 
 
 def _assert_starts_on_settings(sidebar):
-    assert "nav-panels--settings" in sidebar.select_one('[data-testid="nav-panels"]')["class"]
-    assert sidebar.select_one('[data-testid="nav-main-panel"]').has_attr("inert")
-    assert not sidebar.select_one('[data-testid="nav-settings-panel"]').has_attr("inert")
+    assert sidebar["x-data"] == "sidebarMenus(true)"
     assert sidebar.select_one('[data-testid="nav-settings-back"]')
-    assert sidebar["x-init"] == "$store.sidebar.settings = true"
 
 
 def _session_page(client, session):
@@ -227,12 +224,9 @@ class TestSidebarOrder:
         sheet = _soup(member_client, "dashboard").select('[data-testid="app-sidebar"]')[1]
         assert _testids(sheet, NORMAL_ORDER) == NORMAL_ORDER
 
-    def test_settings_row_sits_outside_the_scrolling_lists(self, member_client):
-        sidebar = _sidebar(member_client)
-        settings = sidebar.select_one('[data-testid="nav-settings"]')
-        assert settings["title"]
-        assert settings.find_parent(attrs={"data-sidebar-scroll": True}) is None
-        assert sidebar.select_one('[data-testid="sidebar-lists"]').find_parent(attrs={"data-sidebar-scroll": True})
+    def test_the_lists_scroll(self, member_client):
+        lists = _sidebar(member_client).select_one('[data-testid="sidebar-lists"]')
+        assert lists.find_parent(attrs={"data-sidebar-scroll": True})
 
 
 def _group(sidebar, testid):
@@ -535,11 +529,16 @@ class TestSidebarSettingsMode:
     def test_other_pages_start_on_the_main_menu_with_settings_ready(self, member_client, url_name):
         sidebar = _sidebar(member_client, url_name)
 
-        assert "nav-panels--settings" not in sidebar.select_one('[data-testid="nav-panels"]')["class"]
-        assert not sidebar.select_one('[data-testid="nav-main-panel"]').has_attr("inert")
-        assert sidebar.select_one('[data-testid="nav-settings-panel"]').has_attr("inert")
+        assert sidebar["x-data"] == "sidebarMenus(false)"
         assert sidebar.select_one('[data-testid="nav-sessions-group"]')
         assert sidebar.select_one('[data-testid="nav-settings-back"]')
+
+    def test_the_hidden_menu_is_inert_and_slides_with_the_state(self, member_client):
+        sidebar = _sidebar(member_client)
+
+        assert sidebar.select_one('[data-testid="nav-panels"]')[":class"] == "{ 'nav-panels--settings': settings }"
+        assert sidebar.select_one('[data-testid="nav-main-panel"]')["x-effect"] == "$el.inert = settings"
+        assert sidebar.select_one('[data-testid="nav-settings-panel"]')["x-effect"] == "$el.inert = !settings"
 
     def test_menu_order(self, admin_client):
         assert _testids(_sidebar(admin_client, "sandbox_envs:list"), SETTINGS_ORDER) == SETTINGS_ORDER
@@ -577,26 +576,16 @@ class TestSidebarSettingsMode:
 
         assert [_item_label(item) for item in menu.select(".sidebar__nav-item--active")] == [label]
 
-    def test_the_cog_starts_open_only_in_settings_mode(self, member_client):
-        def cog(url_name):
-            return _sidebar(member_client, url_name).select_one('[data-testid="nav-settings"]')
-
-        assert "nav-cog--active" in cog("sandbox_envs:list")["class"]
-        assert cog("sandbox_envs:list")["aria-expanded"] == "true"
-        assert "nav-cog--active" not in cog("dashboard")["class"]
-        assert cog("dashboard")["aria-expanded"] == "false"
-
-    def test_the_cog_sits_beside_the_account_and_controls_its_own_copy(self, member_client):
-        soup = _soup(member_client, "dashboard")
-
-        for sidebar in soup.select('[data-testid="app-sidebar"]'):
+    def test_the_cog_sits_beside_the_account_and_controls_its_copys_menu(self, member_client):
+        for sidebar in _soup(member_client, "dashboard").select('[data-testid="app-sidebar"]'):
             cog = sidebar.select_one('[data-testid="nav-settings"]')
             assert cog.name == "button"
             assert cog["aria-label"]
+            assert cog["@click"] == "showSettings(!settings)"
+            assert cog[":aria-expanded"] == "settings.toString()"
             assert cog.find_parent(class_="sidebar__footer").select_one('[data-testid="app-user-menu"]')
-            assert sidebar.select_one(f"#{cog['aria-controls']}")["data-testid"] == "nav-settings-panel"
-        controls = [cog["aria-controls"] for cog in soup.select('[data-testid="nav-settings"]')]
-        assert len(set(controls)) == len(controls) == 2
+            assert sidebar["x-id"] == "['nav-settings-panel']"
+            assert cog[":aria-controls"] == sidebar.select_one('[data-testid="nav-settings-panel"]')[":id"]
 
     def test_agent_setup_items_say_what_they_are_for(self, member_client):
         group = _sidebar(member_client, "sandbox_envs:list").select_one('[data-testid="nav-setup-group"]')
@@ -628,7 +617,7 @@ class TestSidebarSettingsMode:
         back = _sidebar(member_client, "sandbox_envs:list").select_one('[data-testid="nav-settings-back"]')
 
         assert back.name == "button"
-        assert back["@click"] == "$store.sidebar.showSettings(false, $el)"
+        assert back["@click"] == "showSettings(false)"
         assert back["title"]
 
     def test_settings_pages_keep_the_lists_behind_settings_for_back(self, member_client):
@@ -738,9 +727,8 @@ class TestCollapseToggle:
     @pytest.mark.parametrize("url_name", ["dashboard", "sandbox_envs:list"])
     def test_every_rail_icon_keeps_a_name_and_tooltip(self, admin_client, url_name):
         """The rail hides each label, so the `title` is what names the icon and shows on hover."""
-        at_least = 18
         sidebar = _soup(admin_client, url_name).select_one("#app-sidebar")
         links = sidebar.select(".sidebar__nav-item, .sidebar__footer-link, .nav-cog")
         untitled = [str(link)[:80] for link in links if not link.get("title", "").strip()]
-        assert len(links) >= at_least
+        assert len(links) >= 18
         assert not untitled

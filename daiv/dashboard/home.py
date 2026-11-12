@@ -13,7 +13,7 @@ from django.utils.translation import gettext_lazy as _
 from notifications.choices import EnvelopeStatus
 from notifications.outcomes import CANT_RUN, CI_STILL_FAILING, ENVELOPE_OUTCOMES, Outcome
 from sessions.filters import ARCHIVED_INCLUDED, SCOPE_MINE
-from sessions.models import MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
+from sessions.models import MergeRequestOwnership, Run, RunStatus, SessionOrigin
 from sessions.pipeline_watch.store import gave_up
 
 from codebase.base import GitPlatform
@@ -165,9 +165,9 @@ def inbox(user: User) -> dict:
     return {"items": items[:INBOX_LIMIT], "total": len(runs) + len(schedules), "see_all": see_all_links}
 
 
-def has_sessions(user: User) -> bool:
-    """Archived sessions count: merging a merge request archives its sessions, and Your week counts their runs."""
-    return Session.objects.listed_for(user, mine=True, archived=None).exists()
+def has_started_runs(user: User) -> bool:
+    """Whether ``user`` started anything: the runs Your week counts, archived sessions' included."""
+    return Run.objects.started_by(user).exists()
 
 
 def _platform_terms() -> tuple[str, str]:

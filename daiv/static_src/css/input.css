@@ -233,12 +233,8 @@
   }
 
   .nav-cog {
-    @apply inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-text-muted
-           transition-colors hover:bg-surface-3 hover:text-text;
-  }
-
-  .nav-cog--active {
-    @apply bg-surface-3 text-text-strong;
+    @apply inline-flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors
+           hover:bg-surface-3 hover:text-text;
   }
 
   /* Straddles the sidebar's border, so its 2px line lands on it. */
@@ -319,7 +315,8 @@
            text-text-muted transition-colors hover:bg-surface-3 hover:text-text;
   }
 
-  .nav-row--active {
+  .nav-row--active,
+  .nav-cog[aria-expanded="true"] {
     @apply bg-surface-3 text-text-strong;
   }
 

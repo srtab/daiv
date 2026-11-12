@@ -6,7 +6,8 @@ sets up once, and for admins the instance's own.
 <div data-testid="nav-settings-menu" class="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-3 pb-4">
   <button type="button"
           data-testid="nav-settings-back"
-          @click="$store.sidebar.showSettings(false, $el)"
+          x-ref="back"
+          @click="showSettings(false)"
           title="{% translate 'Back' %}"
           class="sidebar__nav-item w-full">
     {% icon "arrow-right" "h-4 w-4 shrink-0 rotate-180" %}
