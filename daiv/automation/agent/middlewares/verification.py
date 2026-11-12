@@ -79,15 +79,12 @@ def _outcome(
     commands: list[CommandOutcome],
     changed: Sequence[str],
     rounds: int,
-    fingerprint: str | None = None,
     reason: str | None = None,
     changed_by_checks: Sequence[str] = (),
 ) -> VerificationOutcome:
     outcome = VerificationOutcome(
         status=status, commands=commands, rounds=rounds, suspicious_paths=suspicious_paths(changed)
     )
-    if fingerprint is not None:
-        outcome["fingerprint"] = fingerprint
     if reason is not None:
         outcome["reason"] = reason
     if changed_by_checks:
@@ -129,11 +126,10 @@ class VerificationMiddleware(AgentMiddleware):
     sent once the step budget is finalizing, ``LoopBreakerMiddleware`` has ended the run or the run ends on a question
     ``AskUserQuestionMiddleware`` delivered, which therefore sits inside this one: the outcome is still recorded.
 
-    The outcome is recorded in the ``verification`` state key for the publish and the run executor, and ``recheck``
-    judges it again when the tree changed before publishing. It holds the checks' output only with ``publish_output``,
-    since everything in it reaches the merge request and the reply. Like ``LoopBreakerMiddleware`` this lives in
-    ``awrap_model_call``, so it adds no graph node per turn; each reminder is saved into the thread ahead of the reply
-    it produced (see ``reminders``).
+    The outcome is recorded in the ``verification`` state key for the publish and the run executor. It holds the
+    checks' output only with ``publish_output``, since everything in it reaches the merge request and the reply. Like
+    ``LoopBreakerMiddleware`` this lives in ``awrap_model_call``, so it adds no graph node per turn; each reminder is
+    saved into the thread ahead of the reply it produced (see ``reminders``).
 
     A tree that can't be read, or checks that can't run, record the run as not verified. This sits outside
     ``ModelFallbackMiddleware``, so a fallback model retries only the model call, never the checks, and a reminder
@@ -216,29 +212,6 @@ class VerificationMiddleware(AgentMiddleware):
             await self._note_agent_check(result)
         return result
 
-    async def recheck(self, outcome: VerificationOutcome) -> VerificationOutcome:
-        """``outcome`` judged again, with no reminder, when the tree changed after its checks ran; ``GitMiddleware``
-        calls it before publishing. A tree that can't be read makes it not verified."""
-        if outcome["status"] not in ("passed", "failed"):
-            return outcome
-        git = self._workspace.git
-        try:
-            before = await git.get_diff()
-            if diff_fingerprint(before) == outcome.get("fingerprint"):
-                return outcome
-            merging = await git.pending_merge() is not None
-            verdict = await self._verify(await git.get_changed_files(), before, merging=merging, may_remind=False)
-        except GIT_ERRORS:
-            logger.exception("Re-checking the tree before publishing failed; publishing it as not verified")
-            return VerificationOutcome(
-                status="not_verified",
-                commands=[],
-                rounds=outcome["rounds"],
-                suspicious_paths=outcome["suspicious_paths"],
-                reason="the tree could not be re-checked after the last checks",
-            )
-        return verdict.outcome
-
     def _may_remind(self) -> bool:
         return not self._loop_breaker.terminated and not self._step_budget.is_finalizing()
 
@@ -320,7 +293,6 @@ class VerificationMiddleware(AgentMiddleware):
                 with_output=self._publish_output,
             ),
             changed=changed,
-            fingerprint=run.fingerprint,
             rounds=self._rounds + 1 if remind else self._rounds,
             changed_by_checks=run.changed_by_checks,
         )

@@ -11,7 +11,7 @@ from automation.agent.git_state import RepoPublish
 from automation.agent.middlewares.git import GitMiddleware
 from automation.agent.publishers import PublishOutcome, UnresolvedMergeConflictsError
 from automation.agent.synthetic import is_synthetic
-from automation.agent.workspace.git_manager import GitPushPermissionError, StashRestoreError
+from automation.agent.workspace.git_manager import GitPushPermissionError
 from automation.agent.workspace.git_runners import SandboxGitProtocolError
 from codebase.base import MergeRequest, MergeRequestDiffStats, Scope, User
 from tests.unit_tests.automation.agent.conftest import make_repo_handle
@@ -391,7 +391,7 @@ class TestGitMiddleware:
         assert result["published"] is False
 
     @staticmethod
-    def _verification(status="passed", fingerprint="fp"):
+    def _verification(status="passed"):
         return {
             "status": status,
             "commands": [
@@ -404,11 +404,10 @@ class TestGitMiddleware:
             ],
             "rounds": 0,
             "suspicious_paths": [],
-            "fingerprint": fingerprint,
         }
 
-    async def _publish_with(self, verification, *, created=False, recheck=None, published=True):
-        mw = GitMiddleware(settings=SETTINGS, auto_commit_changes=True, workspace=FakeWorkspace(), recheck=recheck)
+    async def _publish_with(self, verification, *, created=False, published=True):
+        mw = GitMiddleware(settings=SETTINGS, auto_commit_changes=True, workspace=FakeWorkspace())
         runtime = _make_runtime(scope=Scope.GLOBAL)
         state = {"merge_request": None}
         if verification is not None:
@@ -445,34 +444,6 @@ class TestGitMiddleware:
         assert kwargs["verification"] is None
         assert "verification" not in result
 
-    async def test_after_agent_publishes_the_rechecked_outcome(self):
-        stale, failed = self._verification("passed", fingerprint="stale"), self._verification("failed")
-        recheck = AsyncMock(return_value=failed)
-
-        _, result = await self._publish_with(stale, recheck=recheck)
-
-        recheck.assert_awaited_once_with(stale)
-        assert result["verification"]["status"] == "failed"
-
-    async def test_after_agent_keeps_the_rechecked_outcome_when_nothing_was_published(self):
-        recheck = AsyncMock(return_value=self._verification("failed"))
-
-        _, result = await self._publish_with(
-            self._verification("passed", fingerprint="stale"), recheck=recheck, published=False
-        )
-
-        assert result["verification"]["status"] == "failed"
-
-    async def test_after_agent_emits_failed_then_raises_when_the_recheck_cannot_restore_the_tree(self, dispatched):
-        recheck = AsyncMock(side_effect=StashRestoreError())
-
-        with pytest.raises(StashRestoreError):
-            await self._publish_with(self._verification("passed", fingerprint="stale"), recheck=recheck)
-
-        dispatched.assert_awaited_once_with(
-            PUBLISH_RESULT_EVENT, publish_result_payload(status="failed", error_kind="unknown", repository="a/b")
-        )
-
     async def test_after_agent_replies_with_the_report_after_pushing_to_an_existing_merge_request(self):
         _, result = await self._publish_with(self._verification("failed"))
 
@@ -488,11 +459,6 @@ class TestGitMiddleware:
         _, result = await self._publish_with(self._verification("failed"), created=created, published=published)
 
         assert "messages" not in result
-
-    async def test_after_agent_does_not_recheck_without_verification(self):
-        kwargs, _ = await self._publish_with(self._verification("passed", fingerprint="stale"))
-
-        assert kwargs.get("as_draft", False) is False
 
     async def test_repo_publishes_reset_each_turn(self):
         middleware = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())

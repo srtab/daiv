@@ -33,7 +33,6 @@ class VerificationOutcome(TypedDict):
     rounds: int
     suspicious_paths: list[str]
     reason: NotRequired[str]
-    fingerprint: NotRequired[str]
     changed_by_checks: NotRequired[list[str]]
 
 

@@ -464,19 +464,6 @@ async def test_verification_keeps_check_output_only_when_the_site_publishes_it(p
     assert verification._publish_output is publish_output
 
 
-async def test_the_git_middleware_rechecks_through_the_verification_middleware():
-    built = await _construct(bash=True, auto_commit_changes=True)
-
-    [verification] = _verification(built.middleware)
-    assert built.git_middleware.call_args.kwargs["recheck"] == verification.recheck
-
-
-async def test_the_git_middleware_has_no_recheck_without_verification():
-    built = await _construct(bash=False, auto_commit_changes=True)
-
-    assert built.git_middleware.call_args.kwargs["recheck"] is None
-
-
 @pytest.mark.parametrize(("before_publish", "expected"), [(None, ("make lint",)), (("make test",), ("make test",))])
 async def test_verification_runs_the_sandbox_default_unless_the_repo_declares_its_own(before_publish, expected):
     sandbox = SandboxSpec(

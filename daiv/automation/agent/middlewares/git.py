@@ -41,7 +41,6 @@ if TYPE_CHECKING:
 
     from automation.agent.agent_settings import AgentSettings
     from automation.agent.session_links import SessionLinksResolver
-    from automation.agent.verification.outcome import VerificationOutcome
     from automation.agent.workspace.base import Workspace
 
 
@@ -221,8 +220,6 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         workspace: The run's workspace; its git backs the pre-run check and patch capture, and the publisher uses it.
         settings: The run's resolved agent settings.
         session_links: What builds the links the publisher puts in the commit and the merge request; ``None`` for none.
-        recheck: What judges the run's verification outcome again before publishing, ``VerificationMiddleware.recheck``;
-            ``None`` when the run is not verified.
         fork_branch: Whether a turn with no merge request of its own leaves an open one on the checked-out branch
             alone and publishes to a new branch and merge request instead of pushing onto it.
 
@@ -253,7 +250,6 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         auto_commit_changes: bool = True,
         capture_patch: bool = False,
         session_links: SessionLinksResolver | None = None,
-        recheck: Callable[[VerificationOutcome], Awaitable[VerificationOutcome]] | None = None,
         fork_branch: bool = False,
     ) -> None:
         """
@@ -266,7 +262,6 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         self._workspace = workspace
         self._settings = settings
         self._session_links = session_links
-        self._recheck = recheck
 
     async def abefore_agent(self, state: GitState, runtime: Runtime[RuntimeCtx]) -> dict[str, Any] | None:
         """
@@ -538,8 +533,6 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         notice: str | None = None
         main_payload: dict[str, Any] | None = None
         try:
-            if verification is not None and self._recheck is not None:
-                verification = await self._recheck(verification)
             outcome = await publisher.publish(
                 merge_request=self._publish_target(state, runtime),
                 skip_ci=self.skip_ci,

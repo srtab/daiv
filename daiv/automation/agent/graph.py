@@ -361,7 +361,6 @@ async def create_daiv_agent(
             auto_commit_changes=auto_commit_changes,
             capture_patch=capture_patch,
             session_links=session_links,
-            recheck=verification.recheck if verification is not None else None,
             fork_branch=fork_branch,
         ),
         GitPlatformMiddleware(git_platform=ctx.git_platform, backend=backend),

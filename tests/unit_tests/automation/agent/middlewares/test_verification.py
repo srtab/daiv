@@ -231,7 +231,7 @@ async def test_passing_checks_record_passed_outcome():
     outcome = _outcome(result)
     assert outcome["status"] == "passed"
     assert outcome["rounds"] == 0
-    assert outcome["fingerprint"]
+    assert "fingerprint" not in outcome
     assert [command["command"] for command in outcome["commands"]] == ["make test"]
     assert result.model_response.result == [reply]
     assert len(seen) == 1
@@ -372,7 +372,6 @@ async def test_check_that_changes_files_counts_as_failed_and_the_files_are_put_b
     assert outcome["changed_by_checks"] == ["uv.lock"]
     assert [command["exit_code"] for command in outcome["commands"]] == [0]
     assert repo.diff == AGENT_DIFF
-    assert outcome["fingerprint"] == diff_fingerprint(AGENT_DIFF)
 
 
 async def test_files_the_checks_changed_are_sent_back_once():
@@ -720,57 +719,6 @@ async def test_a_command_result_from_a_tool_is_passed_through():
     command = Command(update={})
 
     assert await _agent_runs(_middleware(FakeRepo(), ()), command) is command
-
-
-def _recorded(middleware: VerificationMiddleware):
-    handler, _ = _scripted(_final())
-    return middleware.awrap_model_call(_request(), handler)
-
-
-async def test_recheck_keeps_the_outcome_when_the_tree_is_unchanged():
-    repo = FakeRepo()
-    middleware = _middleware(repo)
-    outcome = _outcome(await _recorded(middleware))
-
-    assert await middleware.recheck(outcome) is outcome
-    assert repo.check_runs == 1
-
-
-async def test_recheck_judges_a_changed_tree_again_without_a_reminder():
-    repo = FakeRepo()
-    middleware = _middleware(repo, redact=("make test output",), publish_output=True)
-    outcome = _outcome(await _recorded(middleware))
-    repo.diff += "+late change\n"
-    repo.failing = {"make test"}
-
-    updated = await middleware.recheck(outcome)
-
-    assert updated["status"] == "failed"
-    assert updated["rounds"] == 0
-    assert updated["fingerprint"] == diff_fingerprint(repo.diff)
-    assert updated["commands"][0]["output_tail"] == "******"
-    assert repo.check_runs == 3
-
-
-async def test_recheck_leaves_outcomes_that_ran_no_checks_alone():
-    middleware = _middleware(FakeRepo())
-    for status in ("not_verified", "not_configured"):
-        outcome = {"status": status, "commands": [], "rounds": 0, "suspicious_paths": [], "fingerprint": "x"}
-        assert await middleware.recheck(outcome) is outcome
-
-
-async def test_recheck_records_not_verified_when_the_tree_cannot_be_read():
-    repo = FakeRepo(changed=["tests/test_a.py"])
-    middleware = _middleware(repo)
-    outcome = _outcome(await _recorded(middleware))
-    repo.read_errors = {"get_diff": httpx.ConnectError("down")}
-
-    updated = await middleware.recheck(outcome)
-
-    assert updated["status"] == "not_verified"
-    assert updated["reason"] == "the tree could not be re-checked after the last checks"
-    assert updated["rounds"] == 0
-    assert updated["suspicious_paths"] == ["tests/test_a.py"]
 
 
 @pytest.mark.parametrize(("commands", "status"), [(("make test",), "failed"), ((), "not_configured")])
