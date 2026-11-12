@@ -18,8 +18,8 @@ the default branch always does.
 A target that names a leg's ``thread_id`` is a leg follow-up: it continues that leg in its own session, with its
 conversation, on its branch and merge request (:mod:`sessions.inbox.leg_follow_ups`). It is refused, with a reason the
 coordinator can act on and the call's other targets going ahead, unless it names a leg this coordinator delegated, no
-``ref``, the leg's repository, a leg its user has not archived, whose delegated work has all ended, that DAIV did not
-lose track of, and whose merge request is still open (:data:`_REFUSALS`, checked in that order), then on a repository
+``ref``, the leg's repository, a leg whose merge request is still open, not archived, whose delegated work
+has all ended, and that DAIV did not lose track of (:data:`_REFUSALS`, checked in that order), then on a repository
 its user may still run on, checked with the new legs' and again by the inbox when its run starts. A leg follow-up's run
 carries the call's ``batch_id``, so one batch may hold new legs' first runs and leg follow-ups' runs, and a leg session
 serves every batch that sent it work. The call validates everything first, posts the leg follow-ups without draining,
@@ -83,9 +83,9 @@ from sessions.admission import AdmissionError, RepoAccessError, aassert_repo_acc
 from sessions.artifacts import aresolve_active_run
 from sessions.inbox import kinds
 from sessions.inbox.drain import Drain
-from sessions.inbox.leg_follow_ups import BUSY, LegFollowUpRefused, LegFollowUps
+from sessions.inbox.leg_follow_ups import ARCHIVED, BUSY, LegFollowUpRefused, LegFollowUps
 from sessions.inbox.post import Inbox
-from sessions.legs import NOT_RUN_CLOSED, NOT_RUN_MERGED, Leg
+from sessions.legs import NOT_RUN_ARCHIVED, NOT_RUN_CLOSED, NOT_RUN_MERGED, Leg
 from sessions.models import (
     LINK_FAILED_PREFIX,
     EventKind,
@@ -127,9 +127,9 @@ _NOT_A_LEG = (
 _REFUSALS = {
     "ref": "A leg follow-up works on the leg's own branch: omit `ref`.",
     "repo": "This leg works on `{leg_repo_id}`: give that `repo_id`, or delegate a new leg for `{repo_id}`.",
-    "archived": (
-        "The leg's session is archived for the person you act for: they can unarchive it from its session page, or "
-        "you can delegate a new leg."
+    ARCHIVED: (
+        "The leg's session is archived: someone who can run on its repository can unarchive it from its session "
+        "page, or you can delegate a new leg."
     ),
     BUSY: "This leg is still working: you are resumed when its batch finishes, and can follow it up then.",
     "lost": (
@@ -186,7 +186,7 @@ class SessionJobDelegator:
         legs: dict[int, Leg] = {}
         for index, target in enumerate(targets):
             if target.thread_id:
-                leg, refusal = await sync_to_async(self._check_follow_up)(target, user)
+                leg, refusal = await sync_to_async(self._check_follow_up)(target)
                 if refusal is not None:
                     outcomes[index] = FailedLeg(target.repo_id, target.ref, refusal, thread_id=target.thread_id)
                 else:
@@ -283,7 +283,7 @@ class SessionJobDelegator:
             failed=[outcome for outcome in ordered if isinstance(outcome, FailedLeg)],
         )
 
-    def _check_follow_up(self, target: DelegatedTarget, user: User) -> tuple[Leg | None, str | None]:
+    def _check_follow_up(self, target: DelegatedTarget) -> tuple[Leg | None, str | None]:
         """The leg ``target`` follows up, and why it is refused, or ``None`` when it may be sent; the first failing
         check gives the reason. SYNC ONLY."""
         leg = Leg.of(target.thread_id, coordinator=self._thread_id)
@@ -294,14 +294,14 @@ class SessionJobDelegator:
             return leg, _REFUSALS["ref"]
         if target.repo_id.casefold() != session.repo_id.casefold():
             return leg, _REFUSALS["repo"].format(leg_repo_id=session.repo_id, repo_id=target.repo_id)
-        if leg.archived_by(user):
-            return leg, _REFUSALS["archived"]
+        if (state := leg.merge_request_state()) != MergeRequestState.OPEN:
+            return leg, _REFUSALS[state]
+        if leg.is_archived():
+            return leg, _REFUSALS[ARCHIVED]
         if leg.is_busy():
             return leg, _REFUSALS[BUSY]
         if leg.is_lost():
             return leg, _REFUSALS["lost"].format(session_url=LegRun.url_of(session.pk))
-        if (state := leg.merge_request_state()) != MergeRequestState.OPEN:
-            return leg, _REFUSALS[state]
         return leg, None
 
     async def _apost_follow_up(
@@ -427,8 +427,9 @@ _OUTCOMES = {
     "lost": "started, but DAIV lost track of it",
     "not_run_merged": "not run: its merge request was merged",
     "not_run_closed": "not run: its merge request was closed",
+    "not_run_archived": "not run: its session was archived",
 }
-_NOT_RUN = {NOT_RUN_MERGED: "not_run_merged", NOT_RUN_CLOSED: "not_run_closed"}
+_NOT_RUN = {NOT_RUN_MERGED: "not_run_merged", NOT_RUN_CLOSED: "not_run_closed", NOT_RUN_ARCHIVED: "not_run_archived"}
 _NOT_RUN_STATES = frozenset(_NOT_RUN.values())
 
 _LEG_STATES = {

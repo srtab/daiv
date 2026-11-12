@@ -108,9 +108,9 @@
         {# Archived sessions are a list of their own, so this swaps the list rather than narrowing it #}
         <a href="{% if current_archived %}{% querystring archived=None page=None %}{% else %}{% querystring archived='true' page=None %}{% endif %}"
            class="filter-control {% if current_archived %}filter-control--active{% endif %}"
-           :class="{ 'filter-control--active': archived }"
+           :class="{ 'filter-control--active': archived === 'true' }"
            @click.prevent="toggleArchived()"
-           :aria-pressed="archived.toString()" aria-pressed="{{ current_archived|yesno:'true,false' }}"
+           :aria-pressed="(archived === 'true').toString()" aria-pressed="{{ current_archived|yesno:'true,false' }}"
            role="button" data-testid="filter-archived">
             {% icon "archive-box" "h-4 w-4" %}{% translate "Archived" %}
         </a>
@@ -131,6 +131,13 @@
             <span>{% blocktranslate with iid=current_mr %}Merge request !{{ iid }}{% endblocktranslate %}</span>
             <a href="{% querystring mr=None page=None scope=current_scope %}" @click.prevent="clearParam('mr')"
                class="filter-chip__x" aria-label="{% translate 'Clear merge request filter' %}">{% icon "x-mark" "h-3 w-3" %}</a>
+        </span>
+        {% endif %}
+        {% if current_archived_included %}
+        <span class="filter-chip" x-show="archived === 'all'" data-testid="filter-archived-included">
+            <span>{% translate "Including archived" %}</span>
+            <a href="{% querystring archived=None page=None scope=current_scope %}" @click.prevent="clearParam('archived')"
+               class="filter-chip__x" aria-label="{% translate 'Leave out archived sessions' %}">{% icon "x-mark" "h-3 w-3" %}</a>
         </span>
         {% endif %}
         {% if current_ran_on %}

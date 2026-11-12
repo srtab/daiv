@@ -204,8 +204,8 @@ async def submit_job(
             description=(
                 "Optional. Continue an existing thread by passing its UUID (from a prior"
                 " submit_job or get_job_status response). When set, ``repos`` must contain"
-                " exactly one entry whose session belongs to the calling user, who has not"
-                " archived it; a multi-repository session also accepts its full list, in order,"
+                " exactly one entry whose session belongs to the calling user and is not"
+                " archived for them; a multi-repository session also accepts its full list, in order,"
                 " with no ``ref``."
                 " If the session is busy, the job joins its next run for the job's branch,"
                 " which starts once the current run ends; jobs that join the same next run"

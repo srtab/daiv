@@ -215,7 +215,7 @@ class RecordingDelegator(SessionJobDelegator):
         return result
 
     def _record_follow_up(self, target: DelegatedTarget, batch_id: uuid.UUID, result: DelegationResult) -> None:
-        leg, refusal = self._check_follow_up(target, None)
+        leg, refusal = self._check_follow_up(target)
         if refusal is not None:
             result.failed.append(FailedLeg(target.repo_id, target.ref, refusal, thread_id=target.thread_id))
             return

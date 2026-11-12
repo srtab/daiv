@@ -36,7 +36,7 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
 
     If ``thread_id`` is supplied, the new job continues an existing thread: exactly one
     repo must be provided (a multi-repository session also takes its full list) and the
-    session owning that thread must belong to the caller, who has not archived it.
+    session owning that thread must belong to the caller and not be archived for them.
     If the session is busy, the job joins its next run for the job's branch (``QUEUED``), which
     other jobs on that branch may share, and so their ``job_id``.
     """

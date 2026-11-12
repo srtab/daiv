@@ -95,7 +95,7 @@ The list shows your own sessions (**Mine**) or everyone's you can see (**Everyon
 | Status | **All**, **Needs input**, **Failed**, **Running**, **Queued**, **Pending** or **Done**, by the session's latest run |
 | **Type** | One [origin](#session-origins), or **All types** |
 | **Time** | **All time** (the default), **Today**, **Last 2 days**, **Last 7 days**, **Last 30 days**, or a **Custom range** of two dates |
-| **Archived** | Swaps the list for the sessions you archived |
+| **Archived** | Swaps the list for the [archived sessions](#archived-sessions) |
 
 Five more filters have no control. They appear as chips when you arrive from a link, and each chip has a button that clears it:
 
@@ -111,11 +111,45 @@ Filters combine, and they are in the URL, so you can bookmark or share a filtere
 
 Sessions with a run in flight (**Queued**, **Pending** or **Running**) update in place, status dot and timing included, without a reload.
 
+### Archived sessions
+
+An archived session is archived for everyone, not only for the person who archived it. It leaves **Sessions**, **Your recent sessions** and **Needs you** on **Home**, and it takes no follow-ups until someone unarchives it.
+
+A filtered list that hides archived sessions says how many match: select **Show archived** under the list to see them.
+
+Links that must show a merge request's or a period's sessions whatever their state open the list with an **Including archived** chip, which has a button that clears it. They are the **view sessions** link in a merge request description, a repository card, a day in **Your week** and the charts on **Insights**. **Your week** and **Insights** count archived sessions too.
+
+DAIV archives a session when its merge request merges. It archives every session that carries the merge request's number, ran on it or owns it: the session that opened it, its review and comment sessions, and the issue sessions that published it. DAIV holds a session back while it has live work:
+
+- A session that owns another open merge request stays listed, and DAIV archives it when that merge request merges.
+- A session with a run in progress or a waiting request that would start a run is archived when that work ends.
+- A session that delegated work is archived once its legs have no run in progress and no open merge request.
+
+A merge request closed without merging archives nothing, and DAIV handles each merge once: a session you unarchive stays unarchived if the platform sends the same merge again.
+
+An archived session refuses new work:
+
+- A chat message and a job that continues it with `thread_id` are refused, with a message that says to unarchive the session first.
+- A leg follow-up for it stops with *not run: its session was archived*; see [Following up a leg](orchestration.md#following-up-a-leg).
+- An issue label or mention, a merge request mention, or a mention on a merge request it owns starts nothing. DAIV replies once with a link to the session: once per mention, and once a day for a label.
+- A CI failure or a finished delegated batch waits in the session's [inbox](#the-session-inbox), and starts a run when someone unarchives the session.
+
+To archive a session yourself, you need to be able to run agents on its repository. Archiving also hides the session for everyone else, so check that nobody needs it first.
+
+1. Open the session.
+2. Select **⋯** → **Archive**.
+3. In **Archive this session?**, select **Archive**.
+
+To bring an archived session back for everyone, you need the same access.
+
+1. Open the archived session.
+2. Select **Unarchive** in the message box, or **⋯** → **Unarchive**.
+
 ## Session detail
 
 Select a session to open its page (`/dashboard/sessions/<thread_id>/`), which holds:
 
-- **Header**: the session's title (rename it with the pencil, when you can run agents on the repository), its status, and a **⋯** menu with **Copy session link**, the linked issue and **Archive**.
+- **Header**: the session's title (rename it with the pencil, when you can run agents on the repository), its status, and a **⋯** menu with **Copy session link**, the linked issue and, when you can run agents on the repository, **Archive** or **Unarchive** ([archived sessions](#archived-sessions)).
 - **Transcript**: the conversation, streaming live while a run is active, whatever started it (chat, job, webhook or schedule). Reopening the page rejoins the stream: a fresh load replays the run from its start, and an automatic reconnect replays only what you missed.
 - **Up next**: at the end of the conversation, what the session does next, in order. It lists each run still to start, as whom, with the requests that start it, then the updates the next run is told ([The session inbox](#the-session-inbox) describes them). A CI failure or finished delegated batch that DAIV does not act on says why, such as `not fixing: out of attempts`. A request DAIV could not handle shows in the conversation as a `not handled` line with the reason. A run DAIV started itself opens with the message it received, and **Show request** expands the full prompt the run got.
 - **Sidebar**: repositories and merge requests, CI, the environment, usage and outputs.

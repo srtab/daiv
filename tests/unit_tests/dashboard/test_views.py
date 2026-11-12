@@ -20,7 +20,6 @@ from notifications.choices import EnvelopeStatus
 from notifications.models import RunEnvelope
 from sessions.models import (
     EventKind,
-    HiddenSession,
     MergeRequestOwnership,
     MergeRequestState,
     QuietReason,
@@ -440,16 +439,12 @@ class TestNeedsYouInbox:
         assert inbox["items"] == []
         assert inbox["total"] == 0
 
-    def test_leaves_out_what_you_archived(self, admin_user, member_user, member_client):
+    def test_leaves_out_archived_sessions(self, member_user, member_client):
         asking = _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.WAITING_INPUT)
-        failed = _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.FAILED)
-        HiddenSession.objects.create(session=asking, user=member_user)
-        HiddenSession.objects.create(session=failed, user=admin_user)
+        _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.FAILED)
+        Session.objects.filter(pk=asking.pk).update(archived_at=timezone.now())
 
-        inbox = _inbox(member_client)
-
-        assert _keys(inbox) == ["failed"]
-        assert inbox["total"] == 1
+        assert _keys(_inbox(member_client)) == ["failed"]
 
     def test_caps_the_list_and_links_to_the_lists_it_came_from(self, member_user, member_client):
         for days_ago in range(INBOX_LIMIT + 2):
@@ -497,9 +492,10 @@ class TestRecentSessions:
         assert "claude-test-model" not in home
         assert "claude-test-model" in listed
 
-    def test_leaves_out_what_you_archived(self, member_user, member_client):
+    def test_leaves_out_archived_sessions(self, member_user, member_client):
         shown = _make_session(member_user, SessionOrigin.CHAT, days_ago=1)
-        HiddenSession.objects.create(session=_make_session(member_user, SessionOrigin.CHAT), user=member_user)
+        archived = _make_session(member_user, SessionOrigin.CHAT)
+        Session.objects.filter(pk=archived.pk).update(archived_at=timezone.now())
 
         response = member_client.get(reverse("dashboard"))
 
@@ -655,15 +651,16 @@ class TestInsightsPage:
         assert _list_count(member_client, breakdown["sessions_url"]) == breakdown["sessions_total"] == 2
         assert _list_count(member_client, breakdown["sessions_failed_url"]) == breakdown["sessions_failed"] == 1
 
-    def test_sessions_you_archived_are_not_counted(self, member_user, member_client):
+    def test_archived_sessions_are_still_counted(self, member_user, member_client):
         _make_session(member_user, SessionOrigin.CHAT)
         archived = _make_session(member_user, SessionOrigin.CHAT, status=RunStatus.FAILED)
-        HiddenSession.objects.create(session=archived, user=member_user)
+        Session.objects.filter(pk=archived.pk).update(archived_at=timezone.now())
 
         breakdown = _insights(member_client)["breakdown"]
 
-        assert (breakdown["sessions_total"], breakdown["sessions_failed"]) == (1, 0)
-        assert _list_count(member_client, breakdown["sessions_url"]) == 1
+        assert (breakdown["sessions_total"], breakdown["sessions_failed"]) == (2, 1)
+        assert _list_count(member_client, breakdown["sessions_url"]) == 2
+        assert _list_count(member_client, breakdown["sessions_failed_url"]) == 1
 
     def test_runs_chart_has_a_column_per_day_by_outcome(self, member_user, member_client):
         changed = _make_session(member_user, SessionOrigin.UI_JOB, days_ago=2)
@@ -820,16 +817,17 @@ class TestYourWeek:
         assert legend == {"Changed code": 1, "Done, no changes": 1, "Needed you": 2, "Failed": 1}
         assert (week["runs"], week["sessions"]) == (5, 1)
 
-    def test_leaves_out_sessions_you_archived(self, member_user, member_client):
+    def test_still_counts_archived_sessions(self, member_user, member_client):
         _week_run(_bare_session(member_user))
         archived = _bare_session(member_user, title="Archived work")
         _week_run(archived, RunStatus.FAILED, merge_request_iid=7)
-        HiddenSession.objects.create(session=archived, user=member_user)
+        Session.objects.filter(pk=archived.pk).update(archived_at=timezone.now())
 
         week = _week(member_client)
 
-        assert (week["runs"], week["sessions"]) == (1, 1)
-        assert week["merge_requests"] == []
+        assert (week["runs"], week["sessions"]) == (2, 2)
+        assert len(week["merge_requests"]) == 1
+        assert "archived=all" in week["chart"]["columns"][-1]["url"]
 
     def test_only_your_sessions_and_the_last_seven_days(self, admin_user, member_user, member_client):
         mine = _bare_session(member_user, days_ago=7)

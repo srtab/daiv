@@ -10,7 +10,8 @@ and ``Run`` exist, so every addressor run waits for the session's slot and knows
 mentioning note are the task's ``dedup_on`` key: a repeated delivery or an edited comment finds the earlier trigger's
 task, which has its ``Run`` already, and stops without writing or reacting. A label trigger only repeats a queued or
 running one. The enqueue holds the key's lock until the transaction commits, so of concurrent deliveries exactly one
-creates the task and its ``Run``.
+creates the task and its ``Run``. A trigger whose session is archived, or a mention on a merge request an archived
+session owns, starts nothing; DAIV replies once, linking the session, for someone with run access to unarchive it.
 """
 
 import logging
@@ -18,7 +19,9 @@ from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
+from django.core.cache import cache
 from django.db import transaction
+from django.urls import reverse
 
 from asgiref.sync import sync_to_async
 from sandbox_envs.selection import resolve_env_for_run
@@ -26,13 +29,14 @@ from sessions.ids import compute_thread_id
 from sessions.inbox import kinds
 from sessions.inbox.ownership import Ownerships
 from sessions.inbox.post import Inbox
-from sessions.models import EventKind, SessionOrigin
+from sessions.models import EventKind, Session, SessionOrigin
 from sessions.services import create_run
 
 from accounts.utils import resolve_linked_user
 from codebase.base import GitPlatform, Scope
-from codebase.clients.base import PLATFORM_ERRORS, Emoji
+from codebase.clients.base import PLATFORM_ERRORS, CommentThread, Emoji
 from core.site_settings import site_settings
+from core.utils import build_absolute_url
 from webhooks.tasks import address_issue_label_task, address_issue_task, address_mr_comments_task
 
 if TYPE_CHECKING:
@@ -44,6 +48,8 @@ if TYPE_CHECKING:
     from core.backends.deduplicating import DeduplicatingTask
 
 logger = logging.getLogger("daiv.webhooks")
+
+ARCHIVED_REPLY_TTL = 24 * 60 * 60
 
 
 @dataclass(frozen=True)
@@ -95,6 +101,7 @@ async def dispatch_issue_run(
         task_kwargs={"issue_iid": issue_iid, "mention_comment_id": comment_id, "mention_note_id": note_id},
         trigger_type=SessionOrigin.ISSUE_WEBHOOK,
         title=title,
+        reply=lambda body: client.create_issue_comment(repo_id, issue_iid, body, reply_to_id=comment_id),
     )
     if started:
         await _react(
@@ -119,7 +126,15 @@ async def dispatch_mr_comment_run(
     it is then fetched, and left blank if that fails, since the run is still worth starting. ``use_max`` runs it on the
     site's max model either way: a mention for the owning session carries that model for the run that takes it.
     """
+    thread = CommentThread(mention.comment_id, on_diff=mention.on_diff)
+
+    def reply(body: str) -> object:
+        return client.create_merge_request_comment(repo_id, merge_request_iid, body, reply_to=thread)
+
     if (ownership := await Ownerships(repo_id).afind_open(merge_request_iid, title=title)) is not None:
+        if ownership.session.archived_at is not None:
+            await _reply_archived(reply, author, ownership.session.thread_id, note_id=mention.note_id)
+            return
         if await _post_comment(ownership, client, author, mention, kind=EventKind.MENTION, use_max=use_max):
             await _react(
                 partial(
@@ -152,6 +167,7 @@ async def dispatch_mr_comment_run(
         },
         trigger_type=SessionOrigin.MR_WEBHOOK,
         title=title,
+        reply=reply,
         ref=ref,
     )
     if started:
@@ -227,6 +243,31 @@ async def _fetch_source_branch(client: RepoClient, repo_id: str, merge_request_i
     return merge_request.source_branch
 
 
+async def _reply_archived(
+    reply: Callable[[str], object], author: Author, thread_id: str, *, note_id: int | None
+) -> None:
+    """Tell ``author`` the session ``thread_id`` is archived, once per trigger, so a redelivery posts nothing; a label
+    trigger has no ``note_id`` and is told once a day."""
+    logger.info("Ignoring a trigger on session %s: it is archived", thread_id)
+    key = f"webhooks:archived-reply:{thread_id}:{note_id or 'label'}"
+    if not await cache.aadd(key, True, ARCHIVED_REPLY_TTL):
+        return
+
+    @sync_to_async
+    def post() -> None:
+        url = build_absolute_url(reverse("session_detail", kwargs={"thread_id": thread_id}))
+        reply(
+            f"@{author.username} This session is archived, so I won't act on this. Anyone who can run DAIV on this "
+            f"repository can unarchive it: {url}"
+        )
+
+    try:
+        await post()
+    except PLATFORM_ERRORS:
+        await cache.adelete(key)
+        logger.exception("Failed to tell %s that session %s is archived", author.username, thread_id)
+
+
 async def _react(add_reaction: Callable[[], object], target: str) -> None:
     try:
         await sync_to_async(add_reaction)()
@@ -245,16 +286,20 @@ async def _start_run(
     task_kwargs: dict[str, Any],
     trigger_type: SessionOrigin,
     title: str,
+    reply: Callable[[str], object],
     ref: str = "",
 ) -> bool:
     """Enqueue ``task`` with ``task_kwargs`` plus what every addressor task takes, and record its ``Run`` on the
     issue's or merge request's ``Session`` in one transaction, for the DAIV user linked to ``author``, whom the task
     acts as. Returns whether it did: ``False`` when the enqueue found an earlier trigger's task, which has its ``Run``
-    already.
+    already, or when the session is archived, which answers the trigger with ``reply`` instead.
 
     A failed session or ``Run`` write rolls the enqueue back and raises, so the platform redelivers the event.
     """
     thread_id = compute_thread_id(repo_slug=repo_id, scope=scope, entity_iid=iid)
+    if await Session.objects.filter(pk=thread_id).archived().aexists():
+        await _reply_archived(reply, author, thread_id, note_id=task_kwargs["mention_note_id"])
+        return False
     # user=None: the webhook fires for whoever touched the issue/MR, not the agent owner, so USER envs never apply.
     sandbox_env = await resolve_env_for_run(user=None, repo_id=repo_id)
     sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None

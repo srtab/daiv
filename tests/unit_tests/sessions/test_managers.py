@@ -10,7 +10,7 @@ import pytest
 from allauth.socialaccount.models import SocialAccount
 from asgiref.sync import sync_to_async
 from django_tasks_db.models import DBTaskResult
-from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin, SessionRepository
+from sessions.models import Run, RunStatus, Session, SessionOrigin, SessionRepository
 from sessions.signal_defs import run_ended, run_finished
 
 from core.constants import CANCELLED_BY_COORDINATOR_MESSAGE
@@ -448,23 +448,15 @@ class TestWithRetried:
 
 
 @pytest.mark.django_db
-class TestArchivedFor:
+class TestArchived:
     def _session(self, user):
         return Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, user=user)
 
-    def test_it_splits_what_a_user_archived_from_the_rest(self, other_user, member_user):
-        shown = self._session(other_user)
-        hidden = self._session(other_user)
-        HiddenSession.objects.create(session=hidden, user=other_user)
-
-        assert list(Session.objects.archived_for(other_user)) == [hidden]
-        assert list(Session.objects.archived_for(other_user, archived=False)) == [shown]
-        assert set(Session.objects.archived_for(member_user, archived=False)) == {shown, hidden}
-
-    def test_the_list_leaves_out_what_the_user_archived_unless_asked_for_it(self, member_user):
+    def test_the_list_leaves_out_archived_sessions_unless_asked_for_them(self, member_user):
         shown = self._session(member_user)
-        hidden = self._session(member_user)
-        HiddenSession.objects.create(session=hidden, user=member_user)
+        archived = self._session(member_user)
+        Session.objects.filter(pk=archived.pk).update(archived_at=timezone.now())
 
         assert list(Session.objects.listed_for(member_user, mine=True)) == [shown]
-        assert list(Session.objects.listed_for(member_user, mine=True, archived=True)) == [hidden]
+        assert list(Session.objects.listed_for(member_user, mine=True, archived=True)) == [archived]
+        assert set(Session.objects.listed_for(member_user, mine=True, archived=None)) == {shown, archived}
