@@ -478,8 +478,8 @@ Learns from finished runs, consolidates what they taught into a per-repository d
 | Variable | Description | Default |
 |----------------------------------------|----------------------------------------------------------|------------------------|
 | `DAIV_MEMORY_ENABLED` | Capture learnings from finished runs, consolidate them, and inject them into future runs. A per-repository `.daiv.yml` flag can still opt an individual repository out | `true` |
-| `DAIV_MEMORY_EXTRACTION_MODEL_NAME` | Cheap model that extracts candidate observations from each finished run's transcript | `gpt-6-luna` |
-| `DAIV_MEMORY_EXTRACTION_FALLBACK_MODEL_NAME` | Fallback model when the extraction model fails | `claude-haiku-5.5` |
+| `DAIV_MEMORY_EXTRACTION_MODEL_NAME` | Cheap model that extracts candidate observations from each finished run's transcript | `openrouter:openai/gpt-6-luna` |
+| `DAIV_MEMORY_EXTRACTION_FALLBACK_MODEL_NAME` | Fallback model when the extraction model fails | `openrouter:anthropic/claude-haiku-5.5` |
 | `DAIV_MEMORY_CONSOLIDATION_MODEL_NAME` | Model that rewrites the memory document. Leave empty to reuse the repository's agent model | *(none)* |
 | `DAIV_MEMORY_CONSOLIDATION_MIN_PENDING` | Consolidate once at least this many pending observations have accumulated (subject to the consolidation interval below) | `10` |
 | `DAIV_MEMORY_CONSOLIDATION_MAX_PENDING_AGE_DAYS` | Consolidate a repository that is still below the threshold above once its oldest pending observation reaches this age, so low-volume repositories still form memory | `7` |
@@ -493,8 +493,8 @@ Classifies the report of each finished scheduled run into an envelope.
 
 | Variable | Description | Default |
 |----------------------------------------|----------------------------------------------------------|------------------------|
-| `DAIV_RUN_CLASSIFIER_MODEL_NAME` | Model that classifies each finished scheduled run's report into an envelope | `gpt-6-luna` |
-| `DAIV_RUN_CLASSIFIER_FALLBACK_MODEL_NAME` | Fallback model when the classifier model fails | `claude-haiku-5.5` |
+| `DAIV_RUN_CLASSIFIER_MODEL_NAME` | Model that classifies each finished scheduled run's report into an envelope | `openrouter:openai/gpt-6-luna` |
+| `DAIV_RUN_CLASSIFIER_FALLBACK_MODEL_NAME` | Fallback model when the classifier model fails | `openrouter:anthropic/claude-haiku-5.5` |
 
 ### Pipeline Watch
 
