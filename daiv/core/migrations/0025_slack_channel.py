@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("core", "0022_searxng_web_search")]
+    dependencies = [("core", "0024_explore_model_to_subagent_models")]
 
     operations = [
         migrations.AddField(
