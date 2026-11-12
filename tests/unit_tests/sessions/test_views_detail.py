@@ -1625,7 +1625,7 @@ def test_other_sessions_is_offered_on_the_main_card_only(member_client, member_u
     card = _card(_get_detail(member_client, _create_session(user=member_user)))
 
     assert 'x-if="index === 0 && row.mr_iid"' in card
-    assert f"{reverse('session_list')}?repo=group/project&amp;mr=" in card
+    assert f"{reverse('session_list')}?repo=group/project&amp;archived=all&amp;mr=" in card
 
 
 @pytest.mark.django_db

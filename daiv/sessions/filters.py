@@ -34,6 +34,9 @@ SCOPE_MINE = "mine"
 SCOPE_ALL = "all"
 SCOPE_CHOICES: list[tuple[str, str]] = [(SCOPE_MINE, _("Mine")), (SCOPE_ALL, _("Everyone"))]
 
+ARCHIVED_ONLY = "true"
+ARCHIVED_INCLUDED = "all"
+
 DEEP_LINK_PARAMS = ("repo", "mr", "schedule", "batch")
 
 

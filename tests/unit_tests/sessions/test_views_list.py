@@ -177,6 +177,32 @@ class TestSessionListView:
         assert unrecognised.context["current_archived"] is False
         assert archived.context["has_active_filters"] is True
 
+    def test_archived_all_lists_archived_sessions_with_the_rest(self, logged_in_client, user):
+        shown = _create_session(user=user)
+        hidden = _create_session(user=user)
+        auto = _create_session(user=user)
+        HiddenSession.objects.create(session=hidden, user=user)
+        Session.objects.filter(pk=auto.pk).update(archived_at=timezone.now())
+
+        response = logged_in_client.get(reverse("session_list"), {"archived": "all"})
+
+        assert {s.pk for s in response.context["sessions"]} == {shown.pk, hidden.pk, auto.pk}
+        assert (response.context["current_archived"], response.context["current_archived_included"]) == (False, True)
+        assert response.context["has_active_filters"] is True
+        assert "archived_matches" not in response.context
+        assert 'data-testid="filter-archived-included"' in response.content.decode()
+
+    def test_a_session_archived_for_everyone_moves_to_the_archived_list(self, logged_in_client, user):
+        auto = _create_session(user=user)
+        Session.objects.filter(pk=auto.pk).update(archived_at=timezone.now())
+
+        default = logged_in_client.get(reverse("session_list"))
+        archived = logged_in_client.get(reverse("session_list"), {"archived": "true"})
+
+        assert list(default.context["sessions"]) == []
+        assert [s.pk for s in archived.context["sessions"]] == [auto.pk]
+        assert 'data-testid="filter-archived-included"' not in archived.content.decode()
+
     def test_a_filtered_list_says_how_many_archived_sessions_match_too(self, logged_in_client, user):
         _create_session(user=user, repo_id="group/project", merge_request_iid=7)
         for _ in range(2):

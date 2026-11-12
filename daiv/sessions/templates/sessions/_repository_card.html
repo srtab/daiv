@@ -44,7 +44,7 @@ session list's filter; ``can_act`` and the row's own ``can_act`` add a CI toggle
           </template>
           <template x-if="index === 0 && row.mr_iid">
             <a role="menuitem" tabindex="-1" class="session-menu__item"
-               :href="'{% url 'session_list' %}?repo={{ header.repositories.rows.0.repo_id|urlencode }}&amp;mr=' + row.mr_iid">
+               :href="'{% url 'session_list' %}?repo={{ header.repositories.rows.0.repo_id|urlencode }}&amp;archived=all&amp;mr=' + row.mr_iid">
               {% icon "list-bullet" "session-menu__icon" %}<span x-text="'{{ _("Other sessions on")|escapejs }} !' + row.mr_iid"></span>
             </a>
           </template>
