@@ -2,164 +2,168 @@
 description: "Run DAIV agents on a cron schedule across one or more repositories for recurring work such as dependency audits and nightly code-quality scans."
 ---
 
-# Scheduled Jobs
+# Scheduled jobs
 
-Scheduled Jobs let you run DAIV agents on a recurring basis — no CI pipeline or cron script required. Define a prompt, pick one or more repositories and a frequency, and DAIV handles the rest.
+Scheduled jobs run DAIV agents on a recurring basis, with no CI pipeline or cron script. You give a prompt, one or more repositories and a frequency, and DAIV starts the runs when they are due.
 
-This is useful when you want to:
+Use a schedule for recurring work such as a weekly dependency audit, a nightly code-quality scan, closing stale branches every Monday, a periodic summary of recent changes for a changelog draft, or a check for TODO comments or outdated documentation.
 
-- **Automate recurring tasks** — e.g., weekly dependency audits, nightly code quality scans
-- **Keep repositories tidy** — e.g., close stale branches every Monday
-- **Generate periodic reports** — e.g., summarise recent changes for a changelog draft
-- **Run maintenance prompts** — e.g., check for TODO comments or outdated documentation
+## Create a schedule
 
-## Creating a schedule
+You need access to the repositories you want to run against. A schedule runs with its owner's repository permissions, so DAIV must be able to confirm that you have write access to each repository; see [When a schedule can't run](#when-a-schedule-cant-run).
 
-Click **Manage** beside **Scheduled** in the sidebar, then **Create schedule**, and fill in the form:
+1. In the sidebar, select **Manage schedules**, the list icon beside **Scheduled**.
+2. Select **Create schedule**.
+3. Enter a **Name**, for example `Weekly dep audit`.
+4. In the prompt box, describe what the agent does in each run.
+5. Select **Add repository** and choose one to 20 repositories. Each entry has its own branch; leave it on the default to start from the repository's default branch.
+6. Choose a **Frequency**, then fill the field it shows (see [Frequency options](#frequency-options)).
+7. Optionally set the other fields in [Schedule fields](#schedule-fields).
+8. Select **Create schedule**.
 
-| Field                   | Description |
-|-------------------------|-------------|
-| **Name**                | A short label for the schedule (e.g., "Weekly dep audit") |
-| **Prompt**              | What the agent should do — same format as a Jobs API prompt |
-| **Repositories**        | One to 20 repositories, added through the repo picker. Each entry has its own branch — leave a repository's ref blank to start from its default branch. A merge/pull request a run opens targets that branch and is assigned to the schedule's owner when their DAIV account is OAuth-linked to the git platform. Each run [fans out](#how-it-works) into one agent run per repository |
-| **Agent model**         | The model and thinking level the runs use, chosen with the agent picker. The picker pre-selects the instance's configured model, so the runs try it first and the repository's `models.agent` model after it. A schedule without a model, such as one created over [MCP](mcp-endpoint.md) without `agent_model`, leads with the repository's model, else the system default |
-| **Frequency**           | How often the job runs (see [Frequency options](#frequency-options)) |
-| **Time**                | Time of day for Daily, Weekdays, and Weekly schedules |
-| **Date & time**         | The specific date and time a one-off (**Once**) schedule fires |
-| **Mute**                | When checked, silences all notifications for this schedule's runs (in-app and external channels). Off by default — notifications fire automatically on notify-worthy outcomes. The owner still gets the [Schedule can't run](#when-a-schedule-cant-run) notice |
-| **Subscribers**         | Other DAIV users to CC on finish notifications (see [Subscribers](#subscribers)) |
-| **Sandbox environment** | The named [sandbox](sandbox.md) environment the runs use. Leave it unset to fall back to the per-repository environment resolution |
+The schedule is active as soon as you save it. To pause it, see [Manage schedules](#manage-schedules).
 
-Schedule times use the DAIV instance's configured timezone (set by the deployment); there is no per-schedule timezone choice. See [Timezone handling](#timezone-handling).
+### Schedule fields
 
-Once created, the schedule is **active** immediately. You can pause and resume it at any time — directly from the list (see [Managing schedules](#managing-schedules)) or via the **Enabled** checkbox on the edit page.
+| Field | Description |
+|-------|-------------|
+| **Name** | A short label for the schedule. |
+| Prompt box | What the agent does. It has the same form as a [jobs API](jobs-api.md) prompt. |
+| Repositories | One to 20 repositories, each with its own branch. A merge or pull request a run opens targets that branch, and DAIV assigns it to the schedule's owner when their DAIV account is OAuth-linked to the git platform. Each run fans out into one agent run per repository. |
+| Agent picker | The model and thinking level the runs use. The picker starts on the instance's default model, and the schedule stores the model it shows. A run tries that model first, then the repository's `models.agent` model as a fallback. A schedule created over MCP without `agent_model` has no stored model and uses the repository's model, else the system default; see [`schedule_job` parameters](mcp-endpoint.md#schedule_job-parameters). |
+| Environment picker | The named [sandbox](sandbox.md) environment the runs use. It defaults to **Auto**, which resolves an environment for each repository. |
+| **Frequency** | How often the schedule runs; see [Frequency options](#frequency-options). |
+| **Time** | The time of day for **Daily**, **Weekdays** and **Weekly** schedules. |
+| **Cron Expression** | The five-field cron expression for a **Custom** schedule. |
+| **Date & time** | The moment a **Once** schedule fires. |
+| **Intent** | What the schedule is for: **Watch & find**, **Do & change** or **Report**. The default is **Watch & find**. |
+| **Mute notifications** | Silences all notifications for this schedule's runs, in-app and external. Off by default. The owner still gets the [Schedule can't run](#when-a-schedule-cant-run) notice. |
+| **Subscribers** | Other DAIV users who get the finish notifications; see [Subscribers](#subscribers). |
+| **Enabled** | On the edit page only. When off, the schedule does not run until you turn it on again. |
+
+Schedule times are read in the instance's fixed time zone, and a schedule has no time zone of its own; see [Time zone](#time-zone).
 
 ## Frequency options
 
-| Frequency    | Cron equivalent          | Notes |
-|--------------|--------------------------|-------|
-| **Hourly**   | `0 * * * *`              | Runs at the top of every hour |
-| **Daily**    | `{mm} {HH} * * *`       | Runs once a day at the specified time |
-| **Weekdays** | `{mm} {HH} * * 1-5`     | Monday through Friday at the specified time |
-| **Weekly**   | `{mm} {HH} * * 1`       | Every Monday at the specified time |
-| **Custom**   | *(user-provided)*        | Any valid five-field cron expression |
-| **Once**     | *(none — date/time)*     | A one-off run at a specific **Date & time** instead of a cron expression |
+| Frequency | Cron equivalent | Notes |
+|-----------|-----------------|-------|
+| **Hourly** | `0 * * * *` | Runs at the top of every hour. |
+| **Daily** | `{mm} {HH} * * *` | Runs once a day at the time you set. |
+| **Weekdays** | `{mm} {HH} * * 1-5` | Runs Monday through Friday at the time you set. |
+| **Weekly** | `{mm} {HH} * * 1` | Runs every Monday at the time you set. |
+| **Custom** | Your expression | Any valid five-field cron expression: minute, hour, day of month, month, day of week. For example `0 */6 * * *` runs every 6 hours, and `0 9 1-7 * 1` runs on the first Monday of the month. |
+| **Once** | None | Runs a single time at the **Date & time** you set. |
 
-!!! tip
-    The **Custom** frequency accepts standard five-field cron expressions (minute, hour, day-of-month, month, day-of-week). Use it for non-standard intervals like "every 6 hours" (`0 */6 * * *`) or "first Monday of the month" (`0 9 1-7 * 1`).
+A **Once** schedule runs one time, then retires: DAIV disables it, gives it no next run, and shows it as a read-only **Fired** card. You cannot re-enable a fired one-off schedule; use **Duplicate** to run it again (see [Manage schedules](#manage-schedules)).
 
-!!! note "One-off schedules"
-    A **Once** schedule runs a single time at the chosen date and time, then retires automatically — it is disabled, has no next run, and shows as a read-only **Fired** card. A fired one-off cannot be re-enabled; use **Duplicate** (see [Managing schedules](#managing-schedules)) to run it again.
+## How scheduled runs start
 
-## How it works
+Every minute, DAIV checks for enabled schedules that are due. For each one it:
 
-A background task runs every minute and checks for schedules whose next run time has passed. For each due schedule it:
+1. Starts one agent run per target repository, through the same task backend as the [jobs API](jobs-api.md), and records the batch ID.
+2. Records the run time and adds one to the run count.
+3. Works out the next run time from the schedule's frequency. A **Once** schedule retires instead.
 
-1. Fans the schedule out into one agent run per target repository — enqueuing each via the same task backend used by the [Jobs API](jobs-api.md) — and records the resulting batch ID
-2. Records the run timestamp and increments the run counter
-3. Computes the next run time based on the cron expression and the configured timezone (a **Once** schedule retires instead)
+If a schedule fails to start, DAIV still moves its next run time forward, so it does not fire again every minute. If even that recovery fails, DAIV disables the schedule. Either way, DAIV records the failure on the schedule and tells the owner; see [When a schedule can't run](#when-a-schedule-cant-run).
 
-```mermaid
-sequenceDiagram
-    participant Dispatcher as Cron dispatcher (every minute)
-    participant DB as Database
-    participant Worker as Job worker
+A schedule never starts twice when a check overruns the minute, and one schedule's failure does not stop the others. A schedule whose owner is inactive is skipped. After downtime, the times a schedule missed collapse into a single run, and DAIV then moves to the next time after now.
 
-    Dispatcher->>DB: Query enabled schedules where next_run_at <= now
-    loop For each due schedule
-        loop For each target repository
-            Dispatcher->>Worker: Enqueue agent run (repo_id, prompt, ref)
-        end
-        Dispatcher->>DB: Update last_run_at, last_run_batch_id, run_count, next_run_at
-    end
-```
+A scheduled run cannot ask you a question, because nobody is there to answer. The agent does not get the ask-the-user tool.
 
-Schedules use `SELECT ... FOR UPDATE (SKIP LOCKED)` to prevent double-dispatch if the dispatcher overlaps, and each schedule is processed in its own database savepoint so that one failure does not affect others.
+## Time zone
 
-If a schedule fails to dispatch, its next run time is still advanced to prevent repeated re-firing. If even that recovery fails, the schedule is automatically disabled to avoid an infinite retry loop. Either way the failure is recorded on the schedule and the owner is told (see [When a schedule can't run](#when-a-schedule-cant-run)).
+DAIV reads schedule times in the `Europe/Lisbon` time zone, and a schedule has no time zone of its own. A daily schedule set to 09:00 fires at 09:00 `Europe/Lisbon` all year, across daylight saving changes. The zone is fixed in the settings; see [Time zone](../reference/env-variables.md#time-zone).
 
-Scheduled runs can't ask the user a question: nobody is there to answer, so the agent doesn't get the ask-the-user tool.
+## Manage schedules
 
-## Timezone handling
+On the **Scheduled Jobs** page, each schedule has an actions menu:
 
-Schedule times are interpreted in the configured timezone. DAIV converts the local fire time to UTC for storage, which means DST transitions are handled automatically — a daily job set to 09:00 `Europe/Lisbon` will always fire at 09:00 local time, even across clock changes.
+- **Pause** or **Resume** the schedule, without opening the edit page.
+- **Run now** to start a batch immediately instead of waiting for the next scheduled time. You land on the resulting session, or on the [Sessions](sessions.md) list filtered to the batch when it spans several repositories.
+- **Duplicate** the schedule to create a new one pre-filled from it. It is the only way to run a fired one-off schedule again.
+- **Delete** the schedule; see [Delete a schedule](#delete-a-schedule).
 
-## Managing schedules
+A fired one-off schedule offers only **Duplicate** and **Delete**. To change a schedule, including its **Enabled** setting, select its card to open the edit page.
 
-From the **Scheduled Jobs** list, each schedule's actions menu lets you:
+Each schedule card shows its name, its status (**Active**, **Failing**, **Paused** or **Fired**), its frequency, its target repository (or "*N* repositories" when it has several), its next and last run times, its run count and its owner's avatar. Selecting the run count opens the **Sessions** list filtered to that schedule's sessions.
 
-- **Pause / Resume** a schedule directly from the list — no need to open the edit page (it is also available via the **Enabled** checkbox there)
-- **Run now** to dispatch an immediate batch run without waiting for the next scheduled time. You land on the resulting session (or the [Sessions](sessions.md) list filtered to the batch when it spans multiple repositories)
-- **Duplicate** a schedule to create a new one pre-filled from this one — the only way to re-run a fired one-off schedule
-- **Edit** a schedule to change any field, including the **Enabled** checkbox
-- **Delete** a schedule permanently — any currently running job will complete, but no new runs will be dispatched
+Non-admin users see only their own schedules. Admins see everyone's, and the owner avatar on each card shows whose it is.
 
-Fired one-off (**Once**) schedules only offer **Duplicate** and **Delete**.
+### Delete a schedule
 
-Each schedule card shows its name, status (**Active**, **Failing**, **Paused**, or **Fired**), frequency, the target repository (or "*N* repositories" when it targets more than one), next run time, last run time, total run count, and the owner avatar. Clicking the run count opens the [Sessions](sessions.md) list filtered to that schedule's sessions.
+!!! warning
+    Deleting a schedule removes it permanently and cannot be undone. A run that is already running completes, but DAIV starts no new runs. The sessions the schedule produced remain, but its subscribers lose access to them.
 
-!!! note
-    Non-admin users only see their own schedules; admins see everyone's. The owner avatar on each card makes it clear whose schedule it is.
+1. In the schedule's actions menu, select **Delete**, or select **Delete schedule** on its edit page.
+2. On the confirmation page, select **Delete schedule**.
 
 ## When a schedule can't run
 
-A scheduled run can fail to start. Most often DAIV couldn't confirm that the schedule's owner has write access to one of its repositories: schedules run with their owner's repository permissions. It can also be an unexpected error, including every repository in the batch failing to enqueue. When that happens:
+A scheduled run can fail to start. Most often, DAIV could not confirm that the schedule's owner has write access to one of its repositories, because schedules run with their owner's repository permissions. It can also be an unexpected error, including every repository in the batch failing to start. When that happens:
 
 - The schedule card shows **Failing** with the reason, and the edit page explains how to fix it. A paused schedule reads **Paused** but keeps the reason.
-- The owner gets one **Schedule can't run** [notification](notifications.md) per failing streak, even when the schedule is muted. Subscribers aren't told, since they can't fix the owner's access.
-- A recurring schedule keeps trying at each scheduled time. A one-off schedule retires; give it a new date and time and enable it to retry.
+- The owner gets one **Schedule can't run** [notification](notifications.md) per failing streak, even when the schedule is muted. Subscribers get none, since they cannot fix the owner's access.
+- A recurring schedule keeps trying at each scheduled time. A one-off schedule retires; give it a new date and time and enable it to try again.
 
-The failing state clears at the next scheduled run that starts, or when you change the schedule's repositories. **Run now** doesn't clear it.
+The failing state clears at the next scheduled run that starts, or when you change the schedule's repositories. **Run now** does not clear it.
 
 ## Subscribers
 
-Schedule owners can CC other DAIV users on the finish notifications for their schedules. Subscribers:
+A schedule's owner can add other DAIV users as subscribers, who get the schedule's finish notifications. A subscriber:
 
-- Receive the same notifications as the owner on notify-worthy outcomes, unless the schedule is muted.
-- Gain **read-only** access to the sessions produced by the schedule — they can click through from the notification and view the session detail, transcript, and run timeline.
-- Do **not** see the schedule itself in their own Scheduled Jobs list, and cannot edit, pause, run, or delete it.
+- Receives the same notifications as the owner on notify-worthy outcomes, unless the schedule is muted. Muting silences the owner and every subscriber alike, and there is no per-subscriber setting. The outcomes are found issues, needs attention, needs input and failed.
+- Gets read-only access to the sessions the schedule produces: the session detail, transcript and run timeline.
+- Does not see the schedule in their own list, and cannot edit, pause, run or delete it.
 
-### Adding subscribers
+Only the owner or an admin can change a schedule's subscribers.
 
-On the schedule form, use the **Subscribers** search to find a user by username, email, or name. Click a result to add them as a chip. Remove a chip with the × button. Save the schedule to persist the subscriber list.
+To add a subscriber:
 
-Only the owner (or an admin) can change a schedule's subscribers.
+1. Open the schedule's form and find **Subscribers**.
+2. Select **Add subscriber** and search for a user by username, email or name.
+3. Select a result to add the user.
+4. Select **Save changes**.
 
-### Self-unsubscribe
+To remove a subscriber, select the × on their chip in **Subscribers**, then select **Save changes**. A subscriber cannot unsubscribe themselves; ask the owner or an admin.
 
-When a subscriber opens a session produced by a schedule they are CC'd on, the session detail page shows an **Unsubscribe** button next to the schedule name. Clicking it removes the subscriber from that schedule — no owner action needed.
+## Scheduled jobs and the jobs API
 
-!!! note "Notification preferences"
-    Subscribers receive the same notifications as the owner (classification-driven: found-issues, needs-attention, needs-input, or failed). Muting the schedule silences notifications for the owner and all subscribers alike. There is no per-subscriber override.
+Scheduled jobs and the [jobs API](jobs-api.md) start the same kind of agent run. They differ in what starts it:
 
-## Relationship with the Jobs API
-
-Scheduled Jobs and the [Jobs API](jobs-api.md) use the same underlying task to execute agent work. The difference is how the job is triggered:
-
-| | Jobs API | Scheduled Jobs |
+| | Jobs API | Scheduled jobs |
 |---|---|---|
-| **Trigger** | HTTP request | Automatic (cron-based) |
-| **Auth** | API key | Dashboard login |
+| **Trigger** | An HTTP request | The schedule, on its own |
+| **Authentication** | API key | Dashboard sign-in |
 | **Management** | Programmatic | Web UI |
-| **Use case** | One-off or script-driven | Recurring, set-and-forget |
+| **Use** | A one-off or script-driven run | A recurring run |
 
-!!! info
-    If you need programmatic control over scheduling (e.g., creating schedules from a script), use the [Jobs API](jobs-api.md) with an external scheduler like GitLab CI scheduled pipelines or system cron.
+To create schedules from a script, call the [`schedule_job` tool of the MCP endpoint](mcp-endpoint.md#schedule_job-parameters), or trigger runs from an external scheduler, such as a GitLab CI scheduled pipeline or system cron, through the jobs API.
 
 ## Schedule templates
 
-Admins can curate reusable **schedule templates** so teammates start from a known-good configuration rather than assembling a schedule from scratch.
+A schedule template is a reusable starting point for a schedule. It carries the same settings as a schedule (prompt, default repositories, frequency, time or cron expression, agent model and thinking level, intent and mute setting), plus an optional description that helps people choose. A template has no sandbox environment and no **Date & time**. When you start a schedule from a template, DAIV copies the template's values into the schedule form, and you can change any of them before you save. Editing or deleting a template never changes the schedules made from it.
 
-Templates are managed at **Settings > Schedule templates** (admins only). A template carries the same fields as a schedule (prompt, default repositories, frequency, time or cron, agent model and thinking level, notification preference) plus an optional description that helps users pick the right one. The repo picker is optional on templates — leave it empty to let users choose at schedule-create time.
+### Start a schedule from a template
 
-When at least one template exists, templates are discoverable in three places:
+You need at least one template; an admin creates them. Then:
 
-- The **Scheduled Jobs** list page gains a **From template** button next to *Create schedule*.
-- The schedule **empty state** gains a **Start from template** call-to-action alongside *Create blank schedule*.
-- The schedule **create form** opens with a **Browse templates** row at the top.
+1. Open the template gallery from the **Schedules** page, with **From template** or, on an empty list, **Start from template**. In the create form, use **Browse templates**.
+2. Search for a template. Each card shows its name, frequency, default repositories and description, and you can expand it for the full detail.
+3. Select **Use** on the template you want. If the create form has unsaved changes, DAIV asks `Discard your current changes and apply this template?` so you do not lose work.
+4. Adjust the pre-filled fields, then select **Create schedule**.
 
-All three open the same right-side gallery drawer. Each card shows the template name, frequency, default-repos summary, and description; expanding a card reveals the full description, the list of pre-filled repos (with their branches), frequency detail, and notification preference. Clicking **Use this template** loads the schedule create form with every field pre-filled — you can still edit any of them before saving.
+### Create a schedule template
 
-If you have unsaved changes in the create form, applying a template from the gallery prompts for confirmation first so you do not lose work.
+Creating templates needs the admin role.
 
-Deleting a template never affects existing schedules: template values are copied into the schedule at creation time, and there is no link back.
+1. In the sidebar, select **Settings** → **Schedule templates**.
+2. Select **New template**.
+3. Fill in the **Name** and an optional **Description**, then the same settings as a schedule. Repositories are optional: leave them empty to let people choose when they create the schedule.
+4. Select **Create template**.
+
+### Delete a schedule template
+
+!!! warning
+    Deleting a template removes it from the gallery and cannot be undone. Schedules made from it are unchanged.
+
+Open the template and select **Delete template**, then confirm with **Delete template**.

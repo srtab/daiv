@@ -1,203 +1,41 @@
 ---
-description: "Technical architecture of the DAIV agent, built on LangChain Deep Agents and LangGraph, with subagents, middleware and a virtual filesystem."
+description: "The tools the DAIV agent has, when each is available, and how it loads the ones it uses less often."
 ---
 
-# Agent Architecture
+# Agent tools
 
-DAIV uses a single AI agent built on [Deep Agents](https://github.com/langchain-ai/deepagents), a general-purpose deep agent framework from [LangChain](https://python.langchain.com/) with sub-agent spawning, middleware-based architecture, and virtual filesystem — all running on [LangGraph](https://langchain-ai.github.io/langgraph/). This page covers the technical architecture for those who want to understand how DAIV works under the hood.
+DAIV's agent works through tools: it reads and edits files, runs commands, searches the web and reports back on your git platform. This page lists each tool, when the agent has it, and which settings turn it on or off. The agent is built on [Deep Agents](https://github.com/langchain-ai/deepagents) and runs on [LangGraph](https://langchain-ai.github.io/langgraph/).
 
-## Overview
+## Tools bound up front
 
-DAIV's architecture consists of:
+DAIV binds these tools to the model at the start of every run.
 
-- **One main agent** — handles all tasks (issue addressing, code review, slash commands)
-- **Built-in subagents** — general-purpose (full tools), explore (read-only, fast), and a fan-out of read-only `cr-*` code-review detector subagents
-- **Middleware stack** — modular capabilities injected based on configuration
-- **MCP servers** — external tool integrations (Sentry, Context7)
+| Tool | What it does | When the agent has it |
+|------|--------------|-----------------------|
+| `ls`, `read_file`, `glob`, `grep` | List directories, read files, find files by pattern and search file contents by regular expression | Always |
+| `write_file`, `edit_file` | Create a file, or change an existing one | Always |
+| `bash` | Run a command in the persistent, isolated [sandbox](../features/sandbox.md), after the command policy checks it | When the run has a sandbox. [How an environment is resolved](../features/sandbox-environments.md#how-an-environment-is-resolved) says when it has one. |
+| `write_todos` | Track the steps of a task | Always |
+| `skill` | Run a [skill](../customization/agent-skills.md) | Always |
+| `task` | Hand work to a [subagent](../features/subagents.md) | Always |
+| `ask_user_question` | Ask you 1 to 4 questions and end the turn, and your answer arrives as the next message | On the main agent only, and not on a run nobody can answer: a scheduled run, a [pipeline watch](../features/pipeline-watch.md) run or a delegated job. [Answer a question](../features/sessions.md#answer-a-question) shows it from your side. |
+| `delegate_jobs` | Start independent jobs on other repositories or on the same one, and resume when they finish | When [orchestration](../features/orchestration.md) is on, which is the default, and the run is not a delegated leg |
 
-```mermaid
-graph TB
-    WH[Webhook Event] --> CB[Callback Handler]
-    CB --> TQ[Task Queue]
-    JOB[Jobs API] --> TQ
-    TQ --> MGR[Manager / Task]
-    MGR --> AGENT[DAIV Agent]
+## Tools loaded on demand
 
-    AGENT --> MW[Middleware Stack]
-    MW --> FS[Filesystem Tools]
-    MW --> GIT[Git Tools]
-    MW --> GP[Git Platform Tools]
-    MW --> SB[Sandbox]
-    MW --> WS[Web Search / Fetch]
-    MW --> SK[Skills]
-    MW --> SA[Subagents]
-    MW --> MCP[MCP Tools]
+The agent loads these tools through `tool_search`, a tool that finds a tool by what it does and loads its definition. This keeps the list of tools the model sees short. A tool the agent loads stays available for the rest of the session. Setting `DEFERRED_TOOLS_ENABLED` to `false` binds every tool up front instead; [Deferred tools](env-variables.md#deferred-tools) describes it and its related settings.
 
-    SA --> GPAgent[General-Purpose]
-    SA --> EXAgent[Explore]
-    SA --> CRAgent[Code-Review Detectors cr-*]
+| Tool | What it does | When the agent has it |
+|------|--------------|-----------------------|
+| `gitlab` | Inspect and update issues, merge requests, pipelines, job logs and releases | On a GitLab repository |
+| `gh` | The same, through the `gh` command line | On a GitHub repository |
+| `web_search` | Search the web through DuckDuckGo, Tavily or SearXNG | When web search is on, which is the default. [Web search](env-variables.md#web-search) describes the settings. |
+| `web_fetch` | Fetch a URL, convert it to Markdown and answer a prompt about its content | When web fetch is on, which is the default. [Web fetch](env-variables.md#web-fetch) describes the settings. |
+| `publish_artifact` | Copy a workspace file, such as an HTML report, a CSV or a chart, into DAIV as an [artifact](../features/sessions.md#artifacts) and return its viewer URL. With `artifact_id`, it replaces the file of an artifact the session already published. | Always |
+| `fetch_artifact` | Copy an artifact the session already published back into `/workspace/tmp`, so the agent can revise it | Always |
+| `check_delegated_jobs`, `cancel_delegated_jobs` | Check, or cancel, the jobs the agent delegated | When `delegate_jobs` is available |
+| MCP tools | The tools of the [MCP servers](../customization/mcp-tools.md) the run has, such as Sentry or Context7 | When an MCP server is enabled for the run |
 
-    AGENT --> PUB[Git Change Publisher]
-    PUB --> COMMIT[Commit & Push]
-    PUB --> MR[Create / Update MR]
-```
+## Model priority
 
-## End-to-end flow
-
-1. **Trigger** — a webhook event from GitLab/GitHub, or a [Jobs API](../features/jobs-api.md) request
-2. **Dispatch** — the callback handler (webhooks) or API view (jobs) enqueues a background task
-3. **Context setup** — the task sets up the runtime context (repository, branch, scope) and creates the agent
-4. **Agent execution** — LangGraph runs the agent loop: call LLM → execute tools → repeat
-5. **Output** — the agent commits changes and creates/updates a merge request (webhooks), or the text result is stored for polling (jobs)
-
-### Managers
-
-Two managers orchestrate the agent:
-
-| Manager | Trigger | Purpose |
-|---------|---------|---------|
-| `IssueAddressorManager` | Issue with `daiv` label | Plans and implements issue solutions |
-| `CommentsAddressorManager` | `@daiv` mention on MR | Responds to code review comments |
-
-Both create a persistent conversation thread so the agent retains context across multiple interactions on the same issue or MR. The thread's working state lives in Redis with a 7-day TTL by default (configurable via `DJANGO_REDIS_CHECKPOINT_TTL_MINUTES`); DAIV archives it in the database when each run ends and restores it from there when a later interaction finds it expired.
-
-## Tools
-
-The agent's tools are injected via middlewares. Each middleware provides one or more tools and can be conditionally enabled.
-
-!!! note "Tools are deferred by default"
-    Only a small core (`ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `bash`, `write_todos`, `skill`, `ask_user_question`, and the `task` delegation tool) is bound to the model up front. Everything else — web search/fetch, `publish_artifact`, `fetch_artifact`, the git platform tool, and all MCP tools — is hidden behind a `tool_search` capability provided by `DeferredToolsMiddleware` and loaded on demand. Once loaded, a tool stays available for the rest of the session. This keeps the model's tool list small without giving up access to the full toolset.
-
-    How a loaded tool reaches the model depends on the model, so that loading one doesn't throw away the provider's prompt cache. Models that take tool definitions mid-conversation (recent Claude models on the Anthropic API, recent GPT models on the OpenAI Responses API) get the tool declared right after the `tool_search` result. Models listed in `DEFERRED_TOOLS_FROZEN_TOOLS_MODELS` read its schema from that result. Any other model gets the tool added to its tools array, which costs one cache miss per newly loaded tool.
-
-### Filesystem
-
-| Tool | Description |
-|------|-------------|
-| `glob` | Find files by pattern matching |
-| `grep` | Search file contents with regex |
-| `read_file` | Read file contents |
-| `edit_file` | Modify existing files |
-| `write_file` | Create new files |
-| `ls` | List directory contents |
-
-### Git platform
-
-| Tool | Description |
-|------|-------------|
-| `gitlab` / `gh` | Inspect and update issues, merge/pull requests, pipelines, job logs, and releases (the GitHub tool exposes the `gh` CLI) |
-
-### Sandbox
-
-| Tool | Description |
-|------|-------------|
-| `bash` | Execute commands in a persistent, isolated Docker container |
-
-Commands are evaluated against a [command policy](../features/sandbox.md) before execution. See [Sandbox](../features/sandbox.md) for details.
-
-### Web
-
-| Tool | Description |
-|------|-------------|
-| `web_search` | Search the web (DuckDuckGo, Tavily or SearXNG) |
-| `web_fetch` | Fetch a URL, convert to markdown, and answer a prompt about its content |
-
-### Skills
-
-| Tool | Description |
-|------|-------------|
-| `skill` | Execute a [skill](../customization/agent-skills.md) (slash command) |
-
-### Artifacts
-
-| Tool | Description |
-|------|-------------|
-| `publish_artifact` | Copy a workspace file (an HTML/Markdown report, a CSV, a chart) into DAIV as a run [artifact](../features/sessions.md#artifacts) and return its viewer URL; with `artifact_id`, replace the file of an artifact the session already published, keeping its URL |
-| `fetch_artifact` | Copy an artifact the session already published back into `/workspace/tmp`, so it can be revised |
-
-### MCP
-
-External tools provided via [MCP servers](../customization/mcp-tools.md) (Sentry error tracking, Context7 documentation lookup).
-
-### Asking the user
-
-| Tool | Description |
-|------|-------------|
-| `ask_user_question` | Ask the user 1 to 4 questions and end the turn; the answer arrives as the next message |
-
-See [Answering a question](../features/sessions.md#answering-a-question) for what this looks like from the user's side.
-
-## Middlewares
-
-Middlewares are the backbone of the agent — they inject tools, system prompts, and lifecycle hooks. The agent is assembled dynamically based on which middlewares are enabled.
-
-### Always enabled
-
-| Middleware | Purpose |
-|------------|---------|
-| `FilesystemMiddleware` | File operations (glob, grep, read, edit, write) |
-| `GitMiddleware` | Branch management, auto-commit, MR creation |
-| `GitPlatformMiddleware` | Git platform CLI tool (issues, MRs, pipelines) |
-| `SkillsMiddleware` | Skill loading and slash command execution |
-| `ArtifactsMiddleware` | The `publish_artifact` and `fetch_artifact` tools and their system-prompt section — stores a workspace file as a run artifact, or revises one |
-| `SubAgentMiddleware` | Delegates tasks to subagents |
-| `MemoryMiddleware` | Loads `AGENTS.md` and repository context |
-| `TodoListMiddleware` | Task tracking within conversations |
-| `SummarizationMiddleware` | Compresses conversation history when it grows too long |
-| `AnthropicPromptCachingMiddleware` | Prompt caching for Anthropic models |
-| `ToolCallLoggingMiddleware` | Logs all tool calls |
-| `PatchToolCallsMiddleware` | Fixes malformed tool calls from the LLM |
-| `DeferredToolsMiddleware` | Defers non-core tools behind a `tool_search` capability, loaded on demand |
-| `LoopBreakerMiddleware` | Detects verbatim tool-call repetition and finalizes the run (instead of raising) so end-of-run hooks still execute |
-| `StepBudgetMiddleware` | Warns the model as the run approaches its per-run step budget |
-| `EnsureResponseMiddleware` | Guarantees a non-empty final response by retrying empty LLM responses |
-
-### Conditionally enabled
-
-| Middleware | Condition |
-|------------|-----------|
-| `SandboxMiddleware` | A SandboxEnvironment is resolvable for the run (per-run pick or GLOBAL default exists) |
-| `WebSearchMiddleware` | `DAIV_WEB_SEARCH_ENABLED` is `true` |
-| `WebFetchMiddleware` | `DAIV_WEB_FETCH_ENABLED` is `true` |
-| `ModelFallbackMiddleware` | A fallback model is configured |
-| `SlashCommandMiddleware` | Slash commands enabled in `.daiv.yml` (default on) — parses and dispatches `/commands` like `/agents` and `/help` |
-
-## Subagents
-
-The main agent can delegate work to two general-use subagents. See [Subagents](../features/subagents.md) for the user-facing explanation.
-
-| Subagent | Model | Fallback | Tools | Use case |
-|----------|-------|----------|-------|----------|
-| General-purpose | Same as main agent | Same as main agent | Full tool access | Complex searches, multi-step research |
-| Explore | Claude Haiku 5.5 (fast) | Same as main agent | Read-only filesystem | Quick file lookups, code structure questions |
-
-In addition, a set of read-only **code-review detector subagents** (`cr-correctness`, `cr-security`, `cr-performance`, `cr-structure`, `cr-tests`, `cr-custom-rules`) is built and registered on every run. The [code review](../features/pull-request-assistant.md) skill picks the detectors applicable to the change, fans out across them in parallel, and aggregates their markdown reports into a single review report; each detector runs with a read-only tool stack. [Custom subagents](../features/subagents.md#custom-subagents) defined per repository are also added to the available-agents list.
-
-All subagents (including custom subagents) support automatic model fallback via `ModelFallbackMiddleware`. When the primary model fails, the subagent retries with the configured fallback model. Every subagent uses the main agent's fallback model.
-
-No subagent is given `ask_user_question` — only the main agent can stop a run to ask the user.
-
-## Dynamic system prompt
-
-The agent's system prompt is assembled at runtime and includes:
-
-- Current date
-- Bot username
-- Repository URL and git platform
-- Current branch and default branch
-- Available tools and their descriptions
-- Loaded skill metadata
-- `AGENTS.md` content (if present in the repository)
-
-This ensures the agent always has up-to-date context about the repository it's working in.
-
-## Model configuration
-
-Models are resolved at four levels (highest priority first):
-
-1. **Per-run model** — a model picked in the agent picker, or `agent_model` through the API and MCP
-2. **Issue labels** — `daiv-max` switches to a stronger model with higher thinking
-3. **Repository config** — `.daiv.yml` [model overrides](../customization/repository-config.md#model-overrides)
-4. **Environment variables** — global defaults (`DAIV_AGENT_*`)
-
-See [Environment Variables](env-variables.md#daiv-agent) for all agent model settings.
+The agent runs on the first model that a source sets, from a model you pick for the run, through the `daiv-max` issue label and the repository's `.daiv.yml`, to the site's settings. [Model overrides](../customization/repository-config.md#model-overrides) lists the order. A subagent follows its own order, described in [Subagent model precedence](../features/subagents.md#subagent-model-precedence), and [Environment variables](env-variables.md#daiv-agent) lists the settings.

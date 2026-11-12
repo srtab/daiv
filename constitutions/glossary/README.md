@@ -22,6 +22,7 @@ as far as the next reader is concerned.
 | Middleware | A layer of the agent stack that provides tools or shapes the model request (`automation/agent/middlewares/`) | plugin |
 | Deferred tool | A tool the model loads on demand through `tool_search`; tools in `ALWAYS_LOADED_TOOLS` are not deferred | lazy tool |
 | Repository memory | What DAIV remembers about a repository (`MemoryEntry`, `RepositoryMemory`) | notes |
+| Consolidation | Folding a repository's pending memory observations into its entries (`consolidate_memory_task`); *dreaming* is its feature name, used to introduce it | summarization |
 | Bot label | An issue or merge/pull request label that hands work to DAIV: `daiv`, `daiv-max`, `daiv-auto` | tag |
 | Schedule | A saved job that submits runs on a cron schedule, or once | cron job |
 | Inbox event | Something that happened which concerns a Session: a CI result, a mention, a queued chat message, a follow-up job, a leg follow-up, a delegated batch finishing (`InboxEvent`). It wakes the agent or is only remembered | message, notification |

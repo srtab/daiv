@@ -26,8 +26,11 @@ relative to `constitutions/`.
    change, or writing tests.
 10. `patterns/agent-evals.md` — measuring agent behaviour. Changing a prompt, a built-in
     skill, a tool description, a subagent, or a middleware that changes what the model sees.
-11. `../DESIGN.md` — design tokens, components and UI patterns. Changing a template or styles.
-12. `../docs/` — the user documentation. Changing a feature, setting or behaviour users see.
+11. `patterns/user-docs.md` — what a documentation page holds, how it is written and how it
+    is checked. Changing a feature, setting or behaviour users see, or writing a page under
+    `docs/`.
+12. `../DESIGN.md` — design tokens, components and UI patterns. Changing a template or styles.
+13. `../docs/` — the user documentation. Changing a feature, setting or behaviour users see.
 
 There is no decision log. The reason for a rule sits beside the rule, in its _Prevents_ line,
 and the commit that introduced it holds the rest.
