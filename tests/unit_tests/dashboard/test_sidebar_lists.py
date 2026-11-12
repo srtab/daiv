@@ -198,6 +198,15 @@ class TestScheduleRows:
         assert firing.repo_count == 1
         assert firing.url == reverse("session_detail", kwargs={"thread_id": session.thread_id})
 
+    def test_a_session_with_two_runs_of_one_firing_counts_once(self, member_user):
+        batch_id, (session,) = make_firing(make_schedule(member_user), RunStatus.FAILED, minutes_ago=20)
+        make_run(session, RunStatus.SUCCESSFUL, minutes_ago=10, batch_id=batch_id)
+
+        ((firing,),) = [row.firings for row in schedule_rows(member_user)]
+
+        assert firing.repo_count == 1
+        assert firing.url == reverse("session_detail", kwargs={"thread_id": session.thread_id})
+
     def test_firing_status_is_the_worst(self, member_user):
         schedule = make_schedule(member_user)
         make_firing(schedule, RunStatus.SUCCESSFUL, RunStatus.RUNNING, RunStatus.FAILED, minutes_ago=60)

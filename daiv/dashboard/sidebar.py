@@ -150,7 +150,9 @@ def _firing_sessions(user: User, batch_ids: list) -> dict[Any, list[tuple[str, s
         Session.objects
         .listed_for(user, mine=True)
         .filter(runs__batch_id__in=batch_ids, runs__trigger_type=SessionOrigin.SCHEDULE)
+        .order_by()
         .values_list("runs__batch_id", "thread_id", "latest_run_status")
+        .distinct()
     )
     sessions: dict[Any, list[tuple[str, str]]] = defaultdict(list)
     for batch_id, thread_id, status in rows:
