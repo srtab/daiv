@@ -20,7 +20,7 @@ With a sandbox, the agent can:
 
 The agent runs commands only when it has a sandbox, and installs only when the sandbox has network access:
 
-- **A base image.** A run has a sandbox only when its [sandbox environment](sandbox-environments.md) sets a base image. With no global default environment and none selected for the run, the run has no sandbox and the agent gets no `bash` tool. See [How an environment is resolved](sandbox-environments.md#how-an-environment-is-resolved).
+- **A base image.** A run has a sandbox only when its [sandbox environment](sandbox-environments.md) sets a base image. When no environment matches the run (none selected, none bound to the repository, and no global default), the run has no sandbox and the agent gets no `bash` tool. See [How an environment is resolved](sandbox-environments.md#how-an-environment-is-resolved).
 - **Network access for installs.** Installing or updating dependencies reaches package registries such as npm and PyPI. A sandbox has no outbound network access unless its environment has **Network** set to **On** and an egress policy that allows the registries, so these commands fail until you set both. See [Network access and egress policy](sandbox-environments.md#network-access-and-egress-policy).
 
 ## Sandbox session lifetime
@@ -55,7 +55,7 @@ DAIV always blocks the following commands. No setting overrides them.
 
 DAIV commits, pushes and manages branches through its own tools, so the sandbox is for everything else. DAIV pushes the branch the run started on, so the agent cannot switch branches and restores files with `git restore <path>` instead of `git checkout`.
 
-The agent can still merge a branch in, for example to resolve a merge request's conflicts with its target branch. It runs `git merge --no-commit --no-ff <ref>` and resolves the conflicts, and DAIV commits the result as a merge commit at the end of the turn. If a conflicted file still contains conflict markers, DAIV commits and pushes nothing, and says so in its reply.
+The agent can still merge a branch in, for example to resolve a merge request's conflicts with its target branch. It runs `git merge --no-commit --no-ff <ref>` and resolves the conflicts, and DAIV commits the result as a merge commit at the end of the turn, listing the files that conflicted. If a conflicted file still contains conflict markers, DAIV commits and pushes nothing, and says so in its reply.
 
 The policy checks every command in the invocation, including those in chains, pipelines, `if` and `case` statements, loops, subshells and functions. It looks past leading variable assignments, so `HUSKY=0 git commit` is blocked. It does not look inside command or process substitutions (`$(…)`, backticks, `<(…)`), variable expansions (`git $cmd`), `bash -c` or `eval` strings, or wrappers such as `env`, and it compares words exactly as written, so `/usr/bin/git push`, `\git push` and `git "push"` pass. It is a guardrail that stops the agent's plain invocations, not a security boundary.
 
