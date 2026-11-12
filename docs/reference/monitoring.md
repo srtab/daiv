@@ -133,7 +133,7 @@ You see the figures in three places. A row in the sessions list shows the sessio
 
 ## Export session archives
 
-DAIV writes a copy of each session's conversation to its database when each run ends. The copy outlives the checkpointer's time to live and LangSmith's retention, and you can export it for offline analysis.
+DAIV writes a copy of each session's conversation to its database when each run ends. This session archive is the saved copy, not a session's **Archived** state. The copy outlives the checkpointer's time to live and LangSmith's retention, and you can export it for offline analysis.
 
 !!! warning
     An export holds full conversations and run prompts. Store the output directory as you would the repositories' contents, and delete it when you finish.

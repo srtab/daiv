@@ -36,7 +36,7 @@ Add one of these bot labels to an issue to hand it to DAIV:
 
 Labels are case-insensitive (`DAIV`, `Daiv`, and `daiv` all work). You can combine labels: `daiv-auto` with `daiv-max` runs the plan at once, on the more capable model.
 
-When the merge request DAIV opened for an issue merges, DAIV [archives](sessions.md#archived-sessions) the issue's session. A label or mention on the issue then starts nothing until someone unarchives the session, and DAIV replies with a link to it.
+When the merge request DAIV opened for an issue merges, DAIV [archives the issue's session](sessions.md#archived-sessions). A label or mention on the issue then starts nothing until someone unarchives the session, and DAIV replies with a link to it.
 
 ## Approve a plan
 

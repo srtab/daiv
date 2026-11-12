@@ -97,7 +97,7 @@ The list shows your own sessions (**Mine**) or everyone's you can see (**Everyon
 | **Time** | **All time** (the default), **Today**, **Last 2 days**, **Last 7 days**, **Last 30 days**, or a **Custom range** of two dates |
 | **Archived** | Swaps the list for the [archived sessions](#archived-sessions) |
 
-Five more filters have no control. They appear as chips when you arrive from a link, and each chip has a button that clears it:
+Six more filters have no control. They appear as chips when you arrive from a link, and each chip has a button that clears it:
 
 | Chip | Where the link comes from |
 |------|---------------------------|
@@ -106,6 +106,7 @@ Five more filters have no control. They appear as chips when you arrive from a l
 | **Ran on** | A day's column in **Your week** on **Home** or in **Runs over time** on **Insights** |
 | **Schedule** | The run count on a scheduled job |
 | **Batch** | A multi-repository submission: one prompt sent to several repositories shares a batch |
+| **Including archived** | A link that must show sessions whatever their state: the **view sessions** link in a merge request description, **Other sessions on !N** in a repository card's menu, a day in **Your week** on **Home** and its link to more merge requests, and a column in **Runs over time** or a count in **Sessions by origin** on **Insights**. The list then includes [archived sessions](#archived-sessions) |
 
 Filters combine, and they are in the URL, so you can bookmark or share a filtered list.
 
@@ -117,7 +118,7 @@ An archived session is archived for everyone, not only for the person who archiv
 
 A filtered list that hides archived sessions says how many match: select **Show archived** under the list to see them.
 
-Links that must show a merge request's or a period's sessions whatever their state open the list with an **Including archived** chip, which has a button that clears it. They are the **view sessions** link in a merge request description, a repository card, a day in **Your week** and the charts on **Insights**. **Your week** and **Insights** count archived sessions too.
+Links that open the list with the **Including archived** chip are listed in [Filter the list](#filter-the-list). **Your week** and **Insights** count archived sessions too.
 
 DAIV archives a session when its merge request merges. It archives every session that carries the merge request's number, ran on it or owns it: the session that opened it, its review and comment sessions, and the issue sessions that published it. DAIV holds a session back while it has live work:
 
@@ -125,25 +126,29 @@ DAIV archives a session when its merge request merges. It archives every session
 - A session with a run in progress or a waiting request that would start a run is archived when that work ends.
 - A session that delegated work is archived once its legs have no run in progress and no open merge request.
 
-A merge request closed without merging archives nothing, and DAIV handles each merge once: a session you unarchive stays unarchived if the platform sends the same merge again.
+Closing a merge request without merging does not archive the sessions on it. DAIV handles each merge once: a session you unarchive stays unarchived if the platform sends the same merge again.
 
 An archived session refuses new work:
 
 - A chat message and a job that continues it with `thread_id` are refused, with a message that says to unarchive the session first.
-- A leg follow-up for it stops with *not run: its session was archived*; see [Following up a leg](orchestration.md#following-up-a-leg).
-- An issue label or mention, a merge request mention, or a mention on a merge request it owns starts nothing. DAIV replies once with a link to the session: once per mention, and once a day for a label.
-- A CI failure or a finished delegated batch waits in the session's [inbox](#the-session-inbox), and starts a run when someone unarchives the session.
+- A leg follow-up for it is refused, and one already waiting stops with *not run: its session was archived*; see [Following up a leg](orchestration.md#following-up-a-leg).
+- A label or mention on its issue, a mention on its merge request, or a mention on a merge request it owns starts nothing. DAIV replies with a link to the session, once per mention and at most once a day for a label.
+- Requests already waiting in its [inbox](#the-session-inbox), and a CI failure or finished delegated batch that arrives, wait there until someone unarchives the session.
 
-To archive a session yourself, you need to be able to run agents on its repository. Archiving also hides the session for everyone else, so check that nobody needs it first.
+#### Archive a session
+
+You need to be able to run agents on the session's repository. Archiving hides the session for everyone else, so check that nobody needs it first.
 
 1. Open the session.
 2. Select **⋯** → **Archive**.
 3. In **Archive this session?**, select **Archive**.
 
-To bring an archived session back for everyone, you need the same access.
+#### Unarchive a session
+
+You need the same access. The session comes back for everyone.
 
 1. Open the archived session.
-2. Select **Unarchive** in the message box, or **⋯** → **Unarchive**.
+2. Select **Unarchive** beside **This session is archived.**, or **⋯** → **Unarchive**.
 
 ## Session detail
 
@@ -207,7 +212,7 @@ A run's final message is a paragraph of text, and the agent's workspace is disca
 
 The agent has a `publish_artifact` tool: it writes the file to its scratchpad (`/workspace/tmp/...`), publishes it, and gets back a URL that it includes in its final response. DAIV copies the file out of the sandbox into its own storage and attaches it to the run, so it stays available after the sandbox is gone and nothing is committed to the repository.
 
-Published files appear in the transcript, in the turn that published them. Adjacent `publish_artifact` calls in one turn group into a single **Artifacts** card with one row per file. Each row shows the title (linking to the viewer, `/dashboard/sessions/<thread_id>/artifacts/<id>/`, in a new tab), a kind pill, the file size, and a download icon. A publish still in progress shows `Publishing`, and a publish that failed shows its path and the error message in red, in the same card as the files that did publish. Reloading renders the same rows, though publishes from consecutive model steps can land in separate cards. A session with no archived transcript still lists its artifacts on its page, one card per run, below the expired notice.
+Published files appear in the transcript, in the turn that published them. Adjacent `publish_artifact` calls in one turn group into a single **Artifacts** card with one row per file. Each row shows the title (linking to the viewer, `/dashboard/sessions/<thread_id>/artifacts/<id>/`, in a new tab), a kind pill, the file size, and a download icon. A publish still in progress shows `Publishing`, and a publish that failed shows its path and the error message in red, in the same card as the files that did publish. Reloading renders the same rows, though publishes from consecutive model steps can land in separate cards. A session with no saved transcript still lists its artifacts on its page, one card per run, below the expired notice.
 
 The limits on a file's size and on the files per run, and the storage that the `app` and `worker` containers must share, are on [Artifacts](../reference/env-variables.md#artifacts) and in the [deployment guide](../getting-started/deployment.md). Deleting a run deletes its artifacts and their files.
 
@@ -299,9 +304,9 @@ Each session pins three choices, set before your first message and fixed afterwa
 
 ## Expired sessions
 
-The agent's working state expires after the time set by `DJANGO_REDIS_CHECKPOINT_TTL_MINUTES` ([Redis](../reference/env-variables.md#redis) lists its default). DAIV archives each session when a run ends, so an expired session keeps its transcript and your next message picks up where it left off: DAIV restores the conversation from the archive before the run. If DAIV cannot restore the archived conversation, the run fails instead of starting without it. DAIV keeps archived conversations for as long as their session exists, and nothing prunes them automatically.
+The agent's working state expires after the time set by `DJANGO_REDIS_CHECKPOINT_TTL_MINUTES` ([Redis](../reference/env-variables.md#redis) lists its default). DAIV saves a copy of each session's conversation when a run ends, so an expired session keeps its transcript and your next message picks up where it left off: DAIV restores the conversation from that copy before the run. If DAIV cannot restore the saved conversation, the run fails instead of starting without it. DAIV keeps saved conversations for as long as their session exists, and nothing prunes them automatically.
 
-A session with no archived transcript, such as one whose state expired before DAIV archived sessions, shows `This session's state has expired. Start a new session to continue.` Select **New session** to start a fresh one.
+A session with no saved transcript, such as one whose state expired before DAIV saved it, shows `This session's state has expired. Start a new session to continue.` Select **New session** to start a fresh one.
 
 ## Answer a question
 
@@ -387,7 +392,7 @@ How the inbox groups requests into runs:
 
 - **One run per person and branch**: one run handles everything one person is waiting for on the session's branch. A message you sent to your session and a CI failure that arrived during the same run are answered together, in one run, when the current one ends.
 - **Slash commands run alone**: a built-in slash command such as `/help` runs on its own, after what you sent before it and before what you sent after it, because DAIV answers a command only when it is the whole request.
-- **Leg follow-ups run alone**: a leg follow-up runs on its own, as a **Delegated Run** that answers only its coordinator, with what the session remembered as context. DAIV never retries it, and it does not run when the session's merge request was merged or closed meanwhile ([Following up a leg](orchestration.md#following-up-a-leg) describes it).
+- **Leg follow-ups run alone**: a leg follow-up runs on its own, as a **Delegated Run** that answers only its coordinator, with what the session remembered as context. DAIV never retries it, and it does not run when the session's merge request was merged or closed meanwhile, or the session was archived ([Following up a leg](orchestration.md#following-up-a-leg) describes it).
 - **Different people, different runs**: requests from different people wait for runs of their own, one after another, so one person's request never runs with another's access or tools.
 - **Which branch**: a message you sent while the session was busy, a follow-up job sent without a branch and a finished delegated batch follow the branch the current run publishes to. A mention or a CI result stays with its merge request's branch, and a run on another of the session's merge requests updates that merge request.
 - **Warm sandbox**: a run that a warm sandbox started, on a branch someone pushed to, brings its checkout up to the remote first, unless it holds commits it has not published, and tells the agent it did.
