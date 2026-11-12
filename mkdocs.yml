@@ -165,9 +165,9 @@ nav:
     - Pipeline watch: features/pipeline-watch.md
     - Sessions: features/sessions.md
     - Jobs API: features/jobs-api.md
-    - Scheduled Jobs: features/scheduled-jobs.md
+    - Scheduled jobs: features/scheduled-jobs.md
     - Orchestration: features/orchestration.md
-    - MCP Endpoint: features/mcp-endpoint.md
+    - MCP endpoint: features/mcp-endpoint.md
     - Notifications: features/notifications.md
     - Merge metrics: features/merge-metrics.md
     - Slash commands and skills: features/slash-commands.md
