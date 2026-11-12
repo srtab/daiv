@@ -185,6 +185,16 @@ Two more fields follow the same `DAIV_<FIELD_NAME>` convention and so are env-lo
 !!! note
     `DAIV_ENCRYPTION_KEY` protects API keys and other secrets stored in the configuration database. If you provide a raw Fernet key it is used directly; otherwise the value is treated as a passphrase and a key is derived via HKDF-SHA256. When omitted, the key is derived from `DJANGO_SECRET_KEY` — changing the Django secret key in that case will make existing encrypted values unreadable.
 
+### Analytics
+
+| Variable                | Description                        | Default        | Example         |
+|-------------------------|------------------------------------|:--------------:|-----------------|
+| `DAIV_UMAMI_WEBSITE_ID` | [Umami](https://umami.is/) website ID. When set, the public homepage and `/compare/` pages load Umami's tracker for signed-out visitors. | *(none)* | `0b6bd0c4-5d6c-4f2e-9a43-1d2e3f4a5b6c` |
+| `DAIV_UMAMI_SCRIPT_URL` | URL of Umami's tracker script; set it to use a self-hosted Umami. | `https://cloud.umami.is/script.js` | `https://stats.example.com/script.js` |
+
+!!! note
+    Analytics is off unless `DAIV_UMAMI_WEBSITE_ID` is set, so a DAIV install sends no visitor data anywhere by default. When it is set, the tracker uses no cookies, honours the browser's Do Not Track setting, and never loads for signed-in users or on dashboard pages.
+
 ---
 
 ## Codebase
