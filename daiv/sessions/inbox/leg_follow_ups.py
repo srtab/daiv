@@ -8,7 +8,8 @@ starts it, alone, with the branch's remembered events (:mod:`sessions.inbox.spli
 delegator drains the leg's session once every run of its batch exists, and the per-minute sweep is the backstop.
 
 The event ends with its run and is never retried (:meth:`LegFollowUps.end_with_run`). It stops at its start, without
-running, when the leg's merge request was merged or closed after it was posted (:meth:`LegFollowUps.stop`).
+running, when the leg's merge request was merged or closed after it was posted (:meth:`LegFollowUps.stop`), and as soon
+as the drain sees the leg's session archived (:meth:`LegFollowUps.stop_held`), so its batch still finishes.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from django.utils import timezone
 from asgiref.sync import sync_to_async
 
 from sessions.inbox.kinds import SourceKey
-from sessions.legs import NOT_RUN_CLOSED, NOT_RUN_MERGED, Leg
+from sessions.legs import NOT_RUN_ARCHIVED, NOT_RUN_CLOSED, NOT_RUN_MERGED, Leg
 from sessions.live.notify import session_changed
 from sessions.models import (
     EventFailure,
@@ -43,17 +44,18 @@ if TYPE_CHECKING:
     from accounts.models import User
 
 BUSY = "busy"
+ARCHIVED = "archived"
 
 _STOPS = {
     MergeRequestState.MERGED: (EventFailure.MR_MERGED, NOT_RUN_MERGED),
     MergeRequestState.CLOSED: (EventFailure.MR_CLOSED, NOT_RUN_CLOSED),
 }
-_NOT_RUN = dict(_STOPS.values())
+_NOT_RUN = {**dict(_STOPS.values()), EventFailure.SESSION_ARCHIVED: NOT_RUN_ARCHIVED}
 
 
 class LegFollowUpRefused(Exception):  # noqa: N818
-    """The leg follow-up was not posted: ``reason`` is :data:`BUSY`, or the ``MergeRequestState`` of the leg's merge
-    request, merged or closed."""
+    """The leg follow-up was not posted: ``reason`` is :data:`BUSY`, :data:`ARCHIVED`, or the ``MergeRequestState`` of
+    the leg's merge request, merged or closed."""
 
     def __init__(self, reason: str):
         super().__init__(reason)
@@ -68,11 +70,13 @@ class LegFollowUps:
 
     def post(self, *, prompt: str, batch_id: uuid.UUID, user: User, muted: bool | None, references: list[dict]) -> Run:
         """Create the ``leg_follow_up`` event and its QUEUED delegated run in one transaction, with the leg's session
-        row locked, and return the run. Raises :class:`LegFollowUpRefused` when, under that lock, delegated work on the
-        leg is unfinished or its merge request was merged or closed. SYNC ONLY."""
+        row locked, and return the run. Raises :class:`LegFollowUpRefused` when, under that lock, the leg's session is
+        archived, delegated work on it is unfinished or its merge request was merged or closed. SYNC ONLY."""
         with transaction.atomic():
             session = Session.objects.select_for_update().get(pk=self.leg.session.pk)
             leg = Leg(session)
+            if leg.is_archived():
+                raise LegFollowUpRefused(ARCHIVED)
             if leg.is_busy():
                 raise LegFollowUpRefused(BUSY)
             if (state := leg.merge_request_state()) != MergeRequestState.OPEN:
@@ -116,7 +120,10 @@ class LegFollowUps:
 
     @staticmethod
     def stop_reason(session: Session) -> EventFailure | None:
-        """Why a leg follow-up on ``session`` must not start: its leg's merge request was merged or closed."""
+        """Why a leg follow-up on ``session`` must not start: its session was archived, or its leg's merge request was
+        merged or closed."""
+        if session.archived_at is not None:
+            return EventFailure.SESSION_ARCHIVED
         stop = _STOPS.get(Leg(session).merge_request_state())
         return None if stop is None else stop[0]
 
@@ -136,6 +143,18 @@ class LegFollowUps:
             finished_at=now,
             started_at=now,
         )
+
+    @staticmethod
+    def stop_held(session: Session) -> None:
+        """Stop the pending leg follow-ups of the archived ``session``, whose drain holds every event, so each one's
+        batch can finish and resume its coordinator. SYNC ONLY, with the session row locked."""
+        held = InboxEvent.objects.filter(session=session, state=EventState.PENDING, kind=EventKind.LEG_FOLLOW_UP)
+        for event in held:
+            run = Run.objects.select_for_update().filter(pk=event.run_id).first()
+            if run is None or run.status != RunStatus.QUEUED:
+                LegFollowUps.settle_unstartable(event, run)
+            else:
+                LegFollowUps.stop(event, EventFailure.SESSION_ARCHIVED, run)
 
     @staticmethod
     def settle_unstartable(event: InboxEvent, run: Run | None) -> None:

@@ -127,11 +127,13 @@ class Drain:
 
     @classmethod
     def sessions_to_drain(cls, limit: int = DRAIN_SWEEP_LIMIT) -> list[str]:
-        """Unarchived sessions with a pending waking event and a free or stale slot, for the sweep. SYNC ONLY."""
+        """Sessions with a pending waking event and a free or stale slot, for the sweep: an archived one only for a leg
+        follow-up its drain stops. SYNC ONLY."""
         free = Q(session__active_run_id__isnull=True) | Q(session__last_active_at__lt=stale_cutoff())
+        takes_it = Q(session__archived_at__isnull=True) | Q(kind=EventKind.LEG_FOLLOW_UP)
         return list(
             InboxEvent.objects
-            .filter(free, state=EventState.PENDING, wake=True, session__archived_at__isnull=True)
+            .filter(free, takes_it, state=EventState.PENDING, wake=True)
             .order_by()
             .values_list("session_id", flat=True)
             .distinct()[:limit]
@@ -194,7 +196,10 @@ class _Take:
     def take(self) -> tuple[Run, list[_Charge]] | None:
         session = self.session
         next_runs = NextRuns(session)
-        if session.archived_at is not None or SessionLock.is_held(session) or next_runs.job_run_active():
+        if session.archived_at is not None:
+            LegFollowUps.stop_held(session)
+            return None
+        if SessionLock.is_held(session) or next_runs.job_run_active():
             return None
         pending = list(
             InboxEvent.objects

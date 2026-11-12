@@ -15,9 +15,9 @@ through its ``SessionOrigin.DELEGATED_JOB`` runs (its first run and any leg foll
 - **Archived** (:meth:`Leg.is_archived`): its session is archived.
 
 ``sessions.queue`` imports this module, so it imports only ``sessions.models``. SYNC ONLY, but for the async wrappers.
-A leg follow-up that does not run because its leg's merge request was merged or closed finishes its run FAILED with
-:data:`NOT_RUN_MERGED` or :data:`NOT_RUN_CLOSED`, which readers of a run's outcome tell apart from a failure
-(:meth:`Leg.not_run_label`).
+A leg follow-up that does not run because its leg's merge request was merged or closed, or its session was archived,
+finishes its run FAILED with :data:`NOT_RUN_MERGED`, :data:`NOT_RUN_CLOSED` or :data:`NOT_RUN_ARCHIVED`, which readers
+of a run's outcome tell apart from a failure (:meth:`Leg.not_run_label`).
 """
 
 from __future__ import annotations
@@ -40,7 +40,8 @@ if TYPE_CHECKING:
 
 NOT_RUN_MERGED = gettext_noop("Not run: its merge request was merged")
 NOT_RUN_CLOSED = gettext_noop("Not run: its merge request was closed")
-NOT_RUN_LABELS = frozenset({NOT_RUN_MERGED, NOT_RUN_CLOSED})
+NOT_RUN_ARCHIVED = gettext_noop("Not run: its session was archived")
+NOT_RUN_LABELS = frozenset({NOT_RUN_MERGED, NOT_RUN_CLOSED, NOT_RUN_ARCHIVED})
 
 
 @dataclass(frozen=True)

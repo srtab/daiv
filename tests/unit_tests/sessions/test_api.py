@@ -748,7 +748,7 @@ async def test_session_archive_archives_and_unarchives_it_for_everyone_poking_it
     await session.arefresh_from_db()
     assert session.archived_at is None
     assert poke.await_args_list == [call(session.pk), call(session.pk)]
-    assert [c.args[0].thread_id for c in drain.call_args_list] == [session.pk]
+    assert [c.args[0].thread_id for c in drain.call_args_list] == [session.pk, session.pk]
 
 
 @pytest.mark.django_db(transaction=True)

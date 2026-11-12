@@ -22,7 +22,7 @@ from sessions.delegation import (
 from sessions.inbox.drain import Drain
 from sessions.inbox.leg_follow_ups import BUSY, LegFollowUpRefused
 from sessions.inbox.ownership import Ownerships
-from sessions.legs import NOT_RUN_CLOSED, NOT_RUN_MERGED
+from sessions.legs import NOT_RUN_ARCHIVED, NOT_RUN_CLOSED, NOT_RUN_MERGED
 from sessions.models import (
     LINK_FAILED_PREFIX,
     EventKind,
@@ -804,6 +804,7 @@ def test_the_summary_lists_each_legs_outcome_with_its_reply_quoted(admin_user):
         ({"status": RunStatus.RUNNING, "cancel_requested_at": timezone.now()}, False, "stopping"),
         ({"status": RunStatus.FAILED, "error_message": NOT_RUN_MERGED}, False, "not_run_merged"),
         ({"status": RunStatus.FAILED, "error_message": NOT_RUN_CLOSED}, False, "not_run_closed"),
+        ({"status": RunStatus.FAILED, "error_message": NOT_RUN_ARCHIVED}, False, "not_run_archived"),
     ],
 )
 def test_leg_state(admin_user, fields, waits, expected):
@@ -826,6 +827,7 @@ def test_outcome_states_reads_each_status_word_back_as_its_state():
         "started, but DAIV lost track of it": "lost",
         "not run: its merge request was merged": "not_run_merged",
         "not run: its merge request was closed": "not_run_closed",
+        "not run: its session was archived": "not_run_archived",
     }
 
 

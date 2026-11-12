@@ -6,7 +6,7 @@ from django.utils import timezone
 import pytest
 from asgiref.sync import sync_to_async
 from sessions.inbox.drain import Drain
-from sessions.inbox.leg_follow_ups import BUSY, LegFollowUpRefused, LegFollowUps
+from sessions.inbox.leg_follow_ups import ARCHIVED, BUSY, LegFollowUpRefused, LegFollowUps
 from sessions.inbox.next_runs import NextRuns
 from sessions.inbox.ownership import Ownerships
 from sessions.models import (
@@ -109,6 +109,16 @@ class TestPost:
             await _post(session, admin_user)
 
         assert refused.value.reason == (MergeRequestState.MERGED if merged else MergeRequestState.CLOSED)
+        assert not await InboxEvent.objects.filter(session=session, kind=EventKind.LEG_FOLLOW_UP).aexists()
+
+    async def test_an_archived_leg_is_refused_and_nothing_is_created(self, admin_user, drain):
+        session = await _leg_session(admin_user)
+        await Session.objects.filter(pk=session.pk).aupdate(archived_at=timezone.now())
+
+        with pytest.raises(LegFollowUpRefused) as refused:
+            await _post(session, admin_user)
+
+        assert refused.value.reason == ARCHIVED
         assert not await InboxEvent.objects.filter(session=session, kind=EventKind.LEG_FOLLOW_UP).aexists()
 
     async def test_its_run_is_no_next_run_and_the_queue_leaves_it_queued(self, admin_user, drain):

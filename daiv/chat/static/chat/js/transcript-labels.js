@@ -153,6 +153,7 @@
     leg_lost: "Lost",
     leg_not_run_merged: "Not run: merge request merged",
     leg_not_run_closed: "Not run: merge request closed",
+    leg_not_run_archived: "Not run: session archived",
     leg_follow_up: "Leg follow-up",
     details_merge_requests: ["{count} MR", "{count} MRs"],
     suggested_answer: "Suggested answer",

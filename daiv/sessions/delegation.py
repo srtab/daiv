@@ -83,9 +83,9 @@ from sessions.admission import AdmissionError, RepoAccessError, aassert_repo_acc
 from sessions.artifacts import aresolve_active_run
 from sessions.inbox import kinds
 from sessions.inbox.drain import Drain
-from sessions.inbox.leg_follow_ups import BUSY, LegFollowUpRefused, LegFollowUps
+from sessions.inbox.leg_follow_ups import ARCHIVED, BUSY, LegFollowUpRefused, LegFollowUps
 from sessions.inbox.post import Inbox
-from sessions.legs import NOT_RUN_CLOSED, NOT_RUN_MERGED, Leg
+from sessions.legs import NOT_RUN_ARCHIVED, NOT_RUN_CLOSED, NOT_RUN_MERGED, Leg
 from sessions.models import (
     LINK_FAILED_PREFIX,
     EventKind,
@@ -127,7 +127,7 @@ _NOT_A_LEG = (
 _REFUSALS = {
     "ref": "A leg follow-up works on the leg's own branch: omit `ref`.",
     "repo": "This leg works on `{leg_repo_id}`: give that `repo_id`, or delegate a new leg for `{repo_id}`.",
-    "archived": (
+    ARCHIVED: (
         "The leg's session is archived: someone who can run on its repository can unarchive it from its session "
         "page, or you can delegate a new leg."
     ),
@@ -297,7 +297,7 @@ class SessionJobDelegator:
         if (state := leg.merge_request_state()) != MergeRequestState.OPEN:
             return leg, _REFUSALS[state]
         if leg.is_archived():
-            return leg, _REFUSALS["archived"]
+            return leg, _REFUSALS[ARCHIVED]
         if leg.is_busy():
             return leg, _REFUSALS[BUSY]
         if leg.is_lost():
@@ -427,8 +427,9 @@ _OUTCOMES = {
     "lost": "started, but DAIV lost track of it",
     "not_run_merged": "not run: its merge request was merged",
     "not_run_closed": "not run: its merge request was closed",
+    "not_run_archived": "not run: its session was archived",
 }
-_NOT_RUN = {NOT_RUN_MERGED: "not_run_merged", NOT_RUN_CLOSED: "not_run_closed"}
+_NOT_RUN = {NOT_RUN_MERGED: "not_run_merged", NOT_RUN_CLOSED: "not_run_closed", NOT_RUN_ARCHIVED: "not_run_archived"}
 _NOT_RUN_STATES = frozenset(_NOT_RUN.values())
 
 _LEG_STATES = {

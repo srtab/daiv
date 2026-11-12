@@ -960,6 +960,7 @@ class EventFailure(models.TextChoices):
     RUN_FAILED = "run_failed", _("The run that took it failed")
     MR_MERGED = "mr_merged", _("Its merge request was merged")
     MR_CLOSED = "mr_closed", _("Its merge request was closed")
+    SESSION_ARCHIVED = "session_archived", _("Its session was archived")
 
 
 class InboxEvent(models.Model):

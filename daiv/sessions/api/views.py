@@ -110,14 +110,13 @@ async def _ci(session: Session) -> dict:
 
 @sessions_router.post("/{thread_id}/archive", response=dict, url_name="session_archive")
 async def session_archive(request: HttpRequest, thread_id: str, payload: ArchiveIn):
-    """Archive the session for everyone, or bring it back for everyone and start what its inbox kept waiting; either
-    needs run access to its repository."""
+    """Archive the session for everyone, or bring it back for everyone; either needs run access to its repository and
+    drains its inbox, which stops its leg follow-ups or starts what it kept waiting."""
     session = await _get_runnable_session(request.auth, thread_id)  # ty: ignore[unresolved-attribute]
     fields = {"archived_at": timezone.now(), "archive_pending": False} if payload.archived else {"archived_at": None}
     if not await Session.objects.filter(pk=session.pk, archived_at__isnull=payload.archived).aupdate(**fields):
         return {"archived": payload.archived}
-    if not payload.archived:
-        await sync_to_async(Drain(session.pk).start_logged)()
+    await sync_to_async(Drain(session.pk).start_logged)()
     await asession_changed(session.pk)
     return {"archived": payload.archived}
 

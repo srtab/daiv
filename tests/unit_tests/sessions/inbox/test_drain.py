@@ -14,7 +14,7 @@ from sessions.inbox.complete import RunEnd
 from sessions.inbox.drain import Drain
 from sessions.inbox.ownership import Ownerships
 from sessions.inbox.policy import WakePolicy
-from sessions.legs import NOT_RUN_CLOSED, NOT_RUN_MERGED
+from sessions.legs import NOT_RUN_ARCHIVED, NOT_RUN_CLOSED, NOT_RUN_MERGED
 from sessions.models import (
     EventFailure,
     EventKind,
@@ -1053,6 +1053,25 @@ class TestLegFollowUp:
         failed = await Run.objects.aget(pk=run.pk)
         assert (failed.status, failed.error_message) == (RunStatus.FAILED, EventFailure.ACCESS_DENIED.label)
         assert [call.args[0].pk for call in resumed.call_args_list] == [run.pk]
+        enqueue.assert_not_awaited()
+
+    async def test_an_archived_leg_stops_it_so_its_batch_resumes_and_holds_the_rest(self, enqueue, admin_user):
+        run, follow_up = await _leg_follow_up(admin_user)
+        session = follow_up.session
+        ci = await amake_event(session)
+        await Session.objects.filter(pk=session.pk).aupdate(archived_at=timezone.now())
+
+        assert session.pk in await sync_to_async(Drain.sessions_to_drain)()
+        with patch("sessions.signals.DelegatedBatch.resume_after") as resumed:
+            assert await Drain(session.thread_id).astart() is None
+
+        stored = await _state(follow_up)
+        assert (stored.state, stored.failure) == (EventState.FAILED, EventFailure.SESSION_ARCHIVED)
+        stopped = await Run.objects.aget(pk=run.pk)
+        assert (stopped.status, stopped.error_message) == (RunStatus.FAILED, NOT_RUN_ARCHIVED)
+        assert [call.args[0].pk for call in resumed.call_args_list] == [run.pk]
+        assert (await _state(ci)).state == EventState.PENDING
+        assert session.pk not in await sync_to_async(Drain.sessions_to_drain)()
         enqueue.assert_not_awaited()
 
     async def test_its_references_are_merged_into_the_session(self, enqueue, admin_user):
