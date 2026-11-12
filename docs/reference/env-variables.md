@@ -449,7 +449,6 @@ The sample deployment files set the variables below. The `DAIV_SANDBOX_*` variab
 | `DAIV_SANDBOX_REDIS_URL` | Sandbox service | Redis URL for per-session locking and for removing running sessions that stop receiving requests. Without it, the sandbox disables both and logs a warning | *(none)* | `redis://redis:6379/3` |
 | `DAIV_SANDBOX_EGRESS_CA_CERT_FILE` | Sandbox service | Path to the egress CA certificate that the sandbox's egress proxy signs with. Set it together with the key file: the sandbox does not start with only one | *(none)* | `/run/secrets/daiv_sandbox_egress_ca_cert` |
 | `DAIV_SANDBOX_EGRESS_CA_KEY_FILE` | Sandbox service | Path to the egress CA private key. Without both files, the sandbox rejects sessions that need the egress proxy and the run fails | *(none)* | `/run/secrets/daiv_sandbox_egress_ca_key` |
-| `DAIV_SANDBOX_KEEP_TEMPLATE` | Sandbox service | The Swarm sample sets it, but the sandbox does not read it; you can remove it | *(none)* | `true` |
 | `DAIV_IMAGE_TAG` | Docker | Tag of the DAIV image that the sample services pull; pin it to roll back to a build | `main` | `sha-5e4f0d0` |
 
 To create the egress CA and store it as secrets, see [Deployment](../getting-started/deployment.md).

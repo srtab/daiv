@@ -14,7 +14,7 @@ To try DAIV on one machine first, follow the [Quickstart](quickstart.md).
 |-------------|---------|
 | Docker Engine | The samples pin no minimum. Docker Swarm needs Swarm mode enabled on the host. |
 | Docker Compose | v2, which provides the `docker compose` command. Only the Compose deployment needs it. |
-| PostgreSQL | The samples run `postgres:17.6`. DAIV pins no minimum. |
+| PostgreSQL | 15 or later, the minimum of the Django release DAIV pins; the samples run `postgres:17.6`. |
 | Redis | 8 or later. The samples run `redis:8.6-alpine`. The agent's checkpoints use Redis search commands that Redis 7 lacks, and they must stay on database `0`; see [Redis](../reference/env-variables.md#redis). |
 | daiv-sandbox | The samples pull `ghcr.io/srtab/daiv-sandbox:latest`. Update the sandbox together with DAIV: multi-repository sessions need a release with `repos_archive` support and path-scoped egress rules, and DAIV reports an error when the sandbox lacks it. |
 
@@ -40,7 +40,7 @@ Docker Swarm gives you service discovery, load balancing and rolling updates, so
 
 Before you start, [install Docker](https://docs.docker.com/engine/install/) and [enable Swarm](https://docs.docker.com/engine/swarm/swarm-tutorial/), and check the [requirements](#requirements).
 
-1. Create each Docker secret listed in [Swarm secrets](#swarm-secrets), with this command (see [Docker secret create](https://docs.docker.com/reference/cli/docker/secret/create/)), replacing `<name>` and `<value>`:
+1. Create the first nine Docker secrets listed in [Swarm secrets](#swarm-secrets), with this command (see [Docker secret create](https://docs.docker.com/reference/cli/docker/secret/create/)), replacing `<name>` and `<value>`:
 
     ```bash
     printf '%s' '<value>' | docker secret create <name> -
@@ -114,14 +114,14 @@ The stack reads these Docker secrets. Create the first nine rows in step 1, and 
 | `codebase_gitlab_auth_token` | A GitLab personal access token with the `api` scope. See [Platform Setup](platform-setup.md#gitlab-configuration). |
 | `codebase_gitlab_webhook_secret` | A random secret that GitLab sends with each webhook, for DAIV to validate. |
 | `daiv_sandbox_api_key` | A random API key for the sandbox service. |
-| `email_host_password` | The SMTP password. The stack requires the secret to exist, so create it with any value if your relay needs no authentication. |
+| `email_host_password` | The SMTP password. DAIV authenticates only when `EMAIL_HOST_USER` is also set. The stack requires the secret to exist, so create it with any value if your relay needs no authentication. |
 | `openrouter_api_key` | An [OpenRouter API key](https://openrouter.ai/settings/keys). |
 | `allauth_client_id` | The OAuth client ID of your Git platform. See [Authentication](../reference/env-variables.md#authentication). |
 | `allauth_client_secret` | The OAuth client secret of your Git platform. |
 | `daiv_sandbox_egress_ca_cert` | The egress CA certificate. |
 | `daiv_sandbox_egress_ca_key` | The egress CA private key. |
 
-For another provider's key, create a secret named after its variable in lowercase (`openai_api_key`, `anthropic_api_key` or `google_api_key`) and add it to the `secrets:` list of the `app` service, which runs the migration that reads it. DAIV reads each provider key once, at its first start; see [Provider API keys](llm-providers.md#provider-api-keys). For further variables you want as secrets, see [Environment variables](../reference/env-variables.md).
+For another provider's key, create a secret named after its variable in lowercase (`openai_api_key`, `anthropic_api_key` or `google_api_key`) add it to the `secrets:` list of the `app` service, which runs the migration that reads it, and declare it under the top-level `secrets:` with `external: true`. DAIV reads each provider key once, at its first start; see [Provider API keys](llm-providers.md#provider-api-keys). For further variables you want as secrets, see [Environment variables](../reference/env-variables.md).
 
 ### Swarm stack file
 
@@ -145,6 +145,7 @@ x-app-environment-defaults: &app_environment_defaults
   EMAIL_HOST: smtp.example.com
   EMAIL_PORT: 587
   EMAIL_USE_TLS: true
+  EMAIL_HOST_USER: smtp-user # (13)!
   # SANDBOX
   DAIV_SANDBOX_URL: http://sandbox:8000 # (4)!
 
@@ -373,6 +374,7 @@ secrets:
 10.  **Required**: the web and worker containers must share this directory. It holds the [artifacts](../features/sessions.md#artifacts) (reports and other files) the agent publishes: `app` writes them for chat turns and serves them, and `worker` writes them for jobs and webhook runs. Any shared filesystem works; on a multi-node swarm, use a network-backed volume driver.
 11.  Redis 8 or later; see [Requirements](#requirements).
 12.  **Required**: the egress CA you stored as secrets in step 3 of [Deploy with Docker Swarm](#deploy-with-docker-swarm). The sandbox's egress proxy signs with it; without it, every agent run fails when the sandbox rejects the session.
+13.  The SMTP user. DAIV sends the `email_host_password` secret only when this is set; delete the line if your relay needs no authentication. Without an SMTP server, replace the `EMAIL_*` lines with `EMAIL_BACKEND: django.core.mail.backends.console.EmailBackend` and read the sign-in code from `docker service logs daiv_app`.
 
 ## Deploy with Docker Compose
 
