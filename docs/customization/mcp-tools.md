@@ -19,7 +19,7 @@ Each server is a row with these settings:
 |---------|-------------|
 | **Name** | Unique slug of lowercase letters, digits and dashes, up to 80 characters. You cannot change it after you create the server. `new` and `test` are reserved. |
 | **Description** | Optional text. |
-| **Status** | **Active** loads the server in every run. **On-demand** loads it only in runs that opt in, for example with `mcp_overrides` in the [jobs API](../features/jobs-api.md#request-fields). **Disabled** never loads it. |
+| **Status** | **Active** loads the server in every run (for a personal server, every run that acts as its owner). **On-demand** loads it only in runs that opt in, for example with `mcp_overrides` in the [jobs API](../features/jobs-api.md#request-fields). **Disabled** never loads it. |
 | **Transport** | **HTTP (streamable)** or **SSE**. |
 | **URL** | The MCP endpoint, an `http` or `https` URL of up to 200 characters. |
 | **Headers** | HTTP headers sent to the server. Each header is a literal value, encrypted at rest, or an `env_ref`, the name of an environment variable that DAIV resolves at runtime. |
@@ -165,7 +165,7 @@ Every member, admins included, can add personal MCP servers from the **MCP Serve
 
 **Header values are always literal.** A personal server's headers cannot be an `env_ref`, so a member cannot probe the DAIV host's environment through their own configuration.
 
-**Name collisions.** A personal server cannot take a global server's name when you create it. If an admin later adds a global server with the same name, the global server wins: DAIV skips the personal server in every run, and the **MCP Servers** page flags it with a **Shadowed** badge.
+**Name collisions.** A personal server cannot take a global server's name when you create it. If an admin later adds a global server with the same name, the global server wins while it is **Active** or **On-demand**: DAIV skips the personal server in every run, and the **MCP Servers** page flags it with a **Shadowed** badge.
 
 **Admin oversight.** On the **MCP Servers** page, admins have an owner dropdown, set to **You** by default, to list any member's personal servers. Admins can disable, delete or refresh those servers. They cannot edit them or see their header values.
 
@@ -177,7 +177,7 @@ You cannot rename a server, so you delete the shadowed personal server and creat
     DAIV removes the server and its stored headers permanently, and the form never shows header values. Keep the values somewhere else before you delete. A new server starts with no headers.
 
 1. In the sidebar, select **MCP servers**.
-2. Find the server marked **Shadowed**, and note its settings and header values.
+2. Find the server marked **Shadowed**, and note its settings. Have its header values from your own records, because the form never shows them.
 3. Select **Delete** on it.
 4. On the confirmation page, select **Delete**.
 5. Select **New server**.

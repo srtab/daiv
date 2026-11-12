@@ -224,6 +224,7 @@ services:
       - "8000:8000"
     volumes:
       - media-volume:/home/daiv/data/media # (10)!
+      # - ./custom-skills:/home/daiv/data/skills  (9)
     deploy:
       <<: *deploy_defaults
 
@@ -272,6 +273,7 @@ services:
       - internal
     volumes:
       - media-volume:/home/daiv/data/media # (10)!
+      # - ./custom-skills:/home/daiv/data/skills:ro  (9)
     healthcheck:
       test: grep -q 'db_worker' /proc/*/cmdline 2>/dev/null
       interval: 30s
@@ -370,7 +372,7 @@ secrets:
 6.   **Required**: the sandbox needs Docker socket access to create isolated containers.
 7.   **Optional**: remove this volume if you don't need private registry access.
 8.   **Scaling**: increase `replicas` to handle more concurrent agent runs (for example `replicas: 3`). A worker runs one task to completion before it claims the next, so concurrency is the number of worker containers. Each claims independently from the queues named in its command.
-9.   **Optional**: uncomment to mount [custom global skills](../customization/agent-skills.md#custom-global-skills) that are available across all repositories.
+9.   **Optional**: uncomment all three lines to mount [custom global skills](../customization/agent-skills.md#custom-global-skills) that are available across all repositories. `app` receives uploads from the dashboard, so it mounts the directory read-write; `worker` and `worker-interactive` run the agent, so they can mount it read-only.
 10.  **Required**: the web and worker containers must share this directory. It holds the [artifacts](../features/sessions.md#artifacts) (reports and other files) the agent publishes: `app` writes them for chat turns and serves them, and `worker` writes them for jobs and webhook runs. Any shared filesystem works; on a multi-node swarm, use a network-backed volume driver.
 11.  Redis 8 or later; see [Requirements](#requirements).
 12.  **Required**: the egress CA you stored as secrets in step 3 of [Deploy with Docker Swarm](#deploy-with-docker-swarm). The sandbox's egress proxy signs with it; without it, every agent run fails when the sandbox rejects the session.
@@ -491,6 +493,9 @@ services:
     <<: *x_app_default
     ports:
       - "8000:8000"
+    # volumes:  (15)
+    #   - media-volume:/home/daiv/data/media
+    #   - ./custom-skills:/home/daiv/data/skills
     depends_on:
       db:
         condition: service_healthy
@@ -524,6 +529,9 @@ services:
   worker-interactive:
     <<: *x_app_default
     command: sh /home/daiv/start-worker interactive
+    # volumes:  (15)
+    #   - media-volume:/home/daiv/data/media
+    #   - ./custom-skills:/home/daiv/data/skills:ro
     healthcheck:
       test: ["CMD-SHELL", "grep -q 'db_worker' /proc/*/cmdline 2>/dev/null"]
       interval: 30s
@@ -590,7 +598,7 @@ volumes:
 12. Generate a random API key for the sandbox service, such as the output of `openssl rand -hex 32`.
 13. Use the same password as in annotation 6.
 14. Redis 8 or later; see [Requirements](#requirements).
-15. **Optional**: uncomment to mount [custom global skills](../customization/agent-skills.md#custom-global-skills) that are available across all repositories. A service-level `volumes:` replaces the anchor's list instead of merging with it, so keep the `media-volume` line.
+15. **Optional**: uncomment the `volumes:` block of `app`, `worker` and `worker-interactive` to mount [custom global skills](../customization/agent-skills.md#custom-global-skills) that are available across all repositories. `app` receives uploads from the dashboard, so it mounts the directory read-write; the workers run the agent, so they can mount it read-only. A service-level `volumes:` replaces the anchor's list instead of merging with it, so keep the `media-volume` line.
 16. **Scaling**: increase `replicas` to handle more concurrent agent runs (for example `replicas: 3`). A worker runs one task to completion before it claims the next, so concurrency is the number of worker containers. Each claims independently from the queues named in its command.
 17. Replace `987` with the group of the Docker socket, the output of `stat -c '%g' /var/run/docker.sock`. The sandbox starts a container for each agent run through it.
 18. Use the same API key as in annotation 12.
