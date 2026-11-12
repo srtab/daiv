@@ -21,9 +21,9 @@
 ---
 
 <p align="center">
-  <a href="https://srtab.github.io/daiv/dev/"><strong>Documentation</strong></a> ·
+  <a href="https://docs.daivagent.com/dev/"><strong>Documentation</strong></a> ·
   <a href="https://daivagent.com"><strong>Website</strong></a> ·
-  <a href="https://srtab.github.io/daiv/dev/getting-started/deployment/"><strong>Deploy</strong></a> ·
+  <a href="https://docs.daivagent.com/dev/getting-started/deployment/"><strong>Deploy</strong></a> ·
   <a href="https://github.com/srtab/daiv/blob/main/CONTRIBUTING.md"><strong>Contributing</strong></a>
 </p>
 
@@ -39,23 +39,23 @@ DAIV (pronounced "dive", from *dev* + *AI*) integrates directly with **GitLab** 
 
 ### In your Git platform — webhooks, zero setup
 
-- **[Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/)** — DAIV reads a labelled issue, proposes a plan, and — once you approve — opens a merge/pull request with the implementation.
-- **[Pull Request Assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/)** — answers reviewer comments, applies requested changes, and repairs failing CI/CD pipelines, all inside the merge/pull request thread.
-- **[Slash Commands & Skills](https://srtab.github.io/daiv/dev/features/slash-commands/)** — invoke `/plan`, `/code-review`, `/help`, and your own custom skills straight from issues and merge requests.
+- **[Issue addressing](https://docs.daivagent.com/dev/features/issue-addressing/)** — DAIV reads a labelled issue, proposes a plan, and — once you approve — opens a merge/pull request with the implementation.
+- **[Pull request assistant](https://docs.daivagent.com/dev/features/pull-request-assistant/)** — answers reviewer comments, applies requested changes, and repairs failing CI/CD pipelines, all inside the merge/pull request thread.
+- **[Slash commands and skills](https://docs.daivagent.com/dev/features/slash-commands/)** — invoke `/plan`, `/code-review`, `/help`, and your own custom skills straight from issues and merge requests.
 
 ### From your editor and pipelines
 
-- **[MCP Endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/)** — connect Claude Code, Cursor, or Codex CLI over the [Model Context Protocol](https://modelcontextprotocol.io/) and delegate tasks without leaving your editor.
-- **[Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/)** — trigger agents programmatically from CI, scripts, or other tools, then poll for the result.
+- **[MCP endpoint](https://docs.daivagent.com/dev/features/mcp-endpoint/)** — connect Claude Code, Cursor, or Codex CLI over the [Model Context Protocol](https://modelcontextprotocol.io/) and delegate tasks without leaving your editor.
+- **[Jobs API](https://docs.daivagent.com/dev/features/jobs-api/)** — trigger agents programmatically from CI, scripts, or other tools, then poll for the result.
 
 ### From the dashboard
 
-- **[Sessions](https://srtab.github.io/daiv/dev/features/sessions/)** — a unified workspace and history: chat with the agent live, start background runs, and see every execution — webhook, API, MCP, scheduled, or manual — in one list, with retries.
-- **[Scheduled Jobs](https://srtab.github.io/daiv/dev/features/scheduled-jobs/)** — run agents on any cron schedule: dependency audits, code-quality scans, stale-branch cleanup, and more.
-- **[Sandbox Environments](https://srtab.github.io/daiv/dev/features/sandbox-environments/)** — define a reusable runtime once: base image, CPU/memory, **network egress policy**, and encrypted secrets, scoped to the repositories you choose.
+- **[Sessions](https://docs.daivagent.com/dev/features/sessions/)** — a unified workspace and history: chat with the agent live, start background runs, and see every execution — webhook, API, MCP, scheduled, or manual — in one list, with retries.
+- **[Scheduled jobs](https://docs.daivagent.com/dev/features/scheduled-jobs/)** — run agents on any cron schedule: dependency audits, code-quality scans, stale-branch cleanup, and more.
+- **[Sandbox environments](https://docs.daivagent.com/dev/features/sandbox-environments/)** — define a reusable runtime once: base image, CPU/memory, **network egress policy**, and encrypted secrets, scoped to the repositories you choose.
 - **Per-run model & effort** — pick the LLM and thinking effort for each run.
-- **[Notifications](https://srtab.github.io/daiv/dev/features/notifications/)** — know the moment work finishes, via the in-app bell, email, or Rocket Chat.
-- **[Merge Metrics](https://srtab.github.io/daiv/dev/features/merge-metrics/)** — track code velocity with commit-level DAIV-vs-human attribution.
+- **[Notifications](https://docs.daivagent.com/dev/features/notifications/)** — know the moment work finishes, via the in-app bell, email, Rocket Chat or Telegram.
+- **[Merge metrics](https://docs.daivagent.com/dev/features/merge-metrics/)** — track code velocity with commit-level DAIV-vs-human attribution.
 
 ## Quick example
 
@@ -71,10 +71,10 @@ DAIV (pronounced "dive", from *dev* + *AI*) integrates directly with **GitLab** 
 DAIV acts on issues, comments and code that other people wrote, so each layer below limits what a run can reach:
 
 - **Isolated sandbox.** Every command the agent runs executes in a Docker container managed by [daiv-sandbox](https://github.com/srtab/daiv-sandbox), optionally under [gVisor](https://gvisor.dev/) for a stronger boundary against container escape.
-- **No network unless you allow it.** The sandbox has no network access by default. A [sandbox environment](https://srtab.github.io/daiv/dev/features/sandbox-environments/) can turn it on with an egress allow-list that blocks every other host, and if the egress proxy is unavailable the run aborts rather than falling back to an open network.
+- **No network unless you allow it.** The sandbox has no network access by default. A [sandbox environment](https://docs.daivagent.com/dev/features/sandbox-environments/) can turn it on with an egress allow-list that blocks every other host, and if the egress proxy is unavailable the run aborts rather than falling back to an open network.
 - **Credentials stay outside the container.** A credential for an allowed host, such as a private registry token, is stored encrypted and added to matching requests by the egress proxy, so the agent never sees it.
 - **Short-lived, scoped git tokens.** On GitLab, DAIV clones and pushes with a short-lived token scoped to one project instead of its main token (on GitLab.com this needs Premium or Ultimate, otherwise it falls back to the main token). On GitHub, it uses a short-lived GitHub App installation token scoped to the one repository.
-- **People stay in charge.** On an issue labelled `daiv`, DAIV posts a plan and writes code only after someone approves it. `allowed_usernames` in [`.daiv.yml`](https://srtab.github.io/daiv/dev/customization/repository-config/) limits who can trigger DAIV, which you should set on public repositories.
+- **People stay in charge.** On an issue labelled `daiv`, DAIV posts a plan and writes code only after someone approves it. `allowed_usernames` in [`.daiv.yml`](https://docs.daivagent.com/dev/customization/repository-config/) limits who can trigger DAIV, which you should set on public repositories.
 
 Prompt injection through an issue, a comment or repository content is still possible: these layers limit what an injected instruction could reach, not whether the agent reads one. Report vulnerabilities privately, as described in [SECURITY.md](SECURITY.md).
 
@@ -93,12 +93,12 @@ DAIV is for teams that want one agent in their GitLab or GitHub threads, running
 
 DAIV is powered by [Deep Agents](https://github.com/langchain-ai/deepagents), a general-purpose deep-agent framework built on [LangGraph](https://langchain-ai.github.io/langgraph/) with sub-agent spawning, a middleware stack, and a virtual filesystem. On top of it, DAIV adds:
 
-- **[Subagents](https://srtab.github.io/daiv/dev/features/subagents/)** — specialized agents for fast codebase exploration and complex multi-step tasks.
-- **[Sandbox](https://srtab.github.io/daiv/dev/features/sandbox/)** — secure command execution for tests, builds, linters, and package management inside an isolated Docker container.
-- **[MCP Tools](https://srtab.github.io/daiv/dev/customization/mcp-tools/)** — external integrations over the [Model Context Protocol](https://modelcontextprotocol.io/), such as Sentry for error tracking.
-- **[Monitoring](https://srtab.github.io/daiv/dev/reference/monitoring/)** — trace every agent execution with [LangSmith](https://www.langchain.com/langsmith) to analyze performance and spot issues.
+- **[Subagents](https://docs.daivagent.com/dev/features/subagents/)** — specialized agents for fast codebase exploration and complex multi-step tasks.
+- **[Sandbox](https://docs.daivagent.com/dev/features/sandbox/)** — secure command execution for tests, builds, linters, and package management inside an isolated Docker container.
+- **[MCP tools](https://docs.daivagent.com/dev/customization/mcp-tools/)** — external integrations over the [Model Context Protocol](https://modelcontextprotocol.io/), such as Sentry for error tracking.
+- **[Monitoring](https://docs.daivagent.com/dev/reference/monitoring/)** — trace every agent execution with [LangSmith](https://www.langchain.com/langsmith) to analyze performance and spot issues.
 - **Scalable Workers** — background workers scale horizontally by adding replicas, with a dedicated scheduler for recurring jobs.
-- **[LLM Providers](https://srtab.github.io/daiv/dev/getting-started/llm-providers/)** — run on OpenRouter, Anthropic, OpenAI, or Google, or on your own OpenAI-compatible server (vLLM, llama.cpp, LiteLLM) — your keys, your choice. Tested with Claude Sonnet 5.5, Opus 5.5 and Haiku 5.5, GPT-6.1 Sol and GPT-6 Luna, GLM-5.2 through OpenRouter, and Qwen3.8 on a self-hosted vLLM server.
+- **[LLM providers](https://docs.daivagent.com/dev/getting-started/llm-providers/)** — run on OpenRouter, Anthropic, OpenAI, or Google, or on your own OpenAI-compatible server (vLLM, llama.cpp, LiteLLM) — your keys, your choice. Tested with Claude Sonnet 5.5, Opus 5.5 and Haiku 5.5, GPT-6.1 Sol and GPT-6 Luna, GLM-5.2 through OpenRouter, and Qwen3.8 on a self-hosted vLLM server.
 
 ## Technology Stack
 
@@ -111,7 +111,7 @@ DAIV is powered by [Deep Agents](https://github.com/langchain-ai/deepagents), a 
 
 ## Getting Started
 
-To try DAIV, follow the [Quickstart](https://srtab.github.io/daiv/dev/getting-started/quickstart/): it runs DAIV on one
+To try DAIV, follow the [Quickstart](https://docs.daivagent.com/dev/getting-started/quickstart/): it runs DAIV on one
 machine with Docker Compose and turns a GitLab issue into a merge request in about 15 minutes, no clone needed.
 
 To run the development stack from a clone instead:
@@ -128,16 +128,16 @@ container start — then bring the stack up:
 docker compose up --build  # db, redis, app, worker, worker-interactive, scheduler
 ```
 
-- **Running DAIV for real** → [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/), then [Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/) to connect GitLab or GitHub.
+- **Running DAIV for real** → [Deployment](https://docs.daivagent.com/dev/getting-started/deployment/), then [Platform setup](https://docs.daivagent.com/dev/getting-started/platform-setup/) to connect GitLab or GitHub.
 - **Developing DAIV** → [CONTRIBUTING.md](CONTRIBUTING.md) covers Compose profiles, the local GitLab instance, webhooks, tests, and linting.
 
 ## Roadmap
 
 - [ ] Configurable hooks — run DAIV on specific events with user-defined triggers and actions.
 - [ ] Chrome extension — interact with DAIV directly from the git platform without leaving the browser.
-- [x] Custom MCP servers — user-defined MCP servers via a JSON config file following the Claude Code `.mcp.json` standard.
+- [x] Custom MCP servers — user-defined MCP servers managed from the dashboard, as global or personal servers.
 - [x] Scheduled maintenance tasks — run DAIV on a cron schedule for tasks like dependency updates, security scans, or documentation drift detection.
-- [x] Notifications — in-app, email, and Rocket Chat delivery shipped; Slack, Discord, and Microsoft Teams planned.
+- [x] Notifications — in-app, email, Rocket Chat and Telegram delivery shipped; Slack, Discord, and Microsoft Teams planned.
 - [x] Self-hosted LLM support — register any OpenAI-compatible server, such as vLLM, llama.cpp, or LiteLLM, as a provider for air-gapped or cost-sensitive environments.
 
 
@@ -151,6 +151,6 @@ DAIV is [Apache-2.0](LICENSE) and will stay that way. There is no paid tier toda
 
 ## Support & Community
 
-Ask questions and share ideas in [Discussions](https://github.com/srtab/daiv/discussions), and report bugs in [Issues](https://github.com/srtab/daiv/issues). Report security vulnerabilities privately, as described in [SECURITY.md](SECURITY.md). Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md). See the [Community page](https://srtab.github.io/daiv/dev/community/) for contribution paths and project links.
+Ask questions and share ideas in [Discussions](https://github.com/srtab/daiv/discussions), and report bugs in [Issues](https://github.com/srtab/daiv/issues). Report security vulnerabilities privately, as described in [SECURITY.md](SECURITY.md). Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md). See the [Community page](https://docs.daivagent.com/dev/community/) for contribution paths and project links.
 
 If DAIV saves you time, [star it on GitHub](https://github.com/srtab/daiv): it helps other teams find it.

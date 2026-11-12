@@ -12,12 +12,12 @@ through its ``SessionOrigin.DELEGATED_JOB`` runs (its first run and any leg foll
   waiting for its coordinator's turn), READY or RUNNING.
 - **Lost** (:meth:`Leg.is_lost`): its latest delegated run reached the task queue but could not be linked to its row,
   so it may still be working while the row shows FAILED.
-- **Archived** (:meth:`Leg.archived_by`): one person hid its session from their own list.
+- **Archived** (:meth:`Leg.is_archived`): its session is archived.
 
 ``sessions.queue`` imports this module, so it imports only ``sessions.models``. SYNC ONLY, but for the async wrappers.
-A leg follow-up that does not run because its leg's merge request was merged or closed finishes its run FAILED with
-:data:`NOT_RUN_MERGED` or :data:`NOT_RUN_CLOSED`, which readers of a run's outcome tell apart from a failure
-(:meth:`Leg.not_run_label`).
+A leg follow-up that does not run because its leg's merge request was merged or closed, or its session was archived,
+finishes its run FAILED with :data:`NOT_RUN_MERGED`, :data:`NOT_RUN_CLOSED` or :data:`NOT_RUN_ARCHIVED`, which readers
+of a run's outcome tell apart from a failure (:meth:`Leg.not_run_label`).
 """
 
 from __future__ import annotations
@@ -31,26 +31,17 @@ from django.utils.translation import gettext, gettext_noop
 
 from asgiref.sync import sync_to_async
 
-from sessions.models import (
-    LINK_FAILED_PREFIX,
-    HiddenSession,
-    MergeRequestOwnership,
-    MergeRequestState,
-    Run,
-    RunStatus,
-    Session,
-)
+from sessions.models import LINK_FAILED_PREFIX, MergeRequestOwnership, MergeRequestState, Run, RunStatus, Session
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from django.db.models import QuerySet
 
-    from accounts.models import User
-
 NOT_RUN_MERGED = gettext_noop("Not run: its merge request was merged")
 NOT_RUN_CLOSED = gettext_noop("Not run: its merge request was closed")
-NOT_RUN_LABELS = frozenset({NOT_RUN_MERGED, NOT_RUN_CLOSED})
+NOT_RUN_ARCHIVED = gettext_noop("Not run: its session was archived")
+NOT_RUN_LABELS = frozenset({NOT_RUN_MERGED, NOT_RUN_CLOSED, NOT_RUN_ARCHIVED})
 
 
 @dataclass(frozen=True)
@@ -151,5 +142,5 @@ class Leg:
         latest = self.delegated_runs().reverse().values_list("status", "error_message").first()
         return latest is not None and latest[0] == RunStatus.FAILED and latest[1].startswith(LINK_FAILED_PREFIX)
 
-    def archived_by(self, user: User) -> bool:
-        return HiddenSession.objects.filter(session=self.session, user=user).exists()
+    def is_archived(self) -> bool:
+        return self.session.archived_at is not None

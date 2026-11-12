@@ -1,16 +1,18 @@
 import uuid
 
+from django.utils import timezone
+
 import pytest
 from asgiref.sync import sync_to_async
 from sessions.inbox.ownership import Ownerships
 from sessions.legs import Leg, LegMergeRequest
 from sessions.models import (
     LINK_FAILED_PREFIX,
-    HiddenSession,
     MergeRequestOwnership,
     MergeRequestState,
     Run,
     RunStatus,
+    Session,
     SessionOrigin,
 )
 from sessions.queue import _rebase_on_waited_branch
@@ -239,10 +241,11 @@ class TestBusyLostArchived:
 
         assert not Leg(leg_run.session).is_lost()
 
-    def test_archived_only_by_the_person_who_hid_it(self, admin_user, member_user):
+    def test_archived_when_its_session_is(self, admin_user):
         coordinator = make_coordinator(admin_user)
-        leg_run = make_leg(coordinator, uuid.uuid4(), status=RunStatus.SUCCESSFUL)
-        HiddenSession.objects.create(session=leg_run.session, user=member_user)
+        session = make_leg(coordinator, uuid.uuid4(), status=RunStatus.SUCCESSFUL).session
+        before = Leg(session).is_archived()
+        Session.objects.filter(pk=session.pk).update(archived_at=timezone.now())
+        session.refresh_from_db()
 
-        assert Leg(leg_run.session).archived_by(member_user)
-        assert not Leg(leg_run.session).archived_by(admin_user)
+        assert (before, Leg(session).is_archived()) == (False, True)

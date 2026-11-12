@@ -2,139 +2,155 @@
 description: "Define named, reusable DAIV sandbox environments with a base image, CPU and memory limits, network egress policy, encrypted secrets and repository scope."
 ---
 
-# Sandbox Environments
+# Sandbox environments
 
-A sandbox environment is a named, reusable [sandbox](sandbox.md) configuration — base image, CPU and memory limits, network access, encrypted environment variables, and the repositories it applies to. Define it once in the dashboard and DAIV reuses that runtime across every run, chat, scheduled job, and API/MCP call that lands in a matching repository, instead of reconfiguring the container each time.
+A sandbox environment is a named, reusable [sandbox](sandbox.md) runtime: a base image, CPU and memory limits, an egress policy, encrypted environment variables, and the repositories it applies to. You define it once, and DAIV reuses it for every run, chat, scheduled job, and API or MCP call that lands in a matching repository.
 
-Manage environments at **Dashboard > Sandbox Environments** (`/dashboard/sandbox-envs/`). The page lists your own environments and, separately, the organization-wide ones.
+An environment is how you give the agent a toolchain image, outbound network access to install dependencies, or a secret such as an API token or a private registry credential. When no environment matches a run (none selected, none bound to the repository, and no global default), the run has no sandbox and the agent gets no `bash` tool.
 
-!!! info "When you need one"
-    The sandbox runs with **networking disabled** and **no base image** unless an environment supplies them. If the agent needs to install dependencies, run a specific toolchain image, or read a secret (an API token, a private registry credential), capture that in an environment. See [Sandbox](sandbox.md) for what the agent does with the runtime.
+To manage environments, open **Sandbox environments** under **Agent setup** in the sidebar (`/dashboard/sandbox-envs/`). **Global environments** lists the shared environments, and **My environments** lists yours.
 
 ## Scopes
 
-Every environment has one of two scopes:
+An environment has one of two scopes:
 
-| Scope | Visibility | Who can manage it | Repository default |
-|-------|-----------|-------------------|--------------------|
-| **User** | Private to you | You (the owner) | — |
-| **Global** | Shared with everyone | Administrators only | One environment can be the single global default |
+| Scope | Who sees it | Who manages it |
+|-------|-------------|----------------|
+| **User** | Only you | You |
+| **Global** | Everyone | Administrators |
 
-When resolving the runtime for a repository, a **User** environment that claims that repository wins over a **Global** one, so you can override an organization-wide setup with your own for the repositories you care about.
+Any signed-in user creates, changes and deletes their own User environments. Only administrators create, change and delete Global environments, and only they can make one the default. Other users see Global environments in the list and can select them for a run. In the form, the **Scope** choice offers only **Personal** to other users, and offers **Shared with everyone** (a Global environment) to administrators as well.
 
-!!! note "Global environments are admin-only"
-    Only administrators can create, edit, delete, or set the default of a **Global** environment. Non-admins can still *select* and *read* global environments (secret values stay masked), but the scope dropdown offers only **User** when you create one.
+When DAIV picks an environment for a repository, a User environment that claims the repository wins over a Global one, so you can override an organization-wide setup for the repositories you care about.
 
-### The single global default
+### Global default
 
-Exactly one **Global** environment may be marked as the default. It is the fallback the runtime uses when no other environment matches a repository (see [How an environment is resolved](#how-an-environment-is-resolved)). Administrators promote a different environment to default from the list (the **Set default** action, `POST /dashboard/sandbox-envs/<uuid>/set-default/`); promoting one automatically demotes the previous default. You cannot delete the current global default — promote another environment first.
+One Global environment can be the default. DAIV falls back to it when no other environment matches a repository, and it supplies the CPUs, memory and environment variables that other environments leave unset (see [How an environment is resolved](#how-an-environment-is-resolved)). A fresh install seeds a global environment named **Default** with a base image, set as the default. With no global default, a run that matches no environment has no sandbox.
 
-## Creating an environment
+To make an environment the global default, as an administrator:
 
-Click **Create** on the list page to open the drawer (`/dashboard/sandbox-envs/create/`), or **Edit** an existing one (`/dashboard/sandbox-envs/<uuid>/edit/`). The form has these fields:
+!!! warning "Changing the default replaces sandboxes"
+    The default's settings flow into the effective runtime of every session that inherits from it, so making another environment the default replaces those sessions' sandboxes on their next turn, and anything installed in them or left uncommitted is lost.
 
-| Field | Description |
-|-------|-------------|
-| **Name** | A short label, unique within its scope. Required |
-| **Description** | Optional free text |
-| **Scope** | **User** (private) or **Global** (admin-only, shared) |
-| **Base image** | The container image the sandbox runs, e.g. `python:3.14-slim`. Required |
-| **CPUs** | CPU limit (a number, up to two decimals). Switch from *default* to *custom* to set it; leave on *default* to inherit |
-| **Memory** | Memory limit, entered as a value plus a **MiB** or **GiB** unit. Switch from *default* to *custom* to set it |
-| **Network** | **On** or **Off**. Controls outbound network access (needed to reach package registries) |
-| **Before publish commands** | Commands DAIV runs to check a run's changes before publishing. Leave on *default* to inherit the global default's list, or switch to *custom* to list up to 10, one per line (see below) |
-| **Environment variables** | Name/value pairs injected into the sandbox; mark any as secret (see below). Up to 100 entries |
-| **Egress policy** | Per-host outbound rules, injected credentials, and traffic mode. Shown only when **Network** is **On** (see [Network access and egress policy](#network-access-and-egress-policy)) |
-| **Repositories** | The repository IDs this environment is bound to, as slash-separated paths like `owner/repo` or `group/subgroup/repo` (see [Repository bindings](#repository-bindings)) |
+1. In **Global environments**, find the environment.
+2. Select **Make default**. The environment gets a **default** tag, and the previous default loses it.
 
-Leaving **CPUs** or **Memory** on *default* means the field is unset, and the value falls back to the global default's value (or the built-in runtime default) at run time. **Network** is explicit per environment (**On**/**Off**) and is *not* inherited from the global default — see [How an environment is resolved](#how-an-environment-is-resolved).
+You cannot delete the global default: DAIV shows `Set another global environment as default before deleting this one.` Make another environment the default first.
 
-### Default `before_publish` commands
+## Create an environment
 
-The **Before publish commands** field sets the [verification hooks](../customization/repository-config.md#verification-hooks) every repository using this environment runs before DAIV publishes. A `hooks.before_publish` list in a repository's `.daiv.yml` replaces this list entirely, and `before_publish: []` turns verification off for that repository.
+You need a base image for the environment, such as `python:3.14`. To let the agent install dependencies, you also need to know which hosts it must reach.
 
-- *default* inherits the [global default](#the-single-global-default)'s list, like **CPUs** and **Memory** on *default*.
-- *custom* runs this environment's own list, one command per line, up to 10. An empty custom list runs no commands, even when the global default has some.
+1. In the sidebar, under **Agent setup**, open **Sandbox environments**.
+2. Select **New environment**. The **New sandbox environment** drawer opens.
+3. Fill in the fields in the table below, starting with **Name** and **Base image**.
+4. Select **Save**. The drawer closes, and the environment appears in its list.
 
-The global default has nothing to inherit from, so on its form *default* reads **No commands**; leave it there, or empty its custom list, for no default commands.
+| Field | What to enter |
+|-------|---------------|
+| **Name** | A label of up to 80 characters, unique within its scope. Required. |
+| **Description** | Free text. Optional. |
+| **Scope** | **Personal** for a User environment, or **Shared with everyone** for a Global one. Only administrators see the second choice. |
+| **Base image** | The image the sandbox runs, for example `python:3.14`, `node:22` or `ubuntu:24.04`. Required. |
+| **Environment variables** | Name and value pairs for the sandbox, each plain or secret. See [Environment variables](#environment-variables). |
+| **Repositories** | The repositories the environment claims, as `owner/repo` or `group/subgroup/repo`. See [Repository bindings](#repository-bindings). |
+| **Network** | **Off** (the default) or **On**. **On** shows the **Network access** section. See [Network access and egress policy](#network-access-and-egress-policy). |
+| **Resources** | Expand it to set **Memory** and **CPUs**. Each is **Use default** or **Custom**. |
+| **Memory** | A whole number of at least 1, with the unit **MiB** or **GiB**. |
+| **CPUs** | A number of at least 0.25, in steps of 0.25. |
+| **Before publish commands** | The commands DAIV runs to check a run's changes before it publishes them. **Use default** or **Custom**. See [Before publish commands](#before-publish-commands). |
 
-### Environment variables (encrypted at rest)
+**Use default** leaves **Memory** or **CPUs** unset, so the value comes from the global default environment. If that sets none either, DAIV asks for no limit. On the global default itself, the option reads **Unconstrained**. **Network** never comes from the global default: each environment sets its own.
 
-Environment-variable values are **Fernet-encrypted before they are stored** and decrypted only when a run needs them. Encryption uses `DAIV_ENCRYPTION_KEY` (see [Environment Variables](../reference/env-variables.md)).
+## Change an environment
 
-- Each entry has a **name** (a valid shell identifier: letters, digits, underscores, not starting with a digit) and a **value**.
-- Mark a value as **secret** to mask it in the dashboard and in API/MCP responses (shown as `******`, never echoed back). Re-saving the form keeps a masked secret unchanged unless you type a new value.
-- Limits: at most **100** variables, and the encrypted blob may not exceed **32 KiB**.
+!!! warning "Changing an environment replaces the sandbox"
+    A change to the base image, memory, CPUs, environment variables or egress policy replaces the sandbox of every existing session that uses the environment, on that session's next turn. The new sandbox starts from the repository, so anything installed in the old one, and anything a stopped turn left uncommitted, is lost.
 
-!!! warning "Rotating the encryption key"
-    If `DAIV_ENCRYPTION_KEY` changes and stored values can no longer be decrypted, the form blocks saving until you re-enter every secret value. Agent runs don't crash on this — they drop the unreadable variables and continue.
+To change an environment:
 
-### Network access and egress policy
+1. In **Sandbox environments**, select **Edit** next to the environment.
+2. Change the fields, as in [Create an environment](#create-an-environment).
+3. Select **Save**.
 
-When **Network** is enabled, the **Egress** section appears at the bottom of the form. It lets you define exactly which outbound connections the sandbox container may make, with optional per-host credentials injected by the MITM proxy — credentials never enter the container.
+DAIV replaces a session's sandbox when the environment the turn resolves to differs from the one the sandbox started from. The comparison uses the environment merged over the global default, so switching the session to another environment, or changing the global default, replaces the sandbox too. DAIV updates a new git token on the running sandbox instead of replacing it.
 
-!!! info "Requires the egress proxy"
-    Egress policy is provisioned by the daiv-sandbox MITM egress proxy. If the sandbox does not have the egress proxy enabled, starting a run that uses an egress-configured environment will **abort** (fail-closed) rather than fall back to unrestricted network.
+## Delete an environment
 
-!!! note "The repository's git platform is always reachable"
-    DAIV runs git — including the publish push — from *inside* the sandbox, so the run's own git platform (GitLab/GitHub) is **always allowed and authenticated**, even when **Network** is **Off**. DAIV injects a runtime-only rule for the platform host (credentialed with a short-lived, platform-minted token — project-scoped on GitLab, installation-scoped on GitHub) so `git fetch`/clone/push of the repository works without you listing it. You never configure this — and a **Network Off** environment is otherwise still fully isolated: it is opened *only* for the git platform, and only when a push token exists (eval/benchmark runs, which hold none, stay completely network-isolated).
+!!! warning "Deleting cannot be undone"
+    Deleting an environment destroys its stored environment variables and credentials. Sessions that recorded it fall back to the global default, which replaces their sandboxes on their next turn.
 
-#### Allowed hosts
+1. In **Sandbox environments**, select **Delete** next to the environment.
+2. Select **Delete** to confirm `Delete environment "<name>"?`.
 
-Each row in the **Allowed hosts** table defines one outbound rule:
+## Environment variables
 
-| Column | Description |
-|--------|-------------|
-| **Host** | A hostname or glob pattern (e.g. `pypi.org`, `*.github.com`). Requests to hosts not on this list are blocked |
-| **Methods** | HTTP methods this rule applies to (leave empty to match all methods) |
-| **Credential** | Optional: an HTTP header name and value injected by the proxy for every request to this host (see below) |
+Each variable has a name and a value. A name is a shell identifier: letters, digits and underscores, not starting with a digit. An environment has at most 100 variables, and the encrypted values together may not exceed 32 KiB.
 
-With **Default** set to `deny`, only the listed hosts are reachable and every other outbound request is blocked. When **Network** is **On** the policy must permit *something*: add at least one allowed-host rule, or set **Default** to `allow` — saving **On** with an empty allow-list and a `deny` default is rejected with a validation error. To block all general outbound traffic, set **Network** to **Off** instead; that stores **no** egress policy on the environment, while the repository's own git platform stays reachable so DAIV can still publish (see the note above).
+- Select **+ Add variable** to add a row, or **Paste .env** to import lines such as `KEY=value`. DAIV skips comments and blank lines, and you choose whether to merge (names that already exist are kept) or to replace all current variables.
+- Set a row's toggle to **Secret** to hide its value. DAIV never shows a stored secret again: the dashboard shows the placeholder `🔒 keep existing`, and API and MCP responses show `******`. When you save, a secret keeps its stored value unless you type a new one.
 
-#### Per-host credentials (encrypted at rest)
+DAIV encrypts the values with Fernet before it stores them and decrypts them when a run needs them, using `DAIV_ENCRYPTION_KEY` (see [Environment variables](../reference/env-variables.md#external-url-and-encryption-key)). If the key changes and DAIV can no longer decrypt the stored values, the form refuses to save until you re-enter every secret value. Agent runs continue without the unreadable variables.
 
-Each allowed host may carry an optional credential — an HTTP header name and value (for example, `Authorization` / `Bearer <token>`) that the proxy injects into matching requests. Credential values are **Fernet-encrypted before they are stored** and never rendered back to the browser or returned by the API/MCP; once saved, the value field shows an empty input with a *🔒 keep existing* placeholder. Re-saving the form preserves a stored credential unchanged unless you explicitly type a new value.
+## Network access and egress policy
 
-Limits: at most **100** allowed-host rules and **100** credentials, and the encrypted secrets blob may not exceed **32 KiB**.
+An environment with **Network** set to **Off** has no outbound network access. With **Network** set to **On**, the sandbox reaches only the hosts the **Network access** section allows, through the egress proxy of daiv-sandbox. The proxy can add a credential to a request, so a credential never enters the sandbox.
 
-#### Traffic mode
+The egress proxy needs a CA certificate and key on the sandbox service (see [Deployment files](../reference/env-variables.md#deployment-files)). Without them, a run that uses an environment with **Network** **On** stops instead of running with unrestricted network access.
 
-The **Default** toggle controls how the MITM proxy handles unmatched traffic:
+DAIV runs git, including the push that publishes a run, from inside the sandbox. So DAIV always allows the run's git platform (GitLab or GitHub) and authenticates it with a short-lived token that the git platform mints at DAIV's request for the run, even when **Network** is **Off**. You never list it. Otherwise a **Network** **Off** environment stays isolated, and the git platform is opened only when the run holds a push token, so evaluation runs without one stay fully isolated.
 
-| Toggle | Options | Description |
-|--------|---------|-------------|
-| **Default** | `deny` / `allow` | What happens to requests that do not match any allowed-host rule. `deny` (the recommended default) blocks them; `allow` passes them through unrestricted |
+### Allowed hosts
 
-The proxy always performs TLS interception on every reachable host — this is what lets it inject per-host credentials and enforce per-host HTTP-method restrictions. (TLS inspection is not configurable.)
+**Allowed hosts** lists one rule per host:
 
-### Repository bindings
+| Control | Meaning |
+|---------|---------|
+| Host field | A host name or a glob such as `pypi.org` or `*.github.com`. Select **+ Add host** to add a rule. |
+| **All methods** or **Read-only** | The HTTP methods the rule covers. **Read-only** covers `GET`, `HEAD` and `OPTIONS`. |
+| **+ credential** | An HTTP header name, such as `Authorization`, and a value. The proxy adds the header to every request to the host. |
 
-The **Repositories** field is a list of repository IDs (`owner/repo`, `group/subgroup/repo`, …) that this environment claims. Bindings drive [auto-resolution](#how-an-environment-is-resolved): when a run is requested in a bound repository and no environment is explicitly selected, this environment is chosen automatically.
+**Unlisted hosts** sets what happens to a request that matches no rule:
 
-A repository ID may be claimed by at most one environment **within the same scope** for the same owner — saving a binding that overlaps another of your User environments (or another Global environment) is rejected with the name of the conflicting environment. The same repository can still appear in both a User environment and a Global one; the User binding takes precedence.
+- **Deny** blocks it.
+- **Allow** lets it through.
+
+With **Network** **On**, the policy must permit something. DAIV rejects a policy that has no allowed host and sets **Unlisted hosts** to **Deny**, with `Network is On but the egress policy permits nothing. Add at least one allowed host, set the default to allow, or switch Network to Off.` To block all general outbound traffic, set **Network** to **Off**. DAIV then stores no egress policy.
+
+The proxy always inspects the TLS traffic of every reachable host, which is what lets it add credentials and enforce the method rules. You cannot turn that off.
+
+DAIV encrypts credential values with Fernet before it stores them, and never sends them back to the browser or in an API or MCP response. A saved credential shows the placeholder `🔒 keep existing`, and saving keeps it unless you type a new value. An environment has at most 100 allowed-host rules and 100 credentials, and the encrypted credentials together may not exceed 32 KiB. A credential header name must be a valid HTTP header name, and its value cannot contain a line break.
+
+If DAIV cannot decrypt an environment's egress credentials at run time, or its egress configuration is invalid, the run starts with no network access.
+
+## Repository bindings
+
+The **Repositories** field lists the repositories the environment claims. To add one, type `owner/repo` or `group/subgroup/repo` and select **+ Add**. When a run targets a claimed repository and no environment is selected, DAIV picks this one (see [How an environment is resolved](#how-an-environment-is-resolved)).
+
+A repository can be claimed by one environment per scope. For User environments, that means one of your own. DAIV rejects a binding that overlaps another environment of the same scope and names that environment. The same repository can still appear in one User environment and one Global environment, and the User one wins.
+
+## Before publish commands
+
+**Before publish commands** sets the [verification hooks](../customization/repository-config.md#verification-hooks) that every repository using the environment runs before DAIV publishes. A `hooks.before_publish` list in a repository's `.daiv.yml` replaces this list entirely, and `before_publish: []` turns verification off for that repository.
+
+- **Use default** runs the global default environment's list.
+- **Custom** runs the environment's own list, one command per line, up to 10. An empty custom list runs no commands, even when the global default has some.
+
+On the global default itself, there is nothing to inherit, so the first option reads **No commands**. Choose it, or leave the custom list empty, for no default commands. DAIV logs who changed an environment's commands, and how many it now has.
 
 ## How an environment is resolved
 
-When a run is requested — a webhook arrives, a job is submitted, a chat session starts — DAIV picks its environment using this precedence (per repository) and records it on the run. A session keeps the environment of its first run:
+When a run is requested, DAIV picks its environment for each repository in this order, records the choice on the run, and a session keeps the environment of its first run:
 
-1. **Explicit selection** — an environment chosen for the run (the picker in the dashboard, the `environment` argument to the [Jobs API](jobs-api.md)/[MCP](mcp-endpoint.md), or the session header). Selecting an environment overrides all binding/default logic.
-2. **User repository binding** — your **User** environment whose **Repositories** list contains this repository.
-3. **Global repository binding** — a **Global** (non-default) environment whose **Repositories** list contains this repository.
-4. **Global default** — the single **Global** environment marked as default.
-5. **None** — if nothing matches, the sandbox uses its built-in runtime defaults (no base image, networking off).
-
-The selected per-run environment is then **merged with the global default** to produce the effective runtime: for each resource field (base image, memory, CPUs) the per-run environment wins when it sets a value, otherwise the global default's value applies, otherwise the runtime default. **Network (egress) is the exception — it is explicit per environment and is never inherited**: a per-run environment with **Network** off does not inherit the global default's egress policy (only the repository's own git platform stays reachable, so DAIV can publish). Environment variables from both are unioned, with the per-run environment's keys shadowing the global default's.
-
-!!! note "Issue and merge request webhooks"
-    Runs triggered by an issue or merge request webhook (for example, [issue addressing](issue-addressing.md)) are not scoped to a DAIV user's environments, so step 2 (User bindings) is skipped — resolution starts at Global bindings and falls back to the global default.
-
-The run then starts from that recorded choice, so changing a binding afterwards doesn't move it. A [pipeline-watch](pipeline-watch.md) CI run, like any run that session's inbox starts, uses the environment recorded on the session that published the merge request, even if the repository has been bound to another one since. The exception is a run for someone else, such as a reply to another person's mention: it never gets the owner's private environment, and resolves one for the person it runs for instead (their own, a repository binding, or the global default). When that session has no environment recorded (the publishing run had none, it started before any existed, or its environment was deleted), its CI runs and chat turns run on the global default.
-
-Editing an environment reaches an existing session on its next turn. DAIV replaces the session's container instead of reusing it when the turn's resolved environment (the session's environment merged over the global default) differs from the one the container was started from in base image, memory, CPUs, environment variables or network rules, so switching the session to another environment or editing the global default replaces it too. The new container starts from the repository: anything installed in the old one, or left uncommitted by a stopped turn, is gone. A new git token is not a change; it is updated on the running container.
+1. **Selected environment.** An environment chosen for the run overrides everything below. See [Choose an environment for a run](#choose-an-environment-for-a-run).
+2. **User binding.** Your User environment that claims the repository.
+3. **Global binding.** A Global environment that is not the default and that claims the repository.
+4. **Global default.** The Global environment marked as default.
+5. **None.** The run has no sandbox, and the agent gets no `bash` tool.
 
 ```mermaid
 flowchart TD
-    A[Run requested for a repo] --> B{Environment<br/>explicitly selected?}
+    A[Run requested for a repo] --> B{Environment<br/>selected?}
     B -- Yes --> Z[Use it]
     B -- No --> C{User env binds<br/>this repo?}
     C -- Yes --> Z
@@ -142,45 +158,25 @@ flowchart TD
     D -- Yes --> Z
     D -- No --> E{Global default<br/>exists?}
     E -- Yes --> Z
-    E -- No --> F[Built-in runtime defaults]
+    E -- No --> F[No sandbox]
 ```
 
-## Selecting an environment for a run
+Runs that a webhook starts, such as [issue addressing](issue-addressing.md), skip step 2: DAIV does not match User environments for them, even when the author has a DAIV account. They start at step 3.
 
-You don't have to bind an environment to a repository — you can pick one explicitly per run. An explicit selection always wins over bindings and the default.
+DAIV then merges the chosen environment over the global default to get the effective runtime. The chosen environment wins for the base image, memory and CPUs when it sets a value, and the global default fills the rest. The environment variables of both are combined, and the chosen environment's variables replace same-named ones of the default. The egress policy is the exception: it comes from the chosen environment alone, so an environment with **Network** **Off** never inherits the default's policy.
 
-### From the dashboard run composer
+The run starts from the recorded choice, so changing a binding afterwards moves no existing run. A run that a session's inbox starts, such as a [pipeline watch](pipeline-watch.md) CI fix, uses the environment recorded on the session. For a run on behalf of someone else, such as a reply to another person's mention, DAIV never uses the session owner's User environment. It resolves one for that person instead: their own, a repository binding, or the global default. A session with no recorded environment, because its publishing run had none, it started before any environment existed, or its environment was deleted, runs on the global default.
 
-When you start a run from **Dashboard > Sessions** (or from a [Sessions](sessions.md) detail page), the composer includes a **Sandbox environment** picker listing your User environments and all Global ones. Leave it on **(global default)** to use [auto-resolution](#how-an-environment-is-resolved).
+## Choose an environment for a run
 
-### From a chat session
+You do not have to bind an environment to a repository, because you can select one for a run. A selected environment always wins. Each surface has its own control, described on its page:
 
-The dashboard [chat session](sessions.md#chat-sessions) workspace remembers the environment chosen when the session is created (sent as the `X-Sandbox-Env` header, by name or UUID). Omitting it auto-resolves the environment for the session's repository. The chosen environment is snapshotted at session creation, so an existing session keeps the environment it started with.
+- The run composer and the chat workspace, in [Sessions](sessions.md): the environment pill in the run composer, and the **Environment** field in the chat workspace. Both stay on **Auto** until you choose.
+- A schedule, in [Scheduled jobs](scheduled-jobs.md): pin every run of the schedule to one environment.
+- The `environment` field of `POST /api/jobs`, in the [Jobs API](jobs-api.md).
+- The `environment` argument of the `submit_job` tool, in the [MCP endpoint](mcp-endpoint.md), which also has the `list_environments` and `get_environment` tools to look environments up.
 
-### From a scheduled job
-
-A [Scheduled Job](scheduled-jobs.md) has a **Sandbox environment** field. Set it to pin every run of that schedule to one environment, or leave it unset to fall back to per-repository auto-resolution for each target repo.
-
-### From the Jobs API
-
-`POST /api/jobs` accepts an optional `environment` field (an environment **name or UUID**, visible to the calling user). It applies to every repository in the batch. Omit it to auto-resolve per repository.
-
-```json
-{
-  "repos": [{"repo_id": "group/project", "ref": "main"}],
-  "prompt": "Run the test suite and fix any failures.",
-  "environment": "ci-python-3.14"
-}
-```
-
-See the [Jobs API](jobs-api.md) reference for the full request shape.
-
-### From the MCP endpoint
-
-The [MCP](mcp-endpoint.md) `submit_job` tool takes an `environment` argument (name or UUID), applied to every job in the batch. Two companion tools help discover environments:
-
-- `list_environments` — your User environments plus all Global ones (env-var values are not included at all).
-- `get_environment` — full details for one environment by name or UUID (secret values masked as `******`).
+**Auto** means DAIV resolves the environment as above.
 
 ## Related pages
 
@@ -190,17 +186,17 @@ The [MCP](mcp-endpoint.md) `submit_job` tool takes an `environment` argument (na
 
     ---
 
-    What the agent runs inside the container, and the command policy that governs it.
+    What the agent runs inside the sandbox, and the command policy that governs it.
 
     [:octicons-arrow-right-24: Sandbox](sandbox.md)
 
--   :octicons-clock-24: **Scheduled Jobs**
+-   :octicons-clock-24: **Scheduled jobs**
 
     ---
 
     Pin a sandbox environment to a recurring agent run.
 
-    [:octicons-arrow-right-24: Scheduled Jobs](scheduled-jobs.md)
+    [:octicons-arrow-right-24: Scheduled jobs](scheduled-jobs.md)
 
 -   :octicons-terminal-24: **Jobs API**
 
@@ -210,12 +206,12 @@ The [MCP](mcp-endpoint.md) `submit_job` tool takes an `environment` argument (na
 
     [:octicons-arrow-right-24: Jobs API](jobs-api.md)
 
--   :octicons-plug-24: **MCP Endpoint**
+-   :octicons-plug-24: **MCP endpoint**
 
     ---
 
     Pick environments from Claude Code, Cursor, and other MCP clients.
 
-    [:octicons-arrow-right-24: MCP Endpoint](mcp-endpoint.md)
+    [:octicons-arrow-right-24: MCP endpoint](mcp-endpoint.md)
 
 </div>

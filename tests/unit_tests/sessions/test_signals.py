@@ -290,6 +290,18 @@ class TestSettleInboxEvents:
 
 
 @pytest.mark.django_db(transaction=True)
+class TestArchiveSettledSession:
+    def test_a_run_ending_archives_its_session_a_merge_left_pending(self):
+        session = _make_session()
+        Session.objects.filter(pk=session.pk).update(archive_pending=True)
+
+        run_ended.send(sender=Run, run=_create_run(session=session, status=RunStatus.SUCCESSFUL))
+
+        session.refresh_from_db()
+        assert (session.archived_at is not None, session.archive_pending) == (True, False)
+
+
+@pytest.mark.django_db(transaction=True)
 class TestSyncReleasesQueuedSibling:
     def test_terminal_dbtaskresult_releases_queued_sibling(self, create_db_task_result):
         """When sync_stuck_runs reconciles a stuck RUNNING Run whose

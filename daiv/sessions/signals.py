@@ -13,6 +13,7 @@ from allauth.socialaccount.models import SocialAccount
 from django_tasks_db.backend import TaskResult as DatabaseTaskResult
 
 from core import ui_events
+from sessions.auto_archive import MergeArchive
 from sessions.delegation import DelegatedBatch
 from sessions.inbox.complete import RunEnd
 from sessions.inbox.requester import Requester
@@ -163,6 +164,13 @@ def settle_inbox_events(sender: type, run: Any, **kwargs: Any) -> None:
     On ``run_ended`` so a chat turn's end settles and drains too. ``skip_dispatch`` leaves the drain to the sweep.
     """
     RunEnd(run).on_run_ended(drain=not kwargs.get("skip_dispatch"))
+
+
+@receiver(run_ended, dispatch_uid="sessions.archive_settled_session")
+def archive_settled_session(sender: type, run: Any, **kwargs: Any) -> None:
+    """Archive the run's session and its coordinator if a merge left them waiting for work that has now ended
+    (:meth:`sessions.auto_archive.MergeArchive.settle`)."""
+    MergeArchive.settle(run.session_id)
 
 
 @receiver(run_finished, dispatch_uid="sessions.resume_delegating_session")

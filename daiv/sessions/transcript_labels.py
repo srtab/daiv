@@ -192,6 +192,7 @@ def transcript_labels() -> dict[str, str | list[str]]:
         "leg_lost": gettext("Lost"),
         "leg_not_run_merged": gettext("Not run: merge request merged"),
         "leg_not_run_closed": gettext("Not run: merge request closed"),
+        "leg_not_run_archived": gettext("Not run: session archived"),
         "leg_follow_up": gettext("Leg follow-up"),
         "details_merge_requests": [ngettext("{count} MR", "{count} MRs", 1), ngettext("{count} MR", "{count} MRs", 2)],
         "suggested_answer": gettext("Suggested answer"),

@@ -4,6 +4,7 @@
 {% block title %}DAIV — Open-source, self-hosted SWE agents for GitLab &amp; GitHub{% endblock %}
 
 {% block head_extra %}
+{% include "dashboard/_landing_analytics.html" %}
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -486,7 +487,7 @@
             <div class="animate-fade-up landing-card" style="animation-delay: 160ms">
                 <div class="landing-card__icon">{% icon "bell" "h-5 w-5 text-text-muted" %}</div>
                 <h3 class="landing-item-title">Notifications</h3>
-                <p class="landing-item-body">Know the moment work finishes, in the app, by email, or in Rocket Chat.</p>
+                <p class="landing-item-body">Know the moment work finishes, in the app, by email, in Rocket Chat or on Telegram.</p>
             </div>
 
             <!-- Merge Metrics -->

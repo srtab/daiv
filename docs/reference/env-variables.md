@@ -2,25 +2,17 @@
 description: "Reference for every environment variable that configures DAIV, including which ones are sensitive and should be provided as Docker secrets."
 ---
 
-# Environment Variables
+# Environment variables
 
-DAIV provides a large number of environment variables to configure its behavior. This page lists all supported variables.
+This page lists the environment variables DAIV reads, with the default and an example for each. Use it to find the variable for a setting, or to check a default you rely on.
 
-Variables marked with:
+In the tables, :material-lock: marks a sensitive variable (an API key, password or token) that you should provide as a Docker secret or from a secure credential manager, and :material-asterisk: marks a variable you must set.
 
- * :material-lock: are sensitive (such as API keys, passwords, and tokens) and should be declared using Docker secrets or a secure credential manager.
- * :material-asterisk: are required and should be declared.
-
-!!! info "Configuration UI"
-    Many settings listed under [Automation: Tools](#automation-tools) and [Automation: Agents](#automation-agents) can also be managed through the **Configuration UI** at `/dashboard/configuration/`. These settings use a three-tier priority chain: **environment variable** (highest) > **database value** (set via UI) > **hardcoded default** (lowest). When a setting is overridden by an environment variable, the corresponding field in the UI is shown as locked. Settings marked *env-only* are not available in the UI.
-
-    [Automation: LLM Providers](#automation-llm-providers) behaves differently: the provider API key variables are read **only once** to seed the provider records on first run — they do not participate in the runtime override chain (see the note in that section).
-
----
+[Site configuration](site-configuration.md) can change many of these settings at runtime. A variable that has a Site Configuration field overrides the stored value and locks the field; [How environment variables and the UI interact](site-configuration.md#how-environment-variables-and-the-ui-interact) gives the order. Variables marked *env-only* have no field there. The provider API key variables are a different case: DAIV reads them once, as [LLM providers](#llm-providers) explains.
 
 ## Core
 
-### General
+### Django
 
 | Variable                | Description                                         | Default                | Example                        |
 |-------------------------|-----------------------------------------------------|:----------------------:|--------------------------------|
@@ -29,11 +21,13 @@ Variables marked with:
 | `DJANGO_ALLOWED_HOSTS`  | Comma-separated list of allowed hosts               | `*`                    | `example.com,localhost`        |
 | `DJANGO_SESSION_COOKIE_NAME` | Name of the session cookie; give each instance on one host its own | `__Secure-sessionid` | `__Secure-sessionid-1` |
 
-!!! danger
-    Do not turn on `DJANGO_DEBUG` in production. It will **expose sensitive information** and **break the security of the application**.
+`DJANGO_ALLOWED_HOSTS` limits the hosts that can reach DAIV. The default `*` allows any host, so list the host DAIV runs on to restrict it.
 
-!!! info
-    The `DJANGO_ALLOWED_HOSTS` variable is used to specify the hosts that are allowed to access the application. Make sure to include the host where the application is running to increase security.
+!!! warning
+    Do not turn on `DJANGO_DEBUG` in production. It exposes sensitive information and breaks the security of the application.
+
+!!! warning
+    Keep `DJANGO_SECRET_KEY` stable and backed up. Unless you set `DAIV_ENCRYPTION_KEY`, DAIV derives the key that encrypts stored secrets from it, so a lost or changed `DJANGO_SECRET_KEY` makes every stored secret unreadable. See [External URL and encryption key](#external-url-and-encryption-key).
 
 ### Uvicorn
 
@@ -54,6 +48,9 @@ Variables marked with:
 | `DB_PORT`       | Database port                              | `5432`       | `5432`          |
 | `DB_SSLMODE`    | PostgreSQL SSL mode                        | `require`    | `prefer`        |
 | `DB_POOL_MAX_SIZE` | Maximum size of a connection pool | `15` | `30` |
+| `DB_KEEPALIVES_IDLE` | Seconds a pooled connection may sit idle before a TCP keepalive probe is sent | `60` | `120` |
+| `DB_KEEPALIVES_INTERVAL` | Seconds between TCP keepalive probes on a pooled connection | `10` | `10` |
+| `DB_KEEPALIVES_COUNT` | Unanswered keepalive probes before a pooled connection is considered dead | `5` | `5` |
 
 ### Redis
 
@@ -70,16 +67,14 @@ Variables marked with:
 | Variable                | Description                        | Default        | Example         |
 |-------------------------|------------------------------------|:--------------:|-----------------|
 | `SENTRY_DSN` :material-lock:            | Sentry DSN                         | *(none)*       |                 |
+| `ENVIRONMENT`           | Deployment environment name, reported to Sentry as the event environment | *(none)* | `production` |
 | `SENTRY_DEBUG`          | Enable Sentry debug mode           | `False`        | `True`          |
 | `SENTRY_ENABLE_LOGS`    | Enable Sentry logs                 | `False`        | `True`          |
 | `SENTRY_TRACES_SAMPLE_RATE` | Sentry traces sample rate          | `0.0`          | `1.0`           |
 | `SENTRY_PROFILES_SAMPLE_RATE` | Sentry profiles sample rate        | `0.0`          | `1.0`           |
 | `SENTRY_SEND_DEFAULT_PII` | Enable Sentry default PII           | `False`        | `True`          |
-| `NODE_HOSTNAME`         | Node hostname for Sentry           | *(none)*       |                 |
-| `SERVICE_NAME`          | Service name for Sentry            | *(none)*       |                 |
-
-!!! note
-    `NODE_HOSTNAME` and `SERVICE_NAME` are used to identify the node and service that is reporting the error.
+| `NODE_HOSTNAME`         | Node hostname, reported to Sentry as the event server name | *(none)*       |                 |
+| `SERVICE_NAME`          | Service name, reported to Sentry as the `service_name` tag | *(none)*       |                 |
 
 ### Logging
 
@@ -96,8 +91,11 @@ Variables marked with:
 | `LANGSMITH_API_KEY` :material-lock:    | LangSmith API key         | *(none)*       | `lsv2_pt_...`   |
 | `LANGSMITH_ENDPOINT`    | LangSmith API endpoint             | `https://api.smith.langchain.com` | `https://eu.api.smith.langchain.com` |
 
-!!! note
-    LangSmith variables can also use `LANGCHAIN_` prefix (e.g., `LANGCHAIN_TRACING_V2`, `LANGCHAIN_API_KEY`). The `LANGSMITH_API_KEY` supports Docker secrets via the `_FILE` suffix. For setup details, see [Monitoring](monitoring.md).
+The LangSmith variables also accept the `LANGCHAIN_` prefix, for example `LANGCHAIN_TRACING_V2` and `LANGCHAIN_API_KEY`. `LANGSMITH_API_KEY` also accepts a Docker secret through the `_FILE` suffix. For setup, see [Monitoring](monitoring.md).
+
+### Time zone
+
+DAIV runs in the `Europe/Lisbon` time zone. It is fixed in the settings and is not a variable. A time you give without an offset, such as a schedule's run time or the value of `create_api_key --expires-at`, is read in that zone. Add an offset, for example `+00:00`, to give a time in another zone.
 
 ### Sandbox (client-side)
 
@@ -107,23 +105,21 @@ Variables marked with:
 | `DAIV_SANDBOX_TIMEOUT` | Timeout for sandbox requests in seconds, and the longest timeout the agent can give a bash command, whose request waits up to 60 seconds longer | `600`          | `600`           |
 | `DAIV_SANDBOX_API_KEY` :material-lock: | API key for sandbox requests        | *(none)*          | `random-api-key`           |
 | `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` | JSON array of extra bash command rules to block globally | *(none)* | `'["curl", "npm publish"]'` |
-| `DAIV_SANDBOX_COMMAND_POLICY_ALLOW` | JSON array of bash command rules to permit; currently has no effect (see [Precedence](../features/sandbox.md#precedence)) | *(none)* | `'["my-safe-tool"]'` |
+| `DAIV_SANDBOX_COMMAND_POLICY_ALLOW` | JSON array of bash command rules to permit; has no effect (see [Precedence](../features/sandbox.md#precedence)) | *(none)* | `'["my-safe-tool"]'` |
 
-!!! info
-    Check the [daiv-sandbox](https://github.com/srtab/daiv-sandbox) repository for server-side configuration of the sandbox service.
+Both command policy settings take a JSON array. A plain string such as `curl wget`, or an empty value, fails to parse and DAIV does not start. The outer single quotes in the examples are YAML or shell quoting, not part of the value. For how entries are matched and which rules are built in, see [Sandbox](../features/sandbox.md#global-rules).
 
-!!! note "Command policy"
-    Both policy settings take a JSON array; a plain string such as `curl wget` (or an empty value) fails to parse and DAIV will not start. The outer single quotes in the examples are YAML or shell quoting, not part of the value. For how entries are matched and which rules are built in, see [Sandbox](../features/sandbox.md#global-rules).
+The sandbox service has its own settings; see [Deployment files](#deployment-files) and the [daiv-sandbox](https://github.com/srtab/daiv-sandbox) repository.
 
 ### Authentication
 
-DAIV uses [django-allauth](https://docs.allauth.org/) for web authentication. Users are created by admins and sign in via social providers (GitHub, GitLab) or passwordless login-by-code. Social signup is restricted to pre-existing accounts — users must be created by an admin first via the user management interface at `/accounts/users/`. On a fresh install, the first social login bootstraps the initial admin account, or you can use `django-admin bootstrap_admin <email>` to create one via login-by-code (see [Deployment](../getting-started/deployment.md)).
+DAIV uses [django-allauth](https://docs.allauth.org/) for web authentication. Users sign in with a Git platform account (GitHub or GitLab) or with a passwordless login code sent by email. Email signup is off. For how accounts are created, see [Accounts and roles](../getting-started/accounts.md#sign-in), and for [who becomes the first admin](../getting-started/accounts.md#the-first-admin), the section of that page.
 
-OAuth credentials can be configured via environment variables (shown below) or through the **Configuration** page at `/dashboard/configuration/` under the **Authentication** section. The UI also provides an **enable OAuth login** toggle to turn social login on or off without removing credentials.
+The OAuth variables below override the matching fields of the **Authentication** group of Site Configuration and lock them; the group also holds an **Enable OAuth login** toggle. To create the OAuth app that gives you the client ID and secret, see [Create the OAuth app](../getting-started/accounts.md#create-the-oauth-app).
 
 | Variable                | Description                        | Default        | Example         |
 |-------------------------|------------------------------------|:--------------:|-----------------|
-| `DAIV_AUTH_LOGIN_ENABLED` | Enable OAuth login (social provider buttons on login page) | `false` | `true` |
+| `DAIV_AUTH_LOGIN_ENABLED` | Show the social provider button on the login page | `false` | `true` |
 | `DAIV_AUTH_SIGNUP_OPEN` | Allow anyone authenticating via the configured Git platform to self-create an account. When off, only admin-pre-created users can sign in | `false` | `true` |
 | `ALLAUTH_CLIENT_ID` :material-lock: | OAuth client ID for the configured Git platform | *(none)* | `Iv1.abc123` |
 | `ALLAUTH_CLIENT_SECRET` :material-lock: | OAuth client secret for the configured Git platform | *(none)* | |
@@ -137,59 +133,65 @@ OAuth credentials can be configured via environment variables (shown below) or t
 | `EMAIL_USE_TLS` | Use TLS for SMTP connection | `False` | `True` |
 | `DEFAULT_FROM_EMAIL` | Sender address for login-by-code emails | `noreply@daiv.dev` | `noreply@example.com` |
 
-!!! info "Setting up social providers"
-    **GitHub**: Create an OAuth App at [github.com/settings/developers](https://github.com/settings/developers). Set the callback URL to `https://<your-domain>/accounts/github/login/callback/`.
+OAuth login needs all three of the `DAIV_AUTH_LOGIN_ENABLED` toggle, a client ID and a client secret. If you set only one of the client ID and the secret, DAIV logs a warning and does not show the provider button on the login page. The `CODEBASE_CLIENT` setting decides which provider, GitHub or GitLab, DAIV offers.
 
-    **GitLab**: Create an Application in your GitLab instance under **Admin Area → Applications** or **User Settings → Applications**. Set the redirect URI to `https://<your-domain>/accounts/gitlab/login/callback/` with the `read_user` scope.
+With `EMAIL_BACKEND` set to `django.core.mail.backends.console.EmailBackend`, DAIV writes login-code emails to the app's output instead of sending them, which is enough to sign in without an SMTP server.
 
-!!! note
-    OAuth login requires **all three** of: the **enable OAuth login** toggle turned on, a **client ID**, and a **client secret**. If only one credential is set, a warning is logged and the provider button is not shown on the login page. The active provider is determined by the `CODEBASE_CLIENT` setting (GitHub or GitLab).
+### Rocket.Chat
 
-### Rocket Chat
-
-When enabled, Rocket Chat becomes available as a notification channel that users can opt into for their in-app and run notifications.
+Enabling the **Rocket Chat** group offers Rocket.Chat as a notification channel that users can opt into.
 
 | Variable                | Description                        | Default        | Example         |
 |-------------------------|------------------------------------|:--------------:|-----------------|
-| `DAIV_ROCKETCHAT_ENABLED` | Offer Rocket Chat as a notification channel for users | `false` | `true` |
-| `DAIV_ROCKETCHAT_URL`   | Base URL of your Rocket Chat instance | *(none)* | `https://rc.example.com` |
+| `DAIV_ROCKETCHAT_ENABLED` | Offer Rocket.Chat as a notification channel for users | `false` | `true` |
+| `DAIV_ROCKETCHAT_URL`   | Base URL of your Rocket.Chat instance | *(none)* | `https://rc.example.com` |
 | `DAIV_ROCKETCHAT_USER_ID` | The bot user's `_id`, sent as the `X-User-Id` header | *(none)* | `abc123userid` |
 | `DAIV_ROCKETCHAT_AUTH_TOKEN` :material-lock: | The bot user's auth token, sent as the `X-Auth-Token` header | *(none)* | |
 
 ### Telegram
 
-When enabled, Telegram becomes available as a notification channel that users can opt into. DAIV derives the bot username and generates the webhook secret automatically.
+Enabling Telegram offers it as a notification channel that users can opt into. DAIV derives the bot username and generates the webhook secret itself; see [Telegram derived values](site-configuration.md#telegram-derived-values).
 
 | Variable                | Description                        | Default        | Example         |
 |-------------------------|------------------------------------|:--------------:|-----------------|
 | `DAIV_TELEGRAM_ENABLED` | Offer Telegram as a notification channel for users | `false` | `true` |
 | `DAIV_TELEGRAM_BOT_TOKEN` :material-lock: | Bot token issued by @BotFather, in the form `123456:ABC-DEF` | *(none)* | |
 
-Two more fields follow the same `DAIV_<FIELD_NAME>` convention and so are env-lockable, but normally should be left unset — setting either one pins the value and defeats the derivation that keeps it correct:
+Two more variables exist, but leave them unset: each pins a value that DAIV otherwise derives.
 
 | Variable                | Description                        | Default        | Example         |
 |-------------------------|------------------------------------|:--------------:|-----------------|
-| `DAIV_TELEGRAM_BOT_USERNAME` | Pins the bot username instead of reading it from `getMe`. A value that disagrees with the token breaks the connect link and nothing will correct it. | *(derived)* | `daiv_bot` |
-| `DAIV_TELEGRAM_WEBHOOK_SECRET` :material-lock: | Pins the webhook secret instead of generating one. Must be non-empty: the webhook route is fail-closed, so a blank value rejects every update. | *(generated)* | |
+| `DAIV_TELEGRAM_BOT_USERNAME` | Pins the bot username. A value that disagrees with the token breaks the connect link, and nothing corrects it. | *(derived)* | `daiv_bot` |
+| `DAIV_TELEGRAM_WEBHOOK_SECRET` :material-lock: | Pins the webhook secret. It must not be empty: a blank value makes the webhook reject every update. | *(generated)* | |
 
-### Other
+### External URL and encryption key
 
 | Variable                | Description                        | Default        | Example         |
 |-------------------------|------------------------------------|:--------------:|-----------------|
-| `DAIV_EXTERNAL_URL`     | External URL of the application.   | `https://app:8000` | `https://daiv.example.com` |
+| `DAIV_EXTERNAL_URL`     | External URL of the application.   | `https://127.0.0.1:8000` | `https://daiv.example.com` |
 | `DAIV_ENCRYPTION_KEY` :material-lock: | Fernet encryption key for secrets stored in the database. If not set, a key is derived from `DJANGO_SECRET_KEY` via HKDF. | *(derived)* | |
 
-!!! note
-    The `DAIV_EXTERNAL_URL` variable is used to define webhooks on Git platform and as the site domain for authentication emails. Make sure that the URL is accessible from the Git platform.
+DAIV uses `DAIV_EXTERNAL_URL` to define webhooks on the Git platform and as the site domain in authentication emails, so the Git platform must be able to reach it.
 
-!!! note
-    `DAIV_ENCRYPTION_KEY` protects API keys and other secrets stored in the configuration database. If you provide a raw Fernet key it is used directly; otherwise the value is treated as a passphrase and a key is derived via HKDF-SHA256. When omitted, the key is derived from `DJANGO_SECRET_KEY` — changing the Django secret key in that case will make existing encrypted values unreadable.
+`DAIV_ENCRYPTION_KEY` protects the secrets DAIV stores in its database: provider API keys, the Tavily web search API key, the OAuth client secret, the sandbox API key, the Rocket.Chat token, the Telegram bot token and webhook secret, web fetch header values, MCP server headers, and sandbox environment variables and egress secrets. DAIV uses a raw Fernet key directly. Any other value is a passphrase, from which DAIV derives a key with HKDF-SHA256. When the variable is unset, DAIV derives the key from `DJANGO_SECRET_KEY`.
+
+!!! warning
+    Back up `DAIV_ENCRYPTION_KEY`, or `DJANGO_SECRET_KEY` when you leave it unset. If the key is lost or changed, DAIV cannot decrypt the stored secrets, and you must enter them again.
+
+### Analytics
+
+| Variable                | Description                        | Default        | Example         |
+|-------------------------|------------------------------------|:--------------:|-----------------|
+| `DAIV_UMAMI_WEBSITE_ID` | [Umami](https://umami.is/) website ID. When set, the public homepage and `/compare/` pages load Umami's tracker for signed-out visitors. | *(none)* | `0b6bd0c4-5d6c-4f2e-9a43-1d2e3f4a5b6c` |
+| `DAIV_UMAMI_SCRIPT_URL` | URL of Umami's tracker script; set it to use a self-hosted Umami. | `https://cloud.umami.is/script.js` | `https://stats.example.com/script.js` |
+
+Analytics is off unless you set `DAIV_UMAMI_WEBSITE_ID`, so DAIV sends no visitor data by default. When it is set, the tracker uses no cookies, honours the browser's Do Not Track setting, and never loads for signed-in users or on dashboard pages.
 
 ---
 
 ## Codebase
 
-### General
+### Git platform
 
 | Variable            | Description                              | Default   | Example   |
 |---------------------|------------------------------------------|:---------:|-----------|
@@ -198,13 +200,11 @@ Two more fields follow the same `DAIV_<FIELD_NAME>` convention and so are env-lo
 | `CODEBASE_REPO_ACCESS_SYNC_CRON` | Cron expression for the periodic repository access sync | `*/15 * * * *` | `*/10 * * * *` |
 | `CODEBASE_REPO_ACCESS_HARD_TTL_HOURS` | Hours a repository's synced access data stays trusted before it is denied (fails closed); tracked per repository | `24` | `12` |
 
-!!! note
-    Set `CODEBASE_CLIENT` to either `gitlab` or `github` depending on which platform you want to use. Only one platform can be active at a time.
+Set `CODEBASE_CLIENT` to `gitlab` or `github`. Only one platform is active at a time.
 
-!!! note "Repository access sync"
-    `CODEBASE_REPO_ACCESS_SYNC_CRON` controls how often DAIV mirrors per-user repository membership from the connected Git platform into the database (one member-list call per repository). Admins are exempt from repository authorization and always have full access. Freshness is tracked per repository: if a repository's sync stops succeeding — e.g. the platform token loses access to it — its access data keeps working on the last known-good data until `CODEBASE_REPO_ACCESS_HARD_TTL_HOURS` elapses, after which that repository fails closed while others keep syncing normally. See [Accounts & Roles](../getting-started/accounts.md#repository-access) for the access model this enforces.
+`CODEBASE_REPO_ACCESS_SYNC_CRON` sets how often DAIV copies each user's repository membership from the Git platform into its database, with one member-list call per repository. Admins are exempt from repository authorization and always have full access. DAIV tracks freshness per repository: if a repository's sync stops succeeding, for example because the platform token loses access to it, DAIV keeps using the last known access data until `CODEBASE_REPO_ACCESS_HARD_TTL_HOURS` elapse. After that the repository denies access, while the others keep syncing. See [Accounts and roles](../getting-started/accounts.md#repository-access) for the access model.
 
-### GitLab Integration
+### GitLab
 
 | Variable                        | Description                                 | Default   | Example              |
 |---------------------------------|---------------------------------------------|:---------:|----------------------|
@@ -212,28 +212,18 @@ Two more fields follow the same `DAIV_<FIELD_NAME>` convention and so are env-lo
 | :material-asterisk: `CODEBASE_GITLAB_AUTH_TOKEN`  :material-lock:    | Authentication token for GitLab             | *(none)*  | `glpat-xyz`          |
 | :material-asterisk: `CODEBASE_GITLAB_WEBHOOK_SECRET` :material-lock:| Secret token for GitLab webhook validation. Without it, every GitLab webhook request is rejected with 401 | *(none)*  | `random-webhook-secret` |
 
-!!! note
-    The `CODEBASE_GITLAB_AUTH_TOKEN` is used to authenticate with the GitLab instance using a
-    personal access token with the `api` scope.
+`CODEBASE_GITLAB_AUTH_TOKEN` is a personal access token with the `api` scope.
 
-    For git clone/push, DAIV does not embed this PAT in the repository workspace. Instead, it mints
-    a short-lived project access token per repository (`write_repository` scope, Developer access
-    level, ~48–72h lifetime), limiting what the credential inside the workspace can reach. This
-    requires the PAT user to have at least the **Maintainer** role on each project and, on
-    GitLab.com, the Premium or Ultimate tier (any tier works on self-managed instances). Each token
-    appears as a `daiv-clone` bot member on the project — with daily minting and ~3-day lifetimes,
-    expect a few of them at a time; GitLab removes expired bots automatically (on GitLab 17.9+ they
-    are retained for ~30 days first). When a token cannot be created, DAIV logs a warning and falls
-    back to embedding the PAT.
-    The token pushes at Developer level: if branch protection rules match the branches DAIV pushes to
-    (e.g. a wildcard pattern restricting pushes to Maintainers), allow Developers to push on that
-    pattern — otherwise pushes fail. A sandbox session resumed a day or more after it was created may
-    hold an expired clone token — pushes from such a session fail until a fresh session re-clones the
-    repository. Avoid revoking `daiv-clone` tokens early: DAIV caches the active token for up to 24
-    hours, so clones keep using the revoked credential (failing with auth errors) until the cache
-    entry (`codebase:gitlab:clone-token:<project-id>`) expires or is cleared.
+For `git clone` and `git push`, DAIV does not put this token in the repository workspace. It creates a short-lived project access token for each repository instead: named `daiv-clone`, with the `write_repository` scope and the Developer access level, and valid for 48 to 72 hours. DAIV reuses a repository's token for up to 24 hours, so expect a few `daiv-clone` bot members on a project at a time. GitLab removes expired ones.
 
-### GitHub Integration
+Creating these tokens needs the token's user to hold at least the Maintainer role on each project and, on GitLab.com, the Premium or Ultimate tier. Self-managed instances accept any tier. When DAIV cannot create a token, it logs a warning and falls back to the personal access token.
+
+The project access token pushes at the Developer level. If a branch protection rule matches the branches DAIV pushes to, for example a wildcard pattern that limits pushes to Maintainers, allow Developers to push on that pattern, or pushes fail.
+
+!!! warning
+    Revoking a `daiv-clone` token early makes the next clone of that project fail authentication until DAIV drops the cached token and creates a new one, which happens after about 15 seconds of retries. The cache entry is `codebase:gitlab:clone-token:<project-id>`.
+
+### GitHub
 
 | Variable                        | Description                                 | Default   | Example              |
 |---------------------------------|---------------------------------------------|:---------:|----------------------|
@@ -243,25 +233,20 @@ Two more fields follow the same `DAIV_<FIELD_NAME>` convention and so are env-lo
 | :material-asterisk: `CODEBASE_GITHUB_PRIVATE_KEY` :material-lock:         | GitHub App private key (PEM format)         | *(none)*  |                      |
 | :material-asterisk: `CODEBASE_GITHUB_WEBHOOK_SECRET` :material-lock:| Secret token for GitHub webhook validation. Without it, every GitHub webhook request is rejected with 401 | *(none)*  | `random-webhook-secret` |
 
-!!! note
-    GitHub uses GitHub App authentication. You must create a GitHub App in your account or organization settings. The private key is a multi-line PEM file that should be stored securely using Docker secrets.
-
-!!! info
-    For GitHub Enterprise Server, set `CODEBASE_GITHUB_URL` to your GitHub Enterprise URL (e.g., `https://github.your-company.com`). For GitHub.com, this variable can be omitted.
+GitHub uses GitHub App authentication, so you create a GitHub App in your account or organization settings. The private key is a multi-line PEM file; store it as a Docker secret. For GitHub Enterprise Server, set `CODEBASE_GITHUB_URL` to its URL, for example `https://github.example.com`. For GitHub.com, you can omit it.
 
 ---
 
-## Automation: LLM Providers
+## LLM providers
 
-This section documents the environment variables for each LLM provider.
-
-!!! note
-    At least one of the [supported providers](../getting-started/llm-providers.md) should be configured to use the automation features.
+Configure at least one provider to use the agent. The [LLM providers](../getting-started/llm-providers.md) page explains how model specs pick a provider.
 
 !!! warning "Provider keys are seed-only"
-    Unlike the rest of the configurable settings on this page, these provider API key variables are **not** part of the env > database > default override chain. They are read **only once** — on first run / upgrade — to seed the provider records, after which the authoritative, runtime-editable key and base URL live on the **Providers** section of the Configuration UI at `/dashboard/configuration/`. Changing a `*_API_KEY` environment variable after the provider record exists has no effect; edit the provider in the UI instead. The OpenRouter base URL is likewise a per-provider **Base URL** field in that section (it defaults to `https://openrouter.ai/api/v1`).
+    DAIV reads the provider API key variables once, when it first creates the provider records, and never again. They are not part of the environment, database and default order that other settings follow. Changing or adding a `*_API_KEY` variable or secret after the provider record exists has no effect: edit the provider under **Configuration** → **Providers** instead, which holds the key and the base URL from then on. A provider created without a key starts disabled.
 
-### OpenRouter (*default*)
+DAIV reads each key from a Docker secret named after the variable in lowercase, for example `openrouter_api_key` mounted at `/run/secrets/openrouter_api_key`, or else from the environment variable. The secret wins when both are set. The OpenRouter base URL is a **Base URL** field of the provider and defaults to `https://openrouter.ai/api/v1`. [Providers](site-configuration.md#providers) describes the fields.
+
+### OpenRouter (default)
 
 | Variable                        | Description                | Default                        | Example |
 |---------------------------------|----------------------------|:------------------------------:|---------|
@@ -285,17 +270,17 @@ This section documents the environment variables for each LLM provider.
 |---------------------------------|----------------------------|:----------:|---------|
 | `GOOGLE_API_KEY` :material-lock:     | Google API key (seeds the Google provider record on first run) | *(none)*   |         |
 
-## Automation: Tools
+## Agent tools
 
-This section documents the environment variables for each tool configuration used by AI agents.
+These variables configure the tools the agent calls.
 
-### Context File Suggestion
+### Context file suggestion
 
 | Variable                        | Description                                                    | Default        | Example |
 |---------------------------------|----------------------------------------------------------------|:--------------:|---------|
 | `DAIV_SUGGEST_CONTEXT_FILE_ENABLED` | Enable/disable suggesting an `AGENTS.md` file on new merge requests | `true` | `false` |
 
-### Web Search
+### Web search
 
 | Variable                        | Description                                                    | Default        | Example |
 |---------------------------------|----------------------------------------------------------------|:--------------:|---------|
@@ -306,56 +291,21 @@ This section documents the environment variables for each tool configuration use
 | `DAIV_WEB_SEARCH_SEARXNG_URL` | Complete SearXNG search endpoint, including `/search` and any deployment prefix | *(none)* | `https://search.example.com/search` |
 | `DAIV_WEB_SEARCH_SEARXNG_TIMEOUT_SECONDS` | SearXNG HTTP timeout in seconds (1–120); does not change other engines | `15` | `30` |
 
-Select `searxng` and set its endpoint either here or in **Site Configuration → Web Search**.
-The endpoint must use HTTP or HTTPS and contain no credentials, query string or fragment.
-DAIV sends a GET request with `q` and `format=json`; enable `json` in the SearXNG
-instance's `search.formats`. No SearXNG API key is required or sent. The initial
-integration supports endpoints reachable without additional authentication.
+To use SearXNG, see [Set up SearXNG](site-configuration.md#set-up-searxng).
 
-Requests include `Accept-Language: en` for SearXNG's HTTP header checks. If
-`server.limiter` is enabled, it can still return HTTP 429 for automated requests.
-For a trusted DAIV client, configure its source IP in `/etc/searxng/limiter.toml`:
+### Web fetch
 
-```toml
-[botdetection.ip_lists]
-pass_ip = ["192.0.2.10"]
-```
-
-Replace the example with the actual DAIV app/worker egress IP as seen by SearXNG,
-or a narrowly scoped trusted subnet. This list exempts those clients from bot
-detection; keep it restricted rather than disabling the limiter for everyone.
-See the [SearXNG limiter documentation](https://docs.searxng.org/admin/searx.limiter)
-for pass lists and reverse-proxy client-IP handling.
-
-SearXNG forwards queries to its configured upstream search engines. Self-hosting
-does not keep query text local; search queries can contain repository code or
-other private information.
-
-Web search is shared by chat, GitLab/GitHub-triggered runs and other agent entry
-points; the model decides when to call it. The DAIV app and workers must be able
-to reach the endpoint. The request is made by DAIV itself, so it does not require
-opening the sandbox's egress policy. HTTPS certificate verification remains enabled.
-
-Environment variables and Docker secrets override stored UI values and lock the
-corresponding fields. Leave a variable **unset**, rather than explicitly empty,
-to keep its field editable. DuckDuckGo and Tavily retain their existing behavior.
-
-See the [SearXNG Search API](https://docs.searxng.org/dev/search_api.html) for the
-server-side JSON format setting and endpoint contract.
-
-### Web Fetch
-
-The native `web_fetch` tool fetches a URL, converts HTML to markdown, then uses a small/fast model to answer a prompt about the page content. A `#fragment` on an HTML page's URL limits it to the section that anchor names; a page over the max content size is rejected with a list of its section anchors.
+The native `web_fetch` tool fetches a URL, converts HTML to markdown, and has a small model answer a prompt about the page. A `#fragment` on an HTML page's URL limits it to the section that anchor names. A page over the maximum content size is rejected with a list of its section anchors.
 
 | Variable                        | Description                                                    | Default        | Example |
 |---------------------------------|----------------------------------------------------------------|:--------------:|---------|
 | `DAIV_WEB_FETCH_ENABLED`  | Enable/disable the native `web_fetch` tool                     | `true`         | `false` |
-| `DAIV_WEB_FETCH_MODEL_NAME` | Model used by `web_fetch` to process page content with the prompt | `claude-haiku-5.5` | `openrouter:openai/gpt-4.1-mini` |
+| `DAIV_WEB_FETCH_MODEL_NAME` | Model used by `web_fetch` to process page content with the prompt | `openrouter:anthropic/claude-haiku-5.5` | `openrouter:openai/gpt-4.1-mini` |
 | `DAIV_WEB_FETCH_CACHE_TTL_SECONDS` | Cache TTL (seconds) for repeated fetches                | `900`          | `1800` |
 | `DAIV_WEB_FETCH_TIMEOUT_SECONDS` | HTTP timeout for fetching (seconds)                      | `15`           | `30` |
 | `AUTOMATION_WEB_FETCH_PROXY_URL` | Optional proxy URL for web fetch HTTP requests (env-only)      | *(none)*       | `http://proxy:8080` |
 | `DAIV_WEB_FETCH_MAX_CONTENT_CHARS` | Max page content size (characters) to analyze in one pass | `50000` | `80000` |
-| `DAIV_WEB_FETCH_AUTH_HEADERS` | Domain-to-headers mapping for authenticated fetches (JSON, env-only) | `{}` | `{"example.com": {"X-API-Key": "sk-abc"}}` |
+| `DAIV_WEB_FETCH_AUTH_HEADERS` | Domain-to-headers mapping for authenticated fetches (JSON). When set, it replaces the **Per-domain auth headers** rows of the **Web Fetch** group, which then show a lock badge | `{}` | `{"example.com": {"X-API-Key": "sk-abc"}}` |
 
 ### Artifacts
 
@@ -368,26 +318,23 @@ The `publish_artifact` tool stores files the agent generates (reports, datasets,
 | `DAIV_TOOL_MEDIA_MAX_BYTES`     | Maximum size of one image or file kept from a tool result for the transcript, in bytes | `10485760` (10 MiB) | `20971520` |
 | `DAIV_TOOL_MEDIA_PER_RUN_MAX`   | Maximum number of images and files kept from one run's tool results | `100`  | `200` |
 
-### Session Transcript
+### Session transcript
 
 | Variable                        | Description                                                    | Default        | Example |
 |---------------------------------|----------------------------------------------------------------|:--------------:|---------|
 | `DAIV_SHOW_RAW_TOOL_DATA`       | Show each tool call's raw arguments and result in a closed **Raw** section of the call's details in the session transcript (env-only) | *(follows `DJANGO_DEBUG`)* | `true` |
 
-### MCP Tools
+### MCP tools
 
-MCP (Model Context Protocol) tools extend agent capabilities by providing access to external services and specialized functionality. MCP servers are configured as database rows at `/dashboard/mcp-servers/` and connected to directly by the DAIV app — no sidecar containers are required.
+MCP (Model Context Protocol) tools give the agent access to external services. DAIV stores MCP servers as database rows, which you manage at `/dashboard/mcp-servers/`, and connects to them directly, with no sidecar containers. For user-defined servers, see [MCP tools](../customization/mcp-tools.md).
 
 | Variable                        | Description                                                    | Default                        | Example |
 |---------------------------------|----------------------------------------------------------------|:------------------------------:|---------|
 | `MCP_TOOL_LOAD_TIMEOUT`         | Max seconds to wait for a single MCP server to return its tools before skipping it (keeps a broken/slow server from freezing chats and runs) | `30` | `10` |
 
-!!! info
-    For detailed MCP server configuration including user-defined servers, see [MCP Tools](../customization/mcp-tools.md).
+### Deferred tools
 
-### Deferred Tools (Tool Search)
-
-When enabled, tools outside the always-loaded set are deferred behind a `tool_search` tool instead of being bound to the model eagerly, keeping the active tool surface small. Most operators do not need to tune these.
+With deferred tools on, DAIV loads tools outside the always-loaded set on demand through a `tool_search` tool, instead of binding them to the model up front. Most deployments do not need to change these variables.
 
 | Variable                        | Description                                                    | Default        | Example |
 |---------------------------------|----------------------------------------------------------------|:--------------:|---------|
@@ -400,28 +347,29 @@ When enabled, tools outside the always-loaded set are deferred behind a `tool_se
 
 ---
 
-## Automation: Agents
+## Agents
 
-These variables control the models and behavior of DAIV's agents. You can also override models per repository via `.daiv.yml` — see [Repository Config](../customization/repository-config.md#model-overrides).
+These variables set the models and behavior of DAIV's agents. A repository can override the models in `.daiv.yml`; see [Model overrides](../customization/repository-config.md#model-overrides).
 
-### DAIV Agent
+### DAIV agent
 
-The main agent used for issue addressing, pull request assistance, and all interactive tasks. Variables use the `DAIV_AGENT_` prefix.
+The main agent handles issue addressing, pull request assistance and all interactive tasks. Its variables use the `DAIV_AGENT_` prefix.
 
 | Variable | Description | Default |
 |----------------------------------------|----------------------------------------------------------|------------------------|
 | `DAIV_AGENT_RECURSION_LIMIT` | Maximum recursion depth for agent execution | `500` |
-| `DAIV_AGENT_MODEL_NAME` | Primary model for agent tasks | `claude-sonnet-5.5` |
-| `DAIV_AGENT_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails | `gpt-6.1-sol` |
+| `DAIV_AGENT_MODEL_NAME` | Primary model for agent tasks | `openrouter:anthropic/claude-sonnet-5.5` |
+| `DAIV_AGENT_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails | `openrouter:openai/gpt-6.1-sol` |
 | `DAIV_AGENT_THINKING_LEVEL` | Extended thinking level (`minimal`, `low`, `medium`, `high`, `xhigh`, in any case; empty or `off` to disable) | `medium` |
 | `DAIV_AGENT_FALLBACK_THINKING_LEVEL` | Thinking level applied when the primary model fails over to the fallback model (same values as `DAIV_AGENT_THINKING_LEVEL`, set independently of it) | `medium` |
-| `DAIV_AGENT_MAX_MODEL_NAME` | Model used when the `daiv-max` label is present | `claude-opus-5.5` |
+| `DAIV_AGENT_MAX_MODEL_NAME` | Model used when the `daiv-max` label is present | `openrouter:anthropic/claude-opus-5.5` |
 | `DAIV_AGENT_MAX_THINKING_LEVEL` | Thinking level for `daiv-max` tasks (same values as `DAIV_AGENT_THINKING_LEVEL`) | `high` |
-| `DAIV_AGENT_SKILL_MODELS` | Model per skill name, as a JSON object (`{"code-review": "openrouter:anthropic/claude-sonnet-5.5"}`); see [Agent Skills](../customization/agent-skills.md#running-a-skill-on-another-model). A null or empty entry is unset; a malformed value is logged and ignored. | `{}` |
-| `DAIV_AGENT_SUBAGENT_MODELS` | Model per subagent name, as a JSON object (`{"explore": "openrouter:anthropic/claude-haiku-5.5"}`). See [Subagents](../features/subagents.md#choosing-a-subagents-model). A null or empty entry is unset; a malformed value is logged and ignored. The deprecated `DAIV_AGENT_EXPLORE_MODEL_NAME` is still read as the `explore` entry when there is none, logged at ERROR, until it is removed. | `{}` |
+| `DAIV_AGENT_SKILL_MODELS` | Model per skill name, as a JSON object (`{"code-review": "openrouter:anthropic/claude-sonnet-5.5"}`); see [Agent skills](../customization/agent-skills.md#run-a-skill-on-another-model). A null or empty entry is unset; a malformed value is logged and ignored. | `{}` |
+| `DAIV_AGENT_SUBAGENT_MODELS` | Model per subagent name, as a JSON object (`{"explore": "openrouter:anthropic/claude-haiku-5.5"}`). See [Subagents](../features/subagents.md#subagent-model-precedence). A null or empty entry is unset; a malformed value is logged and ignored. The deprecated `DAIV_AGENT_EXPLORE_MODEL_NAME` is read as the `explore` entry when there is none, and DAIV logs an error. | `{}` |
 | `DAIV_AGENT_CUSTOM_SKILLS_PATH` | Path to custom global skills directory. Set to `None` to disable. | `~/data/skills` |
+| `DAIV_SESSION_LINK_ENABLED` | Link back to the DAIV sessions that produced the changes, from the descriptions of merge requests DAIV opens and from a DAIV-Session trailer on every commit. Disable to keep the DAIV URL off the git platform | `true` |
 
-### Model Requests
+### Model requests
 
 These bound every LLM API call, whatever the provider: the main agent, subagents, and the model-backed tasks (titling, memory, commit/PR writer, web fetch). Without them a stalled provider can block a run indefinitely.
 
@@ -432,20 +380,20 @@ These bound every LLM API call, whatever the provider: the main agent, subagents
 
 ### Jobs API
 
-The [Jobs API](../features/jobs-api.md) allows programmatic agent execution.
+The [Jobs API](../features/jobs-api.md) runs the agent from your own code.
 
 | Variable | Description | Default |
 |-------------------------------|----------------------------------------------|------------------------|
-| `DAIV_JOBS_THROTTLE_RATE` | Rate limit for job submissions per authenticated user. Format: `N/sec`, `N/min`, `N/hour`, or `N/day` | `20/hour` |
+| `DAIV_JOBS_THROTTLE_RATE` | Rate limit for job submissions per authenticated user. Format: `N/sec`, `N/min`, `N/hour`, or `N/day`, or the short forms `N/s`, `N/m`, `N/h` and `N/d` | `20/hour` |
 
-### Diff to Metadata
+### Diff to metadata
 
-Generates pull request titles, descriptions, and commit messages from diffs.
+Generates pull request titles, descriptions and commit messages from diffs.
 
 | Variable | Description | Default |
 |-------------------------------|----------------------------------------------|------------------------|
-| `DAIV_DIFF_TO_METADATA_MODEL_NAME` | Primary model for diff-to-metadata generation | `gemini-3.8-flash` |
-| `DAIV_DIFF_TO_METADATA_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails | `deepseek-v4.1-flash` |
+| `DAIV_DIFF_TO_METADATA_MODEL_NAME` | Primary model for diff-to-metadata generation | `openrouter:google/gemini-3.8-flash` |
+| `DAIV_DIFF_TO_METADATA_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails | `openrouter:deepseek/deepseek-v4.1-flash` |
 
 ### Titling
 
@@ -453,5 +401,63 @@ Generates short titles for sessions and runs from the user's initial prompt.
 
 | Variable | Description | Default |
 |-------------------------------|----------------------------------------------|------------------------|
-| `DAIV_TITLING_MODEL_NAME` | Primary model for title generation | `gpt-6-luna` |
-| `DAIV_TITLING_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails | `claude-haiku-5.5` |
+| `DAIV_TITLING_MODEL_NAME` | Primary model for title generation | `openrouter:openai/gpt-6-luna` |
+| `DAIV_TITLING_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails | `openrouter:anthropic/claude-haiku-5.5` |
+
+### Memory
+
+Learns from finished runs, consolidates what they teach into a per-repository document, and injects it into future runs.
+
+| Variable | Description | Default |
+|----------------------------------------|----------------------------------------------------------|------------------------|
+| `DAIV_MEMORY_ENABLED` | Capture learnings from finished runs, consolidate them, and inject them into future runs. A per-repository `.daiv.yml` flag can still opt an individual repository out | `true` |
+| `DAIV_MEMORY_EXTRACTION_MODEL_NAME` | Cheap model that extracts candidate observations from each finished run's transcript | `openrouter:openai/gpt-6-luna` |
+| `DAIV_MEMORY_EXTRACTION_FALLBACK_MODEL_NAME` | Fallback model when the extraction model fails | `openrouter:anthropic/claude-haiku-5.5` |
+| `DAIV_MEMORY_CONSOLIDATION_MODEL_NAME` | Model that rewrites the memory document. Leave empty to reuse the repository's agent model | *(none)* |
+| `DAIV_MEMORY_CONSOLIDATION_MIN_PENDING` | Consolidate once at least this many pending observations have accumulated (subject to the consolidation interval below) | `10` |
+| `DAIV_MEMORY_CONSOLIDATION_MAX_PENDING_AGE_DAYS` | Consolidate a repository that is still below the threshold above once its oldest pending observation reaches this age, so low-volume repositories still form memory | `7` |
+| `DAIV_MEMORY_CONSOLIDATION_MIN_INTERVAL_HOURS` | Minimum hours between consolidations for the same repository | `24` |
+| `DAIV_MEMORY_MAX_LINES` | Cap on the memory document length in lines; entries beyond it are evicted | `200` |
+| `DAIV_MEMORY_MAX_BYTES` | Cap on the memory document size in bytes; entries beyond it are evicted | `10240` |
+
+### Run classifier
+
+Classifies the report of each finished scheduled run into an envelope.
+
+| Variable | Description | Default |
+|----------------------------------------|----------------------------------------------------------|------------------------|
+| `DAIV_RUN_CLASSIFIER_MODEL_NAME` | Model that classifies each finished scheduled run's report into an envelope | `openrouter:openai/gpt-6-luna` |
+| `DAIV_RUN_CLASSIFIER_FALLBACK_MODEL_NAME` | Fallback model when the classifier model fails | `openrouter:anthropic/claude-haiku-5.5` |
+
+### Pipeline watch
+
+Watches the CI of merge requests DAIV publishes and spends a bounded number of agent runs fixing failures; see [Pipeline watch](../features/pipeline-watch.md).
+
+| Variable | Description | Default |
+|----------------------------------------|----------------------------------------------------------|------------------------|
+| `DAIV_PIPELINE_WATCH_ENABLED` | Watch CI on merge requests DAIV publishes and try to fix failures | `true` |
+| `DAIV_PIPELINE_WATCH_MAX_ATTEMPTS` | How many fix attempts to spend on one merge request before handing back (at least 1) | `3` |
+
+### Verification
+
+Runs a repository's `before_publish` commands before DAIV publishes its changes; see [Verification hooks](../customization/repository-config.md#verification-hooks).
+
+| Variable | Description | Default |
+|----------------------------------------|----------------------------------------------------------|------------------------|
+| `DAIV_VERIFICATION_ENABLED` | Run the `before_publish` commands, and remind the agent to test when a repository has none | `true` |
+| `DAIV_VERIFICATION_PUBLISH_OUTPUT` | Add the end of each failing command's output to the published **Verification** section, with the sandbox's environment variable values masked | `false` |
+
+---
+
+## Deployment files
+
+The sample deployment files set the variables below. The `DAIV_SANDBOX_*` variables configure the [daiv-sandbox](https://github.com/srtab/daiv-sandbox) container, not the DAIV app, and Docker reads `DAIV_IMAGE_TAG` when it starts the stack.
+
+| Variable | Read by | Description | Default | Example |
+|----------|---------|-------------|:-------:|---------|
+| `DAIV_SANDBOX_REDIS_URL` | Sandbox service | Redis URL for per-session locking and for removing running sessions that stop receiving requests. Without it, the sandbox disables both and logs a warning | *(none)* | `redis://redis:6379/3` |
+| `DAIV_SANDBOX_EGRESS_CA_CERT_FILE` | Sandbox service | Path to the egress CA certificate that the sandbox's egress proxy signs with. Set it together with the key file: the sandbox does not start with only one | *(none)* | `/run/secrets/daiv_sandbox_egress_ca_cert` |
+| `DAIV_SANDBOX_EGRESS_CA_KEY_FILE` | Sandbox service | Path to the egress CA private key. Without both files, the sandbox rejects sessions that need the egress proxy and the run fails | *(none)* | `/run/secrets/daiv_sandbox_egress_ca_key` |
+| `DAIV_IMAGE_TAG` | Docker | Tag of the DAIV image that the sample services pull; pin it to roll back to a build | `main` | `sha-5e4f0d0` |
+
+To create the egress CA and store it as secrets, see [Deployment](../getting-started/deployment.md).

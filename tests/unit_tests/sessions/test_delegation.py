@@ -22,12 +22,11 @@ from sessions.delegation import (
 from sessions.inbox.drain import Drain
 from sessions.inbox.leg_follow_ups import BUSY, LegFollowUpRefused
 from sessions.inbox.ownership import Ownerships
-from sessions.legs import NOT_RUN_CLOSED, NOT_RUN_MERGED
+from sessions.legs import NOT_RUN_ARCHIVED, NOT_RUN_CLOSED, NOT_RUN_MERGED
 from sessions.models import (
     LINK_FAILED_PREFIX,
     EventKind,
     EventState,
-    HiddenSession,
     InboxEvent,
     MergeRequestOwnership,
     MergeRequestState,
@@ -805,6 +804,7 @@ def test_the_summary_lists_each_legs_outcome_with_its_reply_quoted(admin_user):
         ({"status": RunStatus.RUNNING, "cancel_requested_at": timezone.now()}, False, "stopping"),
         ({"status": RunStatus.FAILED, "error_message": NOT_RUN_MERGED}, False, "not_run_merged"),
         ({"status": RunStatus.FAILED, "error_message": NOT_RUN_CLOSED}, False, "not_run_closed"),
+        ({"status": RunStatus.FAILED, "error_message": NOT_RUN_ARCHIVED}, False, "not_run_archived"),
     ],
 )
 def test_leg_state(admin_user, fields, waits, expected):
@@ -827,6 +827,7 @@ def test_outcome_states_reads_each_status_word_back_as_its_state():
         "started, but DAIV lost track of it": "lost",
         "not run: its merge request was merged": "not_run_merged",
         "not run: its merge request was closed": "not_run_closed",
+        "not run: its session was archived": "not_run_archived",
     }
 
 
@@ -1039,20 +1040,11 @@ class TestLegFollowUpRefusals:
             "This leg works on `acme/api`: give that `repo_id`, or delegate a new leg for `acme/web`."
         )
 
-    async def test_the_person_it_acts_for_archived_it(self, admin_user):
+    async def test_an_archived_leg_is_refused(self, admin_user):
         _, run, leg = await _coordinated(admin_user)
-        await HiddenSession.objects.acreate(session_id=leg.session_id, user=admin_user)
+        await Session.objects.filter(pk=leg.session_id).aupdate(archived_at=timezone.now())
 
-        assert "archived for the person you act for" in await self._refusal(run, _follow_up(leg))
-
-    async def test_another_persons_archive_does_not_refuse_it(self, admin_user, member_user):
-        _, run, leg = await _coordinated(admin_user)
-        await HiddenSession.objects.acreate(session_id=leg.session_id, user=member_user)
-
-        with patch.object(Drain, "start_logged", autospec=True):
-            result = await _delegate(run, [_follow_up(leg)])
-
-        assert [started.thread_id for started in result.started] == [leg.session_id]
+        assert "The leg's session is archived" in await self._refusal(run, _follow_up(leg))
 
     @pytest.mark.parametrize("busy", ["running", "follow_up_waiting", "waits_for_coordinator"])
     async def test_a_leg_still_working(self, admin_user, busy):
@@ -1090,6 +1082,18 @@ class TestLegFollowUpRefusals:
 
         assert await self._refusal(run, _follow_up(leg)) == (
             f"This leg's merge request was {word}: delegate a new leg for further work."
+        )
+
+    async def test_an_auto_archived_leg_is_refused_as_merged(self, admin_user):
+        _, run, leg = await _coordinated(admin_user)
+        await MergeRequestOwnership.objects.acreate(
+            repo_id="acme/api", merge_request_iid=4, session_id=leg.session_id, source_branch="daiv/leg-branch"
+        )
+        await Ownerships("acme/api").aclose(4, merged=True, by_username="sfr", target_branch="main")
+        await Session.objects.filter(pk=leg.session_id).aupdate(archived_at=timezone.now())
+
+        assert await self._refusal(run, _follow_up(leg)) == (
+            "This leg's merge request was merged: delegate a new leg for further work."
         )
 
     async def test_the_earliest_failing_check_gives_the_reason(self, admin_user):

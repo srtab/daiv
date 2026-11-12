@@ -1,5 +1,5 @@
 site_name: DAIV
-site_url: https://srtab.github.io/daiv/
+site_url: https://docs.daivagent.com/
 repo_url: https://github.com/srtab/daiv
 site_description: >-
   DAIV is an open-source, self-hosted SWE agent for GitLab and GitHub that turns
@@ -90,6 +90,7 @@ plugins:
         - features/issue-addressing.md
         - features/pull-request-assistant.md
         - features/pipeline-watch.md
+        - features/memory.md
         - features/sessions.md
         - features/jobs-api.md
         - features/scheduled-jobs.md
@@ -112,6 +113,7 @@ plugins:
         - reference/site-configuration.md
         - reference/agent-architecture.md
         - reference/monitoring.md
+        - reference/management-commands.md
         - reference/benchmarks.md
         Community:
         - community.md
@@ -141,6 +143,12 @@ extra_css:
 
 extra:
   generator: false
+  analytics:
+    provider: umami
+    script_url: https://cloud.umami.is/script.js
+    website_id: f2d8b948-0c1b-48e7-b0ca-e296f9d48863
+    # Builds served from any other host, such as `mkdocs serve` or a fork's Pages, send nothing.
+    domains: docs.daivagent.com
   version:
     provider: mike
 
@@ -149,34 +157,36 @@ nav:
   - Getting Started:
     - Quickstart: getting-started/quickstart.md
     - Deployment: getting-started/deployment.md
-    - Platform Setup: getting-started/platform-setup.md
-    - Accounts & Roles: getting-started/accounts.md
-    - LLM Providers: getting-started/llm-providers.md
+    - Platform setup: getting-started/platform-setup.md
+    - Accounts and roles: getting-started/accounts.md
+    - LLM providers: getting-started/llm-providers.md
   - Features:
-    - Issue Addressing: features/issue-addressing.md
-    - Pull Request Assistant: features/pull-request-assistant.md
-    - Pipeline Watch: features/pipeline-watch.md
+    - Issue addressing: features/issue-addressing.md
+    - Pull request assistant: features/pull-request-assistant.md
+    - Pipeline watch: features/pipeline-watch.md
+    - Repository memory: features/memory.md
     - Sessions: features/sessions.md
     - Jobs API: features/jobs-api.md
-    - Scheduled Jobs: features/scheduled-jobs.md
+    - Scheduled jobs: features/scheduled-jobs.md
     - Orchestration: features/orchestration.md
-    - MCP Endpoint: features/mcp-endpoint.md
+    - MCP endpoint: features/mcp-endpoint.md
     - Notifications: features/notifications.md
-    - Merge Metrics: features/merge-metrics.md
-    - Slash Commands & Skills: features/slash-commands.md
+    - Merge metrics: features/merge-metrics.md
+    - Slash commands and skills: features/slash-commands.md
     - Subagents: features/subagents.md
     - Sandbox: features/sandbox.md
-    - Sandbox Environments: features/sandbox-environments.md
+    - Sandbox environments: features/sandbox-environments.md
   - Integrations:
-    - Request Tracker Triage: integrations/rt/index.md
+    - Request Tracker triage: integrations/rt/index.md
   - Customization:
-    - Repository Config: customization/repository-config.md
-    - Agent Skills: customization/agent-skills.md
-    - MCP Tools: customization/mcp-tools.md
+    - Repository configuration: customization/repository-config.md
+    - Agent skills: customization/agent-skills.md
+    - MCP tools: customization/mcp-tools.md
   - Reference:
-    - Environment Variables: reference/env-variables.md
-    - Site Configuration: reference/site-configuration.md
-    - Agent Architecture: reference/agent-architecture.md
+    - Environment variables: reference/env-variables.md
+    - Site configuration: reference/site-configuration.md
+    - Agent tools: reference/agent-architecture.md
     - Monitoring: reference/monitoring.md
+    - Management commands: reference/management-commands.md
     - Benchmarks: reference/benchmarks.md
   - Community: community.md

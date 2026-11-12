@@ -1,20 +1,22 @@
 ---
-description: "Trigger DAIV on new Request Tracker tickets with a single RT Scrip: it triages each ticket, analyses root causes in code, and posts an internal comment."
+description: "Trigger DAIV on new Request Tracker tickets with a single RT scrip: it triages each ticket, analyses root causes in code, and posts an internal comment."
 ---
 
-# Request Tracker Triage
+# Request Tracker triage
 
-Trigger DAIV automatically whenever a new ticket lands in Request Tracker. The DAIV agent reads the ticket, performs triage (bug / config / how-to / unclear) and — when the ticket is code-related — a root-cause analysis against the queue's repository. The report is posted back to the ticket as an **internal comment** (staff-only, not emailed to the requester).
+DAIV triages each new Request Tracker (RT) ticket as soon as it is created. The DAIV agent reads the ticket and classifies it as a bug, a configuration issue, a how-to question or unclear. When the ticket is code-related, the agent also runs a root-cause analysis against the queue's repository. DAIV posts the report on the ticket as an **internal comment**: staff-only, and not emailed to the requester.
 
-The whole integration is a single RT Scrip. No bridge service, no webhook receiver, no polling.
+The whole integration is a single RT scrip. It needs no bridge service, no webhook receiver and no polling.
 
 ## How it works
 
-```
+When a ticket is created, RT runs the scrip. The scrip looks up the queue's repository and submits a job to DAIV's jobs API. DAIV's agent then loads the ticket through the RT MCP server, triages it, and posts the report on the ticket through the same server.
+
+```text
 RT ticket Create
       │
       ▼
-RT Scrip (Perl, "On Create", applies to allow-listed queues)
+RT scrip (Perl, "On Create", applies to allow-listed queues)
    1. Resolve queue → repo_id
    2. Build prompt (ticket id, url, queue, subject)
    3. POST $DAIV_URL/api/jobs
@@ -26,90 +28,111 @@ DAIV agent runs asynchronously
    - Posts the report as an internal comment on the ticket via RT MCP
 ```
 
-The Scrip is fire-and-forget: it submits the job with a 5-second socket timeout and a 10-second hard wall-clock ceiling (via `alarm`), and any `die` from the HTTP client or JSON parser is trapped in `eval`. A DAIV outage — including DNS failure or a malformed response — never blocks or aborts the ticket-create transaction.
+The scrip is fire-and-forget. It submits the job with a 5-second socket timeout and a 10-second hard wall-clock ceiling (through `alarm`), and it traps any `die` from the HTTP client or the JSON parser in `eval`. A DAIV outage, including a DNS failure or a malformed response, never blocks or aborts the ticket-create transaction.
 
 ## Prerequisites
 
-- A DAIV deployment reachable from the RT host, with the [Jobs API](../../features/jobs-api.md) enabled.
-- The RT MCP server wired into the DAIV agent (see [MCP Tools](../../customization/mcp-tools.md)). The RT MCP must authenticate as a user with rights to **comment** on the target queues. A dedicated `daiv-bot` RT user is recommended so comments are clearly attributed.
-- A DAIV API key for a dedicated service user:
+- A DAIV deployment that the RT host can reach, with the [jobs API](../../features/jobs-api.md).
+- The RT MCP server added to DAIV as an MCP server (see [Add a server](../../customization/mcp-tools.md#add-a-server)). The RT MCP server must authenticate as an RT user with rights to **comment** on the target queues. A dedicated `daiv-bot` RT user keeps the comments clearly attributed.
+- A system default model in DAIV, or an `agent_model` in the scrip's request. The scrip sends no `agent_model`, and DAIV refuses a job with `400` when no model is available (see [Error responses](../../features/jobs-api.md#error-responses)).
+- A DAIV API key for a dedicated service user, with write access to every repository you map. See [Create an API key](../../features/jobs-api.md#create-an-api-key).
 
-  ```bash
-  django-admin create_api_key rt-triage --name rt-scrip
-  ```
+!!! warning "DAIV shows an API key once"
+    The key has the form `prefix.secret`. Store it when you create it: you cannot retrieve it later.
 
-  Store the emitted `prefix.secret` string; it cannot be retrieved later.
+To create the key from the command line for a service user named `rt-triage`:
+
+```bash
+docker compose exec app django-admin create_api_key rt-triage --name rt-scrip
+```
 
 ## Configure RT
 
-### 1. Add the DAIV endpoint and key to `RT_SiteConfig.pm`
+### Add the DAIV endpoint and key to `RT_SiteConfig.pm`
 
-```perl
-Set($DAIV_URL,     'https://daiv.example.com');
-Set($DAIV_API_KEY, 'prefix.secret');
-```
+1. Open `RT_SiteConfig.pm` on the RT host.
+2. Add these lines:
 
-Reload RT after editing: `apache2ctl graceful` (or whichever reload command your RT host uses).
+    ```perl
+    Set($DAIV_URL,     'https://daiv.example.com');
+    Set($DAIV_API_KEY, 'prefix.secret');
+    ```
 
-### 2. Install the Scrip
+3. Reload RT, for example with `apache2ctl graceful`, or whichever reload command your RT host uses.
 
-1. Open **Admin → Scrips → Create** in the RT web UI.
-2. Fill the form:
+Replace `https://daiv.example.com` with your DAIV base URL and `prefix.secret` with the API key.
 
-   | Field | Value |
-   |---|---|
-   | Description | `DAIV triage on create` |
-   | Condition | `On Create` |
-   | Action | `User Defined` |
-   | Template | `Blank` |
-   | Stage | `TransactionCreate` |
-   | Applies To | *(leave empty for now — configured in step 3)* |
+### Install the scrip
 
-3. Put `return 1;` in the **Custom action preparation code** field and paste the body of [`rt-daiv-triage.scrip.pl`](rt-daiv-triage.scrip.pl) into the **Custom action cleanup code** field. Leave **Custom condition** empty. Save. (Cleanup runs after the ticket transaction is committed, so the agent can load the new ticket via the RT MCP.)
+1. In the RT web UI, open **Admin** → **Scrips** → **Create**.
+2. Enter these values:
 
-4. Edit the `%QUEUE_REPO_MAP` hash at the top of the pasted code so each queue you care about maps to the correct DAIV `repo_id` (e.g. `group/project`).
+    | Field | Value |
+    |---|---|
+    | Description | `DAIV triage on create` |
+    | Condition | `On Create` |
+    | Action | `User Defined` |
+    | Template | `Blank` |
+    | Stage | `TransactionCreate` |
+    | Applies To | *(leave empty; you set it in [Attach the scrip to queues](#attach-the-scrip-to-queues))* |
 
-A queue can map to several repositories. To have one agent session work across them, send them as one `repos` list with `"shared_session": true`: the first entry is the main repository and each changed repository gets its own merge request (see [Multi-repository sessions](../../features/jobs-api.md#multi-repository-sessions)). Without `shared_session`, each repository runs as a separate job.
+3. In **Custom action preparation code**, enter `return 1;`.
+4. In **Custom action cleanup code**, paste the body of [`rt-daiv-triage.scrip.pl`](rt-daiv-triage.scrip.pl). Cleanup runs after RT commits the ticket transaction, so the agent can load the new ticket through the RT MCP server.
+5. In the pasted code, edit the `%QUEUE_REPO_MAP` hash at the top, so that each queue you want triaged maps to its DAIV `repo_id`, for example `group/project`.
+6. Leave **Custom condition** empty.
+7. Save the scrip.
 
-### 3. Attach the Scrip to queues
+A queue can map to several repositories. To have one agent session work across them, send them as one `repos` list with `"shared_session": true`. Without `shared_session`, each repository runs as a separate job. See [Multi-repository sessions](../../features/jobs-api.md#multi-repository-sessions).
 
-From the Scrip's **Applies To** tab in the RT admin UI, select the queues you want triaged. **The "Applies To" list and the keys of `%QUEUE_REPO_MAP` must stay in lockstep** — any queue where the Scrip runs but no repo is mapped will log a warning and skip (no ticket change, no job).
+### Attach the scrip to queues
 
-Start with a single pilot queue. Expand only after the pilot looks healthy.
+The **Applies To** list and the keys of `%QUEUE_REPO_MAP` must stay in lockstep. For a queue where the scrip runs but no repository is mapped, the scrip logs a warning and skips the ticket: it changes nothing and submits no job.
+
+Start with a single pilot queue, and add more only after the pilot looks healthy.
+
+1. In the RT admin UI, open the scrip's **Applies To** tab.
+2. Select the pilot queue.
+3. Save the change.
 
 ## Verify the pilot
 
 1. File a test ticket in the pilot queue.
-2. `tail -f /var/log/request-tracker4/rt.log` (or your RT log path) — look for:
+2. Follow the RT log, for example with `tail -f /var/log/request-tracker4/rt.log`, or your RT log path.
+3. Look for this line:
 
-   ```
-   daiv-triage: submitted job <uuid> (batch <uuid>) for ticket <id> (queue=... repo=...)
-   ```
+    ```text
+    daiv-triage: submitted job <uuid> (batch <uuid>) for ticket <id> (queue=... repo=...)
+    ```
 
-3. Open the DAIV **Sessions** page and confirm a new `API Run` session exists for the target repo.
-4. Within a minute or two, an internal comment with the triage report should appear on the ticket. If it doesn't, check the session detail page — the agent may have errored mid-run or failed to post via the RT MCP.
+4. In DAIV, open **Sessions** and confirm that a new `API Run` session exists for the target repository.
+5. Wait a minute or two for an internal comment with the triage report to appear on the ticket.
+
+If no comment appears, check the session's detail page: the agent may have failed mid-run, or failed to post through the RT MCP server.
 
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| No log line at all after ticket create | Scrip not attached to the queue, or condition/stage is wrong | Re-check the Scrip's **Applies To** list and confirm Condition=`On Create`, Stage=`TransactionCreate` |
-| `DAIV_URL or DAIV_API_KEY not set` in `rt.log` | `RT_SiteConfig.pm` not reloaded | `apache2ctl graceful` |
-| `queue '<name>' in Applies-To but missing from QUEUE_REPO_MAP` | "Applies To" and the inline map drifted apart | Add the queue to `%QUEUE_REPO_MAP` with its repo, or remove it from "Applies To" |
-| `failed to submit job … 401` | Wrong or expired DAIV API key | Rotate via `django-admin create_api_key` and update `RT_SiteConfig.pm` |
-| `rate-limited for ticket … 429` (warning) | Jobs API rate limit exceeded (default 20/hour per user) | Raise the jobs throttle rate in Site Configuration (`jobs_throttle_rate`), or use a separate API-key user per queue. Logged at `warning` — safe to alert on `error` only |
-| `failed to submit job … <non-2xx, non-429>` | DAIV returned 4xx/5xx other than rate-limit | Check the DAIV sessions list and access log; the status line + body are captured |
-| `exception in triage scrip: daiv-triage timeout` | The 10-second hard ceiling tripped — usually DNS resolution or a stalled TLS handshake | Check DNS/network from the RT host to `$DAIV_URL`; confirm cert chain if using HTTPS |
-| `exception in triage scrip: <other>` | Unexpected die from LWP, the RT ticket object, or elsewhere | Inspect `rt.log` around the timestamp; the captured `$@` will point at the source |
-| Job completes in DAIV but no comment on the ticket | RT MCP auth user lacks comment rights on the queue, or MCP call errored | Grant the MCP's RT user the `CommentOnTicket` right on the queue; inspect the run's tool calls in the session detail |
+| No log line at all after ticket create | The scrip is not attached to the queue, or its condition or stage is wrong | Re-check the scrip's **Applies To** list, and confirm Condition=`On Create` and Stage=`TransactionCreate` |
+| `DAIV_URL or DAIV_API_KEY not set` in `rt.log` | RT did not reload `RT_SiteConfig.pm` | Reload RT, for example with `apache2ctl graceful` |
+| `queue '<name>' in Applies-To but missing from QUEUE_REPO_MAP` | **Applies To** and the inline map drifted apart | Add the queue to `%QUEUE_REPO_MAP` with its repository, or remove it from **Applies To** |
+| `failed to submit job … 401` | Wrong or expired DAIV API key | Create a new key with [`create_api_key`](../../reference/management-commands.md#create_api_key) and update `RT_SiteConfig.pm` |
+| `failed to submit job … 400` | The request names no `agent_model`, and DAIV has no system default model | Set a system default model, or add `agent_model` to the scrip's request. A model set only in `.daiv.yml` does not count |
+| `rate-limited for ticket … 429` (warning) | The jobs API rate limit was exceeded | Raise the rate (see [Rate limiting](../../features/jobs-api.md#rate-limiting)), or give each queue its own API-key user (see [Cost considerations](#cost-considerations)). The scrip logs it at `warning`, so you can alert on `error` only |
+| `failed to submit job … <other non-2xx>` | DAIV returned a 4xx or 5xx other than a rate limit | Check the DAIV sessions list and access log. The log line holds the status line and body |
+| `exception in triage scrip: daiv-triage timeout` | The 10-second hard ceiling tripped, usually on DNS resolution or a stalled TLS handshake | Check DNS and the network from the RT host to `$DAIV_URL`, and the certificate chain if you use HTTPS |
+| `exception in triage scrip: <other>` | An unexpected `die` from LWP, the RT ticket object or elsewhere | Inspect `rt.log` around the timestamp: the captured `$@` points at the source |
+| The job completes in DAIV but the ticket has no comment | The RT MCP server's RT user lacks comment rights on the queue, or the MCP call failed | Grant that user the `CommentOnTicket` right on the queue, and inspect the run's tool calls in the session detail |
 
 ## Cost considerations
 
-The Scrip requests high reasoning effort by submitting `agent_thinking_level: high` — which applies high effort to the repository's `models.agent` model, else the system default model. This produces better triage but is more expensive. To force the most capable model (rather than the default), also pass an explicit `agent_model` (e.g. the Opus spec). See the [agent-override fields](../../features/jobs-api.md#submit-a-job) on the Jobs API page. For high-volume queues, consider:
+The scrip sends `agent_thinking_level: high`, which asks for high reasoning effort. This gives better triage and costs more. The scrip sends no `agent_model`, so the run uses the model DAIV resolves for the repository (see [Model overrides](../../customization/repository-config.md#model-overrides)). To force the most capable model, also send an explicit `agent_model` in the scrip. See the [request fields](../../features/jobs-api.md#request-fields) of the jobs API.
 
-- Lowering or omitting `agent_thinking_level` in the Scrip body for a cheaper first pass — the repository's `models.agent` model, else the system default model, then runs at its default effort.
-- Adding a queue-level rate limit via a separate DAIV API-key user with a lower `jobs_throttle_rate` (Site Configuration).
+For high-volume queues:
+
+- Lower or omit `agent_thinking_level` in the scrip body for a cheaper first pass.
+- Give each queue its own DAIV API-key user, so one busy queue cannot use up another's allowance. The jobs API applies one site-wide rate to each user separately, and you cannot set it lower for one user (see [Rate limiting](../../features/jobs-api.md#rate-limiting)).
 
 ## Files
 
-- [`rt-daiv-triage.scrip.pl`](rt-daiv-triage.scrip.pl) — pasteable Scrip body.
+- [`rt-daiv-triage.scrip.pl`](rt-daiv-triage.scrip.pl): the scrip body to paste.

@@ -2,17 +2,17 @@
 description: "DAIV reads a labelled GitLab or GitHub issue, proposes an implementation plan, waits for your approval, then opens a merge or pull request with the code."
 ---
 
-# Issue Addressing
+# Issue addressing
 
-Issue Addressing converts issue descriptions into working code. DAIV reads the issue, generates an implementation plan, waits for your approval, and opens a merge request (GitLab) or pull request (GitHub) with the changes.
+Issue addressing turns an issue into code. DAIV reads a labelled issue, posts an implementation plan, waits for your approval, and opens a merge request (GitLab) or pull request (GitHub) with the changes.
 
 ## How it works
 
-1. You create or update an issue and add a DAIV label
-2. DAIV analyzes the issue title, description, and any attached images
-3. DAIV posts a plan as a comment on the issue
-4. You review and approve the plan
-5. DAIV implements the changes and opens a merge/pull request
+1. You create or update an issue and add a bot label.
+2. DAIV reads the issue title, description, and any attached images.
+3. DAIV posts a plan as a comment on the issue.
+4. You review the plan and approve it, or comment with the changes you want, and DAIV revises the plan.
+5. DAIV implements the plan and opens a merge or pull request.
 
 ```mermaid
 graph TD
@@ -20,90 +20,75 @@ graph TD
     B --> C["Plan posted as comment"]
     C --> D{"Approve?"}
     D -- "@daiv proceed" --> E["DAIV implements changes"]
-    D -- "Update issue" --> B
+    D -- "Comment with changes" --> B
     E --> F["Merge/Pull request created"]
 ```
 
-## Triggering
+## Issue labels
 
-Add any of the following labels to an issue to trigger DAIV:
+Add one of these bot labels to an issue to hand it to DAIV:
 
 | Label | Behavior |
 |-------|----------|
 | `daiv` | Generates a plan and waits for approval before implementing |
 | `daiv-auto` | Generates a plan and executes it immediately without waiting for approval |
-| `daiv-max` | Uses a more capable model with deeper reasoning (see [Max mode](#max-mode)) |
+| `daiv-max` | Uses a more capable model with deeper reasoning; see [Max mode](#max-mode) |
 
-Labels are case-insensitive (`DAIV`, `Daiv`, and `daiv` all work). You can combine them — for example, `daiv-auto` + `daiv-max` will auto-execute using the more capable model.
+Labels are case-insensitive (`DAIV`, `Daiv`, and `daiv` all work). You can combine labels: `daiv-auto` with `daiv-max` runs the plan at once, on the more capable model.
 
-## Plan approval
+When the merge request DAIV opened for an issue merges, DAIV [archives the issue's session](sessions.md#archived-sessions). A label or mention on the issue then starts nothing until someone unarchives the session, and DAIV replies with a link to it.
 
-By default, DAIV uses a **human-in-the-loop** approach. After generating a plan, it waits for explicit approval before making code changes.
+## Approve a plan
 
-To approve a plan, comment on the issue and mention DAIV — for example:
+With the `daiv` label, DAIV waits for your approval after it posts a plan and makes no code changes before it. To approve the plan:
 
-```
-@daiv proceed
-```
+1. Open the issue and read the plan DAIV posted.
+2. Add a comment that mentions DAIV, for example:
 
-The exact wording is not a keyword. DAIV reacts to any comment that mentions it (`@daiv`); it reads your comment together with the plan it posted and acts on your intent. A comment like `@daiv looks good, go ahead` works just as well as `@daiv proceed`.
+    ```text
+    @daiv proceed
+    ```
 
-You can also provide feedback or additional instructions in your comment, and DAIV will take them into account — either applying them during implementation or revising the plan from your feedback.
+The exact wording is not a keyword. DAIV reacts to any comment that mentions it (`@daiv`); it reads your comment together with the plan it posted and acts on your intent. A comment like `@daiv looks good, go ahead` works the same as `@daiv proceed`.
 
-!!! tip
-    If you don't agree with the plan, comment with the changes you'd like and DAIV will update the plan accordingly.
+Your comment can also carry feedback or extra instructions. DAIV either applies them while it implements the plan or revises the plan from them. If you disagree with the plan, comment with the changes you want and DAIV updates the plan.
 
-## Asking a question
+## Answer a question from DAIV
 
-When the issue or your feedback is ambiguous in a way that changes the work — or the choice is yours to make — DAIV may post a question instead of guessing, mentioning you and ending with "reply mentioning `@daiv` with your answer." Answer it by leaving a new comment that mentions DAIV. On GitLab, DAIV posts its question inside the discussion thread of the comment that triggered it, so replying in that same thread keeps the conversation together; on GitHub the question is always a top-level comment.
+When the issue or your feedback is ambiguous in a way that changes the work, or the choice is yours to make, DAIV can post a question instead of guessing. The question mentions you and ends with "reply mentioning `@daiv` with your answer." To answer, leave a new comment that mentions DAIV. On GitLab, DAIV posts its question inside the discussion thread of the comment that triggered it, so replying in that same thread keeps the conversation together; on GitHub the question is always a top-level comment.
 
 ## Max mode
 
-The `daiv-max` label switches DAIV to a more capable model with a higher thinking level:
+The `daiv-max` label switches DAIV to the site's max model with its max thinking level, which suits complex issues that need deeper analysis. An administrator sets both, with the `DAIV_AGENT_MAX_MODEL_NAME` and `DAIV_AGENT_MAX_THINKING_LEVEL` variables or in [Site configuration](../reference/site-configuration.md); the [environment variables reference](../reference/env-variables.md) lists their defaults.
 
-| Setting | Standard | Max |
-|---------|----------|-----|
-| Model | Configurable (default: Claude Sonnet) | Configurable (default: Claude Opus) |
-| Thinking level | Configurable (default: medium) | Configurable (default: high) |
+## Run DAIV again
 
-This is useful for complex issues that require more sophisticated analysis. Both the standard and max models can be configured via environment variables.
+To run a second plan on an issue DAIV already addressed, add a new comment that mentions `@daiv` and says what you want. DAIV updates the existing merge or pull request instead of creating a new one. Adding the label again does not start a run: DAIV ignores a label on an issue it already reacted to.
 
-## Re-running
+## When a run fails
 
-After a plan is executed, running a second plan on the same issue will update the existing merge/pull request rather than creating a new one.
-
-If an unexpected error occurs during execution, DAIV creates a **draft** merge/pull request to preserve any changes already made.
+If an unexpected error stops DAIV while it implements a plan, DAIV opens a **draft** merge or pull request to keep the changes it already made.
 
 ## AGENTS.md suggestion
 
-When DAIV creates a merge request for a repository that doesn't have an [`AGENTS.md`](https://agents.md/) file (or whatever `context_file_name` is configured to), it automatically adds a comment suggesting you create one. The comment includes a one-click link that opens a pre-filled issue — just click and submit.
+When DAIV creates a merge request for a repository that doesn't have an [`AGENTS.md`](https://agents.md/) file (or whatever `context_file_name` is configured to), DAIV adds a comment suggesting you create one. The comment includes a one-click link that opens an issue with the `daiv-auto` label already set. When you submit that issue, DAIV runs the [`/init` skill](slash-commands.md#init) at once, with no approval step, and opens a merge or pull request with the generated `AGENTS.md`.
 
-The one-click link pre-fills the issue with the `daiv-auto` label, so once you submit it DAIV picks it up and immediately runs the `/init` skill to analyze your repository and open a merge/pull request with the generated `AGENTS.md` — no approval step required.
+To stop the suggestion on one repository, set `suggest_context_file: false` in its `.daiv.yml`. To stop it on every repository, set `DAIV_SUGGEST_CONTEXT_FILE_ENABLED` to `false`. [Repository configuration](../customization/repository-config.md) and the [environment variables reference](../reference/env-variables.md) describe both.
 
-To disable this suggestion for a specific repository, add the following to `.daiv.yml`:
+## Turn off issue addressing
 
-```yaml
-suggest_context_file: false
-```
-
-To disable it globally across all repositories, set the environment variable:
-
-```
-DAIV_SUGGEST_CONTEXT_FILE_ENABLED=False
-```
-
-## Configuration
-
-Issue addressing is enabled by default. To disable it, add the following to your `.daiv.yml`:
+Issue addressing is on by default. To turn it off for a repository, add this to its `.daiv.yml`:
 
 ```yaml
 issue_addressing:
   enabled: false
 ```
 
+[Repository configuration](../customization/repository-config.md) lists every feature toggle and who can trigger DAIV.
+
 ## Related pages
 
-- [Repository Config](../customization/repository-config.md) — turn issue addressing on or off, restrict who can trigger DAIV, and set branch and commit conventions
-- [Slash Commands & Skills](slash-commands.md) — steer an issue with `/plan` and custom skills
-- [Pull Request Assistant](pull-request-assistant.md) — what happens once the merge request is open
+- [Repository configuration](../customization/repository-config.md) — restrict who can trigger DAIV and turn features on or off
+- [Slash commands and skills](slash-commands.md) — steer an issue with `/plan` and custom skills
+- [Pull request assistant](pull-request-assistant.md) — what happens once the merge request is open
 - [Sandbox](sandbox.md) — where the implementation is built and tested

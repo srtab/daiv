@@ -1,5 +1,5 @@
 {% extends "base_app.html" %}
-{% load agent_tags icon_tags %}
+{% load agent_tags i18n icon_tags %}
 
 {% block title %}Schedule Templates — DAIV{% endblock %}
 
@@ -12,10 +12,10 @@
 {% block app_content %}
 <div class="animate-fade-up page-header">
     <div class="page-header__title">
-        <h1 class="text-2xl font-bold tracking-tight">Schedule templates</h1>
-        <p class="mt-1.5 text-[15px] font-light text-gray-400">Reusable blueprints that any user can start a schedule from.</p>
+        <h1 class="text-2xl font-bold tracking-tight">{% translate "Schedule templates" %}</h1>
+        <p class="mt-1.5 text-[15px] font-light text-gray-400">{% translate "Reusable blueprints that any user can start a schedule from." %}</p>
     </div>
-    <a href="{% url 'schedule_template_create' %}" class="btn-primary">New template</a>
+    <a href="{% url 'schedule_template_create' %}" class="btn-primary">{% translate "New template" %}</a>
 </div>
 
 <div class="animate-fade-up mt-8" style="animation-delay: 100ms">
@@ -25,11 +25,11 @@
         <div class="relative flex flex-col rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5 transition hover:border-white/[0.12]">
             <a href="{% url 'schedule_template_update' template.pk %}"
                class="absolute inset-0 rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
-               aria-label="Edit {{ template.name }}"></a>
+               aria-label="{% blocktranslate with name=template.name %}Edit {{ name }}{% endblocktranslate %}"></a>
             <div class="flex items-start justify-between gap-3">
                 <span class="min-w-0 break-words text-[15px] font-medium text-white">{{ template.name }}</span>
                 <a href="{% url 'schedule_template_delete' template.pk %}?next={% url 'schedule_template_list' %}"
-                   aria-label="Delete {{ template.name }}"
+                   aria-label="{% blocktranslate with name=template.name %}Delete {{ name }}{% endblocktranslate %}"
                    class="relative z-10 -mr-2 -mt-2 shrink-0 rounded-lg p-2 text-gray-500 transition-all duration-200 hover:bg-red-500/10 hover:text-red-400">
                     {% icon "trash" "h-4 w-4" %}
                 </a>
@@ -48,7 +48,7 @@
     {% include "core/_pagination.html" %}
     {% else %}
     <div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center">
-        <p class="text-[15px] text-gray-400">No templates yet. Create one to share with your team.</p>
+        <p class="text-[15px] text-gray-400">{% translate "No templates yet. Create one to share with your team." %}</p>
     </div>
     {% endif %}
 </div>

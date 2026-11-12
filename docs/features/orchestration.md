@@ -35,20 +35,22 @@ sequenceDiagram
     Note over Coord: resumed with every leg's outcome
 ```
 
+The flow in text: the coordinator calls `delegate_jobs` and ends its turn, each leg runs on its own, and DAIV resumes the coordinator once every leg has finished, with every leg's outcome.
+
 Nothing polls while the legs run: the coordinator holds no worker and spends no tokens until it is resumed.
 
 When a leg comes back incomplete or wrong, the coordinator does not have to start over: a target that names the leg's session id (`thread_id`) is a **leg follow-up**. It continues that leg in its own session, with its earlier conversation, on its branch and merge request, so the fix lands where the leg's work already is. A leg follow-up joins the batch of the call that sent it, alongside any new legs, and the coordinator is resumed once all of them have finished.
 
-## Turning it off
+## Turn off orchestration
 
-Orchestration is **on by default** on every repository. Turn it off in the `.daiv.yml` of a repository whose agent should never split work off:
+Orchestration is on by default on every repository. To stop a repository's agent from splitting work off, add this to its `.daiv.yml`:
 
 ```yaml
 orchestration:
   enabled: false
 ```
 
-A repository needs no configuration to *receive* delegated work; a leg is a normal job.
+A repository needs no configuration to receive delegated work: a leg is a normal job. [Repository configuration](../customization/repository-config.md#feature-toggles) lists every feature toggle.
 
 ## Where a leg's work lands
 
@@ -66,7 +68,7 @@ A leg follow-up:
 - **Works where the leg's work is.** It runs in the leg's session, with the leg's earlier conversation, and pushes to the leg's branch and merge request, even one a reviewer approved or set to merge when its pipeline passes: your platform's approval rules decide whether that push resets the approvals. A leg that published nothing opens a branch and merge request of its own, as a new leg would, never the branch it started from.
 - **Waits its turn.** When the leg's session is busy — fixing CI on its merge request, or answering a person's chat — the leg follow-up waits in its inbox, as **Leg follow-up**, until the session is free. It then runs alone, never in the same run as other waiting requests, and sees what happened meanwhile (a push to the branch, for example) as context.
 - **Runs once.** It is never retried: if its run fails, the batch reports it as failed and the coordinator decides whether to send another.
-- **Stops when its merge request is gone.** If the leg's merge request was merged or closed while the leg follow-up waited, it stops when it would start, without changing anything, and the coordinator reads *not run: its merge request was merged* (or *closed*) with the advice to delegate a new leg.
+- **Stops when its merge request is gone or its session is archived.** If the leg's merge request was merged or closed while the leg follow-up waited, it stops when it would start, without changing anything, and the coordinator reads *not run: its merge request was merged* (or *closed*) with the advice to delegate a new leg. If the leg's [session is archived](sessions.md#archived-sessions) while it waits, it stops at once and the coordinator reads *not run: its session was archived*.
 
 It runs as the user who triggered the coordinator's run, keeps the coordinator's mute and cannot ask questions, like a leg. That user's repository access is checked when it is sent, as for a new leg, and again when its run starts: one refused there is reported as failed.
 
@@ -74,12 +76,12 @@ It runs as the user who triggered the coordinator's run, keeps the coordinator's
 
 Between resumes, the coordinator has two more tools:
 
-- `check_delegated_jobs` reports where its batches stand: each leg's status (`queued`, `running`, `stopping`, `succeeded`, `failed`, `cancelled`, or *not run* for a leg follow-up whose merge request was merged or closed), session, branch, merge request and reply. Given a `batch_id` it reports that batch, with replies up to 4,000 characters; without one, the session's five latest, with replies up to 1,000. The agent uses it when you ask how the work is going, never to wait for the legs: the resume comes on its own.
+- `check_delegated_jobs` reports where its batches stand: each leg's status (`queued`, `running`, `stopping`, `succeeded`, `failed`, `cancelled`, or *not run* for a leg follow-up whose merge request was merged or closed, or whose session was archived), session, branch, merge request and reply. Given a `batch_id` it reports that batch, with replies up to 4,000 characters; without one, the session's five latest, with replies up to 1,000. The agent uses it when you ask how the work is going, never to wait for the legs: the resume comes on its own.
 - `cancel_delegated_jobs` cancels a batch's unfinished legs, or only the ones it names by `thread_id`, leg follow-ups included. A queued leg never starts, and cancelling a waiting leg follow-up leaves every other request waiting on the leg's session in place. A running leg shows as `stopping` until it stops, within about ten seconds, and may push to its branch or open a merge request before then. If it finishes first, it keeps its outcome. A cancelled leg's session shows it as stopped, and [Notifications](notifications.md) count it as failed.
 
 The agent cancels when you ask it to, or when the work a leg does is no longer wanted. The coordinator is still resumed once the batch has finished, with the cancelled legs marked as such, unless every leg was cancelled: then no resume comes.
 
-## Choosing between `task` and `delegate_jobs`
+## Choose between `task` and `delegate_jobs`
 
 | Use | When |
 |-----|------|
@@ -87,7 +89,7 @@ The agent cancels when you ask it to, or when the work a leg does is no longer w
 | `delegate_jobs` on the same repository | Work too big for one turn, or a separate change that deserves its own merge request. |
 | `delegate_jobs` on other repositories | Work that belongs there. |
 
-## Writing the prompts
+## Write the prompts
 
 A leg sees only its own prompt — not the coordinator's conversation, the ticket, or anything the coordinator looked up. Each target's prompt must therefore carry everything that leg needs, and should end with the no-change convention: *"If there is nothing to change, reply saying so and make no changes."*
 
@@ -112,7 +114,7 @@ The `goal` only titles the batch; it is never sent to a leg.
 | At most **10 targets** per call, leg follow-ups included | Split larger fan-outs across calls. |
 | **One level deep** | A leg gets no `delegate_jobs` tool, even on a repository with orchestration on, nor does a leg follow-up's run. |
 | **One leg follow-up outstanding per leg** | A leg still working — on its first run, a leg follow-up, or waiting for the coordinator's turn — is refused a leg follow-up; the coordinator is resumed when it finishes and can follow it up then. A call that names one leg twice is refused as a whole. |
-| A leg follow-up names a leg of its own coordinator, its repository and no branch | Otherwise that target is refused with what to do instead, and the call's other targets still start. A leg the person it runs as archived, one DAIV lost track of, and one whose merge request was merged or closed are refused too. |
+| A leg follow-up names a leg of its own coordinator, its repository and no branch | Otherwise that target is refused with what to do instead, and the call's other targets still start. An archived leg, one DAIV lost track of, and one whose merge request was merged or closed are refused too. |
 | A leg follow-up always wakes the leg | Even at the leg's limit of runs in a row nobody asked for; its run still counts toward that limit, so CI fixes after it stay limited. |
 | Replies up to **4,000 characters** | The resume and the status of one batch show each leg's reply from its full final answer up to 4,000 characters, the overview of the latest batches up to 1,000; a cut reply says so and points to the leg's session. |
 | Every leg forks its own branch | Any number of legs may start from the same branch, the coordinator's own included; each opens its own merge request. |
@@ -121,7 +123,7 @@ The `goal` only titles the batch; it is never sent to a leg.
 | Legs cannot ask questions | Nobody is watching a leg, so it decides or reports instead of stopping for input. |
 | Legs and the resumed run keep the coordinator's mute | A muted job or schedule stays quiet through its delegations. |
 | Only the coordinator's session can check or cancel its legs | The tools see the batches their own session delegated, and no other session's. |
-| At most **3 runs in a row** nobody asked for | After three runs in a row on the coordinator's session that no person started, a finished batch is only remembered instead of resuming it, until a person starts a run there, and its owner is told, so failing legs cannot loop it. |
+| At most **3 runs in a row** nobody asked for | After three runs in a row on the coordinator's session that no person started, DAIV only remembers a finished batch instead of resuming it, until a person starts a run there, and tells the session's owner. Failing legs cannot loop the coordinator. [The session inbox](sessions.md#the-session-inbox) describes the limit. |
 
 If no target starts, the tool says so and no resume comes: the coordinator deals with the failures in the same turn. If the resumed run cannot be queued when the last leg finishes, or gives up waiting for the coordinator's session, DAIV retries it within a few minutes, and it starts any leg left waiting after the coordinator's turn ended.
 
@@ -144,18 +146,18 @@ A coordination repository can hold no production code at all and act as a routin
     - Unclassified tickets → skip, comment "needs triage label"
     ```
 
-3. **Trigger it** with a [Scheduled Job](scheduled-jobs.md) that polls the queue, or from your ticketing system through the [Jobs API](jobs-api.md):
+3. **Trigger it** with a [scheduled job](scheduled-jobs.md) that polls the queue, or from your ticketing system through the [Jobs API](jobs-api.md):
 
-    ```
+    ```text
     Fetch the open tickets not yet dispatched. Route each one with the rules in AGENTS.md and delegate one
     target per ticket. When the legs finish, comment the merge request links on each ticket.
     ```
 
 ### One fix per Sentry finding
 
-With orchestration on in the application's own repository and the Sentry [MCP server](../customization/mcp-tools.md) enabled, a single prompt — run by hand or from a [Scheduled Job](scheduled-jobs.md) — triages and fans out:
+With orchestration on in the application's own repository and the Sentry [MCP server](../customization/mcp-tools.md) enabled, a single prompt — run by hand or from a [scheduled job](scheduled-jobs.md) — triages and fans out:
 
-```
+```text
 Triage the unresolved Sentry issues of the last 24 hours. For each one worth fixing, delegate a fix on this
 repository's default branch, with the issue's details in the prompt and the issue in `references` with
 relation `closes`. When the fixes finish, summarise what was fixed and what was left alone, with links.
@@ -174,7 +176,7 @@ Every leg is its own session in the [Sessions](sessions.md) list, and the legs o
 - **Transcript** — each `delegate_jobs` call is a **Delegated jobs** card: its goal, and one row per leg with its state, merge request and session.
 - **Sidebar** — the **Delegated jobs** section of the **Info** tab lists the legs batch by batch, newest first.
 
-A leg is *Queued*, *Starts after this turn*, *Running*, *Stopping*, *Finished*, *Failed*, *Cancelled*, *Lost* (it started, but DAIV lost track of it), or *Not run: merge request merged* / *closed* (a leg follow-up that stopped at its start). A leg that served several batches, through leg follow-ups, is listed under each batch and counted once in the **Delegated jobs** count, and the call card marks a leg follow-up's row as **Leg follow-up**. An open page updates within a few seconds of a leg starting or finishing. In both places, a leg whose session you cannot see shows only its repository, branch and state. A leg's own session page links back to the coordinator's (**Delegated by**) when you can see it.
+A leg is *Queued*, *Starts after this turn*, *Running*, *Stopping*, *Finished*, *Failed*, *Cancelled*, *Lost* (it started, but DAIV lost track of it), or *Not run: merge request merged* / *closed* / *session archived* (a leg follow-up that stopped before it ran). A leg that served several batches, through leg follow-ups, is listed under each batch and counted once in the **Delegated jobs** count, and the call card marks a leg follow-up's row as **Leg follow-up**. An open page updates within a few seconds of a leg starting or finishing. In both places, a leg whose session you cannot see shows only its repository, branch and state. A leg's own session page links back to the coordinator's (**Delegated by**) when you can see it.
 
 The coordinator's session then shows the resumed run with the legs' summary. [Notifications](notifications.md) treat the legs as a batch, so you get one rollup when they need a look.
 
@@ -183,6 +185,6 @@ The coordinator's session then shows the resumed run with the legs' summary. [No
 
 ## See also
 
-- [Repository Config](../customization/repository-config.md) — the `orchestration` toggle
-- [Jobs API](jobs-api.md) and [MCP Endpoint](mcp-endpoint.md) — a batch can also give each repository its own `prompt`
+- [Repository configuration](../customization/repository-config.md) — the `orchestration` toggle
+- [Jobs API](jobs-api.md) and [MCP endpoint](mcp-endpoint.md) — a batch can also give each repository its own `prompt`
 - [Subagents](subagents.md) — parallel work inside one turn

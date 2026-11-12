@@ -18,7 +18,7 @@ from sessions.signal_defs import run_ended, run_finished
 
 if TYPE_CHECKING:
     from accounts.models import User
-    from sessions.models import Run, RunArtifact, Session, ToolResultMedia
+    from sessions.models import MergeRequestOwnership, Run, RunArtifact, Session, ToolResultMedia
 
 
 def _readable_repos_q(user: User, session_ref: str) -> models.Q:
@@ -53,12 +53,6 @@ def _session_runs_newest_first(session: models.OuterRef) -> models.QuerySet[Run]
     from sessions.models import Run
 
     return Run.objects.filter(session=session).order_by(*_NEWEST_FIRST)
-
-
-def _archived_by(user: User, session: models.OuterRef) -> models.Exists:
-    from sessions.models import HiddenSession
-
-    return models.Exists(HiddenSession.objects.filter(session=session, user=user))
 
 
 class SessionQuerySet(models.QuerySet["Session"]):
@@ -112,18 +106,42 @@ class SessionQuerySet(models.QuerySet["Session"]):
             return self.all()
         return self.filter(self._owner_q(user) | _readable_repos_q(user, "pk"))
 
-    def for_merge_request(self, iid: int) -> models.QuerySet[Session]:
-        """Sessions that touched merge request ``iid``, whichever way they learned of it.
+    def on_merge_request(self, iid: int, *, repo_id: str | None = None) -> models.QuerySet[Session]:
+        """Sessions that worked on merge request ``iid`` of ``repo_id``, or of any repository when ``None``: carry its
+        IID (on their main repository or another of theirs), ran on it, or own it.
 
-        MR-scope sessions carry the IID from the webhook; an issue-scope session only learns it
-        when its run backfills at completion. A subquery rather than a ``runs`` join keeps this
-        one row per session, so ``with_latest_status``'s per-row subquery is not multiplied.
+        MR-scope sessions carry the IID from the webhook; an issue-scope session only learns it when its run backfills
+        at completion. Subqueries rather than joins keep this one row per session, so ``with_latest_status``'s per-row
+        subquery is not multiplied.
         """
-        from sessions.models import Run
+        from sessions.models import MergeRequestOwnership, Run, SessionRepository
 
+        on_it = {"merge_request_iid": iid} if repo_id is None else {"repo_id": repo_id, "merge_request_iid": iid}
         return self.filter(
-            models.Q(merge_request_iid=iid)
-            | models.Q(pk__in=Run.objects.filter(merge_request_iid=iid).values("session_id"))
+            models.Q(**on_it)
+            | models.Q(pk__in=SessionRepository.objects.filter(**on_it).values("session_id"))
+            | models.Q(pk__in=Run.objects.filter(**on_it).values("session_id"))
+            | models.Q(pk__in=MergeRequestOwnership.objects.filter(**on_it).values("session_id"))
+        )
+
+    def without_open_merge_request(self) -> models.QuerySet[Session]:
+        """Exclude sessions that own an open merge request."""
+        from sessions.models import MergeRequestOwnership
+
+        return self.exclude(models.Exists(MergeRequestOwnership.objects.open().filter(session=models.OuterRef("pk"))))
+
+    def without_live_work(self) -> models.QuerySet[Session]:
+        """Exclude sessions that own an open merge request, have an unfinished run or a waking inbox event, or
+        delegated a leg that owns an open merge request or has an unfinished run."""
+        from sessions.models import EventState, InboxEvent, MergeRequestOwnership, Run, RunStatus
+
+        unfinished = Run.objects.exclude(status__in=RunStatus.terminal())
+        waking = InboxEvent.objects.filter(session=models.OuterRef("pk"), state=EventState.PENDING, wake=True)
+        return self.without_open_merge_request().exclude(
+            models.Exists(MergeRequestOwnership.objects.open().filter(session__parent=models.OuterRef("pk")))
+            | models.Exists(unfinished.filter(session=models.OuterRef("pk")))
+            | models.Exists(unfinished.filter(session__parent=models.OuterRef("pk")))
+            | models.Exists(waking)
         )
 
     def without_watch_placeholders(self) -> models.QuerySet[Session]:
@@ -133,18 +151,18 @@ class SessionQuerySet(models.QuerySet["Session"]):
         has_run = models.Exists(Run.objects.filter(session=models.OuterRef("pk")))
         return self.exclude(~has_run, origin=SessionOrigin.PIPELINE_WEBHOOK)
 
-    def listed_for(self, user: User, *, mine: bool = False, archived: bool = False) -> models.QuerySet[Session]:
+    def listed_for(self, user: User, *, mine: bool = False, archived: bool | None = False) -> models.QuerySet[Session]:
         """The rows the session list shows ``user`` before any filter: their own when ``mine``, else all visible.
 
-        ``archived`` swaps in the sessions ``user`` archived, which every other list leaves out.
+        ``archived`` swaps in the archived sessions, which every other list leaves out; ``None`` lists both.
         """
         sessions = self.owned_by(user) if mine else self.visible_to(user)
-        return sessions.archived_for(user, archived=archived).without_watch_placeholders().with_latest_status()
+        if archived is not None:
+            sessions = sessions.filter(archived_at__isnull=not archived)
+        return sessions.without_watch_placeholders().with_latest_status()
 
-    def archived_for(self, user: User, *, archived: bool = True) -> models.QuerySet[Session]:
-        """The sessions ``user`` archived out of their own list, or with ``archived=False`` the rest."""
-        hidden = _archived_by(user, models.OuterRef("pk"))
-        return self.filter(hidden if archived else ~hidden)
+    def archived(self) -> models.QuerySet[Session]:
+        return self.filter(archived_at__isnull=False)
 
     def with_latest_status(self) -> models.QuerySet[Session]:
         """Annotate each session with ``latest_run_status`` (status of the newest run).
@@ -183,15 +201,20 @@ class SessionManager(models.Manager.from_queryset(SessionQuerySet)):
     pass
 
 
+class MergeRequestOwnershipQuerySet(models.QuerySet["MergeRequestOwnership"]):
+    def open(self) -> models.QuerySet[MergeRequestOwnership]:
+        return self.filter(closed_at__isnull=True)
+
+
+class MergeRequestOwnershipManager(models.Manager.from_queryset(MergeRequestOwnershipQuerySet)):
+    pass
+
+
 class RunQuerySet(models.QuerySet["Run"]):
     def started_by(self, user: User) -> models.QuerySet[Run]:
         """Runs the user started, as themselves or through a git platform account they linked; not those of a schedule
         they subscribe to."""
         return self.filter(_started_by_q(user))
-
-    def not_archived_by(self, user: User) -> models.QuerySet[Run]:
-        """Runs outside the sessions ``user`` archived out of their own lists."""
-        return self.filter(~_archived_by(user, models.OuterRef("session")))
 
     def that_pushed(self) -> models.QuerySet[Run]:
         """Runs that pushed a commit, to their main repository or to another of their session's repositories."""

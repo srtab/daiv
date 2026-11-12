@@ -2,125 +2,54 @@
 description: "Configure the LLM providers DAIV runs on (OpenRouter, OpenAI, Anthropic, Google Gemini or a custom provider) and how models are specified."
 ---
 
-# LLM Providers
+# LLM providers
 
-DAIV supports the following LLM providers:
+DAIV runs on these LLM providers:
 
-- [OpenRouter](https://openrouter.ai) (**default**)
+- [OpenRouter](https://openrouter.ai) (default)
 - [OpenAI](https://openai.com)
 - [Anthropic](https://anthropic.com)
 - [Google Gemini](https://gemini.google.com)
 
-You can mix providers — for example, use OpenRouter for the main agent and a direct provider for a specific model override.
+You can mix providers, for example OpenRouter for the main agent and a direct provider for one model override. An admin can add any other OpenAI-compatible endpoint as a [custom provider](#custom-providers).
 
-## How models are specified
+## Provider API keys
 
-Models use a **prefix system** to identify the provider:
+DAIV reads a provider's API key once, at its first start, from the provider's environment variable or from a Docker secret named after the variable in lowercase, such as `openrouter_api_key`. From then on you change the keys, and the providers' other settings, under **Configuration** → **Providers** in the dashboard. A change to the variable or the secret after the first start has no effect.
 
-| Prefix | Provider | Example |
-|--------|----------|---------|
-| `openrouter:` | OpenRouter | `openrouter:anthropic/claude-sonnet-5.5` |
-| `claude` | Anthropic (direct) | `claude-sonnet-5-5` |
-| `gpt-4`, `gpt-5`, `gpt-6`, `o4` | OpenAI (direct) | `gpt-6.1-sol` |
-| `gemini` | Google Gemini (direct) | `gemini-3.8-flash` |
+[LLM providers](../reference/env-variables.md#llm-providers) in the environment variables reference lists the variables. [Providers](../reference/site-configuration.md#providers) in the site configuration reference describes the fields of a provider.
 
-DAIV resolves the provider automatically from the model name. No extra configuration is needed beyond setting the API key for the provider you want to use, before DAIV's first start: DAIV copies the keys into its database then, and from there on you change them under **Configuration → Providers** in the dashboard, not in the environment (see [Provider keys are seed-only](../reference/env-variables.md#automation-llm-providers)).
+## Set up a provider
 
-!!! tip
-    In the dashboard, the agent picker offers a live model dropdown built from each enabled provider's API (cached for 15 minutes), so you can choose a model without memorizing its full spec. Free-text entry remains available as a fallback.
+Set up a provider before DAIV's first start. You need an API key from the provider, and the default models need only OpenRouter's key.
 
-### Default models
+| Provider | Get an API key | Variable |
+|----------|----------------|----------|
+| OpenRouter | [OpenRouter Settings](https://openrouter.ai/settings/keys) | `OPENROUTER_API_KEY` |
+| OpenAI | [OpenAI](https://platform.openai.com/api-keys) | `OPENAI_API_KEY` |
+| Anthropic | [Anthropic](https://console.anthropic.com/settings/keys) | `ANTHROPIC_API_KEY` |
+| Google Gemini | [AI Studio](https://aistudio.google.com/apikey) | `GOOGLE_API_KEY` |
 
-| Role | Model | Fallback |
-|------|-------|----------|
-| Main agent | Claude Sonnet 5.5 | GPT-6.1 Sol |
-| Max mode | Claude Opus 5.5 | The main agent's models |
-| Explore subagent | Claude Haiku 5.5 | The main agent's models |
+1. Get an API key from the provider's page in the table.
+2. In DAIV's `.env` file, set the provider's variable to the key. Alternatively, mount a Docker secret named after the variable in lowercase.
+3. Start DAIV.
 
-Smaller tasks such as titling, merge request metadata and memory have their own defaults, listed in [Environment Variables](../reference/env-variables.md). All defaults route through OpenRouter, so only `OPENROUTER_API_KEY` is required for a basic setup. Choose the explore subagent's model with an `explore` entry in the subagent models (see [Subagents](../features/subagents.md#choosing-a-subagents-model)). Override models per repository in `.daiv.yml` — see [Repository Config](../customization/repository-config.md#model-overrides).
+A provider whose key was not set at the first start begins disabled. To set up a provider on a running install, open **Configuration** → **Providers**, set the provider's **API key**, turn on **Enabled**, and select **Save configuration**. Saving a key does not enable a disabled provider. [Providers](../reference/site-configuration.md#providers) describes the fields.
 
----
+## Model specs
 
-## OpenRouter
+A model spec names a model and its provider. OpenRouter models take the `openrouter:` prefix. Direct providers' models take no prefix, and DAIV picks the provider from the start of the name:
 
-OpenRouter is the **default provider** for DAIV. It provides access to models from multiple vendors with built-in fallback support.
+| Provider | Model spec | Example |
+|----------|------------|---------|
+| OpenRouter | `openrouter:` followed by the [model name from OpenRouter](https://openrouter.ai/models) | `openrouter:anthropic/claude-sonnet-5.5` |
+| Anthropic (direct) | A name starting with `claude`, from the [model names Anthropic lists](https://docs.anthropic.com/en/docs/about-claude/models/all-models#model-names) | `claude-sonnet-5-5` |
+| OpenAI (direct) | A name starting with `gpt-4`, `gpt-5`, `gpt-6` or `o4`, from the [model names OpenAI lists](https://platform.openai.com/docs/models) | `gpt-6.1-sol` |
+| Google Gemini (direct) | A name starting with `gemini`, from the [model names Gemini lists](https://ai.google.dev/gemini-api/docs/models) | `gemini-3.8-flash` |
 
-**Setup:**
+A provider's slug also works as a prefix, so `anthropic:claude-sonnet-5-5` is the same model as `claude-sonnet-5-5`. The slug of Google Gemini is `google_genai`, and DAIV also accepts `google:`.
 
-1. Obtain an API key from [OpenRouter Settings](https://openrouter.ai/settings/keys)
-2. Set the environment variable:
-   ```
-   OPENROUTER_API_KEY=your-api-key-here
-   ```
-
-**Model format:**
-
-Use the `openrouter:` prefix followed by the [model name from OpenRouter](https://openrouter.ai/models):
-
-```
-openrouter:anthropic/claude-sonnet-5.5
-openrouter:openai/gpt-6.1-sol
-```
-
-**Per-repository override** (`.daiv.yml`):
-
-```yaml
-models:
-  agent:
-    model: "openrouter:anthropic/claude-sonnet-5.5"
-```
-
----
-
-## OpenAI
-
-**Setup:**
-
-1. Obtain an API key from [OpenAI](https://platform.openai.com/api-keys)
-2. Set the environment variable:
-   ```
-   OPENAI_API_KEY=your-api-key-here
-   ```
-
-**Model format:**
-
-Use the [model name from OpenAI](https://platform.openai.com/docs/models) directly (no prefix needed):
-
-```
-gpt-6.1-sol
-gpt-6-luna
-```
-
-**Per-repository override** (`.daiv.yml`):
-
-```yaml
-models:
-  agent:
-    model: "gpt-6.1-sol"
-```
-
----
-
-## Anthropic
-
-**Setup:**
-
-1. Obtain an API key from [Anthropic](https://console.anthropic.com/settings/keys)
-2. Set the environment variable:
-   ```
-   ANTHROPIC_API_KEY=your-api-key-here
-   ```
-
-**Model format:**
-
-Use the [model name from Anthropic](https://docs.anthropic.com/en/docs/about-claude/models/all-models#model-names) directly (no prefix needed):
-
-```
-claude-sonnet-5-5
-claude-opus-5-5
-```
-
-**Per-repository override** (`.daiv.yml`):
+To use a model spec for one repository, set it in `.daiv.yml`; [Model overrides](../customization/repository-config.md#model-overrides) lists every option. For example:
 
 ```yaml
 models:
@@ -128,69 +57,40 @@ models:
     model: "claude-sonnet-5-5"
 ```
 
-!!! warning
-    We love Anthropic, but unfortunately their API is very unstable and often returns errors.
-    Also, the rate limits could be exceeded very quickly.
+In the dashboard, the agent picker offers a model dropdown built from each enabled provider's API and cached for 15 minutes, so you can choose a model without typing its spec. Free-text entry stays available as a fallback.
 
----
+## Default models
 
-## Google Gemini
+| Role | Model | Fallback |
+|------|-------|----------|
+| Main agent | `openrouter:anthropic/claude-sonnet-5.5` | `openrouter:openai/gpt-6.1-sol` |
+| Max mode | `openrouter:anthropic/claude-opus-5.5` | The main agent's models |
+| Explore subagent | `openrouter:anthropic/claude-haiku-5.5` | The main agent's models |
 
-**Setup:**
+Smaller tasks such as titling, merge request metadata and memory have their own defaults, listed in [Environment variables](../reference/env-variables.md). All defaults route through OpenRouter, so only `OPENROUTER_API_KEY` is required for a basic setup. Choose the explore subagent's model with an `explore` entry in the subagent models: see [Subagents](../features/subagents.md#subagent-model-precedence).
 
-1. Obtain an API key from [AI Studio](https://aistudio.google.com/apikey)
-2. Set the environment variable:
-   ```
-   GOOGLE_API_KEY=your-api-key-here
-   ```
+## Retries on provider errors
 
-**Model format:**
+DAIV retries a failed call to a provider's API when the failure is transient. For Anthropic's API, that means a connection error, or a 408, 409, 429 or 5xx response. DAIV retries up to `DAIV_MODEL_MAX_RETRIES` times (default `2`; see [Model requests](../reference/env-variables.md#model-requests)). A 400 or 401 response is not retried. If the call still fails, DAIV tries the fallback model, when one is set. If that fails too, the run ends with the error.
 
-Use the [model name from Gemini](https://ai.google.dev/gemini-api/docs/models) directly (no prefix needed):
-
-```
-gemini-3.8-flash
-```
-
-**Per-repository override** (`.daiv.yml`):
-
-```yaml
-models:
-  agent:
-    model: "gemini-3.8-flash"
-```
-
----
+If runs end on rate-limit errors, raise `DAIV_MODEL_MAX_RETRIES` or ask Anthropic for a higher rate limit.
 
 ## Custom providers
 
-Beyond the four providers above, admins can register additional providers from the **Configuration UI** at `/dashboard/configuration/` (under the providers section). This is mainly for self-hosted, OpenAI-compatible endpoints — vLLM, llama.cpp, LiteLLM, or an internal gateway — but applies to any of the supported wire protocols.
+An admin can register providers beyond the four above, mainly self-hosted, OpenAI-compatible endpoints such as vLLM, llama.cpp, LiteLLM or an internal gateway. A custom provider works with any of the supported wire protocols.
 
-When you add a provider, you choose:
+You need the admin role to add a custom provider. Under **Configuration** → **Providers**, the steps in [Add a custom provider](../reference/site-configuration.md#add-a-custom-provider) create the provider with a slug, a provider type, a base URL, an API key and a few options. [Provider fields](../reference/site-configuration.md#provider-fields) describes them.
 
-| Field | Purpose |
-|-------|---------|
-| **Slug** | A short identifier that becomes the model prefix (`your-slug:model_name`). Must start with a lowercase letter; lowercase letters, digits, `-`, `_`; max 32 chars. Immutable after creation. |
-| **Provider type** | The wire protocol used to talk to the server — one of OpenAI, Anthropic, Google Gemini, or OpenRouter. |
-| **Base URL** | The endpoint to call instead of the provider's default (for example, your vLLM server). For OpenAI-typed servers, include the version segment (e.g. `/v1`). |
-| **API key** | The credential for the endpoint (encrypted at rest). |
-| **Extra headers** | A JSON object of additional request headers (e.g. `{"X-Foo": "bar"}`). Agent-managed headers take precedence. |
-| **Use Responses API** | Only honored for OpenAI-typed providers. Enable for servers that expose `/v1/responses`; leave off for `/v1/chat/completions`-only servers (vLLM, llama.cpp, most LiteLLM setups). |
-| **Verify TLS certificates** | Disable only for self-hosted endpoints behind an internal or self-signed CA. Skipping verification exposes the connection to MITM attacks — prefer mounting the CA into the DAIV containers when possible. Honored only for OpenAI- and OpenRouter-typed providers. |
+Once the provider exists, reference its models with the slug as a prefix:
 
-Once the row exists, reference its models using the slug as a prefix:
-
-```
-your-slug:model_name
+```text
+<slug>:<model-name>
 ```
 
-You can use this prefix anywhere a model is specified, including the `.daiv.yml` [model overrides](../customization/repository-config.md#model-overrides).
+Replace `<slug>` with the provider's slug and `<model-name>` with a model the endpoint serves. You can use this prefix anywhere a model is specified, including the `.daiv.yml` [model overrides](../customization/repository-config.md#model-overrides).
 
-!!! tip "Prompt caching with on-demand tools"
-    The agent loads most of its tools on demand. On models listed in `DEFERRED_TOOLS_FROZEN_TOOLS_MODELS`, loading a tool keeps the provider's prompt cache; on any other model, the first use of each tool re-sends the conversation uncached. Before adding a self-hosted model to that list, check that it can call a tool it only saw in a `tool_search` result: run `tests/integration_tests/test_deferred_tools_frozen.py` against it (the command is in that file's docstring). List the model name without your provider slug, e.g. `qwen3-coder` for `vllm:qwen3-coder`.
+### Keep prompt caching on a self-hosted model
 
-!!! note
-    The four built-in providers (OpenRouter, OpenAI, Anthropic, Google Gemini) are locked: their slug and provider type cannot be changed and the rows cannot be deleted. Custom providers you add are fully editable and removable.
+The agent loads most of its tools on demand. On models listed in `DEFERRED_TOOLS_FROZEN_TOOLS_MODELS`, loading a tool keeps the provider's prompt cache. On any other model, the first use of each tool re-sends the conversation uncached.
 
-!!! info "Admin only"
-    Managing providers requires an admin account. See [Automation: LLM Providers](../reference/env-variables.md#automation-llm-providers) for how the built-in providers map to environment variables.
+Before you add a self-hosted model to that list, check that it can call a tool it only saw in a `tool_search` result: run `tests/integration_tests/test_deferred_tools_frozen.py` against it, using the command in that file's docstring. List the model name without your provider slug, for example `qwen3-coder` for `vllm:qwen3-coder`. [Environment variables](../reference/env-variables.md) describes the setting.

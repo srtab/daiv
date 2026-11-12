@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 from django.utils import timezone
 
 import pytest
+from sessions.auto_archive import MergeArchive
 from sessions.inbox.ownership import Ownerships
 from sessions.inbox.post import Inbox
 from sessions.models import (
@@ -18,6 +19,7 @@ from sessions.models import (
 )
 
 from accounts.models import User
+from tests.unit_tests.sessions.conftest import amake_owned_merge_request
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -476,3 +478,19 @@ class TestSiblingRepository:
         )
 
         assert await _events(run.session_id) == []
+
+
+class TestCloseSettlesAMergeArchive:
+    @pytest.mark.parametrize("merged", [True, False])
+    async def test_closing_a_legs_merge_request_archives_the_coordinator_a_merge_left_pending(self, merged):
+        await amake_owned_merge_request(thread_id="coord", closed_at=timezone.now(), merged=True)
+        leg = await Session.objects.acreate(
+            thread_id="leg", origin=SessionOrigin.DELEGATED_JOB, repo_id=REPO, parent_id="coord"
+        )
+        await MergeRequestOwnership.objects.acreate(repo_id=REPO, merge_request_iid=8, session=leg, source_branch="leg")
+        assert await MergeArchive(REPO, 7).aarchive() == []
+
+        await Ownerships(REPO).aclose(8, merged=merged, by_username="u", target_branch="main")
+
+        assert (await Session.objects.aget(pk="coord")).archived_at is not None
+        assert (await Session.objects.aget(pk="leg")).archived_at is None
