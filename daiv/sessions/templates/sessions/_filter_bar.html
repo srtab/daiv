@@ -21,7 +21,7 @@
             <input type="text" id="search" class="filter-search" x-model="q"
                    x-init="if (location.hash === '#search') $nextTick(() => $el.focus())"
                    @hashchange.window="location.hash === '#search' && $el.focus()"
-                   placeholder="{% translate 'Search by title or repository' %}"
+                   placeholder="{% translate 'Search by title or repository' %}" aria-label="{% translate 'Search by title or repository' %}"
                    @input.debounce.350ms="_apply()" @keydown.enter.prevent="_apply()">
         </div>
 
@@ -98,9 +98,9 @@
                     <p class="mb-1.5 text-[11px] uppercase tracking-wider text-gray-500">{% translate "Custom range" %}</p>
                     <div class="flex items-center gap-2" x-data="{ from: '{{ current_from|escapejs }}', to: '{{ current_to|escapejs }}' }"
                          @sessions:url-changed.window="const p = new URLSearchParams(location.search); from = p.get('date_from') || ''; to = p.get('date_to') || ''">
-                        <input type="date" x-model="from" class="rounded-lg border border-white/[0.06] bg-[#0b1018] px-2 py-1 text-[12px] text-gray-300">
+                        <input type="date" x-model="from" aria-label="{% translate 'From date' %}" class="rounded-lg border border-white/[0.06] bg-[#0b1018] px-2 py-1 text-[12px] text-gray-300">
                         <span class="text-gray-500">–</span>
-                        <input type="date" x-model="to" class="rounded-lg border border-white/[0.06] bg-[#0b1018] px-2 py-1 text-[12px] text-gray-300">
+                        <input type="date" x-model="to" aria-label="{% translate 'To date' %}" class="rounded-lg border border-white/[0.06] bg-[#0b1018] px-2 py-1 text-[12px] text-gray-300">
                         <button type="button" class="rounded-lg bg-white/[0.1] px-2.5 py-1 text-[12px] text-white hover:bg-white/[0.15]"
                                 @click="setCustomRange(from, to)">{% translate "Apply" %}</button>
                     </div>

@@ -314,6 +314,11 @@ class TestArtifactListView:
         assert resp.status_code == 302
         assert "login" in resp["Location"].lower()
 
+    def test_search_input_has_aria_label(self, member_client, member_user):
+        resp = member_client.get(reverse("artifact_list"))
+        assert resp.status_code == 200
+        assert 'aria-label="Search by title or filename"' in resp.content.decode()
+
     def test_owner_sees_own_artifact(self, member_client, member_user):
         artifact = _own_artifact(member_user)
 
