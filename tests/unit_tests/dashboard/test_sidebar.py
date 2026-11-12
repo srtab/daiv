@@ -453,12 +453,13 @@ class TestSidebarRail:
 
         assert sidebar.select_one('[data-testid="sidebar-lists"]').find_parent(class_="sidebar__collapsible")
         new_chat = sidebar.select_one('[data-testid="nav-rail-new-chat"]')
+        search = sidebar.select_one('[data-testid="nav-rail-search"]')
         sessions = sidebar.select_one('[data-testid="nav-rail-sessions"]')
         scheduled = sidebar.select_one('[data-testid="nav-rail-scheduled"]')
-        assert new_chat.find_parent(class_="sidebar__rail-only")
-        assert sessions.find_parent(class_="sidebar__rail-only")
-        assert scheduled.find_parent(class_="sidebar__rail-only")
+        for item in (new_chat, search, sessions, scheduled):
+            assert item.find_parent(class_="sidebar__rail-only")
         assert new_chat["href"] == reverse("session_new_chat")
+        assert search["href"] == reverse("session_list") + "#search"
         assert sessions["href"] == reverse("session_list")
         assert scheduled["href"] == reverse("schedule_list")
         assert sessions.select_one('[x-show="$store.nav.running > 0"]')
@@ -630,18 +631,11 @@ class TestSidebarSettingsMode:
         assert back["@click"] == "$store.sidebar.showSettings(false, $el)"
         assert back["title"]
 
-    def test_settings_pages_run_no_sidebar_list_queries(self, member_client, mocker):
-        spy = mocker.spy(context_processors, "sidebar_lists")
+    def test_settings_pages_keep_the_lists_behind_settings_for_back(self, member_client):
+        main = _sidebar(member_client, "sandbox_envs:list").select_one('[data-testid="nav-main-panel"]')
 
-        member_client.get(reverse("sandbox_envs:list"))
-
-        assert spy.call_count == 0
-
-    def test_settings_pages_load_the_lists_when_back_shows_them(self, member_client):
-        lists = _sidebar(member_client, "sandbox_envs:list").select_one('[data-testid="sidebar-lists"]')
-
-        assert not lists.select('[data-testid="nav-sessions-group"]')
-        assert lists["x-effect"] == "$store.sidebar.settings || $store.sidebarLists.refresh()"
+        assert main.select_one('[data-testid="nav-sessions-group"]')
+        assert main.select_one('[data-testid="nav-scheduled-group"]')
 
     def test_every_page_stays_reachable(self, admin_client):
         home = _soup(admin_client, "dashboard")

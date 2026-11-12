@@ -42,6 +42,13 @@
       {% icon "plus" "h-4 w-4 shrink-0" %}
       <span class="sidebar__collapsible">{% translate "New chat" %}</span>
     </a>
+    <a href="{% url 'session_list' %}#search"
+       data-testid="nav-rail-search"
+       title="{% translate 'Search sessions' %} (/)"
+       class="sidebar__nav-item">
+      {% icon "magnifying-glass" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__collapsible">{% translate "Search sessions" %}</span>
+    </a>
     <a href="{% url 'session_list' %}"
        data-testid="nav-rail-sessions"
        title="{% translate 'Sessions' %}"
@@ -66,10 +73,8 @@
 <div data-sidebar-scroll class="sidebar__collapsible scrollbar-thin min-h-0 flex-1 overflow-y-auto px-3 pt-3 pb-4"
      {% if not sheet %}x-init="$nextTick(() => $store.sidebarLists.restoreScroll($el))"
      @scroll.throttle.150ms="$store.sidebarLists.saveScroll($el)"{% endif %}>
-  {# A settings page opens on Settings, so its lists load only once Back slides them into view. #}
   <div data-testid="sidebar-lists" data-url="{% url 'sidebar_lists' %}" data-viewing="{{ nav_session_thread_id }}"
-       data-section="{{ nav_active_section }}"
-       {% if nav_settings_mode %}x-effect="$store.sidebar.settings || $store.sidebarLists.refresh()"{% endif %}>
-    {% if not nav_settings_mode %}{% include "dashboard/_sidebar_lists.html" %}{% endif %}
+       data-section="{{ nav_active_section }}">
+    {% include "dashboard/_sidebar_lists.html" %}
   </div>
 </div>

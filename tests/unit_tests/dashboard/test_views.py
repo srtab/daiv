@@ -527,6 +527,24 @@ class TestWaysToUse:
         assert [node["data-testid"] for node in sections] == ["your-week", "ways-to-use"]
         assert sections[1].name == "details"
         assert sections[1].has_attr("open")
+        heading = main.select_one("#ways-heading")
+        assert heading.name == "h2"
+        assert not heading.find_parent("summary")
+
+    def test_someone_new_gets_the_intro_and_the_slash_commands_open(self, member_user, member_client):
+        def ways():
+            return BeautifulSoup(member_client.get(reverse("dashboard")).content, "html.parser").select_one(
+                '[data-testid="ways-to-use"]'
+            )
+
+        intro = "Start work from wherever you already are"
+        first = ways()
+        assert intro in first.get_text()
+        assert first.select_one('[data-testid="ways-git"] details').has_attr("open")
+        _make_session(member_user, SessionOrigin.CHAT)
+        later = ways()
+        assert intro not in later.get_text()
+        assert not later.select_one('[data-testid="ways-git"] details').has_attr("open")
 
 
 def _insights(client, **params):
@@ -923,11 +941,11 @@ class TestYourWeek:
         assert response.context["your_week"] is None
         assert 'data-testid="your-week"' not in response.content.decode()
 
-    def test_hidden_when_you_archived_all_your_sessions(self, member_user, member_client):
+    def test_shown_when_all_your_sessions_are_archived(self, member_user, member_client):
         archived = _make_session(member_user, SessionOrigin.CHAT)
         Session.objects.filter(pk=archived.pk).update(archived_at=timezone.now())
 
-        assert member_client.get(reverse("dashboard")).context["your_week"] is None
+        assert member_client.get(reverse("dashboard")).context["your_week"] is not None
 
 
 @pytest.mark.django_db

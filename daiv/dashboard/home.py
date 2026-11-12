@@ -166,7 +166,8 @@ def inbox(user: User) -> dict:
 
 
 def has_sessions(user: User) -> bool:
-    return Session.objects.listed_for(user, mine=True).exists()
+    """Archived sessions count: merging a merge request archives its sessions, and Your week counts their runs."""
+    return Session.objects.listed_for(user, mine=True, archived=None).exists()
 
 
 def _platform_terms() -> tuple[str, str]:

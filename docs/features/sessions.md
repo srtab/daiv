@@ -51,7 +51,7 @@ The sidebar lists your sessions, so any of them is one click away from every pag
 - **Scheduled** — up to ten schedules you own or subscribe to that are enabled or ran in the last 14 days, each with its next run. Expand one for its three latest runs: one row per run of the schedule, with the worst status across its repositories and, past one, how many repositories it ran on. A run on one repository opens its session; a wider one opens the sessions it started. **All runs** lists every session of the schedule, and the list icon beside the heading opens the schedules page. A schedule whose latest run failed or is waiting for input starts expanded; otherwise it remembers, in this browser, whether you expanded it.
 - **Settings**, the cog beside your account, slides in the pages you set up once — sandbox environments, MCP servers and memory, and for admins users, configuration, schedule templates, skills and global MCP servers — along with the documentation links. Nothing changes on the page until you pick one. **Back** (or Escape) slides your sessions back in.
 
-The lists update as runs start and finish, without a reload. Where the sidebar narrows to icons, **+** starts a chat and **Sessions** and **Scheduled** open their pages.
+The lists update as runs start and finish, without a reload. Where the sidebar narrows to icons, **+** starts a chat, the magnifier opens the session search, and **Sessions** and **Scheduled** open their pages.
 
 To see more of long titles, drag the sidebar's right edge to widen it (or focus the edge and use the arrow keys); double-click the edge to reset it. This browser remembers the width. The sidebar never takes so much room that the page beside it gets cramped, so on smaller windows it widens less.
 

@@ -492,7 +492,8 @@ What is particular to it:
 
 Reference material beside live data, e.g. Home's Ways to use DAIV (`dashboard/_ways_to_use.html`):
 a `<details>` with `.guide` — unfilled, a dashed border — so it never reads as a data card. Its
-summary holds the title, a one-line hint while folded, and Show/Hide. The open state is per
+summary holds the title, a one-line hint while folded, and Show/Hide; a `<summary>` is a button,
+so the section's `<h2>` sits outside it, `sr-only`. The open state is per
 browser (`localStorage` key `daiv.home.ways`), applied by an inline script right after the element
 so a folded guide never paints open.
 
@@ -644,7 +645,7 @@ wordmark and a teal New chat `+`) that is the only nav entry point on a phone.
   newest firings (one row per dispatch, worst status of its sessions, a repository count
   past one) and "All runs". Its heading takes the `schedules` section's active state;
   its list icon links the schedules page. The queries run once per page, behind the lazy
-  `nav_sidebar`, and never while a settings page loads. Order and contents are pinned by
+  `nav_sidebar`. Order and contents are pinned by
   `dashboard/test_sidebar.py` and `dashboard/test_sidebar_lists.py`.
 - **Settings menu.** The `<nav>` holds two menus side by side in one clipped grid row
   (`.nav-panels`, each a `.nav-panel`): the fixed rows and lists, and `_sidebar_settings.html`
@@ -655,9 +656,9 @@ wordmark and a teal New chat `+`) that is the only nav entry point on a phone.
   (`.nav-cog`, a disclosure button) slides Settings in and Back or Escape slides it out, with
   no page load; focus moves to Back, then back to the cog, and the hidden menu is `inert`.
   The `sidebar` store's `settings` holds the state for both copies. A page whose section is in
-  `_SETTINGS_SECTION_URL_NAMES` (`dashboard/context_processors.py`) starts on Settings, its
-  lists left out until Back first shows them (`sidebarLists.refresh()`). Schedules and
-  Insights are not settings: their pages keep the lists, and Insights is reached from Home.
+  `_SETTINGS_SECTION_URL_NAMES` (`dashboard/context_processors.py`) starts on Settings, with
+  the lists already behind it for Back. Schedules and Insights are not settings: their pages
+  open on the lists, and Insights is reached from Home.
 - **Live lists.** The `nav` store announces `daiv:runs-changed` when a frame moves the
   running snapshot of the user's own sessions (`own_running_runs`, `own_latest_running_start`;
   runs they merely see do not count) or the stream reopens; the `sidebarLists` store
@@ -672,8 +673,8 @@ wordmark and a teal New chat `+`) that is the only nav entry point on a phone.
   `:root[data-sidebar="rail"]`, which also sets `--app-sidebar-width` to 4rem so the sheet
   inset follows. Anything the rail must hide carries `sidebar__collapsible` — the lists'
   whole scroller does — and anything only the rail shows carries `sidebar__rail-only`: the
-  dot that stands in for the unread count, and the New chat, Sessions (dotted while anything
-  runs) and Scheduled icons that stand in for the lists and their headings. The elements it
+  dot that stands in for the unread count, and the New chat, Search, Sessions (dotted while
+  anything runs) and Scheduled icons that stand in for the lists and their headings. The elements it
   re-centres carry `sidebar__brand` / `sidebar__nav-item` / `sidebar__footer-link` /
   `sidebar__account`, a group heading keeps its box via `sidebar__group-heading`, and the
   toggle stacks under the mark with its chevron (`sidebar__toggle-icon`) turned outward. A

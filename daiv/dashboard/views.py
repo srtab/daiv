@@ -63,9 +63,11 @@ class DashboardView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         user = self.request.user
+        has_sessions = home.has_sessions(user)
         context.update({
             "inbox": home.inbox(user),
-            "your_week": home.your_week(user) if home.has_sessions(user) else None,
+            "has_sessions": has_sessions,
+            "your_week": home.your_week(user) if has_sessions else None,
             "ways": home.ways_to_use(),
         })
         return context
