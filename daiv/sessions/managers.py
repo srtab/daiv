@@ -130,6 +130,32 @@ class SessionQuerySet(models.QuerySet["Session"]):
             | models.Q(pk__in=Run.objects.filter(merge_request_iid=iid).values("session_id"))
         )
 
+    def on_merge_request(self, repo_id: str, iid: int) -> models.QuerySet[Session]:
+        """Sessions that worked on ``repo_id``'s merge request ``iid``: carry its IID, ran on it, or own it.
+
+        Ownership covers a merge request on a multi-repository session's other repositories, as DAIV published it.
+        """
+        from sessions.models import MergeRequestOwnership, Run
+
+        on_it = {"repo_id": repo_id, "merge_request_iid": iid}
+        return self.filter(
+            models.Q(**on_it)
+            | models.Q(pk__in=Run.objects.filter(**on_it).values("session_id"))
+            | models.Q(pk__in=MergeRequestOwnership.objects.filter(**on_it).values("session_id"))
+        )
+
+    def without_live_work(self) -> models.QuerySet[Session]:
+        """Exclude sessions that own an open merge request, or delegated a leg that owns one or is still running."""
+        from sessions.models import MergeRequestOwnership, Run, RunStatus
+
+        open_owned = MergeRequestOwnership.objects.filter(closed_at__isnull=True)
+        leg_running = Run.objects.filter(session__parent=models.OuterRef("pk")).exclude(status__in=RunStatus.terminal())
+        return self.exclude(
+            models.Exists(open_owned.filter(session=models.OuterRef("pk")))
+            | models.Exists(open_owned.filter(session__parent=models.OuterRef("pk")))
+            | models.Exists(leg_running)
+        )
+
     def without_watch_placeholders(self) -> models.QuerySet[Session]:
         """Exclude the MR threads a CI watch created that no run has used yet."""
         from sessions.models import Run, SessionOrigin
