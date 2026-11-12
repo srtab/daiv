@@ -224,7 +224,6 @@
   }
 }
 
-/* While a drag is on, the cursor stays a resize cursor over the content and nothing selects. */
 :root[data-sidebar-resizing],
 :root[data-sidebar-resizing] * {
   cursor: col-resize;
@@ -239,10 +238,7 @@
            text-text-muted transition-colors hover:text-text;
   }
 
-  /* The active item's 3px brand rail. `nav_active` adds the modifier, so it is drawn on
-     the one active item instead of hidden with `opacity-0` inside every other. */
-  /* The sidebar's right edge: an invisible strip straddling its border, whose line lands on
-     the border and turns teal under the pointer, on keyboard focus, and through a drag. */
+  /* Straddles the sidebar's border, so its 2px line lands on it. */
   .sidebar__resize {
     @apply absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize touch-none outline-none;
   }
@@ -257,6 +253,8 @@
     @apply bg-accent;
   }
 
+  /* The active item's 3px brand rail. `nav_active` adds the modifier, so it is drawn on
+     the one active item instead of hidden with `opacity-0` inside every other. */
   .sidebar__nav-item--active {
     position: relative;
   }

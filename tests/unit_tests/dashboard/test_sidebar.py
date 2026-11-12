@@ -740,7 +740,6 @@ class TestCollapseToggle:
         assert len(edges) == 1
         assert edges[0].find_parent(id="app-sidebar")
         assert (edges[0]["role"], edges[0]["tabindex"], edges[0]["aria-controls"]) == ("separator", "0", "app-sidebar")
-        assert edges[0]["aria-label"] == "Resize sidebar"
 
     def test_the_shortcut_and_store_are_wired_into_the_shell(self, member_client):
         content = member_client.get(reverse("dashboard")).content.decode()

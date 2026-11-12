@@ -4,7 +4,7 @@ import logging
 from typing import Any
 
 from django.db import Error as DatabaseError
-from django.db.models import Count, Max, Q
+from django.db.models import Count, Exists, Max, OuterRef
 from django.utils.functional import SimpleLazyObject
 
 from sessions.models import Run, RunStatus, Session
@@ -87,7 +87,6 @@ _SETTINGS_SECTION_URL_NAMES: dict[str, set[str]] = {
 }
 
 SECTION_URL_NAMES: dict[str, set[str]] = {**_MAIN_SECTION_URL_NAMES, **_SETTINGS_SECTION_URL_NAMES}
-SETTINGS_SECTIONS: frozenset[str] = frozenset(_SETTINGS_SECTION_URL_NAMES)
 
 
 def _resolve_active_section(request) -> str:
@@ -109,7 +108,7 @@ def running_snapshot(visible, user) -> dict[str, Any]:
     stream carried ``session`` frames, which watch it to hear that a run started after they rendered.
     The ``own_`` pair is the same snapshot over the sessions the user owns, which the sidebar's lists show.
     """
-    own = Q(session__in=Session.objects.owned_by(user).values("pk"))
+    own = Exists(Session.objects.owned_by(user).filter(pk=OuterRef("session_id")))
     stats = visible.filter(status=RunStatus.RUNNING).aggregate(
         running_runs=Count("pk"),
         latest=Max("started_at"),
@@ -164,10 +163,6 @@ def running_jobs_count(request, user) -> int:
     return running_state(request, user)["running_runs"]
 
 
-def own_running_jobs_count(request, user) -> int:
-    return running_state(request, user)["own_running_runs"]
-
-
 def _viewed_thread_id(request) -> str:
     match = getattr(request, "resolver_match", None)
     if match is None or match.view_name != "session_detail":
@@ -203,9 +198,9 @@ def nav(request) -> dict[str, Any]:
     active_section = _resolve_active_section(request)
     return {
         "nav_running_jobs": SimpleLazyObject(lambda: running_jobs_count(request, user)),
-        "nav_own_running_jobs": SimpleLazyObject(lambda: own_running_jobs_count(request, user)),
+        "nav_own_running_jobs": SimpleLazyObject(lambda: running_state(request, user)["own_running_runs"]),
         "nav_active_section": active_section,
-        "nav_settings_mode": active_section in SETTINGS_SECTIONS,
+        "nav_settings_mode": active_section in _SETTINGS_SECTION_URL_NAMES,
         "nav_session_thread_id": _viewed_thread_id(request),
         "nav_sidebar": SimpleLazyObject(lambda: sidebar_state(request, user)),
     }

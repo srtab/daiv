@@ -96,8 +96,7 @@ document.addEventListener("alpine:init", () => {
     },
 
     resetWidth() {
-      document.documentElement.style.removeProperty(WIDTH_VAR);
-      this.measure();
+      this._apply(0);
       this._remember();
     },
 

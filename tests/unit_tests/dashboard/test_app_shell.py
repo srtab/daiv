@@ -9,15 +9,13 @@ from __future__ import annotations
 
 import re
 
-from tests.unit_tests.core.test_sidebar_js import SIDEBAR_JS
+from tests.unit_tests.core.test_sidebar_js import BASE_TEMPLATE, HEAD_SCRIPT
 from tests.unit_tests.test_picker_popovers import INPUT_CSS, SIDEBAR_TEMPLATE
 from tests.unit_tests.test_template_comments import DAIV_DIR, iter_template_files
 
 RAIL_VARIANT = re.compile(r"@custom-variant sidebar-rail \{(.*?)\n\}\n", re.DOTALL)
 RAIL_BLOCK = re.compile(r"\.sidebar--rail \{\n  @variant sidebar-rail \{(.*?)\n  \}\n\}\n", re.DOTALL)
 WIDE_TIER = re.compile(r"^@media \(width >= theme\(--breakpoint-lg\)\) \{(.*?)\n\}\n", re.DOTALL | re.MULTILINE)
-HEAD_SCRIPT = re.compile(r"<head>.*?<script>(.*?)</script>", re.DOTALL)
-BASE_TEMPLATE = DAIV_DIR / "core" / "templates" / "base.html"
 SIDEBAR_HOOK = re.compile(r"sidebar__[\w-]+")
 NAV_ITEM = re.compile(r'class="sidebar__nav-item[^"]*"(.*?)</a>', re.DOTALL)
 INCLUDE = re.compile(r'{% include "dashboard/([\w.]+)"')
@@ -89,15 +87,12 @@ def test_the_collapsed_flag_narrows_the_one_sidebar_width_token():
 
 def test_the_head_restores_the_collapse_before_first_paint():
     """Inline and ahead of the stylesheet, or a collapsed sidebar renders full and then snaps
-    to the rail. It reads the same storage key the store writes."""
+    to the rail. What it restores is driven in `core/test_sidebar_js.py`."""
     base = BASE_TEMPLATE.read_text(encoding="utf-8")
     script = HEAD_SCRIPT.search(base)
-    key = re.search(r'STORAGE_KEY = "([^"]+)"', SIDEBAR_JS.read_text(encoding="utf-8"))
 
     assert script, "base.html's <head> has no inline script restoring the sidebar"
     assert base.index(script.group(0)) < base.index("css/styles.css")
-    assert key and f'localStorage.getItem("{key.group(1)}") === "rail"' in script.group(1)
-    assert script.group(1).lstrip().startswith("try {"), "blocked storage would throw before first paint"
 
 
 def test_every_sidebar_nav_item_labels_its_text():
