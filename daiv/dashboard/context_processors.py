@@ -9,6 +9,8 @@ from django.utils.functional import SimpleLazyObject
 
 from sessions.models import Run, RunStatus
 
+from dashboard.sidebar import SidebarLists, sidebar_lists
+
 logger = logging.getLogger("daiv.dashboard")
 
 SECTION_URL_NAMES: dict[str, set[str]] = {
@@ -82,6 +84,18 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
 }
 
 
+SETTINGS_SECTIONS: frozenset[str] = frozenset({
+    "sandbox_envs",
+    "mcp_servers",
+    "memory",
+    "users",
+    "configuration",
+    "schedule_templates",
+    "skills",
+    "mcp_servers_global",
+})
+
+
 def _resolve_active_section(request) -> str:
     # A view may borrow another URL's section — needed where one URL serves rows of
     # several sections (e.g. mcp_connectors:edit renders global AND personal rows).
@@ -141,18 +155,42 @@ def running_jobs_count(request, user) -> int:
     return running_state(request, user)["running_runs"]
 
 
-def nav(request) -> dict[str, Any]:
-    """Supply ``nav_running_jobs`` and ``nav_active_section`` to every authenticated request.
+def _viewed_thread_id(request) -> str:
+    match = getattr(request, "resolver_match", None)
+    if match is None or match.view_name != "session_detail":
+        return ""
+    return match.kwargs.get("thread_id", "")
 
-    The running values are wrapped in ``SimpleLazyObject`` so the DB query runs only if the
+
+def sidebar_state(request, user) -> SidebarLists:
+    """``sidebar_lists`` memoized per-request via ``request._daiv_sidebar_lists``; empty on ``DatabaseError``."""
+    cached = getattr(request, "_daiv_sidebar_lists", None)
+    if cached is not None:
+        return cached
+    try:
+        state = sidebar_lists(user, viewing=_viewed_thread_id(request))
+    except DatabaseError:
+        logger.exception("Failed to compute the sidebar lists for user %s", user.pk)
+        state = SidebarLists()
+    request._daiv_sidebar_lists = state
+    return state
+
+
+def nav(request) -> dict[str, Any]:
+    """Supply the nav's running count, active section, settings mode and sidebar lists to every authenticated request.
+
+    The running count and the lists are wrapped in ``SimpleLazyObject`` so their queries run only if the
     template actually references them — non-HTML responses (redirects, HTMX fragments, SSE)
-    skip the query entirely.
+    skip them entirely.
     """
     user = getattr(request, "user", None)
     if user is None or not user.is_authenticated:
         return {}
 
+    active_section = _resolve_active_section(request)
     return {
         "nav_running_jobs": SimpleLazyObject(lambda: running_jobs_count(request, user)),
-        "nav_active_section": _resolve_active_section(request),
+        "nav_active_section": active_section,
+        "nav_settings_mode": active_section in SETTINGS_SECTIONS,
+        "nav_sidebar": SimpleLazyObject(lambda: sidebar_state(request, user)),
     }

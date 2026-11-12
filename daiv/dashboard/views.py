@@ -10,6 +10,7 @@ from core.mixins import AdminRequiredMixin
 from dashboard import home, insights, landing
 from dashboard.comparisons import CHECKED, COMPARISONS, COMPARISONS_BY_SLUG
 from dashboard.context_processors import running_jobs_count
+from dashboard.sidebar import SESSIONS_PAGE, sidebar_lists
 from dashboard.skill_usage import RECENT_RUNS, match_runs, skill_usage
 
 
@@ -105,3 +106,19 @@ class SkillUsageView(AdminRequiredMixin, SkillPageMixin, TemplateView):
         return super().get_context_data(
             usage=skill_usage(page.name, page.source), recent_runs=match_runs(recent), **kwargs
         )
+
+
+class SidebarListsView(LoginRequiredMixin, TemplateView):
+    """The sidebar's two lists alone, for the sidebar to swap in when runs start or finish."""
+
+    template_name = "dashboard/_sidebar_lists.html"
+    MAX_LIMIT = 80
+
+    def get_context_data(self, **kwargs):
+        try:
+            limit = int(self.request.GET.get("limit", SESSIONS_PAGE))
+        except ValueError:
+            limit = SESSIONS_PAGE
+        limit = min(max(limit, SESSIONS_PAGE), self.MAX_LIMIT)
+        lists = sidebar_lists(self.request.user, limit=limit, viewing=self.request.GET.get("viewing", ""))
+        return super().get_context_data(nav_sidebar=lists, **kwargs)

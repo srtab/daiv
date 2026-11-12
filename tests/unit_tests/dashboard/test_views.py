@@ -13,6 +13,7 @@ import pytest
 from dashboard import landing
 from dashboard.comparisons import COMPARISONS
 from dashboard.home import INBOX_LIMIT
+from dashboard.sidebar import SidebarLists
 from dashboard.tasks import BOT_USERNAME_CACHE_KEY, BOT_USERNAME_PENDING_KEY
 from notifications.choices import EnvelopeStatus
 from notifications.models import RunEnvelope
@@ -924,3 +925,29 @@ class TestYourWeek:
 
         assert response.context["your_week"] is None
         assert 'data-testid="your-week"' not in response.content.decode()
+
+
+@pytest.mark.django_db
+class TestSidebarListsView:
+    def test_requires_login(self, client):
+        response = client.get(reverse("sidebar_lists"))
+
+        assert response.status_code == 302
+        assert response.url.startswith("/accounts/login/")
+
+    @pytest.mark.parametrize(
+        ("query", "limit"), [("", 8), ("?limit=16", 16), ("?limit=9999", 80), ("?limit=abc", 8), ("?limit=1", 8)]
+    )
+    def test_clamps_limit(self, member_user, member_client, mocker, query, limit):
+        spy = mocker.patch("dashboard.views.sidebar_lists", return_value=SidebarLists())
+
+        member_client.get(reverse("sidebar_lists") + query)
+
+        spy.assert_called_once_with(member_user, limit=limit, viewing="")
+
+    def test_passes_viewing(self, member_user, member_client, mocker):
+        spy = mocker.patch("dashboard.views.sidebar_lists", return_value=SidebarLists())
+
+        member_client.get(reverse("sidebar_lists") + "?viewing=thread-1")
+
+        spy.assert_called_once_with(member_user, limit=8, viewing="thread-1")
