@@ -36,6 +36,8 @@ Add any of the following labels to an issue to trigger DAIV:
 
 Labels are case-insensitive (`DAIV`, `Daiv`, and `daiv` all work). You can combine them — for example, `daiv-auto` + `daiv-max` will auto-execute using the more capable model.
 
+Once the merge request DAIV opened for an issue merges, the issue's session is [archived](sessions.md#archived-sessions): a label or mention on the issue is then ignored, with no reaction or reply, until someone unarchives the session.
+
 ## Plan approval
 
 By default, DAIV uses a **human-in-the-loop** approach. After generating a plan, it waits for explicit approval before making code changes.

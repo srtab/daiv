@@ -4,7 +4,7 @@ from django.utils import timezone
 
 import pytest
 from sessions.auto_archive import aarchive_merged
-from sessions.models import MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
+from sessions.models import MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin, SessionRepository
 
 from tests.unit_tests.sessions.conftest import amake_owned_merge_request
 
@@ -51,6 +51,29 @@ class TestArchiveMerged:
 
         assert await aarchive_merged("group/repo", 7) == []
         assert not await Session.objects.filter(archived_at__isnull=False).aexists()
+
+    async def test_a_session_that_published_on_an_extra_repository_is_archived(self):
+        shared = await Session.objects.acreate(thread_id="shared", origin=SessionOrigin.CHAT, repo_id="group/main")
+        await SessionRepository.objects.acreate(session=shared, position=1, repo_id="group/repo", merge_request_iid=7)
+
+        assert await aarchive_merged("group/repo", 7) == ["shared"]
+
+    async def test_a_leg_merging_before_its_coordinator_is_followed_by_the_coordinator(self):
+        coordinator = await amake_owned_merge_request(thread_id="coord", merge_request_iid=7)
+        leg = await _leg("leg", "coord")
+        await MergeRequestOwnership.objects.acreate(
+            repo_id="group/repo",
+            merge_request_iid=8,
+            session=leg,
+            source_branch="leg",
+            closed_at=timezone.now(),
+            merged=True,
+        )
+
+        assert await aarchive_merged("group/repo", 8) == ["leg"]
+
+        await MergeRequestOwnership.objects.filter(pk=coordinator.pk).aupdate(closed_at=timezone.now(), merged=True)
+        assert await aarchive_merged("group/repo", 7) == ["coord"]
 
     async def test_a_session_owning_another_open_merge_request_is_left_alone(self):
         merged = await _merged("s")
