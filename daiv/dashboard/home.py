@@ -12,7 +12,7 @@ from django.utils.translation import gettext_lazy as _
 
 from notifications.choices import EnvelopeStatus
 from notifications.outcomes import CANT_RUN, CI_STILL_FAILING, ENVELOPE_OUTCOMES, Outcome
-from sessions.filters import SCOPE_MINE
+from sessions.filters import ARCHIVED_INCLUDED, SCOPE_MINE
 from sessions.models import MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
 from sessions.pipeline_watch.store import gave_up
 from sessions.templatetags.session_tags import attach_merge_request_states
@@ -219,14 +219,19 @@ def _merge_requests(runs: QuerySet[Run]) -> list[dict]:
 def your_week(user: User) -> dict:
     """What the runs ``user`` started came to over the last 7 days, a column a day.
 
-    Counts runs, so one session can add to several days; each day opens the sessions that ran that day.
+    Counts runs, archived sessions' included, so one session can add to several days; each day opens the sessions
+    that ran that day.
     """
     window = insights.window_for("7d")
-    runs = Run.objects.started_by(user).not_archived_by(user)
+    runs = Run.objects.started_by(user)
     in_window = runs.filter(window.date_q("created_at"))
     counted = in_window.filter(reduce(or_, (q for *_rest, q in WEEK_OUTCOMES)))
     chart = insights.stacked_chart(
-        runs, "created_at", window, WEEK_OUTCOMES, lambda day: my_sessions_url(ran_on=day.end.isoformat())
+        runs,
+        "created_at",
+        window,
+        WEEK_OUTCOMES,
+        lambda day: my_sessions_url(ran_on=day.end.isoformat(), archived=ARCHIVED_INCLUDED),
     )
     sessions = counted.aggregate(n=Count("session", distinct=True))["n"]
     merge_requests = _merge_requests(in_window)
@@ -249,7 +254,7 @@ def your_week(user: User) -> dict:
         "merge_requests": shown_merge_requests,
         "merge_requests_total": len(merge_requests),
         "merge_requests_more": max(len(merge_requests) - MR_LIST_LIMIT, 0),
-        "merge_requests_more_url": my_sessions_url(**window.list_params()),
+        "merge_requests_more_url": my_sessions_url(**window.list_params(), archived=ARCHIVED_INCLUDED),
         "started_from": started_from,
     }
 
