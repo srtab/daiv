@@ -191,18 +191,6 @@ async def test_run_checks_counts_a_check_timeout_stopped_at_the_limit_as_timed_o
     assert check.timed_out is True
 
 
-async def test_run_checks_masks_a_value_the_output_window_cuts_in_two(fake_bash):
-    value = "hunter2-secret-0042"
-    # The 200,000-character window starts 5 characters into the first copy; the masked second copy shortens the text.
-    output = "x" * 10 + value + "y" * 100_000 + value + "y" * 99_986
-    fake_bash.results = [RunCommandResult(command="t", output=output, exit_code=1)]
-
-    [result] = await CheckRunner(fake_bash, FakeGit(), redact=(value,)).run(["t"])
-
-    assert "secret" not in "".join(result.signature)
-    assert "******" in "".join(result.signature)
-
-
 async def test_run_checks_raises_unavailable_on_transport_error(fake_bash):
     fake_bash.error = httpx.ConnectError("All connection attempts failed: http://sandbox:8000/session/s-1/")
     with pytest.raises(ChecksUnavailableError) as raised:
@@ -212,45 +200,18 @@ async def test_run_checks_raises_unavailable_on_transport_error(fake_bash):
 
 
 def _failing(*commands: str) -> list[CheckResult]:
-    return [CheckResult(command, 1, "", signature=frozenset({f"{command} now"})) for command in commands]
+    return [CheckResult(command, 1, "") for command in commands]
 
 
-async def test_run_checks_signature_ignores_counts_timings_and_addresses(fake_bash):
-    fake_bash.results = [RunCommandResult(command="t", output="1 failed in 0.52s\n<obj at 0x7f3a2b>\n\n", exit_code=1)]
-    [first] = await CheckRunner(fake_bash, FakeGit()).run(["t"])
-    fake_bash.results = [RunCommandResult(command="t", output="3 failed in 12.1s\n<obj at 0x9c>", exit_code=1)]
-    [second] = await CheckRunner(fake_bash, FakeGit()).run(["t"])
-
-    assert first.signature == second.signature == frozenset({"# failed in #.#s", "<obj at #>"})
-
-
-async def test_failing_before_change_maps_commands_failing_on_starting_code_to_their_signature(fake_bash, fake_git):
-    fake_bash.results = [RunCommandResult(command="x", output="E1 broken", exit_code=1)]
-
-    found = await CheckRunner(fake_bash, fake_git).failing_before_change(_failing("make lint"), merging=False)
-
-    assert found == {"make lint": frozenset({"E# broken"})}
-    assert fake_git.events == ["stash_all", "restore_stash"]
-
-
-async def test_failing_before_change_leaves_out_commands_that_pass_on_starting_code(fake_bash, fake_git):
-    fake_bash.exit_codes = [1, 0]
+async def test_failing_before_change_returns_the_commands_failing_on_starting_code(fake_bash, fake_git):
+    fake_bash.exit_codes = [0, 1]
 
     found = await CheckRunner(fake_bash, fake_git).failing_before_change(
         _failing("make lint", "make test"), merging=False
     )
 
-    assert set(found) == {"make lint"}
-
-
-async def test_failing_before_change_masks_the_values_in_the_starting_output(fake_bash, fake_git):
-    fake_bash.results = [RunCommandResult(command="x", output="token s3cr3t-value", exit_code=1)]
-
-    runner = CheckRunner(fake_bash, fake_git, redact=("s3cr3t-value",))
-
-    found = await runner.failing_before_change(_failing("make test"), merging=False)
-
-    assert found == {"make test": frozenset({"token ******"})}
+    assert found == frozenset({"make test"})
+    assert fake_git.events == ["stash_all", "restore_stash"]
 
 
 async def test_failing_before_change_restores_tree_even_when_command_raises(fake_bash, fake_git):
@@ -280,16 +241,21 @@ async def test_failing_before_change_propagates_a_failed_restore(fake_bash, fake
 
 
 async def test_failing_before_change_skips_pending_merge(fake_bash, fake_git):
-    assert await CheckRunner(fake_bash, fake_git).failing_before_change(_failing("make test"), merging=True) == {}
+    found = await CheckRunner(fake_bash, fake_git).failing_before_change(_failing("make test"), merging=True)
+
+    assert found == frozenset()
     assert fake_git.events == []
     assert fake_bash.calls == []
 
 
-async def test_failing_before_change_uses_the_current_output_when_nothing_was_stashed(fake_bash, fake_git):
+async def test_failing_before_change_returns_every_failing_command_when_nothing_was_stashed(fake_bash, fake_git):
     fake_git.stashed = False
-    assert await CheckRunner(fake_bash, fake_git).failing_before_change(_failing("make test"), merging=False) == {
-        "make test": frozenset({"make test now"})
-    }
+
+    found = await CheckRunner(fake_bash, fake_git).failing_before_change(
+        _failing("make lint", "make test"), merging=False
+    )
+
+    assert found == frozenset({"make lint", "make test"})
     assert fake_git.events == ["stash_all"]
     assert fake_bash.calls == []
 

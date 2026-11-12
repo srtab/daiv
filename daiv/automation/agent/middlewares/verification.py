@@ -116,8 +116,7 @@ class VerificationMiddleware(AgentMiddleware):
 
     With ``before_publish`` commands, the system prompt lists them, and each time the agent stops with something to
     publish DAIV runs them in the sandbox, once per tree, and then puts back any file they changed. A command that fails
-    is re-run once on the starting code; one that failed there too is reported, not sent back, unless its output now
-    has lines it did not have there, which the agent is shown without the run counting as failed. The other failures,
+    is re-run once on the starting code; one that failed there too is reported, not sent back. The other failures,
     and any file the checks changed, go back to the agent as a reminder, for at most ``MAX_FIX_ROUNDS`` rounds; a stop
     on the tree a reminder was sent for records the failure without another round. Without commands, the agent gets
     one reminder when the tree changed after the last check it ran through bash, or that check failed. No reminder is
@@ -164,7 +163,7 @@ class VerificationMiddleware(AgentMiddleware):
         self._loop_breaker = loop_breaker
         self._publish_output = publish_output
         self._rounds = 0
-        self._starting: dict[str, frozenset[str] | None] = {}
+        self._starting: dict[str, bool] = {}
         self._runs: dict[str, CheckRun] = {}
         self._reminded_tree: str | None = None
         self._agent_check: _AgentCheck | None = None
@@ -262,14 +261,9 @@ class VerificationMiddleware(AgentMiddleware):
                 run = self._runs[tree] = await self._checks.run_in_place(self._commands, before=before, merging=merging)
             baseline = await self._baseline([result for result in run.results if not result.passed], merging=merging)
             failures = [result for result in run.results if not result.passed and result.command not in baseline]
-            output_changed = [
-                result
-                for result in run.results
-                if result.command in baseline and not result.signature <= baseline[result.command]
-            ]
             remind = (
                 may_remind
-                and bool(failures or run.changed_by_checks or output_changed)
+                and bool(failures or run.changed_by_checks)
                 and tree != self._reminded_tree
                 and self._rounds < MAX_FIX_ROUNDS
             )
@@ -280,30 +274,24 @@ class VerificationMiddleware(AgentMiddleware):
         failed = bool(failures or run.changed_by_checks)
         outcome = _outcome(
             "failed" if failed else "passed",
-            commands=command_outcomes(
-                run.results, baseline, {result.command for result in output_changed}, with_output=self._publish_output
-            ),
+            commands=command_outcomes(run.results, baseline, with_output=self._publish_output),
             changed=changed,
             rounds=self._rounds + 1 if remind else self._rounds,
             changed_by_checks=run.changed_by_checks,
         )
         if not remind:
             return _Verdict(outcome)
-        reminder = failure_reminder(
-            failures, run.changed_by_checks, MAX_FIX_ROUNDS - self._rounds, changed_output=output_changed
-        )
+        reminder = failure_reminder(failures, run.changed_by_checks, MAX_FIX_ROUNDS - self._rounds)
         return _Verdict(outcome, reminder, tree)
 
-    async def _baseline(self, failing: Sequence[CheckResult], *, merging: bool) -> dict[str, frozenset[str]]:
-        """The ``failing`` commands that also fail on the starting code, each with its output signature there,
-        re-checking each command at most once per run."""
+    async def _baseline(self, failing: Sequence[CheckResult], *, merging: bool) -> frozenset[str]:
+        """The ``failing`` commands that also fail on the starting code, re-checking each command at most once per
+        run."""
         unchecked = [result for result in failing if result.command not in self._starting]
         if unchecked:
             found = await self._checks.failing_before_change(unchecked, merging=merging)
-            self._starting.update({result.command: found.get(result.command) for result in unchecked})
-        return {
-            result.command: signature for result in failing if (signature := self._starting[result.command]) is not None
-        }
+            self._starting.update({result.command: result.command in found for result in unchecked})
+        return frozenset(result.command for result in failing if self._starting[result.command])
 
     def _fallback(self, changed: list[str], tree: str, *, may_remind: bool) -> _Verdict:
         """The ``not_configured`` outcome, and the run's one reminder when no passing check ran on this tree."""

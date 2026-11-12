@@ -309,43 +309,6 @@ async def test_failure_already_present_on_starting_code_is_not_sent_back():
     assert len(seen) == 1
 
 
-async def test_already_failing_check_with_new_output_is_shown_to_the_agent_without_failing_the_run():
-    repo = FakeRepo(
-        failing={"make test"},
-        failing_on_start={"make test"},
-        outputs={"make test": "FAILED test_old\nFAILED test_new\n2 failed in 0.4s"},
-        start_outputs={"make test": "FAILED test_old\n1 failed in 0.3s"},
-    )
-    handler, seen = _scripted(_final(), _final())
-
-    result = await _middleware(repo).awrap_model_call(_request(), handler)
-
-    reminder = seen[1].messages[-1].content
-    assert "already failed on the code before your change, but their output is different now" in reminder
-    assert "FAILED test_new" in reminder
-    outcome = _outcome(result)
-    assert outcome["status"] == "passed"
-    assert outcome["rounds"] == 1
-    assert outcome["commands"][0]["already_failing"]
-    assert outcome["commands"][0]["output_changed"]
-
-
-async def test_already_failing_check_whose_output_only_changed_in_numbers_is_not_sent_back():
-    repo = FakeRepo(
-        failing={"make test"},
-        failing_on_start={"make test"},
-        outputs={"make test": "FAILED test_old at 0x7f12\n1 failed in 0.4s"},
-        start_outputs={"make test": "FAILED test_old at 0x9a\n1 failed in 12.3s"},
-    )
-    handler, seen = _scripted(_final())
-
-    outcome = _outcome(await _middleware(repo).awrap_model_call(_request(), handler))
-
-    assert len(seen) == 1
-    assert outcome["status"] == "passed"
-    assert "output_changed" not in outcome["commands"][0]
-
-
 async def test_baseline_runs_once_per_command_per_run():
     repo = FakeRepo(failing={"make test"})
     middleware = _middleware(repo)

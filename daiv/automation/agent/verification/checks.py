@@ -6,7 +6,7 @@ import logging
 import re
 import shlex
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
@@ -39,7 +39,6 @@ _STASH_MESSAGE = "daiv: pre-publish verification"
 _REDACTED = "******"
 # Shorter values (``true``, ``8000``, ``python``) would mask ordinary words all over the output.
 _MIN_REDACTED_LENGTH = 8
-_VOLATILE = re.compile(r"0[xX][0-9a-fA-F]+|\d+")
 
 _DIFF_HEADER = re.compile(r"^diff --git ", re.MULTILINE)
 
@@ -49,9 +48,6 @@ class CheckResult:
     command: str
     exit_code: int
     output_tail: str
-    signature: frozenset[str] = field(default=frozenset(), compare=False, repr=False)
-    """A failing run's output lines with addresses, counts and timings masked, so two runs that fail alike compare
-    equal; empty for a passing run."""
     timed_out: bool = False
     """Whether the sandbox cut the command off; exit 124 from the command itself (``timeout 60 make``) is not."""
 
@@ -157,29 +153,26 @@ class CheckRunner:
                 logger.warning("Could not drop the stash entry saved before the checks", exc_info=True)
         return CheckRun(results, changed, diff_fingerprint(after))
 
-    async def failing_before_change(
-        self, failing: Sequence[CheckResult], *, merging: bool
-    ) -> dict[str, frozenset[str]]:
+    async def failing_before_change(self, failing: Sequence[CheckResult], *, merging: bool) -> frozenset[str]:
         """The ``failing`` commands that already fail on the starting code, found by stashing the agent's changes and
-        running them, each mapped to the signature of its output there; none during a merge in progress
-        (``merging``).
+        running them; none during a merge in progress (``merging``), and all of them when there was nothing to stash.
 
         Failing to set the changes aside leaves the tree as it was, so it is reported as the checks being unavailable;
         failing to restore them raises ``StashRestoreError``.
         """
         if merging:
-            return {}
+            return frozenset()
         try:
             stashed = await self._git.stash_all(_STASH_MESSAGE)
         except GIT_ERRORS as exc:
             raise ChecksUnavailableError("could not set the changes aside to re-check the starting code") from exc
         if stashed is None:
-            return {result.command: result.signature for result in failing}
+            return frozenset(result.command for result in failing)
         try:
             results = await self.run([result.command for result in failing])
         finally:
             await self._git.restore_stash(stashed)
-        return {result.command: result.signature for result in results if not result.passed}
+        return frozenset(result.command for result in results if not result.passed)
 
     async def _run_one(self, command: str) -> CheckResult:
         self._claim_time()
@@ -199,7 +192,6 @@ class CheckRunner:
             command=command,
             exit_code=result.exit_code,
             output_tail=output[-OUTPUT_TAIL_CHARS:],
-            signature=_signature(output) if result.exit_code else frozenset(),
             timed_out=stopped or result.timed_out or is_bare_timeout_notice(result, _SANDBOX_TIMEOUT_SECONDS),
         )
 
@@ -236,10 +228,6 @@ class CheckRunner:
         for value in self._redact:
             text = text.replace(value, _REDACTED)
         return text
-
-
-def _signature(output: str) -> frozenset[str]:
-    return frozenset(filter(None, (line.strip() for line in _VOLATILE.sub("#", output).splitlines())))
 
 
 def diff_fingerprint(diff: str) -> str:
