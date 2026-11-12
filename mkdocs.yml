@@ -185,6 +185,6 @@ nav:
     - Site configuration: reference/site-configuration.md
     - Agent Architecture: reference/agent-architecture.md
     - Monitoring: reference/monitoring.md
-    - Management Commands: reference/management-commands.md
+    - Management commands: reference/management-commands.md
     - Benchmarks: reference/benchmarks.md
   - Community: community.md

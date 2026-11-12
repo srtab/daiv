@@ -182,12 +182,7 @@ The command creates a single dashboard named **DAIV Monitoring** with 27 charts 
 | **Model** | Volume, Latency, Cost, Error Rate by Model | Per-model comparison |
 | **DiffToMetadata** | Volume, Latency, Error Rate | Diff-to-metadata pipeline health |
 
-### Options
-
-| Flag | Description |
-|------|-------------|
-| `--project` | LangSmith project name (default: `LANGCHAIN_PROJECT` or `LANGSMITH_PROJECT` env var) |
-| `--recreate` | Delete the existing dashboard and recreate it from scratch |
+The command's options, including `--project` and `--recreate`, are in [`setup_langsmith_dashboard`](management-commands.md#setup_langsmith_dashboard).
 
 ### Recreating the dashboard
 
