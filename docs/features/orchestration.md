@@ -35,20 +35,22 @@ sequenceDiagram
     Note over Coord: resumed with every leg's outcome
 ```
 
+The flow in text: the coordinator calls `delegate_jobs` and ends its turn, each leg runs on its own, and DAIV resumes the coordinator once every leg has finished, with every leg's outcome.
+
 Nothing polls while the legs run: the coordinator holds no worker and spends no tokens until it is resumed.
 
 When a leg comes back incomplete or wrong, the coordinator does not have to start over: a target that names the leg's session id (`thread_id`) is a **leg follow-up**. It continues that leg in its own session, with its earlier conversation, on its branch and merge request, so the fix lands where the leg's work already is. A leg follow-up joins the batch of the call that sent it, alongside any new legs, and the coordinator is resumed once all of them have finished.
 
-## Turning it off
+## Turn off orchestration
 
-Orchestration is **on by default** on every repository. Turn it off in the `.daiv.yml` of a repository whose agent should never split work off:
+Orchestration is on by default on every repository. To stop a repository's agent from splitting work off, add this to its `.daiv.yml`:
 
 ```yaml
 orchestration:
   enabled: false
 ```
 
-A repository needs no configuration to *receive* delegated work; a leg is a normal job.
+A repository needs no configuration to receive delegated work: a leg is a normal job. [Repository config](../customization/repository-config.md#feature-toggles) lists every feature toggle.
 
 ## Where a leg's work lands
 
@@ -79,7 +81,7 @@ Between resumes, the coordinator has two more tools:
 
 The agent cancels when you ask it to, or when the work a leg does is no longer wanted. The coordinator is still resumed once the batch has finished, with the cancelled legs marked as such, unless every leg was cancelled: then no resume comes.
 
-## Choosing between `task` and `delegate_jobs`
+## Choose between `task` and `delegate_jobs`
 
 | Use | When |
 |-----|------|
@@ -87,7 +89,7 @@ The agent cancels when you ask it to, or when the work a leg does is no longer w
 | `delegate_jobs` on the same repository | Work too big for one turn, or a separate change that deserves its own merge request. |
 | `delegate_jobs` on other repositories | Work that belongs there. |
 
-## Writing the prompts
+## Write the prompts
 
 A leg sees only its own prompt — not the coordinator's conversation, the ticket, or anything the coordinator looked up. Each target's prompt must therefore carry everything that leg needs, and should end with the no-change convention: *"If there is nothing to change, reply saying so and make no changes."*
 
@@ -121,7 +123,7 @@ The `goal` only titles the batch; it is never sent to a leg.
 | Legs cannot ask questions | Nobody is watching a leg, so it decides or reports instead of stopping for input. |
 | Legs and the resumed run keep the coordinator's mute | A muted job or schedule stays quiet through its delegations. |
 | Only the coordinator's session can check or cancel its legs | The tools see the batches their own session delegated, and no other session's. |
-| At most **3 runs in a row** nobody asked for | After three runs in a row on the coordinator's session that no person started, a finished batch is only remembered instead of resuming it, until a person starts a run there, and its owner is told, so failing legs cannot loop it. |
+| At most **3 runs in a row** nobody asked for | After three runs in a row on the coordinator's session that no person started, DAIV only remembers a finished batch instead of resuming it, until a person starts a run there, and tells the session's owner. Failing legs cannot loop the coordinator. [The session inbox](sessions.md#the-session-inbox) describes the limit. |
 
 If no target starts, the tool says so and no resume comes: the coordinator deals with the failures in the same turn. If the resumed run cannot be queued when the last leg finishes, or gives up waiting for the coordinator's session, DAIV retries it within a few minutes, and it starts any leg left waiting after the coordinator's turn ended.
 
@@ -183,6 +185,6 @@ The coordinator's session then shows the resumed run with the legs' summary. [No
 
 ## See also
 
-- [Repository Config](../customization/repository-config.md) — the `orchestration` toggle
+- [Repository config](../customization/repository-config.md) — the `orchestration` toggle
 - [Jobs API](jobs-api.md) and [MCP Endpoint](mcp-endpoint.md) — a batch can also give each repository its own `prompt`
 - [Subagents](subagents.md) — parallel work inside one turn

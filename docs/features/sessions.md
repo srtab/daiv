@@ -231,7 +231,7 @@ A card's **⋯** menu, offered once the repository has a merge request, holds:
 
 - **Open on GitLab** (or **GitHub**) and **Copy link**
 - **Other sessions on !iid**, on the main repository's card: the [sessions list](#filtering) filtered to that merge request
-- **Fix CI failures**, for the people who can run agents on the repository: turns the [CI watch](pipeline-watch.md#the-session-page) on or off for that merge request
+- **Fix CI failures**, for the people who can run agents on the repository: turns the [CI watch](pipeline-watch.md#turn-the-watch-on-or-off-for-a-merge-request) on or off for that merge request
 
 ### Merge request awareness
 

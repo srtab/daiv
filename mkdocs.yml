@@ -160,17 +160,17 @@ nav:
     - Accounts and roles: getting-started/accounts.md
     - LLM providers: getting-started/llm-providers.md
   - Features:
-    - Issue Addressing: features/issue-addressing.md
-    - Pull Request Assistant: features/pull-request-assistant.md
-    - Pipeline Watch: features/pipeline-watch.md
+    - Issue addressing: features/issue-addressing.md
+    - Pull request assistant: features/pull-request-assistant.md
+    - Pipeline watch: features/pipeline-watch.md
     - Sessions: features/sessions.md
     - Jobs API: features/jobs-api.md
     - Scheduled Jobs: features/scheduled-jobs.md
     - Orchestration: features/orchestration.md
     - MCP Endpoint: features/mcp-endpoint.md
     - Notifications: features/notifications.md
-    - Merge Metrics: features/merge-metrics.md
-    - Slash Commands & Skills: features/slash-commands.md
+    - Merge metrics: features/merge-metrics.md
+    - Slash commands and skills: features/slash-commands.md
     - Subagents: features/subagents.md
     - Sandbox: features/sandbox.md
     - Sandbox Environments: features/sandbox-environments.md
