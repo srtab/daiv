@@ -1,5 +1,5 @@
 {% extends "base_app.html" %}
-{% load icon_tags %}
+{% load i18n icon_tags %}
 
 {% block title %}Delete Template — DAIV{% endblock %}
 
@@ -11,8 +11,8 @@
 
 {% block app_content %}
 <div class="animate-fade-up">
-    <h1 class="text-2xl font-bold tracking-tight">Delete template</h1>
-    <p class="mt-1.5 text-[15px] font-light text-gray-400">This action cannot be undone. Existing schedules are not affected.</p>
+    <h1 class="text-2xl font-bold tracking-tight">{% translate "Delete template" %}</h1>
+    <p class="mt-1.5 text-[15px] font-light text-gray-400">{% translate "This action cannot be undone. Existing schedules are not affected." %}</p>
 </div>
 
 <div class="animate-fade-up mt-8 rounded-2xl border border-red-800/50 bg-red-950/30 p-6" style="animation-delay: 100ms">
@@ -20,7 +20,7 @@
         {% icon "exclamation-triangle" "mt-0.5 h-5 w-5 shrink-0 text-red-400" %}
         <div>
             <p class="text-[15px] font-medium text-red-200">
-                Delete template <strong>{{ object.name }}</strong>?
+                {% blocktranslate with name=object.name %}Delete template <strong>{{ name }}</strong>?{% endblocktranslate %}
             </p>
             <p class="mt-1 text-sm text-red-300/70">{{ object.get_frequency_display }}{% if object.repo_id %} &middot; {{ object.repo_id }}{% endif %}</p>
         </div>
@@ -28,8 +28,8 @@
 
     <form method="post" class="mt-6 flex items-center gap-3">
         {% csrf_token %}
-        <button type="submit" class="btn-danger">Delete template</button>
-        <a href="{{ cancel_url }}" class="btn-secondary">Cancel</a>
+        <button type="submit" class="btn-danger">{% translate "Delete template" %}</button>
+        <a href="{{ cancel_url }}" class="btn-secondary">{% translate "Cancel" %}</a>
     </form>
 </div>
 {% endblock app_content %}

@@ -6,8 +6,8 @@ DAIV turns issues into working code. You create an issue, DAIV analyzes your cod
 
 - License: Apache 2.0
 - Source: https://github.com/srtab/daiv
-- Documentation: https://srtab.github.io/daiv/dev/
-- Documentation for LLMs: https://srtab.github.io/daiv/dev/llms.txt
+- Documentation: https://docs.daivagent.com/dev/
+- Documentation for LLMs: https://docs.daivagent.com/dev/llms.txt
 
 ## Capabilities
 

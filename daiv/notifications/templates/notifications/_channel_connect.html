@@ -23,6 +23,7 @@
   <form method="post" action="{{ row.connect_url }}" class="flex items-center gap-2">
     {% csrf_token %}
     <input type="text" name="username" placeholder="{{ row.connect_placeholder }}"
+           aria-label="{% blocktranslate with channel=row.display_name %}{{ channel }} username{% endblocktranslate %}"
            class="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-xs text-white placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-white/20">
     <button type="submit" class="btn-channel-action">
       {% translate "Connect" %}

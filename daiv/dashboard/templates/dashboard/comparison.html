@@ -8,6 +8,8 @@
 
 {% block og_description %}{{ comparison.summary }}{% endblock %}
 
+{% block head_extra %}{% include "dashboard/_landing_analytics.html" %}{% endblock %}
+
 {% block content %}
 {% include "dashboard/_landing_nav.html" %}
 
