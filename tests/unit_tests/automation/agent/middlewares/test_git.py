@@ -421,12 +421,12 @@ class TestGitMiddleware:
             result = await mw.aafter_agent(state, runtime)
         return pub.publish.await_args.kwargs, result
 
-    async def test_after_agent_publishes_draft_when_verification_failed(self):
+    async def test_after_agent_publishes_a_failed_verification_as_a_normal_merge_request(self):
         verification = self._verification("failed")
 
         kwargs, _ = await self._publish_with(verification)
 
-        assert kwargs["as_draft"] is True
+        assert kwargs.get("as_draft", False) is False
         assert kwargs["verification"] == verification
 
     async def test_after_agent_passes_and_keeps_the_outcome(self):
@@ -434,14 +434,14 @@ class TestGitMiddleware:
 
         kwargs, result = await self._publish_with(verification, created=True)
 
-        assert kwargs["as_draft"] is False
+        assert kwargs.get("as_draft", False) is False
         assert kwargs["verification"] == verification
         assert result["verification"] == verification
 
     async def test_after_agent_without_outcome_publishes_as_before(self):
         kwargs, result = await self._publish_with(None)
 
-        assert kwargs["as_draft"] is False
+        assert kwargs.get("as_draft", False) is False
         assert kwargs["verification"] is None
         assert "verification" not in result
 
@@ -449,10 +449,9 @@ class TestGitMiddleware:
         stale, failed = self._verification("passed", fingerprint="stale"), self._verification("failed")
         recheck = AsyncMock(return_value=failed)
 
-        kwargs, result = await self._publish_with(stale, recheck=recheck)
+        _, result = await self._publish_with(stale, recheck=recheck)
 
         recheck.assert_awaited_once_with(stale)
-        assert kwargs["as_draft"] is True
         assert result["verification"]["status"] == "failed"
 
     async def test_after_agent_keeps_the_rechecked_outcome_when_nothing_was_published(self):
@@ -493,7 +492,7 @@ class TestGitMiddleware:
     async def test_after_agent_does_not_recheck_without_verification(self):
         kwargs, _ = await self._publish_with(self._verification("passed", fingerprint="stale"))
 
-        assert kwargs["as_draft"] is False
+        assert kwargs.get("as_draft", False) is False
 
     async def test_repo_publishes_reset_each_turn(self):
         middleware = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())

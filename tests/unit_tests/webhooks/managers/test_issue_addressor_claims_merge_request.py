@@ -43,9 +43,7 @@ async def test_a_published_issue_run_claims_the_merge_request_for_the_run_the_we
 
     run = await _run_addressor(state_values={"merge_request": mr, "published": True}, run_id="run-42")
 
-    assert run.claimed == [
-        {"run_id": "run-42", "merge_request": mr, "pushed_sha": "", "repo_id": None, "examined": False}
-    ]
+    assert run.claimed == [{"run_id": "run-42", "merge_request": mr, "pushed_sha": "", "repo_id": None}]
 
 
 async def test_an_issue_run_that_published_nothing_claims_nothing(stub_base_init):

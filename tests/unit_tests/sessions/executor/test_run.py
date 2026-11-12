@@ -549,9 +549,7 @@ async def test_the_ref_sync_and_the_claim_run_when_asked():
     stack.persist.assert_awaited_once_with(
         thread_id=spec.thread_id, current_ref="main", merge_request=MR, published=True
     )
-    assert stack.claimed == [
-        {"run_id": "run-1", "merge_request": MR, "pushed_sha": "", "repo_id": None, "examined": False}
-    ]
+    assert stack.claimed == [{"run_id": "run-1", "merge_request": MR, "pushed_sha": "", "repo_id": None}]
 
 
 async def test_the_claim_carries_the_sha_the_run_pushed():
@@ -567,50 +565,12 @@ async def test_the_claim_carries_the_sha_the_run_pushed():
     with agent_stack(agent) as stack, persist, measure, record:
         await execute_run(make_spec(arm_watch=True, run_id="run-1"))
 
-    assert stack.claimed == [
-        {"run_id": "run-1", "merge_request": MR, "pushed_sha": "e96f1f77", "repo_id": None, "examined": False}
-    ]
+    assert stack.claimed == [{"run_id": "run-1", "merge_request": MR, "pushed_sha": "e96f1f77", "repo_id": None}]
 
 
 def _verification(status: str, **extra) -> dict:
     command = {"command": "make test", "exit_code": 1, "timed_out": False, "already_failing": False}
     return {"status": status, "commands": [command], "rounds": 2, "suspicious_paths": [], **extra}
-
-
-@pytest.mark.parametrize(
-    ("verification", "expected"),
-    [
-        (_verification("failed"), True),
-        (_verification("passed"), False),
-        (_verification("not_verified"), False),
-        (None, False),
-    ],
-)
-async def test_the_claim_marks_the_commit_examined_only_when_the_checks_still_fail(verification, expected):
-    state = {"merge_request": MR, "published": True}
-    if verification is not None:
-        state["verification"] = verification
-    persist, measure, record = _unrecorded()
-
-    with agent_stack(_agent(state=state)) as stack, persist, measure, record:
-        await execute_run(make_spec(arm_watch=True, run_id="run-1"))
-
-    assert stack.claimed[0]["examined"] is expected
-
-
-@pytest.mark.parametrize("status", ["pushed", "opened"])
-async def test_a_streamed_run_marks_the_commit_examined_whether_it_opened_the_merge_request_or_pushed_to_it(status):
-    async def _events(run):
-        await RunnableLambda(_dispatch_publish_result).ainvoke(publish_result_payload(status=status), config=run.config)
-        yield "done"
-
-    state = {"merge_request": MR, "published": True, "verification": _verification("failed")}
-    persist, measure, record = _unrecorded()
-
-    with agent_stack(_agent(state=state)) as stack, persist, measure, record:
-        await _drain(make_spec(arm_watch=True, run_id="run-1"), _events)
-
-    assert stack.claimed[0]["examined"] is True
 
 
 async def test_the_reply_is_the_closing_text_the_publish_already_added_the_report_to():

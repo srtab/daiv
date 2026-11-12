@@ -16,7 +16,6 @@ An owning session that was deleted counts as no row for its own person; a new se
 an event needs one (:meth:`Ownerships.find_open`) or another person publishes, and its first event is a ``notice``
 saying why it exists. Every claim records the commit the run pushed as ``last_daiv_sha``, which is how the CI watch
 tells DAIV's commits from everyone else's, and a claim by a run a person started gives the CI watch its attempts back.
-A claim ``examined`` also records that commit as ``last_examined_sha``, so CI failing on it wakes no run.
 
 What else happens to an owned merge request reaches the owning session as remembered events: a push to its branch
 whose commit DAIV did not push (``branch_pushed``, decided ``PUSH_CLASSIFY_DELAY`` after the webhook so DAIV's own
@@ -83,7 +82,6 @@ class Ownerships:
         merge_request: MergeRequest | dict | None,
         pushed_sha: str,
         repo_id: str | None = None,
-        examined: bool = False,
     ) -> MergeRequestOwnership | None:
         """Apply the claim rules for the merge request the run ``run_id`` published, which pushed ``pushed_sha``;
         ``None`` when the merge request is unknown. ``repo_id`` is the merge request's repository when it is another
@@ -93,7 +91,7 @@ class Ownerships:
         if not iid or not branch:
             return None
         ownership, posts = await sync_to_async(cls._claim_for_run)(
-            run_id, iid, branch, pushed_sha, payload.get("title") or "", repo_id, examined
+            run_id, iid, branch, pushed_sha, payload.get("title") or "", repo_id
         )
         ownerships = cls(ownership.repo_id)
         for post in posts:
@@ -102,17 +100,10 @@ class Ownerships:
 
     @classmethod
     def _claim_for_run(
-        cls,
-        run_id: uuid.UUID | str,
-        iid: int,
-        branch: str,
-        pushed_sha: str,
-        title: str,
-        repo_id: str | None,
-        examined: bool,
+        cls, run_id: uuid.UUID | str, iid: int, branch: str, pushed_sha: str, title: str, repo_id: str | None
     ) -> tuple[MergeRequestOwnership, list[dict]]:
         run = Run.objects.select_related("session__user").get(pk=run_id)
-        return cls(repo_id or run.repo_id)._claim(run, iid, branch, pushed_sha, title, examined=examined)
+        return cls(repo_id or run.repo_id)._claim(run, iid, branch, pushed_sha, title)
 
     def _post_logged(self, post: dict[str, Any]) -> None:
         """Post ``post``, logging a failure instead of raising: the ownership change it reports has committed, and the
@@ -132,7 +123,7 @@ class Ownerships:
         return await sync_to_async(self._post_logged)(post)
 
     def _claim(
-        self, run: Run, iid: int, branch: str, pushed_sha: str, title: str, *, examined: bool = False
+        self, run: Run, iid: int, branch: str, pushed_sha: str, title: str
     ) -> tuple[MergeRequestOwnership, list[dict]]:
         session = run.session
         posts: list[dict[str, Any]] = []
@@ -152,7 +143,6 @@ class Ownerships:
                     owner=session.user,
                     source_branch=branch,
                     last_daiv_sha=pushed_sha,
-                    last_examined_sha=pushed_sha if examined else "",
                 )
                 session_changed(row.session_id)
                 return row, posts
@@ -171,8 +161,6 @@ class Ownerships:
                 # A pipeline judged before this claim was judged against the previous commit: judge it anew.
                 row.last_pipeline_id, row.last_pipeline_status = None, ""
             row.source_branch, row.last_daiv_sha = branch, pushed_sha
-            if examined:
-                row.last_examined_sha = pushed_sha
             if run.trigger_type in PERSON_STARTED:
                 row.attempts = 0
             row.save()

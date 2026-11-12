@@ -69,7 +69,7 @@ async def _drive(stream_events: list, *, checkpoint: dict) -> list[dict]:
 async def test_a_chat_turn_that_published_claims_the_merge_request():
     claimed = await _drive([_snapshot_event(merge_request=MR)], checkpoint={"merge_request": MR, "published": True})
 
-    assert claimed == [{"run_id": "run-pk", "merge_request": MR, "pushed_sha": "", "repo_id": None, "examined": False}]
+    assert claimed == [{"run_id": "run-pk", "merge_request": MR, "pushed_sha": "", "repo_id": None}]
 
 
 @pytest.mark.django_db(transaction=True)

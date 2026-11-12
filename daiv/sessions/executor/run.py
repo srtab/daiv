@@ -626,7 +626,6 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
         response_text = closing_reply_text(messages)
     merge_request = values.get("merge_request")
     published = bool(values.get("published"))
-    verification = values.get("verification")
     sibling_publishes = checkpointed_repo_publishes(values)
     # An unread checkpoint must not pass for one that published nothing: that would pin a blank ref to the clone's.
     if spec.persist_ref and snapshot is not None:
@@ -640,12 +639,8 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
         except Exception:
             logger.exception("executor: failed to persist session ref for thread_id=%s", run.thread_id)
     if spec.arm_watch and published and spec.run_id is not None:
-        from automation.agent.verification.outcome import checks_failed
-
         pushed_sha = (run.publish.payload or {}).get("pushed_sha") if run.publish is not None else None
-        await _claim_merge_request(
-            run, spec.run_id, merge_request, pushed_sha=pushed_sha or "", examined=checks_failed(verification)
-        )
+        await _claim_merge_request(run, spec.run_id, merge_request, pushed_sha=pushed_sha or "")
     await _persist_sibling_state(spec, run, sibling_publishes)
     if spec.arm_watch and spec.run_id is not None:
         for publish in sibling_publishes:
@@ -674,24 +669,16 @@ async def _persist_sibling_state(spec: RunSpec, run: AgentRun, publishes: Sequen
 
 
 async def _claim_merge_request(
-    run: AgentRun,
-    run_id: str,
-    merge_request: Any,
-    *,
-    pushed_sha: str,
-    repo_id: str | None = None,
-    examined: bool = False,
+    run: AgentRun, run_id: str, merge_request: Any, *, pushed_sha: str, repo_id: str | None = None
 ) -> None:
     """Claim the merge request the run published for its session, in ``repo_id`` when it is not the run's own, then
     judge the branch's CI at once: the push happened during publish, so its pipeline event can arrive before the claim
-    exists. ``examined`` claims the commit as examined, so CI failing on it wakes no fix run: the caller sets it when
-    the ``before_publish`` checks still fail, whose report the publish put in the new merge request's description or
-    the run's reply. Best-effort: logged, never raised over a run that already published."""
+    exists. Best-effort: logged, never raised over a run that already published."""
     from sessions.tasks import evaluate_pipeline_watch_task
 
     try:
         ownership = await Ownerships.aclaim(
-            run_id=run_id, merge_request=merge_request, pushed_sha=pushed_sha, repo_id=repo_id, examined=examined
+            run_id=run_id, merge_request=merge_request, pushed_sha=pushed_sha, repo_id=repo_id
         )
         if ownership is not None:
             await evaluate_pipeline_watch_task.aenqueue(repo_id=ownership.repo_id, ref=ownership.source_branch)

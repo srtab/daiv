@@ -37,10 +37,6 @@ class VerificationOutcome(TypedDict):
     changed_by_checks: NotRequired[list[str]]
 
 
-def checks_failed(outcome: VerificationOutcome | None) -> bool:
-    return outcome is not None and outcome["status"] == "failed"
-
-
 def command_outcomes(
     results: Sequence[CheckResult],
     already_failing: Container[str],
@@ -166,8 +162,6 @@ class VerificationReport:
         line = "These checks still fail"
         if rounds:
             line += f" after {rounds} fix attempt{'s' if rounds != 1 else ''}"
-        if self._new_merge_request:
-            line += ", so this merge request was opened as a draft"
         return line + "."
 
 

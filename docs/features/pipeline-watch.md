@@ -69,7 +69,7 @@ The steps below give the same flow in text.
     |---|---|
     | The watch is on for the repository and for this merge request | Watch off |
     | The pipeline ran on the commit DAIV last pushed | Not DAIV's commit |
-    | No CI run looked at that commit yet, and its [`before_publish` checks](../customization/repository-config.md#verification-hooks) did not still fail | Already examined |
+    | No CI run looked at that commit yet | Already examined |
     | Attempts are left | Attempts spent |
     | DAIV has not started three runs in a row on the session without a person (see [The session inbox](sessions.md#the-session-inbox)) | Too many runs in a row |
 

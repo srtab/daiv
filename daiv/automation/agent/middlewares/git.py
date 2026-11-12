@@ -30,7 +30,7 @@ from automation.agent.publishers import (
 from automation.agent.sibling_links import RelatedMergeRequest, aensure_related_links
 from automation.agent.synthetic import PUBLISH_FAILURES_KIND, synthetic_ai_message
 from automation.agent.utils import final_assistant_text, streamed_assistant_message
-from automation.agent.verification.outcome import VerificationReport, checks_failed
+from automation.agent.verification.outcome import VerificationReport
 from automation.agent.workspace.git_manager import GIT_ERRORS
 from codebase.base import MergeRequest, Scope
 
@@ -544,7 +544,6 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 merge_request=self._publish_target(state, runtime),
                 skip_ci=self.skip_ci,
                 agent_summary=None if multi_repo else agent_summary,
-                as_draft=checks_failed(verification),
                 verification=verification,
             )
         except UnresolvedMergeConflictsError as exc:

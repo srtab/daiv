@@ -1,5 +1,7 @@
 import re
 
+import pytest
+
 from automation.agent.verification.checks import CheckResult
 from automation.agent.verification.outcome import (
     CommandOutcome,
@@ -77,23 +79,17 @@ def test_render_report_passed():
     assert "<details>" not in report
 
 
-def test_render_report_failed_mentions_draft():
-    report = render_report(_outcome("failed", [_command(exit_code=1, output_tail="boom")], rounds=2))
-
-    assert "failed (exit 1)" in report
-    assert "These checks still fail after 2 fix attempts, so this merge request was opened as a draft." in report
-
-
 def test_render_report_failed_uses_actual_rounds():
     one = render_report(_outcome("failed", [_command(exit_code=1)], rounds=1))
     none = render_report(_outcome("failed", [_command(exit_code=1)], rounds=0))
 
-    assert "after 1 fix attempt, so" in one
-    assert "These checks still fail, so this merge request was opened as a draft." in none
+    assert "These checks still fail after 1 fix attempt." in one
+    assert "These checks still fail." in none
 
 
-def test_render_report_failed_on_existing_merge_request_does_not_mention_draft():
-    report = render_report(_outcome("failed", [_command(exit_code=1)], rounds=2), new_merge_request=False)
+@pytest.mark.parametrize("new_merge_request", [True, False])
+def test_render_report_failed_never_mentions_a_draft(new_merge_request):
+    report = render_report(_outcome("failed", [_command(exit_code=1)], rounds=2), new_merge_request=new_merge_request)
 
     assert "These checks still fail after 2 fix attempts." in report
     assert "draft" not in report

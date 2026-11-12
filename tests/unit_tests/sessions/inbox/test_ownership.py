@@ -211,32 +211,6 @@ class TestJudgedPipeline:
         assert (ownership.last_pipeline_id, ownership.last_pipeline_status) == (200, "failed")
 
 
-class TestExaminedClaim:
-    async def test_a_first_publish_claimed_as_examined_records_its_commit_examined(self):
-        run = await _publishing_run(await _user("alice"))
-
-        ownership = await Ownerships.aclaim(run_id=run.pk, merge_request=MR, pushed_sha="e96f1f77", examined=True)
-
-        assert ownership.last_examined_sha == "e96f1f77"
-
-    async def test_a_later_publish_claimed_as_examined_records_its_commit_examined(self):
-        run = await _publishing_run(await _user("alice"))
-        await _claim(run)
-
-        ownership = await Ownerships.aclaim(run_id=run.pk, merge_request=MR, pushed_sha="0a1b2c3d", examined=True)
-
-        assert ownership.last_examined_sha == "0a1b2c3d"
-
-    async def test_a_plain_claim_leaves_the_examined_commit_alone(self):
-        run = await _publishing_run(await _user("alice"))
-        await _claim(run)
-        await MergeRequestOwnership.objects.aupdate(last_examined_sha="e96f1f77")
-
-        ownership = await _claim(run, sha="0a1b2c3d")
-
-        assert ownership.last_examined_sha == "e96f1f77"
-
-
 class TestOpenOwnership:
     async def test_it_names_the_owning_session(self):
         run = await _publishing_run(None)

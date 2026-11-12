@@ -324,7 +324,7 @@ class TestCreateMergeRequestDescription:
         assert 'E   assert name == "daiv" in tests/test_a.py' in description
         assert "&lt;details&gt;" not in description
         assert "&quot;" not in description
-        assert "opened as a draft.\n\n<!-- /daiv:verification -->\n\n---\n" in description
+        assert "after 2 fix attempts.\n\n<!-- /daiv:verification -->\n\n---\n" in description
 
     async def test_title_and_description_are_repo_relative(self):
         publisher = _publisher_no_issue()
