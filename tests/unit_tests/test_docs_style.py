@@ -1,7 +1,4 @@
-"""Style rules for the user documentation, from constitutions/patterns/user-docs.md.
-
-Pages that still break a rule are listed in KNOWN_VIOLATIONS; migrating a page removes it from there.
-"""
+"""Style rules for the user documentation, from constitutions/patterns/user-docs.md."""
 
 from __future__ import annotations
 
@@ -365,22 +362,6 @@ def test_findings_report_original_line_numbers():
     assert find_style_violations(source) == [Finding("timeless", 7, "currently")]
 
 
-KNOWN_VIOLATIONS: dict[str, frozenset[str]] = {
-    "admonition-kind": frozenset(),
-    "alt-text": frozenset(),
-    "fence-language": frozenset(),
-    "heading-case": frozenset(),
-    "heading-shape": frozenset(),
-    "link-text": frozenset(),
-    "menu-path": frozenset(),
-    "placeholder-form": frozenset(),
-    "reader-voice": frozenset(),
-    "shell-prompt": frozenset(),
-    "symbol-meaning": frozenset(),
-    "timeless": frozenset(),
-}
-
-
 def test_pages_follow_style_rules():
     failing: dict[str, dict[str, list[Finding]]] = {check: {} for check in CHECKS}
     for page in docs_pages():
@@ -390,13 +371,10 @@ def test_pages_follow_style_rules():
         for finding in find_style_violations(source):
             failing[finding.check].setdefault(relative, []).append(finding)
 
-    problems = []
-    for check, pages in failing.items():
-        baseline = KNOWN_VIOLATIONS.get(check, frozenset())
-        for path, findings in sorted(pages.items()):
-            if path not in baseline:
-                problems.extend(f"{path}:{f.line} {check} {f.text}" for f in findings)
-        problems.extend(
-            f"remove {path} from KNOWN_VIOLATIONS['{check}']" for path in sorted(baseline) if path not in pages
-        )
+    problems = [
+        f"{path}:{f.line} {check} {f.text}"
+        for check, pages in failing.items()
+        for path, findings in sorted(pages.items())
+        for f in findings
+    ]
     assert not problems, "\n".join(problems)

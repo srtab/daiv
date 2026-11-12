@@ -187,10 +187,15 @@ documents when the answer changes their rules.
 - **TODO(PLATFORM_PARITY):** `RepoClient` makes both clients implement each abstract method,
   but nothing checks that a feature behaves the same on both platforms. Until something
   does, review checks it.
-- **TODO(DOCS_ACCURACY):** nothing checks a page's claims against the code, or runs its
-  procedures. Principle VII rests on the author and the reviewer.
-- **TODO(DOCS_STYLE):** no prose linter checks user-docs rules 4 and 6 to 12, and the older
-  pages predate them. Until one does, review checks new text, and an existing page moves to
-  the rules when a change reworks it.
+- **TODO(DOCS_ACCURACY):** `test_env_variables_doc.py` and `test_docs_reference.py` check
+  that every site setting's environment variable, every Site Configuration group and every
+  `.daiv.yml` key is on its reference page. Nothing checks a page's other claims against the
+  code, the defaults and values it states, or runs its procedures. Principle VII rests on the
+  author and the reviewer.
+- **TODO(DOCS_STYLE):** `test_docs_style.py` checks user-docs rules 4, 6, 7, 9, 10, 11 and 12
+  in every page: time-relative wording, second-person voice, heading case and shape, fence
+  languages, shell prompts, placeholders, link text, menu paths, admonition kinds, alt text and
+  symbol meaning. Review alone checks rules 1, 2, 3, 5 and 8, where a warning sits relative to
+  its step (rule 11) and the text that stands in for a diagram (rule 12).
 
 **Version:** 1.0.0, proposed | **Ratified:** pending | **Last Amended:** pending

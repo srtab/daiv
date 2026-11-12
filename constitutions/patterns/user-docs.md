@@ -20,6 +20,9 @@ page is silent, the
 - `mkdocs build --strict` fails on a broken link or anchor.
   `tests/unit_tests/test_docs_links.py` checks that every page is reachable and described, and
   that every published docs URL in the repository resolves.
+  `test_docs_style.py` checks rules 4, 6, 7, 9, 10, 11 and 12 in every page.
+  `test_env_variables_doc.py` and `test_docs_reference.py` check that every site setting,
+  Site Configuration group and `.daiv.yml` key is on its reference page.
 - Words come from `glossary/README.md`. A feature scoped to one git platform says so on its
   page, per `platforms-and-providers.md` rule 1.
 
