@@ -187,6 +187,7 @@ class Session(models.Model):
     watch_attempts = models.PositiveSmallIntegerField(_("watch attempts"), default=0)
     watch_pipeline_id = models.BigIntegerField(_("last watched pipeline"), null=True, blank=True)
     watch_armed_at = models.DateTimeField(_("watch armed at"), null=True, blank=True)
+    archived_at = models.DateTimeField(_("archived at"), null=True, blank=True)
     parent = models.ForeignKey(
         "self",
         on_delete=models.SET_NULL,

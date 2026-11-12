@@ -468,3 +468,34 @@ class TestArchivedFor:
 
         assert list(Session.objects.listed_for(member_user, mine=True)) == [shown]
         assert list(Session.objects.listed_for(member_user, mine=True, archived=True)) == [hidden]
+
+    def test_a_session_archived_for_everyone_is_archived_for_every_user(self, other_user, member_user):
+        shown = self._session(other_user)
+        auto = self._session(other_user)
+        Session.objects.filter(pk=auto.pk).update(archived_at=timezone.now())
+
+        assert list(Session.objects.archived_for(other_user)) == [auto]
+        assert list(Session.objects.archived_for(member_user)) == [auto]
+        assert list(Session.objects.archived_for(member_user, archived=False)) == [shown]
+
+    def test_the_list_can_include_archived_sessions(self, member_user):
+        shown = self._session(member_user)
+        hidden = self._session(member_user)
+        auto = self._session(member_user)
+        HiddenSession.objects.create(session=hidden, user=member_user)
+        Session.objects.filter(pk=auto.pk).update(archived_at=timezone.now())
+
+        assert list(Session.objects.listed_for(member_user, mine=True)) == [shown]
+        assert set(Session.objects.listed_for(member_user, mine=True, archived=True)) == {hidden, auto}
+        assert set(Session.objects.listed_for(member_user, mine=True, archived=None)) == {shown, hidden, auto}
+
+    def test_runs_of_a_session_archived_for_everyone_are_left_out(self, member_user):
+        chat = SessionOrigin.CHAT
+        kept = Run.objects.create(
+            session=self._session(member_user), trigger_type=chat, repo_id="a/b", user=member_user
+        )
+        auto = self._session(member_user)
+        Run.objects.create(session=auto, trigger_type=chat, repo_id="a/b", user=member_user)
+        Session.objects.filter(pk=auto.pk).update(archived_at=timezone.now())
+
+        assert list(Run.objects.not_archived_by(member_user)) == [kept]

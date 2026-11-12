@@ -55,10 +55,14 @@ def _session_runs_newest_first(session: models.OuterRef) -> models.QuerySet[Run]
     return Run.objects.filter(session=session).order_by(*_NEWEST_FIRST)
 
 
-def _archived_by(user: User, session: models.OuterRef) -> models.Exists:
+def _archived_by(user: User, session_ref: str) -> models.Q:
+    """Rows whose session (``session_ref``: ``"pk"`` or a path to it) is archived for ``user``: by them, or for
+    everyone."""
     from sessions.models import HiddenSession
 
-    return models.Exists(HiddenSession.objects.filter(session=session, user=user))
+    prefix = "" if session_ref == "pk" else f"{session_ref}__"
+    hidden = models.Exists(HiddenSession.objects.filter(session=models.OuterRef(session_ref), user=user))
+    return models.Q(**{f"{prefix}archived_at__isnull": False}) | models.Q(hidden)
 
 
 class SessionQuerySet(models.QuerySet["Session"]):
@@ -133,17 +137,21 @@ class SessionQuerySet(models.QuerySet["Session"]):
         has_run = models.Exists(Run.objects.filter(session=models.OuterRef("pk")))
         return self.exclude(~has_run, origin=SessionOrigin.PIPELINE_WEBHOOK)
 
-    def listed_for(self, user: User, *, mine: bool = False, archived: bool = False) -> models.QuerySet[Session]:
+    def listed_for(self, user: User, *, mine: bool = False, archived: bool | None = False) -> models.QuerySet[Session]:
         """The rows the session list shows ``user`` before any filter: their own when ``mine``, else all visible.
 
-        ``archived`` swaps in the sessions ``user`` archived, which every other list leaves out.
+        ``archived`` swaps in the sessions archived for ``user``, which every other list leaves out; ``None`` lists
+        both.
         """
         sessions = self.owned_by(user) if mine else self.visible_to(user)
         return sessions.archived_for(user, archived=archived).without_watch_placeholders().with_latest_status()
 
-    def archived_for(self, user: User, *, archived: bool = True) -> models.QuerySet[Session]:
-        """The sessions ``user`` archived out of their own list, or with ``archived=False`` the rest."""
-        hidden = _archived_by(user, models.OuterRef("pk"))
+    def archived_for(self, user: User, *, archived: bool | None = True) -> models.QuerySet[Session]:
+        """The sessions archived for ``user`` (by them, or for everyone), or with ``archived=False`` the rest;
+        ``None`` keeps both."""
+        if archived is None:
+            return self.all()
+        hidden = _archived_by(user, "pk")
         return self.filter(hidden if archived else ~hidden)
 
     def with_latest_status(self) -> models.QuerySet[Session]:
@@ -190,8 +198,8 @@ class RunQuerySet(models.QuerySet["Run"]):
         return self.filter(_started_by_q(user))
 
     def not_archived_by(self, user: User) -> models.QuerySet[Run]:
-        """Runs outside the sessions ``user`` archived out of their own lists."""
-        return self.filter(~_archived_by(user, models.OuterRef("session")))
+        """Runs outside the sessions archived for ``user``: by them, or for everyone."""
+        return self.filter(~_archived_by(user, "session"))
 
     def that_pushed(self) -> models.QuerySet[Run]:
         """Runs that pushed a commit, to their main repository or to another of their session's repositories."""
