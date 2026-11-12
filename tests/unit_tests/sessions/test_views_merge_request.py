@@ -39,7 +39,7 @@ class TestSessionMergeRequestRedirect:
         resp = self._get(client, session_fixture)
 
         assert resp.status_code == 302
-        assert resp["Location"] == f"{reverse('session_list')}?repo=group%2Fproject&mr=42"
+        assert resp["Location"] == f"{reverse('session_list')}?repo=group%2Fproject&mr=42&archived=all"
 
     def test_resolves_the_iid_from_a_run_when_the_session_lacks_one(self, client, session_fixture, run_fixture):
         """Issue-scope sessions only learn their MR when the run backfills it at completion."""
@@ -48,7 +48,7 @@ class TestSessionMergeRequestRedirect:
 
         resp = self._get(client, session_fixture)
 
-        assert resp["Location"].endswith("mr=7")
+        assert resp["Location"].endswith("mr=7&archived=all")
 
     @pytest.mark.parametrize(
         "setup",

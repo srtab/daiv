@@ -42,6 +42,8 @@ from sessions.artifacts import ArtifactKind, guess_content_type, open_artifact_f
 from sessions.conf import settings as sessions_settings
 from sessions.delegation import LegRun
 from sessions.filters import (
+    ARCHIVED_INCLUDED,
+    ARCHIVED_ONLY,
     RANGE_CHOICES,
     SCOPE_CHOICES,
     SCOPE_MINE,
@@ -151,10 +153,11 @@ class SessionListView(LoginRequiredMixin, FilterView):
         return resolve_scope(self.request.GET)
 
     @cached_property
-    def archived(self) -> bool:
-        return self.request.GET.get("archived") == "true"
+    def archived(self) -> bool | None:
+        """Only archived sessions (``True``), archived ones with the rest (``None``), or none of them (``False``)."""
+        return {ARCHIVED_ONLY: True, ARCHIVED_INCLUDED: None}.get(self.request.GET.get("archived", ""), False)
 
-    def _listed(self, *, archived: bool) -> QuerySet[Session]:
+    def _listed(self, *, archived: bool | None) -> QuerySet[Session]:
         return Session.objects.listed_for(self.request.user, mine=self.scope == SCOPE_MINE, archived=archived)
 
     def get_template_names(self) -> list[str]:
@@ -191,7 +194,8 @@ class SessionListView(LoginRequiredMixin, FilterView):
         # HTML `<input type="date">` needs the original ISO string to round-trip.
         context["current_from"] = self.request.GET.get("date_from", "")
         context["current_to"] = self.request.GET.get("date_to", "")
-        context["current_archived"] = self.archived
+        context["current_archived"] = self.archived is True
+        context["current_archived_included"] = self.archived is None
         context["has_active_filters"] = any([
             context["current_q"],
             context["current_status"],
@@ -205,8 +209,9 @@ class SessionListView(LoginRequiredMixin, FilterView):
             context["current_from"],
             context["current_to"],
             context["current_archived"],
+            context["current_archived_included"],
         ])
-        if context["has_active_filters"] and not self.archived:
+        if context["has_active_filters"] and self.archived is False:
             archived = SessionFilter(self.request.GET, queryset=self._listed(archived=True))
             context["archived_matches"] = archived.qs.count()
         context["origins"] = SessionOrigin.choices
@@ -252,7 +257,7 @@ class SessionMergeRequestRedirectView(LoginRequiredMixin, View):
         if len(iids) != 1 or not session.repo_id:
             return redirect(reverse("session_detail", kwargs={"thread_id": session.pk}))
 
-        query = urlencode({"repo": session.repo_id, "mr": iids.pop()})
+        query = urlencode({"repo": session.repo_id, "mr": iids.pop(), "archived": ARCHIVED_INCLUDED})
         return redirect(f"{reverse('session_list')}?{query}")
 
 
@@ -354,7 +359,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["turns"] = state.turns
         ctx["can_act"] = state.can_act
         ctx["header"] = state.header
-        ctx["archived"] = session.hidden_by.filter(user=self.request.user).exists()
+        ctx["archived"] = session.archived_at is not None
         ctx["max_title_length"] = MAX_TITLE_LENGTH
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = state.merge_request

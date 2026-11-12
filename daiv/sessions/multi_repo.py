@@ -163,14 +163,13 @@ async def asubmit_jobs(
     session's single one, for its main repository.
     """
     if thread_id is not None:
-        owned = Session.objects.by_owner(user).filter(thread_id=thread_id)
-        found = await owned.aexists()
-        shared = found and await ais_multi_repo(thread_id)
+        row = await Session.objects.by_owner(user).filter(thread_id=thread_id).values_list("archived_at").afirst()
+        shared = row is not None and await ais_multi_repo(thread_id)
         if not shared and len(repos) != 1:
             raise AdmissionError("thread_id continuation requires exactly one repo")
-        if not found:
+        if row is None:
             raise AdmissionError(THREAD_NOT_FOUND)
-        if await owned.archived_for(user).aexists():
+        if row[0] is not None:
             raise AdmissionError(THREAD_ARCHIVED)
     if shared:
         validate_shared_repos(repos, continuation=thread_id is not None)

@@ -22,7 +22,7 @@ from django.utils.formats import date_format
 from django.utils.http import urlencode
 from django.utils.translation import gettext_lazy as _
 
-from sessions.filters import SCOPE_ALL, SessionFilter, local_midnight
+from sessions.filters import ARCHIVED_INCLUDED, SCOPE_ALL, SessionFilter, local_midnight
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.templatetags.session_tags import duration
 
@@ -314,19 +314,24 @@ def stacked_chart(
 
 def _runs_chart(runs: QuerySet[Run], window: Window) -> dict | None:
     return stacked_chart(
-        runs, "created_at", window, RUN_OUTCOMES, lambda bucket: session_list_url(bucket.list_params(bounded=True))
+        runs,
+        "created_at",
+        window,
+        RUN_OUTCOMES,
+        lambda bucket: session_list_url({**bucket.list_params(bounded=True), "archived": ARCHIVED_INCLUDED}),
     )
 
 
 def session_breakdown(user: User, window: Window, previous: Window | None) -> dict:
     """Sessions per origin over ``window`` with a per-bucket bar each, compared with ``previous`` when given.
 
-    Counted through the list's own queryset and filterset, so each count equals the length of the list its
-    link opens.
+    Counted through the list's own queryset and filterset, archived sessions included, so each count equals the
+    length of the list its link opens.
     """
     period = window.list_params()
-    listed = Session.objects.listed_for(user)
+    listed = Session.objects.listed_for(user, archived=None)
     sessions = SessionFilter(period, queryset=listed).qs
+    linked = {**period, "archived": ARCHIVED_INCLUDED}
     rows = list(
         sessions
         .order_by()
@@ -355,16 +360,16 @@ def session_breakdown(user: User, window: Window, previous: Window | None) -> di
             "change": _count_change(n, previous_counts.get(origin, 0) if previous_counts is not None else None),
             "pct": round(n / total * 100, 1),
             "css": ORIGIN_SEGMENT_CSS[origin],
-            "url": session_list_url({**period, "trigger": origin}),
+            "url": session_list_url({**linked, "trigger": origin}),
             "spark": origin_sparks.get(origin, []),
         })
     return {
         "sessions_total": total,
         "sessions_change": _count_change(total, sum(previous_counts.values()) if previous_counts is not None else None),
-        "sessions_url": session_list_url(period),
+        "sessions_url": session_list_url(linked),
         "segments": segments,
         "sessions_failed": sum(row["failed"] for row in rows),
-        "sessions_failed_url": session_list_url({**period, "status": RunStatus.FAILED}),
+        "sessions_failed_url": session_list_url({**linked, "status": RunStatus.FAILED}),
         "has_sparks": any(segment["spark"] for segment in segments),
     }
 

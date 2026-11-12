@@ -19,7 +19,13 @@ from automation.agent.references import ExternalRef, refs_from_stored  # noqa: T
 from core.models import ThinkingLevelChoices
 from sessions.artifacts import ArtifactKind, artifact_kind
 from sessions.executor.result import parse_agent_result
-from sessions.managers import RunArtifactManager, RunManager, SessionManager, ToolResultMediaManager
+from sessions.managers import (
+    MergeRequestOwnershipManager,
+    RunArtifactManager,
+    RunManager,
+    SessionManager,
+    ToolResultMediaManager,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -187,6 +193,8 @@ class Session(models.Model):
     watch_attempts = models.PositiveSmallIntegerField(_("watch attempts"), default=0)
     watch_pipeline_id = models.BigIntegerField(_("last watched pipeline"), null=True, blank=True)
     watch_armed_at = models.DateTimeField(_("watch armed at"), null=True, blank=True)
+    archived_at = models.DateTimeField(_("archived at"), null=True, blank=True)
+    archive_pending = models.BooleanField(_("archive pending"), default=False)
     parent = models.ForeignKey(
         "self",
         on_delete=models.SET_NULL,
@@ -252,7 +260,7 @@ class Session(models.Model):
     def merge_request_iids(self, *, limit: int = 2) -> set[int]:
         """Distinct merge requests this session reached, from its own column and its runs.
 
-        The inverse of :meth:`SessionQuerySet.for_merge_request`; ``limit`` caps the run-side
+        A subset of what :meth:`SessionQuerySet.on_merge_request` matches on; ``limit`` caps the run-side
         read for callers that only need to tell "exactly one" from "several".
         """
         run_iids = (
@@ -502,6 +510,11 @@ class Run(models.Model):
                 condition=models.Q(continuation_of_batch_id__isnull=False),
             ),
             models.Index(fields=["waits_for"], name="run_waits_for_idx", condition=models.Q(waits_for__isnull=False)),
+            models.Index(
+                fields=["merge_request_iid", "repo_id"],
+                name="run_merge_request_idx",
+                condition=models.Q(merge_request_iid__isnull=False),
+            ),
         ]
         constraints = [
             # At most one active (READY or RUNNING) API/MCP/delegation run per session. QUEUED is
@@ -762,26 +775,6 @@ class ToolResultMedia(models.Model):
         return f"{self.content_type} #{self.ordinal} of tool call {self.tool_call_id} for run {self.run_id}"
 
 
-class HiddenSession(models.Model):
-    """A session one user archived out of their own session list; everyone else still lists it."""
-
-    session = models.ForeignKey(
-        Session, on_delete=models.CASCADE, related_name="hidden_by", verbose_name=_("session"), db_index=False
-    )
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="hidden_sessions", verbose_name=_("user")
-    )
-    hidden_at = models.DateTimeField(_("archived at"), default=timezone.now, editable=False)
-
-    class Meta:
-        verbose_name = _("Archived Session")
-        verbose_name_plural = _("Archived Sessions")
-        constraints = [models.UniqueConstraint(fields=["session", "user"], name="hidden_session_unique")]
-
-    def __str__(self) -> str:
-        return f"Session {self.session_id} archived by {self.user_id}"
-
-
 class SessionArchive(models.Model):
     """One context of a session's agent state, as of the last run archived into it.
 
@@ -860,6 +853,8 @@ class MergeRequestOwnership(models.Model):
     created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
     updated_at = models.DateTimeField(_("updated at"), auto_now=True)
 
+    objects = MergeRequestOwnershipManager()
+
     class Meta:
         verbose_name = _("Merge request ownership")
         verbose_name_plural = _("Merge request ownerships")
@@ -896,6 +891,25 @@ class MergeRequestOwnership(models.Model):
             ).only("repo_id", "merge_request_iid", "merged", "closed_at")
         }
         return {key: owned.get(key, MergeRequestState.OPEN) for key in keys}
+
+
+class ArchivedMerge(models.Model):
+    """A merge request whose merge archived its sessions (``sessions.auto_archive``): a redelivered merge finds it and
+    archives nothing, not even a session someone has unarchived since."""
+
+    repo_id = models.CharField(_("repository"), max_length=255)
+    merge_request_iid = models.PositiveIntegerField(_("merge request IID"))
+    created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
+
+    class Meta:
+        verbose_name = _("Archived merge")
+        verbose_name_plural = _("Archived merges")
+        constraints = [
+            models.UniqueConstraint(fields=["repo_id", "merge_request_iid"], name="archived_merge_unique_merge_request")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.repo_id}!{self.merge_request_iid}"
 
 
 class EventKind(models.TextChoices):
@@ -946,6 +960,7 @@ class EventFailure(models.TextChoices):
     RUN_FAILED = "run_failed", _("The run that took it failed")
     MR_MERGED = "mr_merged", _("Its merge request was merged")
     MR_CLOSED = "mr_closed", _("Its merge request was closed")
+    SESSION_ARCHIVED = "session_archived", _("Its session was archived")
 
 
 class InboxEvent(models.Model):
