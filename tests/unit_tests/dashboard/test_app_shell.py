@@ -79,7 +79,7 @@ def test_the_collapsed_flag_narrows_the_one_sidebar_width_token():
     wide = WIDE_TIER.search(INPUT_CSS.read_text(encoding="utf-8"))
 
     assert wide, "no lg block widening the sidebar"
-    assert re.search(r":root \{\s*--app-sidebar-width: 15rem;\s*\}", wide.group(1))
+    assert re.search(r":root \{\s*--app-sidebar-width: 17rem;\s*\}", wide.group(1))
     assert re.search(r':root\[data-sidebar="rail"\] \{\s*--app-sidebar-width: 4rem;\s*\}', wide.group(1))
 
 

@@ -340,7 +340,7 @@ The front matter's `typography` scale names these roles (`body`, `data`, `label-
 - **Responsive breakpoints**: mobile-first; `sm:` (640px), `lg:` (1024px), `xl:` (1280px).
   The app shell itself reflows at **768px** (`md:` — sidebar → sheet + slim top
   bar) and **1024px** (`lg:` — icon rail → full sidebar). `--app-sidebar-width` *is*
-  that second tier — 4rem, widened to 15rem in a `:root` switch at `lg:`, and back to 4rem
+  that second tier — 4rem, widened to 17rem in a `:root` switch at `lg:`, and back to 4rem
   there when the user collapses it (`:root[data-sidebar="rail"]`) — so the
   sidebar's width lives in one place and everything keyed to it (the `--sheet-inset-*`
   switch, which tracks `md:` rather than `sm:`) follows both tiers for free.
@@ -375,7 +375,7 @@ Mobile-first approach. Common patterns:
 ```
 
 Breakpoints are viewport-relative, but from `md:` up a page sits next to the shell —
-a 64px icon rail, then `--app-sidebar-width` (15rem from `lg:`, or 4rem when the user
+a 64px icon rail, then `--app-sidebar-width` (17rem from `lg:`, or 4rem when the user
 collapses it) — so the
 content area a rule switches on is always narrower than the width the rule names.
 Where the switch depends on whether two blocks still fit (a title and its actions, a

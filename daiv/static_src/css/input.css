@@ -413,7 +413,7 @@
    is the only place either width lives, so the sheet inset below tracks both tiers. */
 @media (width >= theme(--breakpoint-lg)) {
   :root {
-    --app-sidebar-width: 15rem;
+    --app-sidebar-width: 17rem;
   }
 
   :root[data-sidebar="rail"] {
