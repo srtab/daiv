@@ -33,7 +33,7 @@ WORST_FIRST = (
 )
 _OPENS_SCHEDULE = frozenset({RunStatus.FAILED, RunStatus.WAITING_INPUT})
 
-_SESSION_FIELDS = ("thread_id", "title", "last_active_at")
+_SESSION_FIELDS = ("thread_id", "title", "last_active_at", "latest_run_status")
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,23 +76,23 @@ class SidebarLists:
     schedules: tuple[ScheduleRow, ...] = ()
 
 
-def _own_sessions(user: User) -> QuerySet[Session]:
+def _own_sessions(user: User) -> QuerySet[Session, dict[str, Any]]:
     return (
         Session.objects
         .listed_for(user, mine=True)
         .filter(scheduled_job__isnull=True)
         .order_by("-last_active_at")
-        .only(*_SESSION_FIELDS)
+        .values(*_SESSION_FIELDS)
     )
 
 
-def _session_row(session: Session, viewing: str) -> SessionRow:
+def _session_row(session: dict[str, Any], viewing: str) -> SessionRow:
     return SessionRow(
-        thread_id=session.thread_id,
-        title=session.title,
-        status=session.latest_run_status or "",
-        last_active_at=session.last_active_at,
-        active=session.thread_id == viewing,
+        thread_id=session["thread_id"],
+        title=session["title"],
+        status=session["latest_run_status"] or "",
+        last_active_at=session["last_active_at"],
+        active=session["thread_id"] == viewing,
     )
 
 
@@ -110,7 +110,7 @@ def session_rows(user: User, *, limit: int = SESSIONS_PAGE, viewing: str = "") -
 
 
 def _listed_schedules(user: User, now: datetime) -> QuerySet[ScheduledJob]:
-    theirs = Q(user=user) | Q(pk__in=user.subscribed_schedules.values("pk"))
+    theirs = Q(user=user) | Q(pk__in=ScheduledJob.objects.filter(subscribers=user).values("pk"))
     current = Q(is_enabled=True) | Q(last_run_at__gte=now - FIRED_WITHIN)
     return (
         ScheduledJob.objects

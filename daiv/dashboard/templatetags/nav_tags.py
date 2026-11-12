@@ -58,4 +58,4 @@ def compact_time(moment: datetime) -> str:
 
 @register.filter
 def run_status_label(status: str) -> str:
-    return RunStatus(status).label if status in RunStatus.values else ""
+    return str(RunStatus(status).label) if status in RunStatus.values else ""
