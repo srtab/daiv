@@ -97,7 +97,7 @@ We expect all contributors to be respectful and constructive. Please ensure that
 
 For GitHub, use GitHub.com or a GitHub Enterprise instance: set `CODEBASE_CLIENT=github` in `docker/local/app/config.env` and configure the GitHub App credentials. To receive webhook deliveries locally, start the `github` profile — it runs a [smee](https://smee.io/) client that forwards GitHub events to the local app.
 
-Deploying DAIV for real use is a different path — see the [Deployment guide](https://srtab.github.io/daiv/dev/getting-started/deployment/).
+Deploying DAIV for real use is a different path — see the [Deployment guide](https://docs.daivagent.com/dev/getting-started/deployment/).
 
 ### Worktree stacks
 

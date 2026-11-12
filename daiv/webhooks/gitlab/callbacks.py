@@ -2,6 +2,7 @@ import logging
 from functools import cached_property
 from typing import Literal
 
+from sessions.auto_archive import MergeArchive
 from sessions.inbox.ownership import Ownerships
 from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
 from sessions.pipeline_watch.service import PipelineWatch
@@ -272,20 +273,21 @@ class MergeRequestCallback(GitLabCallback):
 
     async def process_callback(self):
         """
-        Record merge metrics for a merge into the default branch, then tell the session owning the merge request.
+        Record merge metrics for a merge into the default branch, then tell the session owning the merge request, then
+        archive every session that worked on a merged one.
         """
         if self._merged_into_default_branch:
             await self._record_merge_metrics()
         repo_id, iid = self.project.path_with_namespace, self.object_attributes.iid
         if self.object_attributes.action == MergeRequestAction.REOPEN:
             await Ownerships(repo_id).areopen(iid, by_username=self.user.username)
-        else:
-            await Ownerships(repo_id).aclose(
-                iid,
-                merged=self.object_attributes.action == MergeRequestAction.MERGE,
-                by_username=self.user.username,
-                target_branch=self.object_attributes.target_branch,
-            )
+            return
+        merged = self.object_attributes.action == MergeRequestAction.MERGE
+        await Ownerships(repo_id).aclose(
+            iid, merged=merged, by_username=self.user.username, target_branch=self.object_attributes.target_branch
+        )
+        if merged:
+            await MergeArchive(repo_id, iid).aarchive()
 
     async def _record_merge_metrics(self):
         from codebase.tasks import record_merge_metrics_task

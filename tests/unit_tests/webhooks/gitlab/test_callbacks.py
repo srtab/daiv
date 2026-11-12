@@ -7,7 +7,7 @@ from django.utils import timezone
 import pytest
 from sessions.inbox.drain import Drain
 from sessions.inbox.ownership import Ownerships
-from sessions.models import InboxEvent
+from sessions.models import InboxEvent, Session
 from webhooks.dispatch import Author, Mention
 from webhooks.gitlab.callbacks import IssueCallback, MergeRequestCallback, NoteCallback, PushCallback
 from webhooks.gitlab.models import (
@@ -372,6 +372,28 @@ def create_merge_request_callback(
 class TestMergeRequestCallback:
     """Tests for GitLab MergeRequestCallback."""
 
+    @pytest.fixture(autouse=True)
+    def archive(self):
+        with patch("webhooks.gitlab.callbacks.MergeArchive", autospec=True) as archive:
+            yield archive
+
+    async def test_a_merge_archives_its_sessions(self, archive):
+        with (
+            patch.object(Ownerships, "aclose", autospec=True),
+            patch("codebase.tasks.record_merge_metrics_task", aenqueue=AsyncMock()),
+        ):
+            await create_merge_request_callback().process_callback()
+
+        archive.assert_called_once_with("group/repo", 1)
+        archive.return_value.aarchive.assert_awaited_once_with()
+
+    async def test_a_close_without_merge_archives_nothing(self, archive):
+        callback = create_merge_request_callback(action=MergeRequestAction.CLOSE, state="closed")
+        with patch.object(Ownerships, "aclose", autospec=True):
+            await callback.process_callback()
+
+        archive.assert_not_called()
+
     @pytest.mark.parametrize(
         ("action", "state"),
         [
@@ -500,6 +522,19 @@ class TestMergeRequestStateOnAnOwnedMergeRequest:
         await create_merge_request_callback(action=MergeRequestAction.CLOSE, state="closed").process_callback()
 
         assert not await InboxEvent.objects.aexists()
+
+    @pytest.mark.parametrize(
+        ("action", "state", "archived"),
+        [(MergeRequestAction.MERGE, "merged", True), (MergeRequestAction.CLOSE, "closed", False)],
+    )
+    async def test_only_a_merge_archives_the_owning_session(self, action, state, archived):
+        ownership = await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=1)
+
+        with patch("codebase.tasks.record_merge_metrics_task") as mock_task:
+            mock_task.aenqueue = AsyncMock()
+            await create_merge_request_callback(action=action, state=state).process_callback()
+
+        assert ((await Session.objects.aget(pk=ownership.session_id)).archived_at is not None) is archived
 
 
 def create_push_callback(*, ref: str = "refs/heads/feat/x", after: str = "0a1b2c3d" * 5) -> PushCallback:

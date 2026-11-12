@@ -245,6 +245,24 @@ async def test_the_payload_says_whether_a_render_would_show_the_expired_banner(m
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_the_payload_says_whether_the_session_is_archived(member_user):
+    session = await _session(member_user, in_flight=False)
+
+    async def archived():
+        with (
+            patch("sessions.page_state.ahydrate_thread", _hydration()),
+            patch("sessions.page_state.aget_existing_mr_payload", AsyncMock(return_value=None)),
+        ):
+            state = await aload_session_state(session, member_user, always_look_up_merge_request=False)
+        return turns_payload(state, session)["archived"]
+
+    before = await archived()
+    await Session.objects.filter(pk=session.pk).aupdate(archived_at=timezone.now())
+
+    assert (before, await archived()) == (False, True)
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_the_payload_carries_what_a_turn_did_to_each_repository(member_user):
     session = await _session(member_user, in_flight=False)
     await SessionRepository.objects.acreate(session=session, position=1, repo_id="group/lib", ref="feature")

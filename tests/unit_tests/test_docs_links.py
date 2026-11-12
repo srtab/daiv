@@ -52,7 +52,7 @@ SKIPPED_DIR_NAMES = {
 # Untracked, developer-local scratch: absent in CI, present after a local superpowers run.
 SKIPPED_PATHS = {DOCS_DIR / "superpowers"}
 
-DOCS_URL_RE = re.compile(r"https://srtab\.github\.io/daiv(?P<rest>/[^\s\"'<>)\]]*)?")
+DOCS_URL_RE = re.compile(r"https://docs\.daivagent\.com(?P<rest>/[^\s\"'<>)\]]*)?")
 MD_LINK_RE = re.compile(r"\]\(\s*(?P<target>[^)\s]+?)\s*(?:\s+\"[^\"]*\")?\)")
 HTML_LINK_RE = re.compile(r"<a\s[^>]*?href=[\"'](?P<target>[^\"']+)[\"']", re.IGNORECASE)
 
@@ -235,7 +235,7 @@ def test_absolute_docs_urls_resolve():
         for match in DOCS_URL_RE.finditer(content):
             rest = match.group("rest")
             if rest is None:
-                continue  # bare project URL, e.g. the OpenRouter HTTP-Referer header
+                continue  # the bare docs host, with no version or page
             rest = rest.rstrip(".,;:!?")  # a URL ending a prose sentence
             if not rest.strip("/"):
                 continue

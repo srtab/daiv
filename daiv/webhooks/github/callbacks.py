@@ -3,6 +3,7 @@ from functools import cached_property
 from typing import Literal
 
 from pydantic import Field
+from sessions.auto_archive import MergeArchive
 from sessions.inbox.ownership import Ownerships
 from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
 from sessions.pipeline_watch.service import PipelineWatch
@@ -314,7 +315,8 @@ class PullRequestCallback(GitHubCallback):
 
     async def process_callback(self):
         """
-        Record merge metrics for a merge into the default branch, then tell the session owning the pull request.
+        Record merge metrics for a merge into the default branch, then tell the session owning the pull request, then
+        archive every session that worked on a merged one.
         """
         if (
             self.action == "closed"
@@ -326,13 +328,12 @@ class PullRequestCallback(GitHubCallback):
         by_username = self.sender.username if self.sender is not None else ""
         if self.action == "reopened":
             await Ownerships(repo_id).areopen(number, by_username=by_username)
-        else:
-            await Ownerships(repo_id).aclose(
-                number,
-                merged=self.pull_request.merged,
-                by_username=by_username,
-                target_branch=self.pull_request.base.ref,
-            )
+            return
+        await Ownerships(repo_id).aclose(
+            number, merged=self.pull_request.merged, by_username=by_username, target_branch=self.pull_request.base.ref
+        )
+        if self.pull_request.merged:
+            await MergeArchive(repo_id, number).aarchive()
 
     @property
     def _merged_into_default_branch(self) -> bool:

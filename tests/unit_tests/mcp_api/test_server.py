@@ -3,6 +3,8 @@ import uuid
 from datetime import UTC, datetime
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
+from django.utils import timezone
+
 import pytest
 from mcp_api.server import (
     DEFAULT_LIST_LIMIT,
@@ -13,7 +15,7 @@ from mcp_api.server import (
     list_repositories,
     submit_job,
 )
-from sessions.models import HiddenSession, Run, RunStatus, Session, SessionOrigin
+from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD
 from tests.unit_tests.sessions.conftest import (
@@ -762,9 +764,8 @@ class TestMCPThreadContinuation:
 
         assert "Unknown provider prefix 'nopesuch'" in json.loads(result)["error"]
 
-    async def test_a_session_you_archived_is_not_continued(self, _default_mcp_user):
-        thread_id = await amake_job_session(user=_default_mcp_user)
-        await HiddenSession.objects.acreate(session_id=thread_id, user=_default_mcp_user)
+    async def test_an_archived_session_is_not_continued(self, _default_mcp_user):
+        thread_id = await amake_job_session(user=_default_mcp_user, archived_at=timezone.now())
 
         result = await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x", thread_id=thread_id)
 

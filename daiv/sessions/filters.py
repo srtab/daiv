@@ -34,6 +34,9 @@ SCOPE_MINE = "mine"
 SCOPE_ALL = "all"
 SCOPE_CHOICES: list[tuple[str, str]] = [(SCOPE_MINE, _("Mine")), (SCOPE_ALL, _("Everyone"))]
 
+ARCHIVED_ONLY = "true"
+ARCHIVED_INCLUDED = "all"
+
 DEEP_LINK_PARAMS = ("repo", "mr", "schedule", "batch")
 
 
@@ -59,7 +62,7 @@ class SessionFilter(django_filters.FilterSet):
     q = django_filters.CharFilter(method="filter_q")
     status = django_filters.ChoiceFilter(choices=STATUS_CHOICES, method="filter_status")
     trigger = django_filters.ChoiceFilter(field_name="origin", choices=SessionOrigin.choices)
-    repo = django_filters.CharFilter(field_name="repo_id")  # deep-link back-compat: clearable chip, no widget to set it
+    repo = django_filters.CharFilter(method="filter_repo")  # deep-link back-compat: clearable chip, no widget to set it
     mr = django_filters.NumberFilter(method="filter_mr")
     schedule = django_filters.NumberFilter(field_name="scheduled_job_id")
     batch = django_filters.UUIDFilter(method="filter_batch")
@@ -84,10 +87,16 @@ class SessionFilter(django_filters.FilterSet):
     def filter_batch(self, queryset, name, value):
         return queryset.filter(runs__batch_id=value).distinct()
 
+    def filter_repo(self, queryset, name, value):
+        # With ``mr`` too, filter_mr matches the request on any of a session's repositories, not just its main one.
+        if self.form.cleaned_data.get("mr") is not None:
+            return queryset
+        return queryset.filter(repo_id=value)
+
     def filter_mr(self, queryset, name, value):
         # IIDs are per-project, so this pools every repository's request of that number unless
         # ``repo`` is also given; the links DAIV publishes always pair the two.
-        return queryset.for_merge_request(value)
+        return queryset.on_merge_request(value, repo_id=self.form.cleaned_data.get("repo") or None)
 
     def filter_date_from(self, queryset, name, value):
         return queryset.filter(last_active_at__gte=local_midnight(value))
