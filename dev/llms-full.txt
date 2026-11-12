@@ -5932,7 +5932,7 @@ The other eight run only when you run them.
 
 ## `archive_sessions`
 
-Copies the live checkpoint of every session that has no archive into the session archive, so the transcript outlives the checkpointer TTL. Run it once after upgrading to the release that archives sessions, before those checkpoints expire; the upgrade note of that release in `CHANGELOG.md` says so. Running it again retries the sessions that failed. It does not run on its own.
+Copies the live checkpoint of every session that has no archive into the session archive, so the transcript outlives the checkpointer TTL. Run it once after upgrading to the release that archives sessions, before those checkpoints expire; `UPGRADING.md` says so. Running it again retries the sessions that failed. It does not run on its own.
 
 This command takes no options.
 
