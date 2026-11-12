@@ -10,7 +10,7 @@ and ``Run`` exist, so every addressor run waits for the session's slot and knows
 mentioning note are the task's ``dedup_on`` key: a repeated delivery or an edited comment finds the earlier trigger's
 task, which has its ``Run`` already, and stops without writing or reacting. A label trigger only repeats a queued or
 running one. The enqueue holds the key's lock until the transaction commits, so of concurrent deliveries exactly one
-creates the task and its ``Run``.
+creates the task and its ``Run``. A trigger whose session is archived for everyone starts nothing and gets no reaction.
 """
 
 import logging
@@ -26,7 +26,7 @@ from sessions.ids import compute_thread_id
 from sessions.inbox import kinds
 from sessions.inbox.ownership import Ownerships
 from sessions.inbox.post import Inbox
-from sessions.models import EventKind, SessionOrigin
+from sessions.models import EventKind, Session, SessionOrigin
 from sessions.services import create_run
 
 from accounts.utils import resolve_linked_user
@@ -250,11 +250,14 @@ async def _start_run(
     """Enqueue ``task`` with ``task_kwargs`` plus what every addressor task takes, and record its ``Run`` on the
     issue's or merge request's ``Session`` in one transaction, for the DAIV user linked to ``author``, whom the task
     acts as. Returns whether it did: ``False`` when the enqueue found an earlier trigger's task, which has its ``Run``
-    already.
+    already, or when the session is archived for everyone, which ignores the trigger.
 
     A failed session or ``Run`` write rolls the enqueue back and raises, so the platform redelivers the event.
     """
     thread_id = compute_thread_id(repo_slug=repo_id, scope=scope, entity_iid=iid)
+    if await Session.objects.filter(pk=thread_id, archived_at__isnull=False).aexists():
+        logger.info("Ignoring a trigger on %s#%s: its session %s is archived", repo_id, iid, thread_id)
+        return False
     # user=None: the webhook fires for whoever touched the issue/MR, not the agent owner, so USER envs never apply.
     sandbox_env = await resolve_env_for_run(user=None, repo_id=repo_id)
     sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None

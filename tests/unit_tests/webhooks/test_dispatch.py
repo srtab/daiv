@@ -3,6 +3,7 @@ import logging
 from unittest.mock import AsyncMock, Mock, patch
 
 from django.tasks import TaskResultStatus
+from django.utils import timezone
 
 import pytest
 from django_tasks_db.models import DBTaskResult
@@ -10,7 +11,16 @@ from github.GithubException import GithubException
 from gitlab.exceptions import GitlabError
 from sessions.ids import compute_thread_id
 from sessions.inbox.drain import Drain
-from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, Run, Session, SessionOrigin, SessionRepository
+from sessions.models import (
+    EventKind,
+    HiddenSession,
+    InboxEvent,
+    MergeRequestOwnership,
+    Run,
+    Session,
+    SessionOrigin,
+    SessionRepository,
+)
 from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment, dispatch_mr_comment_run
 
 from accounts.models import User
@@ -240,6 +250,34 @@ async def test_a_failed_reaction_is_logged_and_the_run_still_starts(steps, caplo
     record = next(r for r in caplog.records if "reaction" in r.message)
     assert record.levelno == logging.ERROR
     assert record.exc_info is not None
+
+
+@each_run_kind
+@pytest.mark.django_db(transaction=True)
+async def test_a_trigger_on_a_session_archived_for_everyone_starts_nothing(steps, dispatch, task, scope, caplog):
+    thread_id = compute_thread_id(repo_slug="group/repo", scope=scope, entity_iid=7)
+    await Session.objects.acreate(
+        thread_id=thread_id, origin=SessionOrigin.CHAT, repo_id="group/repo", archived_at=timezone.now()
+    )
+
+    with caplog.at_level(logging.INFO, logger="daiv.webhooks"):
+        await dispatch(steps)
+
+    assert steps.mock_calls == []
+    assert f"its session {thread_id} is archived" in caplog.text
+
+
+@each_run_kind
+@pytest.mark.django_db(transaction=True)
+async def test_a_trigger_on_a_session_someone_archived_for_themselves_still_runs(steps, dispatch, task, scope):
+    thread_id = compute_thread_id(repo_slug="group/repo", scope=scope, entity_iid=7)
+    session = await Session.objects.acreate(thread_id=thread_id, origin=SessionOrigin.CHAT, repo_id="group/repo")
+    user = await User.objects.acreate_user(username="hider", email="hider@example.com", password="x")  # noqa: S106
+    await HiddenSession.objects.acreate(session=session, user=user)
+
+    await dispatch(steps)
+
+    getattr(steps, task).get_or_enqueue.assert_called_once()
 
 
 async def test_a_repeat_records_no_run_and_does_not_react(steps):
