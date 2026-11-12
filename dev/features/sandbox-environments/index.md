@@ -4,7 +4,7 @@ A sandbox environment is a named, reusable [sandbox](https://docs.daivagent.com/
 
 An environment is how you give the agent a toolchain image, outbound network access to install dependencies, or a secret such as an API token or a private registry credential. When no environment matches a run (none selected, none bound to the repository, and no global default), the run has no sandbox and the agent gets no `bash` tool.
 
-To manage environments, open **Sandbox environments** under **Agent setup** in the sidebar (`/dashboard/sandbox-envs/`). **Global environments** lists the shared environments, and **My environments** lists yours.
+To manage environments, select **Settings** → **Sandbox environments** in the sidebar (`/dashboard/sandbox-envs/`). **Settings** is the cog beside your account at the bottom of the sidebar. **Global environments** lists the shared environments, and **My environments** lists yours.
 
 ## Scopes
 
@@ -38,7 +38,7 @@ You cannot delete the global default: DAIV shows `Set another global environment
 
 You need a base image for the environment, such as `python:3.14`. To let the agent install dependencies, you also need to know which hosts it must reach.
 
-1. In the sidebar, under **Agent setup**, open **Sandbox environments**.
+1. In the sidebar, select **Settings** → **Sandbox environments**.
 1. Select **New environment**. The **New sandbox environment** drawer opens.
 1. Fill in the fields in the table below, starting with **Name** and **Base image**.
 1. Select **Save**. The drawer closes, and the environment appears in its list.

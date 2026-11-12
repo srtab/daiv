@@ -2,8 +2,8 @@
 
 [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) tools extend DAIV's agent with access to external services. You manage MCP servers from the dashboard on two pages:
 
-- **MCP Servers**, in the sidebar as **MCP servers**, shows your personal servers and a read-only list of the global servers that load in every run.
-- **Global MCP Servers**, in the sidebar under **Admin** as **Global MCP servers**, is where admins manage the built-in and custom global servers.
+- **MCP Servers**, in the sidebar's **Settings** menu as **MCP servers**, shows your personal servers and a read-only list of the global servers that load in every run.
+- **Global MCP Servers**, in the sidebar's **Settings** menu under **Admin** as **Global MCP servers**, is where admins manage the built-in and custom global servers.
 
 The DAIV app opens the connections itself at runtime, so no sidecar containers are required. DAIV skips a server that does not return its tools within the load timeout (see [Environment variables](https://docs.daivagent.com/dev/reference/env-variables/#mcp-tools)).
 
@@ -57,7 +57,7 @@ DAIV seeds two built-in servers that point at the official remote MCP endpoints.
 
 You need an admin account and a [Sentry User Auth Token](https://docs.sentry.io/account/auth-tokens/) with the read scopes `org:read`, `project:read`, `team:read` and `event:read`.
 
-1. In the sidebar, under **Admin**, select **Global MCP servers**.
+1. In the sidebar, select **Settings** → **Global MCP servers**.
 1. Under **Built-in**, select **Edit** on the `sentry` server.
 1. Under **Headers**, select **Add header**.
 1. Enter `Authorization` as the header name.
@@ -73,7 +73,7 @@ Replace `<your token>` with your Sentry token. `Sentry-Bearer`, not `Bearer`, is
 
 You need an admin account and an API key from [context7.com/dashboard](https://context7.com/dashboard).
 
-1. In the sidebar, under **Admin**, select **Global MCP servers**.
+1. In the sidebar, select **Settings** → **Global MCP servers**.
 1. Under **Built-in**, select **Edit** on the `context7` server.
 1. Under **Headers**, select **Add header**.
 1. Enter `CONTEXT7_API_KEY` as the header name.
@@ -84,7 +84,7 @@ You need an admin account and an API key from [context7.com/dashboard](https://c
 
 You can add any server that DAIV reaches over HTTP or SSE. A server that only speaks stdio needs a [bridge](#stdio-only-servers) first. Any member can add a personal server. Only admins can add a global one.
 
-1. In the sidebar, open the page for the server's scope: **MCP servers** for a personal server, or, as an admin, **Global MCP servers** under **Admin** for a global one.
+1. In the sidebar's **Settings** menu, open the page for the server's scope: **MCP servers** for a personal server, or, as an admin, **Global MCP servers** under **Admin** for a global one.
 1. Select **New server**.
 1. Enter a **Name**.
 1. Choose a **Transport**.
@@ -143,7 +143,7 @@ Pass `--stateful`. In stateless mode every tool call starts a fresh child proces
 
 1. Start the container.
 
-1. In the sidebar, under **Admin**, select **Global MCP servers**.
+1. In the sidebar, select **Settings** → **Global MCP servers**.
 
 1. Under **Built-in**, select **Edit** on the `sentry` server.
 
@@ -183,7 +183,7 @@ Deleting a server deletes its headers
 
 DAIV removes the server and its stored headers permanently, and the form never shows header values. Keep the values somewhere else before you delete. A new server starts with no headers.
 
-1. In the sidebar, select **MCP servers**.
+1. In the sidebar, select **Settings** → **MCP servers**.
 1. Find the server marked **Shadowed**, and note its settings. Have its header values from your own records, because the form never shows them.
 1. Select **Delete** on it.
 1. On the confirmation page, select **Delete**.

@@ -1958,8 +1958,8 @@
 <h1 id="mcp-tools">MCP tools</h1>
 <p><a href="https://modelcontextprotocol.io/">Model Context Protocol (MCP)</a> tools extend DAIV's agent with access to external services. You manage MCP servers from the dashboard on two pages:</p>
 <ul>
-<li><strong>MCP Servers</strong>, in the sidebar as <strong>MCP servers</strong>, shows your personal servers and a read-only list of the global servers that load in every run.</li>
-<li><strong>Global MCP Servers</strong>, in the sidebar under <strong>Admin</strong> as <strong>Global MCP servers</strong>, is where admins manage the built-in and custom global servers.</li>
+<li><strong>MCP Servers</strong>, in the sidebar's <strong>Settings</strong> menu as <strong>MCP servers</strong>, shows your personal servers and a read-only list of the global servers that load in every run.</li>
+<li><strong>Global MCP Servers</strong>, in the sidebar's <strong>Settings</strong> menu under <strong>Admin</strong> as <strong>Global MCP servers</strong>, is where admins manage the built-in and custom global servers.</li>
 </ul>
 <p>The DAIV app opens the connections itself at runtime, so no sidecar containers are required. DAIV skips a server that does not return its tools within the load timeout (see <a href="../../reference/env-variables/#mcp-tools">Environment variables</a>).</p>
 <h2 id="server-settings">Server settings</h2>
@@ -2050,7 +2050,7 @@
 <h3 id="enable-the-sentry-server">Enable the Sentry server</h3>
 <p>You need an admin account and a <a href="https://docs.sentry.io/account/auth-tokens/">Sentry User Auth Token</a> with the read scopes <code>org:read</code>, <code>project:read</code>, <code>team:read</code> and <code>event:read</code>.</p>
 <ol>
-<li>In the sidebar, under <strong>Admin</strong>, select <strong>Global MCP servers</strong>.</li>
+<li>In the sidebar, select <strong>Settings</strong> → <strong>Global MCP servers</strong>.</li>
 <li>Under <strong>Built-in</strong>, select <strong>Edit</strong> on the <code>sentry</code> server.</li>
 <li>Under <strong>Headers</strong>, select <strong>Add header</strong>.</li>
 <li>Enter <code>Authorization</code> as the header name.</li>
@@ -2064,7 +2064,7 @@
 <h3 id="raise-the-context7-rate-limits">Raise the <code>context7</code> rate limits</h3>
 <p>You need an admin account and an API key from <a href="https://context7.com/dashboard">context7.com/dashboard</a>.</p>
 <ol>
-<li>In the sidebar, under <strong>Admin</strong>, select <strong>Global MCP servers</strong>.</li>
+<li>In the sidebar, select <strong>Settings</strong> → <strong>Global MCP servers</strong>.</li>
 <li>Under <strong>Built-in</strong>, select <strong>Edit</strong> on the <code>context7</code> server.</li>
 <li>Under <strong>Headers</strong>, select <strong>Add header</strong>.</li>
 <li>Enter <code>CONTEXT7_API_KEY</code> as the header name.</li>
@@ -2074,7 +2074,7 @@
 <h2 id="add-a-server">Add a server</h2>
 <p>You can add any server that DAIV reaches over HTTP or SSE. A server that only speaks stdio needs a <a href="#stdio-only-servers">bridge</a> first. Any member can add a personal server. Only admins can add a global one.</p>
 <ol>
-<li>In the sidebar, open the page for the server's scope: <strong>MCP servers</strong> for a personal server, or, as an admin, <strong>Global MCP servers</strong> under <strong>Admin</strong> for a global one.</li>
+<li>In the sidebar's <strong>Settings</strong> menu, open the page for the server's scope: <strong>MCP servers</strong> for a personal server, or, as an admin, <strong>Global MCP servers</strong> under <strong>Admin</strong> for a global one.</li>
 <li>Select <strong>New server</strong>.</li>
 <li>Enter a <strong>Name</strong>.</li>
 <li>Choose a <strong>Transport</strong>.</li>
@@ -2146,7 +2146,7 @@
 <p>Set <code>SENTRY_ACCESS_TOKEN</code> in the environment that the Compose file reads.</p>
 </li>
 <li>Start the container.</li>
-<li>In the sidebar, under <strong>Admin</strong>, select <strong>Global MCP servers</strong>.</li>
+<li>In the sidebar, select <strong>Settings</strong> → <strong>Global MCP servers</strong>.</li>
 <li>Under <strong>Built-in</strong>, select <strong>Edit</strong> on the <code>sentry</code> server.</li>
 <li>Set <strong>URL</strong> to <code>http://mcp-sentry:8000/mcp</code>.</li>
 <li>Under <strong>Headers</strong>, remove the <code>Authorization</code> header, because the bridge authenticates with its own <code>SENTRY_ACCESS_TOKEN</code>.</li>
@@ -2170,7 +2170,7 @@
 <p>DAIV removes the server and its stored headers permanently, and the form never shows header values. Keep the values somewhere else before you delete. A new server starts with no headers.</p>
 </div>
 <ol>
-<li>In the sidebar, select <strong>MCP servers</strong>.</li>
+<li>In the sidebar, select <strong>Settings</strong> → <strong>MCP servers</strong>.</li>
 <li>Find the server marked <strong>Shadowed</strong>, and note its settings. Have its header values from your own records, because the form never shows them.</li>
 <li>Select <strong>Delete</strong> on it.</li>
 <li>On the confirmation page, select <strong>Delete</strong>.</li>

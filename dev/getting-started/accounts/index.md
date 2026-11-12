@@ -23,7 +23,7 @@ DAIV has two roles. New users are members.
 | Create and change global sandbox environments                                                     | No                                                                                | Yes                             |
 | Consolidate a repository's memory on demand                                                       | No                                                                                | Yes                             |
 
-The admin-only pages are under **Admin** in the dashboard sidebar.
+The admin-only pages are under **Admin** in the sidebar's **Settings** menu, the cog beside your account.
 
 ## Repository access
 

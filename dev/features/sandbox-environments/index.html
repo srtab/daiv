@@ -1890,7 +1890,7 @@
 <h1 id="sandbox-environments">Sandbox environments</h1>
 <p>A sandbox environment is a named, reusable <a href="../sandbox/">sandbox</a> runtime: a base image, CPU and memory limits, an egress policy, encrypted environment variables, and the repositories it applies to. You define it once, and DAIV reuses it for every run, chat, scheduled job, and API or MCP call that lands in a matching repository.</p>
 <p>An environment is how you give the agent a toolchain image, outbound network access to install dependencies, or a secret such as an API token or a private registry credential. When no environment matches a run (none selected, none bound to the repository, and no global default), the run has no sandbox and the agent gets no <code>bash</code> tool.</p>
-<p>To manage environments, open <strong>Sandbox environments</strong> under <strong>Agent setup</strong> in the sidebar (<code>/dashboard/sandbox-envs/</code>). <strong>Global environments</strong> lists the shared environments, and <strong>My environments</strong> lists yours.</p>
+<p>To manage environments, select <strong>Settings</strong> → <strong>Sandbox environments</strong> in the sidebar (<code>/dashboard/sandbox-envs/</code>). <strong>Settings</strong> is the cog beside your account at the bottom of the sidebar. <strong>Global environments</strong> lists the shared environments, and <strong>My environments</strong> lists yours.</p>
 <h2 id="scopes">Scopes</h2>
 <p>An environment has one of two scopes:</p>
 <table>
@@ -1931,7 +1931,7 @@
 <h2 id="create-an-environment">Create an environment</h2>
 <p>You need a base image for the environment, such as <code>python:3.14</code>. To let the agent install dependencies, you also need to know which hosts it must reach.</p>
 <ol>
-<li>In the sidebar, under <strong>Agent setup</strong>, open <strong>Sandbox environments</strong>.</li>
+<li>In the sidebar, select <strong>Settings</strong> → <strong>Sandbox environments</strong>.</li>
 <li>Select <strong>New environment</strong>. The <strong>New sandbox environment</strong> drawer opens.</li>
 <li>Fill in the fields in the table below, starting with <strong>Name</strong> and <strong>Base image</strong>.</li>
 <li>Select <strong>Save</strong>. The drawer closes, and the environment appears in its list.</li>

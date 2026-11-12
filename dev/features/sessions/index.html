@@ -775,6 +775,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-app-sidebar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The app sidebar
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#home" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1922,6 +1933,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-app-sidebar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The app sidebar
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#home" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2313,7 +2335,7 @@
 
 <h1 id="sessions">Sessions</h1>
 <p>DAIV records every agent execution in a <strong>session</strong>: one persistent conversation with the agent, tied to a repository and ref. Every way you can trigger DAIV (webhooks, the jobs API, the MCP endpoint, scheduled jobs, or a chat you type yourself) produces a session, and every time the agent runs in that session adds a <strong>run</strong> to it.</p>
-<p>Select <strong>Sessions</strong> in the sidebar (<code>/dashboard/sessions/</code>) to see every session you can see. A session's page holds its transcript, its run timeline, and its timing and usage.</p>
+<p>Your own sessions are listed in the <a href="#the-app-sidebar">app sidebar</a>. The search icon beside its <strong>Sessions</strong> heading opens the full list (<code>/dashboard/sessions/</code>), with every session you can see. A session's page holds its transcript, its run timeline, and its timing and usage.</p>
 <h2 id="who-can-see-a-session">Who can see a session</h2>
 <p>Admins see every session on every repository. Other users see their own sessions, sessions on repositories they can read on the Git platform, the sessions started by a GitLab or GitHub account they signed in to DAIV with (matched by the account's id, not its username), and the sessions of <a href="../scheduled-jobs/">scheduled jobs</a> they subscribe to. The same scoping applies to a session's page, its live updates and its retries.</p>
 <h2 id="sessions-and-runs">Sessions and runs</h2>
@@ -2386,6 +2408,15 @@
 </tr>
 </tbody>
 </table>
+<h2 id="the-app-sidebar">The app sidebar</h2>
+<p>The sidebar lists your sessions, so any of them is one click away from every page:</p>
+<ul>
+<li><strong>Sessions</strong>: your own sessions, most recently active first, 8 at a time. <strong>Show more</strong> adds 8, up to 80; past that it opens the sessions list. Each has a status dot and, while it is running, waiting for your input or failed, that state; otherwise how long ago it was active. The session you are viewing is always in the list. Sessions a schedule started are listed under their schedule instead. Beside the heading, the search icon (shortcut <code>/</code>) opens the sessions list with its search box focused, and <strong>+</strong> starts a chat.</li>
+<li><strong>Scheduled</strong>: up to 10 schedules you own or subscribe to that are enabled or ran in the last 14 days, each with its next run. Expand one for its 3 latest runs: one row per run of the schedule, with the worst status across its repositories and, past one, how many repositories it ran on. A run on one repository opens its session; a wider one opens the sessions it started. <strong>All runs</strong> lists every session of the schedule, and the list icon beside the heading opens the schedules page. A schedule whose latest run failed or is waiting for input starts expanded; otherwise this browser remembers whether you expanded it.</li>
+<li><strong>Settings</strong>, the cog beside your account, slides in the pages you set up once (<strong>Sandbox environments</strong>, <strong>MCP servers</strong> and <strong>Memory</strong>, under <strong>Agent setup</strong>, and for admins <strong>Users</strong>, <strong>Configuration</strong>, <strong>Schedule templates</strong>, <strong>Skills</strong> and <strong>Global MCP servers</strong>, under <strong>Admin</strong>) along with the documentation links. Nothing changes on the page until you pick one. <strong>Back</strong> (or Escape) slides your sessions back in.</li>
+</ul>
+<p>The lists update as runs start and finish, without a reload. Where the sidebar narrows to icons, <strong>+</strong> starts a chat, the magnifier opens the session search, and <strong>Sessions</strong> and <strong>Scheduled</strong> open their pages.</p>
+<p>To see more of long titles, drag the sidebar's right edge to widen it, or focus the edge and use the arrow keys; double-click the edge to reset it. This browser remembers the width. The sidebar never takes so much room that the page beside it gets cramped, so on smaller windows it widens less.</p>
 <h2 id="home">Home</h2>
 <p><strong>Home</strong> (<code>/dashboard/</code>) opens with <strong>Needs you</strong>: what is waiting on you, up to 8 items. Questions come first, then failures (<strong>Failed</strong>, <strong>CI still failing</strong>, <strong>Can't run</strong>), then <strong>Found issues</strong>, then <strong>Needs attention</strong>; newest first within each.</p>
 <ul>
@@ -2396,13 +2427,9 @@
 <li><strong>Found issues</strong> and <strong>Needs attention</strong>: your session's latest run was classified that way. The item shows for 7 days, because a fix made outside DAIV leaves no trace DAIV can see.</li>
 </ul>
 <p>A session counts once, as the first of these it matches: a question in a session whose CI watch gave up shows as <strong>Needs input</strong>. A session with no activity for 90 days leaves the list.</p>
-<p>Below <strong>Needs you</strong>, Home shows, in the main column:</p>
-<ul>
-<li><strong>Your week</strong>: what the runs in your own sessions came to over the last 7 days. A column per day is stacked by outcome (<strong>Changed code</strong>, <strong>Done, no changes</strong>, <strong>Needed you</strong>, <strong>Failed</strong>), and the section lists the merge requests those runs worked on and where you started work from. A day's column opens your sessions that ran that day.</li>
-<li><strong>Your recent sessions</strong>: your 5 most recent sessions.</li>
-</ul>
-<p><strong>Ways to use DAIV</strong> sits in a side column: how to start work from your Git platform (issue labels, mentions and slash commands), from your editor (this instance's MCP URL), and right here (<strong>New chat</strong> and <strong>New background run</strong>). A user with no sessions yet sees only <strong>Needs you</strong> and <strong>Ways to use DAIV</strong>.</p>
-<p>Team statistics are on <strong>Insights</strong>.</p>
+<p>Below <strong>Needs you</strong>, Home shows <strong>Your week</strong>: what the runs in your own sessions came to over the last 7 days. A column per day is stacked by outcome (<strong>Changed code</strong>, <strong>Done, no changes</strong>, <strong>Needed you</strong>, <strong>Failed</strong>), and the section lists the merge requests those runs worked on and where you started work from. A day's column opens your sessions that ran that day. Your recent sessions are in the <a href="#the-app-sidebar">app sidebar</a>.</p>
+<p>Last comes <strong>Ways to use DAIV</strong>: how to start work from your Git platform (issue labels, mentions and slash commands), from your editor (this instance's MCP URL), and right here (<strong>New chat</strong> and <strong>New background run</strong>). Fold it away with <strong>Hide</strong>; this browser remembers. A user who has not started a run yet sees only <strong>Needs you</strong> and <strong>Ways to use DAIV</strong>.</p>
+<p>Team statistics are on <strong>Insights</strong>, linked as <strong>Team insights</strong> at the top of Home.</p>
 <h2 id="insights">Insights</h2>
 <p><strong>Insights</strong> (<code>/dashboard/insights/</code>) shows how DAIV is used across the repositories you can see. Choose a period: <strong>Today</strong>, <strong>7 days</strong> (the default), <strong>30 days</strong>, <strong>90 days</strong> or <strong>All time</strong>.</p>
 <ul>
@@ -2491,7 +2518,7 @@
 <p>Filters combine, and they are in the URL, so you can bookmark or share a filtered list.</p>
 <p>Sessions with a run in flight (<strong>Queued</strong>, <strong>Pending</strong> or <strong>Running</strong>) update in place, status dot and timing included, without a reload.</p>
 <h3 id="archived-sessions">Archived sessions</h3>
-<p>An archived session is archived for everyone, not only for the person who archived it. It leaves <strong>Sessions</strong>, <strong>Your recent sessions</strong> and <strong>Needs you</strong> on <strong>Home</strong>, and it takes no follow-ups until someone unarchives it.</p>
+<p>An archived session is archived for everyone, not only for the person who archived it. It leaves <strong>Sessions</strong>, the app sidebar and <strong>Needs you</strong> on <strong>Home</strong>, and it takes no follow-ups until someone unarchives it.</p>
 <p>A filtered list that hides archived sessions says how many match: select <strong>Show archived</strong> under the list to see them.</p>
 <p>Links that open the list with the <strong>Including archived</strong> chip are listed in <a href="#filter-the-list">Filter the list</a>. <strong>Your week</strong> and <strong>Insights</strong> count archived sessions too.</p>
 <p>DAIV archives a session when its merge request merges. It archives every session that carries the merge request's number, ran on it or owns it: the session that opened it, its review and comment sessions, and the issue sessions that published it. DAIV holds a session back while it has live work:</p>
@@ -2622,7 +2649,7 @@
 <h2 id="start-a-chat-session">Start a chat session</h2>
 <p>A chat is the interactive workspace where you work with the agent turn by turn. You need access to at least one repository that DAIV serves.</p>
 <ol>
-<li>In the sidebar, select <strong>New chat</strong> (<code>/dashboard/sessions/new/chat/</code>).</li>
+<li>In the sidebar, select <strong>New chat</strong>, the <strong>+</strong> beside <strong>Sessions</strong> (<code>/dashboard/sessions/new/chat/</code>).</li>
 <li>In the <strong>Workspace</strong> card, select <strong>Add repository</strong>, and pick the repository the session works on. The ref defaults to the repository's default branch.</li>
 <li>To work from another branch, select the branch button on the repository's row, and pick the branch.</li>
 <li>Optional: in <strong>Environment</strong>, pick the <a href="../sandbox-environments/">sandbox environment</a> the agent's commands run in. It stays on <strong>Auto</strong>, resolved for the main repository, until you pick one.</li>
@@ -2701,7 +2728,6 @@
 <p>A background run hands a task to the agent without a chat: you describe the task, DAIV runs it, and you are notified when it ends. You need access to at least one repository that DAIV serves.</p>
 <ol>
 <li>Go to the start screen of a background run, by any of these routes:<ul>
-<li>In the sidebar, select the chevron next to <strong>New chat</strong>, then <strong>Background run</strong>.</li>
 <li>On <strong>Sessions</strong>, select <strong>New</strong>, then the <strong>Background run</strong> card.</li>
 <li>On <strong>Home</strong>, select <strong>New background run</strong>.</li>
 </ul>

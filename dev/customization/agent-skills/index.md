@@ -256,7 +256,7 @@ If a custom skill with the same name exists, uploading replaces it for every rep
 
 You need an admin account and a ZIP archive that meets the [ZIP requirements](#zip-requirements).
 
-1. In the sidebar, under **Admin**, select **Skills**.
+1. In the sidebar, select **Settings** → **Skills**.
 2. Select **Upload skill**.
 3. Under **Skill zip**, choose the ZIP archive.
 4. Select **Upload**.

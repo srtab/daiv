@@ -43,7 +43,7 @@ A message about a run includes the run's summary. For a run waiting for an answe
 DAIV writes an in-app entry for each run whose outcome notifies, and none for an all-clear run.
 
 - `/dashboard/notifications/` lists your full history. Filter it with **All**, **Unread** and **Read**, or select **Mark all as read**. Opening a notification marks it read. The **Settings** link opens your [notification channels](#connect-a-channel).
-- The unread badge next to **Notifications**, and the running-count badge next to **Sessions**, update live over a server-sent events stream (`GET /api/nav/events`), so a new notification or a run starting or finishing appears without a reload. The stream needs Redis. Without it, the badges show their values from when the page loaded.
+- The unread badge next to **Notifications** and the session lists in the sidebar update live over a server-sent events stream (`GET /api/nav/events`), so a new notification or a run starting or finishing appears without a reload. The stream needs Redis. Without it, they show their values from when the page loaded.
 
 ## Connect a channel
 
@@ -51,8 +51,8 @@ Email and in-app need no setup. Rocket.Chat and Telegram need an administrator t
 
 You need:
 
-- For Rocket.Chat, an administrator who has enabled it in **Configuration** → **Rocket Chat**, with the instance URL, bot user ID and auth token. See [Site configuration](https://docs.daivagent.com/dev/reference/site-configuration/#setting-groups).
-- For Telegram, an administrator who has enabled it in **Configuration** → **Telegram**, as described in [Set up Telegram](https://docs.daivagent.com/dev/reference/site-configuration/#set-up-telegram). Telegram delivery to chats that are already linked needs only outbound internet access, but connecting a new chat needs DAIV reachable from the internet over HTTPS. On an instance without public ingress, you cannot link new chats.
+- For Rocket.Chat, an administrator who has enabled it in **Settings** → **Configuration** → **Rocket Chat**, with the instance URL, bot user ID and auth token. See [Site configuration](https://docs.daivagent.com/dev/reference/site-configuration/#setting-groups).
+- For Telegram, an administrator who has enabled it in **Settings** → **Configuration** → **Telegram**, as described in [Set up Telegram](https://docs.daivagent.com/dev/reference/site-configuration/#set-up-telegram). Telegram delivery to chats that are already linked needs only outbound internet access, but connecting a new chat needs DAIV reachable from the internet over HTTPS. On an instance without public ingress, you cannot link new chats.
 - Until the channel is enabled, its row does not appear on your channels page.
 
 To open the channels page, select **Notification channels** in the account menu at the bottom of the sidebar (`/accounts/channels/`).

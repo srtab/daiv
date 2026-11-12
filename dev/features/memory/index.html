@@ -1862,7 +1862,7 @@
 <p>In both cases DAIV consolidates only if the last attempt was longer ago than the minimum interval. A failed attempt counts, so a repository whose rounds keep failing is retried at the same pace as a healthy one. DAIV applies at most 50 operations from a round. Observations named only by the rest stay pending for the next round.</p>
 <p><a href="../../reference/env-variables/#memory">Environment variables</a> gives the thresholds and their defaults.</p>
 <h2 id="read-a-repositorys-memory">Read a repository's memory</h2>
-<p><strong>Memory</strong> in the dashboard sidebar, under <strong>Agent setup</strong>, lists the repositories you can read that have memory activity. Each row shows whether the repository has a document (<strong>Document</strong> or <strong>No document</strong>), when it was last consolidated, how many observations are pending and how many exist in total. Search by repository name, or filter by <strong>All</strong>, <strong>Document</strong>, <strong>No document</strong> or <strong>Pending</strong>.</p>
+<p><strong>Memory</strong>, in the sidebar's <strong>Settings</strong> menu under <strong>Agent setup</strong>, lists the repositories you can read that have memory activity. Each row shows whether the repository has a document (<strong>Document</strong> or <strong>No document</strong>), when it was last consolidated, how many observations are pending and how many exist in total. Search by repository name, or filter by <strong>All</strong>, <strong>Document</strong>, <strong>No document</strong> or <strong>Pending</strong>.</p>
 <p>Select a repository to open its page:</p>
 <ul>
 <li>The header shows when the repository was last consolidated and the document's size in lines and bytes. Before the first consolidation it reads <strong>Never consolidated</strong>.</li>
@@ -1874,7 +1874,7 @@
 <h2 id="consolidate-a-repository-now">Consolidate a repository now</h2>
 <p>An admin can run a round without waiting for the hourly sweep. The round ignores the thresholds and the minimum interval. You need memory on site-wide, because the <strong>Consolidate now</strong> button is absent while it is off.</p>
 <ol>
-<li>In the sidebar, under <strong>Agent setup</strong>, open <strong>Memory</strong>.</li>
+<li>In the sidebar, select <strong>Settings</strong> → <strong>Memory</strong>.</li>
 <li>Select the repository.</li>
 <li>Select <strong>Consolidate now</strong>.</li>
 </ol>

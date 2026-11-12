@@ -43,7 +43,7 @@ In both cases DAIV consolidates only if the last attempt was longer ago than the
 
 ## Read a repository's memory
 
-**Memory** in the dashboard sidebar, under **Agent setup**, lists the repositories you can read that have memory activity. Each row shows whether the repository has a document (**Document** or **No document**), when it was last consolidated, how many observations are pending and how many exist in total. Search by repository name, or filter by **All**, **Document**, **No document** or **Pending**.
+**Memory**, in the sidebar's **Settings** menu under **Agent setup**, lists the repositories you can read that have memory activity. Each row shows whether the repository has a document (**Document** or **No document**), when it was last consolidated, how many observations are pending and how many exist in total. Search by repository name, or filter by **All**, **Document**, **No document** or **Pending**.
 
 Select a repository to open its page:
 
@@ -59,7 +59,7 @@ You can read a repository's memory when you have read access to the repository o
 
 An admin can run a round without waiting for the hourly sweep. The round ignores the thresholds and the minimum interval. You need memory on site-wide, because the **Consolidate now** button is absent while it is off.
 
-1. In the sidebar, under **Agent setup**, open **Memory**.
+1. In the sidebar, select **Settings** → **Memory**.
 1. Select the repository.
 1. Select **Consolidate now**.
 
