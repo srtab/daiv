@@ -16,7 +16,7 @@ from dashboard.sidebar import (
     session_rows,
     sidebar_lists,
 )
-from sessions.models import HiddenSession, RunStatus, SessionOrigin
+from sessions.models import RunStatus, Session, SessionOrigin
 
 from tests.unit_tests.dashboard.factories import make_firing, make_run, make_schedule, make_session
 
@@ -35,7 +35,7 @@ class TestSessionRows:
     def test_leaves_out_scheduled_archived_and_other_peoples(self, member_user, admin_user):
         make_session(member_user, scheduled_job=make_schedule(member_user), origin=SessionOrigin.SCHEDULE)
         archived = make_session(member_user)
-        HiddenSession.objects.create(session=archived, user=member_user)
+        Session.objects.filter(pk=archived.pk).update(archived_at=timezone.now())
         make_session(admin_user)
 
         rows, has_more = session_rows(member_user)
@@ -241,7 +241,7 @@ class TestScheduleRows:
 
     def test_archived_sessions_leave_a_schedule_without_firings(self, member_user):
         _, (session,) = make_firing(make_schedule(member_user), RunStatus.FAILED)
-        HiddenSession.objects.create(session=session, user=member_user)
+        Session.objects.filter(pk=session.pk).update(archived_at=timezone.now())
 
         (row,) = schedule_rows(member_user)
 

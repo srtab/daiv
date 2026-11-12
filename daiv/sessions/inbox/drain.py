@@ -1,10 +1,10 @@
 """Starting a session's next run from its pending events (``specs/001-session-inbox/contracts/inbox-service.md``).
 
-:meth:`Drain.start` locks the session row and, unless a live holder has the slot or a job run is active, takes its
-pending events in one transaction: it moves the requests that follow the session to its branch, supersedes all but the
-newest event per subject, turns the CI and delegation wakes the policy blocks into remembered events, and drops a QUEUED
-next run left with nothing to wake it. When a waking event survives, it picks the branch and requester of the oldest one
-(an event about another of the session's repositories is on the session's branch,
+:meth:`Drain.start` locks the session row and, unless the session is archived, a live holder has the slot or a job run
+is active, takes its pending events in one transaction: it moves the requests that follow the session to its branch,
+supersedes all but the newest event per subject, turns the CI and delegation wakes the policy blocks into remembered
+events, and drops a QUEUED next run left with nothing to wake it. When a waking event survives, it picks the branch and
+requester of the oldest one (an event about another of the session's repositories is on the session's branch,
 :meth:`sessions.inbox.next_runs.NextRuns.branch_of`), checks that requester may still run on the repository (a mention
 is gated where it is made, FR-026), and takes their waking events for the branch with every remembered one, up to their
 first request that runs alone (:meth:`sessions.inbox.splits.RequestSplits.runs_alone`). A builtin slash command that
@@ -127,11 +127,13 @@ class Drain:
 
     @classmethod
     def sessions_to_drain(cls, limit: int = DRAIN_SWEEP_LIMIT) -> list[str]:
-        """Sessions with a pending waking event and a free or stale slot, for the sweep. SYNC ONLY."""
+        """Sessions with a pending waking event and a free or stale slot, for the sweep: an archived one only for a leg
+        follow-up its drain stops. SYNC ONLY."""
         free = Q(session__active_run_id__isnull=True) | Q(session__last_active_at__lt=stale_cutoff())
+        takes_it = Q(session__archived_at__isnull=True) | Q(kind=EventKind.LEG_FOLLOW_UP)
         return list(
             InboxEvent.objects
-            .filter(free, state=EventState.PENDING, wake=True)
+            .filter(free, takes_it, state=EventState.PENDING, wake=True)
             .order_by()
             .values_list("session_id", flat=True)
             .distinct()[:limit]
@@ -194,6 +196,9 @@ class _Take:
     def take(self) -> tuple[Run, list[_Charge]] | None:
         session = self.session
         next_runs = NextRuns(session)
+        if session.archived_at is not None:
+            LegFollowUps.stop_held(session)
+            return None
         if SessionLock.is_held(session) or next_runs.job_run_active():
             return None
         pending = list(

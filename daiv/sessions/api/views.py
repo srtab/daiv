@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from django.utils import timezone
+
 from asgiref.sync import sync_to_async
 from ninja import Field, Router, Schema
 from ninja.errors import HttpError
@@ -11,8 +13,9 @@ from ninja.security import django_auth
 from accounts.api.security import AuthBearer
 from codebase.authorization import can_run
 from sessions.header import aci_payload, watch_payload
+from sessions.inbox.drain import Drain
 from sessions.live.notify import asession_changed
-from sessions.models import HiddenSession, MergeRequestOwnership, RunStatus, Session
+from sessions.models import MergeRequestOwnership, RunStatus, Session
 from sessions.page_state import aload_session_state, turns_payload
 from sessions.pipeline_watch.service import PipelineWatch
 from sessions.titling import MAX_TITLE_LENGTH
@@ -107,13 +110,14 @@ async def _ci(session: Session) -> dict:
 
 @sessions_router.post("/{thread_id}/archive", response=dict, url_name="session_archive")
 async def session_archive(request: HttpRequest, thread_id: str, payload: ArchiveIn):
-    """Archive the session out of the caller's own list, or bring it back; nobody else's list changes."""
-    user = request.auth  # ty: ignore[unresolved-attribute]
-    session = await _get_visible_session(user, thread_id)
-    if payload.archived:
-        await HiddenSession.objects.aget_or_create(session=session, user=user)
-    else:
-        await HiddenSession.objects.filter(session=session, user=user).adelete()
+    """Archive the session for everyone, or bring it back for everyone; either needs run access to its repository and
+    drains its inbox, which stops its leg follow-ups or starts what it kept waiting."""
+    session = await _get_runnable_session(request.auth, thread_id)  # ty: ignore[unresolved-attribute]
+    fields = {"archived_at": timezone.now(), "archive_pending": False} if payload.archived else {"archived_at": None}
+    if not await Session.objects.filter(pk=session.pk, archived_at__isnull=payload.archived).aupdate(**fields):
+        return {"archived": payload.archived}
+    await sync_to_async(Drain(session.pk).start_logged)()
+    await asession_changed(session.pk)
     return {"archived": payload.archived}
 
 

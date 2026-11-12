@@ -24,7 +24,6 @@ from sessions.models import (
     EventFailure,
     EventKind,
     EventState,
-    HiddenSession,
     MergeRequestOwnership,
     Run,
     RunStatus,
@@ -1625,7 +1624,7 @@ def test_other_sessions_is_offered_on_the_main_card_only(member_client, member_u
     card = _card(_get_detail(member_client, _create_session(user=member_user)))
 
     assert 'x-if="index === 0 && row.mr_iid"' in card
-    assert f"{reverse('session_list')}?repo=group/project&amp;mr=" in card
+    assert f"{reverse('session_list')}?repo=group/project&amp;archived=all&amp;mr=" in card
 
 
 @pytest.mark.django_db
@@ -1716,7 +1715,7 @@ def test_detail_offers_rename_the_ci_toggle_and_archive_to_a_runner(member_clien
 
 
 @pytest.mark.django_db
-def test_detail_offers_only_archive_to_a_viewer_who_cannot_run(member_client, member_user):
+def test_detail_offers_no_actions_to_a_viewer_who_cannot_run(member_client, member_user):
     session = _create_session(user=member_user, title="Fix the login redirect")
 
     with patch("sessions.page_state.runnable_repo_ids", return_value=set()):
@@ -1724,17 +1723,15 @@ def test_detail_offers_only_archive_to_a_viewer_who_cannot_run(member_client, me
     topbar = _topbar(resp)
 
     assert 'title="Fix the login redirect">Fix the login redirect</h1>' in topbar
-    for testid in ("session-rename", "session-title-input", "session-ci-toggle"):
+    for testid in ("session-rename", "session-title-input", "session-ci-toggle", "session-archive"):
         assert f'data-testid="{testid}"' not in topbar
-    assert 'data-testid="session-archive"' in topbar
-    assert b'data-testid="session-archive-dialog"' in resp.content
+    assert b'data-testid="session-archive-dialog"' not in resp.content
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("archived", [False, True])
-def test_detail_marks_a_session_the_viewer_archived(member_client, member_user, admin_user, archived):
-    session = _create_session(user=member_user)
-    HiddenSession.objects.create(session=session, user=member_user if archived else admin_user)
+def test_detail_marks_an_archived_session(member_client, member_user, archived):
+    session = _create_session(user=member_user, archived_at=timezone.now() if archived else None)
 
     resp = _get_detail(member_client, session)
     topbar = _topbar(resp)
@@ -1747,6 +1744,19 @@ def test_detail_marks_a_session_the_viewer_archived(member_client, member_user, 
     assert 'x-show="!archived"' in html
     item = topbar[topbar.index('data-testid="session-archive"') :]
     assert (">Unarchive</span>" in item) is archived
+
+
+@pytest.mark.django_db
+def test_an_archived_session_offers_no_unarchive_to_a_viewer_who_cannot_run(member_client, member_user):
+    session = _create_session(user=member_user, archived_at=timezone.now())
+
+    with patch("sessions.page_state.runnable_repo_ids", return_value=set()):
+        resp = _get_detail(member_client, session)
+    html = resp.content.decode()
+    composer = html[html.index('data-testid="composer-archived"') :]
+
+    assert "This session is archived." in composer
+    assert "setArchived(false)" not in html
 
 
 @pytest.mark.django_db

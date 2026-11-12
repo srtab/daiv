@@ -1,7 +1,7 @@
 {% load i18n icon_tags session_tags %}
 {% comment %}
 Must sit inside ``sessionPage`` inside ``chat({…})``: status and the repository summary read state the stream and turns fetches update.
-``can_act`` (run access to the repository) shows rename; Archive changes only the viewer's lists and composer.
+``can_act`` (run access to the repository) shows rename, Archive and Unarchive, which act for everyone.
 {% endcomment %}
 {% session_title session as title %}
 <header class="session-topbar" data-testid="session-topbar">
@@ -87,6 +87,7 @@ Must sit inside ``sessionPage`` inside ``chat({…})``: status and the repositor
             {% icon "arrow-top-right-on-square" "h-3.5 w-3.5 text-text-faint" %}
           </a>
         {% endif %}
+        {% if can_act %}
         <div class="session-menu__divider" role="separator"></div>
         <button type="button" role="menuitem" tabindex="-1" class="session-menu__item"
                 :class="{ 'session-menu__item--danger': !archived }"
@@ -94,15 +95,17 @@ Must sit inside ``sessionPage`` inside ``chat({…})``: status and the repositor
                 data-testid="session-archive">
           {% icon "archive-box" "session-menu__icon" %}<span x-text="archived ? '{{ _("Unarchive")|escapejs }}' : '{{ _("Archive")|escapejs }}'">{% if archived %}{% translate "Unarchive" %}{% else %}{% translate "Archive" %}{% endif %}</span>
         </button>
+        {% endif %}
       </div>
     </div>
   </div>
 </header>
+{% if can_act %}
 <dialog id="session-archive-dialog" class="confirm-dialog" aria-labelledby="session-archive-dialog-title"
         aria-describedby="session-archive-dialog-body" data-testid="session-archive-dialog">
   <h2 id="session-archive-dialog-title" class="confirm-dialog__title">{% translate "Archive this session?" %}</h2>
   <p id="session-archive-dialog-body" class="confirm-dialog__body">
-    {% translate "It leaves your session list and Home, and takes no follow-ups from you until you unarchive it. The Archived filter still finds it, and others still see it." %}
+    {% translate "It leaves the session list and Home for everyone, and takes no follow-ups, from chat or the git platform, until someone unarchives it. The Archived filter still finds it." %}
   </p>
   <form method="dialog" class="confirm-dialog__actions">
     <button type="submit" value="cancel" class="confirm-dialog__button" autofocus>{% translate "Cancel" %}</button>
@@ -110,3 +113,4 @@ Must sit inside ``sessionPage`` inside ``chat({…})``: status and the repositor
             @click="$el.closest('dialog').close(); setArchived(true)">{% translate "Archive" %}</button>
   </form>
 </dialog>
+{% endif %}
