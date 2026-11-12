@@ -18,8 +18,8 @@ the default branch always does.
 A target that names a leg's ``thread_id`` is a leg follow-up: it continues that leg in its own session, with its
 conversation, on its branch and merge request (:mod:`sessions.inbox.leg_follow_ups`). It is refused, with a reason the
 coordinator can act on and the call's other targets going ahead, unless it names a leg this coordinator delegated, no
-``ref``, the leg's repository, a leg its user has not archived, whose delegated work has all ended, that DAIV did not
-lose track of, and whose merge request is still open (:data:`_REFUSALS`, checked in that order), then on a repository
+``ref``, the leg's repository, a leg whose merge request is still open, not archived for its user, whose delegated work
+has all ended, and that DAIV did not lose track of (:data:`_REFUSALS`, checked in that order), then on a repository
 its user may still run on, checked with the new legs' and again by the inbox when its run starts. A leg follow-up's run
 carries the call's ``batch_id``, so one batch may hold new legs' first runs and leg follow-ups' runs, and a leg session
 serves every batch that sent it work. The call validates everything first, posts the leg follow-ups without draining,
@@ -294,14 +294,14 @@ class SessionJobDelegator:
             return leg, _REFUSALS["ref"]
         if target.repo_id.casefold() != session.repo_id.casefold():
             return leg, _REFUSALS["repo"].format(leg_repo_id=session.repo_id, repo_id=target.repo_id)
+        if (state := leg.merge_request_state()) != MergeRequestState.OPEN:
+            return leg, _REFUSALS[state]
         if leg.archived_by(user):
             return leg, _REFUSALS["archived"]
         if leg.is_busy():
             return leg, _REFUSALS[BUSY]
         if leg.is_lost():
             return leg, _REFUSALS["lost"].format(session_url=LegRun.url_of(session.pk))
-        if (state := leg.merge_request_state()) != MergeRequestState.OPEN:
-            return leg, _REFUSALS[state]
         return leg, None
 
     async def _apost_follow_up(

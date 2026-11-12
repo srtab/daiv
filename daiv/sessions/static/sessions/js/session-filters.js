@@ -26,7 +26,7 @@ document.addEventListener("alpine:init", () => {
         ranOn: "",
         schedule: "",
         batch: "",
-        archived: "", // "", "true" (only archived) or "all" (archived with the rest)
+        archived: "",
 
         init() {
             this._readUrl();

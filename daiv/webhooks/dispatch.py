@@ -255,7 +255,7 @@ async def _start_run(
     A failed session or ``Run`` write rolls the enqueue back and raises, so the platform redelivers the event.
     """
     thread_id = compute_thread_id(repo_slug=repo_id, scope=scope, entity_iid=iid)
-    if await Session.objects.filter(pk=thread_id, archived_at__isnull=False).aexists():
+    if await Session.objects.filter(pk=thread_id).archived_for_everyone().aexists():
         logger.info("Ignoring a trigger on %s#%s: its session %s is archived", repo_id, iid, thread_id)
         return False
     # user=None: the webhook fires for whoever touched the issue/MR, not the agent owner, so USER envs never apply.

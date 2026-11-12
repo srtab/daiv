@@ -3,7 +3,8 @@ from unittest.mock import AsyncMock, patch
 from django.utils import timezone
 
 import pytest
-from sessions.auto_archive import aarchive_merged
+from asgiref.sync import sync_to_async
+from sessions.auto_archive import aarchive_merged, archive_settled
 from sessions.models import MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin, SessionRepository
 
 from tests.unit_tests.sessions.conftest import amake_owned_merge_request
@@ -32,7 +33,11 @@ class TestArchiveMerged:
             thread_id="issue", origin=SessionOrigin.ISSUE_WEBHOOK, repo_id="group/repo"
         )
         await Run.objects.acreate(
-            session=issue, trigger_type=SessionOrigin.ISSUE_WEBHOOK, repo_id="group/repo", merge_request_iid=7
+            session=issue,
+            trigger_type=SessionOrigin.ISSUE_WEBHOOK,
+            repo_id="group/repo",
+            merge_request_iid=7,
+            status=RunStatus.SUCCESSFUL,
         )
 
         archived = await aarchive_merged("group/repo", 7)
@@ -104,6 +109,44 @@ class TestArchiveMerged:
 
         assert await aarchive_merged("group/repo", 7) == []
 
+    async def test_a_session_with_an_unfinished_run_waits_until_the_run_ends(self):
+        await _merged("s")
+        await Run.objects.acreate(
+            session_id="s", trigger_type=SessionOrigin.MR_WEBHOOK, repo_id="group/repo", status=RunStatus.RUNNING
+        )
+
+        assert await aarchive_merged("group/repo", 7) == []
+
+        run = await Run.objects.aget(session_id="s")
+        await Run.objects.afinish(run, RunStatus.SUCCESSFUL)
+        assert (await Session.objects.aget(pk="s")).archived_at is not None
+
+    async def test_a_coordinator_follows_a_leg_whose_run_ended_without_a_merge_request(self):
+        await _merged("coord")
+        leg = await _leg("leg", "coord")
+        await Run.objects.acreate(
+            session=leg, trigger_type=SessionOrigin.DELEGATED_JOB, repo_id="group/repo", status=RunStatus.RUNNING
+        )
+        assert await aarchive_merged("group/repo", 7) == []
+
+        await Run.objects.filter(session=leg).aupdate(status=RunStatus.SUCCESSFUL)
+
+        assert await sync_to_async(archive_settled)("leg") == ["coord"]
+
+    async def test_a_session_owning_another_open_merge_request_waits_for_that_merge_not_a_run(self):
+        merged = await _merged("s")
+        await MergeRequestOwnership.objects.acreate(
+            repo_id="group/repo", merge_request_iid=8, session_id=merged.session_id, source_branch="other"
+        )
+        await aarchive_merged("group/repo", 7)
+
+        assert not (await Session.objects.aget(pk="s")).archive_pending
+
+    async def test_a_session_no_merge_left_pending_is_not_settled(self):
+        await Session.objects.acreate(thread_id="s", origin=SessionOrigin.CHAT, repo_id="group/repo")
+
+        assert await sync_to_async(archive_settled)("s") == []
+
     async def test_a_coordinator_that_owns_no_merged_merge_request_stays(self):
         await Session.objects.acreate(thread_id="coord", origin=SessionOrigin.CHAT, repo_id="group/repo")
         leg = await _leg("leg", "coord")
@@ -125,6 +168,14 @@ class TestArchiveMerged:
 
         assert await aarchive_merged("group/repo", 7) == []
         assert (await Session.objects.aget(pk="s")).archived_at == first
+
+    async def test_a_merge_redelivered_after_an_unarchive_archives_nothing(self):
+        await _merged("s")
+        await aarchive_merged("group/repo", 7)
+        await Session.objects.filter(pk="s").aupdate(archived_at=None)
+
+        assert await aarchive_merged("group/repo", 7) == []
+        assert (await Session.objects.aget(pk="s")).archived_at is None
 
     async def test_each_archived_session_is_poked(self):
         await _merged("s")

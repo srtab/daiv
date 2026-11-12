@@ -1045,6 +1045,12 @@ class TestLegFollowUpRefusals:
 
         assert "archived for the person you act for" in await self._refusal(run, _follow_up(leg))
 
+    async def test_a_leg_archived_for_everyone_is_refused(self, admin_user):
+        _, run, leg = await _coordinated(admin_user)
+        await Session.objects.filter(pk=leg.session_id).aupdate(archived_at=timezone.now())
+
+        assert "archived for the person you act for" in await self._refusal(run, _follow_up(leg))
+
     async def test_another_persons_archive_does_not_refuse_it(self, admin_user, member_user):
         _, run, leg = await _coordinated(admin_user)
         await HiddenSession.objects.acreate(session_id=leg.session_id, user=member_user)

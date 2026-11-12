@@ -8,7 +8,7 @@ from django.utils import timezone
 import pytest
 from sessions.artifacts import ArtifactKind, content_types_for_kind
 from sessions.filters import STATUS_CHOICES, ArtifactFilter, SessionFilter, resolve_scope
-from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
+from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin, SessionRepository
 
 from accounts.models import User
 from schedules.models import Frequency, ScheduledJob
@@ -289,6 +289,13 @@ class TestSessionFilter:
         pks = list(SessionFilter({"mr": "42", "repo": "group/project"}, queryset=_qs()).qs.values_list("pk", flat=True))
         assert here.pk in pks
         assert elsewhere.pk not in pks
+
+    def test_mr_with_a_repository_matches_it_on_any_of_a_session_s_repositories(self, user):
+        shared = _create_session(repo_id="group/main")
+        SessionRepository.objects.create(session=shared, position=1, repo_id="group/project", merge_request_iid=42)
+
+        pks = list(SessionFilter({"mr": "42", "repo": "group/project"}, queryset=_qs()).qs.values_list("pk", flat=True))
+        assert pks == [shared.pk]
 
     def test_mr_filter_invalid_value_is_ignored(self, user):
         a = _create_session(merge_request_iid=42)

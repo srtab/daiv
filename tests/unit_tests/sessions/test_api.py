@@ -753,13 +753,15 @@ async def test_unarchive_brings_a_session_archived_for_everyone_back(client, aut
     session = await sync_to_async(_create_session)(user=user)
     await Session.objects.filter(pk=session.pk).aupdate(archived_at=timezone.now())
 
-    response = await client.post(
-        f"/sessions/{session.thread_id}/archive", json={"archived": False}, headers=_auth_headers(raw)
-    )
+    with patch("sessions.api.views.asession_changed", new=AsyncMock()) as poke:
+        response = await client.post(
+            f"/sessions/{session.thread_id}/archive", json={"archived": False}, headers=_auth_headers(raw)
+        )
 
     assert response.json() == {"archived": False}
     await session.arefresh_from_db()
     assert session.archived_at is None
+    poke.assert_awaited_once_with(session.pk)
 
 
 @pytest.mark.django_db(transaction=True)

@@ -115,7 +115,8 @@ async def session_archive(request: HttpRequest, thread_id: str, payload: Archive
         await HiddenSession.objects.aget_or_create(session=session, user=user)
     else:
         await HiddenSession.objects.filter(session=session, user=user).adelete()
-        await Session.objects.filter(pk=session.pk).aupdate(archived_at=None)
+        if await Session.objects.filter(pk=session.pk).archived_for_everyone().aupdate(archived_at=None):
+            await asession_changed(session.pk)
     return {"archived": payload.archived}
 
 
