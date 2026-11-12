@@ -225,7 +225,7 @@ A custom global skill is available in **all repositories**, unlike a per-reposit
 
 Both use the same directory, `DAIV_AGENT_CUSTOM_SKILLS_PATH`, once it is mounted into the `app` container and into every container that runs the agent, so you can use both. A mounted skill appears in runs but not on the **Skills** page, which lists only uploaded skills.
 
-DAIV materializes the skills at each agent invocation, so a new skill or a new file takes effect on the next task without a container restart. DAIV does not pick up an edit to a file it has already loaded, so replace the skill by upload, or restart the worker containers after editing a mounted file.
+DAIV materializes the skills at each agent invocation, so a new skill or a new file takes effect on the next task without a container restart. DAIV does not pick up an edit to a file it has already loaded, so replace the skill by upload, or recreate the containers that run the agent after editing a mounted file. A plain restart is not enough, because the cache lives in the container's `/tmp`. With Docker Compose, run `docker compose up -d --force-recreate worker worker-interactive`. With Docker Swarm, run `docker service update --force <stack>_worker` and `docker service update --force <stack>_worker-interactive`, replacing `<stack>` with your stack name.
 
 ### Mount a directory of global skills
 
