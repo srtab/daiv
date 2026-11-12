@@ -16,7 +16,8 @@ DAIV has two roles. New users are members.
 |------------|--------|-------|
 | Start and view agent runs and chats | On the repositories they can access (see [Repository access](#repository-access)) | On every repository |
 | Create and view [scheduled jobs](../features/scheduled-jobs.md) | On the repositories they can access | On every repository |
-| Create and revoke API keys | Their own | Their own, and every other user's key in the list |
+| Create API keys | Their own | Their own |
+| Revoke API keys | Their own | Any user's key |
 | Manage notification channels | Their own | Their own |
 | **Users**: create, edit and delete users | No | Yes |
 | **Configuration**: edit the site configuration | No | Yes |

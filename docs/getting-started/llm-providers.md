@@ -34,7 +34,7 @@ Set up a provider before DAIV's first start. You need an API key from the provid
 2. In DAIV's `.env` file, set the provider's variable to the key. Alternatively, mount a Docker secret named after the variable in lowercase.
 3. Start DAIV.
 
-A provider whose key was not set at the first start begins disabled. To set up a provider on a running install, edit it under **Configuration → Providers** as described in [Provider API keys](#provider-api-keys).
+A provider whose key was not set at the first start begins disabled. To set up a provider on a running install, open **Configuration → Providers**, set the provider's **API key**, turn on **Enabled**, and select **Save configuration**. Saving a key does not enable a disabled provider. [Providers](../reference/site-configuration.md#providers) describes the fields.
 
 ## Model specs
 
@@ -71,7 +71,7 @@ Smaller tasks such as titling, merge request metadata and memory have their own 
 
 ## Retries on provider errors
 
-DAIV retries a failed call to a provider's API when the failure is transient. For Anthropic's API, that means a connection error, or a 408, 409, 429 or 5xx response. DAIV retries up to `DAIV_MODEL_MAX_RETRIES` times (default `2`; see [Model requests](../reference/env-variables.md#model-requests)). A 400 or 401 response is not retried. If the call still fails, the error ends the run.
+DAIV retries a failed call to a provider's API when the failure is transient. For Anthropic's API, that means a connection error, or a 408, 409, 429 or 5xx response. DAIV retries up to `DAIV_MODEL_MAX_RETRIES` times (default `2`; see [Model requests](../reference/env-variables.md#model-requests)). A 400 or 401 response is not retried. If the call still fails, DAIV tries the fallback model, when one is set. If that fails too, the run ends with the error.
 
 If runs end on rate-limit errors, raise `DAIV_MODEL_MAX_RETRIES` or ask Anthropic for a higher rate limit.
 

@@ -200,14 +200,17 @@ Signing in is optional for the first merge request, but the dashboard is where y
     docker compose exec app django-admin bootstrap_admin you@example.com
     ```
 
-2. On the DAIV host, open `http://localhost:8000`, enter that email address, and select **Continue with email**.
-3. Read the one-time code from the log:
+2. On the DAIV host, open `http://localhost:8000/accounts/login/`.
+3. Enter that email address.
+4. Select **Continue with email**.
+5. Read the one-time code from the log:
 
     ```bash
     docker compose logs app | grep -A2 "sign-in code"
     ```
 
-4. Enter the code and select **Verify & sign in**.
+6. Enter the code.
+7. Select **Verify & sign in**.
 
 ## Connect your GitLab project
 
