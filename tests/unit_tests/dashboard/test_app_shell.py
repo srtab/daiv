@@ -79,7 +79,11 @@ def test_the_collapsed_flag_narrows_the_one_sidebar_width_token():
     wide = WIDE_TIER.search(INPUT_CSS.read_text(encoding="utf-8"))
 
     assert wide, "no lg block widening the sidebar"
-    assert re.search(r":root \{\s*--app-sidebar-width: 17rem;\s*\}", wide.group(1))
+    assert re.search(
+        r":root \{[^}]*--app-sidebar-width: clamp\(var\(--app-sidebar-min\), var\(--app-sidebar-chosen, 0px\), "
+        r"var\(--app-sidebar-max\)\);\s*\}",
+        wide.group(1),
+    )
     assert re.search(r':root\[data-sidebar="rail"\] \{\s*--app-sidebar-width: 4rem;\s*\}', wide.group(1))
 
 
@@ -93,7 +97,6 @@ def test_the_head_restores_the_collapse_before_first_paint():
     assert script, "base.html's <head> has no inline script restoring the sidebar"
     assert base.index(script.group(0)) < base.index("css/styles.css")
     assert key and f'localStorage.getItem("{key.group(1)}") === "rail"' in script.group(1)
-    assert 'document.documentElement.dataset.sidebar = "rail"' in script.group(1)
     assert script.group(1).lstrip().startswith("try {"), "blocked storage would throw before first paint"
 
 

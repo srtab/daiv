@@ -13,9 +13,21 @@
  *
  * `/` opens the session search under the same rules: it focuses the sessions page's search box
  * when that page is open, and otherwise follows the sidebar's Search row, if it has one.
+ *
+ * The full sidebar's width follows its right edge, `.sidebar__resize`: drag it, nudge it with the
+ * arrow keys, or double-click it to reset. The store writes `--app-sidebar-chosen` on `<html>` and
+ * `input.css` clamps it between `--app-sidebar-min` and `--app-sidebar-max`, so `width` is the
+ * width measured after that clamp, and that is what `localStorage` keeps (`daiv.sidebar.width`).
+ * base.html's head script restores it before first paint, like the rail.
+ *
+ *     <div role="separator" @pointerdown="$store.sidebar.resizeStart($event)"
+ *          @keydown="$store.sidebar.resizeKey($event)" @dblclick="$store.sidebar.resetWidth()">
  */
 document.addEventListener("alpine:init", () => {
   const STORAGE_KEY = "daiv.sidebar";
+  const WIDTH_KEY = "daiv.sidebar.width";
+  const WIDTH_VAR = "--app-sidebar-chosen";
+  const STEP = 16;
   const TYPING = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
   // `.sheet-backdrop` catches the session details panel: a sheet below 1100px, a column above, so no `data-surface`.
   const SURFACES = '[data-surface], dialog[open], [role="dialog"], [role="menu"], [aria-modal="true"], .sheet-backdrop';
@@ -28,8 +40,83 @@ document.addEventListener("alpine:init", () => {
     return [...document.querySelectorAll(SURFACES)].some(shown);
   }
 
+  function bound(name) {
+    return parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)) || 0;
+  }
+
   Alpine.store("sidebar", {
     rail: document.documentElement.dataset.sidebar === "rail",
+    width: null,
+    minWidth: null,
+    maxWidth: null,
+
+    measure() {
+      const aside = document.getElementById("app-sidebar");
+      if (!aside) return;
+      this.width = Math.round(aside.getBoundingClientRect().width);
+      this.minWidth = Math.round(bound("--app-sidebar-min"));
+      this.maxWidth = Math.round(bound("--app-sidebar-max"));
+    },
+
+    resizeStart(event) {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      const handle = event.currentTarget;
+      const root = document.documentElement;
+      handle.setPointerCapture(event.pointerId);
+      this.measure();
+      const startX = event.clientX;
+      const startWidth = this.width;
+      root.dataset.sidebarResizing = "";
+      const move = (e) => this._apply(startWidth + e.clientX - startX);
+      const end = () => {
+        handle.removeEventListener("pointermove", move);
+        handle.removeEventListener("pointerup", end);
+        handle.removeEventListener("pointercancel", end);
+        delete root.dataset.sidebarResizing;
+        this._remember();
+      };
+      handle.addEventListener("pointermove", move);
+      handle.addEventListener("pointerup", end);
+      handle.addEventListener("pointercancel", end);
+    },
+
+    resizeKey(event) {
+      this.measure();
+      const targets = {
+        ArrowLeft: this.width - STEP,
+        ArrowRight: this.width + STEP,
+        Home: this.minWidth,
+        End: this.maxWidth,
+      };
+      if (!(event.key in targets)) return;
+      event.preventDefault();
+      this._apply(targets[event.key]);
+      this._remember();
+    },
+
+    resetWidth() {
+      document.documentElement.style.removeProperty(WIDTH_VAR);
+      this.measure();
+      this._remember();
+    },
+
+    _apply(px) {
+      document.documentElement.style.setProperty(WIDTH_VAR, `${Math.round(px)}px`);
+      this.measure();
+    },
+
+    _remember() {
+      const atDefault = this.width <= this.minWidth;
+      if (atDefault) document.documentElement.style.removeProperty(WIDTH_VAR);
+      else document.documentElement.style.setProperty(WIDTH_VAR, `${this.width}px`);
+      try {
+        if (atDefault) localStorage.removeItem(WIDTH_KEY);
+        else localStorage.setItem(WIDTH_KEY, String(this.width));
+      } catch {
+        // Blocked storage only means the next page load starts at the default width.
+      }
+    },
 
     toggle() {
       this.rail = !this.rail;

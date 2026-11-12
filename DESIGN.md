@@ -340,8 +340,9 @@ The front matter's `typography` scale names these roles (`body`, `data`, `label-
 - **Responsive breakpoints**: mobile-first; `sm:` (640px), `lg:` (1024px), `xl:` (1280px).
   The app shell itself reflows at **768px** (`md:` — sidebar → sheet + slim top
   bar) and **1024px** (`lg:` — icon rail → full sidebar). `--app-sidebar-width` *is*
-  that second tier — 4rem, widened to 17rem in a `:root` switch at `lg:`, and back to 4rem
-  there when the user collapses it (`:root[data-sidebar="rail"]`) — so the
+  that second tier — 4rem, widened at `lg:` in a `:root` switch to the width the user dragged it
+  to (17rem to 32rem, see §App Shell), and back to 4rem there when the user collapses it
+  (`:root[data-sidebar="rail"]`) — so the
   sidebar's width lives in one place and everything keyed to it (the `--sheet-inset-*`
   switch, which tracks `md:` rather than `sm:`) follows both tiers for free.
 - **Focus & keyboard.** A global `:focus-visible` teal ring
@@ -375,8 +376,8 @@ Mobile-first approach. Common patterns:
 ```
 
 Breakpoints are viewport-relative, but from `md:` up a page sits next to the shell —
-a 64px icon rail, then `--app-sidebar-width` (17rem from `lg:`, or 4rem when the user
-collapses it) — so the
+a 64px icon rail, then `--app-sidebar-width` (17rem to 32rem from `lg:`, or 4rem when the
+user collapses it) — so the
 content area a rule switches on is always narrower than the width the rule names.
 Where the switch depends on whether two blocks still fit (a title and its actions, a
 list row and its controls), wrap on content instead: see §Page Header.
@@ -613,6 +614,14 @@ wordmark and the New split button) that is the only nav entry point on a phone.
   Meta held, or while a dialog, sheet or menu is open — any visible `data-surface`, the hook
   every floating surface carries and the one selector `surface-rise` animates. Every rail icon carries a `title`, its
   name and tooltip once the label is hidden.
+- **Width.** The full sidebar's right edge (`.sidebar__resize`, a focusable `role="separator"`)
+  resizes it: drag it, nudge it with the arrow keys (Home and End jump to the bounds), double-click
+  to reset. At rest it is the plain border; it turns teal under the pointer, on keyboard focus and
+  through a drag. The store writes `--app-sidebar-chosen` on `<html>`, and `input.css` clamps it
+  between `--app-sidebar-min` (17rem, the default) and `--app-sidebar-max` (32rem, less on
+  windows that would leave the content under 48rem), so the clamp also follows window resizes.
+  The width shown is what `localStorage` keeps (`daiv.sidebar.width`, dropped at the default),
+  and the same head script restores it before first paint. Neither the rail nor the sheet resizes.
 - **Layout.** Top to bottom: brand and toggle, New, then the `<nav>`, then Settings and the
   account chip. In the `<nav>`, fixed rows — Search (the sessions page's search box,
   `#search`; shortcut `/`), Home (URL name `dashboard`), Notifications, Artifacts — sit

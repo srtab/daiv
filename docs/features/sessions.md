@@ -54,6 +54,8 @@ The sidebar lists your sessions, so any of them is one click away from every pag
 
 The lists update as runs start and finish, without a reload. Where the sidebar narrows to icons, **Sessions** and **Scheduled** open their pages instead.
 
+To see more of long titles, drag the sidebar's right edge to widen it (or focus the edge and use the arrow keys); double-click the edge to reset it. This browser remembers the width. The sidebar never takes so much room that the page beside it gets cramped, so on smaller windows it widens less.
+
 ## Home
 
 The Home page (`/dashboard/`) opens with **Needs you**: what is waiting on you, up to eight items. Questions come first, then failures (Failed, CI still failing, Can't run), then Found issues, then Needs attention; newest first within each.

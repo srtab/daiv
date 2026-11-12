@@ -210,3 +210,205 @@ def test_a_slash_stands_down_like_the_bracket():
 def test_a_slash_does_nothing_where_the_sidebar_has_no_search():
     state = drive([SLASH], search=False)
     assert (state["assigned"], state["prevented"]) == (None, [False])
+
+
+RESIZE_HARNESS = """
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+
+const { src, stored, chosen, max, storage, actions } = JSON.parse(readFileSync(0, "utf8"));
+const MIN = 272;
+const local = { ...stored };
+const vars = chosen ? { "--app-sidebar-chosen": chosen } : {};
+const dataset = {};
+const listeners = {};
+const prevented = [];
+let captured = false;
+let resizingMidDrag = null;
+
+// The CSS clamp the shell applies: `clamp(min, chosen, max)`.
+const shown = () => Math.max(MIN, Math.min(parseFloat(vars["--app-sidebar-chosen"]) || 0, max));
+const aside = { getBoundingClientRect: () => ({ width: shown() }) };
+const handle = {
+  setPointerCapture: () => { captured = true; },
+  addEventListener: (name, cb) => { (listeners[name] ||= new Set()).add(cb); },
+  removeEventListener: (name, cb) => { listeners[name]?.delete(cb); },
+};
+const fire = (name, event) => [...(listeners[name] || [])].forEach((cb) => cb(event));
+const bounds = { "--app-sidebar-min": `${MIN}px`, "--app-sidebar-max": `${max}px` };
+
+const sandbox = {
+  document: {
+    documentElement: {
+      dataset,
+      style: {
+        setProperty: (name, value) => { vars[name] = value; },
+        removeProperty: (name) => { delete vars[name]; },
+      },
+    },
+    addEventListener: (name, cb) => { if (name === "alpine:init") cb(); },
+    getElementById: (id) => (id === "app-sidebar" ? aside : null),
+  },
+  getComputedStyle: () => ({ getPropertyValue: (name) => bounds[name] ?? "" }),
+  localStorage: {
+    setItem: (k, v) => { if (storage === "blocked") throw new Error("SecurityError"); local[k] = v; },
+    removeItem: (k) => { if (storage === "blocked") throw new Error("SecurityError"); delete local[k]; },
+  },
+};
+sandbox.window = sandbox;
+sandbox.Alpine = { store: (name, value) => (sandbox.store = value) };
+vm.createContext(sandbox);
+vm.runInContext(readFileSync(src, "utf8"), sandbox);
+
+const sidebar = sandbox.store;
+for (const action of actions) {
+  let wasPrevented = false;
+  const preventDefault = () => { wasPrevented = true; };
+  if (action.drag) {
+    const button = action.button ?? 0;
+    sidebar.resizeStart({ button, pointerId: 1, clientX: 1000, currentTarget: handle, preventDefault });
+    for (const dx of action.drag) fire("pointermove", { clientX: 1000 + dx });
+    resizingMidDrag = "sidebarResizing" in dataset;
+    fire(action.cancel ? "pointercancel" : "pointerup", {});
+  } else if (action.key) {
+    sidebar.resizeKey({ key: action.key, preventDefault });
+  } else if (action.reset) {
+    sidebar.resetWidth();
+  }
+  prevented.push(wasPrevented);
+}
+process.stdout.write(JSON.stringify({
+  width: sidebar.width, minWidth: sidebar.minWidth, maxWidth: sidebar.maxWidth,
+  chosen: vars["--app-sidebar-chosen"] ?? null, stored: local,
+  resizing: "sidebarResizing" in dataset, resizingMidDrag, captured, prevented,
+  listening: Object.values(listeners).reduce((n, set) => n + set.size, 0),
+}));
+"""
+
+WIDTH_KEY = "daiv.sidebar.width"
+
+
+def resize(actions, *, stored=None, chosen=None, max=512, storage="ok"):  # noqa: A002
+    """The sidebar's shown width is 272px (17rem) clamped up to ``max``; ``chosen`` is the
+    width the head script already applied from ``stored``."""
+    return run_node(RESIZE_HARNESS, {**locals(), "stored": stored or {}, "src": str(SIDEBAR_JS)})
+
+
+@requires_node
+def test_dragging_the_edge_widens_the_sidebar_and_remembers_it():
+    state = resize([{"drag": [40, 80]}])
+    assert (state["width"], state["chosen"], state["stored"]) == (352, "352px", {WIDTH_KEY: "352"})
+
+
+@requires_node
+def test_a_drag_past_the_cap_remembers_the_width_shown():
+    state = resize([{"drag": [300]}], max=400)
+    assert (state["width"], state["chosen"], state["stored"]) == (400, "400px", {WIDTH_KEY: "400"})
+
+
+@requires_node
+def test_dragging_back_to_the_default_forgets_the_width():
+    state = resize([{"drag": [-200]}], stored={WIDTH_KEY: "352"}, chosen="352px")
+    assert (state["width"], state["chosen"], state["stored"]) == (272, None, {})
+
+
+@requires_node
+def test_a_drag_marks_the_page_resizing_until_released():
+    for cancel in (False, True):
+        state = resize([{"drag": [16], "cancel": cancel}])
+        assert (state["captured"], state["resizingMidDrag"], state["resizing"]) == (True, True, False), cancel
+        assert state["listening"] == 0, cancel
+
+
+@requires_node
+def test_only_the_primary_button_drags():
+    state = resize([{"drag": [80], "button": 2}])
+    assert (state["chosen"], state["captured"], state["prevented"]) == (None, False, [False])
+
+
+@requires_node
+def test_reset_returns_to_the_default_and_forgets_the_width():
+    state = resize([{"reset": True}], stored={WIDTH_KEY: "400"}, chosen="400px")
+    assert (state["width"], state["chosen"], state["stored"]) == (272, None, {})
+
+
+@requires_node
+def test_arrow_keys_nudge_the_width_by_a_step():
+    state = resize([{"key": "ArrowRight"}, {"key": "ArrowRight"}, {"key": "ArrowLeft"}])
+    assert (state["width"], state["stored"], state["prevented"]) == (288, {WIDTH_KEY: "288"}, [True, True, True])
+
+
+@requires_node
+def test_home_and_end_jump_to_the_bounds():
+    widest = resize([{"key": "End"}])
+    narrowest = resize([{"key": "Home"}], stored={WIDTH_KEY: "400"}, chosen="400px")
+
+    assert (widest["width"], widest["stored"]) == (512, {WIDTH_KEY: "512"})
+    assert (narrowest["width"], narrowest["stored"], narrowest["chosen"]) == (272, {}, None)
+
+
+@requires_node
+def test_other_keys_are_left_to_the_page():
+    state = resize([{"key": "Enter"}, {"key": "ArrowUp"}])
+    assert (state["chosen"], state["prevented"]) == (None, [False, False])
+
+
+@requires_node
+def test_reports_its_bounds_for_assistive_tech():
+    state = resize([{"key": "ArrowRight"}], max=448)
+    assert (state["width"], state["minWidth"], state["maxWidth"]) == (288, 272, 448)
+
+
+@requires_node
+def test_blocked_storage_still_resizes_this_page():
+    state = resize([{"drag": [48]}], storage="blocked")
+    assert (state["width"], state["chosen"], state["stored"]) == (320, "320px", {})
+
+
+BASE_HTML = DAIV_DIR / "core" / "templates" / "base.html"
+
+HEAD_HARNESS = """
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+
+const { script, stored, blocked } = JSON.parse(readFileSync(0, "utf8"));
+const vars = {};
+const dataset = {};
+const sandbox = {
+  document: { documentElement: { dataset, style: { setProperty: (name, value) => { vars[name] = value; } } } },
+  localStorage: { getItem: (k) => { if (blocked) throw new Error("SecurityError"); return stored[k] ?? null; } },
+};
+vm.createContext(sandbox);
+vm.runInContext(script, sandbox);
+process.stdout.write(JSON.stringify({ vars, sidebar: dataset.sidebar ?? null }));
+"""
+
+
+def head_script(stored, *, blocked=False):
+    """Runs the inline ``<head>`` script that restores the sidebar before first paint."""
+    script = re.search(r"<script>(try \{.*?)</script>", BASE_HTML.read_text(encoding="utf-8"), re.S)
+    assert script, "base.html's inline sidebar script moved"
+    return run_node(HEAD_HARNESS, {"script": script.group(1), "stored": stored, "blocked": blocked})
+
+
+@requires_node
+def test_the_head_script_applies_the_width_the_store_remembered():
+    remembered = resize([{"drag": [64]}])
+    restored = head_script(remembered["stored"])
+    assert restored["vars"] == {"--app-sidebar-chosen": remembered["chosen"]}
+
+
+@requires_node
+def test_the_head_script_ignores_a_width_that_is_not_a_number():
+    assert head_script({WIDTH_KEY: "wide"})["vars"] == {}
+
+
+@requires_node
+def test_the_head_script_restores_the_rail_and_the_width_together():
+    state = head_script({"daiv.sidebar": "rail", WIDTH_KEY: "400"})
+    assert (state["sidebar"], state["vars"]) == ("rail", {"--app-sidebar-chosen": "400px"})
+
+
+@requires_node
+def test_the_head_script_survives_blocked_storage():
+    assert head_script({WIDTH_KEY: "400"}, blocked=True) == {"vars": {}, "sidebar": None}

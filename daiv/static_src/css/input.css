@@ -217,7 +217,18 @@
     & .sidebar__toggle-icon {
       transform: rotate(180deg);
     }
+
+    & .sidebar__resize {
+      display: none;
+    }
   }
+}
+
+/* While a drag is on, the cursor stays a resize cursor over the content and nothing selects. */
+:root[data-sidebar-resizing],
+:root[data-sidebar-resizing] * {
+  cursor: col-resize;
+  user-select: none;
 }
 
 @layer components {
@@ -230,6 +241,22 @@
 
   /* The active item's 3px brand rail. `nav_active` adds the modifier, so it is drawn on
      the one active item instead of hidden with `opacity-0` inside every other. */
+  /* The sidebar's right edge: an invisible strip straddling its border, whose line lands on
+     the border and turns teal under the pointer, on keyboard focus, and through a drag. */
+  .sidebar__resize {
+    @apply absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize touch-none outline-none;
+  }
+
+  .sidebar__resize::after {
+    @apply absolute inset-y-0 left-[3px] w-0.5 transition-colors content-[''];
+  }
+
+  .sidebar__resize:hover::after,
+  .sidebar__resize:focus-visible::after,
+  :root[data-sidebar-resizing] .sidebar__resize::after {
+    @apply bg-accent;
+  }
+
   .sidebar__nav-item--active {
     position: relative;
   }
@@ -409,11 +436,26 @@
   animation: surface-rise 180ms ease-out backwards;
 }
 
-/* The sidebar's second tier: the icon rail becomes the full column. `--app-sidebar-width`
-   is the only place either width lives, so the sheet inset below tracks both tiers. */
+/* Registered so `getComputedStyle` hands `core/js/sidebar.js` pixels, not the expression. */
+@property --app-sidebar-min {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+@property --app-sidebar-max {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+/* `--app-sidebar-width` is the only place the sidebar's width lives, so the sheet inset below tracks
+   it. The 48rem left for content fits a transcript beside the 20rem session details column. */
 @media (width >= theme(--breakpoint-lg)) {
   :root {
-    --app-sidebar-width: 17rem;
+    --app-sidebar-min: 17rem;
+    --app-sidebar-max: max(17rem, min(32rem, 100vw - 48rem));
+    --app-sidebar-width: clamp(var(--app-sidebar-min), var(--app-sidebar-chosen, 0px), var(--app-sidebar-max));
   }
 
   :root[data-sidebar="rail"] {

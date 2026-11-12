@@ -1,7 +1,7 @@
 {% load avatar_tags i18n icon_tags nav_tags %}
 
 <aside data-testid="app-sidebar"
-       {% if sheet %}class="flex min-h-0 w-full flex-1 flex-col shrink-0 bg-surface-1"{% else %}id="app-sidebar" class="sidebar sidebar--rail hidden w-(--app-sidebar-width) shrink-0 border-r border-border bg-surface-1 md:flex md:flex-col"{% endif %}
+       {% if sheet %}class="flex min-h-0 w-full flex-1 flex-col shrink-0 bg-surface-1"{% else %}id="app-sidebar" class="sidebar sidebar--rail relative hidden w-(--app-sidebar-width) shrink-0 border-r border-border bg-surface-1 md:flex md:flex-col"{% endif %}
        x-cloak>
   <div class="sidebar__brand flex items-center gap-2.5 px-5 pt-5 pb-5">
     <span class="brand-mark"></span>
@@ -90,4 +90,22 @@
       </div>
     </div>
   </div>
+
+  {% if not sheet %}
+  <div role="separator"
+       data-testid="sidebar-resize"
+       tabindex="0"
+       aria-controls="app-sidebar"
+       aria-orientation="vertical"
+       aria-label="{% translate 'Resize sidebar' %}"
+       title="{% translate 'Drag to resize, double-click to reset' %}"
+       :aria-valuenow="$store.sidebar.width"
+       :aria-valuemin="$store.sidebar.minWidth"
+       :aria-valuemax="$store.sidebar.maxWidth"
+       @focus="$store.sidebar.measure()"
+       @pointerdown="$store.sidebar.resizeStart($event)"
+       @keydown="$store.sidebar.resizeKey($event)"
+       @dblclick="$store.sidebar.resetWidth()"
+       class="sidebar__resize"></div>
+  {% endif %}
 </aside>

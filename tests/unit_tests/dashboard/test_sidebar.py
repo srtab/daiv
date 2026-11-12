@@ -734,6 +734,14 @@ class TestCollapseToggle:
         assert len(soup.select("#app-sidebar")) == 1
         assert len(soup.select('[data-testid="sidebar-toggle"]')) == 1
 
+    def test_only_the_persistent_sidebar_has_a_resize_edge(self, member_client):
+        soup = _soup(member_client)
+        edges = soup.select('[data-testid="sidebar-resize"]')
+        assert len(edges) == 1
+        assert edges[0].find_parent(id="app-sidebar")
+        assert (edges[0]["role"], edges[0]["tabindex"], edges[0]["aria-controls"]) == ("separator", "0", "app-sidebar")
+        assert edges[0]["aria-label"] == "Resize sidebar"
+
     def test_the_shortcut_and_store_are_wired_into_the_shell(self, member_client):
         content = member_client.get(reverse("dashboard")).content.decode()
         assert "core/js/sidebar.js" in content
