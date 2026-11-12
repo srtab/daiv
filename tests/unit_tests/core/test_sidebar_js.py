@@ -34,9 +34,10 @@ let captured = false;
 let resizingMidDrag = null;
 
 // The CSS clamp the shell applies: `clamp(min, chosen, max)`.
+let windowMax = maxWidth;
 const aside = {
   getBoundingClientRect: () => ({
-    width: Math.max(MIN_WIDTH, Math.min(parseFloat(vars["--app-sidebar-chosen"]) || 0, maxWidth)),
+    width: Math.max(MIN_WIDTH, Math.min(parseFloat(vars["--app-sidebar-chosen"]) || 0, windowMax)),
   }),
 };
 const handle = {
@@ -81,8 +82,14 @@ const sandbox = {
 sandbox.getComputedStyle = () => ({ getPropertyValue: (name) => bounds[name] ?? "" });
 sandbox.location = { assign: (url) => { assigned = url; } };
 sandbox.window = sandbox;
+const windowListeners = {};
+sandbox.addEventListener = (name, cb) => (windowListeners[name] ||= []).push(cb);
 const components = {};
-sandbox.Alpine = { store: (name, value) => (stores[name] = value), data: (name, fn) => (components[name] = fn) };
+// Alpine runs a store's `init` as it registers it.
+sandbox.Alpine = {
+  store: (name, value) => { stores[name] = value; value.init?.(); },
+  data: (name, fn) => (components[name] = fn),
+};
 vm.createContext(sandbox);
 vm.runInContext(readFileSync(src, "utf8"), sandbox);
 
@@ -106,6 +113,11 @@ for (const action of actions) {
     ticks.splice(0).forEach((cb) => cb());
   }
   else if (action.reset) sidebar.resetWidth();
+  else if (action.windowMax) {
+    windowMax = action.windowMax;
+    bounds["--app-sidebar-max"] = `${windowMax}px`;
+    (windowListeners.resize || []).forEach((cb) => cb());
+  }
   else if (action.drag) {
     const button = action.button ?? 0;
     sidebar.resizeStart({ button, pointerId: 1, clientX: 1000, currentTarget: handle, preventDefault });
@@ -370,6 +382,23 @@ def test_other_keys_are_left_to_the_page():
 def test_reports_its_bounds_for_assistive_tech():
     state = drive([{"resize": "ArrowRight"}], max_width=448)
     assert (state["width"], state["minWidth"], state["maxWidth"]) == (288, 272, 448)
+
+
+@requires_node
+def test_expanding_measures_the_width_for_assistive_tech():
+    state = drive([{"click": True}], initial="rail")
+    assert (state["width"], state["minWidth"], state["maxWidth"]) == (272, 272, 512)
+
+
+@requires_node
+def test_collapsing_leaves_the_measure_alone():
+    assert drive([{"click": True}])["width"] is None
+
+
+@requires_node
+def test_a_window_resize_remeasures_the_clamped_width():
+    state = drive([{"drag": [200]}, {"windowMax": 400}])
+    assert (state["width"], state["maxWidth"]) == (400, 400)
 
 
 @requires_node

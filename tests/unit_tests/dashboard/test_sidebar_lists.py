@@ -305,6 +305,20 @@ class TestScheduleRows:
 
         assert len(row.firings) == 2
 
+    def test_a_firing_cut_by_the_newest_sessions_is_read_whole(self, member_user, mocker):
+        mocker.patch("dashboard.sidebar.NEWEST_SESSIONS", 3)
+        schedule = make_schedule(member_user)
+        earlier, later = uuid.uuid4(), uuid.uuid4()
+        for minutes_ago, batch_id in ((40, earlier), (30, later), (20, earlier), (10, later)):
+            session = make_session(
+                member_user, minutes_ago=minutes_ago, scheduled_job=schedule, origin=SessionOrigin.SCHEDULE
+            )
+            make_run(session, RunStatus.SUCCESSFUL, minutes_ago=minutes_ago, batch_id=batch_id)
+
+        (row,) = Sidebar(member_user).schedule_rows()
+
+        assert [(firing.batch_id, firing.repo_count) for firing in row.firings] == [(str(later), 2), (str(earlier), 2)]
+
     def test_viewed_firing_past_the_newest_sessions_shows_whole(self, member_user, django_assert_max_num_queries):
         schedule = make_schedule(member_user)
         statuses = [RunStatus.SUCCESSFUL] * MAX_REPOS_PER_BATCH

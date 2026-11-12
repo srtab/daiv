@@ -627,8 +627,8 @@ wordmark and a teal New chat `+`) that is the only nav entry point on a phone.
   resizes it: drag it, nudge it with the arrow keys (Home and End jump to the bounds), double-click
   to reset. At rest it is the plain border; it turns teal under the pointer and through a drag, and
   keyboard focus draws the global focus ring around it. Its `aria-valuenow`, `aria-valuemin` and
-  `aria-valuemax` are measured as it renders, and again on focus, through a drag and when the
-  sidebar expands. The store writes `--app-sidebar-chosen` on `<html>`, and `input.css` clamps it
+  `aria-valuemax` are measured as it renders, and again on focus, through a drag, when the
+  sidebar expands and when the window resizes. The store writes `--app-sidebar-chosen` on `<html>`, and `input.css` clamps it
   between `--app-sidebar-min` (17rem, the default) and `--app-sidebar-max` (32rem, less on
   windows that would leave the content under 48rem), so the clamp also follows window resizes.
   The width shown is what `localStorage` keeps (`daiv.sidebar.width`, dropped at the default),

@@ -742,6 +742,11 @@ class TestCollapseToggle:
         assert edges[0].find_parent(id="app-sidebar")
         assert (edges[0]["role"], edges[0]["tabindex"], edges[0]["aria-controls"]) == ("separator", "0", "app-sidebar")
 
+    def test_the_resize_edge_measures_its_values_as_it_renders(self, member_client):
+        edge = _soup(member_client).select_one('[data-testid="sidebar-resize"]')
+        assert "$store.sidebar.measure()" in edge["x-init"]
+        assert edge[":aria-valuenow"] == "$store.sidebar.width"
+
     def test_the_shortcut_and_store_are_wired_into_the_shell(self, member_client):
         content = member_client.get(reverse("dashboard")).content.decode()
         assert "core/js/sidebar.js" in content

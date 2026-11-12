@@ -17,7 +17,8 @@
  * The full sidebar's width follows its right edge, `.sidebar__resize`: drag it, nudge it with the
  * arrow keys, or double-click it to reset. The store writes `--app-sidebar-chosen` on `<html>` and
  * `input.css` clamps it between `--app-sidebar-min` and `--app-sidebar-max`, so `width` is the
- * width measured after that clamp, and that is what `localStorage` keeps (`daiv.sidebar.width`).
+ * width measured after that clamp, and that is what `localStorage` keeps (`daiv.sidebar.width`). It is
+ * measured as the handle renders and again on focus, drag, expand and window resize, which moves the clamp.
  * base.html's head script restores it before first paint, like the rail.
  *
  *     <div role="separator" @pointerdown="$store.sidebar.resizeStart($event)"
@@ -65,6 +66,10 @@ document.addEventListener("alpine:init", () => {
     width: null,
     minWidth: null,
     maxWidth: null,
+
+    init() {
+      window.addEventListener("resize", () => this.measure());
+    },
 
     measure() {
       const aside = document.getElementById("app-sidebar");

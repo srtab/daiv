@@ -149,7 +149,8 @@ class SessionQuerySet(models.QuerySet["Session"]):
         from sessions.models import Run, SessionOrigin
 
         has_run = models.Exists(Run.objects.filter(session=models.OuterRef("pk")))
-        return self.exclude(~has_run, origin=SessionOrigin.PIPELINE_WEBHOOK)
+        # Origin first: Postgres then never builds the run lookup, a hash of the whole runs table, for other sessions.
+        return self.filter(~models.Q(origin=SessionOrigin.PIPELINE_WEBHOOK) | has_run)
 
     def listed_for(self, user: User, *, mine: bool = False, archived: bool | None = False) -> models.QuerySet[Session]:
         """The rows the session list shows ``user`` before any filter: their own when ``mine``, else all visible.
