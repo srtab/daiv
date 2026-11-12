@@ -67,7 +67,7 @@ In the dashboard, the agent picker offers a model dropdown built from each enabl
 | Max mode | `openrouter:anthropic/claude-opus-5.5` | The main agent's models |
 | Explore subagent | `openrouter:anthropic/claude-haiku-5.5` | The main agent's models |
 
-Smaller tasks such as titling, merge request metadata and memory have their own defaults, listed in [Environment variables](../reference/env-variables.md). All defaults route through OpenRouter, so only `OPENROUTER_API_KEY` is required for a basic setup. Choose the explore subagent's model with an `explore` entry in the subagent models: see [Subagents](../features/subagents.md#choosing-a-subagents-model).
+Smaller tasks such as titling, merge request metadata and memory have their own defaults, listed in [Environment variables](../reference/env-variables.md). All defaults route through OpenRouter, so only `OPENROUTER_API_KEY` is required for a basic setup. Choose the explore subagent's model with an `explore` entry in the subagent models: see [Subagents](../features/subagents.md#subagent-model-precedence).
 
 ## Retries on provider errors
 

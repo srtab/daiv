@@ -171,7 +171,7 @@ The main agent can delegate work to two general-use subagents. See [Subagents](.
 | General-purpose | Same as main agent | Same as main agent | Full tool access | Complex searches, multi-step research |
 | Explore | Claude Haiku 5.5 (fast) | Same as main agent | Read-only filesystem | Quick file lookups, code structure questions |
 
-In addition, a set of read-only **code-review detector subagents** (`cr-correctness`, `cr-security`, `cr-performance`, `cr-structure`, `cr-tests`, `cr-custom-rules`) is built and registered on every run. The [code review](../features/pull-request-assistant.md) skill picks the detectors applicable to the change, fans out across them in parallel, and aggregates their markdown reports into a single review report; each detector runs with a read-only tool stack. [Custom subagents](../features/subagents.md#custom-subagents) defined per repository are also added to the available-agents list.
+In addition, a set of read-only **code-review detector subagents** (`cr-correctness`, `cr-security`, `cr-performance`, `cr-structure`, `cr-tests`, `cr-custom-rules`) is built and registered on every run. The [code review](../features/pull-request-assistant.md) skill picks the detectors applicable to the change, fans out across them in parallel, and aggregates their markdown reports into a single review report; each detector runs with a read-only tool stack. [Custom subagents](../features/subagents.md#add-a-custom-subagent) defined per repository are also added to the available-agents list.
 
 All subagents (including custom subagents) support automatic model fallback via `ModelFallbackMiddleware`. When the primary model fails, the subagent retries with the configured fallback model. Every subagent uses the main agent's fallback model.
 

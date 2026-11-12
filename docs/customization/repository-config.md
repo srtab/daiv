@@ -197,4 +197,4 @@ Replace `<name>` with the name of a skill or subagent. For a given name, the mod
 
 A model picked for the run, `daiv-max`, or an exact model passed to the jobs API does not override these entries. Configured models run with the run's thinking level.
 
-DAIV checks the values when a run uses them, not when the file loads, so a typo never drops the rest of `.daiv.yml`. An entry that can't be used falls back to the model the file declares, else the run's model, not to the site entry, and DAIV logs the failure as an error. Names that match no skill or subagent are ignored. See [Agent Skills](agent-skills.md#running-a-skill-on-another-model) and [Subagents](../features/subagents.md#choosing-a-subagents-model).
+DAIV checks the values when a run uses them, not when the file loads, so a typo never drops the rest of `.daiv.yml`. An entry that can't be used falls back to the model the file declares, else the run's model, not to the site entry, and DAIV logs the failure as an error. Names that match no skill or subagent are ignored. See [Agent Skills](agent-skills.md#running-a-skill-on-another-model) and [Subagents](../features/subagents.md#subagent-model-precedence).

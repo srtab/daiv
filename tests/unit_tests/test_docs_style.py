@@ -372,7 +372,6 @@ KNOWN_VIOLATIONS: dict[str, frozenset[str]] = {
     "heading-case": frozenset({
         "customization/agent-skills.md",
         "customization/mcp-tools.md",
-        "features/sandbox-environments.md",
         "index.md",
         "integrations/rt/index.md",
         "reference/agent-architecture.md",

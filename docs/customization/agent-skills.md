@@ -167,7 +167,7 @@ Once the agent invokes a skill, its model calls run on the skill's model until y
 3. the `metadata.model` of a built-in or global skill file;
 4. the run's model.
 
-The **Models** tab changes a skill's model for every repository, built-in skills included, without copying or editing the skill file. On `/code-review` it also sets the model of each detector the skill ships (see [Subagents](../features/subagents.md#choosing-a-subagents-model)). A model the user picks for the run, even an exact model passed to the jobs API, does not override an entry.
+The **Models** tab changes a skill's model for every repository, built-in skills included, without copying or editing the skill file. On `/code-review` it also sets the model of each detector the skill ships (see [Subagents](../features/subagents.md#subagent-model-precedence)). A model the user picks for the run, even an exact model passed to the jobs API, does not override an entry.
 
 A skill that exists only in repositories has no page: give it a model with a `models.skills` entry in each repository's `.daiv.yml`.
 

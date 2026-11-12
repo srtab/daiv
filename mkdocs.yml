@@ -173,7 +173,7 @@ nav:
     - Slash commands and skills: features/slash-commands.md
     - Subagents: features/subagents.md
     - Sandbox: features/sandbox.md
-    - Sandbox Environments: features/sandbox-environments.md
+    - Sandbox environments: features/sandbox-environments.md
   - Integrations:
     - Request Tracker Triage: integrations/rt/index.md
   - Customization:
