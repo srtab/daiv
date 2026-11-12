@@ -15,7 +15,7 @@ DAIV has two roles. New users are members.
 | Capability | Member | Admin |
 |------------|--------|-------|
 | Start and view agent runs and chats | On the repositories they can access (see [Repository access](#repository-access)) | On every repository |
-| Create and view [scheduled jobs](../features/scheduled-jobs.md) | On the repositories they can access | On every repository |
+| Create and view [scheduled jobs](../features/scheduled-jobs.md) | Their own, on repositories they can write to | Everyone's, on every repository |
 | Create API keys | Their own | Their own |
 | Revoke API keys | Their own | Any user's key |
 | Manage notification channels | Their own | Their own |
@@ -68,7 +68,7 @@ Without an SMTP server, set `EMAIL_BACKEND` to `django.core.mail.backends.consol
 
 DAIV offers the platform it is connected to, **GitHub** or **GitLab** including a self-managed GitLab, and never both at once. On the login page, select **Continue with GitHub** or **Continue with GitLab**.
 
-With **Open social signup** off, create each permitted user under **Admin → Users** with the email address their Git platform account confirms. For GitLab, DAIV checks the profile's `confirmed_at` to verify that this primary email address is confirmed before it looks up an existing account. Matching ignores case and keeps the existing user's role. If GitLab sends no confirmation or an invalid one, DAIV does not link the account by email. An account already linked to a platform user ID stays linked when the platform email changes.
+With **Open social signup** off, create each permitted user under **Admin** → **Users** with the email address their Git platform account confirms. For GitLab, DAIV checks the profile's `confirmed_at` to verify that this primary email address is confirmed before it looks up an existing account. Matching ignores case and keeps the existing user's role. If GitLab sends no confirmation or an invalid one, DAIV does not link the account by email. An account already linked to a platform user ID stays linked when the platform email changes.
 
 DAIV checks again, before it saves a new account, that signup is open. A pending signup form cannot create a second user by replacing an email address that already exists.
 
@@ -85,7 +85,7 @@ Create an OAuth app on your Git platform to get the client ID and client secret 
 To create the app on GitHub:
 
 1. Open [github.com/settings/developers](https://github.com/settings/developers).
-2. Select **OAuth Apps → New OAuth App**.
+2. Select **OAuth Apps** → **New OAuth App**.
 3. In **Application name**, enter a name, for example `DAIV`.
 4. In **Homepage URL**, enter your DAIV URL, for example `https://daiv.example.com`.
 5. In **Authorization callback URL**, enter your DAIV URL followed by `/accounts/github/login/callback/`, for example `https://daiv.example.com/accounts/github/login/callback/`.
@@ -95,7 +95,7 @@ To create the app on GitHub:
 
 To create the app on GitLab:
 
-1. Open **Admin Area → Applications** or **User Settings → Applications**.
+1. Open **Admin Area** → **Applications** or **User Settings** → **Applications**.
 2. Add a new application.
 3. In **Name**, enter a name, for example `DAIV`.
 4. In **Redirect URI**, enter your DAIV URL followed by `/accounts/gitlab/login/callback/`, for example `https://daiv.example.com/accounts/gitlab/login/callback/`.
@@ -103,7 +103,7 @@ To create the app on GitLab:
 6. Select **Save application**.
 7. Copy the **Application ID** and the **Secret**.
 
-Enter the client ID and secret under **Configuration → Authentication**, where DAIV calls the secret **Auth Client Secret**: [Turn on OAuth login](../reference/site-configuration.md#turn-on-oauth-login) gives the steps, and [Authentication](../reference/env-variables.md#authentication) lists the variables that seed the same values.
+Enter the client ID and secret under **Configuration** → **Authentication**, where DAIV calls the secret **Auth Client Secret**: [Turn on OAuth login](../reference/site-configuration.md#turn-on-oauth-login) gives the steps, and [Authentication](../reference/env-variables.md#authentication) lists the variables that override the same fields and lock them.
 
 ## The first admin
 
@@ -129,11 +129,11 @@ Use this path when OAuth login is off. The [`bootstrap_admin`](../reference/mana
 
 ## Manage users
 
-Admins manage users under **Admin → Users**, at `/accounts/users/`. The list searches by name or email address and filters by role.
+Admins manage users under **Admin** → **Users**, at `/accounts/users/`. The list searches by name or email address and filters by role.
 
 ### Create a user
 
-1. Under **Admin → Users**, select **Create user**.
+1. Under **Admin** → **Users**, select **Create user**.
 2. In **Name**, **Email** and **Role**, enter the user's details.
 3. Select **Create user**.
 
@@ -141,7 +141,7 @@ DAIV emails the user a welcome message with a sign-in link. The new account has 
 
 ### Edit a user
 
-1. Under **Admin → Users**, select the user.
+1. Under **Admin** → **Users**, select the user.
 2. Change **Name**, **Email**, **Role** or **Active**. Change **Role** to promote a member to admin or demote an admin to member.
 3. Select **Save changes**.
 
@@ -149,7 +149,13 @@ DAIV keeps at least one active admin. You cannot deactivate your own account, an
 
 ### Deactivate a user
 
-Clear **Active** on the user's edit page when you may want to restore the user's access later. An inactive user cannot sign in, and their API keys and MCP tokens stop working at once, not at the next sync. DAIV keeps their history and the runs they own.
+Deactivate a user when you may want to restore their access later.
+
+1. Under **Admin** → **Users**, select the user.
+2. Clear **Active**.
+3. Select **Save changes**.
+
+An inactive user cannot sign in, and their API keys and MCP tokens stop working at once, not at the next sync. DAIV keeps their history and the runs they own.
 
 ### Delete a user
 
@@ -158,7 +164,7 @@ Delete a user only when you will never restore their access. Deactivating keeps 
 !!! warning "Deleting a user cannot be undone"
     Deleting removes the user's account, their API keys and all data associated with them. You cannot delete your own account.
 
-1. Under **Admin → Users**, select the user.
+1. Under **Admin** → **Users**, select the user.
 2. Select **Delete user**.
 3. On the confirmation page, select **Delete user**.
 
@@ -187,7 +193,7 @@ API keys authenticate calls to the [Jobs API](../features/jobs-api.md) and the [
 
     [:octicons-arrow-right-24: Deployment](deployment.md)
 
--   **Platform Setup**
+-   **Platform setup**
 
     ---
 

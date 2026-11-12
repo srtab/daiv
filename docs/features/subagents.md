@@ -119,7 +119,7 @@ Operators can run any subagent on a chosen model by name, without editing its fi
 A subagent's model is the first of these that is set:
 
 1. Its entry under `models.subagents` in the repository's `.daiv.yml` (see [Model overrides](../customization/repository-config.md#skill-and-subagent-models)).
-2. Its entry in the dashboard or in `DAIV_AGENT_SUBAGENT_MODELS`. For the general-purpose and explore subagents, it is under **Configuration → Agent → Subagent models**. For the detectors, it is on the **Models** tab of the `code-review` skill's page.
+2. Its entry in the dashboard or in `DAIV_AGENT_SUBAGENT_MODELS`. For the general-purpose and explore subagents, it is under **Configuration** → **Agent** → **Subagent models**. For the detectors, it is on the **Models** tab of the `code-review` skill's page.
 3. The `model` that its file or detector charter declares (`openrouter:anthropic/claude-haiku-5.5` for explore).
 4. The main agent's model.
 

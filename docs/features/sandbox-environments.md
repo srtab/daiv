@@ -25,7 +25,7 @@ When DAIV picks an environment for a repository, a User environment that claims 
 
 ### Global default
 
-One Global environment can be the default. DAIV falls back to it when no other environment matches a repository, and it supplies the CPUs, memory and environment variables that other environments leave unset (see [How an environment is resolved](#how-an-environment-is-resolved)). With no global default, a run that matches no environment has no sandbox.
+One Global environment can be the default. DAIV falls back to it when no other environment matches a repository, and it supplies the CPUs, memory and environment variables that other environments leave unset (see [How an environment is resolved](#how-an-environment-is-resolved)). A fresh install seeds a global environment named **Default** with a base image, set as the default. With no global default, a run that matches no environment has no sandbox.
 
 To make an environment the global default, as an administrator:
 

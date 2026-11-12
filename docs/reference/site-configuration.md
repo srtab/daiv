@@ -34,7 +34,7 @@ The configuration has the following groups, organized by category.
 | **Sandbox** | Runtime | Sandbox request timeout and the sandbox API key. |
 | **Jobs** | Runtime | Per-user rate limit for [Jobs API](../features/jobs-api.md) submissions (e.g. `20/hour`). |
 | **Pipeline Watch** | Runtime | Watch CI on merge requests DAIV publishes and try to fix failures, and how many fix attempts (at least 1) to spend on one merge request before handing back. |
-| **Rocket Chat** | Integrations | Offer Rocket Chat as a notification channel, with the instance URL, bot user ID and auth token. |
+| **Rocket Chat** | Integrations | Offer Rocket.Chat as a notification channel, with the instance URL, bot user ID and auth token. |
 | **Telegram** | Integrations | Offer Telegram as a notification channel, with the bot token from @BotFather. See [Set up Telegram](#set-up-telegram). |
 | **Authentication** | Integrations | OAuth login with your Git platform: the login toggle, open signup, the OAuth client ID and secret and, for GitLab, the instance URLs. See [Turn on OAuth login](#turn-on-oauth-login). |
 
@@ -67,7 +67,7 @@ DAIV stores the secret fields on this page encrypted in the database: the **Web 
 
 The **Providers** group holds the LLM providers DAIV can call. Every model field in the other groups draws its models from the providers you enable here, and a model is written as `<slug>:<model-name>`; [LLM providers](../getting-started/llm-providers.md) explains how a model spec picks its provider.
 
-DAIV creates four built-in providers the first time it runs: `anthropic`, `openai`, `google_genai` and `openrouter`, listed under **Built-in**. Their slug and provider type are locked, and you cannot delete them, but you can set their API keys and base URLs and turn them on or off. A built-in provider whose key was not seeded starts disabled; see [LLM providers](env-variables.md#llm-providers) for how the keys are seeded. You add any other provider under **Custom**, for example a vLLM, llama.cpp or LiteLLM server or an internal gateway.
+DAIV creates four built-in providers the first time it runs: `anthropic`, `openai`, `google_genai` and `openrouter`, listed under **Built-in**. Their slug and provider type are locked, and you cannot delete them, but you can set their API keys and base URLs and turn them on or off. A built-in provider whose key was not seeded starts disabled; see [the LLM provider variables](env-variables.md#llm-providers) for how the keys are seeded. You add any other provider under **Custom**, for example a vLLM, llama.cpp or LiteLLM server or an internal gateway.
 
 ### Provider fields
 
@@ -89,7 +89,7 @@ A model field anywhere in the configuration is rejected on save when its provide
 
 Add a provider to use models from a server other than the four built-in providers. You need the admin role, the endpoint's URL and its API key.
 
-1. In **Configuration → Providers**, select **Add custom provider**.
+1. In **Configuration** → **Providers**, select **Add custom provider**.
 2. In **Slug**, enter the model prefix.
 3. In **Display name**, enter the name to show in the list.
 4. In **Provider type**, choose the wire protocol the server speaks.
@@ -111,7 +111,7 @@ By default, web search uses DuckDuckGo. To send the agent's searches to a SearXN
 - A SearXNG instance that the DAIV app and workers can reach without authentication, and that allows JSON responses: `json` is in `search.formats` of its settings, for example `[html, json]`.
 - The complete search endpoint, for example `https://search.example.com/search`, or `https://search.example.com/searxng/search` when SearXNG runs under a prefix. It must use `http` or `https` and hold no credentials, query string or fragment.
 
-1. In **Configuration → Web Search**, set **Web search engine** to **SearXNG**.
+1. In **Configuration** → **Web Search**, set **Web search engine** to **SearXNG**.
 2. Enter the endpoint in **SearXNG search URL**.
 3. Optionally, set **SearXNG request timeout**, from 1 to 120 seconds. The default is 15 seconds.
 4. Select **Save configuration**.
@@ -151,7 +151,7 @@ You need a bot token from [@BotFather](https://t.me/botfather), and a `DAIV_EXTE
 !!! warning
     Give each DAIV instance its own bot. Telegram allows one webhook per bot, so if a second instance uses the same token, the webhook moves to it and the first instance stops receiving Telegram's updates, including the connect handshake. DAIV's reconcile job logs the URL it finds but cannot prevent this.
 
-1. In **Configuration → Telegram**, turn on the toggle next to the group title. It is the **Enable Telegram** setting, and DAIV hides the group's other fields while it is off.
+1. In **Configuration** → **Telegram**, turn on the toggle next to the group title. It is the **Enable Telegram** setting, and DAIV hides the group's other fields while it is off.
 2. Enter the token in **Telegram Bot Token**.
 3. Select **Save configuration**.
 

@@ -57,7 +57,7 @@ DAIV ships with these built-in skills:
 | Skill | Description |
 |-------|-------------|
 | `/plan` | Explores the codebase in read-only mode and produces an implementation plan |
-| `/code-review` | Reviews a merge/pull request for correctness, security, performance, structure, and your repository's custom review rules |
+| `/code-review` | Reviews a merge/pull request for correctness, security, performance, structure, changed tests, and your repository's custom review rules |
 | `/security-audit` | Audits code for security vulnerabilities, injection flaws, hardcoded secrets, and risks |
 | `/init` | Analyzes the repository and generates or updates an `AGENTS.md` guidance file |
 | `/skill-creator` | Guides you through creating a new custom skill |
@@ -76,7 +76,7 @@ DAIV explores the codebase without making any changes and posts a detailed imple
 @daiv /code-review
 ```
 
-Reviews the current merge/pull request diff for correctness, security, performance, structure, and your repository's [custom review rules](pull-request-assistant.md#custom-review-rules). Posts numbered findings grouped by severity, as a single report comment.
+Reviews the current merge/pull request diff for correctness, security, performance, structure, changed tests (when the diff touches test files), and your repository's [custom review rules](pull-request-assistant.md#custom-review-rules). Posts numbered findings grouped by severity, as a single report comment.
 
 How it scores on the ReviewBench benchmark, and at what cost, is on the [Benchmarks](../reference/benchmarks.md) page.
 

@@ -15,7 +15,7 @@ You can mix providers, for example OpenRouter for the main agent and a direct pr
 
 ## Provider API keys
 
-DAIV reads a provider's API key once, at its first start, from the provider's environment variable or from a Docker secret named after the variable in lowercase, such as `openrouter_api_key`. From then on you change the keys, and the providers' other settings, under **Configuration → Providers** in the dashboard. A change to the variable or the secret after the first start has no effect.
+DAIV reads a provider's API key once, at its first start, from the provider's environment variable or from a Docker secret named after the variable in lowercase, such as `openrouter_api_key`. From then on you change the keys, and the providers' other settings, under **Configuration** → **Providers** in the dashboard. A change to the variable or the secret after the first start has no effect.
 
 [LLM providers](../reference/env-variables.md#llm-providers) in the environment variables reference lists the variables. [Providers](../reference/site-configuration.md#providers) in the site configuration reference describes the fields of a provider.
 
@@ -34,7 +34,7 @@ Set up a provider before DAIV's first start. You need an API key from the provid
 2. In DAIV's `.env` file, set the provider's variable to the key. Alternatively, mount a Docker secret named after the variable in lowercase.
 3. Start DAIV.
 
-A provider whose key was not set at the first start begins disabled. To set up a provider on a running install, open **Configuration → Providers**, set the provider's **API key**, turn on **Enabled**, and select **Save configuration**. Saving a key does not enable a disabled provider. [Providers](../reference/site-configuration.md#providers) describes the fields.
+A provider whose key was not set at the first start begins disabled. To set up a provider on a running install, open **Configuration** → **Providers**, set the provider's **API key**, turn on **Enabled**, and select **Save configuration**. Saving a key does not enable a disabled provider. [Providers](../reference/site-configuration.md#providers) describes the fields.
 
 ## Model specs
 
@@ -79,7 +79,7 @@ If runs end on rate-limit errors, raise `DAIV_MODEL_MAX_RETRIES` or ask Anthropi
 
 An admin can register providers beyond the four above, mainly self-hosted, OpenAI-compatible endpoints such as vLLM, llama.cpp, LiteLLM or an internal gateway. A custom provider works with any of the supported wire protocols.
 
-You need the admin role to add a custom provider. Under **Configuration → Providers**, the steps in [Add a custom provider](../reference/site-configuration.md#add-a-custom-provider) create the provider with a slug, a provider type, a base URL, an API key and a few options. [Provider fields](../reference/site-configuration.md#provider-fields) describes them.
+You need the admin role to add a custom provider. Under **Configuration** → **Providers**, the steps in [Add a custom provider](../reference/site-configuration.md#add-a-custom-provider) create the provider with a slug, a provider type, a base URL, an API key and a few options. [Provider fields](../reference/site-configuration.md#provider-fields) describes them.
 
 Once the provider exists, reference its models with the slug as a prefix:
 

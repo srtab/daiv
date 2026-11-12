@@ -16,7 +16,7 @@ You need:
 - Permission to add a member to each project DAIV works on.
 - On GitLab.com, a second account for DAIV. On a self-managed instance, an admin to create the user.
 
-1. Create a GitLab user for DAIV, for example `daiv`. On GitLab.com, sign up a second account; on a self-managed instance, an admin creates it under **Admin → Users → New user**. The username is how you mention DAIV, for example `@daiv`.
+1. Create a GitLab user for DAIV, for example `daiv`. On GitLab.com, sign up a second account; on a self-managed instance, an admin creates it under **Admin** → **Users** → **New user**. The username is how you mention DAIV, for example `@daiv`.
 2. Add the user to each project DAIV works on, with the **Maintainer** role.
 3. Sign in to GitLab as the DAIV user.
 4. Select your avatar → **Edit profile** → **Access tokens**.
@@ -80,7 +80,7 @@ To change DAIV's behavior in a repository, add a `.daiv.yml` file to its root; [
 
 The webhook URL is not reachable from GitLab, or the certificate is invalid. Check that `DAIV_EXTERNAL_URL` is reachable from GitLab, that its SSL certificate is valid, and that no firewall blocks GitLab.
 
-A self-managed GitLab refuses webhooks to private network addresses by default, with the error `Url is blocked: Requests to the local network are not allowed`. An admin allows them under **Admin → Settings → Network → Outbound requests**.
+A self-managed GitLab refuses webhooks to private network addresses by default, with the error `Url is blocked: Requests to the local network are not allowed`. An admin allows them under **Admin** → **Settings** → **Network** → **Outbound requests**.
 
 ### DAIV ignores an issue
 

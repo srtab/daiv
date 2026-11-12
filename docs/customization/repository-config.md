@@ -171,7 +171,7 @@ The diff to metadata agent generates pull request titles, descriptions and commi
 
 ### Skill and subagent models
 
-Run a skill or a subagent on a chosen model in this repository, by name. An entry overrides the site's entry for the same name only; every other site entry still applies. Site entries are set in the dashboard: a skill's on the **Models** tab of its page, which also holds the code-review detectors', and the general-purpose and explore subagents' under **Configuration → Agent**.
+Run a skill or a subagent on a chosen model in this repository, by name. An entry overrides the site's entry for the same name only; every other site entry still applies. Site entries are set in the dashboard: a skill's on the **Models** tab of its page, which also holds the code-review detectors', and the general-purpose and explore subagents' under **Configuration** → **Agent**.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -191,7 +191,7 @@ models:
 Replace `<name>` with the name of a skill or subagent. For a given name, the model resolves in this order, first match wins:
 
 1. this repository's entry;
-2. the site's entry (a skill page's **Models** tab, or **Configuration → Agent → Subagent models**);
+2. the site's entry (a skill page's **Models** tab, or **Configuration** → **Agent** → **Subagent models**);
 3. the model the subagent file, or a built-in or global skill file, declares (a repository skill's `metadata.model` is ignored);
 4. the run's model.
 

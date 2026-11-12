@@ -1,5 +1,5 @@
 ---
-description: "Deploy a self-hosted DAIV instance with Docker Swarm or Docker Compose: PostgreSQL, Redis, the DAIV app and worker, plus the optional scheduler and sandbox."
+description: "Deploy a self-hosted DAIV instance with Docker Swarm or Docker Compose: PostgreSQL, Redis, the DAIV app, worker, scheduler and sandbox."
 ---
 
 # Deployment
@@ -13,7 +13,7 @@ To try DAIV on one machine first, follow the [Quickstart](quickstart.md).
 | Requirement | Version |
 |-------------|---------|
 | Docker Engine | The samples pin no minimum. Docker Swarm needs Swarm mode enabled on the host. |
-| Docker Compose | v2, which provides the `docker compose` command. Only the Compose deployment needs it. |
+| Docker Compose | 2.17.0 or later, which provides the `docker compose` command and `depends_on.restart`. Only the Compose deployment needs it. |
 | PostgreSQL | 15 or later, the minimum of the Django release DAIV pins; the samples run `postgres:17.6`. |
 | Redis | 8 or later. The samples run `redis:8.6-alpine`. The agent's checkpoints use Redis search commands that Redis 7 lacks, and they must stay on database `0`; see [Redis](../reference/env-variables.md#redis). |
 | daiv-sandbox | The samples pull `ghcr.io/srtab/daiv-sandbox:latest`. Update the sandbox together with DAIV: multi-repository sessions need a release with `repos_archive` support and path-scoped egress rules, and DAIV reports an error when the sandbox lacks it. |
@@ -40,7 +40,7 @@ Docker Swarm gives you service discovery, load balancing and rolling updates, so
 
 Before you start, [install Docker](https://docs.docker.com/engine/install/) and [enable Swarm](https://docs.docker.com/engine/swarm/swarm-tutorial/), and check the [requirements](#requirements).
 
-1. Create the first nine Docker secrets listed in [Swarm secrets](#swarm-secrets), with this command (see [Docker secret create](https://docs.docker.com/reference/cli/docker/secret/create/)), replacing `<name>` and `<value>`:
+1. Create the first seven Docker secrets listed in [Swarm secrets](#swarm-secrets), with this command (see [Docker secret create](https://docs.docker.com/reference/cli/docker/secret/create/)), replacing `<name>` and `<value>`:
 
     ```bash
     printf '%s' '<value>' | docker secret create <name> -
@@ -105,21 +105,23 @@ If you turn on OAuth login before anyone signs in, the first Git platform sign-i
 
 ### Swarm secrets
 
-The stack reads these Docker secrets. Create the first nine rows in step 1, and the last two in steps 2 and 3.
+The stack reads these Docker secrets. Create the first seven rows in step 1, and the next two in steps 2 and 3. The last two are optional.
 
 | Secret | Holds |
 |--------|-------|
-| `django_secret_key` | A random secret key for Django. [Generate one](https://djecrety.ir/). Keep it backed up: see [Django](../reference/env-variables.md#django). |
+| `django_secret_key` | A random secret key for Django, such as the output of `openssl rand -hex 32`. Keep it backed up: see [Django](../reference/env-variables.md#django). |
 | `db_password` | A random password for the PostgreSQL database. |
 | `codebase_gitlab_auth_token` | A GitLab personal access token with the `api` scope. See [Platform setup](platform-setup.md#gitlab-token-role-and-webhooks). |
 | `codebase_gitlab_webhook_secret` | A random secret that GitLab sends with each webhook, for DAIV to validate. |
 | `daiv_sandbox_api_key` | A random API key for the sandbox service. |
 | `email_host_password` | The SMTP password. DAIV authenticates only when `EMAIL_HOST_USER` is also set. The stack requires the secret to exist, so create it with any value if your relay needs no authentication. |
 | `openrouter_api_key` | An [OpenRouter API key](https://openrouter.ai/settings/keys). |
-| `allauth_client_id` | The OAuth client ID of your Git platform. See [Authentication](../reference/env-variables.md#authentication). |
-| `allauth_client_secret` | The OAuth client secret of your Git platform. |
 | `daiv_sandbox_egress_ca_cert` | The egress CA certificate. |
 | `daiv_sandbox_egress_ca_key` | The egress CA private key. |
+| `allauth_client_id` | **Optional.** The OAuth client ID of your Git platform. See [Authentication](../reference/env-variables.md#authentication). |
+| `allauth_client_secret` | **Optional.** The OAuth client secret of your Git platform. |
+
+A secret locks the matching field in the dashboard: DAIV reads the value from the secret and you cannot edit it under **Configuration** → **Authentication**. When you will [turn on OAuth login](../reference/site-configuration.md#turn-on-oauth-login) in the dashboard instead, leave `allauth_client_id` and `allauth_client_secret` out of the `app` service's `secrets:` list and out of the top-level `secrets:`, as the stack file below does. To use them, create both secrets, then uncomment those lines.
 
 For another provider's key, create a secret named after its variable in lowercase (`openai_api_key`, `anthropic_api_key` or `google_api_key`) add it to the `secrets:` list of the `app` service, which runs the migration that reads it, and declare it under the top-level `secrets:` with `external: true`. DAIV reads each provider key once, at its first start; see [Provider API keys](llm-providers.md#provider-api-keys). For further variables you want as secrets, see [Environment variables](../reference/env-variables.md).
 
@@ -215,8 +217,8 @@ services:
       - daiv_sandbox_api_key
       - openrouter_api_key
       - email_host_password
-      - allauth_client_id
-      - allauth_client_secret
+      # - allauth_client_id  (14)
+      # - allauth_client_secret  (14)
     networks:
       - internal
       - external
@@ -354,14 +356,14 @@ secrets:
     external: true
   email_host_password:
     external: true
-  allauth_client_id:
-    external: true
-  allauth_client_secret:
-    external: true
   daiv_sandbox_egress_ca_cert:
     external: true
   daiv_sandbox_egress_ca_key:
     external: true
+  # allauth_client_id:  (14)
+  #   external: true
+  # allauth_client_secret:  (14)
+  #   external: true
 ```
 
 1.   Replace `daiv.example.com` with your domain name, without the scheme (`daiv.example.com`, not `https://daiv.example.com`). Keep `app` and `127.0.0.1` for communication between services.
@@ -377,6 +379,7 @@ secrets:
 11.  Redis 8 or later; see [Requirements](#requirements).
 12.  **Required**: the egress CA you stored as secrets in step 3 of [Deploy with Docker Swarm](#deploy-with-docker-swarm). The sandbox's egress proxy signs with it; without it, every agent run fails when the sandbox rejects the session.
 13.  The SMTP user. DAIV sends the `email_host_password` secret only when this is set; delete the line if your relay needs no authentication. Without an SMTP server, replace the `EMAIL_*` lines with `EMAIL_BACKEND: django.core.mail.backends.console.EmailBackend` and read the sign-in code from `docker service logs daiv_app`.
+14.  **Optional**: uncomment the two `allauth_*` lines under `app`'s `secrets:` and the two under the top-level `secrets:` only after you create both secrets. DAIV then takes the OAuth client ID and secret from them and locks the fields under **Configuration** → **Authentication**. Leave them commented to set up OAuth login in the dashboard.
 
 ## Deploy with Docker Compose
 
@@ -457,7 +460,7 @@ x-app-defaults: &x_app_default
     EMAIL_USE_TLS: true
     # Sandbox settings
     DAIV_SANDBOX_API_KEY: daiv-sandbox-api-key # (12)!
-    # Optional: Git platform sign-in (OAuth), also configurable at /dashboard/configuration/
+    # Optional: Git platform sign-in (OAuth). Setting these locks the fields at /dashboard/configuration/
     # ALLAUTH_CLIENT_ID: oauth-client-id
     # ALLAUTH_CLIENT_SECRET: oauth-client-secret
 
@@ -593,7 +596,7 @@ volumes:
 7.  Set to your GitLab instance URL (for example `https://gitlab.com`).
 8.  The personal access token of DAIV's own GitLab user, with the `api` scope and the Maintainer role on your projects. Use a dedicated account: DAIV ignores comments written by the account its token belongs to. See [Platform setup](platform-setup.md#gitlab-token-role-and-webhooks).
 9.  Generate a random webhook secret for GitLab webhook validation, such as the output of `openssl rand -hex 32`.
-10. An OpenRouter API key for LLM access. DAIV copies it into its database on the first start. To change it later, edit the provider under **Configuration → Providers** in the dashboard; see [LLM providers](llm-providers.md).
+10. An OpenRouter API key for LLM access. DAIV copies it into its database on the first start. To change it later, edit the provider under **Configuration** → **Providers** in the dashboard; see [LLM providers](llm-providers.md).
 11. The SMTP server DAIV sends sign-in codes through. Without one, replace the three `EMAIL_*` lines with `EMAIL_BACKEND: django.core.mail.backends.console.EmailBackend` and read the codes from `docker compose logs app`.
 12. Generate a random API key for the sandbox service, such as the output of `openssl rand -hex 32`.
 13. Use the same password as in annotation 6.

@@ -1,16 +1,16 @@
 ---
-description: "Get notified when a DAIV run needs attention, via the in-app bell, email, Rocket Chat or Telegram, with per-user delivery channels."
+description: "Get notified when a DAIV run needs attention, via the in-app bell, email, Rocket.Chat or Telegram, with per-user delivery channels."
 ---
 
 # Notifications
 
-DAIV tells you when your work needs attention. When a run finishes with something to look at, such as an issue found, a situation that needs review or an outright failure, DAIV writes an in-app notification and delivers it to external channels: email, Rocket.Chat and Telegram. Clean runs stay silent and appear only in the Feed.
+DAIV tells you when your work needs attention. When a run finishes with something to look at, such as an issue found, a situation that needs review or an outright failure, DAIV writes an in-app notification and delivers it to external channels: email, Rocket.Chat and Telegram. Clean runs stay silent and appear only in their session, under **Sessions**.
 
 Notifications are per user. Each recipient gets their own copy, delivered through that user's own channels.
 
 ## What produces a notification
 
-DAIV classifies every finished run and notifies only when the outcome warrants it. The classifications that notify are **found-issues**, **needs-attention**, **needs-input** and **failed**. A run classified **all-clear** is silent: it appears in the Feed and produces no notification.
+DAIV classifies every finished run and notifies only when the outcome warrants it. The classifications that notify are **found-issues**, **needs-attention**, **needs-input** and **failed**. A run classified **all-clear** is silent: it appears in its session, under **Sessions**, and produces no notification. The exception is a run that a CI failure woke: it always notifies its owner, all-clear included (see [pipeline watch](pipeline-watch.md#notifications)).
 
 A run is **needs-input** when the agent stopped to ask you a question instead of guessing. The notification's subject says the run is waiting for your answer, and its body lists the questions; open the session to answer them. A run that an issue or merge or pull request webhook started is the exception: DAIV posts its question as a comment on the issue or request, which mentions whoever triggered the run, so DAIV sends no separate notification for it.
 
@@ -55,8 +55,8 @@ Email and in-app need no setup. Rocket.Chat and Telegram need an administrator t
 
 You need:
 
-- For Rocket.Chat, an administrator who has enabled it in **Configuration → Rocket Chat**, with the instance URL, bot user ID and auth token. See [Site configuration](../reference/site-configuration.md#setting-groups).
-- For Telegram, an administrator who has enabled it in **Configuration → Telegram**, as described in [Set up Telegram](../reference/site-configuration.md#set-up-telegram). Telegram delivery to chats that are already linked needs only outbound internet access, but connecting a new chat needs DAIV reachable from the internet over HTTPS. On an instance without public ingress, you cannot link new chats.
+- For Rocket.Chat, an administrator who has enabled it in **Configuration** → **Rocket Chat**, with the instance URL, bot user ID and auth token. See [Site configuration](../reference/site-configuration.md#setting-groups).
+- For Telegram, an administrator who has enabled it in **Configuration** → **Telegram**, as described in [Set up Telegram](../reference/site-configuration.md#set-up-telegram). Telegram delivery to chats that are already linked needs only outbound internet access, but connecting a new chat needs DAIV reachable from the internet over HTTPS. On an instance without public ingress, you cannot link new chats.
 - Until the channel is enabled, its row does not appear on your channels page.
 
 To open the channels page, select **Notification channels** in the account menu at the bottom of the sidebar (`/accounts/channels/`).

@@ -20,7 +20,7 @@ With a sandbox, the agent can:
 
 The agent runs commands only when it has a sandbox, and installs only when the sandbox has network access:
 
-- **A base image.** A run has a sandbox only when its [sandbox environment](sandbox-environments.md) sets a base image. When no environment matches the run (none selected, none bound to the repository, and no global default), the run has no sandbox and the agent gets no `bash` tool. See [How an environment is resolved](sandbox-environments.md#how-an-environment-is-resolved).
+- **A base image.** A run has a sandbox only when its [sandbox environment](sandbox-environments.md) sets a base image. When no environment matches the run (none selected, none bound to the repository, and no global default), the run has no sandbox and the agent gets no `bash` tool. A fresh install seeds a global **Default** environment, so a fresh install starts with a sandbox. See [How an environment is resolved](sandbox-environments.md#how-an-environment-is-resolved).
 - **Network access for installs.** Installing or updating dependencies reaches package registries such as npm and PyPI. A sandbox has no outbound network access unless its environment has **Network** set to **On** and an egress policy that allows the registries, so these commands fail until you set both. See [Network access and egress policy](sandbox-environments.md#network-access-and-egress-policy).
 
 ## Sandbox session lifetime

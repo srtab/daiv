@@ -38,10 +38,10 @@ docker compose exec app django-admin create_api_key <username> --name "my-key"
 
 Replace `<username>` with the username of the key's owner. The command prints the key once, in the form `prefix.secret`. For the `--expires-at` option and its time-zone rule, see [`create_api_key`](../reference/management-commands.md#create_api_key).
 
-To stop a key from working, select **Revoke** next to it on the **API keys** page.
-
 !!! warning
     Revoking a key cannot be undone. The key stops authenticating immediately on every API surface, so any script or client that uses it fails until you give it another key.
+
+To stop a key from working, select **Revoke** next to it on the **API keys** page.
 
 Admins see every user's keys; other users see their own.
 
@@ -171,7 +171,7 @@ These are the fields of the `POST /api/jobs` body.
 | `agent_model`          | string           | no       | The model for this batch. DAIV rejects an invalid model and thinking-level combination with `400`. |
 | `agent_thinking_level` | string           | no       | The agent's reasoning effort: `minimal`, `low`, `medium`, `high` or `xhigh`. DAIV rejects an invalid combination with `400`. |
 | `muted`                | boolean          | no       | Mute notifications for every job in this batch. Default `false`. |
-| `environment`          | string           | no       | The [sandbox environment](sandbox.md), by name or ID, for every job in the batch. DAIV rejects an environment it cannot resolve with `400`. |
+| `environment`          | string           | no       | The [sandbox environment](sandbox-environments.md), by name or ID, for every job in the batch. DAIV rejects an environment it cannot resolve with `400`. |
 | `shared_session`       | boolean          | no       | Run all repositories in `repos` in one session instead of one job each. At most 5 entries. See [Multi-repository sessions](#multi-repository-sessions). |
 | `thread_id`            | string (UUID)    | no       | Continue an existing thread. `repos` must hold exactly one entry (a [multi-repository session](#continuing-a-multi-repository-session) also accepts its full list), the thread's most recent run must be yours, and you must not have archived the session; otherwise DAIV returns `400`. If the session is busy, the job joins the session's next run for its branch in `QUEUED` state, which starts once the current run ends; see [Job lifecycle](#job-lifecycle). |
 | `references`           | array of objects | no       | Up to 20 external work-item references, such as Jira, Sentry or RT tickets and git platform issues, that DAIV links into the merge or pull request it creates. Each item is `{ "key": "PROJ-123", "url": "https://…", "provider": "jira", "relation": "relates" }`, and only `key` is required. The per-field rules are in [References](mcp-endpoint.md#references); DAIV rejects an invalid reference with `422` and stores nothing. |

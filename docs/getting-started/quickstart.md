@@ -16,7 +16,7 @@ You need:
 - **An [OpenRouter API key](https://openrouter.ai/settings/keys).** To use another provider, see [LLM providers](llm-providers.md).
 - **A GitLab project** on GitLab.com or a self-managed GitLab, where you are a Maintainer or Owner.
 - **A URL GitLab can reach DAIV at.** GitLab tells DAIV about new issues and comments with webhooks, so it must be able to open DAIV's port 8000:
-    - **Self-managed GitLab on your network:** the host's address, such as `http://192.168.1.10:8000`, is enough.
+    - **Self-managed GitLab on your network:** the host's address, such as `http://192.168.1.10:8000`, is enough once an admin allows requests to the local network under **Admin** → **Settings** → **Network** → **Outbound requests**. Without that, GitLab refuses the webhook with `Url is blocked: Requests to the local network are not allowed`.
     - **GitLab.com:** a public URL, such as a server with a domain behind a reverse proxy, or an HTTPS tunnel to port 8000 on your machine.
 
 ## Create a GitLab account for DAIV
@@ -26,8 +26,8 @@ DAIV works as a GitLab user: it comments, pushes and opens merge requests as tha
 !!! tip "Can't create a second account?"
     Use a token from your own account, and label issues `daiv-auto` instead of `daiv` in [Get your first merge request](#get-your-first-merge-request): DAIV then plans and implements without waiting for an approval comment. You won't be able to talk to DAIV in comments.
 
-1. Create a user for DAIV, for example `daiv`. On GitLab.com, sign up a second account; on a self-managed GitLab, an admin creates it under **Admin → Users → New user**.
-2. In your project, add that user with the **Maintainer** role under **Manage → Members → Invite members**. DAIV only sets up webhooks on projects where its user is a Maintainer or Owner.
+1. Create a user for DAIV, for example `daiv`. On GitLab.com, sign up a second account; on a self-managed GitLab, an admin creates it under **Admin** → **Users** → **New user**.
+2. In your project, add that user with the **Maintainer** role under **Manage** → **Members** → **Invite members**. DAIV only sets up webhooks on projects where its user is a Maintainer or Owner.
 3. Sign in to GitLab as that user.
 4. Select your avatar → **Edit profile** → **Access tokens**, and create a personal access token with the `api` scope.
 5. Copy the token. GitLab shows it once.
@@ -222,11 +222,8 @@ DAIV adds a webhook to every project its user maintains within five minutes. To 
     docker compose exec app django-admin setup_webhooks
     ```
 
-2. In your project, open **Settings → Webhooks**. It lists `<DAIV_EXTERNAL_URL>/api/codebase/callbacks/gitlab/`, with `<DAIV_EXTERNAL_URL>` replaced by your `DAIV_EXTERNAL_URL` value.
-3. Select **Test → Push events**. GitLab shows HTTP 204.
-
-!!! note "Self-managed GitLab and private addresses"
-    A self-managed GitLab refuses webhooks to private network addresses by default (`Url is blocked: Requests to the local network are not allowed`). An admin allows them under **Admin → Settings → Network → Outbound requests**.
+2. In your project, open **Settings** → **Webhooks**. It lists `<DAIV_EXTERNAL_URL>/api/codebase/callbacks/gitlab/`, with `<DAIV_EXTERNAL_URL>` replaced by your `DAIV_EXTERNAL_URL` value.
+3. Select **Test** → **Push events**. GitLab shows HTTP 204.
 
 ## Get your first merge request
 
@@ -242,7 +239,7 @@ See [Issue addressing](../features/issue-addressing.md) for what else you can do
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
-| Nothing happens after you add the label | The webhook is missing, or GitLab can't reach `DAIV_EXTERNAL_URL` | Run `setup_webhooks` as in [Connect your GitLab project](#connect-your-gitlab-project) and check that DAIV's user is a Maintainer. Under **Settings → Webhooks → Edit → Recent events**, GitLab shows each delivery and its error |
+| Nothing happens after you add the label | The webhook is missing, or GitLab can't reach `DAIV_EXTERNAL_URL` | Run `setup_webhooks` as in [Connect your GitLab project](#connect-your-gitlab-project) and check that DAIV's user is a Maintainer. Under **Settings** → **Webhooks** → **Edit** → **Recent events**, GitLab shows each delivery and its error |
 | DAIV ignores your comment | You commented as DAIV's own user, or didn't mention its username | Comment from your own account and mention DAIV's user |
 | DAIV comments *An unexpected error occurred* | The run failed | `docker compose logs worker sandbox` shows the error |
 | Sign-in fails with *Server Error (500)* | DAIV couldn't send the sign-in email | Keep `EMAIL_BACKEND` as above, or configure SMTP as in [Deployment](deployment.md) |

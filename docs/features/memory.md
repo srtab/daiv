@@ -74,7 +74,7 @@ DAIV queues the round and shows `Consolidation queued for <repository> (<n> pend
 
 If the repository's `.daiv.yml` sets `memory.enabled` to `false`, the button still shows and DAIV still reports the round as queued, but the round skips the repository.
 
-From a shell, [`consolidate_memory`](../reference/management-commands.md#consolidate_memory) consolidates one repository in the foreground, and refuses to run below the pending threshold unless you pass `--force`. [`backfill_memory_entries`](../reference/management-commands.md#backfill_memory_entries) rebuilds a repository's entries after an upgrade or a repair.
+From a shell, [`consolidate_memory`](../reference/management-commands.md#consolidate_memory) consolidates one repository in the foreground, and refuses to run while fewer than 10 observations are pending unless you pass `--force`. [`backfill_memory_entries`](../reference/management-commands.md#backfill_memory_entries) rebuilds a repository's entries after an upgrade or a repair.
 
 ## Turn memory off
 

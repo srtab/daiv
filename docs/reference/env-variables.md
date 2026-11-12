@@ -113,9 +113,9 @@ The sandbox service has its own settings; see [Deployment files](#deployment-fil
 
 ### Authentication
 
-DAIV uses [django-allauth](https://docs.allauth.org/) for web authentication. Users sign in with a Git platform account (GitHub or GitLab) or with a passwordless login code sent by email. Email signup is off. For how accounts are created and who becomes the first admin, see [Accounts and roles](../getting-started/accounts.md#sign-in).
+DAIV uses [django-allauth](https://docs.allauth.org/) for web authentication. Users sign in with a Git platform account (GitHub or GitLab) or with a passwordless login code sent by email. Email signup is off. For how accounts are created, see [Accounts and roles](../getting-started/accounts.md#sign-in), and for [who becomes the first admin](../getting-started/accounts.md#the-first-admin), the section of that page.
 
-The OAuth variables below seed the **Authentication** group of Site Configuration, which also holds an **Enable OAuth login** toggle. To create the OAuth app that gives you the client ID and secret, see [Create the OAuth app](../getting-started/accounts.md#create-the-oauth-app).
+The OAuth variables below override the matching fields of the **Authentication** group of Site Configuration and lock them; the group also holds an **Enable OAuth login** toggle. To create the OAuth app that gives you the client ID and secret, see [Create the OAuth app](../getting-started/accounts.md#create-the-oauth-app).
 
 | Variable                | Description                        | Default        | Example         |
 |-------------------------|------------------------------------|:--------------:|-----------------|
@@ -143,8 +143,8 @@ Enabling the **Rocket Chat** group offers Rocket.Chat as a notification channel 
 
 | Variable                | Description                        | Default        | Example         |
 |-------------------------|------------------------------------|:--------------:|-----------------|
-| `DAIV_ROCKETCHAT_ENABLED` | Offer Rocket Chat as a notification channel for users | `false` | `true` |
-| `DAIV_ROCKETCHAT_URL`   | Base URL of your Rocket Chat instance | *(none)* | `https://rc.example.com` |
+| `DAIV_ROCKETCHAT_ENABLED` | Offer Rocket.Chat as a notification channel for users | `false` | `true` |
+| `DAIV_ROCKETCHAT_URL`   | Base URL of your Rocket.Chat instance | *(none)* | `https://rc.example.com` |
 | `DAIV_ROCKETCHAT_USER_ID` | The bot user's `_id`, sent as the `X-User-Id` header | *(none)* | `abc123userid` |
 | `DAIV_ROCKETCHAT_AUTH_TOKEN` :material-lock: | The bot user's auth token, sent as the `X-Auth-Token` header | *(none)* | |
 
@@ -242,7 +242,7 @@ GitHub uses GitHub App authentication, so you create a GitHub App in your accoun
 Configure at least one provider to use the agent. The [LLM providers](../getting-started/llm-providers.md) page explains how model specs pick a provider.
 
 !!! warning "Provider keys are seed-only"
-    DAIV reads the provider API key variables once, when it first creates the provider records, and never again. They are not part of the environment, database and default order that other settings follow. Changing or adding a `*_API_KEY` variable or secret after the provider record exists has no effect: edit the provider under **Configuration → Providers** instead, which holds the key and the base URL from then on. A provider created without a key starts disabled.
+    DAIV reads the provider API key variables once, when it first creates the provider records, and never again. They are not part of the environment, database and default order that other settings follow. Changing or adding a `*_API_KEY` variable or secret after the provider record exists has no effect: edit the provider under **Configuration** → **Providers** instead, which holds the key and the base URL from then on. A provider created without a key starts disabled.
 
 DAIV reads each key from a Docker secret named after the variable in lowercase, for example `openrouter_api_key` mounted at `/run/secrets/openrouter_api_key`, or else from the environment variable. The secret wins when both are set. The OpenRouter base URL is a **Base URL** field of the provider and defaults to `https://openrouter.ai/api/v1`. [Providers](site-configuration.md#providers) describes the fields.
 
@@ -305,7 +305,7 @@ The native `web_fetch` tool fetches a URL, converts HTML to markdown, and has a 
 | `DAIV_WEB_FETCH_TIMEOUT_SECONDS` | HTTP timeout for fetching (seconds)                      | `15`           | `30` |
 | `AUTOMATION_WEB_FETCH_PROXY_URL` | Optional proxy URL for web fetch HTTP requests (env-only)      | *(none)*       | `http://proxy:8080` |
 | `DAIV_WEB_FETCH_MAX_CONTENT_CHARS` | Max page content size (characters) to analyze in one pass | `50000` | `80000` |
-| `DAIV_WEB_FETCH_AUTH_HEADERS` | Domain-to-headers mapping for authenticated fetches (JSON, env-only) | `{}` | `{"example.com": {"X-API-Key": "sk-abc"}}` |
+| `DAIV_WEB_FETCH_AUTH_HEADERS` | Domain-to-headers mapping for authenticated fetches (JSON). When set, it replaces the **Per-domain auth headers** rows of the **Web Fetch** group, which then show a lock badge | `{}` | `{"example.com": {"X-API-Key": "sk-abc"}}` |
 
 ### Artifacts
 

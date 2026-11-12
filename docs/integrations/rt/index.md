@@ -64,7 +64,7 @@ Replace `https://daiv.example.com` with your DAIV base URL and `prefix.secret` w
 
 ### Install the scrip
 
-1. In the RT web UI, open **Admin → Scrips → Create**.
+1. In the RT web UI, open **Admin** → **Scrips** → **Create**.
 2. Enter these values:
 
     | Field | Value |

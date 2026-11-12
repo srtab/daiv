@@ -4,19 +4,19 @@ description: "Every DAIV agent execution is recorded as a session: chat with the
 
 # Sessions
 
-DAIV records every agent execution in a **session**: one agent thread, a persistent conversation tied to a repository and ref. Every way you can trigger DAIV (webhooks, the jobs API, the MCP endpoint, scheduled jobs, or a chat you type yourself) produces a session, and every time the agent runs on that thread adds a **run** to it.
+DAIV records every agent execution in a **session**: one persistent conversation with the agent, tied to a repository and ref. Every way you can trigger DAIV (webhooks, the jobs API, the MCP endpoint, scheduled jobs, or a chat you type yourself) produces a session, and every time the agent runs in that session adds a **run** to it.
 
 Select **Sessions** in the sidebar (`/dashboard/sessions/`) to see every session you can see. A session's page holds its transcript, its run timeline, and its timing and usage.
 
 ## Who can see a session
 
-Admins see every session on every repository. Other users see their own sessions, the sessions started by a GitLab or GitHub account they signed in to DAIV with (matched by the account's id, not its username), and the sessions of [scheduled jobs](scheduled-jobs.md) they subscribe to. The same scoping applies to a session's page, its live updates and its retries.
+Admins see every session on every repository. Other users see their own sessions, sessions on repositories they can read on the Git platform, the sessions started by a GitLab or GitHub account they signed in to DAIV with (matched by the account's id, not its username), and the sessions of [scheduled jobs](scheduled-jobs.md) they subscribe to. The same scoping applies to a session's page, its live updates and its retries.
 
 ## Sessions and runs
 
-A session is the thread. It has a repository, a ref, an origin (how it was first triggered), a title, and an optional link to an issue, a merge request, a schedule or a user.
+A session is the conversation. It has a repository, a ref, an origin (how it was first triggered), a title, and an optional link to an issue, a merge request, a schedule or a user.
 
-A run is one agent execution inside a session. Retries, chat turns and API submissions that continue the thread each add a run to the same session.
+A run is one agent execution inside a session. Retries, chat turns and API submissions that continue the session each add a run to the same session.
 
 A run starts as **Queued** (waiting for the session's current run to end) or **Pending**, then becomes **Running**, and ends as **Done**, **Needs input** or **Failed**.
 
@@ -371,7 +371,7 @@ DAIV stops waking a session on its own after 3 runs in a row that nobody asked f
 
 This applies to every session origin, wherever the agent commits.
 
-When DAIV opens a merge request, its description carries a **view sessions** link. The link opens the **Sessions** list filtered to that request, so it covers every session that worked on it, the one that opened it and each later one that addressed a review comment, and it keeps working as sessions are added. A thread that produced several requests cannot tell which one the reader came from, so the link then opens the producing session's transcript instead, and so it does before any request is known.
+When DAIV opens a merge request, its description carries a **view sessions** link. The link opens the **Sessions** list filtered to that request, so it covers every session that worked on it, the one that opened it and each later one that addressed a review comment, and it keeps working as sessions are added. A session that produced several requests cannot tell which one the reader came from, so the link then opens the producing session's transcript instead, and so it does before any request is known.
 
 Every commit DAIV makes also carries the producing session as a git trailer:
 
@@ -381,7 +381,7 @@ DAIV-Session: https://daiv.example.com/dashboard/sessions/<thread_id>/
 
 Unlike the description, the trailer is per commit and append-only. It survives a rewritten description, reaches requests that DAIV only adopts (whose description it leaves untouched), and travels with the commit when it is squashed or cherry-picked. It joins any trailer block the commit message already ends with, so `Co-authored-by` and `Closes` keep working.
 
-An admin turns both off for the whole instance under **Configuration → Agent → Link sessions from merge requests**, or for one repository with `session_link: false` in `.daiv.yml` ([Repository configuration](../customization/repository-config.md) lists it).
+An admin turns both off for the whole instance under **Configuration** → **Agent** → **Link sessions from merge requests**, or for one repository with `session_link: false` in `.daiv.yml` ([Repository configuration](../customization/repository-config.md) lists it).
 
 ## Related pages
 
@@ -415,7 +415,7 @@ An admin turns both off for the whole instance under **Configuration → Agent �
 
     ---
 
-    Know the moment a run finishes, in the app, by email, in Rocket Chat or on Telegram.
+    Know the moment a run finishes, in the app, by email, in Rocket.Chat or on Telegram.
 
     [:octicons-arrow-right-24: Notifications](notifications.md)
 

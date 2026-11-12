@@ -29,7 +29,7 @@ docker compose exec app django-admin setup_webhooks --update
 3. Under **Subscribe to events**, select **Workflow run**.
 4. Select **Save changes**.
 5. If **Actions** is a new permission for the App, ask each installation owner to accept it, from GitHub's email or the installation's **Configure** page. Pipeline watch stays off on an installation until its owner accepts.
-6. After the next workflow run, open **Advanced → Recent Deliveries** and check for a `workflow_run` delivery.
+6. After the next workflow run, open **Advanced** → **Recent Deliveries** and check for a `workflow_run` delivery.
 
 [Platform setup](../getting-started/platform-setup.md#github-app-permissions-and-events) lists every event the App needs.
 
@@ -125,7 +125,7 @@ Every CI run produces the usual run notification, with the run's summary, so you
 
 ## Limit or turn off pipeline watch
 
-An administrator sets the site-wide switch and attempt cap under **Configuration → Pipeline Watch**, or with `DAIV_PIPELINE_WATCH_ENABLED` and `DAIV_PIPELINE_WATCH_MAX_ATTEMPTS`. With the switch off, no CI failure wakes a session, and sessions remember each failure with the reason *Watch off*. By default a merge request gets 3 fix attempts. [Site configuration](../reference/site-configuration.md) and the [environment variables reference](../reference/env-variables.md) describe both settings.
+An administrator sets the site-wide switch and attempt cap under **Configuration** → **Pipeline Watch**, or with `DAIV_PIPELINE_WATCH_ENABLED` and `DAIV_PIPELINE_WATCH_MAX_ATTEMPTS`. With the switch off, no CI failure wakes a session, and sessions remember each failure with the reason *Watch off*. By default a merge request gets 3 fix attempts. [Site configuration](../reference/site-configuration.md) and the [environment variables reference](../reference/env-variables.md) describe both settings.
 
 A repository can only tighten the site-wide values. Set its options in `.daiv.yml`:
 
@@ -163,7 +163,7 @@ The reconciler's fallback poll lists pipelines by branch (`ref=<source branch>`)
 
 | How the merge request was published | Session that owns it |
 |---|---|
-| Issue addressing (`daiv` / `daiv-auto` label, or a mention on an issue) | The issue's session |
+| Issue addressing (`daiv`, `daiv-auto` or `daiv-max` label, or a mention on an issue) | The issue's session |
 | Job runs — REST API, MCP `submit_job`, scheduled jobs | The job's session |
 | Chat turn | The chat session |
 | A CI run in the owning session | Stays with that session, keeping the attempts spent |
