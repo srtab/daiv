@@ -42,11 +42,11 @@ By default, DAIV uses a **human-in-the-loop** approach. After generating a plan,
 
 To approve a plan, comment on the issue and mention DAIV — for example:
 
-```
+```text
 @daiv proceed
 ```
 
-The exact wording is not a keyword. DAIV reacts to any comment that mentions it (`@daiv`); it reads your comment together with the plan it posted and acts on your intent. A comment like `@daiv looks good, go ahead` works just as well as `@daiv proceed`.
+The exact wording is not a keyword. DAIV reacts to any comment that mentions it (`@daiv`); it reads your comment together with the plan it posted and acts on your intent. A comment like `@daiv looks good, go ahead` works the same as `@daiv proceed`.
 
 You can also provide feedback or additional instructions in your comment, and DAIV will take them into account — either applying them during implementation or revising the plan from your feedback.
 
@@ -76,7 +76,7 @@ If an unexpected error occurs during execution, DAIV creates a **draft** merge/p
 
 ## AGENTS.md suggestion
 
-When DAIV creates a merge request for a repository that doesn't have an [`AGENTS.md`](https://agents.md/) file (or whatever `context_file_name` is configured to), it automatically adds a comment suggesting you create one. The comment includes a one-click link that opens a pre-filled issue — just click and submit.
+When DAIV creates a merge request for a repository that doesn't have an [`AGENTS.md`](https://agents.md/) file (or whatever `context_file_name` is configured to), it automatically adds a comment suggesting you create one. The comment includes a one-click link that opens a pre-filled issue — click it and submit.
 
 The one-click link pre-fills the issue with the `daiv-auto` label, so once you submit it DAIV picks it up and immediately runs the `/init` skill to analyze your repository and open a merge/pull request with the generated `AGENTS.md` — no approval step required.
 
@@ -88,7 +88,7 @@ suggest_context_file: false
 
 To disable it globally across all repositories, set the environment variable:
 
-```
+```bash
 DAIV_SUGGEST_CONTEXT_FILE_ENABLED=False
 ```
 

@@ -26,9 +26,11 @@ x-app-defaults: &x_app_default
   environment:
     LANGSMITH_TRACING: true
     LANGSMITH_PROJECT: daiv-production
-    LANGSMITH_API_KEY: lsv2_pt_xxxxxxxxxxxxxxxxxxxxxxxx_yyyyyyyyyyyy
+    LANGSMITH_API_KEY: <langsmith-api-key>
   # ...
 ```
+
+Replace `<langsmith-api-key>` with your LangSmith API key; it is a value in a YAML file, so you edit it in place.
 
 #### Docker Swarm
 
@@ -41,8 +43,10 @@ LANGSMITH_API_KEY_FILE=/run/secrets/langsmith_api_key
 
 ```bash
 # Create secret
-echo "lsv2_pt_xxxxxxxxxxxxxxxxxxxxxxxx_yyyyyyyyyyyy" | docker secret create langsmith_api_key -
+echo "<langsmith-api-key>" | docker secret create langsmith_api_key -
 ```
+
+Replace `<langsmith-api-key>` with your LangSmith API key.
 
 !!! tip "EU endpoint"
     If you're in Europe, set `LANGSMITH_ENDPOINT=https://eu.api.smith.langchain.com`.
@@ -68,7 +72,7 @@ See [Environment Variables](env-variables.md#monitoring-langsmith) for all LangS
 
 ## Trace tags and metadata
 
-Every agent run includes tags and metadata that make it easy to filter and build dashboards in LangSmith.
+Every agent run includes tags and metadata that let you filter and build dashboards in LangSmith.
 
 ### Tags
 
@@ -281,13 +285,13 @@ DAIV emits structured warning logs whenever the sandbox bash tool blocks a comma
 
 **`bash_policy_denied`** — a command segment matched a disallow rule:
 
-```
+```text
 [bash] bash_policy_denied: command denied (id=<call_id>, reason=default_disallow, rule='git push', segment='git push origin main')
 ```
 
 **`bash_policy_parse_failed`** — the command string could not be parsed (fail-closed):
 
-```
+```text
 [bash] bash_policy_parse_failed: command could not be parsed (id=<call_id>, reason='Parse error: ...')
 ```
 

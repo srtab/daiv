@@ -48,8 +48,8 @@ Each subagent runs in its own isolated context — it does not see the main conv
 
 You can define your own specialized subagents on a per-repository basis. Custom subagents are markdown files stored in `.agents/subagents/` at the repository root — one file per subagent.
 
-```
-your-repository/
+```text
+my-repository/
 ├── .agents/
 │   └── subagents/
 │       ├── my-agent.md

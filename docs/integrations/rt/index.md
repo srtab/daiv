@@ -10,7 +10,7 @@ The whole integration is a single RT Scrip. No bridge service, no webhook receiv
 
 ## How it works
 
-```
+```text
 RT ticket Create
       │
       ▼
@@ -82,7 +82,7 @@ Start with a single pilot queue. Expand only after the pilot looks healthy.
 1. File a test ticket in the pilot queue.
 2. `tail -f /var/log/request-tracker4/rt.log` (or your RT log path) — look for:
 
-   ```
+   ```text
    daiv-triage: submitted job <uuid> (batch <uuid>) for ticket <id> (queue=... repo=...)
    ```
 

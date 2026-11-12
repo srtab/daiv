@@ -8,7 +8,7 @@ DAIV records every agent execution in a **Session**. A session is one agent thre
 
 Navigate to **Dashboard > Sessions** (`/dashboard/sessions/`) to see the unified list. Clicking any session opens its detail page — the transcript, run timeline, and timing and usage for every execution.
 
-!!! info "What you can see"
+!!! note "What you can see"
     Admins see all sessions across every repository. Regular users see their own sessions, sessions started by a GitLab/GitHub account they signed in to DAIV with (matched by the account's id, not its username), and sessions from [Scheduled Jobs](scheduled-jobs.md) they subscribe to. The same scoping applies to the detail page, live updates, and retries.
 
 ---
@@ -61,7 +61,7 @@ Below it are your five most recent sessions, the ways to start work (issue label
 
 **Insights** (`/dashboard/insights/`) shows how DAIV is used across the repositories you can see, over Today, 7 days (the default), 30 days, 90 days or all time.
 
-- **Agent activity** — runs, success rate, runs that changed code and average duration, each compared with the period of the same length just before, up to the same time of day (the page names both). Running now is live and not compared.
+- **Agent activity** — runs, success rate, runs that changed code and average duration, each compared with the period of the same length immediately before, up to the same time of day (the page names both). Running now is live and not compared.
 - **Runs over time** — a column per day (weeks for 30 and 90 days, months for all time), stacked by outcome: changed code, done without changes, needs input, failed. A column opens the sessions active in its days. Hidden for Today.
 - **Sessions by origin** — each origin's sessions this period and the period before, the change, and a small bar per day. Every count for this period opens the session list it counts; the period before and the bars count sessions with a run in those days, so later activity doesn't move them.
 - **Code velocity** — see [Merge Metrics](merge-metrics.md).
@@ -155,7 +155,7 @@ Artifacts are also listed in the [Jobs API](jobs-api.md#poll-job-status) and [MC
 
 Ask the agent to change a report it already published — "add a section on licenses", "make the table sortable" — and it revises the artifact instead of publishing a new one: it edits the file and publishes it again with the artifact's id, so the file is replaced and **the URL stays the same**. If the file is no longer in its workspace (an earlier run published it), the agent first copies it back with `fetch_artifact`. This works across runs of the same session, but never across sessions: the agent can only read or revise artifacts of the session it runs in. You can paste an artifact's URL into the conversation to point the agent at it.
 
-A revised artifact stays on the run that first published it — on the dashboard, and in the per-run artifact cards of a session with no transcript. The Jobs API and MCP job-status responses list it under that run and under every run that revised it. Every transcript row for it shows its current title, type and size, rows are marked **Updated** once it has been revised, and the viewer's header shows when it was last updated. Only the latest version is kept; revisions do not count towards the per-run file limit.
+A revised artifact stays on the run that first published it — on the dashboard, and in the per-run artifact cards of a session with no transcript. The Jobs API and MCP job-status responses list it under that run and under every run that revised it. Every transcript row for it shows its current title, type and size, rows are marked **Updated** once it has been revised, and the viewer's header shows when it was last updated. Only the newest version is kept; revisions do not count towards the per-run file limit.
 
 ---
 
@@ -237,7 +237,7 @@ A card's **⋯** menu, offered once the repository has a merge request, holds:
 
 When the agent commits changes, DAIV creates or updates a merge/pull request on the session's ref. The session's repository card links to it and flags drafts. A pre-existing open request for the ref is detected and shown even before the agent runs.
 
-The request itself links back to the session that produced it — see [Linking back to sessions](#linking-back-to-sessions), which applies to every origin, not just chat.
+The request itself links back to the session that produced it — see [Linking back to sessions](#linking-back-to-sessions), which applies to every origin, not only chat.
 
 !!! note "Expired state"
     The agent's working state lives in the checkpointer and expires (`DJANGO_REDIS_CHECKPOINT_TTL_MINUTES`), but DAIV archives each session when a run ends. An expired session keeps its transcript, and your next message picks up where it left off: DAIV restores the conversation from the archive first, and fails the run if it can't. Archived conversations are kept as long as their session exists; nothing prunes them automatically. A session with no archived transcript, such as one whose checkpoint expired before DAIV archived sessions, shows an "expired" notice; start a fresh session to continue.
@@ -249,7 +249,7 @@ When the agent hits a request that's genuinely ambiguous or a decision that's yo
 - **Option buttons** — click one to select it; a multi-select question is marked "Pick any that apply", and clicking toggles an option on or off alongside the others
 - **A free-text field** — type your own answer if none of the options fit, or if the question has no options at all
 
-**Answer** sends all of your answers as a single message, one line per question; any question you leave blank is sent as "No preference". **Skip** declines the whole card and tells the agent to use its best judgment. Either way the agent carries on with reasonable defaults for what you didn't answer, states the assumptions it made, and doesn't ask the same questions again. Both start a new run on the same thread that picks up where the agent left off, and you can also just type a reply in the composer.
+**Answer** sends all of your answers as a single message, one line per question; any question you leave blank is sent as "No preference". **Skip** declines the whole card and tells the agent to use its best judgment. Either way the agent carries on with reasonable defaults for what you didn't answer, states the assumptions it made, and doesn't ask the same questions again. Both start a new run on the same thread that picks up where the agent left off, and you can also type a reply in the composer.
 
 The card is only interactive on the session's last turn, and only while no run is in flight — once answered it stays visible but goes inert (options disabled, free-text field and buttons hidden), keeps the options your answer picked highlighted, even after a reload, and your answer shows as the next message. This isn't chat-only: the same card renders on a webhook or job session's transcript wherever a run ended on a question.
 
@@ -280,7 +280,7 @@ When DAIV *opens* a merge/pull request, its description carries a **view session
 
 Every commit DAIV makes also carries the producing session as a git trailer:
 
-```
+```text
 DAIV-Session: https://daiv.example.com/dashboard/sessions/<thread_id>/
 ```
 
@@ -307,7 +307,7 @@ Runs started this way are tagged with the **UI Run** origin. Every submission, s
 
 ### Retrying a run
 
-When the latest run in a session fails, its red failure marker in the transcript has a **Retry** button. It sends your next message in the same session: *The previous run failed. Please try again.* when the run got far enough to be in the conversation, or the run's own prompt again when it failed before that. Only the newest run offers it, and not while a run is working or queued. It shows for chat turns and for API, MCP, UI and scheduled runs; webhook runs and runs delegated by another session report back through their own flow, so they don't offer it. You need to own the session and be able to run agents on its repository, and it must not be archived. A run that was stopped (by you, by the session that delegated it, or by an interruption) shows a grey marker without **Retry**; send a message to carry on.
+When the latest run in a session fails, its red failure marker in the transcript has a **Retry** button. It sends your next message in the same session: `The previous run failed. Please try again.` when the run got far enough to be in the conversation, or the run's own prompt again when it failed before that. Only the newest run offers it, and not while a run is working or queued. It shows for chat turns and for API, MCP, UI and scheduled runs; webhook runs and runs delegated by another session report back through their own flow, so they don't offer it. You need to own the session and be able to run agents on its repository, and it must not be archived. A run that was stopped (by you, by the session that delegated it, or by an interruption) shows a grey marker without **Retry**; send a message to carry on.
 
 Every run shown in the transcript also has a link target on the session page, including the runs of a session whose transcript has expired: `<session URL>#run-<run id>` opens the session scrolled to that run. Each row of the **Artifacts** list uses it.
 

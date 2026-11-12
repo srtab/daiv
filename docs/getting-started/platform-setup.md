@@ -65,10 +65,12 @@ x-app-defaults: &x_app_default
   # ...
   environment:
     CODEBASE_GITLAB_URL: https://gitlab.com # or your GitLab instance URL
-    CODEBASE_GITLAB_AUTH_TOKEN: glpat-xxxxxxxxxxxxxxxxxxxx # Your personal access token
-    CODEBASE_GITLAB_WEBHOOK_SECRET: your-webhook-secret-here # Random secret for webhook validation
+    CODEBASE_GITLAB_AUTH_TOKEN: <gitlab-token> # Your personal access token
+    CODEBASE_GITLAB_WEBHOOK_SECRET: <webhook-secret> # Random secret for webhook validation
   # ...
 ```
+
+Replace `<gitlab-token>` with your personal access token and `<webhook-secret>` with a random secret. They are YAML values, so you edit them in place.
 
 #### For Docker Swarm Setup
 
@@ -76,9 +78,11 @@ Create Docker secrets:
 
 ```bash
 # Create secrets for GitLab integration
-echo "glpat-xxxxxxxxxxxxxxxxxxxx" | docker secret create codebase_gitlab_auth_token -
-echo "your-webhook-secret-here" | docker secret create codebase_gitlab_webhook_secret -
+echo "<gitlab-token>" | docker secret create codebase_gitlab_auth_token -
+echo "<webhook-secret>" | docker secret create codebase_gitlab_webhook_secret -
 ```
+
+Replace `<gitlab-token>` with your personal access token and `<webhook-secret>` with a random secret.
 
 !!! tip "Generating Webhook Secret"
     Generate a secure random webhook secret:
@@ -100,13 +104,13 @@ docker compose exec app django-admin setup_webhooks --update  # also update exis
 GitLab sends each event to `DAIV_EXTERNAL_URL`, so that URL must be reachable from your GitLab. A self-managed GitLab refuses webhooks to private network addresses by default (`Url is blocked: Requests to the local network are not allowed`); an admin allows them under **Admin → Settings → Network → Outbound requests**.
 
 !!! tip "Verifying webhook setup"
-    To confirm webhooks are configured, go to your GitLab repository → **Settings** → **Webhooks**. You should see a webhook pointing to `https://your-daiv-instance.com/api/codebase/callbacks/gitlab/` with the following trigger events:
+    To confirm webhooks are configured, go to your GitLab repository → **Settings** → **Webhooks**. You should see a webhook pointing to `https://daiv.example.com/api/codebase/callbacks/gitlab/` with the following trigger events:
 
-    - ✅ Push events
-    - ✅ Issues events
-    - ✅ Comments (Note events)
-    - ✅ Merge request events
-    - ✅ Pipeline events
+    - Push events
+    - Issues events
+    - Comments (Note events)
+    - Merge request events
+    - Pipeline events
 
     Click **Test** → **Push events** to verify connectivity.
 
@@ -193,7 +197,7 @@ DAIV uses GitHub App authentication to securely interact with your repositories.
     **Basic Information:**
     - **GitHub App name**: `DAIV` (or `DAIV - YourOrgName`)
     - **Homepage URL**: Your DAIV instance URL (e.g., `https://daiv.example.com`)
-    - **Webhook URL**: `https://your-daiv-instance.com/api/codebase/callbacks/github/`
+    - **Webhook URL**: `https://daiv.example.com/api/codebase/callbacks/github/`
     - **Webhook secret**: Generate a secure random secret (save this for later)
       ```bash
       openssl rand -hex 32
@@ -207,16 +211,16 @@ DAIV uses GitHub App authentication to securely interact with your repositories.
         - Actions: **Read-only** (to read workflow runs and job logs for [Pipeline Watch](../features/pipeline-watch.md))
         - Workflows: **Read & Write** (optional; lets DAIV push changes to files under `.github/workflows/`, such as a conflict resolved there. Code running in the sandbox can then change workflows too, and they run with the repository's Actions secrets)
         - Metadata: **Read-only** (automatically selected)
-    - **Subscribe to events:**
-        - ✅ Push
-        - ✅ Issues
-        - ✅ Issue comment
-        - ✅ Pull request review
-        - ✅ Pull request review comment (mentions and comments on diff lines of a pull request a DAIV session owns)
-        - ✅ Pull request
-        - ✅ Workflow run
+    - **Subscribe to events:** select these events:
+        - Push
+        - Issues
+        - Issue comment
+        - Pull request review
+        - Pull request review comment (mentions and comments on diff lines of a pull request a DAIV session owns)
+        - Pull request
+        - Workflow run
 
-    !!! info "Centralized Webhook Configuration"
+    !!! note "Centralized Webhook Configuration"
         Unlike GitLab where webhooks are configured per repository, GitHub Apps use centralized webhook configuration. The webhook you configure here will automatically apply to all repositories where you install the app.
 
 3. **Create the App**:
@@ -264,11 +268,13 @@ x-app-defaults: &x_app_default
     CODEBASE_CLIENT: github
     CODEBASE_GITHUB_APP_ID: 123456 # Your GitHub App ID
     CODEBASE_GITHUB_INSTALLATION_ID: 789012 # Your Installation ID
-    CODEBASE_GITHUB_WEBHOOK_SECRET: your-webhook-secret-here # The secret you generated
+    CODEBASE_GITHUB_WEBHOOK_SECRET: <webhook-secret> # The secret you generated
     # For GitHub Enterprise, also set:
-    # CODEBASE_GITHUB_URL: https://github.your-company.com
+    # CODEBASE_GITHUB_URL: https://github.example.com
   # ...
 ```
+
+Replace `<webhook-secret>` with the secret you generated. It is a YAML value, so you edit it in place.
 
 For the private key, you have two options:
 
@@ -283,8 +289,10 @@ x-app-defaults: &x_app_default
 
 secrets:
   codebase_github_private_key:
-    file: /path/to/your-private-key.pem
+    file: <private-key-path>
 ```
+
+Replace `<private-key-path>` with the path of the downloaded `.pem` file. It is a YAML value, so you edit it in place.
 
 **Option 2: Set as environment variable**
 
@@ -305,9 +313,11 @@ Create Docker secrets:
 # Create secrets for GitHub integration
 echo "123456" | docker secret create codebase_github_app_id -
 echo "789012" | docker secret create codebase_github_installation_id -
-docker secret create codebase_github_private_key /path/to/your-private-key.pem
-echo "your-webhook-secret-here" | docker secret create codebase_github_webhook_secret -
+docker secret create codebase_github_private_key <private-key-path>
+echo "<webhook-secret>" | docker secret create codebase_github_webhook_secret -
 ```
+
+Replace `<private-key-path>` with the path of the downloaded `.pem` file and `<webhook-secret>` with the secret you generated.
 
 !!! warning "Private Key Format"
     The private key must be in PEM format. Keep the entire key including the header and footer lines (`-----BEGIN RSA PRIVATE KEY-----` and `-----END RSA PRIVATE KEY-----`).
@@ -322,7 +332,7 @@ Webhooks are configured at the GitHub App level and automatically apply to all r
     - Go to your GitHub App settings page
     - Scroll down to the **Webhook** section
     - Verify the following settings:
-        - **Webhook URL**: `https://your-daiv-instance.com/api/codebase/callbacks/github/`
+        - **Webhook URL**: `https://daiv.example.com/api/codebase/callbacks/github/`
         - **Webhook secret**: The secret you generated earlier
         - **SSL verification**: Enabled (unless using self-signed certificates)
         - **Active**: Checked
@@ -330,13 +340,13 @@ Webhooks are configured at the GitHub App level and automatically apply to all r
 2. **Verify Subscribed Events**:
     - Scroll down to **Permissions & events** section
     - Under **Subscribe to events**, ensure these are checked:
-        - ✅ Push
-        - ✅ Issues
-        - ✅ Issue comment
-        - ✅ Pull request review
-        - ✅ Pull request review comment (mentions and comments on diff lines of a pull request a DAIV session owns)
-        - ✅ Pull request
-        - ✅ Workflow run (only listed once **Actions** is set to **Read-only**, see Step 1)
+        - Push
+        - Issues
+        - Issue comment
+        - Pull request review
+        - Pull request review comment (mentions and comments on diff lines of a pull request a DAIV session owns)
+        - Pull request
+        - Workflow run (only listed once **Actions** is set to **Read-only**, see Step 1)
 
 3. **Test Webhook Delivery**:
     - Create a test issue in one of your repositories where the app is installed

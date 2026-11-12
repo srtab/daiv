@@ -146,7 +146,7 @@ A coordination repository can hold no production code at all and act as a routin
 
 3. **Trigger it** with a [Scheduled Job](scheduled-jobs.md) that polls the queue, or from your ticketing system through the [Jobs API](jobs-api.md):
 
-    ```
+    ```text
     Fetch the open tickets not yet dispatched. Route each one with the rules in AGENTS.md and delegate one
     target per ticket. When the legs finish, comment the merge request links on each ticket.
     ```
@@ -155,7 +155,7 @@ A coordination repository can hold no production code at all and act as a routin
 
 With orchestration on in the application's own repository and the Sentry [MCP server](../customization/mcp-tools.md) enabled, a single prompt — run by hand or from a [Scheduled Job](scheduled-jobs.md) — triages and fans out:
 
-```
+```text
 Triage the unresolved Sentry issues of the last 24 hours. For each one worth fixing, delegate a fix on this
 repository's default branch, with the issue's details in the prompt and the issue in `references` with
 relation `closes`. When the fixes finish, summarise what was fixed and what was left alone, with links.

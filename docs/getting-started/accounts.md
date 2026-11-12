@@ -85,7 +85,7 @@ Users can also sign in **without a password** using a one-time code emailed to t
 This is the path used by admin-created users and by the bootstrapped first admin — it works even when OAuth is not configured, as long as DAIV can send email.
 
 !!! warning "No password signup"
-    Standard email-and-password registration is turned off (`AccountAdapter.is_open_for_signup` returns `False`). Visiting the signup URL simply redirects back to the login page. New accounts come only from OAuth (when open signup is on) or from an admin creating them.
+    Standard email-and-password registration is turned off (`AccountAdapter.is_open_for_signup` returns `False`). Visiting the signup URL redirects back to the login page. New accounts come only from OAuth (when open signup is on) or from an admin creating them.
 
 ## The first admin
 
@@ -97,7 +97,7 @@ On a fresh install with OAuth enabled, the **first user to sign in via a social 
 
 ### Bootstrap command (headless)
 
-When OAuth is not yet configured, create the initial admin from a shell:
+When OAuth is not configured, create the initial admin from a shell:
 
 ```bash
 docker compose exec app django-admin bootstrap_admin admin@example.com
@@ -105,7 +105,7 @@ docker compose exec app django-admin bootstrap_admin admin@example.com
 
 The `bootstrap_admin` command creates an admin user and prints how to sign in. It is a one-shot bootstrap: it refuses to run if an admin already exists, and refuses if a user with that email already exists (promote that user via the dashboard instead). The new admin signs in via login-by-code (the one-time email code). Without an SMTP server, set `EMAIL_BACKEND` to `django.core.mail.backends.console.EmailBackend` and read the code from the app's log (`docker compose logs app`).
 
-!!! info
+!!! note
     For end-to-end first-run setup including OAuth credentials and email, see the first-admin notes in [Deployment](deployment.md).
 
 ## Managing users (admin only)

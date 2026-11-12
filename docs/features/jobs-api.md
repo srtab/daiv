@@ -52,7 +52,7 @@ Job submissions are rate-limited per authenticated user. The default limit is **
 
 The rate is configured via the `jobs_throttle_rate` field in Site Configuration (default `20/hour`). Set it to a value like:
 
-```
+```text
 50/hour
 ```
 
@@ -65,7 +65,7 @@ Valid formats: `N/sec`, `N/min`, `N/hour`, `N/day` (or single-letter short forms
 
 ### Submit a job
 
-```
+```text
 POST /api/jobs
 ```
 
@@ -123,7 +123,7 @@ Each entry in `jobs` is an independent run — poll each `job_id` separately. Th
 
 ### Poll job status
 
-```
+```text
 GET /api/jobs/{job_id}
 ```
 
@@ -281,7 +281,7 @@ Once a job reaches `SUCCESSFUL`, `WAITING_INPUT`, or `FAILED`, the status is fin
 ```bash
 #!/bin/bash
 DAIV_URL="https://daiv.example.com"
-API_KEY="your-api-key"
+API_KEY="<api-key>"
 
 # Submit (single-repo batch)
 JOB_ID=$(curl -s -X POST "$DAIV_URL/api/jobs" \
@@ -305,6 +305,8 @@ while true; do
   esac
 done
 ```
+
+Replace `<api-key>` with your DAIV API key. Edit the script before running it.
 
 ### GitLab CI — Scheduled pipeline with chaining
 

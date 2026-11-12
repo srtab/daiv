@@ -13,7 +13,7 @@ The Pull Request Assistant helps you address code review feedback directly withi
 
 Mention DAIV in any comment on a pull request:
 
-```
+```text
 @daiv <your request>
 ```
 
@@ -42,15 +42,15 @@ A mention on a diff line reaches DAIV only on a merge request a session owns. On
 
 Ask DAIV to modify code based on your review feedback:
 
-```
+```text
 @daiv use Redis instead of in-memory storage
 ```
 
-```
+```text
 @daiv add error handling for the case when the API returns null
 ```
 
-```
+```text
 @daiv move this logic to a separate helper function
 ```
 
@@ -58,11 +58,11 @@ Ask DAIV to modify code based on your review feedback:
 
 Ask DAIV about the code to help you make review decisions:
 
-```
+```text
 @daiv why is this import inside the method instead of at the top?
 ```
 
-```
+```text
 @daiv is this approach thread-safe?
 ```
 
@@ -70,7 +70,7 @@ Ask DAIV about the code to help you make review decisions:
 
 When CI/CD fails, ask DAIV to investigate and fix it:
 
-```
+```text
 @daiv the pipeline is failing, can you fix it?
 ```
 

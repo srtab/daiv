@@ -64,7 +64,7 @@ git subcommand itself: `git revert` blocks `git -C repo revert`, but not `git lo
 When a git option the policy does not know comes before the subcommand, the rule matches its
 arguments anywhere, so an unfamiliar option cannot hide a blocked subcommand.
 Matching ignores case and the order of bundled short flags, so `rm -rf` also blocks `rm -fr`. `DAIV_SANDBOX_COMMAND_POLICY_ALLOW` takes
-the same format but currently has no effect (see [Precedence](#precedence)).
+the same format but has no effect (see [Precedence](#precedence)).
 
 The policy is global: there is no per-repository or per-environment policy. A
 `sandbox.command_policy` section left in `.daiv.yml` from v2.0.0 is ignored without a

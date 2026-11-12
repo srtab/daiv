@@ -8,7 +8,7 @@ A sandbox environment is a named, reusable [sandbox](sandbox.md) configuration â
 
 Manage environments at **Dashboard > Sandbox Environments** (`/dashboard/sandbox-envs/`). The page lists your own environments and, separately, the organization-wide ones.
 
-!!! info "When you need one"
+!!! note "When you need one"
     The sandbox runs with **networking disabled** and **no base image** unless an environment supplies them. If the agent needs to install dependencies, run a specific toolchain image, or read a secret (an API token, a private registry credential), capture that in an environment. See [Sandbox](sandbox.md) for what the agent does with the runtime.
 
 ## Scopes
@@ -63,7 +63,7 @@ Environment-variable values are **Fernet-encrypted before they are stored** and 
 
 When **Network** is enabled, the **Egress** section appears at the bottom of the form. It lets you define exactly which outbound connections the sandbox container may make, with optional per-host credentials injected by the MITM proxy â€” credentials never enter the container.
 
-!!! info "Requires the egress proxy"
+!!! note "Requires the egress proxy"
     Egress policy is provisioned by the daiv-sandbox MITM egress proxy. If the sandbox does not have the egress proxy enabled, starting a run that uses an egress-configured environment will **abort** (fail-closed) rather than fall back to unrestricted network.
 
 !!! note "The repository's git platform is always reachable"

@@ -51,8 +51,8 @@ Create the `.env` file. The command fills in the random secrets and the Docker s
 cat > .env <<EOF
 DAIV_EXTERNAL_URL=http://192.168.1.10:8000
 CODEBASE_GITLAB_URL=https://gitlab.com
-CODEBASE_GITLAB_AUTH_TOKEN=glpat-replace-me
-OPENROUTER_API_KEY=sk-or-replace-me
+CODEBASE_GITLAB_AUTH_TOKEN=<gitlab-token>
+OPENROUTER_API_KEY=<openrouter-api-key>
 DJANGO_SECRET_KEY=$(openssl rand -hex 32)
 DB_PASSWORD=$(openssl rand -hex 16)
 CODEBASE_GITLAB_WEBHOOK_SECRET=$(openssl rand -hex 32)
@@ -62,7 +62,7 @@ EOF
 chmod 600 .env
 ```
 
-Then edit the first four lines:
+Then edit the first four lines. `<gitlab-token>` and `<openrouter-api-key>` are placeholders for the values in the last two rows:
 
 | Variable | Set it to |
 |----------|-----------|
@@ -188,14 +188,14 @@ Signing in is optional for the first merge request, but the dashboard is where y
 docker compose exec app django-admin bootstrap_admin you@example.com
 ```
 
-Open <http://localhost:8000> on the DAIV host, enter that email address, and read the one-time code from the log:
+Open `http://localhost:8000` on the DAIV host, enter that email address, and read the one-time code from the log:
 
 ```bash
 docker compose logs app | grep -A2 "sign-in code"
 ```
 
 !!! warning "Sign in over HTTPS or on localhost"
-    DAIV's session cookie, which also carries the CSRF token, is a secure cookie, so a browser keeps it only on `https://` URLs and on `localhost`. Over plain `http://` to any other address, sign-in fails with **CSRF verification failed**. If DAIV runs on another machine, forward the port with `ssh -L 8000:localhost:8000 <host>` and open <http://localhost:8000>, or put DAIV behind HTTPS.
+    DAIV's session cookie, which also carries the CSRF token, is a secure cookie, so a browser keeps it only on `https://` URLs and on `localhost`. Over plain `http://` to any other address, sign-in fails with **CSRF verification failed**. If DAIV runs on another machine, forward the port with `ssh -L 8000:localhost:8000 <host>` and open `http://localhost:8000`, or put DAIV behind HTTPS.
 
 ## 5. Connect your GitLab project
 

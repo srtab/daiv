@@ -26,7 +26,7 @@ There are four event types for runs and schedules:
 !!! note "Batches collapse into one message"
     A batch is a group of runs sharing a batch ID — for example a [scheduled job](scheduled-jobs.md) that fans out across several repositories. DAIV suppresses the per-run notifications for a multi-run batch and sends a single **Job batch finished** rollup once the last sibling is terminal, summarising how many runs were notify-worthy and how many were all-clear. A run waiting for an answer counts as notify-worthy in the rollup and is listed right after failures.
 
-!!! info "Webhook-triggered runs notify on worthy outcomes"
+!!! note "Webhook-triggered runs notify on worthy outcomes"
     Runs triggered by a GitLab/GitHub issue or merge/pull-request webhook (for example [issue addressing](issue-addressing.md) or the [pull request assistant](pull-request-assistant.md)) report back inside the issue or MR/PR thread and, like prompt-driven job runs (via the dashboard, [Jobs API](jobs-api.md), or [MCP endpoint](mcp-endpoint.md)), also notify their initiator when the outcome is notify-worthy. The exception is a run waiting for an answer, whose question comment already mentions you (see above). All-clear runs stay silent on both paths.
 
 ## Channels
@@ -58,7 +58,7 @@ DAIV reaches you through channels. In-app notifications are always available; em
 The in-app entry is written for **notify-worthy** runs — those classified as found-issues, needs-attention, needs-input, or failed. All-clear runs are silent and do not produce an in-app entry.
 
 - `/dashboard/notifications/` lists your full history with `All` / `Unread` / `Read` filters and a **Mark all as read** action. Opening a notification marks it read.
-- The unread badge next to *Notifications* — and the **N running** badge next to *Sessions* — update live over a server-sent-events stream (`GET /api/nav/events`), so a new notification or a run starting or finishing shows up without a page reload. The stream requires Redis (already required for chat and caching); without it the badges simply show their page-load values.
+- The unread badge next to *Notifications* — and the **N running** badge next to *Sessions* — update live over a server-sent-events stream (`GET /api/nav/events`), so a new notification or a run starting or finishing shows up without a page reload. The stream requires Redis (already required for chat and caching); without it the badges show their page-load values.
 
 ### Email
 

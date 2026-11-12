@@ -49,15 +49,17 @@ OpenRouter is the **default provider** for DAIV. It provides access to models fr
 
 1. Obtain an API key from [OpenRouter Settings](https://openrouter.ai/settings/keys)
 2. Set the environment variable:
+   ```bash
+   OPENROUTER_API_KEY=<api-key>
    ```
-   OPENROUTER_API_KEY=your-api-key-here
-   ```
+
+   Replace `<api-key>` with the key from the previous step.
 
 **Model format:**
 
 Use the `openrouter:` prefix followed by the [model name from OpenRouter](https://openrouter.ai/models):
 
-```
+```text
 openrouter:anthropic/claude-sonnet-5.5
 openrouter:openai/gpt-6.1-sol
 ```
@@ -78,15 +80,17 @@ models:
 
 1. Obtain an API key from [OpenAI](https://platform.openai.com/api-keys)
 2. Set the environment variable:
+   ```bash
+   OPENAI_API_KEY=<api-key>
    ```
-   OPENAI_API_KEY=your-api-key-here
-   ```
+
+   Replace `<api-key>` with the key from the previous step.
 
 **Model format:**
 
 Use the [model name from OpenAI](https://platform.openai.com/docs/models) directly (no prefix needed):
 
-```
+```text
 gpt-6.1-sol
 gpt-6-luna
 ```
@@ -107,15 +111,17 @@ models:
 
 1. Obtain an API key from [Anthropic](https://console.anthropic.com/settings/keys)
 2. Set the environment variable:
+   ```bash
+   ANTHROPIC_API_KEY=<api-key>
    ```
-   ANTHROPIC_API_KEY=your-api-key-here
-   ```
+
+   Replace `<api-key>` with the key from the previous step.
 
 **Model format:**
 
 Use the [model name from Anthropic](https://docs.anthropic.com/en/docs/about-claude/models/all-models#model-names) directly (no prefix needed):
 
-```
+```text
 claude-sonnet-5-5
 claude-opus-5-5
 ```
@@ -129,8 +135,7 @@ models:
 ```
 
 !!! warning
-    We love Anthropic, but unfortunately their API is very unstable and often returns errors.
-    Also, the rate limits could be exceeded very quickly.
+    When Anthropic's API returns an error or a rate-limit response, DAIV retries the call up to `DAIV_MODEL_MAX_RETRIES` times (default `2`) and then fails the run. If runs fail this way, raise `DAIV_MODEL_MAX_RETRIES` or ask Anthropic for a higher rate limit.
 
 ---
 
@@ -140,15 +145,17 @@ models:
 
 1. Obtain an API key from [AI Studio](https://aistudio.google.com/apikey)
 2. Set the environment variable:
+   ```bash
+   GOOGLE_API_KEY=<api-key>
    ```
-   GOOGLE_API_KEY=your-api-key-here
-   ```
+
+   Replace `<api-key>` with the key from the previous step.
 
 **Model format:**
 
 Use the [model name from Gemini](https://ai.google.dev/gemini-api/docs/models) directly (no prefix needed):
 
-```
+```text
 gemini-3.8-flash
 ```
 
@@ -170,7 +177,7 @@ When you add a provider, you choose:
 
 | Field | Purpose |
 |-------|---------|
-| **Slug** | A short identifier that becomes the model prefix (`your-slug:model_name`). Must start with a lowercase letter; lowercase letters, digits, `-`, `_`; max 32 chars. Immutable after creation. |
+| **Slug** | A short identifier that becomes the model prefix (`<slug>:<model-name>`). Must start with a lowercase letter; lowercase letters, digits, `-`, `_`; max 32 chars. Immutable after creation. |
 | **Provider type** | The wire protocol used to talk to the server — one of OpenAI, Anthropic, Google Gemini, or OpenRouter. |
 | **Base URL** | The endpoint to call instead of the provider's default (for example, your vLLM server). For OpenAI-typed servers, include the version segment (e.g. `/v1`). |
 | **API key** | The credential for the endpoint (encrypted at rest). |
@@ -180,9 +187,11 @@ When you add a provider, you choose:
 
 Once the row exists, reference its models using the slug as a prefix:
 
+```text
+<slug>:<model-name>
 ```
-your-slug:model_name
-```
+
+Replace `<slug>` with the provider's slug and `<model-name>` with a model the endpoint serves.
 
 You can use this prefix anywhere a model is specified, including the `.daiv.yml` [model overrides](../customization/repository-config.md#model-overrides).
 
@@ -192,5 +201,5 @@ You can use this prefix anywhere a model is specified, including the `.daiv.yml`
 !!! note
     The four built-in providers (OpenRouter, OpenAI, Anthropic, Google Gemini) are locked: their slug and provider type cannot be changed and the rows cannot be deleted. Custom providers you add are fully editable and removable.
 
-!!! info "Admin only"
+!!! note "Admin only"
     Managing providers requires an admin account. See [Automation: LLM Providers](../reference/env-variables.md#automation-llm-providers) for how the built-in providers map to environment variables.

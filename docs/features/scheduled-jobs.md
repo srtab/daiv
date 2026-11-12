@@ -92,7 +92,7 @@ From the **Scheduled Jobs** list, each schedule's actions menu lets you:
 - **Run now** to dispatch an immediate batch run without waiting for the next scheduled time. You land on the resulting session (or the [Sessions](sessions.md) list filtered to the batch when it spans multiple repositories)
 - **Duplicate** a schedule to create a new one pre-filled from this one — the only way to re-run a fired one-off schedule
 - **Edit** a schedule to change any field, including the **Enabled** checkbox
-- **Delete** a schedule permanently — any currently running job will complete, but no new runs will be dispatched
+- **Delete** a schedule permanently — a running job completes, but no new runs are dispatched
 
 Fired one-off (**Once**) schedules only offer **Duplicate** and **Delete**.
 
@@ -143,7 +143,7 @@ Scheduled Jobs and the [Jobs API](jobs-api.md) use the same underlying task to e
 | **Management** | Programmatic | Web UI |
 | **Use case** | One-off or script-driven | Recurring, set-and-forget |
 
-!!! info
+!!! note
     If you need programmatic control over scheduling (e.g., creating schedules from a script), use the [Jobs API](jobs-api.md) with an external scheduler like GitLab CI scheduled pipelines or system cron.
 
 ## Schedule templates

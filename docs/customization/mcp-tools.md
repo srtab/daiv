@@ -82,7 +82,7 @@ Then edit the `sentry` server row: set the URL to `http://mcp-sentry:8000/mcp` a
 worker behind mcp.sentry.dev. Deploying your own instance gives you a bridge-free HTTP endpoint;
 keep the `Authorization: Sentry-Bearer <token>` header in the row.
 
-!!! important
+!!! warning
     When running a stdio bridge, always use **stateful mode** (`--stateful`). In stateless mode
     every tool call spawns a fresh child process chain, which can exhaust the system's thread
     limit under concurrent load. Use `--sessionTimeout` (milliseconds; `300000` works well) to
@@ -112,7 +112,7 @@ and shows "synced … ago · N tools".
 - **`allow`** — only the listed tools are exposed.
 - **`block`** — all tools except the listed ones are exposed.
 
-Unknown names in an allow-list fail closed: a tool that disappears upstream simply stops being
+Unknown names in an allow-list fail closed: a tool that disappears upstream stops being
 exposed. If no filter is set, all tools from the server are available.
 
 ### Stdio-only servers

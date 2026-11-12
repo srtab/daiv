@@ -11,7 +11,7 @@ Variables marked with:
  * :material-lock: are sensitive (such as API keys, passwords, and tokens) and should be declared using Docker secrets or a secure credential manager.
  * :material-asterisk: are required and should be declared.
 
-!!! info "Configuration UI"
+!!! note "Configuration UI"
     Many settings listed under [Automation: Tools](#automation-tools) and [Automation: Agents](#automation-agents) can also be managed through the **Configuration UI** at `/dashboard/configuration/`. These settings use a three-tier priority chain: **environment variable** (highest) > **database value** (set via UI) > **hardcoded default** (lowest). When a setting is overridden by an environment variable, the corresponding field in the UI is shown as locked. Settings marked *env-only* are not available in the UI.
 
     [Automation: LLM Providers](#automation-llm-providers) behaves differently: the provider API key variables are read **only once** to seed the provider records on first run — they do not participate in the runtime override chain (see the note in that section).
@@ -29,10 +29,10 @@ Variables marked with:
 | `DJANGO_ALLOWED_HOSTS`  | Comma-separated list of allowed hosts               | `*`                    | `example.com,localhost`        |
 | `DJANGO_SESSION_COOKIE_NAME` | Name of the session cookie; give each instance on one host its own | `__Secure-sessionid` | `__Secure-sessionid-1` |
 
-!!! danger
+!!! warning
     Do not turn on `DJANGO_DEBUG` in production. It will **expose sensitive information** and **break the security of the application**.
 
-!!! info
+!!! note
     The `DJANGO_ALLOWED_HOSTS` variable is used to specify the hosts that are allowed to access the application. Make sure to include the host where the application is running to increase security.
 
 ### Uvicorn
@@ -111,9 +111,9 @@ Variables marked with:
 | `DAIV_SANDBOX_TIMEOUT` | Timeout for sandbox requests in seconds, and the longest timeout the agent can give a bash command, whose request waits up to 60 seconds longer | `600`          | `600`           |
 | `DAIV_SANDBOX_API_KEY` :material-lock: | API key for sandbox requests        | *(none)*          | `random-api-key`           |
 | `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` | JSON array of extra bash command rules to block globally | *(none)* | `'["curl", "npm publish"]'` |
-| `DAIV_SANDBOX_COMMAND_POLICY_ALLOW` | JSON array of bash command rules to permit; currently has no effect (see [Precedence](../features/sandbox.md#precedence)) | *(none)* | `'["my-safe-tool"]'` |
+| `DAIV_SANDBOX_COMMAND_POLICY_ALLOW` | JSON array of bash command rules to permit; has no effect (see [Precedence](../features/sandbox.md#precedence)) | *(none)* | `'["my-safe-tool"]'` |
 
-!!! info
+!!! note
     Check the [daiv-sandbox](https://github.com/srtab/daiv-sandbox) repository for server-side configuration of the sandbox service.
 
 !!! note "Command policy"
@@ -141,7 +141,7 @@ OAuth credentials can be configured via environment variables (shown below) or t
 | `EMAIL_USE_TLS` | Use TLS for SMTP connection | `False` | `True` |
 | `DEFAULT_FROM_EMAIL` | Sender address for login-by-code emails | `noreply@daiv.dev` | `noreply@example.com` |
 
-!!! info "Setting up social providers"
+!!! note "Setting up social providers"
     **GitHub**: Create an OAuth App at [github.com/settings/developers](https://github.com/settings/developers). Set the callback URL to `https://<your-domain>/accounts/github/login/callback/`.
 
     **GitLab**: Create an Application in your GitLab instance under **Admin Area → Applications** or **User Settings → Applications**. Set the redirect URI to `https://<your-domain>/accounts/gitlab/login/callback/` with the `read_user` scope.
@@ -260,8 +260,8 @@ Two more fields follow the same `DAIV_<FIELD_NAME>` convention and so are env-lo
 !!! note
     GitHub uses GitHub App authentication. You must create a GitHub App in your account or organization settings. The private key is a multi-line PEM file that should be stored securely using Docker secrets.
 
-!!! info
-    For GitHub Enterprise Server, set `CODEBASE_GITHUB_URL` to your GitHub Enterprise URL (e.g., `https://github.your-company.com`). For GitHub.com, this variable can be omitted.
+!!! note
+    For GitHub Enterprise Server, set `CODEBASE_GITHUB_URL` to your GitHub Enterprise URL (e.g., `https://github.example.com`). For GitHub.com, this variable can be omitted.
 
 ---
 
@@ -396,7 +396,7 @@ MCP (Model Context Protocol) tools extend agent capabilities by providing access
 |---------------------------------|----------------------------------------------------------------|:------------------------------:|---------|
 | `MCP_TOOL_LOAD_TIMEOUT`         | Max seconds to wait for a single MCP server to return its tools before skipping it (keeps a broken/slow server from freezing chats and runs) | `30` | `10` |
 
-!!! info
+!!! note
     For detailed MCP server configuration including user-defined servers, see [MCP Tools](../customization/mcp-tools.md).
 
 ### Deferred Tools (Tool Search)

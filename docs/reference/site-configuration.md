@@ -8,7 +8,7 @@ Site Configuration is the **admin-only** web UI for tuning DAIV's runtime behavi
 
 It lives at `/dashboard/configuration/` and is reachable only by users with the **admin** role. Members do not see it.
 
-!!! info "Admin only"
+!!! note "Admin only"
     Both the index and the per-group pages are guarded by `AdminRequiredMixin`. A signed-in member who navigates to `/dashboard/configuration/` is denied access.
 
 ## Where to find it
@@ -130,7 +130,7 @@ Saving the group with a token DAIV cannot verify is rejected on the spot; a toke
 
 A configuration save is not the only trigger: a 15-minute job compares Telegram's registered webhook against the desired URL and re-registers on drift. That is what makes an instance configured purely by `DAIV_TELEGRAM_BOT_TOKEN` and `DAIV_TELEGRAM_ENABLED` — which may never visit this page — converge on its own, and what recovers a webhook Telegram disabled after repeated failures.
 
-Disabling Telegram retains the stored webhook secret. If the channel is disabled with no bot token available — whether it was just cleared or was never set while a webhook was registered — DAIV cannot deregister the webhook, and a warning asks you to remove it in BotFather or to restore the token and disable the channel again. A group that never had a webhook registered saves silently.
+Disabling Telegram retains the stored webhook secret. If the channel is disabled with no bot token available — whether it was cleared or was never set while a webhook was registered — DAIV cannot deregister the webhook, and a warning asks you to remove it in BotFather or to restore the token and disable the channel again. A group that never had a webhook registered saves silently.
 
 ## Related pages
 

@@ -8,7 +8,7 @@ DAIV responds to slash commands in issue and merge/pull request comments, and so
 
 From your perspective, both work the same way:
 
-```
+```text
 @daiv /<command> [arguments]
 ```
 
@@ -26,7 +26,7 @@ These commands have fixed behavior and are always available:
 
 ### /help
 
-```
+```text
 @daiv /help
 ```
 
@@ -34,7 +34,7 @@ Shows all available slash commands **and** skills for the current scope. The out
 
 ### /agents
 
-```
+```text
 @daiv /agents
 ```
 
@@ -42,11 +42,11 @@ Lists the available subagents with their names and descriptions. See [Subagents]
 
 ### /clear
 
-```
+```text
 @daiv /clear
 ```
 
-Starts a fresh conversation context for the current issue or merge/pull request. Useful when DAIV's context becomes stale or it starts drifting. The earlier conversation stays in the session's history; DAIV just stops seeing it.
+Starts a fresh conversation context for the current issue or merge/pull request. Useful when DAIV's context becomes stale or it starts drifting. The earlier conversation stays in the session's history; DAIV stops seeing it.
 
 ### In the dashboard chat
 
@@ -66,7 +66,7 @@ Skills are invoked the same way as commands. DAIV ships with the following built
 
 ### /plan
 
-```
+```text
 @daiv /plan implement rate limiting for the API
 ```
 
@@ -74,7 +74,7 @@ DAIV explores the codebase without making any changes and posts a detailed imple
 
 ### /code-review
 
-```
+```text
 @daiv /code-review
 ```
 
@@ -84,7 +84,7 @@ How it scores on the ReviewBench benchmark, and at what cost, is on the [Benchma
 
 ### /security-audit
 
-```
+```text
 @daiv /security-audit
 ```
 
@@ -92,7 +92,7 @@ Performs a dedicated security scan of the code changes, looking for injection fl
 
 ### /init
 
-```
+```text
 @daiv /init
 ```
 
@@ -100,7 +100,7 @@ Analyzes the repository structure and generates an `AGENTS.md` file with short, 
 
 ### /skill-creator
 
-```
+```text
 @daiv /skill-creator
 ```
 

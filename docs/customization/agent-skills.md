@@ -28,8 +28,8 @@ Skills can live in any of these directories at the repository root:
 
 DAIV scans all three and loads skills from each. If multiple directories contain a skill with the same name, the last one loaded wins.
 
-```
-your-repository/
+```text
+my-repository/
 ├── .agents/
 │   └── skills/
 │       └── my-custom-skill/
@@ -51,7 +51,7 @@ Custom global skills are user-defined skills that are available across **all rep
 
 1. Create a directory with your custom skills on the host machine:
 
-    ```
+    ```text
     custom-skills/
     ├── my-workflow/
     │   ├── SKILL.md
@@ -74,7 +74,7 @@ Custom global skills are user-defined skills that are available across **all rep
 
 ### Manage skills from the dashboard
 
-!!! info "Admin only"
+!!! note "Admin only"
     The Skills dashboard requires an admin account.
 
 Admins can manage custom global skills from the web dashboard at **Skills** (`/dashboard/skills/`) instead of editing the mounted directory by hand. Both approaches write to the same `DAIV_AGENT_CUSTOM_SKILLS_PATH` location, so they coexist — the dashboard is an alternative to, not a replacement for, the Docker-volume approach.
@@ -223,7 +223,7 @@ Tell the agent exactly what steps to follow:
 
 Skills can include helper scripts, templates, and reference documents. Reference them using relative paths from the skill directory:
 
-```
+```text
 my-skill/
 ├── SKILL.md
 ├── scripts/
@@ -242,13 +242,13 @@ my-skill/
 
 DAIV includes a built-in `/skill-creator` skill that walks you through creating a new skill:
 
-```
+```text
 @daiv /skill-creator
 ```
 
 ## Example: changelog skill
 
-```markdown
+````markdown
 ---
 name: changelog
 description: >
@@ -277,7 +277,7 @@ Use [Common Changelog](https://common-changelog.org/) format:
 ### Added
 - New feature description
 ```
-```
+````
 
 ## Security considerations
 
