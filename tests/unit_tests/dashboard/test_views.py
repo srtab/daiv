@@ -10,11 +10,13 @@ from django.urls import reverse
 from django.utils import timezone
 
 import pytest
+from bs4 import BeautifulSoup
 from dashboard import landing
 from dashboard.comparisons import COMPARISONS
 from dashboard.conf import DashboardSettings
 from dashboard.conf import settings as dashboard_settings
 from dashboard.home import INBOX_LIMIT
+from dashboard.sidebar import SidebarLists
 from dashboard.tasks import BOT_USERNAME_CACHE_KEY, BOT_USERNAME_PENDING_KEY
 from notifications.choices import EnvelopeStatus
 from notifications.models import RunEnvelope
@@ -472,45 +474,6 @@ class TestNeedsYouInbox:
 
 
 @pytest.mark.django_db
-class TestRecentSessions:
-    def test_shows_your_five_newest(self, admin_user, member_user, member_client):
-        mine = [_make_session(member_user, SessionOrigin.CHAT, days_ago=days_ago) for days_ago in range(6)]
-        _make_session(admin_user, SessionOrigin.CHAT)
-
-        response = member_client.get(reverse("dashboard"))
-
-        assert [s.pk for s in response.context["recent_sessions"]] == [s.pk for s in mine[:5]]
-        assert response.context["my_sessions_url"] == f"{reverse('session_list')}?scope=mine"
-
-    def test_rows_leave_the_model_to_the_full_list(self, member_user, member_client):
-        session = _make_session(member_user, SessionOrigin.CHAT)
-        Run.objects.filter(session=session).update(agent_model="claude-test-model")
-
-        home = member_client.get(reverse("dashboard")).content.decode()
-        listed = member_client.get(reverse("session_list")).content.decode()
-
-        assert "claude-test-model" not in home
-        assert "claude-test-model" in listed
-
-    def test_leaves_out_archived_sessions(self, member_user, member_client):
-        shown = _make_session(member_user, SessionOrigin.CHAT, days_ago=1)
-        archived = _make_session(member_user, SessionOrigin.CHAT)
-        Session.objects.filter(pk=archived.pk).update(archived_at=timezone.now())
-
-        response = member_client.get(reverse("dashboard"))
-
-        assert [s.pk for s in response.context["recent_sessions"]] == [shown.pk]
-
-    def test_hidden_when_you_have_none(self, admin_user, member_client):
-        _make_session(admin_user, SessionOrigin.CHAT)
-
-        response = member_client.get(reverse("dashboard"))
-
-        assert response.context["recent_sessions"] == []
-        assert 'data-testid="recent-sessions"' not in response.content.decode()
-
-
-@pytest.mark.django_db
 class TestWaysToUse:
     def test_gitlab_instance(self, member_client):
         content = member_client.get(reverse("dashboard")).content.decode()
@@ -555,14 +518,33 @@ class TestWaysToUse:
 
         RepoClient.create_instance.assert_not_called()
 
-    def test_prominent_until_you_have_a_session(self, member_user, member_client):
-        before = member_client.get(reverse("dashboard")).content.decode()
+    def test_a_fold_that_starts_open_after_your_week(self, member_user, member_client):
         _make_session(member_user, SessionOrigin.CHAT)
-        after = member_client.get(reverse("dashboard")).content.decode()
 
-        assert "Start work from wherever you already are" in before
-        assert "Start work from wherever you already are" not in after
-        assert 'data-testid="ways-to-use"' in after
+        main = BeautifulSoup(member_client.get(reverse("dashboard")).content, "html.parser").select_one("main")
+        sections = main.select('[data-testid="your-week"], [data-testid="ways-to-use"]')
+
+        assert [node["data-testid"] for node in sections] == ["your-week", "ways-to-use"]
+        assert sections[1].name == "details"
+        assert sections[1].has_attr("open")
+        heading = main.select_one("#ways-heading")
+        assert heading.name == "h2"
+        assert not heading.find_parent("summary")
+
+    def test_someone_new_gets_the_intro_and_the_slash_commands_open(self, member_user, member_client):
+        def ways():
+            return BeautifulSoup(member_client.get(reverse("dashboard")).content, "html.parser").select_one(
+                '[data-testid="ways-to-use"]'
+            )
+
+        intro = "Start work from wherever you already are"
+        first = ways()
+        assert intro in first.get_text()
+        assert first.select_one('[data-testid="ways-git"] details').has_attr("open")
+        _make_session(member_user, SessionOrigin.CHAT)
+        later = ways()
+        assert intro not in later.get_text()
+        assert not later.select_one('[data-testid="ways-git"] details').has_attr("open")
 
 
 def _insights(client, **params):
@@ -958,3 +940,44 @@ class TestYourWeek:
 
         assert response.context["your_week"] is None
         assert 'data-testid="your-week"' not in response.content.decode()
+
+    def test_shown_when_all_your_sessions_are_archived(self, member_user, member_client):
+        archived = _make_session(member_user, SessionOrigin.CHAT)
+        Session.objects.filter(pk=archived.pk).update(archived_at=timezone.now())
+
+        assert member_client.get(reverse("dashboard")).context["your_week"] is not None
+
+
+@pytest.mark.django_db
+class TestSidebarListsView:
+    def test_requires_login(self, client):
+        response = client.get(reverse("sidebar_lists"))
+
+        assert response.status_code == 302
+        assert response.url.startswith("/accounts/login/")
+
+    @pytest.mark.parametrize(("query", "limit"), [("", 8), ("?limit=16", 16), ("?limit=9999", 9999), ("?limit=abc", 8)])
+    def test_parses_limit(self, member_user, member_client, mocker, query, limit):
+        spy = mocker.patch("dashboard.views.Sidebar")
+        spy.return_value.lists.return_value = SidebarLists()
+
+        member_client.get(reverse("sidebar_lists") + query)
+
+        spy.assert_called_once_with(member_user, viewing="")
+        spy.return_value.lists.assert_called_once_with(limit=limit)
+
+    def test_passes_viewing(self, member_user, member_client, mocker):
+        spy = mocker.patch("dashboard.views.Sidebar")
+        spy.return_value.lists.return_value = SidebarLists()
+
+        member_client.get(reverse("sidebar_lists") + "?viewing=thread-1")
+
+        spy.assert_called_once_with(member_user, viewing="thread-1")
+
+    @pytest.mark.parametrize(("query", "section"), [("?section=schedules", "schedules"), ("", "")])
+    def test_highlights_the_section_of_the_page_it_refreshes(self, member_client, query, section):
+        response = member_client.get(reverse("sidebar_lists") + query)
+
+        assert response.context["nav_active_section"] == section
+        heading = BeautifulSoup(response.content, "html.parser").select_one('[data-testid="nav-scheduled-group"] h2')
+        assert ("sidebar__nav-item--active" in heading["class"]) is bool(section)

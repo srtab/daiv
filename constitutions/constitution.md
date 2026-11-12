@@ -127,10 +127,25 @@ A change MUST NOT merge until its gates pass:
 - **Constitution check:** the plan and the review name the affected principles and the
   evidence of compliance. Every change
 
-User-facing changes update the pages under `docs/` that describe them, and add an
-`Unreleased` entry to `CHANGELOG.md` in Common Changelog form, listing notable changes only.
-A breaking change starts with **Breaking:** and carries an **Upgrade note** when operators
-must act.
+User-facing changes update the pages under `docs/` that describe them, and are recorded in
+`CHANGELOG.md` in [Common Changelog](https://common-changelog.org/) form:
+
+- **What:** notable changes for operators, users and integrators only: behaviour,
+  configuration, the APIs and webhooks, the dashboard, defaults, deployment and security.
+  Refactors, tests, CI, evals, internal docs and dependency bumps with no visible effect stay
+  out.
+- **How:** one line under `Unreleased`, in Changed, Added, Removed or Fixed, in that order. It
+  starts with a present-tense verb, states the change against the last release, and links its
+  pull request; an outside contributor's change names them after the link. A change to
+  something added since the last release amends that entry, and a fix to it adds none.
+- **Breaking changes:** start with **Breaking:** and come first in their group. What
+  operators must do to upgrade goes in `UPGRADING.md` under the release, which the release's
+  notice links; the changelog line carries no upgrade steps.
+- **Unreleased:** unlike the spec, the changelog keeps an `Unreleased` section, which the
+  release renames to its version.
+
+_Prevents_: release notes that list internal work, entries that describe states no release
+had, and upgrade steps buried in prose an operator skims.
 
 ## Governance
 
@@ -192,6 +207,9 @@ documents when the answer changes their rules.
   `.daiv.yml` key is on its reference page. Nothing checks a page's other claims against the
   code, the defaults and values it states, or runs its procedures. Principle VII rests on the
   author and the reviewer.
+- **TODO(CHANGELOG):** nothing checks that a user-facing change adds its `CHANGELOG.md` line,
+  or a line's form, or that a breaking change has its `UPGRADING.md` steps. The pull request
+  template asks; review checks it.
 - **TODO(DOCS_STYLE):** `test_docs_style.py` checks user-docs rules 4, 6, 7, 9, 10, 11 and 12
   in every page: time-relative wording, second-person voice, heading case and shape, fence
   languages, shell prompts, placeholders, link text, menu paths, admonition kinds, alt text and

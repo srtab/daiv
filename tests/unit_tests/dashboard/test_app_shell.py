@@ -9,15 +9,13 @@ from __future__ import annotations
 
 import re
 
-from tests.unit_tests.core.test_sidebar_js import SIDEBAR_JS
+from tests.unit_tests.core.test_sidebar_js import BASE_TEMPLATE, HEAD_SCRIPT
 from tests.unit_tests.test_picker_popovers import INPUT_CSS, SIDEBAR_TEMPLATE
 from tests.unit_tests.test_template_comments import DAIV_DIR, iter_template_files
 
 RAIL_VARIANT = re.compile(r"@custom-variant sidebar-rail \{(.*?)\n\}\n", re.DOTALL)
 RAIL_BLOCK = re.compile(r"\.sidebar--rail \{\n  @variant sidebar-rail \{(.*?)\n  \}\n\}\n", re.DOTALL)
 WIDE_TIER = re.compile(r"^@media \(width >= theme\(--breakpoint-lg\)\) \{(.*?)\n\}\n", re.DOTALL | re.MULTILINE)
-HEAD_SCRIPT = re.compile(r"<head>.*?<script>(.*?)</script>", re.DOTALL)
-BASE_TEMPLATE = DAIV_DIR / "core" / "templates" / "base.html"
 SIDEBAR_HOOK = re.compile(r"sidebar__[\w-]+")
 NAV_ITEM = re.compile(r'class="sidebar__nav-item[^"]*"(.*?)</a>', re.DOTALL)
 INCLUDE = re.compile(r'{% include "dashboard/([\w.]+)"')
@@ -25,10 +23,15 @@ FONT_CDN = re.compile(r"https://fonts\.(?:googleapis|gstatic)\.com")
 
 
 def _sidebar_sources() -> str:
-    """The sidebar and every dashboard partial it includes."""
-    sidebar = SIDEBAR_TEMPLATE.read_text(encoding="utf-8")
-    partials = {SIDEBAR_TEMPLATE.with_name(name) for name in INCLUDE.findall(sidebar)}
-    return "\n".join([sidebar, *(path.read_text(encoding="utf-8") for path in sorted(partials))])
+    """The sidebar and every dashboard partial it includes, however deeply."""
+    seen: dict = {}
+    pending = [SIDEBAR_TEMPLATE]
+    while pending:
+        path = pending.pop()
+        if path not in seen:
+            seen[path] = path.read_text(encoding="utf-8")
+            pending.extend(SIDEBAR_TEMPLATE.with_name(name) for name in INCLUDE.findall(seen[path]))
+    return "\n".join(seen[path] for path in sorted(seen))
 
 
 def test_every_sidebar_hook_is_handled_by_the_rail_tier():
@@ -74,22 +77,22 @@ def test_the_collapsed_flag_narrows_the_one_sidebar_width_token():
     wide = WIDE_TIER.search(INPUT_CSS.read_text(encoding="utf-8"))
 
     assert wide, "no lg block widening the sidebar"
-    assert re.search(r":root \{\s*--app-sidebar-width: 15rem;\s*\}", wide.group(1))
+    assert re.search(
+        r":root \{[^}]*--app-sidebar-width: clamp\(var\(--app-sidebar-min\), var\(--app-sidebar-chosen, 0px\), "
+        r"var\(--app-sidebar-max\)\);\s*\}",
+        wide.group(1),
+    )
     assert re.search(r':root\[data-sidebar="rail"\] \{\s*--app-sidebar-width: 4rem;\s*\}', wide.group(1))
 
 
 def test_the_head_restores_the_collapse_before_first_paint():
     """Inline and ahead of the stylesheet, or a collapsed sidebar renders full and then snaps
-    to the rail. It reads the same storage key the store writes."""
+    to the rail. What it restores is driven in `core/test_sidebar_js.py`."""
     base = BASE_TEMPLATE.read_text(encoding="utf-8")
     script = HEAD_SCRIPT.search(base)
-    key = re.search(r'STORAGE_KEY = "([^"]+)"', SIDEBAR_JS.read_text(encoding="utf-8"))
 
     assert script, "base.html's <head> has no inline script restoring the sidebar"
     assert base.index(script.group(0)) < base.index("css/styles.css")
-    assert key and f'localStorage.getItem("{key.group(1)}") === "rail"' in script.group(1)
-    assert 'document.documentElement.dataset.sidebar = "rail"' in script.group(1)
-    assert script.group(1).lstrip().startswith("try {"), "blocked storage would throw before first paint"
 
 
 def test_every_sidebar_nav_item_labels_its_text():
@@ -106,22 +109,19 @@ def test_every_sidebar_nav_item_labels_its_text():
 
 def test_the_account_menu_is_not_clipped_by_the_sidebar():
     """An `overflow` on the `<aside>` clips anything absolutely positioned inside it, and the
-    account menu opens past the rail's right edge. Only the `<nav>` list may scroll, and the
-    menu has to live after it."""
+    account menu opens past the rail's right edge. Only a region inside the `<nav>` may scroll,
+    and the menu has to live after it."""
     sidebar = SIDEBAR_TEMPLATE.read_text(encoding="utf-8")
     aside = re.search(r"<aside\s[^>]*>", sidebar)
     nav = re.search(r"<nav\s[^>]*>", sidebar)
 
     assert aside and nav, "_sidebar.html no longer opens an <aside> holding a <nav>"
     assert "overflow" not in aside.group(), "the sidebar scrolls as a whole and clips the account menu"
-    assert "overflow-y-auto" in nav.group(), (
-        "the nav list no longer scrolls — a long admin nav pushes the menu off-screen"
+    assert re.search(r"<div data-sidebar-scroll[^>]*overflow-y-auto", _sidebar_sources()), (
+        "the nav's lists no longer scroll — a long list pushes the menu off-screen"
     )
     assert sidebar.index('data-testid="app-user-menu"') > sidebar.index("</nav>"), (
         "the account menu sits inside the scrolling nav, which clips it"
-    )
-    assert sidebar.index("_new_split.html") < sidebar.index("<nav"), (
-        "the New menu sits inside the scrolling nav, which clips it on the rail"
     )
 
 

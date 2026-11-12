@@ -5,12 +5,12 @@
 <script defer src="{% static 'core/js/nav-events.js' %}"></script>
 <script defer src="{% static 'core/js/menu-button.js' %}"></script>
 <script defer src="{% static 'core/js/sidebar.js' %}"></script>
+<script defer src="{% static 'core/js/sidebar-lists.js' %}"></script>
 {% endblock alpine_stores %}
 
 {% block content %}
-{% translate "{count} running" as nav_running_label %}
 <div x-data="{ mobileNavOpen: false }"
-     x-init="$store.nav.start({ url: '{% url 'api:nav_events' %}{% if nav_session_thread_id %}?session={{ nav_session_thread_id|urlencode }}{% endif %}', state: { unread_count: {{ unread_count|default:0 }}, running_runs: {{ nav_running_jobs|default:0 }} }, runningLabel: '{{ nav_running_label|escapejs }}' })"
+     x-init="$store.nav.start({ url: '{% url 'api:nav_events' %}{% if nav_session_thread_id %}?session={{ nav_session_thread_id|urlencode }}{% endif %}', state: { unread_count: {{ unread_count|default:0 }}, running_runs: {{ nav_running_jobs|default:0 }}, own_running_runs: {{ nav_own_running_jobs|default:0 }} } })"
      @keydown.escape.window="mobileNavOpen = false"
      @keydown.window="$store.sidebar.onKey($event)"
      class="flex h-dvh bg-ground">
@@ -51,9 +51,13 @@
         <span class="brand-mark"></span>
         DAIV
       </a>
-      <div class="ml-auto">
-        {% include "dashboard/_new_split.html" with testid="topbar-new" compact=True %}
-      </div>
+      <a href="{% url 'session_new_chat' %}"
+         data-testid="topbar-new-chat"
+         title="{% translate 'New chat' %}"
+         aria-label="{% translate 'New chat' %}"
+         class="ml-auto inline-flex h-11 w-11 items-center justify-center rounded-lg bg-accent text-accent-ink transition-colors hover:bg-accent-bright">
+        {% icon "plus" "h-5 w-5" %}
+      </a>
     </header>
 
     {# A page that needs a bar or a side column beside its scrolling <main> replaces the whole body. #}

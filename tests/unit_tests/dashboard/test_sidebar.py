@@ -1,12 +1,22 @@
 import uuid
+from datetime import timedelta
+from unittest.mock import AsyncMock, patch
 
+from django.db import Error as DatabaseError
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone
 
 import pytest
 from bs4 import BeautifulSoup
+from dashboard.sidebar import SESSIONS_PAGE, Sidebar
 from notifications.models import Notification
+from sessions.hydration import HydratedThread
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
+from schedules.models import ScheduledJob
+from tests.unit_tests.dashboard.factories import make_firing, make_run, make_schedule, make_session
 from tests.unit_tests.translation_stub import catalog
 
 
@@ -36,7 +46,7 @@ class TestSidebarSmoke:
 @pytest.mark.django_db
 class TestSidebarDocsLink:
     def test_footer_links_the_user_docs_with_a_collapsible_label(self, member_client):
-        content = member_client.get(reverse("session_list")).content.decode()
+        content = member_client.get(reverse("sandbox_envs:list")).content.decode()
         link = BeautifulSoup(content, "html.parser").select_one('[data-testid="sidebar-docs-link"]')
         assert link["href"] == "https://docs.daivagent.com/latest/"
         assert link["target"] == "_blank"
@@ -45,7 +55,7 @@ class TestSidebarDocsLink:
 
     def test_label_is_translated(self, member_client):
         with catalog({"Help & docs": "Ajuda"}):
-            content = member_client.get(reverse("dashboard")).content.decode()
+            content = member_client.get(reverse("sandbox_envs:list")).content.decode()
         assert '<span class="sidebar__collapsible">Ajuda</span>' in content
 
 
@@ -57,19 +67,6 @@ class TestMobileTopBar:
         assert "md:hidden" in bar.split(">", 1)[0]
         assert '@click="mobileNavOpen = !mobileNavOpen"' in bar
         assert 'x-show="$store.nav.unread > 0"' in bar
-
-
-@pytest.mark.django_db
-class TestAdminGroupVisibility:
-    def test_admin_sees_admin_group(self, admin_client):
-        response = admin_client.get(reverse("dashboard"))
-        assert b'data-testid="nav-admin-group"' in response.content
-        assert b"Users" in response.content
-        assert b"Configuration" in response.content
-
-    def test_member_does_not_see_admin_group(self, member_client):
-        response = member_client.get(reverse("dashboard"))
-        assert b'data-testid="nav-admin-group"' not in response.content
 
 
 def _account_menu(content: str) -> str:
@@ -114,34 +111,15 @@ class TestNotificationsNavItem:
 
 
 @pytest.mark.django_db
-class TestArtifactsNavItem:
-    def test_sidebar_shows_artifacts_link(self, member_client):
-        response = member_client.get(reverse("dashboard"))
-        content = response.content.decode()
-        assert reverse("artifact_list") in content
-        assert "Artifacts" in content
-
-
-@pytest.mark.django_db
-class TestRunningJobsBadge:
-    """The badge's text is Alpine-bound to the `nav` store, so what the server controls
-    is the seed handed to `$store.nav.start(...)` and the store expressions on the badge
-    — the count itself is covered in test_context_processors.py."""
-
-    def test_badge_is_bound_to_the_store_not_server_rendered(self, member_client):
-        response = member_client.get(reverse("dashboard"))
-        content = response.content.decode()
-        # Present at any count (x-show hides it at zero), so a 0 → 1 transition has an
-        # element to reveal without a page load.
-        assert 'data-testid="nav-running-badge"' in content
-        assert 'x-show="$store.nav.running > 0"' in content
-        assert 'x-text="$store.nav.runningLabel"' in content
+class TestRunningSeed:
+    """The rail's Sessions dot is bound to the `nav` store, so what the server controls is the
+    seed handed to `$store.nav.start(...)` — the count itself is covered in test_context_processors.py."""
 
     def test_seeds_the_store_with_zero_when_nothing_is_running(self, member_client):
         response = member_client.get(reverse("dashboard"))
         assert "running_runs: 0" in response.content.decode()
 
-    def test_badge_shows_count_when_running(self, member_user, member_client):
+    def test_seeds_the_running_count(self, member_user, member_client):
         session1 = Session.objects.create(
             thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="daiv/api", user=member_user
         )
@@ -164,18 +142,7 @@ class TestRunningJobsBadge:
         )
         response = member_client.get(reverse("dashboard"))
         content = response.content.decode()
-        # The seed the store starts from, and the label template it interpolates into.
         assert "running_runs: 2" in content
-        assert "{count} running" in content
-
-    def test_the_label_reaches_the_page_translated(self, member_client):
-        """Guards the placeholder style, not just the wiring: ``{% translate %}`` doubles
-        every ``%`` before the catalog lookup, so a ``%(count)s`` msgid misses and renders
-        the untranslated source — which reads as correct in the default locale."""
-        with catalog({"{count} running": "{count} a decorrer"}):
-            content = member_client.get(reverse("dashboard")).content.decode()
-        assert "{count} a decorrer" in content
-        assert "{count} running" not in content
 
 
 @pytest.mark.django_db
@@ -210,13 +177,332 @@ class TestNavActiveState:
         assert config_response.context["nav_active_section"] == "configuration"
 
 
-def _soup(client, url_name="session_list"):
-    return BeautifulSoup(client.get(reverse(url_name)).content.decode(), "html.parser")
+def _soup(client, url_name="session_list", **kwargs):
+    response = client.get(reverse(url_name, kwargs=kwargs or None), follow=True)
+    return BeautifulSoup(response.content.decode(), "html.parser")
 
 
-def _sidebar_nav(client, url_name="session_list"):
-    """The persistent sidebar's <nav>; the mobile sheet renders a second copy of the partial."""
-    return _soup(client, url_name).select_one('[data-testid="app-sidebar"] nav')
+def _sidebar(client, url_name="dashboard", **kwargs):
+    """The persistent sidebar; the mobile sheet renders a second copy of the partial."""
+    return _soup(client, url_name, **kwargs).select_one("#app-sidebar")
+
+
+def _testids(sidebar, wanted) -> list[str]:
+    return [node["data-testid"] for node in sidebar.select("[data-testid]") if node["data-testid"] in wanted]
+
+
+def _assert_starts_on_settings(sidebar):
+    assert sidebar["x-data"] == "sidebarMenus(true)"
+    assert sidebar.select_one('[data-testid="nav-settings-back"]')
+
+
+def _session_page(client, session):
+    with patch(
+        "sessions.page_state.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, None, None, None))
+    ):
+        return _sidebar(client, "session_detail", thread_id=session.thread_id)
+
+
+NORMAL_ORDER = ["nav-home", "nav-notifications", "nav-artifacts", "sidebar-lists", "nav-settings"]
+
+
+@pytest.mark.django_db
+class TestSidebarOrder:
+    def test_normal_mode_order(self, member_client):
+        assert _testids(_sidebar(member_client), NORMAL_ORDER) == NORMAL_ORDER
+
+    def test_home_links_the_dashboard(self, member_client):
+        assert _sidebar(member_client).select_one('[data-testid="nav-home"]')["href"] == reverse("dashboard")
+
+    def test_pages_that_left_the_top_level_are_gone(self, admin_client):
+        main = _sidebar(admin_client).select_one('[data-testid="nav-main-panel"]')
+        hrefs = {link["href"] for link in main.select("a[href]")}
+        for url_name in ("insights", "user_list", "skills:list", "memory:list", "schedule_template_list"):
+            assert reverse(url_name) not in hrefs
+
+    def test_mobile_sheet_shows_the_same_rows(self, member_client):
+        sheet = _soup(member_client, "dashboard").select('[data-testid="app-sidebar"]')[1]
+        assert _testids(sheet, NORMAL_ORDER) == NORMAL_ORDER
+
+    def test_the_lists_scroll(self, member_client):
+        lists = _sidebar(member_client).select_one('[data-testid="sidebar-lists"]')
+        assert lists.find_parent(attrs={"data-sidebar-scroll": True})
+
+
+def _group(sidebar, testid):
+    return sidebar.select_one(f'[data-testid="{testid}"]')
+
+
+@pytest.mark.django_db
+class TestSidebarSessionsGroup:
+    def test_rows_link_their_sessions(self, member_user, member_client):
+        session = make_session(member_user, title="Fix the login bug")
+
+        (row,) = _sidebar(member_client).select('[data-testid="nav-session-row"]')
+
+        assert row["href"] == reverse("session_detail", kwargs={"thread_id": session.thread_id})
+        assert row["title"] == "Fix the login bug"
+        assert row["data-row-key"] == f"s:{session.thread_id}"
+        assert "Fix the login bug" in row.get_text()
+
+    def test_untitled_session_says_generating_title(self, member_user, member_client):
+        make_session(member_user, title="")
+
+        (row,) = _sidebar(member_client).select('[data-testid="nav-session-row"]')
+
+        assert "generating title…" in row.get_text()
+
+    def test_running_session_shows_its_state_word(self, member_user, member_client):
+        make_run(make_session(member_user), RunStatus.RUNNING)
+
+        (row,) = _sidebar(member_client).select('[data-testid="nav-session-row"]')
+
+        assert "Running" in row.get_text()
+        assert row.select_one(".status-dot-running")
+
+    def test_finished_session_shows_a_relative_time_and_tells_screen_readers_its_status(
+        self, member_user, member_client
+    ):
+        make_run(make_session(member_user, minutes_ago=5), RunStatus.SUCCESSFUL)
+
+        (row,) = _sidebar(member_client).select('[data-testid="nav-session-row"]')
+
+        meta = row.select_one(".nav-row__meta")
+        assert meta.select_one(".sr-only").get_text() == "Done"
+        assert meta.get_text(" ", strip=True) == "Done 5m"
+
+    def test_session_without_runs_tells_screen_readers_nothing(self, member_user, member_client):
+        make_session(member_user)
+
+        (row,) = _sidebar(member_client).select('[data-testid="nav-session-row"]')
+
+        assert not row.select(".sr-only")
+
+    def test_viewed_session_row_is_active(self, member_user, member_client):
+        viewed = make_session(member_user, minutes_ago=5)
+        make_session(member_user)
+
+        rows = _session_page(member_client, viewed).select('[data-testid="nav-session-row"]')
+
+        assert ["nav-row--active" in row["class"] for row in rows] == [False, True]
+        assert rows[1]["aria-current"] == "page"
+
+    def test_show_more_only_when_there_is_more(self, member_user, member_client):
+        for minutes_ago in range(SESSIONS_PAGE):
+            make_session(member_user, minutes_ago=minutes_ago)
+        assert not _sidebar(member_client).select('[data-testid="nav-sessions-more"]')
+
+        make_session(member_user, minutes_ago=99)
+        (more,) = _sidebar(member_client).select('[data-testid="nav-sessions-more"]')
+        assert more["href"] == reverse("session_list")
+        assert more["@click.prevent"] == f"$store.sidebarLists.more({SESSIONS_PAGE * 2})"
+        assert more["data-row-key"] == "more"
+
+    def test_show_more_at_the_cap_links_the_sessions_page(self, member_user, member_client, mocker):
+        mocker.patch("dashboard.sidebar.SESSIONS_MAX", SESSIONS_PAGE)
+        for minutes_ago in range(SESSIONS_PAGE + 1):
+            make_session(member_user, minutes_ago=minutes_ago)
+
+        (more,) = _sidebar(member_client).select('[data-testid="nav-sessions-more"]')
+
+        assert more["href"] == reverse("session_list")
+        assert not more.has_attr("@click.prevent")
+
+    def test_empty_state_invites_a_chat(self, member_client):
+        group = _group(_sidebar(member_client), "nav-sessions-group")
+
+        assert not group.select('[data-testid="nav-session-row"]')
+        assert group.select_one(f'.nav-empty a[href="{reverse("session_new_chat")}"]')
+
+    def test_failed_read_says_so_instead_of_the_empty_states(self, member_client, mocker):
+        mocker.patch.object(Sidebar, "lists", side_effect=DatabaseError("connection lost"))
+
+        sidebar = _sidebar(member_client)
+
+        sessions, schedules = (
+            _group(sidebar, testid).select_one(".nav-empty") for testid in ("nav-sessions-group", "nav-scheduled-group")
+        )
+        assert sessions.get_text(strip=True) == "Couldn't load your sessions."
+        assert schedules.get_text(strip=True) == "Couldn't load your schedules."
+        assert not sidebar.select(".nav-empty__link")
+
+    def test_lists_container_names_its_endpoint_and_viewed_session(self, member_user, member_client):
+        session = make_session(member_user)
+
+        on_home = _sidebar(member_client).select_one('[data-testid="sidebar-lists"]')
+        on_session = _session_page(member_client, session).select_one('[data-testid="sidebar-lists"]')
+
+        assert on_home["data-url"] == reverse("sidebar_lists")
+        assert on_home["data-viewing"] == ""
+        assert on_home["data-section"] == "dashboard"
+        assert on_session["data-viewing"] == session.thread_id
+        assert on_session["data-section"] == "sessions"
+
+
+@pytest.mark.django_db
+class TestSidebarScheduledGroup:
+    def test_schedule_row_shows_name_and_next_run(self, member_user, member_client):
+        schedule = make_schedule(member_user, name="Weekly dependency audit")
+        ScheduledJob.objects.filter(pk=schedule.pk).update(next_run_at=timezone.now() + timedelta(hours=3, minutes=30))
+
+        (row,) = _sidebar(member_client).select('[data-testid="nav-schedule-row"]')
+
+        assert row["data-schedule"] == str(schedule.pk)
+        assert row["data-starts-open"] == "false"
+        assert "Weekly dependency audit" in row.get_text()
+        assert "in 3h" in row.get_text()
+
+    def test_failed_schedule_starts_open_with_its_state(self, member_user, member_client):
+        make_firing(make_schedule(member_user), RunStatus.FAILED)
+
+        (row,) = _sidebar(member_client).select('[data-testid="nav-schedule-row"]')
+        (firing,) = row.select('[data-testid="nav-firing-row"]')
+
+        assert row["data-starts-open"] == "true"
+        assert "Failed" in row.select_one("[data-row-key]").get_text()
+        assert not firing.find_parent("ul").has_attr("x-cloak")
+
+    def test_firing_rows_are_keyed_by_their_batch(self, member_user, member_client):
+        schedule = make_schedule(member_user)
+        older, _ = make_firing(schedule, RunStatus.SUCCESSFUL, minutes_ago=60)
+        newer, _ = make_firing(schedule, RunStatus.SUCCESSFUL)
+
+        rows = _sidebar(member_client).select('[data-testid="nav-firing-row"]')
+
+        assert [row["data-row-key"] for row in rows] == [f"f:{newer}", f"f:{older}"]
+
+    def test_closed_schedule_keeps_its_firings_hidden_until_the_store_says(self, member_user, member_client):
+        """Without JavaScript the server's default stands; `x-cloak` hides them until Alpine reads the user's choice."""
+        make_firing(make_schedule(member_user), RunStatus.SUCCESSFUL)
+
+        (firing,) = _sidebar(member_client).select('[data-testid="nav-firing-row"]')
+
+        assert firing.find_parent("ul").has_attr("x-cloak")
+
+    def test_schedule_toggle_is_a_button_bound_to_the_store(self, member_user, member_client):
+        schedule = make_schedule(member_user)
+        make_firing(schedule, RunStatus.FAILED)
+
+        row = _sidebar(member_client).select_one('[data-testid="nav-schedule-row"]')
+        toggle = row.select_one(f'[data-row-key="j:{schedule.pk}"]')
+        firings = row.select_one('[data-testid="nav-firing-row"]').find_parent("ul")
+
+        assert toggle.name == "button"
+        assert toggle["@click"] == f"$store.sidebarLists.toggle({schedule.pk}, true)"
+        assert toggle[":aria-expanded"] == f"$store.sidebarLists.isOpen({schedule.pk}, true).toString()"
+        assert firings["x-show"] == f"$store.sidebarLists.isOpen({schedule.pk}, true)"
+
+    def test_multi_repo_firing_shows_the_count_and_links_the_batch(self, member_user, member_client):
+        batch_id, _ = make_firing(make_schedule(member_user), RunStatus.SUCCESSFUL, RunStatus.SUCCESSFUL)
+
+        (firing,) = _sidebar(member_client).select('[data-testid="nav-firing-row"]')
+
+        assert firing["href"] == reverse("session_list") + f"?batch={batch_id}"
+        assert "2 repos" in firing.get_text()
+        assert "Done" in firing.get_text()
+
+    def test_all_runs_links_the_schedule_filter(self, member_user, member_client):
+        schedule = make_schedule(member_user)
+
+        (all_runs,) = _sidebar(member_client).select('[data-testid="nav-schedule-all-runs"]')
+
+        assert all_runs["href"] == reverse("session_list") + f"?schedule={schedule.pk}"
+
+    def test_manage_links_schedules_and_heading_is_active_there(self, member_client):
+        on_home = _group(_sidebar(member_client), "nav-scheduled-group")
+        on_schedules = _group(_sidebar(member_client, "schedule_list"), "nav-scheduled-group")
+
+        manage = on_home.select_one('[data-testid="nav-scheduled-manage"]')
+        assert manage["href"] == reverse("schedule_list")
+        assert manage["aria-label"]
+        assert not on_home.select(".sidebar__nav-item--active")
+        assert on_schedules.select(".sidebar__nav-item--active")
+
+    def test_empty_state_links_schedule_create(self, member_client):
+        group = _group(_sidebar(member_client), "nav-scheduled-group")
+
+        assert not group.select('[data-testid="nav-schedule-row"]')
+        assert group.select_one(f'a[href="{reverse("schedule_create")}"]')
+
+
+@pytest.mark.django_db
+class TestSidebarLiveLists:
+    def test_the_store_script_is_loaded(self, member_client):
+        assert "core/js/sidebar-lists.js" in member_client.get(reverse("dashboard")).content.decode()
+
+    def test_fragment_is_the_lists_only(self, member_user, member_client):
+        make_session(member_user)
+
+        content = member_client.get(reverse("sidebar_lists")).content.decode()
+
+        assert 'data-testid="nav-sessions-group"' in content
+        assert 'data-testid="nav-session-row"' in content
+        assert 'data-testid="app-sidebar"' not in content
+        assert "<html" not in content
+
+    def test_the_persistent_lists_remember_their_scroll(self, member_client):
+        persistent, sheet = _soup(member_client, "dashboard").select("[data-sidebar-scroll]")
+
+        assert persistent["@scroll.throttle.150ms"] == "$store.sidebarLists.saveScroll($el)"
+        assert persistent["x-init"] == "$nextTick(() => $store.sidebarLists.restoreScroll($el))"
+        assert not sheet.has_attr("x-init")
+
+    def test_sessions_search_links_the_sessions_page_search(self, member_client):
+        group = _group(_sidebar(member_client), "nav-sessions-group")
+        search = group.select_one('[data-testid="nav-sessions-search"]')
+
+        assert search["href"] == reverse("session_list") + "#search"
+        assert search["aria-keyshortcuts"] == "/"
+        assert search["aria-label"]
+
+    def test_the_sessions_page_focuses_its_search_when_asked(self, member_client):
+        field = _soup(member_client, "session_list").select_one("input#search")
+
+        assert "location.hash === '#search'" in field["x-init"]
+        assert "$el.focus()" in field["@hashchange.window"]
+
+
+@pytest.mark.django_db
+class TestSidebarRail:
+    def test_lists_are_collapsible_and_rail_icons_are_rail_only(self, member_client):
+        sidebar = _sidebar(member_client)
+
+        assert sidebar.select_one('[data-testid="sidebar-lists"]').find_parent(class_="sidebar__collapsible")
+        new_chat = sidebar.select_one('[data-testid="nav-rail-new-chat"]')
+        search = sidebar.select_one('[data-testid="nav-rail-search"]')
+        sessions = sidebar.select_one('[data-testid="nav-rail-sessions"]')
+        scheduled = sidebar.select_one('[data-testid="nav-rail-scheduled"]')
+        for item in (new_chat, search, sessions, scheduled):
+            assert item.find_parent(class_="sidebar__rail-only")
+        assert new_chat["href"] == reverse("session_new_chat")
+        assert search["href"] == reverse("session_list") + "#search"
+        assert sessions["href"] == reverse("session_list")
+        assert scheduled["href"] == reverse("schedule_list")
+        assert sessions.select_one('[x-show="$store.nav.running > 0"]')
+
+
+@pytest.mark.django_db
+class TestSidebarQueries:
+    def test_both_copies_share_one_computation(self, member_client, mocker):
+        spy = mocker.spy(Sidebar, "lists")
+
+        member_client.get(reverse("dashboard"))
+
+        assert spy.call_count == 1
+
+    def test_query_count_does_not_grow_with_rows(self, member_user, member_client):
+        for minutes_ago in range(3):
+            make_session(member_user, minutes_ago=minutes_ago)
+        member_client.get(reverse("artifact_list"))
+        with CaptureQueriesContext(connection) as few:
+            member_client.get(reverse("artifact_list"))
+
+        for minutes_ago in range(3, 12):
+            make_session(member_user, minutes_ago=minutes_ago)
+        with CaptureQueriesContext(connection) as many:
+            member_client.get(reverse("artifact_list"))
+
+        assert len(many) == len(few)
 
 
 def _item_label(item) -> str:
@@ -224,41 +510,110 @@ def _item_label(item) -> str:
     return (label.find("span") or label).get_text(strip=True)
 
 
-def _nav_outline(nav) -> list[str]:
-    """Headings as ``# Heading`` and items by label, in document order."""
-    outline = []
-    for node in nav.find_all(["a", "div"], recursive=False):
-        if "sidebar__group-heading" in node.get("class", []):
-            outline.append("# " + node.select_one(".sidebar__collapsible").get_text(strip=True))
-        else:
-            outline.append(_item_label(node))
-    return outline
-
-
-DAILY_WORK = ["Home", "Sessions", "Notifications", "Artifacts", "Schedules", "Insights"]
-AGENT_SETUP = ["# Agent setup", "Sandbox environments", "MCP servers", "Memory"]
-ADMIN = ["# Admin", "Users", "Configuration", "Schedule templates", "Skills", "Global MCP servers"]
+MEMBER_SETTINGS = ["sandbox_envs:list", "mcp_connectors:list", "memory:list"]
+ADMIN_SETTINGS = [
+    "user_list",
+    "site_configuration_index",
+    "schedule_template_list",
+    "skills:list",
+    "mcp_connectors:global_list",
+]
+NORMAL_PAGES = [
+    "dashboard",
+    "session_list",
+    "schedule_list",
+    "insights",
+    "artifact_list",
+    "notifications:list",
+    "user_channels",
+]
+SETTINGS_ORDER = [
+    "nav-settings-back",
+    "nav-setup-group",
+    "nav-admin-group",
+    "sidebar-docs-link",
+    "build-info",
+    "nav-settings",
+]
 
 
 @pytest.mark.django_db
-class TestSidebarGroups:
-    def test_member_sees_daily_work_then_agent_setup(self, member_client):
-        nav = _sidebar_nav(member_client)
-        assert _nav_outline(nav) == DAILY_WORK + AGENT_SETUP
+class TestSidebarSettingsMode:
+    @pytest.mark.parametrize("url_name", MEMBER_SETTINGS)
+    def test_member_settings_pages_start_on_the_settings_menu(self, member_client, url_name):
+        _assert_starts_on_settings(_sidebar(member_client, url_name))
 
-    def test_admin_group_comes_last(self, admin_client):
-        nav = _sidebar_nav(admin_client)
-        assert _nav_outline(nav) == DAILY_WORK + AGENT_SETUP + ADMIN
+    @pytest.mark.parametrize("url_name", ADMIN_SETTINGS)
+    def test_admin_settings_pages_start_on_the_settings_menu(self, admin_client, url_name):
+        _assert_starts_on_settings(_sidebar(admin_client, url_name))
 
-    def test_home_links_the_dashboard(self, member_client):
-        nav = _sidebar_nav(member_client)
-        home = next(a for a in nav.find_all("a", recursive=False) if _item_label(a) == "Home")
-        assert home["href"] == reverse("dashboard")
+    @pytest.mark.parametrize("url_name", NORMAL_PAGES)
+    def test_other_pages_start_on_the_main_menu_with_settings_ready(self, member_client, url_name):
+        sidebar = _sidebar(member_client, url_name)
+
+        assert sidebar["x-data"] == "sidebarMenus(false)"
+        assert sidebar.select_one('[data-testid="nav-sessions-group"]')
+        assert sidebar.select_one('[data-testid="nav-settings-back"]')
+
+    def test_the_hidden_menu_is_inert_and_slides_with_the_state(self, member_client):
+        sidebar = _sidebar(member_client)
+
+        assert sidebar.select_one('[data-testid="nav-panels"]')[":class"] == "{ 'nav-panels--settings': settings }"
+        assert sidebar.select_one('[data-testid="nav-main-panel"]')["x-effect"] == "$el.inert = settings"
+        assert sidebar.select_one('[data-testid="nav-settings-panel"]')["x-effect"] == "$el.inert = !settings"
+
+    def test_menu_order(self, admin_client):
+        assert _testids(_sidebar(admin_client, "sandbox_envs:list"), SETTINGS_ORDER) == SETTINGS_ORDER
+
+    def test_mobile_sheet_shows_the_same_menu(self, admin_client):
+        sheet = _soup(admin_client, "sandbox_envs:list").select('[data-testid="app-sidebar"]')[1]
+
+        assert _testids(sheet, SETTINGS_ORDER) == SETTINGS_ORDER
+
+    def test_member_does_not_see_admin_group(self, member_client):
+        assert not _sidebar(member_client, "sandbox_envs:list").select('[data-testid="nav-admin-group"]')
+
+    def test_admin_group_lists_its_five_pages(self, admin_client):
+        group = _sidebar(admin_client, "sandbox_envs:list").select_one('[data-testid="nav-admin-group"]')
+
+        assert [link["href"] for link in group.select("a.sidebar__nav-item")] == [
+            reverse(url_name) for url_name in ADMIN_SETTINGS
+        ]
+
+    @pytest.mark.parametrize(
+        ("url_name", "label"),
+        [
+            ("sandbox_envs:list", "Sandbox environments"),
+            ("mcp_connectors:list", "MCP servers"),
+            ("memory:list", "Memory"),
+            ("user_list", "Users"),
+            ("site_configuration_index", "Configuration"),
+            ("schedule_template_list", "Schedule templates"),
+            ("skills:list", "Skills"),
+            ("mcp_connectors:global_list", "Global MCP servers"),
+        ],
+    )
+    def test_the_active_item_is_the_page_section(self, admin_client, url_name, label):
+        menu = _sidebar(admin_client, url_name).select_one('[data-testid="nav-settings-menu"]')
+
+        assert [_item_label(item) for item in menu.select(".sidebar__nav-item--active")] == [label]
+
+    def test_the_cog_sits_beside_the_account_and_controls_its_copys_menu(self, member_client):
+        for sidebar in _soup(member_client, "dashboard").select('[data-testid="app-sidebar"]'):
+            cog = sidebar.select_one('[data-testid="nav-settings"]')
+            assert cog.name == "button"
+            assert cog["aria-label"]
+            assert cog["@click"] == "showSettings(!settings)"
+            assert cog[":aria-expanded"] == "settings.toString()"
+            assert cog.find_parent(class_="sidebar__footer").select_one('[data-testid="app-user-menu"]')
+            assert sidebar["x-id"] == "['nav-settings-panel']"
+            assert cog[":aria-controls"] == sidebar.select_one('[data-testid="nav-settings-panel"]')[":id"]
 
     def test_agent_setup_items_say_what_they_are_for(self, member_client):
-        nav = _sidebar_nav(member_client)
-        described = nav.select(".sidebar__nav-item--described")
-        assert [_item_label(a) for a in described] == AGENT_SETUP[1:]
+        group = _sidebar(member_client, "sandbox_envs:list").select_one('[data-testid="nav-setup-group"]')
+        described = group.select(".sidebar__nav-item--described")
+
+        assert [_item_label(item) for item in described] == ["Sandbox environments", "MCP servers", "Memory"]
         for item in described:
             description = item.select_one('[data-testid="nav-description"]').get_text(strip=True)
             assert description
@@ -266,83 +621,74 @@ class TestSidebarGroups:
             assert item["title"] == f"{_item_label(item)}: {description}"
 
     def test_agent_setup_heading_says_it_is_optional(self, member_client):
-        nav = _sidebar_nav(member_client)
-        heading = nav.select_one('[data-testid="nav-setup-group"]')
+        group = _sidebar(member_client, "sandbox_envs:list").select_one('[data-testid="nav-setup-group"]')
+        heading = group.select_one(".sidebar__group-heading")
+
         assert "Optional" in heading.get_text()
         assert heading["title"].startswith("Optional")
 
-    def test_mobile_sheet_shows_the_same_groups(self, member_client):
-        sheet_nav = _soup(member_client).select('[data-testid="app-sidebar"]')[1].select_one("nav")
-        assert _nav_outline(sheet_nav) == DAILY_WORK + AGENT_SETUP
+    def test_docs_api_and_build_line_live_here(self, member_client):
+        sidebar = _sidebar(member_client, "dashboard")
+        api_docs = f'a[href="{reverse("api:openapi-view")}"]'
 
-    @pytest.mark.parametrize(
-        "url_name,label",
-        [
-            ("dashboard", "Home"),
-            ("insights", "Insights"),
-            ("session_list", "Sessions"),
-            ("sandbox_envs:list", "Sandbox environments"),
-            ("mcp_connectors:list", "MCP servers"),
-            ("memory:list", "Memory"),
-        ],
-    )
-    def test_the_active_item_is_the_page_section(self, member_client, url_name, label):
-        nav = _sidebar_nav(member_client, url_name)
-        active = nav.select(".sidebar__nav-item--active")
-        assert [_item_label(a) for a in active] == [label]
+        for selector in ('[data-testid="sidebar-docs-link"]', '[data-testid="build-info"]', api_docs):
+            assert sidebar.select_one('[data-testid="nav-settings-panel"]').select_one(selector)
+            assert not sidebar.select_one('[data-testid="nav-main-panel"]').select_one(selector)
 
+    def test_back_slides_settings_out_without_leaving_the_page(self, member_client):
+        back = _sidebar(member_client, "sandbox_envs:list").select_one('[data-testid="nav-settings-back"]')
 
-@pytest.mark.django_db
-class TestNewSplitButton:
-    @pytest.mark.parametrize("testid", ["nav-new", "topbar-new"])
-    def test_main_part_starts_a_chat(self, member_client, testid):
-        split = _soup(member_client).select_one(f'[data-testid="{testid}"]')
-        assert split.select_one(f'[data-testid="{testid}-chat"]')["href"] == reverse("session_new_chat")
+        assert back.name == "button"
+        assert back["@click"] == "showSettings(false)"
+        assert back["title"]
 
-    @pytest.mark.parametrize("testid", ["nav-new", "topbar-new"])
-    def test_menu_offers_chat_and_background_run(self, member_client, testid):
-        split = _soup(member_client).select_one(f'[data-testid="{testid}"]')
-        items = split.select('[role="menu"] [role="menuitem"]')
-        assert [(a["href"], a.select_one("span span").get_text(strip=True)) for a in items] == [
-            (reverse("session_new_chat"), "Chat"),
-            (reverse("runs:agent_run_new"), "Background run"),
-        ]
-        # Items are reached with the arrow keys, not Tab (menu button pattern).
-        assert all(a["tabindex"] == "-1" for a in items)
+    def test_settings_pages_keep_the_lists_behind_settings_for_back(self, member_client):
+        main = _sidebar(member_client, "sandbox_envs:list").select_one('[data-testid="nav-main-panel"]')
 
-    def test_toggle_is_a_keyboard_menu_button(self, member_client):
-        split = _soup(member_client).select_one('[data-testid="nav-new"]')
-        toggle = split.select_one('[data-testid="nav-new-toggle"]')
-        assert toggle.name == "button"
-        assert toggle["aria-haspopup"] == "menu"
-        assert toggle["aria-label"]
-        assert toggle[":aria-expanded"] == "open.toString()"
-        assert toggle[":aria-controls"] == split.select_one('[role="menu"]')[":id"]
-        assert split["x-data"] == "menuButton"
-        assert split["@keydown.escape"] == "onEscape($event)"
+        assert main.select_one('[data-testid="nav-sessions-group"]')
+        assert main.select_one('[data-testid="nav-scheduled-group"]')
 
-    def test_component_script_is_loaded(self, member_client):
-        assert "core/js/menu-button.js" in member_client.get(reverse("dashboard")).content.decode()
+    def test_every_page_stays_reachable(self, admin_client):
+        home = _soup(admin_client, "dashboard")
+        reachable = {
+            link["href"]
+            for scope in (home.select_one("#app-sidebar"), home.select_one("main"), _sidebar(admin_client, "user_list"))
+            for link in scope.select("a[href]")
+        }
+        pages = ["insights", "schedule_list", "artifact_list", "session_list", *MEMBER_SETTINGS, *ADMIN_SETTINGS]
 
-    def test_rail_hides_the_label_but_keeps_the_icon(self, member_client):
-        main = _soup(member_client).select_one('[data-testid="nav-new-chat"]')
-        assert "sidebar__cta" in main["class"]
-        assert main.select_one(".sidebar__collapsible").get_text(strip=True) == "New chat"
-
-    def test_sidebar_no_longer_routes_through_the_chooser(self, member_client):
-        sidebar = _soup(member_client).select_one('[data-testid="app-sidebar"]')
-        assert not sidebar.select(f'a[href="{reverse("session_new")}"]')
+        assert [url_name for url_name in pages if reverse(url_name) not in reachable] == []
 
 
 @pytest.mark.django_db
-class TestMobileTopBarNew:
-    def test_top_bar_holds_the_new_split_button(self, member_client):
+class TestHome:
+    def test_leaves_artifacts_to_the_sidebar(self, member_client):
+        main = _soup(member_client, "dashboard").select_one("main")
+
+        assert not main.select_one(f'a[href="{reverse("artifact_list")}"]')
+
+
+@pytest.mark.django_db
+class TestNewChat:
+    def test_sessions_header_starts_a_chat(self, member_client):
+        group = _group(_sidebar(member_client), "nav-sessions-group")
+        new_chat = group.select_one('[data-testid="nav-new-chat"]')
+
+        assert new_chat["href"] == reverse("session_new_chat")
+        assert new_chat["aria-label"]
+
+    def test_top_bar_starts_a_chat(self, member_client):
         bar = _soup(member_client).select_one('[data-testid="mobile-top-bar"]')
-        split = bar.select_one('[data-testid="topbar-new"]')
-        assert "new-split--compact" in split["class"]
 
-    def test_only_one_top_bar_copy(self, member_client):
-        assert len(_soup(member_client).select('[data-testid="topbar-new"]')) == 1
+        assert bar.select_one('[data-testid="topbar-new-chat"]')["href"] == reverse("session_new_chat")
+
+    def test_background_runs_start_from_the_sessions_page(self, member_client):
+        soup = _soup(member_client, "session_list")
+        sidebar = soup.select_one('[data-testid="app-sidebar"]')
+
+        assert not sidebar.select(f'a[href="{reverse("runs:agent_run_new")}"]')
+        assert not sidebar.select(f'a[href="{reverse("session_new")}"]')
+        assert soup.select_one("main").select_one(f'a[href="{reverse("session_new")}"]')
 
 
 @pytest.mark.django_db
@@ -388,15 +734,28 @@ class TestCollapseToggle:
         assert len(soup.select("#app-sidebar")) == 1
         assert len(soup.select('[data-testid="sidebar-toggle"]')) == 1
 
+    def test_only_the_persistent_sidebar_has_a_resize_edge(self, member_client):
+        soup = _soup(member_client)
+        edges = soup.select('[data-testid="sidebar-resize"]')
+        assert len(edges) == 1
+        assert edges[0].find_parent(id="app-sidebar")
+        assert (edges[0]["role"], edges[0]["tabindex"], edges[0]["aria-controls"]) == ("separator", "0", "app-sidebar")
+
+    def test_the_resize_edge_measures_its_values_as_it_renders(self, member_client):
+        edge = _soup(member_client).select_one('[data-testid="sidebar-resize"]')
+        assert "$store.sidebar.measure()" in edge["x-init"]
+        assert edge[":aria-valuenow"] == "$store.sidebar.width"
+
     def test_the_shortcut_and_store_are_wired_into_the_shell(self, member_client):
         content = member_client.get(reverse("dashboard")).content.decode()
         assert "core/js/sidebar.js" in content
         assert '@keydown.window="$store.sidebar.onKey($event)"' in content
 
-    def test_every_rail_icon_keeps_a_name_and_tooltip(self, admin_client):
+    @pytest.mark.parametrize("url_name", ["dashboard", "sandbox_envs:list"])
+    def test_every_rail_icon_keeps_a_name_and_tooltip(self, admin_client, url_name):
         """The rail hides each label, so the `title` is what names the icon and shows on hover."""
-        sidebar = _soup(admin_client, "dashboard").select_one("#app-sidebar")
-        links = sidebar.select(".sidebar__nav-item, .sidebar__footer-link, .sidebar__cta")
-        untitled = [link["href"] for link in links if not link.get("title", "").strip()]
-        assert len(links) > 10
+        sidebar = _soup(admin_client, url_name).select_one("#app-sidebar")
+        links = sidebar.select(".sidebar__nav-item, .sidebar__footer-link, .nav-cog")
+        untitled = [str(link)[:80] for link in links if not link.get("title", "").strip()]
+        assert len(links) >= 18
         assert not untitled

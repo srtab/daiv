@@ -12,7 +12,7 @@ Use a schedule for recurring work such as a weekly dependency audit, a nightly c
 
 You need access to the repositories you want to run against. A schedule runs with its owner's repository permissions, so DAIV must be able to confirm that you have write access to each repository; see [When a schedule can't run](#when-a-schedule-cant-run).
 
-1. In the sidebar, select **Schedules**.
+1. In the sidebar, select **Manage schedules**, the list icon beside **Scheduled**.
 2. Select **Create schedule**.
 3. Enter a **Name**, for example `Weekly dep audit`.
 4. In the prompt box, describe what the agent does in each run.
@@ -156,7 +156,7 @@ You need at least one template; an admin creates them. Then:
 
 Creating templates needs the admin role.
 
-1. In the sidebar, under the admin section, select **Schedule templates**.
+1. In the sidebar, select **Settings** → **Schedule templates**.
 2. Select **New template**.
 3. Fill in the **Name** and an optional **Description**, then the same settings as a schedule. Repositories are optional: leave them empty to let people choose when they create the schedule.
 4. Select **Create template**.

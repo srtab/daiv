@@ -234,6 +234,11 @@ class Session(models.Model):
                 condition=models.Q(watch_state__in=sorted(WatchState.open())),
             ),
             models.Index(fields=["parent"], name="session_parent_idx", condition=models.Q(parent__isnull=False)),
+            models.Index(
+                fields=["scheduled_job", "-created_at"],
+                name="session_schedule_created_idx",
+                condition=models.Q(scheduled_job__isnull=False),
+            ),
         ]
         constraints = [
             models.CheckConstraint(

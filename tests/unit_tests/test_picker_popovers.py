@@ -256,7 +256,7 @@ def test_every_surface_carries_the_surface_hook():
     """`data-surface` is what makes a surface rise (input.css) and what the sidebar's `[` shortcut
     treats as open (core/js/sidebar.js). A container without it appears without motion, which reads
     as a repaint glitch next to the ones that rise."""
-    names = sorted({*SURFACE_CONTAINERS, "new-split__menu", "session-menu"})
+    names = sorted({*SURFACE_CONTAINERS, "session-menu"})
     containers = re.compile(r'class="(?:[^"]*\s)?({})(?![\w-])'.format("|".join(map(re.escape, names))))
     missing = [
         f"{path.relative_to(DAIV_DIR)}: .{match.group(1)}"

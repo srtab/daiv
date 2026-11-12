@@ -11,6 +11,7 @@ from dashboard import home, insights, landing
 from dashboard.comparisons import CHECKED, COMPARISONS, COMPARISONS_BY_SLUG
 from dashboard.conf import settings as dashboard_settings
 from dashboard.context_processors import running_jobs_count
+from dashboard.sidebar import SESSIONS_PAGE, Sidebar
 from dashboard.skill_usage import RECENT_RUNS, match_runs, skill_usage
 
 
@@ -62,13 +63,11 @@ class DashboardView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         user = self.request.user
-        recent_sessions = home.recent_sessions(user)
+        has_started_runs = home.has_started_runs(user)
         context.update({
             "inbox": home.inbox(user),
-            "recent_sessions": recent_sessions,
-            "recent_in_flight_ids": home.in_flight_run_ids(recent_sessions),
-            "my_sessions_url": home.my_sessions_url(),
-            "your_week": home.your_week(user) if recent_sessions else None,
+            "has_started_runs": has_started_runs,
+            "your_week": home.your_week(user) if has_started_runs else None,
             "ways": home.ways_to_use(),
         })
         return context
@@ -115,3 +114,19 @@ class SkillUsageView(AdminRequiredMixin, SkillPageMixin, TemplateView):
         return super().get_context_data(
             usage=skill_usage(page.name, page.source), recent_runs=match_runs(recent), **kwargs
         )
+
+
+class SidebarListsView(LoginRequiredMixin, TemplateView):
+    """The sidebar's two lists alone, for the sidebar to swap in when runs start or finish."""
+
+    template_name = "dashboard/_sidebar_lists.html"
+
+    def get_context_data(self, **kwargs):
+        query = self.request.GET
+        try:
+            limit = int(query.get("limit", SESSIONS_PAGE))
+        except ValueError:
+            limit = SESSIONS_PAGE
+        lists = Sidebar(self.request.user, viewing=query.get("viewing", "")).lists(limit=limit)
+        # The page's section, not this endpoint's: the rows highlight the section the sidebar is on.
+        return super().get_context_data(nav_sidebar=lists, nav_active_section=query.get("section", ""), **kwargs)

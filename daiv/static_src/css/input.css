@@ -89,6 +89,11 @@
   font-variant-ligatures: none;
 }
 
+/* DESIGN.md's `label-caps` role: the small uppercase group labels. */
+@utility label-caps {
+  @apply font-mono text-[11px] font-semibold uppercase tracking-[0.14em];
+}
+
 @layer base {
   code,
   kbd,
@@ -146,7 +151,6 @@
     }
 
     & .sidebar__brand,
-    & .sidebar__cta,
     & .sidebar__nav-item,
     & .sidebar__footer-link,
     & .sidebar__account {
@@ -155,49 +159,26 @@
       padding-right: 0.5rem;
     }
 
-    /* The rail is too narrow to open over, so the menus open beside it. The margin clears the
+    /* The rail is too narrow to open over, so the menu opens beside it. The margin clears the
        sidebar's own `px-3` and lands just past the rail's border. */
-    & .sidebar__account-menu,
-    & .new-split__menu {
+    & .sidebar__account-menu {
       right: auto;
+      bottom: 0;
       left: 100%;
       margin-top: 0;
       margin-bottom: 0;
       margin-left: 1.25rem;
     }
 
-    & .sidebar__account-menu {
-      bottom: 0;
-    }
-
-    & .new-split__menu {
-      top: 0;
+    /* Too narrow for the cog beside the account chip, so it stacks above it. */
+    & .sidebar__footer {
+      flex-direction: column-reverse;
+      align-items: center;
     }
 
     /* Its description is hidden here, so the icon drops the nudge that aligned it to the label. */
     & .sidebar__nav-item--described > :first-child {
       margin-top: 0;
-    }
-
-    /* Too narrow for two halves side by side: the chevron becomes a strip under the icon. */
-    & .new-split {
-      flex-direction: column;
-    }
-
-    & .new-split__main {
-      border-radius: 0.5rem 0.5rem 0 0;
-    }
-
-    & .new-split__toggle {
-      border-left: 0;
-      border-top: 1px solid color-mix(in srgb, var(--color-accent-ink) 20%, transparent);
-      border-radius: 0 0 0.5rem 0.5rem;
-      padding-top: 0.125rem;
-      padding-bottom: 0.125rem;
-    }
-
-    & .new-split__chevron {
-      transform: rotate(-90deg);
     }
 
     /* The heading keeps its box so the groups stay separated once its label is hidden. */
@@ -217,7 +198,17 @@
     & .sidebar__toggle-icon {
       transform: rotate(180deg);
     }
+
+    & .sidebar__resize {
+      display: none;
+    }
   }
+}
+
+:root[data-sidebar-resizing],
+:root[data-sidebar-resizing] * {
+  cursor: col-resize;
+  user-select: none;
 }
 
 @layer components {
@@ -226,6 +217,43 @@
   .sidebar__nav-item {
     @apply relative mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm
            text-text-muted transition-colors hover:text-text;
+  }
+
+  /* The main and Settings menus side by side in one grid row; `--settings` slides both one
+     width left. `clip`, not `hidden`, so focusing an item can never scroll the track. */
+  .nav-panels {
+    @apply grid min-h-0 flex-1 grid-cols-[100%_100%] grid-rows-[minmax(0,1fr)] overflow-clip;
+  }
+
+  .nav-panel {
+    @apply flex min-h-0 min-w-0 flex-col transition-transform duration-250 ease-out;
+  }
+
+  .nav-panels--settings > .nav-panel {
+    @apply -translate-x-full;
+  }
+
+  .sidebar__footer {
+    @apply flex items-center gap-1;
+  }
+
+  .nav-cog {
+    @apply inline-flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors
+           hover:bg-surface-3 hover:text-text;
+  }
+
+  /* Straddles the sidebar's border, so its 2px line lands on it. */
+  .sidebar__resize {
+    @apply absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize touch-none;
+  }
+
+  .sidebar__resize::after {
+    @apply absolute inset-y-0 left-[3px] w-0.5 transition-colors content-[''];
+  }
+
+  .sidebar__resize:hover::after,
+  :root[data-sidebar-resizing] .sidebar__resize::after {
+    @apply bg-accent;
   }
 
   /* The active item's 3px brand rail. `nav_active` adds the modifier, so it is drawn on
@@ -262,6 +290,71 @@
     @apply inline-flex items-center rounded-full px-2 py-0.5 text-[11px] tabular-nums;
   }
 
+  /* The session and schedule lists: dot, truncating title, right-aligned meta. The rail
+     hides the whole scroller, so none of these needs a rail rule. */
+  .nav-group-heading {
+    @apply mb-1 flex items-center justify-between gap-2 px-3;
+  }
+
+  .nav-group-title {
+    @apply label-caps relative -mx-1.5 rounded-md px-1.5 py-0.5 text-text-faint;
+  }
+
+  .nav-group-actions {
+    @apply -mr-1.5 flex items-center gap-0.5;
+  }
+
+  .nav-group-action {
+    @apply inline-flex h-6 w-6 items-center justify-center rounded-md text-text-faint transition-colors
+           hover:bg-surface-3 hover:text-text;
+  }
+
+  .nav-group-action--primary {
+    @apply text-accent hover:text-accent-bright;
+  }
+
+  .nav-row {
+    @apply relative flex w-full min-w-0 items-center gap-2.5 rounded-lg px-3 py-1.5 text-left text-[13px]
+           text-text-muted transition-colors hover:bg-surface-3 hover:text-text;
+  }
+
+  .nav-row--active,
+  .nav-cog[aria-expanded="true"] {
+    @apply bg-surface-3 text-text-strong;
+  }
+
+  .nav-row--nested {
+    @apply pl-8 text-xs;
+  }
+
+  .nav-row--quiet {
+    @apply text-xs text-text-faint;
+  }
+
+  .nav-row__title {
+    @apply min-w-0 flex-1 truncate;
+  }
+
+  .nav-row__meta {
+    @apply flex shrink-0 items-center gap-1.5 font-mono text-[11px] tabular-nums text-text-faint;
+  }
+
+  .nav-row__chevron {
+    @apply transition-transform;
+  }
+
+  [aria-expanded="true"] > .nav-row__chevron {
+    @apply rotate-90;
+  }
+
+  .nav-empty {
+    @apply px-3 py-1 text-xs text-text-faint;
+  }
+
+  .nav-empty__link {
+    @apply text-text-muted underline decoration-border underline-offset-2 hover:text-text;
+  }
+
   .brand-mark {
     @apply inline-block h-6 w-6 shrink-0 rounded-md bg-brand;
   }
@@ -272,7 +365,6 @@
 
   .sidebar__account,
   .account-menu__item,
-  .new-split__item,
   .session-menu__item {
     @apply flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[13px]
            text-text-muted transition-colors hover:bg-surface-3 hover:text-text;
@@ -282,41 +374,9 @@
     @apply px-2;
   }
 
-  /* The New split button: sidebar size by default, `--compact` in the mobile top bar. */
-  .new-split {
-    @apply relative flex rounded-lg bg-accent text-accent-ink;
-  }
-
-  .new-split__main {
-    @apply flex min-w-0 flex-1 items-center gap-2.5 rounded-l-lg px-3 py-2.5 text-sm font-semibold
-           tracking-tight transition-colors hover:bg-accent-bright;
-  }
-
-  .new-split__toggle {
-    @apply flex shrink-0 items-center justify-center rounded-r-lg border-l border-accent-ink/20 px-2.5
-           transition-colors hover:bg-accent-bright;
-  }
-
-  .new-split__menu,
   .sidebar__account-menu,
   .session-menu {
     @apply absolute z-40 rounded-xl border border-border bg-surface-2 p-1 shadow-overlay;
-  }
-
-  .new-split__menu {
-    @apply top-full right-0 left-0 mt-2 min-w-56;
-  }
-
-  .new-split__item {
-    @apply items-start py-2 focus:bg-surface-3 focus:text-text;
-  }
-
-  .new-split--compact .new-split__main {
-    @apply h-11 gap-2 px-2.5 py-0;
-  }
-
-  .new-split--compact .new-split__menu {
-    @apply left-auto w-64;
   }
 
   /* Opens upward over the full sidebar and the sheet; the rail tier above moves it beside. */
@@ -353,11 +413,26 @@
   animation: surface-rise 180ms ease-out backwards;
 }
 
-/* The sidebar's second tier: the icon rail becomes the full column. `--app-sidebar-width`
-   is the only place either width lives, so the sheet inset below tracks both tiers. */
+/* Registered so `getComputedStyle` hands `core/js/sidebar.js` pixels, not the expression. */
+@property --app-sidebar-min {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+@property --app-sidebar-max {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+/* `--app-sidebar-width` is the only place the sidebar's width lives, so the sheet inset below tracks
+   it. The 48rem left for content fits a transcript beside the 20rem session details column. */
 @media (width >= theme(--breakpoint-lg)) {
   :root {
-    --app-sidebar-width: 15rem;
+    --app-sidebar-min: 17rem;
+    --app-sidebar-max: max(17rem, min(32rem, 100vw - 48rem));
+    --app-sidebar-width: clamp(var(--app-sidebar-min), var(--app-sidebar-chosen, 0px), var(--app-sidebar-max));
   }
 
   :root[data-sidebar="rail"] {
@@ -435,6 +510,62 @@ html {
 @layer components {
   .stat-value {
     @apply font-mono text-[34px] font-semibold leading-none tabular-nums;
+  }
+}
+
+/* A fold of reference material, e.g. Home's Ways to use DAIV. Unfilled and dashed so it never
+   reads as one of the data cards around it. */
+@layer components {
+  .guide {
+    @apply rounded-2xl border border-dashed;
+    border-color: color-mix(in srgb, var(--color-text-faint) 40%, transparent);
+  }
+
+  .guide__summary {
+    @apply flex cursor-pointer list-none items-center gap-2.5 rounded-2xl px-5 py-4 sm:px-6;
+
+    &::-webkit-details-marker {
+      display: none;
+    }
+  }
+
+  .guide__title {
+    @apply text-[15px] font-semibold tracking-tight text-text;
+  }
+
+  .guide__hint {
+    @apply hidden min-w-0 truncate text-[13px] text-text-faint sm:block;
+  }
+
+  .guide__toggle {
+    @apply ml-auto flex shrink-0 items-center gap-1 text-[13px] text-text-faint transition-colors;
+  }
+
+  .guide__summary:hover .guide__toggle {
+    @apply text-text;
+  }
+
+  .guide__chevron {
+    @apply transition-transform;
+  }
+
+  .guide[open] > .guide__summary {
+    & .guide__hint,
+    & .guide__show {
+      display: none;
+    }
+
+    & .guide__chevron {
+      @apply rotate-180;
+    }
+  }
+
+  .guide:not([open]) .guide__hide {
+    display: none;
+  }
+
+  .guide__body {
+    @apply grid gap-8 px-5 pb-6 sm:px-6 lg:grid-cols-3;
   }
 }
 

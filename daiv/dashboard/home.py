@@ -13,9 +13,8 @@ from django.utils.translation import gettext_lazy as _
 from notifications.choices import EnvelopeStatus
 from notifications.outcomes import CANT_RUN, CI_STILL_FAILING, ENVELOPE_OUTCOMES, Outcome
 from sessions.filters import ARCHIVED_INCLUDED, SCOPE_MINE
-from sessions.models import MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
+from sessions.models import MergeRequestOwnership, Run, RunStatus, SessionOrigin
 from sessions.pipeline_watch.store import gave_up
-from sessions.templatetags.session_tags import attach_merge_request_states
 
 from codebase.base import GitPlatform
 from codebase.conf import settings as codebase_settings
@@ -30,7 +29,6 @@ if TYPE_CHECKING:
 
 
 INBOX_LIMIT = 8
-RECENT_SESSIONS_LIMIT = 5
 # Each item stays until a newer run supersedes it, but findings and a given-up CI watch leave after 7 days and a
 # failure 14 days after it finished; a question leaves only at INBOX_MAX_AGE, a schedule when it can run again.
 INBOX_FINDINGS_WINDOW = timedelta(days=7)
@@ -167,19 +165,9 @@ def inbox(user: User) -> dict:
     return {"items": items[:INBOX_LIMIT], "total": len(runs) + len(schedules), "see_all": see_all_links}
 
 
-def recent_sessions(user: User) -> list[Session]:
-    sessions = list(
-        Session.objects.listed_for(user, mine=True).with_row_runs().order_by("-last_active_at")[:RECENT_SESSIONS_LIMIT]
-    )
-    attach_merge_request_states(sessions)
-    return sessions
-
-
-def in_flight_run_ids(sessions: list[Session]) -> str:
-    """The unfinished runs of ``sessions``, comma-separated, for the live status stream."""
-    return ",".join(
-        str(run.id) for session in sessions for run in session.runs.all() if run.status not in RunStatus.terminal()
-    )
+def has_started_runs(user: User) -> bool:
+    """Whether ``user`` started anything: the runs Your week counts, archived sessions' included."""
+    return Run.objects.started_by(user).exists()
 
 
 def _platform_terms() -> tuple[str, str]:
