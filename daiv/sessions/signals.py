@@ -169,10 +169,7 @@ def settle_inbox_events(sender: type, run: Any, **kwargs: Any) -> None:
 @receiver(run_ended, dispatch_uid="sessions.archive_settled_session")
 def archive_settled_session(sender: type, run: Any, **kwargs: Any) -> None:
     """Archive the run's session and its coordinator if a merge left them waiting for work that has now ended
-    (:func:`sessions.auto_archive.archive_settled`).
-
-    Connected after ``settle_inbox_events``, so a run its drain just started still counts as live work.
-    """
+    (:func:`sessions.auto_archive.archive_settled`)."""
     archive_settled(run.session_id)
 
 

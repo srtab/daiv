@@ -1,11 +1,22 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import Mock, patch
 
 from django.utils import timezone
 
 import pytest
 from asgiref.sync import sync_to_async
 from sessions.auto_archive import aarchive_merged, archive_settled
-from sessions.models import MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin, SessionRepository
+from sessions.inbox.ownership import Ownerships
+from sessions.models import (
+    ArchivedMerge,
+    EventKind,
+    InboxEvent,
+    MergeRequestOwnership,
+    Run,
+    RunStatus,
+    Session,
+    SessionOrigin,
+    SessionRepository,
+)
 
 from tests.unit_tests.sessions.conftest import amake_owned_merge_request
 
@@ -97,8 +108,12 @@ class TestArchiveMerged:
 
         assert await aarchive_merged("group/repo", 7) == []
 
-        await MergeRequestOwnership.objects.filter(pk=leg_mr.pk).aupdate(closed_at=timezone.now(), merged=True)
-        assert set(await aarchive_merged("group/repo", 8)) == {"leg", "coord"}
+        await Ownerships("group/repo").aclose(
+            leg_mr.merge_request_iid, merged=True, by_username="u", target_branch="main"
+        )
+
+        assert await aarchive_merged("group/repo", 8) == ["leg"]
+        assert (await Session.objects.aget(pk="coord")).archived_at is not None
 
     async def test_a_coordinator_with_an_unfinished_leg_run_waits(self):
         await _merged("coord")
@@ -142,6 +157,30 @@ class TestArchiveMerged:
 
         assert not (await Session.objects.aget(pk="s")).archive_pending
 
+    async def test_a_session_with_a_waking_inbox_event_is_left_pending(self):
+        await _merged("s")
+        await InboxEvent.objects.acreate(session_id="s", kind=EventKind.MENTION, source_key="note:1", wake=True)
+
+        assert await aarchive_merged("group/repo", 7) == []
+        assert (await Session.objects.aget(pk="s")).archive_pending
+
+    async def test_a_coordinator_follows_a_leg_whose_merge_request_closed_unmerged(self):
+        await _merged("coord")
+        leg = await _leg("leg", "coord")
+        await MergeRequestOwnership.objects.acreate(
+            repo_id="group/repo", merge_request_iid=8, session=leg, source_branch="leg"
+        )
+        assert await aarchive_merged("group/repo", 7) == []
+
+        await Ownerships("group/repo").aclose(8, merged=False, by_username="u", target_branch="main")
+
+        assert (await Session.objects.aget(pk="coord")).archived_at is not None
+        assert (await Session.objects.aget(pk="leg")).archived_at is None
+
+    async def test_a_merge_no_session_worked_on_records_nothing(self):
+        assert await aarchive_merged("group/repo", 7) == []
+        assert not await ArchivedMerge.objects.aexists()
+
     async def test_a_session_no_merge_left_pending_is_not_settled(self):
         await Session.objects.acreate(thread_id="s", origin=SessionOrigin.CHAT, repo_id="group/repo")
 
@@ -180,7 +219,7 @@ class TestArchiveMerged:
     async def test_each_archived_session_is_poked(self):
         await _merged("s")
 
-        with patch("sessions.auto_archive.asession_changed", new=AsyncMock()) as poke:
+        with patch("sessions.auto_archive.session_changed", new=Mock()) as poke:
             await aarchive_merged("group/repo", 7)
 
-        poke.assert_awaited_once_with("s")
+        poke.assert_called_once_with("s")

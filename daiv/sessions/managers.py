@@ -18,7 +18,7 @@ from sessions.signal_defs import run_ended, run_finished
 
 if TYPE_CHECKING:
     from accounts.models import User
-    from sessions.models import Run, RunArtifact, Session, ToolResultMedia
+    from sessions.models import MergeRequestOwnership, Run, RunArtifact, Session, ToolResultMedia
 
 
 def _readable_repos_q(user: User, session_ref: str) -> models.Q:
@@ -53,6 +53,12 @@ def _session_runs_newest_first(session: models.OuterRef) -> models.QuerySet[Run]
     from sessions.models import Run
 
     return Run.objects.filter(session=session).order_by(*_NEWEST_FIRST)
+
+
+def _open_merge_requests() -> models.QuerySet[MergeRequestOwnership]:
+    from sessions.models import MergeRequestOwnership
+
+    return MergeRequestOwnership.objects.filter(closed_at__isnull=True)
 
 
 def _archived_by(user: User, session_ref: str) -> models.Q:
@@ -136,23 +142,20 @@ class SessionQuerySet(models.QuerySet["Session"]):
 
     def without_open_merge_request(self) -> models.QuerySet[Session]:
         """Exclude sessions that own an open merge request."""
-        from sessions.models import MergeRequestOwnership
-
-        open_owned = MergeRequestOwnership.objects.filter(session=models.OuterRef("pk"), closed_at__isnull=True)
-        return self.exclude(models.Exists(open_owned))
+        return self.exclude(models.Exists(_open_merge_requests().filter(session=models.OuterRef("pk"))))
 
     def without_live_work(self) -> models.QuerySet[Session]:
-        """Exclude sessions that own an open merge request or have an unfinished run, or delegated a leg that does."""
-        from sessions.models import MergeRequestOwnership, Run, RunStatus
+        """Exclude sessions that own an open merge request, have an unfinished run or a waking inbox event, or
+        delegated a leg that owns an open merge request or has an unfinished run."""
+        from sessions.models import EventState, InboxEvent, Run, RunStatus
 
-        leg_owns_open = MergeRequestOwnership.objects.filter(
-            session__parent=models.OuterRef("pk"), closed_at__isnull=True
-        )
         unfinished = Run.objects.exclude(status__in=RunStatus.terminal())
+        waking = InboxEvent.objects.filter(session=models.OuterRef("pk"), state=EventState.PENDING, wake=True)
         return self.without_open_merge_request().exclude(
-            models.Exists(leg_owns_open)
+            models.Exists(_open_merge_requests().filter(session__parent=models.OuterRef("pk")))
             | models.Exists(unfinished.filter(session=models.OuterRef("pk")))
             | models.Exists(unfinished.filter(session__parent=models.OuterRef("pk")))
+            | models.Exists(waking)
         )
 
     def without_watch_placeholders(self) -> models.QuerySet[Session]:
