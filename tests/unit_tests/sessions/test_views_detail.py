@@ -1750,6 +1750,17 @@ def test_detail_marks_a_session_the_viewer_archived(member_client, member_user, 
 
 
 @pytest.mark.django_db
+def test_detail_marks_a_session_archived_for_everyone(member_client, member_user):
+    session = _create_session(user=member_user)
+    Session.objects.filter(pk=session.pk).update(archived_at=timezone.now())
+
+    resp = _get_detail(member_client, session)
+
+    assert resp.context["archived"] is True
+    assert "archived: true," in resp.content.decode()
+
+
+@pytest.mark.django_db
 def test_detail_and_new_chat_embed_the_transcript_labels(member_client, member_user):
     session = _create_session(user=member_user)
     with patch("sessions.page_state.ahydrate_thread", _null_hydration()):

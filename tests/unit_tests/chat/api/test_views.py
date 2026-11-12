@@ -3,6 +3,8 @@ import uuid
 from contextlib import nullcontext
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.utils import timezone
+
 import pytest
 from ninja.testing import TestAsyncClient
 from sessions.inbox.chat_claim import ChatClaim
@@ -606,8 +608,25 @@ async def test_a_turn_on_a_session_you_archived_returns_400(client: TestAsyncCli
         headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
     )
     assert response.status_code == 400
-    assert response.json()["detail"] == "You archived this session. Unarchive it to send follow-ups."
+    assert response.json()["detail"] == "This session is archived. Unarchive it to send follow-ups."
     assert await active_holder("t-archived") is None
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_turn_on_a_session_archived_for_everyone_returns_400(client: TestAsyncClient, authed):
+    _, raw, user = authed
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-auto", user=user, repo_id="a/b", ref="main", archived_at=timezone.now()
+    )
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-auto"),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "This session is archived. Unarchive it to send follow-ups."
+    assert await active_holder("t-auto") is None
     await user.adelete()
 
 

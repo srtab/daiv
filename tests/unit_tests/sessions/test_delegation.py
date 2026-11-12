@@ -1092,6 +1092,18 @@ class TestLegFollowUpRefusals:
             f"This leg's merge request was {word}: delegate a new leg for further work."
         )
 
+    async def test_an_auto_archived_leg_is_refused_as_merged(self, admin_user):
+        _, run, leg = await _coordinated(admin_user)
+        await MergeRequestOwnership.objects.acreate(
+            repo_id="acme/api", merge_request_iid=4, session_id=leg.session_id, source_branch="daiv/leg-branch"
+        )
+        await Ownerships("acme/api").aclose(4, merged=True, by_username="sfr", target_branch="main")
+        await Session.objects.filter(pk=leg.session_id).aupdate(archived_at=timezone.now())
+
+        assert await self._refusal(run, _follow_up(leg)) == (
+            "This leg's merge request was merged: delegate a new leg for further work."
+        )
+
     async def test_the_earliest_failing_check_gives_the_reason(self, admin_user):
         _, run, leg = await _coordinated(admin_user, status=RunStatus.RUNNING)
 

@@ -354,7 +354,7 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx["turns"] = state.turns
         ctx["can_act"] = state.can_act
         ctx["header"] = state.header
-        ctx["archived"] = session.hidden_by.filter(user=self.request.user).exists()
+        ctx["archived"] = Session.objects.filter(pk=session.pk).archived_for(self.request.user).exists()
         ctx["max_title_length"] = MAX_TITLE_LENGTH
         ctx["active_run_id"] = session.active_run_id or ""
         ctx["merge_request"] = state.merge_request

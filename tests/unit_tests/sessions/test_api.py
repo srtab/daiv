@@ -748,6 +748,21 @@ async def test_session_archive_marks_and_unmarks_it_for_the_caller_alone(client,
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_unarchive_brings_a_session_archived_for_everyone_back(client, authed):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+    await Session.objects.filter(pk=session.pk).aupdate(archived_at=timezone.now())
+
+    response = await client.post(
+        f"/sessions/{session.thread_id}/archive", json={"archived": False}, headers=_auth_headers(raw)
+    )
+
+    assert response.json() == {"archived": False}
+    await session.arefresh_from_db()
+    assert session.archived_at is None
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_session_archive_needs_no_run_access(client, authed):
     _key_obj, raw, user = authed
     session = await sync_to_async(_create_session)(user=user)

@@ -107,13 +107,15 @@ async def _ci(session: Session) -> dict:
 
 @sessions_router.post("/{thread_id}/archive", response=dict, url_name="session_archive")
 async def session_archive(request: HttpRequest, thread_id: str, payload: ArchiveIn):
-    """Archive the session out of the caller's own list, or bring it back; nobody else's list changes."""
+    """Archive the session out of the caller's own list, or bring it back: for everyone, when it was archived for
+    everyone."""
     user = request.auth  # ty: ignore[unresolved-attribute]
     session = await _get_visible_session(user, thread_id)
     if payload.archived:
         await HiddenSession.objects.aget_or_create(session=session, user=user)
     else:
         await HiddenSession.objects.filter(session=session, user=user).adelete()
+        await Session.objects.filter(pk=session.pk).aupdate(archived_at=None)
     return {"archived": payload.archived}
 
 

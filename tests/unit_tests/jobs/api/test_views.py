@@ -721,6 +721,17 @@ class TestThreadContinuationAPI:
         assert response.status_code == 400
         assert response.json()["detail"] == "thread_id is archived; unarchive the session to continue it"
 
+    async def test_continuation_of_a_session_archived_for_everyone_rejects(self, authenticated_client, db):
+        user = await User.objects.aget(username="testuser")
+        thread = str(uuid.uuid4())
+        await Session.objects.acreate(
+            thread_id=thread, origin=SessionOrigin.API_JOB, repo_id="a/b", user=user, archived_at=timezone.now()
+        )
+        body = _single_repo_body(prompt="x", thread_id=thread)
+        response = await authenticated_client.post("/jobs", json=body)
+        assert response.status_code == 400
+        assert response.json()["detail"] == "thread_id is archived; unarchive the session to continue it"
+
     async def test_continuation_with_other_user_thread_id_rejects(self, authenticated_client, db):
         other = await User.objects.acreate_user(username="other", email="o@t.com", password="x")  # noqa: S106
         thread = str(uuid.uuid4())
