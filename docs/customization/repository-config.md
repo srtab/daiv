@@ -65,7 +65,7 @@ models:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `default_branch` | `str \| null` | Repository default | Branch DAIV uses to load `.daiv.yml` and as the base for merge requests. |
+| `default_branch` | `str \| null` | Repository default | Base branch for merge requests. DAIV always reads `.daiv.yml` from the platform's default branch, whatever this option says. |
 | `context_file_name` | `str \| null` | `"AGENTS.md"` | Name of the [AGENTS.md](https://agents.md/) guidance file. Set to `null` to disable. |
 | `suggest_context_file` | `bool` | `true` | Suggest creating the context file when DAIV opens a merge request and the file is missing. See [AGENTS.md suggestion](../features/issue-addressing.md#agentsmd-suggestion). |
 | `session_link` | `bool` | `true` | Link back to the DAIV sessions that produced the changes, from the description of merge requests DAIV opens and from a `DAIV-Session` trailer on every commit. See [Linking back to sessions](../features/sessions.md#linking-back-to-sessions). |
@@ -126,7 +126,7 @@ slash_commands:
 | `issue_addressing` | `enabled` | `true` | [Issue Addressing](../features/issue-addressing.md) |
 | `pull_request_assistant` | `enabled` | `true` | [Pull Request Assistant](../features/pull-request-assistant.md) |
 | `slash_commands` | `enabled` | `true` | [Slash Commands & Skills](../features/slash-commands.md) |
-| `pipeline_watch` | `enabled` | site-wide | [Pipeline Watch](../features/pipeline-watch.md) — disable to stop DAIV watching CI on published MRs. |
+| `pipeline_watch` | `enabled` | `true` | [Pipeline Watch](../features/pipeline-watch.md) — disable to stop DAIV watching CI on published MRs. It takes effect only while pipeline watch is also enabled site-wide. |
 | `pipeline_watch` | `max_attempts` | site-wide | [Pipeline Watch](../features/pipeline-watch.md) — maximum fix attempts before giving up, clamped to the site-wide cap. |
 | `orchestration` | `enabled` | `true` | [Orchestration](../features/orchestration.md) — let the agent delegate sub-jobs to other repositories, or to new sessions on this one. |
 | `memory` | `enabled` | `true` | Learned repository memory: capture observations from finished runs, consolidate them, and add them to the system prompt of later runs. It only takes effect while **Memory** is also enabled site-wide ([Site Configuration](../reference/site-configuration.md), `DAIV_MEMORY_ENABLED`); set it to `false` to opt this repository out. |

@@ -272,11 +272,18 @@ x-app-defaults: &x_app_default
 
 For the private key, you have two options:
 
-**Option 1: Use Docker secrets (recommended)**
+**Option 1: Use a Compose secret (recommended)**
 
-```bash
-# Create secret from the downloaded .pem file
-docker secret create codebase_github_private_key /path/to/your-private-key.pem
+Docker Compose mounts a file-based secret at `/run/secrets/<name>`, where DAIV reads it. Add this to your `docker-compose.yml`, pointing `file` at the downloaded `.pem` file:
+
+```yaml
+x-app-defaults: &x_app_default
+  secrets:
+    - codebase_github_private_key
+
+secrets:
+  codebase_github_private_key:
+    file: /path/to/your-private-key.pem
 ```
 
 **Option 2: Set as environment variable**

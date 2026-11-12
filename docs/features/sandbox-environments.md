@@ -23,11 +23,11 @@ Every environment has one of two scopes:
 When resolving the runtime for a repository, a **User** environment that claims that repository wins over a **Global** one, so you can override an organization-wide setup with your own for the repositories you care about.
 
 !!! note "Global environments are admin-only"
-    Only administrators can create, edit, delete, or set the default of a **Global** environment. Non-admins can still *select* and *read* global environments (secret values stay masked), but the scope dropdown offers only **User** when you create one.
+    Only administrators can create, edit, delete, or set the default of a **Global** environment. Non-admins can still *select* and *read* global environments (secret values stay masked), but the **Scope** toggle offers only **Personal** when you create one.
 
 ### The single global default
 
-Exactly one **Global** environment may be marked as the default. It is the fallback the runtime uses when no other environment matches a repository (see [How an environment is resolved](#how-an-environment-is-resolved)). Administrators promote a different environment to default from the list (the **Set default** action, `POST /dashboard/sandbox-envs/<uuid>/set-default/`); promoting one automatically demotes the previous default. You cannot delete the current global default — promote another environment first.
+Exactly one **Global** environment may be marked as the default. It is the fallback the runtime uses when no other environment matches a repository (see [How an environment is resolved](#how-an-environment-is-resolved)). Administrators promote a different environment to default from the list (the **Make default** action, `POST /dashboard/sandbox-envs/<uuid>/set-default/`); promoting one automatically demotes the previous default. You cannot delete the current global default — promote another environment first.
 
 ## Creating an environment
 
@@ -37,7 +37,7 @@ Click **Create** on the list page to open the drawer (`/dashboard/sandbox-envs/c
 |-------|-------------|
 | **Name** | A short label, unique within its scope. Required |
 | **Description** | Optional free text |
-| **Scope** | **User** (private) or **Global** (admin-only, shared) |
+| **Scope** | **Personal** (a User environment, private to you) or **Shared with everyone** (a Global environment, administrators only) |
 | **Base image** | The container image the sandbox runs, e.g. `python:3.14-slim`. Required |
 | **CPUs** | CPU limit (a number, up to two decimals). Switch from *default* to *custom* to set it; leave on *default* to inherit |
 | **Memory** | Memory limit, entered as a value plus a **MiB** or **GiB** unit. Switch from *default* to *custom* to set it |
@@ -111,7 +111,7 @@ When a run is requested — a webhook arrives, a job is submitted, a chat sessio
 2. **User repository binding** — your **User** environment whose **Repositories** list contains this repository.
 3. **Global repository binding** — a **Global** (non-default) environment whose **Repositories** list contains this repository.
 4. **Global default** — the single **Global** environment marked as default.
-5. **None** — if nothing matches, the sandbox uses its built-in runtime defaults (no base image, networking off).
+5. **None** — if nothing matches, the run has no sandbox: the agent gets no `bash` tool. A sandbox exists only when the effective environment sets a base image.
 
 The selected per-run environment is then **merged with the global default** to produce the effective runtime: for each resource field (base image, memory, CPUs) the per-run environment wins when it sets a value, otherwise the global default's value applies, otherwise the runtime default. **Network (egress) is the exception — it is explicit per environment and is never inherited**: a per-run environment with **Network** off does not inherit the global default's egress policy (only the repository's own git platform stays reachable, so DAIV can publish). Environment variables from both are unioned, with the per-run environment's keys shadowing the global default's.
 
@@ -132,7 +132,7 @@ flowchart TD
     D -- Yes --> Z
     D -- No --> E{Global default<br/>exists?}
     E -- Yes --> Z
-    E -- No --> F[Built-in runtime defaults]
+    E -- No --> F[No sandbox]
 ```
 
 ## Selecting an environment for a run

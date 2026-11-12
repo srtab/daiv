@@ -51,7 +51,7 @@ echo "lsv2_pt_xxxxxxxxxxxxxxxxxxxxxxxx_yyyyyyyyyyyy" | docker secret create lang
 
 ```bash
 # Docker Compose
-docker compose restart
+docker compose up -d
 
 # Docker Swarm
 docker stack deploy -c stack.yml daiv

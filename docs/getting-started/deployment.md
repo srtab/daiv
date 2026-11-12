@@ -52,7 +52,7 @@ This guide walks you through deploying DAIV using Docker Swarm or Docker Compose
 **Create each secret using this command** (see [Docker Secrets documentation](https://docs.docker.com/reference/cli/docker/secret/create/) for more details):
 
 ```bash
-docker secret create django_secret_key <secret_key>
+printf '%s' '<value>' | docker secret create <name> -
 ```
 
 **Create the egress CA and store it as two secrets.** DAIV runs git inside the sandbox, and the sandbox reaches your Git platform only through a per-session proxy that adds the credentials, so the token never enters the sandbox. The proxy needs this CA:
@@ -721,6 +721,6 @@ Your DAIV instance is now running and accessible. Continue with:
 
     This creates an admin user who can sign in using login-by-code (a one-time code sent by email) — useful when OAuth is not yet configured.
 
-    After the initial admin is created, social signup is restricted — new users must be created by an admin at `/accounts/users/`. Admins can assign users either the **admin** role (full access including user management) or the **member** role (dashboard, API keys, and MCP access).
+    After the initial admin is created, email signup stays disabled and social signup is off unless you set `DAIV_AUTH_SIGNUP_OPEN=true`, so new users must be created by an admin at `/accounts/users/`. Admins can assign users either the **admin** role (full access including user management) or the **member** role (dashboard, API keys, and MCP access).
 
     OAuth login can be configured and toggled on/off at any time via the **Configuration** page at `/dashboard/configuration/` under the **Authentication** section.

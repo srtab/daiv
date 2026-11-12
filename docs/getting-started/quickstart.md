@@ -155,7 +155,7 @@ services:
       DAIV_SANDBOX_API_KEY: ${DAIV_SANDBOX_API_KEY}
       DAIV_SANDBOX_EGRESS_CA_CERT_FILE: /home/app/certs/egress-ca.crt
       DAIV_SANDBOX_EGRESS_CA_KEY_FILE: /home/app/certs/egress-ca.key
-      DAIV_SANDBOX_REDIS_URL: redis://redis:6379/1
+      DAIV_SANDBOX_REDIS_URL: redis://redis:6379/3
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock # (5)!
       - ./certs:/home/app/certs:ro

@@ -156,7 +156,7 @@ Middlewares are the backbone of the agent — they inject tools, system prompts,
 
 | Middleware | Condition |
 |------------|-----------|
-| `SandboxMiddleware` | A SandboxEnvironment is resolvable for the run (per-run pick or GLOBAL default exists) |
+| `SandboxMiddleware` | The run's effective sandbox environment (per-run pick merged over the GLOBAL default) sets a base image |
 | `WebSearchMiddleware` | `DAIV_WEB_SEARCH_ENABLED` is `true` |
 | `WebFetchMiddleware` | `DAIV_WEB_FETCH_ENABLED` is `true` |
 | `ModelFallbackMiddleware` | A fallback model is configured |
@@ -198,6 +198,6 @@ Models are resolved at four levels (highest priority first):
 1. **Per-run model** — a model picked in the agent picker, or `agent_model` through the API and MCP
 2. **Issue labels** — `daiv-max` switches to a stronger model with higher thinking
 3. **Repository config** — `.daiv.yml` [model overrides](../customization/repository-config.md#model-overrides)
-4. **Environment variables** — global defaults (`DAIV_AGENT_*`)
+4. **Global defaults** — the `DAIV_AGENT_*` environment variables, or the same settings in [Site Configuration](site-configuration.md)
 
 See [Environment Variables](env-variables.md#daiv-agent) for all agent model settings.

@@ -82,8 +82,9 @@ When a command is evaluated, rules are checked in this order:
 ## Configuring the sandbox
 
 Sandbox runtime configuration (`base_image`, `cpus`, `memory`, `network`, and
-environment variables) is managed through the **Sandbox Environments** admin
-page rather than `.daiv.yml`. Each environment can be bound to specific
+environment variables) is managed through the **Sandbox Environments** page
+of the dashboard rather than `.daiv.yml`. Any signed-in user manages their own
+environments there; only administrators manage global ones. Each environment can be bound to specific
 repositories (`owner/repo`); when a run is requested in a repo claimed by an
 environment, that environment is auto-selected. Personal (USER-scoped)
 environments override organization-wide (GLOBAL-scoped) environments for the

@@ -6,7 +6,7 @@ description: "How sign-in works in the DAIV dashboard: admin and member roles, G
 
 DAIV's web dashboard requires you to sign in. Every authenticated user has one of two roles — **admin** or **member** — which decide what they can see and change. Members manage their own work (agent runs, chats, schedules, and API keys); admins additionally manage the deployment: site configuration, users, global skills, and global sandbox environments.
 
-Self-service signup is **disabled**. Users either sign in with their Git platform account (when OAuth is enabled) or are pre-created by an admin and sign in with a one-time email code.
+Email signup is **disabled**, and signup through your Git platform's OAuth is off by default: an admin turns it on with **Open social signup** (`DAIV_AUTH_SIGNUP_OPEN`). Otherwise users are pre-created by an admin and sign in with their Git platform account (when OAuth is enabled) or with a one-time email code.
 
 ## Roles
 

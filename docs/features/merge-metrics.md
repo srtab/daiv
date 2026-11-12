@@ -75,10 +75,8 @@ Merge metrics collection is enabled automatically. No configuration is required.
 
 ### Webhook events
 
-DAIV registers the necessary webhook events on both platforms:
-
-- **GitLab**: `merge_requests_events` (added alongside existing `push_events`, `issues_events`, `note_events`)
-- **GitHub**: `pull_request` (added alongside existing `push`, `issues`, `pull_request_review`, `issue_comment`)
+- **GitLab**: DAIV registers `merge_requests_events` on each repository's webhook, alongside `push_events`, `issues_events`, `note_events` and `pipeline_events`.
+- **GitHub**: DAIV registers nothing. Subscribe your GitHub App to `pull_request`, alongside `push`, `issues`, `pull_request_review` and `issue_comment` (see [Platform Setup](../getting-started/platform-setup.md#step-4-verify-webhook-configuration)).
 
 ### Updating existing webhooks
 
@@ -92,7 +90,7 @@ django-admin setup_webhooks --update
 
 The periodic webhook setup cron task does **not** pass `--update` by default, so this one-time manual step is needed after deploying the update.
 
-**GitHub** — Update the webhook events in your GitHub App configuration to include `Pull requests` (if not already enabled). Alternatively, re-run webhook setup for your repositories.
+**GitHub** — Update the webhook events in your GitHub App configuration to include `Pull requests` (if not already enabled). `setup_webhooks` does nothing on GitHub: it logs a warning and returns.
 
 ---
 

@@ -121,7 +121,7 @@ Variables marked with:
 
 ### Authentication
 
-DAIV uses [django-allauth](https://docs.allauth.org/) for web authentication. Users are created by admins and sign in via social providers (GitHub, GitLab) or passwordless login-by-code. Social signup is restricted to pre-existing accounts — users must be created by an admin first via the user management interface at `/accounts/users/`. On a fresh install, the first social login bootstraps the initial admin account, or you can use `django-admin bootstrap_admin <email>` to create one via login-by-code (see [Deployment](../getting-started/deployment.md)).
+DAIV uses [django-allauth](https://docs.allauth.org/) for web authentication. Users are created by admins and sign in via social providers (GitHub, GitLab) or passwordless login-by-code. Email signup is disabled. Social signup is off by default, so users must be created by an admin first via the user management interface at `/accounts/users/`, unless you turn on `DAIV_AUTH_SIGNUP_OPEN`. On a fresh install, the first social login bootstraps the initial admin account, or you can use `django-admin bootstrap_admin <email>` to create one via login-by-code (see [Deployment](../getting-started/deployment.md)).
 
 OAuth credentials can be configured via environment variables (shown below) or through the **Configuration** page at `/dashboard/configuration/` under the **Authentication** section. The UI also provides an **enable OAuth login** toggle to turn social login on or off without removing credentials.
 
@@ -364,7 +364,7 @@ The native `web_fetch` tool fetches a URL, converts HTML to markdown, then uses 
 | Variable                        | Description                                                    | Default        | Example |
 |---------------------------------|----------------------------------------------------------------|:--------------:|---------|
 | `DAIV_WEB_FETCH_ENABLED`  | Enable/disable the native `web_fetch` tool                     | `true`         | `false` |
-| `DAIV_WEB_FETCH_MODEL_NAME` | Model used by `web_fetch` to process page content with the prompt | `claude-haiku-5.5` | `openrouter:openai/gpt-4.1-mini` |
+| `DAIV_WEB_FETCH_MODEL_NAME` | Model used by `web_fetch` to process page content with the prompt | `openrouter:anthropic/claude-haiku-5.5` | `openrouter:openai/gpt-4.1-mini` |
 | `DAIV_WEB_FETCH_CACHE_TTL_SECONDS` | Cache TTL (seconds) for repeated fetches                | `900`          | `1800` |
 | `DAIV_WEB_FETCH_TIMEOUT_SECONDS` | HTTP timeout for fetching (seconds)                      | `15`           | `30` |
 | `AUTOMATION_WEB_FETCH_PROXY_URL` | Optional proxy URL for web fetch HTTP requests (env-only)      | *(none)*       | `http://proxy:8080` |
@@ -425,11 +425,11 @@ The main agent used for issue addressing, pull request assistance, and all inter
 | Variable | Description | Default |
 |----------------------------------------|----------------------------------------------------------|------------------------|
 | `DAIV_AGENT_RECURSION_LIMIT` | Maximum recursion depth for agent execution | `500` |
-| `DAIV_AGENT_MODEL_NAME` | Primary model for agent tasks | `claude-sonnet-5.5` |
-| `DAIV_AGENT_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails | `gpt-6.1-sol` |
+| `DAIV_AGENT_MODEL_NAME` | Primary model for agent tasks | `openrouter:anthropic/claude-sonnet-5.5` |
+| `DAIV_AGENT_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails | `openrouter:openai/gpt-6.1-sol` |
 | `DAIV_AGENT_THINKING_LEVEL` | Extended thinking level (`minimal`, `low`, `medium`, `high`, `xhigh`, in any case; empty or `off` to disable) | `medium` |
 | `DAIV_AGENT_FALLBACK_THINKING_LEVEL` | Thinking level applied when the primary model fails over to the fallback model (same values as `DAIV_AGENT_THINKING_LEVEL`, set independently of it) | `medium` |
-| `DAIV_AGENT_MAX_MODEL_NAME` | Model used when the `daiv-max` label is present | `claude-opus-5.5` |
+| `DAIV_AGENT_MAX_MODEL_NAME` | Model used when the `daiv-max` label is present | `openrouter:anthropic/claude-opus-5.5` |
 | `DAIV_AGENT_MAX_THINKING_LEVEL` | Thinking level for `daiv-max` tasks (same values as `DAIV_AGENT_THINKING_LEVEL`) | `high` |
 | `DAIV_AGENT_SKILL_MODELS` | Model per skill name, as a JSON object (`{"code-review": "openrouter:anthropic/claude-sonnet-5.5"}`); see [Agent Skills](../customization/agent-skills.md#running-a-skill-on-another-model). A null or empty entry is unset; a malformed value is logged and ignored. | `{}` |
 | `DAIV_AGENT_SUBAGENT_MODELS` | Model per subagent name, as a JSON object (`{"explore": "openrouter:anthropic/claude-haiku-5.5"}`). See [Subagents](../features/subagents.md#choosing-a-subagents-model). A null or empty entry is unset; a malformed value is logged and ignored. The deprecated `DAIV_AGENT_EXPLORE_MODEL_NAME` is still read as the `explore` entry when there is none, logged at ERROR, until it is removed. | `{}` |
@@ -459,8 +459,8 @@ Generates pull request titles, descriptions, and commit messages from diffs.
 
 | Variable | Description | Default |
 |-------------------------------|----------------------------------------------|------------------------|
-| `DAIV_DIFF_TO_METADATA_MODEL_NAME` | Primary model for diff-to-metadata generation | `gemini-3.8-flash` |
-| `DAIV_DIFF_TO_METADATA_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails | `deepseek-v4.1-flash` |
+| `DAIV_DIFF_TO_METADATA_MODEL_NAME` | Primary model for diff-to-metadata generation | `openrouter:google/gemini-3.8-flash` |
+| `DAIV_DIFF_TO_METADATA_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails | `openrouter:deepseek/deepseek-v4.1-flash` |
 
 ### Titling
 
@@ -468,8 +468,8 @@ Generates short titles for sessions and runs from the user's initial prompt.
 
 | Variable | Description | Default |
 |-------------------------------|----------------------------------------------|------------------------|
-| `DAIV_TITLING_MODEL_NAME` | Primary model for title generation | `gpt-6-luna` |
-| `DAIV_TITLING_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails | `claude-haiku-5.5` |
+| `DAIV_TITLING_MODEL_NAME` | Primary model for title generation | `openrouter:openai/gpt-6-luna` |
+| `DAIV_TITLING_FALLBACK_MODEL_NAME` | Fallback model if the primary model fails | `openrouter:anthropic/claude-haiku-5.5` |
 
 ### Memory
 

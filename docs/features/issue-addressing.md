@@ -66,7 +66,7 @@ The `daiv-max` label switches DAIV to a more capable model with a higher thinkin
 | Model | Configurable (default: Claude Sonnet) | Configurable (default: Claude Opus) |
 | Thinking level | Configurable (default: medium) | Configurable (default: high) |
 
-This is useful for complex issues that require more sophisticated analysis. Both the standard and max models can be configured via environment variables.
+This is useful for complex issues that require more sophisticated analysis. Both the standard and max models can be configured through environment variables or [Site Configuration](../reference/site-configuration.md).
 
 ## Re-running
 
