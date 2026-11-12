@@ -25,10 +25,15 @@ FONT_CDN = re.compile(r"https://fonts\.(?:googleapis|gstatic)\.com")
 
 
 def _sidebar_sources() -> str:
-    """The sidebar and every dashboard partial it includes."""
-    sidebar = SIDEBAR_TEMPLATE.read_text(encoding="utf-8")
-    partials = {SIDEBAR_TEMPLATE.with_name(name) for name in INCLUDE.findall(sidebar)}
-    return "\n".join([sidebar, *(path.read_text(encoding="utf-8") for path in sorted(partials))])
+    """The sidebar and every dashboard partial it includes, however deeply."""
+    seen: dict = {}
+    pending = [SIDEBAR_TEMPLATE]
+    while pending:
+        path = pending.pop()
+        if path not in seen:
+            seen[path] = path.read_text(encoding="utf-8")
+            pending.extend(SIDEBAR_TEMPLATE.with_name(name) for name in INCLUDE.findall(seen[path]))
+    return "\n".join(seen[path] for path in sorted(seen))
 
 
 def test_every_sidebar_hook_is_handled_by_the_rail_tier():
@@ -106,16 +111,16 @@ def test_every_sidebar_nav_item_labels_its_text():
 
 def test_the_account_menu_is_not_clipped_by_the_sidebar():
     """An `overflow` on the `<aside>` clips anything absolutely positioned inside it, and the
-    account menu opens past the rail's right edge. Only the `<nav>` list may scroll, and the
-    menu has to live after it."""
+    account menu opens past the rail's right edge. Only a region inside the `<nav>` may scroll,
+    and the menu has to live after it."""
     sidebar = SIDEBAR_TEMPLATE.read_text(encoding="utf-8")
     aside = re.search(r"<aside\s[^>]*>", sidebar)
     nav = re.search(r"<nav\s[^>]*>", sidebar)
 
     assert aside and nav, "_sidebar.html no longer opens an <aside> holding a <nav>"
     assert "overflow" not in aside.group(), "the sidebar scrolls as a whole and clips the account menu"
-    assert "overflow-y-auto" in nav.group(), (
-        "the nav list no longer scrolls — a long admin nav pushes the menu off-screen"
+    assert re.search(r"<div data-sidebar-scroll[^>]*overflow-y-auto", _sidebar_sources()), (
+        "the nav's lists no longer scroll — a long list pushes the menu off-screen"
     )
     assert sidebar.index('data-testid="app-user-menu"') > sidebar.index("</nav>"), (
         "the account menu sits inside the scrolling nav, which clips it"

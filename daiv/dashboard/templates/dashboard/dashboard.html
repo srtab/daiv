@@ -17,7 +17,10 @@
             {% blocktranslate with name=user.name|default:user.email %}Welcome back, {{ name }}{% endblocktranslate %}
         </p>
     </div>
-    <a href="{% url 'insights' %}" class="text-sm text-text-muted transition-colors hover:text-text">{% translate "Team insights" %} &rarr;</a>
+    <div class="flex items-center gap-4">
+        <a href="{% url 'artifact_list' %}" class="text-sm text-text-muted transition-colors hover:text-text">{% translate "Artifacts" %} &rarr;</a>
+        <a href="{% url 'insights' %}" class="text-sm text-text-muted transition-colors hover:text-text">{% translate "Team insights" %} &rarr;</a>
+    </div>
 </div>
 
 {% if recent_sessions %}

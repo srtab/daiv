@@ -1,0 +1,122 @@
+{% load i18n icon_tags nav_tags %}
+{% comment %}
+The sidebar's middle on a settings page, in place of `_sidebar_main.html`: the pages someone sets
+up once, and for admins the instance's own. `nav_settings_mode` picks it.
+{% endcomment %}
+<div data-testid="nav-settings-menu" class="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-3 pb-4">
+  <a href="{% url 'dashboard' %}"
+     data-testid="nav-settings-back"
+     title="{% translate 'Back' %}"
+     class="sidebar__nav-item">
+    {% icon "arrow-right" "h-4 w-4 shrink-0 rotate-180" %}
+    <span class="sidebar__collapsible">{% translate "Back" %}</span>
+  </a>
+
+  {% comment %}
+  Pages someone sets up once and most teammates never open. The description says what
+  each is for; `title` carries it to the rail, which hides the text.
+  {% endcomment %}
+  {% translate "Optional. Usually set up once, often by a teammate." as setup_hint %}
+  <div data-testid="nav-setup-group">
+    <div class="sidebar__group-heading mt-5 mb-1 px-3" title="{{ setup_hint }}">
+      <span class="sidebar__collapsible text-[11px] font-semibold uppercase tracking-[0.14em] text-text-faint">
+        {% translate "Agent setup" %}
+      </span>
+      <span class="sidebar__collapsible nav-description">{{ setup_hint }}</span>
+    </div>
+
+    {% translate "Sandbox environments" as label %}
+    {% translate "Where the agent runs commands and tests" as description %}
+    {% url 'sandbox_envs:list' as href %}
+    {% include "dashboard/_described_nav_item.html" with section="sandbox_envs" icon="sandbox" %}
+
+    {% translate "MCP servers" as label %}
+    {% translate "Extra tools the agent can call" as description %}
+    {% url 'mcp_connectors:list' as href %}
+    {% include "dashboard/_described_nav_item.html" with section="mcp_servers" icon="puzzle-piece" %}
+
+    {% translate "Memory" as label %}
+    {% translate "What the agent has learned about each repository" as description %}
+    {% url 'memory:list' as href %}
+    {% include "dashboard/_described_nav_item.html" with section="memory" icon="cpu-chip" %}
+  </div>
+
+  {% if user.is_admin %}
+  <div data-testid="nav-admin-group">
+    <div class="sidebar__group-heading mt-5 mb-1 px-3">
+      <span class="sidebar__collapsible text-[11px] font-semibold uppercase tracking-[0.14em] text-text-faint">
+        {% translate "Admin" %}
+      </span>
+    </div>
+
+    <a href="{% url 'user_list' %}"
+       title="{% translate 'Users' %}"
+       class="sidebar__nav-item {% nav_active 'users' %}">
+      {% icon "users" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__collapsible">{% translate "Users" %}</span>
+    </a>
+
+    <a href="{% url 'site_configuration_index' %}"
+       title="{% translate 'Configuration' %}"
+       class="sidebar__nav-item {% nav_active 'configuration' %}">
+      {% icon "cog-6-tooth" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__collapsible">{% translate "Configuration" %}</span>
+    </a>
+
+    <a href="{% url 'schedule_template_list' %}"
+       title="{% translate 'Schedule templates' %}"
+       class="sidebar__nav-item {% nav_active 'schedule_templates' %}">
+      {% icon "clock" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__collapsible">{% translate "Schedule templates" %}</span>
+    </a>
+
+    <a href="{% url 'skills:list' %}"
+       title="{% translate 'Skills' %}"
+       class="sidebar__nav-item {% nav_active 'skills' %}">
+      {% icon "beaker" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__collapsible">{% translate "Skills" %}</span>
+    </a>
+
+    <a href="{% url 'mcp_connectors:global_list' %}"
+       title="{% translate 'Global MCP servers' %}"
+       class="sidebar__nav-item {% nav_active 'mcp_servers_global' %}">
+      {% icon "puzzle-piece" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__collapsible">{% translate "Global MCP servers" %}</span>
+    </a>
+  </div>
+  {% endif %}
+
+  <div class="mt-5 border-t border-border pt-3">
+    <a href="{{ build_info.docs_url }}"
+       target="_blank"
+       rel="noopener"
+       data-testid="sidebar-docs-link"
+       title="{% translate 'Help & docs' %}"
+       class="sidebar__footer-link flex items-center gap-3 rounded-lg px-3 py-2 text-xs text-text-faint transition-colors hover:text-text-muted">
+      {% icon "document-text" "h-3.5 w-3.5 shrink-0" %}
+      <span class="sidebar__collapsible">{% translate "Help & docs" %}</span>
+    </a>
+    <a href="{% url 'api:openapi-view' %}"
+       title="{% translate 'API documentation' %}"
+       class="sidebar__footer-link flex items-center gap-3 rounded-lg px-3 py-2 text-xs text-text-faint transition-colors hover:text-text-muted">
+      {% icon "code-bracket" "h-3.5 w-3.5 shrink-0" %}
+      <span class="sidebar__collapsible">{% translate "API documentation" %}</span>
+    </a>
+    <div data-testid="build-info"
+         class="sidebar__collapsible flex items-center gap-1.5 px-3 pt-1 pb-2 text-[11px] text-text-faint">
+      <span>v{{ build_info.version }}</span>
+      {% if build_info.sha_short %}
+        <span aria-hidden="true">&middot;</span>
+        <a href="{{ build_info.commit_url }}"
+           target="_blank"
+           rel="noopener"
+           class="font-mono transition-colors hover:text-text-muted"
+           title="{{ build_info.sha }}">{{ build_info.sha_short }}</a>
+        {% if build_info.build_date %}
+          <span aria-hidden="true">&middot;</span>
+          <span title="{{ build_info.build_date|date:'c' }}">{{ build_info.build_date|date:"Y-m-d" }}</span>
+        {% endif %}
+      {% endif %}
+    </div>
+  </div>
+</div>

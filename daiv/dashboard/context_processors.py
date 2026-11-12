@@ -192,5 +192,6 @@ def nav(request) -> dict[str, Any]:
         "nav_running_jobs": SimpleLazyObject(lambda: running_jobs_count(request, user)),
         "nav_active_section": active_section,
         "nav_settings_mode": active_section in SETTINGS_SECTIONS,
+        "nav_viewing": _viewed_thread_id(request),
         "nav_sidebar": SimpleLazyObject(lambda: sidebar_state(request, user)),
     }

@@ -262,6 +262,62 @@
     @apply inline-flex items-center rounded-full px-2 py-0.5 text-[11px] tabular-nums;
   }
 
+  /* The session and schedule lists: dot, truncating title, right-aligned meta. The rail
+     hides the whole scroller, so none of these needs a rail rule. */
+  .nav-group-heading {
+    @apply mb-1 flex items-center justify-between gap-2 px-3;
+  }
+
+  .nav-group-title {
+    @apply relative -mx-1.5 rounded-md px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em]
+           text-text-faint;
+  }
+
+  .nav-group-link {
+    @apply text-[11px] text-text-faint transition-colors hover:text-text-muted;
+  }
+
+  .nav-row {
+    @apply relative flex w-full min-w-0 items-center gap-2.5 rounded-lg px-3 py-1.5 text-left text-[13px]
+           text-text-muted transition-colors hover:bg-surface-3 hover:text-text;
+  }
+
+  .nav-row--active {
+    @apply bg-surface-3 text-text-strong;
+  }
+
+  .nav-row--nested {
+    @apply pl-8 text-xs;
+  }
+
+  .nav-row--quiet {
+    @apply text-xs text-text-faint;
+  }
+
+  .nav-row__title {
+    @apply min-w-0 flex-1 truncate;
+  }
+
+  .nav-row__meta {
+    @apply flex shrink-0 items-center gap-1.5 text-[11px] tabular-nums text-text-faint;
+  }
+
+  .nav-row__chevron {
+    @apply transition-transform;
+  }
+
+  [aria-expanded="true"] > .nav-row__chevron {
+    @apply rotate-90;
+  }
+
+  .nav-empty {
+    @apply px-3 py-1 text-xs text-text-faint;
+  }
+
+  .nav-empty__link {
+    @apply text-text-muted underline decoration-border underline-offset-2 hover:text-text;
+  }
+
   .brand-mark {
     @apply inline-block h-6 w-6 shrink-0 rounded-md bg-brand;
   }

@@ -31,174 +31,26 @@
     {% include "dashboard/_new_split.html" with testid="nav-new" compact=False %}
   </div>
 
-  <nav class="scrollbar-thin flex min-h-0 flex-1 flex-col overflow-y-auto px-3 pb-4">
-    {# Daily work — no group label #}
-    <a href="{% url 'dashboard' %}"
-       title="{% translate 'Home' %}"
-       class="sidebar__nav-item {% nav_active 'dashboard' %}">
-      {% icon "squares-2x2" "h-4 w-4 shrink-0" %}
-      <span class="sidebar__collapsible">{% translate "Home" %}</span>
-    </a>
-
-    <a href="{% url 'session_list' %}"
-       title="{% translate 'Sessions' %}"
-       class="sidebar__nav-item {% nav_active 'sessions' %}">
-      {% icon "chat-bubble" "h-4 w-4 shrink-0" %}
-      <span class="sidebar__collapsible flex-1">{% translate "Sessions" %}</span>
-      {% comment %}Count and label come from the `nav` store, seeded in base_app.html.
-      `x-cloak` so the badge cannot flash at zero before Alpine boots.{% endcomment %}
-      <span data-testid="nav-running-badge"
-            x-show="$store.nav.running > 0" x-cloak
-            x-text="$store.nav.runningLabel"
-            class="sidebar__collapsible nav-badge bg-surface-3 font-medium text-text-muted"></span>
-    </a>
-
-    <a href="{% url 'notifications:list' %}"
-       data-testid="nav-notifications"
-       title="{% translate 'Notifications' %}"
-       class="sidebar__nav-item {% nav_active 'notifications' %}">
-      <span class="relative inline-flex shrink-0">
-        {% icon "bell" "h-4 w-4" %}
-        {# The rail hides the count, so it shows this dot in its place. #}
-        <span x-show="$store.nav.unread > 0" x-cloak aria-hidden="true"
-              class="sidebar__rail-only status-dot absolute -top-0.5 -right-0.5 bg-accent"></span>
-      </span>
-      <span class="sidebar__collapsible flex-1">{% translate "Notifications" %}</span>
-      <span data-testid="nav-unread-badge"
-            x-show="$store.nav.unread > 0" x-cloak
-            x-text="$store.nav.unread"
-            class="sidebar__collapsible nav-badge bg-accent font-semibold text-accent-ink"></span>
-    </a>
-
-    <a href="{% url 'artifact_list' %}"
-       title="{% translate 'Artifacts' %}"
-       class="sidebar__nav-item {% nav_active 'artifacts' %}">
-      {% icon "document-text" "h-4 w-4 shrink-0" %}
-      <span class="sidebar__collapsible">{% translate "Artifacts" %}</span>
-    </a>
-
-    <a href="{% url 'schedule_list' %}"
-       title="{% translate 'Schedules' %}"
-       class="sidebar__nav-item {% nav_active 'schedules' %}">
-      {% icon "clock" "h-4 w-4 shrink-0" %}
-      <span class="sidebar__collapsible">{% translate "Schedules" %}</span>
-    </a>
-
-    <a href="{% url 'insights' %}"
-       title="{% translate 'Insights' %}"
-       class="sidebar__nav-item {% nav_active 'insights' %}">
-      {% icon "chart-bar" "h-4 w-4 shrink-0" %}
-      <span class="sidebar__collapsible">{% translate "Insights" %}</span>
-    </a>
-
-    {% comment %}
-    Pages someone sets up once and most teammates never open. The description says what
-    each is for; `title` carries it to the rail, which hides the text.
-    {% endcomment %}
-    {% translate "Optional. Usually set up once, often by a teammate." as setup_hint %}
-    <div data-testid="nav-setup-group" class="sidebar__group-heading mt-5 mb-1 px-3" title="{{ setup_hint }}">
-      <span class="sidebar__collapsible text-[11px] font-semibold uppercase tracking-[0.14em] text-text-faint">
-        {% translate "Agent setup" %}
-      </span>
-      <span class="sidebar__collapsible nav-description">{{ setup_hint }}</span>
-    </div>
-
-    {% translate "Sandbox environments" as label %}
-    {% translate "Where the agent runs commands and tests" as description %}
-    {% url 'sandbox_envs:list' as href %}
-    {% include "dashboard/_described_nav_item.html" with section="sandbox_envs" icon="sandbox" %}
-
-    {% translate "MCP servers" as label %}
-    {% translate "Extra tools the agent can call" as description %}
-    {% url 'mcp_connectors:list' as href %}
-    {% include "dashboard/_described_nav_item.html" with section="mcp_servers" icon="puzzle-piece" %}
-
-    {% translate "Memory" as label %}
-    {% translate "What the agent has learned about each repository" as description %}
-    {% url 'memory:list' as href %}
-    {% include "dashboard/_described_nav_item.html" with section="memory" icon="cpu-chip" %}
-
-    {% if user.is_admin %}
-    <div data-testid="nav-admin-group" class="sidebar__group-heading mt-5 mb-1 px-3">
-      <span class="sidebar__collapsible text-[11px] font-semibold uppercase tracking-[0.14em] text-text-faint">
-        {% translate "Admin" %}
-      </span>
-    </div>
-
-    <a href="{% url 'user_list' %}"
-       title="{% translate 'Users' %}"
-       class="sidebar__nav-item {% nav_active 'users' %}">
-      {% icon "users" "h-4 w-4 shrink-0" %}
-      <span class="sidebar__collapsible">{% translate "Users" %}</span>
-    </a>
-
-    <a href="{% url 'site_configuration_index' %}"
-       title="{% translate 'Configuration' %}"
-       class="sidebar__nav-item {% nav_active 'configuration' %}">
-      {% icon "cog-6-tooth" "h-4 w-4 shrink-0" %}
-      <span class="sidebar__collapsible">{% translate "Configuration" %}</span>
-    </a>
-
-    <a href="{% url 'schedule_template_list' %}"
-       title="{% translate 'Schedule templates' %}"
-       class="sidebar__nav-item {% nav_active 'schedule_templates' %}">
-      {% icon "clock" "h-4 w-4 shrink-0" %}
-      <span class="sidebar__collapsible">{% translate "Schedule templates" %}</span>
-    </a>
-
-    <a href="{% url 'skills:list' %}"
-       title="{% translate 'Skills' %}"
-       class="sidebar__nav-item {% nav_active 'skills' %}">
-      {% icon "beaker" "h-4 w-4 shrink-0" %}
-      <span class="sidebar__collapsible">{% translate "Skills" %}</span>
-    </a>
-
-    <a href="{% url 'mcp_connectors:global_list' %}"
-       title="{% translate 'Global MCP servers' %}"
-       class="sidebar__nav-item {% nav_active 'mcp_servers_global' %}">
-      {% icon "puzzle-piece" "h-4 w-4 shrink-0" %}
-      <span class="sidebar__collapsible">{% translate "Global MCP servers" %}</span>
-    </a>
-
+  <nav aria-label="{% translate 'Main' %}" class="flex min-h-0 flex-1 flex-col">
+    {% if nav_settings_mode %}
+    {% include "dashboard/_sidebar_settings.html" %}
+    {% else %}
+    {% include "dashboard/_sidebar_main.html" %}
     {% endif %}
   </nav>
 
   {% comment %}
-  Outside the scrolling <nav> on purpose: an overflow ancestor would clip the account menu,
+  Outside the <nav> and its scrolling lists on purpose: an overflow ancestor would clip the account menu,
   which opens past the rail's right edge.
   {% endcomment %}
   <div class="border-t border-border px-3 py-3">
-    <a href="{{ build_info.docs_url }}"
-       target="_blank"
-       rel="noopener"
-       data-testid="sidebar-docs-link"
-       title="{% translate 'Help & docs' %}"
-       class="sidebar__footer-link flex items-center gap-3 rounded-lg px-3 py-2 text-xs text-text-faint transition-colors hover:text-text-muted">
-      {% icon "document-text" "h-3.5 w-3.5 shrink-0" %}
-      <span class="sidebar__collapsible">{% translate "Help & docs" %}</span>
+    <a href="{% url 'sandbox_envs:list' %}"
+       data-testid="nav-settings"
+       title="{% translate 'Settings' %}"
+       class="sidebar__nav-item {% nav_active_if nav_settings_mode %}">
+      {% icon "cog-6-tooth" "h-4 w-4 shrink-0" %}
+      <span class="sidebar__collapsible">{% translate "Settings" %}</span>
     </a>
-    <a href="{% url 'api:openapi-view' %}"
-       title="{% translate 'API documentation' %}"
-       class="sidebar__footer-link flex items-center gap-3 rounded-lg px-3 py-2 text-xs text-text-faint transition-colors hover:text-text-muted">
-      {% icon "code-bracket" "h-3.5 w-3.5 shrink-0" %}
-      <span class="sidebar__collapsible">{% translate "API documentation" %}</span>
-    </a>
-    <div data-testid="build-info"
-         class="sidebar__collapsible flex items-center gap-1.5 px-3 pt-1 pb-2 text-[11px] text-text-faint">
-      <span>v{{ build_info.version }}</span>
-      {% if build_info.sha_short %}
-        <span aria-hidden="true">&middot;</span>
-        <a href="{{ build_info.commit_url }}"
-           target="_blank"
-           rel="noopener"
-           class="font-mono transition-colors hover:text-text-muted"
-           title="{{ build_info.sha }}">{{ build_info.sha_short }}</a>
-        {% if build_info.build_date %}
-          <span aria-hidden="true">&middot;</span>
-          <span title="{{ build_info.build_date|date:'c' }}">{{ build_info.build_date|date:"Y-m-d" }}</span>
-        {% endif %}
-      {% endif %}
-    </div>
 
     <div data-testid="app-user-menu" x-data="{ open: false }" class="relative mt-1"
          @keydown.escape="open = false" @click.outside="open = false">
