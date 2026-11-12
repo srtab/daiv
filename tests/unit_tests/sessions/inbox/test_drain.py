@@ -80,6 +80,15 @@ class TestSlot:
         assert (await _state(event)).state == EventState.PENDING
         enqueue.assert_not_awaited()
 
+    async def test_an_archived_session_keeps_its_events_pending_and_out_of_the_sweep(self, enqueue):
+        session = await amake_session(archived_at=timezone.now())
+        event = await amake_event(session)
+
+        assert await Drain(session.thread_id).astart() is None
+        assert (await _state(event)).state == EventState.PENDING
+        assert session.thread_id not in await sync_to_async(Drain.sessions_to_drain)()
+        enqueue.assert_not_awaited()
+
     async def test_a_stale_holder_counts_as_free(self, enqueue):
         session = await amake_session(active_run_id="gone", last_active_at=stale_cutoff() - timedelta(minutes=1))
         await amake_event(session)

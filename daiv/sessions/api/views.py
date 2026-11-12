@@ -13,6 +13,7 @@ from ninja.security import django_auth
 from accounts.api.security import AuthBearer
 from codebase.authorization import can_run
 from sessions.header import aci_payload, watch_payload
+from sessions.inbox.drain import Drain
 from sessions.live.notify import asession_changed
 from sessions.models import MergeRequestOwnership, RunStatus, Session
 from sessions.page_state import aload_session_state, turns_payload
@@ -109,13 +110,16 @@ async def _ci(session: Session) -> dict:
 
 @sessions_router.post("/{thread_id}/archive", response=dict, url_name="session_archive")
 async def session_archive(request: HttpRequest, thread_id: str, payload: ArchiveIn):
-    """Archive the session for everyone, or bring it back for everyone; either needs run access to its repository."""
+    """Archive the session for everyone, or bring it back for everyone and start what its inbox kept waiting; either
+    needs run access to its repository."""
     session = await _get_runnable_session(request.auth, thread_id)  # ty: ignore[unresolved-attribute]
     changing = Session.objects.filter(pk=session.pk, archived_at__isnull=payload.archived)
     if payload.archived:
         changed = await changing.aupdate(archived_at=timezone.now(), archive_pending=False)
     else:
         changed = await changing.aupdate(archived_at=None)
+        if changed:
+            await sync_to_async(Drain(session.pk).start_logged)()
     if changed:
         await asession_changed(session.pk)
     return {"archived": payload.archived}

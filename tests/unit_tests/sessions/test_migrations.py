@@ -71,7 +71,7 @@ def test_open_watches_become_ownerships_of_their_merge_request_thread(member_use
 
 
 @pytest.mark.django_db(transaction=True)
-def test_a_session_anyone_archived_stays_archived_from_their_first_archive(member_user, admin_user):
+def test_a_session_its_owner_archived_stays_archived_and_other_archives_are_dropped(member_user, admin_user):
     from datetime import UTC, datetime
 
     from django.db import connection
@@ -83,19 +83,21 @@ def test_a_session_anyone_archived_stays_archived_from_their_first_archive(membe
     try:
         old = executor.loader.project_state(before).apps
         sessions, hidden = old.get_model("agent_sessions", "Session"), old.get_model("agent_sessions", "HiddenSession")
-        first, later = datetime(2026, 11, 1, tzinfo=UTC), datetime(2026, 11, 5, tzinfo=UTC)
-        merged = datetime(2026, 11, 3, tzinfo=UTC)
+        owners, merged = datetime(2026, 11, 5, tzinfo=UTC), datetime(2026, 11, 3, tzinfo=UTC)
         archived, kept, untouched = (
-            sessions.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, **fields)
+            sessions.objects.create(
+                thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, user_id=member_user.pk, **fields
+            )
             for fields in ({"archive_pending": True}, {"archived_at": merged}, {})
         )
-        hidden.objects.create(session=archived, user_id=admin_user.pk, hidden_at=later)
-        hidden.objects.create(session=archived, user_id=member_user.pk, hidden_at=first)
-        hidden.objects.create(session=kept, user_id=member_user.pk, hidden_at=first)
+        hidden.objects.create(session=archived, user_id=admin_user.pk, hidden_at=datetime(2026, 11, 1, tzinfo=UTC))
+        hidden.objects.create(session=archived, user_id=member_user.pk, hidden_at=owners)
+        hidden.objects.create(session=kept, user_id=member_user.pk, hidden_at=owners)
+        hidden.objects.create(session=untouched, user_id=admin_user.pk, hidden_at=owners)
     finally:
         executor = MigrationExecutor(connection)
         executor.migrate([after])
 
     rows = Session.objects.in_bulk([archived.pk, kept.pk, untouched.pk])
-    assert (rows[archived.pk].archived_at, rows[archived.pk].archive_pending) == (first, False)
+    assert (rows[archived.pk].archived_at, rows[archived.pk].archive_pending) == (owners, False)
     assert (rows[kept.pk].archived_at, rows[untouched.pk].archived_at) == (merged, None)

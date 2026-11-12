@@ -104,7 +104,7 @@ An archived session is archived for everyone. It gets archived in one of two way
 - **From its page**, by anyone who can run agents on its repository, from the session's **⋯** menu.
 - **When its merge request merges**: DAIV archives every session that worked on it — the session that opened it, its review and comment sessions, and issue sessions that published it. A session that still owns another open merge request stays listed and is archived when that one merges. A session with a run still going, or with a delegated session still running or owning an open merge request, is archived once that run ends or that merge request merges or closes. A merge request closed without merging archives nothing.
 
-An archived session refuses follow-ups — chat messages, `thread_id` jobs and leg follow-ups — and a mention or label on its issue is ignored without a reply. **Unarchive** from the session's **⋯** menu or its composer, which also needs run access to its repository, brings it back for everyone.
+An archived session refuses follow-ups — chat messages, `thread_id` jobs and leg follow-ups. A mention or label on its issue or merge request, or a mention on a merge request it owns, starts nothing; DAIV replies once with a link to the session. CI failures and delegation results that reach it wait, and run once it is unarchived. **Unarchive** from the session's **⋯** menu or its composer, which also needs run access to its repository, brings it back for everyone.
 
 ### Live updates
 

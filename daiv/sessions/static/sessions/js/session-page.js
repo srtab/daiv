@@ -116,6 +116,7 @@ document.addEventListener("alpine:init", () => {
     _settling: false,
     _watchAt: -Infinity,
     _archivedAt: -Infinity,
+    _archiveSeq: 0,
     _media: null,
     _onMedia: null,
     _provisional: [],
@@ -380,17 +381,19 @@ document.addEventListener("alpine:init", () => {
     askArchive() {
       document.getElementById("session-archive-dialog")?.showModal();
     },
+    // Only the latest of overlapping toggles restores on failure or reopens the page to fetched state.
     async setArchived(archived) {
       const previous = this.archived;
+      const seq = ++this._archiveSeq;
       this.archived = archived;
       this._archivedAt = Infinity;
       try {
         const res = await this._send(config.archiveUrl, "POST", { archived });
         if (!res.ok) throw new Error(`archive failed: ${res.status}`);
       } catch {
-        this.archived = previous;
+        if (seq === this._archiveSeq) this.archived = previous;
       } finally {
-        this._archivedAt = performance.now();
+        if (seq === this._archiveSeq) this._archivedAt = performance.now();
       }
     },
     async copyText(text) {

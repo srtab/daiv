@@ -142,4 +142,4 @@ class Leg:
         return latest is not None and latest[0] == RunStatus.FAILED and latest[1].startswith(LINK_FAILED_PREFIX)
 
     def is_archived(self) -> bool:
-        return Session.objects.filter(pk=self.session.pk).archived().exists()
+        return self.session.archived_at is not None

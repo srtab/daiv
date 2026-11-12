@@ -12,6 +12,7 @@ import pytest
 from asgiref.sync import sync_to_async
 from ninja.testing import TestAsyncClient
 from sessions.hydration import HydratedThread
+from sessions.inbox.drain import Drain
 from sessions.models import MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import APIKey, User
@@ -733,7 +734,10 @@ async def test_session_archive_archives_and_unarchives_it_for_everyone_poking_it
     await Session.objects.filter(pk=session.pk).aupdate(archive_pending=True)
     url = f"/sessions/{session.thread_id}/archive"
 
-    with patch("sessions.api.views.asession_changed", new=AsyncMock()) as poke:
+    with (
+        patch("sessions.api.views.asession_changed", new=AsyncMock()) as poke,
+        patch.object(Drain, "start_logged", autospec=True) as drain,
+    ):
         archived = await client.post(url, json={"archived": True}, headers=_auth_headers(raw))
         again = await client.post(url, json={"archived": True}, headers=_auth_headers(raw))
         await session.arefresh_from_db()
@@ -745,6 +749,7 @@ async def test_session_archive_archives_and_unarchives_it_for_everyone_poking_it
     await session.arefresh_from_db()
     assert session.archived_at is None
     assert poke.await_args_list == [call(session.pk), call(session.pk)]
+    assert [c.args[0].thread_id for c in drain.call_args_list] == [session.pk]
 
 
 @pytest.mark.django_db(transaction=True)

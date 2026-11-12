@@ -114,6 +114,7 @@ for (const [action, value] of steps) {
   else if (action === "provisional") sending = page.addProvisional(value);
   else if (action === "headings") seen.push((page.upNext?.groups ?? []).map((g, i) => page.upNextHeading(g, i)));
   else if (action === "reply") { pending.shift()(value.body, value.status); await sending; await flush(); }
+  else if (action === "resolve") { pending.shift()(value.body, value.status); await flush(); }
   else if (action === "rename") page.startRename();
   else if (action === "draft") page.titleDraft = value;
   else if (action === "commit") sending = page.commitRename();
@@ -748,6 +749,21 @@ def test_a_poll_shows_whether_the_session_is_archived_and_one_without_it_keeps_i
     seen = _run([["poll", {"latest_run": DONE, **polled}], ["read", None]], archived=initial)["seen"][0]
 
     assert seen["archived"] is polled.get("archived", initial)
+
+
+def test_overlapping_toggles_keep_the_latest_against_a_poll_and_a_failure():
+    archived = {"latest_run": DONE, "archived": True}
+    steps = [
+        ["archive", False],
+        ["archive", True],
+        ["resolve", {"status": 500, "body": {}}],
+        ["poll", {**archived, "archived": False, "requestedAt": 11}],
+        ["read", None],
+        ["reply", {"body": {"archived": True}}],
+        ["read", None],
+    ]
+
+    assert [seen["archived"] for seen in _run(steps, archived=True)["seen"]] == [True, True]
 
 
 def test_a_poll_asked_for_before_the_archive_answered_does_not_undo_it():

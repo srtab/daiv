@@ -243,8 +243,9 @@ class TestBusyLostArchived:
 
     def test_archived_when_its_session_is(self, admin_user):
         coordinator = make_coordinator(admin_user)
-        leg = Leg(make_leg(coordinator, uuid.uuid4(), status=RunStatus.SUCCESSFUL).session)
-        before = leg.is_archived()
-        Session.objects.filter(pk=leg.session.pk).update(archived_at=timezone.now())
+        session = make_leg(coordinator, uuid.uuid4(), status=RunStatus.SUCCESSFUL).session
+        before = Leg(session).is_archived()
+        Session.objects.filter(pk=session.pk).update(archived_at=timezone.now())
+        session.refresh_from_db()
 
-        assert (before, leg.is_archived()) == (False, True)
+        assert (before, Leg(session).is_archived()) == (False, True)

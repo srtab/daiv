@@ -2,6 +2,7 @@ import asyncio
 import logging
 from unittest.mock import AsyncMock, Mock, patch
 
+from django.core.cache import cache
 from django.tasks import TaskResultStatus
 from django.utils import timezone
 
@@ -16,7 +17,7 @@ from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_c
 
 from accounts.models import User
 from codebase.base import GitPlatform, Scope
-from codebase.clients.base import Emoji
+from codebase.clients.base import CommentThread, Emoji
 from core.site_settings import site_settings
 from tests.unit_tests.sessions.conftest import amake_owned_merge_request
 from tests.unit_tests.webhooks.conftest import make_db_task_result
@@ -245,17 +246,51 @@ async def test_a_failed_reaction_is_logged_and_the_run_still_starts(steps, caplo
 
 @each_run_kind
 @pytest.mark.django_db(transaction=True)
-async def test_a_trigger_on_an_archived_session_starts_nothing(steps, dispatch, task, scope, caplog):
+async def test_a_trigger_on_an_archived_session_starts_nothing_and_says_so_once(steps, dispatch, task, scope, caplog):
+    await cache.aclear()
     thread_id = compute_thread_id(repo_slug="group/repo", scope=scope, entity_iid=7)
     await Session.objects.acreate(
         thread_id=thread_id, origin=SessionOrigin.CHAT, repo_id="group/repo", archived_at=timezone.now()
     )
+    reply = "create_issue_comment" if scope == Scope.ISSUE else "create_merge_request_comment"
 
     with caplog.at_level(logging.INFO, logger="daiv.webhooks"):
         await dispatch(steps)
+        await dispatch(steps)
 
-    assert steps.mock_calls == []
+    assert [name for name, *_ in steps.mock_calls] == [f"client.{reply}"]
+    body = getattr(steps.client, reply).call_args.args[2]
+    assert body.startswith("@alice This session is archived")
+    assert thread_id in body
     assert f"its session {thread_id} is archived" in caplog.text
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_failed_archived_reply_is_tried_again_on_the_next_trigger(steps):
+    await cache.aclear()
+    thread_id = compute_thread_id(repo_slug="group/repo", scope=Scope.ISSUE, entity_iid=7)
+    await Session.objects.acreate(
+        thread_id=thread_id, origin=SessionOrigin.CHAT, repo_id="group/repo", archived_at=timezone.now()
+    )
+    steps.client.create_issue_comment.side_effect = [GitlabError("boom"), None]
+
+    await _issue_run(steps)
+    await _issue_run(steps)
+
+    assert steps.client.create_issue_comment.call_count == 2
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_mention_on_a_merge_request_an_archived_session_owns_posts_nothing_and_says_so(steps):
+    await cache.aclear()
+    owned = await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=7)
+    await Session.objects.filter(pk=owned.session_id).aupdate(archived_at=timezone.now())
+
+    await _mr_comment_run(steps)
+
+    assert [name for name, *_ in steps.mock_calls] == ["client.create_merge_request_comment"]
+    assert steps.client.create_merge_request_comment.call_args.kwargs["reply_to"] == CommentThread("300")
+    assert not await InboxEvent.objects.aexists()
 
 
 async def test_a_repeat_records_no_run_and_does_not_react(steps):
