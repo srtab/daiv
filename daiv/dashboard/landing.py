@@ -47,7 +47,7 @@ FAQS = (
             "GitHub it works with GitHub.com and GitHub Enterprise Server, as a GitHub App you create and install. "
             "Issue addressing, answers to review comments, slash commands and CI fixes work on both. The "
             "Quickstart uses GitLab; "
-            f'<a href="{DOCS_ROOT}/getting-started/platform-setup/">Platform Setup</a> '
+            f'<a href="{DOCS_ROOT}/getting-started/platform-setup/">Platform setup</a> '
             "covers both."
         ),
     ),

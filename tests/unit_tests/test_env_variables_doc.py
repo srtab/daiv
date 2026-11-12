@@ -18,9 +18,8 @@ from core.site_settings import site_settings
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ENV_VARIABLES_PAGE = REPO_ROOT / "docs" / "reference" / "env-variables.md"
 
-# Fields deliberately left off the page, each with its reason. A field belongs
-# here only when documenting it would be wrong, not merely unwritten — anything
-# else fails the test below until it gets a row.
+# Fields deliberately left off the page, each with its reason: only when documenting
+# one would be wrong, not merely unwritten. Anything else fails below until it has a row.
 UNDOCUMENTED_FIELDS: dict[str, str] = {}
 
 
