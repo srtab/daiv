@@ -187,7 +187,7 @@ Subscribe the App instead — this covers every repository it is installed on at
 4. Save. If Actions is a new permission for the App, each installation owner must accept it, from GitHub's email or the installation's **Configure** page; until then, pipeline watch is inert on that installation.
 5. After the next workflow run, check **Advanced → Recent Deliveries** for a `workflow_run` delivery.
 
-See [Platform Setup](../getting-started/platform-setup.md) for the full event checklist.
+See [Platform setup](../getting-started/platform-setup.md#github-app-permissions-and-events) for the full event list.
 
 ---
 

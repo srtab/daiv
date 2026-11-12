@@ -111,7 +111,7 @@ The stack reads these Docker secrets. Create the first nine rows in step 1, and 
 |--------|-------|
 | `django_secret_key` | A random secret key for Django. [Generate one](https://djecrety.ir/). Keep it backed up: see [Django](../reference/env-variables.md#django). |
 | `db_password` | A random password for the PostgreSQL database. |
-| `codebase_gitlab_auth_token` | A GitLab personal access token with the `api` scope. See [Platform Setup](platform-setup.md#gitlab-configuration). |
+| `codebase_gitlab_auth_token` | A GitLab personal access token with the `api` scope. See [Platform setup](platform-setup.md#gitlab-token-role-and-webhooks). |
 | `codebase_gitlab_webhook_secret` | A random secret that GitLab sends with each webhook, for DAIV to validate. |
 | `daiv_sandbox_api_key` | A random API key for the sandbox service. |
 | `email_host_password` | The SMTP password. DAIV authenticates only when `EMAIL_HOST_USER` is also set. The stack requires the secret to exist, so create it with any value if your relay needs no authentication. |
@@ -583,7 +583,7 @@ volumes:
 5.  Include the full URL with the scheme (for example `https://daiv.example.com`). Your GitLab sends webhooks to this URL, so it must be able to reach it.
 6.  Generate a random password for the database, such as the output of `openssl rand -hex 16`.
 7.  Set to your GitLab instance URL (for example `https://gitlab.com`).
-8.  The personal access token of DAIV's own GitLab user, with the `api` scope and the Maintainer role on your projects. Use a dedicated account: DAIV ignores comments written by the account its token belongs to. See [Platform Setup](platform-setup.md#gitlab-configuration).
+8.  The personal access token of DAIV's own GitLab user, with the `api` scope and the Maintainer role on your projects. Use a dedicated account: DAIV ignores comments written by the account its token belongs to. See [Platform setup](platform-setup.md#gitlab-token-role-and-webhooks).
 9.  Generate a random webhook secret for GitLab webhook validation, such as the output of `openssl rand -hex 32`.
 10. An OpenRouter API key for LLM access. DAIV copies it into its database on the first start. To change it later, edit the provider under **Configuration → Providers** in the dashboard; see [LLM providers](llm-providers.md).
 11. The SMTP server DAIV sends sign-in codes through. Without one, replace the three `EMAIL_*` lines with `EMAIL_BACKEND: django.core.mail.backends.console.EmailBackend` and read the codes from `docker compose logs app`.
@@ -670,7 +670,7 @@ server {
 
 ## Next steps
 
-- **[Platform Setup](platform-setup.md)** connects DAIV to your GitLab or GitHub repositories.
+- **[Platform setup](platform-setup.md)** connects DAIV to your GitLab or GitHub repositories.
 - **[LLM providers](llm-providers.md)** configures your LLM providers and API keys.
 - **[Repository configuration](../customization/repository-config.md)** customizes DAIV's behavior per repository.
 - **[Site configuration](../reference/site-configuration.md)** manages settings from the dashboard instead of environment variables.

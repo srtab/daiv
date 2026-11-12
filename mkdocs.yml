@@ -156,7 +156,7 @@ nav:
   - Getting Started:
     - Quickstart: getting-started/quickstart.md
     - Deployment: getting-started/deployment.md
-    - Platform Setup: getting-started/platform-setup.md
+    - Platform setup: getting-started/platform-setup.md
     - Accounts and roles: getting-started/accounts.md
     - LLM providers: getting-started/llm-providers.md
   - Features:

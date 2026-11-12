@@ -6,7 +6,7 @@ description: "Try DAIV in about 15 minutes: run it on one Linux machine with Doc
 
 This page gets you from a clean machine to a first merge request in about 15 minutes: you run DAIV on one Linux host with Docker Compose, connect a GitLab project, and let DAIV turn an issue into a merge request.
 
-It is a trial setup: one worker, no email, no single sign-on. For a production install, or to connect GitHub, follow [Deployment](deployment.md) and [Platform Setup](platform-setup.md).
+It is a trial setup: one worker, no email, no single sign-on. For a production install, or to connect GitHub, follow [Deployment](deployment.md) and [Platform setup](platform-setup.md).
 
 ## Before you start
 

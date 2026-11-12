@@ -76,7 +76,7 @@ Merge metrics collection is enabled automatically. No configuration is required.
 ### Webhook events
 
 - **GitLab**: DAIV registers `merge_requests_events` on each repository's webhook, alongside `push_events`, `issues_events`, `note_events` and `pipeline_events`.
-- **GitHub**: DAIV registers nothing. Subscribe your GitHub App to `pull_request`, alongside `push`, `issues`, `pull_request_review` and `issue_comment` (see [Platform Setup](../getting-started/platform-setup.md#step-4-verify-webhook-configuration)).
+- **GitHub**: DAIV registers nothing. Subscribe your GitHub App to `pull_request`, alongside `push`, `issues`, `pull_request_review` and `issue_comment` (see [Platform setup](../getting-started/platform-setup.md#github-app-permissions-and-events)).
 
 ### Updating existing webhooks
 

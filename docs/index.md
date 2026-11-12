@@ -113,7 +113,7 @@ For how these pieces fit together — the middleware stack, skill loading, and h
 
     Link DAIV to your GitLab or GitHub repository.
 
-    [:octicons-arrow-right-24: Platform Setup](getting-started/platform-setup.md)
+    [:octicons-arrow-right-24: Platform setup](getting-started/platform-setup.md)
 
 -   **Choose your LLM**
 

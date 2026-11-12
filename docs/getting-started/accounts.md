@@ -193,7 +193,7 @@ API keys authenticate calls to the [Jobs API](../features/jobs-api.md) and the [
 
     Connect DAIV to GitLab or GitHub, the same platform used for OAuth login.
 
-    [:octicons-arrow-right-24: Platform Setup](platform-setup.md)
+    [:octicons-arrow-right-24: Platform setup](platform-setup.md)
 
 -   **Jobs API**
 

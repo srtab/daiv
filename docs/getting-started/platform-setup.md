@@ -2,417 +2,230 @@
 description: "Connect DAIV to GitLab (GitLab.com or self-hosted) or GitHub so it can address issues, review merge and pull requests, and react to webhooks."
 ---
 
-# Platform Setup
+# Platform setup
 
-This guide walks you through connecting DAIV to your GitLab or GitHub repository. Once configured, DAIV will automatically address issues, review pull requests, and more.
+DAIV connects to one Git platform at a time, set by `CODEBASE_CLIENT`: GitLab (GitLab.com or self-managed) or GitHub (GitHub.com or GitHub Enterprise Server). Once connected, DAIV addresses labeled issues and reviews merge and pull requests in the repositories it can reach. Follow [Connect GitLab](#connect-gitlab) or [Connect GitHub](#connect-github).
 
-DAIV supports both platforms:
-
-- **[GitLab](#gitlab-configuration)** — GitLab.com or self-hosted GitLab instances
-- **[GitHub](#github-configuration)** — GitHub.com or GitHub Enterprise
-
----
-
-## GitLab Configuration
-
-### Prerequisites
-
-Before configuring a GitLab repository, ensure you have:
-
-- **DAIV installed and running** - Follow the [Deployment](deployment.md) guide first
-- **GitLab repository access** - Admin or maintainer permissions on the repository you want to connect
-- **A GitLab account for DAIV** - A separate user that DAIV acts as, created in Step 1
-
-### Step 1: Create a GitLab User and Token for DAIV
+## Connect GitLab
 
 DAIV works as a GitLab user: it comments, pushes and opens merge requests as the user its token belongs to, and it ignores comments written by that user. Give DAIV its own account. With a token from your own account, DAIV ignores your comments, including the one that approves its plan.
 
-1. **Create the user**:
+You need:
 
-    - Create a GitLab user for DAIV, for example `daiv`. Its username is how you mention DAIV (`@daiv`). On GitLab.com, sign up a separate account; on a self-managed instance, an admin creates it under **Admin → Users → New user**
-    - Add it to each project DAIV should work on with the **Maintainer** role. DAIV only sets up webhooks on projects where its user is a Maintainer or Owner
+- DAIV running, from [Deployment](deployment.md).
+- Permission to add a member to each project DAIV works on.
+- On GitLab.com, a second account for DAIV. On a self-managed instance, an admin to create the user.
 
-2. **Navigate to the user's settings**:
+1. Create a GitLab user for DAIV, for example `daiv`. On GitLab.com, sign up a second account; on a self-managed instance, an admin creates it under **Admin → Users → New user**. The username is how you mention DAIV, for example `@daiv`.
+2. Add the user to each project DAIV works on, with the **Maintainer** role.
+3. Sign in to GitLab as the DAIV user.
+4. Select your avatar → **Edit profile** → **Access tokens**.
+5. Enter `DAIV Integration` as the token **Name**.
+6. Set the expiration according to your security policy.
+7. Select the `api` scope.
+8. Select **Create personal access token**.
 
-    - Sign in to your GitLab instance (e.g., `https://gitlab.com`) as the DAIV user
-    - Click your avatar → **Edit profile** → **Access Tokens**
+    !!! warning
+        GitLab shows the token once. Anyone who holds it acts as DAIV's user in every project that user belongs to. Store it in a secret manager, and never commit it to version control.
 
-3. **Create New Token**:
+9. Copy the token.
+10. Generate the webhook secret, a random value that GitLab sends with each webhook for DAIV to validate:
 
-    - **Name**: `DAIV Integration`
-    - **Expiration**: Set according to your security policy (recommended: 1 year)
-    - **Scopes**: Select `api` (full API access)
-    - Click **Create personal access token**
-
-4. **Copy the Token**:
-
-    - **Important**: Copy and save the token immediately - you won't see it again
-    - The token format looks like: `glpat-xxxxxxxxxxxxxxxxxxxx`
-
-!!! warning "Token Security"
-    Store your token securely. Never commit it to version control or share it publicly.
-
-### Step 2: Configure Environment Variables
-
-Add your GitLab token and webhook secret to DAIV's environment configuration.
-
-#### For Docker Compose Setup
-
-Edit your `docker-compose.yml` file:
-
-```yaml
-x-app-defaults: &x_app_default
-  # ...
-  environment:
-    CODEBASE_GITLAB_URL: https://gitlab.com # or your GitLab instance URL
-    CODEBASE_GITLAB_AUTH_TOKEN: <gitlab-token> # Your personal access token
-    CODEBASE_GITLAB_WEBHOOK_SECRET: <webhook-secret> # Random secret for webhook validation
-  # ...
-```
-
-Replace `<gitlab-token>` with your personal access token and `<webhook-secret>` with a random secret. They are YAML values, so you edit them in place.
-
-#### For Docker Swarm Setup
-
-Create Docker secrets:
-
-```bash
-# Create secrets for GitLab integration
-echo "<gitlab-token>" | docker secret create codebase_gitlab_auth_token -
-echo "<webhook-secret>" | docker secret create codebase_gitlab_webhook_secret -
-```
-
-Replace `<gitlab-token>` with your personal access token and `<webhook-secret>` with a random secret.
-
-!!! tip "Generating Webhook Secret"
-    Generate a secure random webhook secret:
     ```bash
     openssl rand -hex 32
     ```
 
-### Step 3: Repository Webhooks
+11. On Docker Compose, in the `environment` of `x-app-defaults` in your `docker-compose.yml`, set `CODEBASE_GITLAB_URL` to your GitLab URL (for example `https://gitlab.com`), `CODEBASE_GITLAB_AUTH_TOKEN` to the token and `CODEBASE_GITLAB_WEBHOOK_SECRET` to the webhook secret.
 
-DAIV uses webhooks to receive real-time notifications from GitLab about repository events.
+    !!! warning
+        A Compose file holds these values in plain text. Keep it out of version control, and readable only by the users who deploy DAIV.
 
-DAIV's scheduler adds a webhook to every repository its user maintains, every 5 minutes. No manual setup is required — once DAIV is running with valid GitLab credentials, webhooks are created automatically for new repositories. To add them right away, or to update existing ones after changing `DAIV_EXTERNAL_URL` or the webhook secret, run the [`setup_webhooks`](../reference/management-commands.md#setup_webhooks) command in the app container:
+12. On Docker Swarm, set `CODEBASE_GITLAB_URL` in `x-app-environment-defaults` of `stack.yml`. Step 1 of [Deploy with Docker Swarm](deployment.md#deploy-with-docker-swarm) created the `codebase_gitlab_auth_token` and `codebase_gitlab_webhook_secret` secrets, so give them the token and the webhook secret there. Docker cannot change a secret that exists: to replace one, remove the stack and the secret, then create the secret again.
+13. Redeploy DAIV so it reads the values: `docker compose up -d` on Compose, or `docker stack deploy -c stack.yml daiv` on Swarm.
+14. Wait up to 5 minutes. DAIV's scheduler adds a webhook to each project where its user is a Maintainer or Owner. To add them at once, run [`setup_webhooks`](../reference/management-commands.md#setup_webhooks).
+15. In a project, open **Settings** → **Webhooks** and check for a webhook that points to `https://daiv.example.com/api/codebase/callbacks/gitlab/`, with the events in [GitLab token, role and webhooks](#gitlab-token-role-and-webhooks).
+16. Select **Test** → **Push events**, and check that GitLab reports a successful delivery.
+17. Create an issue titled "Add hello world function" in the project.
+18. Add the `daiv` label to the issue. If the project has no `daiv` label, create it from the label picker.
+19. Wait a few seconds. DAIV reacts with 👀, then comments with a plan.
+20. From your own account, comment on the issue mentioning DAIV's user, for example `@daiv proceed`. DAIV implements the plan and opens a merge request.
 
-```bash
-docker compose exec app django-admin setup_webhooks           # add missing webhooks now
-docker compose exec app django-admin setup_webhooks --update  # also update existing ones
-```
+To change DAIV's behavior in a repository, add a `.daiv.yml` file to its root; [Repository configuration](../customization/repository-config.md) lists the options. [Issue addressing](../features/issue-addressing.md) explains what DAIV does with an issue.
 
-GitLab sends each event to `DAIV_EXTERNAL_URL`, so that URL must be reachable from your GitLab. A self-managed GitLab refuses webhooks to private network addresses by default (`Url is blocked: Requests to the local network are not allowed`); an admin allows them under **Admin → Settings → Network → Outbound requests**.
+## GitLab token, role and webhooks
 
-!!! tip "Verifying webhook setup"
-    To confirm webhooks are configured, go to your GitLab repository → **Settings** → **Webhooks**. You should see a webhook pointing to `https://daiv.example.com/api/codebase/callbacks/gitlab/` with the following trigger events:
+| Item | Value |
+|------|-------|
+| Token | A personal access token of DAIV's user, with the `api` scope. |
+| Role | DAIV lists only the projects where its user is a Maintainer or Owner, and sets up webhooks on those. |
+| Webhook URL | `<DAIV_EXTERNAL_URL>/api/codebase/callbacks/gitlab/`. GitLab must be able to reach `DAIV_EXTERNAL_URL`. |
+| Webhook events | Push events, Issues events, Comments (Note events), Merge request events and Pipeline events. |
+| Webhook creation | DAIV's scheduler runs `setup_webhooks` on the `CODEBASE_WEBHOOK_SETUP_CRON` schedule, every 5 minutes by default. See [Management commands](../reference/management-commands.md#setup_webhooks) and [Environment variables](../reference/env-variables.md). |
 
-    - Push events
-    - Issues events
-    - Comments (Note events)
-    - Merge request events
-    - Pipeline events
+## Troubleshoot GitLab
 
-    Click **Test** → **Push events** to verify connectivity.
+### Webhook delivery fails
 
-### Step 4: Configure Repository Behavior
+The webhook URL is not reachable from GitLab, or the certificate is invalid. Check that `DAIV_EXTERNAL_URL` is reachable from GitLab, that its SSL certificate is valid, and that no firewall blocks GitLab.
 
-To customize DAIV's behavior, create a `.daiv.yml` file in your repository's root.
+A self-managed GitLab refuses webhooks to private network addresses by default, with the error `Url is blocked: Requests to the local network are not allowed`. An admin allows them under **Admin → Settings → Network → Outbound requests**.
 
-For complete configuration options, see [Repository Config](../customization/repository-config.md).
+### DAIV ignores an issue
 
-### Step 5: Test the Integration
+- The issue has no `daiv` label. Add it.
+- DAIV's user is not a Maintainer or Owner of the project, so the project has no webhook. Change its role.
+- `issue_addressing.enabled` is `false` in `.daiv.yml`. It is `true` by default.
+- Check DAIV's logs for errors.
 
-Verify that DAIV is properly connected to your repository.
+### DAIV ignores your comments
 
-1. **Create a Test Issue**:
-    - Go to your GitLab repository
-    - Create a new issue with title: "Add hello world function"
-    - Add the `daiv` label to the issue. If the project has no `daiv` label yet, create it from the label picker
+- DAIV ignores comments written by its own user. Comment from another account.
+- Mention DAIV's username, for example `@daiv`.
 
-2. **Wait for DAIV Response**:
-    - DAIV reacts with 👀 within seconds, then comments with a plan to address the issue
-    - Check the issue comments for DAIV's response
+### DAIV does not respond to merge request comments
 
-3. **Approve the Plan**:
-    - From your own account, comment on the issue mentioning DAIV's user, for example `@daiv proceed`
-    - DAIV implements the plan and opens a merge request
+- The webhook does not send **Comments (Note events)**. Run `setup_webhooks --update`.
+- The webhook secret in GitLab does not match `CODEBASE_GITLAB_WEBHOOK_SECRET`. DAIV rejects the request.
+- DAIV's user lacks access to the project.
 
-!!! tip
-    For more on how issue addressing works, see [Issue Addressing](../features/issue-addressing.md).
+### DAIV reports an error in a comment
 
-### Troubleshooting
+DAIV comments "An unexpected error occurred" when a run fails. The worker and sandbox logs show why, for example `docker compose logs worker sandbox`.
 
-**Webhook delivery fails**:
+## Connect GitHub
 
-- Verify the webhook URL is accessible from GitLab
-- Check SSL certificate validity
-- Review firewall settings
-- On a self-managed GitLab, allow requests to the local network if DAIV has a private address (see [Step 3](#step-3-repository-webhooks))
+DAIV authenticates to GitHub as a GitHub App, which you create and install on the repositories DAIV works on. You need:
 
-**Issues not being processed**:
+- DAIV running, from [Deployment](deployment.md), with `CODEBASE_CLIENT` set to `github`.
+- Permission to create and install a GitHub App on your account or organization.
 
-- Ensure the `daiv` label is added to issues
-- Check that the project has a webhook: DAIV's user must be a Maintainer or Owner of it
-- Verify `issue_addressing.enabled: true` in `.daiv.yml` (enabled by default)
-- Check DAIV logs for errors
+1. Open **Settings** → **Developer settings** → **GitHub Apps** in your account, or in **Organization Settings** for an organization.
+2. Select **New GitHub App**.
+3. Enter `DAIV` as the **GitHub App name**, or `DAIV - <org-name>` for an organization.
+4. Enter your DAIV URL, for example `https://daiv.example.com`, as the **Homepage URL**.
+5. Enter `https://daiv.example.com/api/codebase/callbacks/github/` as the **Webhook URL**.
+6. Generate the webhook secret, and keep it for a later step:
 
-**DAIV ignores your comments**:
+    ```bash
+    openssl rand -hex 32
+    ```
 
-- Comment from an account other than DAIV's own: DAIV ignores what its own user writes
-- Mention DAIV's username, for example `@daiv`
+7. Enter the webhook secret as the **Webhook secret**.
 
-**DAIV comments "An unexpected error occurred"**:
+    !!! warning
+        The **Workflows** permission is optional, and it lets code that runs in the sandbox change files under `.github/workflows/`. Those workflows run with the repository's Actions secrets, which exposes the secrets to that code. Set it only if DAIV must push to those files.
 
-- The run failed. The worker and sandbox logs show why, for example `docker compose logs worker sandbox`
+8. Set the repository permissions listed in [GitHub App permissions and events](#github-app-permissions-and-events).
+9. Subscribe the App to the events listed there.
+10. Select **Create GitHub App**.
 
-**No response to merge request comments**:
+    !!! warning
+        The private key lets whoever holds it act as the App on every installed repository. GitHub offers the `.pem` file once, so store it where only DAIV's operators can read it.
 
-- Verify webhook events include "Comments (Note events)"
-- Check that webhook secret matches environment variable
-- Review repository permissions
+11. Under **Private keys**, select **Generate a private key**. Your browser downloads a `.pem` file.
+12. Copy the **App ID** from the top of the App's settings page.
+13. Select **Install App** in the left sidebar.
+14. Select your account or organization.
+15. Select **All repositories** or **Only select repositories**, and choose the repositories DAIV works on.
+16. Select **Install**.
+17. Copy the installation ID from the page's URL, `https://github.com/settings/installations/<installation-id>`.
+18. On Docker Compose, in the `environment` of `x-app-defaults` in your `docker-compose.yml`, set `CODEBASE_CLIENT: github`, `CODEBASE_GITHUB_APP_ID` to the App ID and `CODEBASE_GITHUB_INSTALLATION_ID` to the installation ID. For GitHub Enterprise Server, also set `CODEBASE_GITHUB_URL`, for example `https://github.example.com`.
 
----
+    !!! warning
+        A Compose file holds the webhook secret in plain text. Keep it out of version control, and readable only by the users who deploy DAIV.
 
-## GitHub Configuration
+19. On Docker Compose, set `CODEBASE_GITHUB_WEBHOOK_SECRET` in the same `environment` to the webhook secret.
+20. On Docker Compose, add the private key as a file-based secret. Under `x-app-defaults`, add `secrets: [codebase_github_private_key]`. At the top level, add:
 
-### Prerequisites
+    ```yaml
+    secrets:
+      codebase_github_private_key:
+        file: <private-key-path>
+    ```
 
-Before configuring a GitHub repository, ensure you have:
+    Replace `<private-key-path>` with the path of the `.pem` file. DAIV reads it from `/run/secrets/codebase_github_private_key`. The `secrets:` key in `x-app-defaults` reaches only the services that merge that anchor with `<<: *x_app_default`, which the [Compose file](deployment.md#compose-file) does for `app`, `worker`, `worker-interactive` and `scheduler`. Compose keeps the file's permissions, so the `.pem` must be readable by the user DAIV runs as, `daiv` with UID 1001.
 
-- **DAIV installed and running** - Follow the [Deployment](deployment.md) guide first
-- **GitHub repository or organization access** - Admin permissions to create and install GitHub Apps
-- **GitHub account** - On GitHub.com or GitHub Enterprise
+21. On Docker Swarm, in `x-app-environment-defaults` of `stack.yml`, set `CODEBASE_CLIENT: github`, `CODEBASE_GITHUB_APP_ID` and `CODEBASE_GITHUB_INSTALLATION_ID`. For GitHub Enterprise Server, also set `CODEBASE_GITHUB_URL`.
 
-### Step 1: Create GitHub App
+    !!! warning
+        A value you type in a command is saved in your shell history and visible in the process list. Run the next command from a shell that does not record history, or from a script that reads the value from a protected file.
 
-DAIV uses GitHub App authentication to securely interact with your repositories.
+22. On Docker Swarm, create the webhook secret, replacing `<webhook-secret>`:
 
-1. **Navigate to GitHub App Settings**:
+    ```bash
+    printf '%s' '<webhook-secret>' | docker secret create codebase_github_webhook_secret -
+    ```
 
-    - For personal account: Go to **Settings** → **Developer settings** → **GitHub Apps** → **New GitHub App**
-    - For organization: Go to **Organization Settings** → **Developer settings** → **GitHub Apps** → **New GitHub App**
-
-2. **Configure GitHub App**:
-
-    **Basic Information:**
-    - **GitHub App name**: `DAIV` (or `DAIV - YourOrgName`)
-    - **Homepage URL**: Your DAIV instance URL (e.g., `https://daiv.example.com`)
-    - **Webhook URL**: `https://daiv.example.com/api/codebase/callbacks/github/`
-    - **Webhook secret**: Generate a secure random secret (save this for later)
-      ```bash
-      openssl rand -hex 32
-      ```
-
-    **Permissions:**
-    - **Repository permissions:**
-        - Contents: **Read & Write** (to create branches and commits)
-        - Issues: **Read & Write** (to read and comment on issues)
-        - Pull requests: **Read & Write** (to create and update pull requests)
-        - Actions: **Read-only** (to read workflow runs and job logs for [Pipeline Watch](../features/pipeline-watch.md))
-        - Workflows: **Read & Write** (optional; lets DAIV push changes to files under `.github/workflows/`, such as a conflict resolved there. Code running in the sandbox can then change workflows too, and they run with the repository's Actions secrets)
-        - Metadata: **Read-only** (automatically selected)
-    - **Subscribe to events:** select these events:
-        - Push
-        - Issues
-        - Issue comment
-        - Pull request review
-        - Pull request review comment (mentions and comments on diff lines of a pull request a DAIV session owns)
-        - Pull request
-        - Workflow run
-
-    !!! note "Centralized Webhook Configuration"
-        Unlike GitLab where webhooks are configured per repository, GitHub Apps use centralized webhook configuration. The webhook you configure here will automatically apply to all repositories where you install the app.
-
-3. **Create the App**:
-    - Click **Create GitHub App**
-    - You'll be redirected to the app's settings page
+23. On Docker Swarm, create the private key secret from the `.pem` file, replacing `<private-key-path>`:
 
-4. **Generate Private Key**:
-    - Scroll down to **Private keys** section
-    - Click **Generate a private key**
-    - Save the downloaded `.pem` file securely
-
-5. **Note App ID**:
-    - At the top of the app settings page, note the **App ID** (you'll need this)
-
-### Step 2: Install GitHub App
-
-Install the GitHub App on repositories where you want DAIV to work:
-
-1. **Navigate to Install App**:
-    - Go to your GitHub App settings page
-    - Click **Install App** in the left sidebar
-    - Select your account or organization
-
-2. **Choose Repository Access**:
-    - Select **All repositories** or **Only select repositories**
-    - Choose the repositories you want DAIV to access
-    - Click **Install**
-
-3. **Note Installation ID**:
-    - After installation, check the URL: `https://github.com/settings/installations/INSTALLATION_ID`
-    - Note the **Installation ID** from the URL or use the GitHub API to find it
-
-### Step 3: Configure Environment Variables
-
-Add your GitHub App credentials to DAIV's environment configuration.
-
-#### For Docker Compose Setup
-
-Edit your `docker-compose.yml` file:
-
-```yaml
-x-app-defaults: &x_app_default
-  # ...
-  environment:
-    CODEBASE_CLIENT: github
-    CODEBASE_GITHUB_APP_ID: 123456 # Your GitHub App ID
-    CODEBASE_GITHUB_INSTALLATION_ID: 789012 # Your Installation ID
-    CODEBASE_GITHUB_WEBHOOK_SECRET: <webhook-secret> # The secret you generated
-    # For GitHub Enterprise, also set:
-    # CODEBASE_GITHUB_URL: https://github.example.com
-  # ...
-```
-
-Replace `<webhook-secret>` with the secret you generated. It is a YAML value, so you edit it in place.
-
-For the private key, you have two options:
-
-**Option 1: Use a Compose secret (recommended)**
-
-Docker Compose mounts a file-based secret at `/run/secrets/<name>`, where DAIV reads it. Add this to your `docker-compose.yml`, pointing `file` at the downloaded `.pem` file:
-
-```yaml
-x-app-defaults: &x_app_default
-  secrets:
-    - codebase_github_private_key
-
-secrets:
-  codebase_github_private_key:
-    file: <private-key-path>
-```
-
-Replace `<private-key-path>` with the path of the downloaded `.pem` file. It is a YAML value, so you edit it in place.
-
-**Option 2: Set as environment variable**
-
-```yaml
-x-app-defaults: &x_app_default
-  environment:
-    CODEBASE_GITHUB_PRIVATE_KEY: |
-      -----BEGIN RSA PRIVATE KEY-----
-      Your private key content here...
-      -----END RSA PRIVATE KEY-----
-```
+    ```bash
+    docker secret create codebase_github_private_key <private-key-path>
+    ```
 
-#### For Docker Swarm Setup
+24. On Docker Swarm, add `codebase_github_private_key` and `codebase_github_webhook_secret` to the `secrets:` list of `app`, `worker`, `worker-interactive` and `scheduler`, and declare both under the top-level `secrets:` with `external: true`, as the stack file does for the other secrets.
+25. Redeploy DAIV so it reads the values: `docker compose up -d` on Compose, or `docker stack deploy -c stack.yml daiv` on Swarm.
+26. Create an issue titled "Add hello world function" in a repository where you installed the App.
+27. Add the `daiv` label to the issue. If the repository has no `daiv` label, create it.
+28. Wait a few seconds. DAIV comments with a plan.
+29. In your GitHub App's settings, open **Advanced** → **Recent Deliveries**, and check that the deliveries show a `204` response.
 
-Create Docker secrets:
+To change DAIV's behavior in a repository, add a `.daiv.yml` file to its root; [Repository configuration](../customization/repository-config.md) lists the options. [Issue addressing](../features/issue-addressing.md) explains what DAIV does with an issue.
 
-```bash
-# Create secrets for GitHub integration
-echo "123456" | docker secret create codebase_github_app_id -
-echo "789012" | docker secret create codebase_github_installation_id -
-docker secret create codebase_github_private_key <private-key-path>
-echo "<webhook-secret>" | docker secret create codebase_github_webhook_secret -
-```
+## GitHub App permissions and events
 
-Replace `<private-key-path>` with the path of the downloaded `.pem` file and `<webhook-secret>` with the secret you generated.
+GitHub sends the events of every repository that has the App installed to the one webhook set on the App. DAIV does not create webhooks on GitHub, and [`setup_webhooks`](../reference/management-commands.md#setup_webhooks) does nothing there.
 
-!!! warning "Private Key Format"
-    The private key must be in PEM format. Keep the entire key including the header and footer lines (`-----BEGIN RSA PRIVATE KEY-----` and `-----END RSA PRIVATE KEY-----`).
+| Repository permission | Access | DAIV uses it to |
+|-----------------------|--------|-----------------|
+| Contents | Read & Write | Create branches and commits. |
+| Issues | Read & Write | Read and comment on issues. |
+| Pull requests | Read & Write | Create and update pull requests. |
+| Actions | Read-only | Read workflow runs and job logs for [pipeline watch](../features/pipeline-watch.md). |
+| Workflows | Read & Write (optional) | Push changes to files under `.github/workflows/`, such as a conflict resolved there. |
+| Metadata | Read-only | GitHub selects it for you. |
 
-### Step 4: Verify Webhook Configuration
+Subscribe the App to these events:
 
-Webhooks are configured at the GitHub App level and automatically apply to all repositories where the app is installed. The webhook configuration you set up in Step 1 should already be active.
+- **Push**
+- **Issues**
+- **Issue comment**
+- **Pull request review**
+- **Pull request review comment**, for mentions and comments on diff lines of a pull request a DAIV session owns
+- **Pull request**
+- **Workflow run**, which GitHub lists only once **Actions** is **Read-only**
 
-#### Verify Webhook Settings
+If you grant a new permission to an App that is already installed, each installation owner must accept it. Until they do, the features that need it do not run on that installation.
 
-1. **Check Webhook Configuration**:
-    - Go to your GitHub App settings page
-    - Scroll down to the **Webhook** section
-    - Verify the following settings:
-        - **Webhook URL**: `https://daiv.example.com/api/codebase/callbacks/github/`
-        - **Webhook secret**: The secret you generated earlier
-        - **SSL verification**: Enabled (unless using self-signed certificates)
-        - **Active**: Checked
+## Troubleshoot GitHub
 
-2. **Verify Subscribed Events**:
-    - Scroll down to **Permissions & events** section
-    - Under **Subscribe to events**, ensure these are checked:
-        - Push
-        - Issues
-        - Issue comment
-        - Pull request review
-        - Pull request review comment (mentions and comments on diff lines of a pull request a DAIV session owns)
-        - Pull request
-        - Workflow run (only listed once **Actions** is set to **Read-only**, see Step 1)
+### Webhook delivery fails
 
-3. **Test Webhook Delivery**:
-    - Create a test issue in one of your repositories where the app is installed
-    - Go back to your GitHub App settings
-    - Click on **Advanced** → **Recent Deliveries**
-    - Check for successful deliveries (200 response code)
-    - If you see a delivery, click on it to view the request and response details
+- Check that `DAIV_EXTERNAL_URL` is reachable from GitHub and has a valid SSL certificate.
+- Check that the **Webhook secret** in the GitHub App matches `CODEBASE_GITHUB_WEBHOOK_SECRET`. Without a match, DAIV answers 401.
+- Check that `CODEBASE_CLIENT` is `github`. Otherwise DAIV answers 403.
+- Check DAIV's logs for the incoming requests.
 
-!!! tip "Troubleshooting Webhook Delivery"
-    If webhook deliveries are failing:
+### DAIV ignores an issue
 
-    - Verify the webhook URL is accessible from GitHub
-    - Check that SSL certificates are valid (or disable SSL verification for testing)
-    - Ensure the webhook secret in GitHub App matches `CODEBASE_GITHUB_WEBHOOK_SECRET`
-    - Review DAIV logs for incoming webhook requests
+- The issue has no `daiv` label. Add it.
+- The App lacks the **Issues** permission with **Read & Write** access.
+- `issue_addressing.enabled` is `false` in `.daiv.yml`. It is `true` by default.
+- Check DAIV's logs for errors.
 
-### Step 5: Configure Repository Behavior
+### DAIV does not respond to comments
 
-To customize DAIV's behavior, create a `.daiv.yml` file in your repository's root.
+- The App is not subscribed to **Issue comment**, **Pull request review comment** or both. See [GitHub App permissions and events](#github-app-permissions-and-events).
+- The App is not installed on the repository.
 
-For complete configuration options, see [Repository Config](../customization/repository-config.md).
+### Authentication fails
 
-### Step 6: Test the Integration
-
-Verify that DAIV is properly connected to your GitHub repository.
-
-1. **Create a Test Issue**:
-    - Go to your GitHub repository
-    - Create a new issue with title: "Add hello world function"
-    - Add the `daiv` label to the issue
-
-2. **Wait for DAIV Response**:
-    - DAIV should automatically comment with a plan to address the issue
-    - Check the issue comments for DAIV's response
-
-!!! tip
-    For more on how issue addressing works, see [Issue Addressing](../features/issue-addressing.md).
-
-### Troubleshooting
-
-**Issues not being processed**:
-
-- Ensure the `daiv` label exists and is added to issues
-- Verify the GitHub App has proper permissions (Issues: Read & Write)
-- Check DAIV logs for errors
-- Verify `issue_addressing.enabled: true` in `.daiv.yml` (enabled by default)
-
-**No response to comments**:
-
-- Verify webhook events include "Issue comments" and "Pull request reviews"
-- Check that webhook secret matches environment variable
-- Ensure the app is installed on the repository
-
-**Authentication errors**:
-
-- Verify the private key format is correct (PEM format with header/footer)
-- Check App ID and Installation ID are correct
-- Ensure the GitHub App is installed on the target repositories
-
----
+- The private key is not in PEM format, or lacks its header and footer lines.
+- `CODEBASE_GITHUB_APP_ID` or `CODEBASE_GITHUB_INSTALLATION_ID` is wrong.
+- The App is not installed on the repositories DAIV works on.
 
 ## Next steps
 
-With your repository connected, you can now:
-
-- **[LLM Providers](llm-providers.md)** — configure your LLM provider and API keys
-- **[Repository Config](../customization/repository-config.md)** — customize DAIV's behavior per repository
-- **[Issue Addressing](../features/issue-addressing.md)** — learn how DAIV handles issues
-- **[Pull Request Assistant](../features/pull-request-assistant.md)** — learn how DAIV reviews code
+- **[LLM providers](llm-providers.md)** configures your LLM provider and API keys.
+- **[Repository configuration](../customization/repository-config.md)** customizes DAIV's behavior per repository.
+- **[Issue Addressing](../features/issue-addressing.md)** explains how DAIV handles issues.
+- **[Pull Request Assistant](../features/pull-request-assistant.md)** explains how DAIV reviews code.
