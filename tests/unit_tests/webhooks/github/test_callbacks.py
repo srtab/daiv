@@ -3,7 +3,7 @@ from unittest.mock import ANY, AsyncMock, Mock, patch
 import pytest
 from sessions.inbox.drain import Drain
 from sessions.inbox.ownership import Ownerships
-from sessions.models import InboxEvent
+from sessions.models import InboxEvent, Session
 from webhooks.dispatch import Author, Mention
 from webhooks.github.callbacks import (
     IssueCallback,
@@ -260,6 +260,26 @@ def create_pull_request_callback(
 class TestPullRequestCallback:
     """Tests for GitHub PullRequestCallback."""
 
+    @pytest.fixture(autouse=True)
+    def archive(self):
+        with patch("webhooks.github.callbacks.aarchive_merged", new=AsyncMock()) as archive:
+            yield archive
+
+    async def test_a_merge_archives_its_sessions(self, archive):
+        with (
+            patch.object(Ownerships, "aclose", autospec=True),
+            patch("codebase.tasks.record_merge_metrics_task", aenqueue=AsyncMock()),
+        ):
+            await create_pull_request_callback().process_callback()
+
+        archive.assert_awaited_once_with("owner/repo", 42)
+
+    async def test_a_close_without_merge_archives_nothing(self, archive):
+        with patch.object(Ownerships, "aclose", autospec=True):
+            await create_pull_request_callback(merged=False).process_callback()
+
+        archive.assert_not_awaited()
+
     @pytest.mark.parametrize(("action", "merged"), [("closed", True), ("closed", False), ("reopened", False)])
     def test_accept_a_close_or_a_reopen(self, action, merged):
         assert create_pull_request_callback(action=action, merged=merged).accept_callback() is True
@@ -348,6 +368,16 @@ class TestPullRequestStateOnAnOwnedPullRequest:
         await create_pull_request_callback(merged=False).process_callback()
 
         assert not await InboxEvent.objects.aexists()
+
+    @pytest.mark.parametrize("merged", [True, False])
+    async def test_only_a_merge_archives_the_owning_session(self, merged):
+        ownership = await amake_owned_merge_request(repo_id="owner/repo", merge_request_iid=42)
+
+        with patch("codebase.tasks.record_merge_metrics_task") as mock_task:
+            mock_task.aenqueue = AsyncMock()
+            await create_pull_request_callback(merged=merged).process_callback()
+
+        assert ((await Session.objects.aget(pk=ownership.session_id)).archived_at is not None) is merged
 
 
 def create_push_callback(*, ref: str = "refs/heads/feat/x", deleted: bool = False) -> PushCallback:
