@@ -157,8 +157,8 @@ nav:
     - Quickstart: getting-started/quickstart.md
     - Deployment: getting-started/deployment.md
     - Platform Setup: getting-started/platform-setup.md
-    - Accounts & Roles: getting-started/accounts.md
-    - LLM Providers: getting-started/llm-providers.md
+    - Accounts and roles: getting-started/accounts.md
+    - LLM providers: getting-started/llm-providers.md
   - Features:
     - Issue Addressing: features/issue-addressing.md
     - Pull Request Assistant: features/pull-request-assistant.md

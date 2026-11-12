@@ -65,7 +65,7 @@ DAIV stores the secret fields on this page encrypted in the database: the **Web 
 
 ## Providers
 
-The **Providers** group holds the LLM providers DAIV can call. Every model field in the other groups draws its models from the providers you enable here, and a model is written as `<slug>:<model-name>`; [LLM Providers](../getting-started/llm-providers.md) explains how a model spec picks its provider.
+The **Providers** group holds the LLM providers DAIV can call. Every model field in the other groups draws its models from the providers you enable here, and a model is written as `<slug>:<model-name>`; [LLM providers](../getting-started/llm-providers.md) explains how a model spec picks its provider.
 
 DAIV creates four built-in providers the first time it runs: `anthropic`, `openai`, `google_genai` and `openrouter`, listed under **Built-in**. Their slug and provider type are locked, and you cannot delete them, but you can set their API keys and base URLs and turn them on or off. A built-in provider whose key was not seeded starts disabled; see [LLM providers](env-variables.md#llm-providers) for how the keys are seeded. You add any other provider under **Custom**, for example a vLLM, llama.cpp or LiteLLM server or an internal gateway.
 
@@ -177,13 +177,13 @@ Turning Telegram off keeps the stored webhook secret. If you turn it off with no
 
     [:octicons-arrow-right-24: Environment variables](env-variables.md)
 
--   **LLM Providers**
+-   **LLM providers**
 
     ---
 
     How model prefixes resolve and how to mix providers.
 
-    [:octicons-arrow-right-24: LLM Providers](../getting-started/llm-providers.md)
+    [:octicons-arrow-right-24: LLM providers](../getting-started/llm-providers.md)
 
 -   **Deployment**
 

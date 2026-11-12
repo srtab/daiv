@@ -137,7 +137,7 @@ slash_commands:
 
 ## Model overrides
 
-A repository can use different models from the site's, for example smaller models on simple projects and larger ones on complex projects. A model is written as a model spec such as `openrouter:anthropic/claude-sonnet-5.5`; see [LLM Providers](../getting-started/llm-providers.md).
+A repository can use different models from the site's, for example smaller models on simple projects and larger ones on complex projects. A model is written as a model spec such as `openrouter:anthropic/claude-sonnet-5.5`; see [LLM providers](../getting-started/llm-providers.md).
 
 The model for a run comes from the first source in this list that sets one, highest priority first:
 

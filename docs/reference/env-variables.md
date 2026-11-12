@@ -113,7 +113,7 @@ The sandbox service has its own settings; see [Deployment files](#deployment-fil
 
 ### Authentication
 
-DAIV uses [django-allauth](https://docs.allauth.org/) for web authentication. Users sign in with a Git platform account (GitHub or GitLab) or with a passwordless login code sent by email. Email signup is off. For how accounts are created and who becomes the first admin, see [Accounts & Roles](../getting-started/accounts.md#signing-in).
+DAIV uses [django-allauth](https://docs.allauth.org/) for web authentication. Users sign in with a Git platform account (GitHub or GitLab) or with a passwordless login code sent by email. Email signup is off. For how accounts are created and who becomes the first admin, see [Accounts and roles](../getting-started/accounts.md#sign-in).
 
 The OAuth variables below seed the **Authentication** group of Site Configuration, which also holds an **Enable OAuth login** toggle. To create the OAuth app that gives you the client ID and secret, see [Create the OAuth app](../getting-started/accounts.md#create-the-oauth-app).
 
@@ -202,7 +202,7 @@ Analytics is off unless you set `DAIV_UMAMI_WEBSITE_ID`, so DAIV sends no visito
 
 Set `CODEBASE_CLIENT` to `gitlab` or `github`. Only one platform is active at a time.
 
-`CODEBASE_REPO_ACCESS_SYNC_CRON` sets how often DAIV copies each user's repository membership from the Git platform into its database, with one member-list call per repository. Admins are exempt from repository authorization and always have full access. DAIV tracks freshness per repository: if a repository's sync stops succeeding, for example because the platform token loses access to it, DAIV keeps using the last known access data until `CODEBASE_REPO_ACCESS_HARD_TTL_HOURS` elapse. After that the repository denies access, while the others keep syncing. See [Accounts & Roles](../getting-started/accounts.md#repository-access) for the access model.
+`CODEBASE_REPO_ACCESS_SYNC_CRON` sets how often DAIV copies each user's repository membership from the Git platform into its database, with one member-list call per repository. Admins are exempt from repository authorization and always have full access. DAIV tracks freshness per repository: if a repository's sync stops succeeding, for example because the platform token loses access to it, DAIV keeps using the last known access data until `CODEBASE_REPO_ACCESS_HARD_TTL_HOURS` elapse. After that the repository denies access, while the others keep syncing. See [Accounts and roles](../getting-started/accounts.md#repository-access) for the access model.
 
 ### GitLab
 
@@ -239,7 +239,7 @@ GitHub uses GitHub App authentication, so you create a GitHub App in your accoun
 
 ## LLM providers
 
-Configure at least one provider to use the agent. The [LLM Providers](../getting-started/llm-providers.md) page explains how model specs pick a provider.
+Configure at least one provider to use the agent. The [LLM providers](../getting-started/llm-providers.md) page explains how model specs pick a provider.
 
 !!! warning "Provider keys are seed-only"
     DAIV reads the provider API key variables once, when it first creates the provider records, and never again. They are not part of the environment, database and default order that other settings follow. Changing or adding a `*_API_KEY` variable or secret after the provider record exists has no effect: edit the provider under **Configuration → Providers** instead, which holds the key and the base URL from then on. A provider created without a key starts disabled.
