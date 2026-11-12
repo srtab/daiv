@@ -36,12 +36,14 @@ response of the `sidebar_lists` endpoint, which the sidebar swaps in when runs s
         <span class="status-dot status-dot-{{ row.status|status_variant }}" aria-hidden="true"></span>
         <span class="nav-row__title">{% if row.title %}{{ row.title }}{% else %}<em>{% translate "generating title…" %}</em>{% endif %}</span>
         <span class="nav-row__meta">
+          {% with label=row.status|run_status_label %}
           {% if row.shows_state %}
-          {{ row.status|run_status_label }}
+          {{ label }}
           {% else %}
-          {% with label=row.status|run_status_label %}{% if label %}<span class="sr-only">{{ label }}</span>{% endif %}{% endwith %}
+          {% if label %}<span class="sr-only">{{ label }}</span>{% endif %}
           {{ row.last_active_at|compact_time }}
           {% endif %}
+          {% endwith %}
         </span>
       </a>
     </li>

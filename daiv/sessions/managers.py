@@ -146,11 +146,12 @@ class SessionQuerySet(models.QuerySet["Session"]):
 
     def without_watch_placeholders(self) -> models.QuerySet[Session]:
         """Exclude the MR threads a CI watch created that no run has used yet."""
-        from sessions.models import Run, SessionOrigin
+        from sessions.models import Run, Session, SessionOrigin
 
         has_run = models.Exists(Run.objects.filter(session=models.OuterRef("pk")))
-        # Origin first: Postgres then never builds the run lookup, a hash of the whole runs table, for other sessions.
-        return self.filter(~models.Q(origin=SessionOrigin.PIPELINE_WEBHOOK) | has_run)
+        # From the pipeline side: a run test on every listed session makes Postgres hash the whole runs table.
+        placeholders = Session.objects.filter(origin=SessionOrigin.PIPELINE_WEBHOOK).exclude(has_run)
+        return self.exclude(pk__in=placeholders.values("pk"))
 
     def listed_for(self, user: User, *, mine: bool = False, archived: bool | None = False) -> models.QuerySet[Session]:
         """The rows the session list shows ``user`` before any filter: their own when ``mine``, else all visible.

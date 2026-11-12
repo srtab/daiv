@@ -647,7 +647,7 @@ wordmark and a teal New chat `+`) that is the only nav entry point on a phone.
   or subscribes to that are enabled or fired in the last 14 days, each expanding to its 3
   newest firings (one row per dispatch, worst status of its sessions, a repository count
   past one) and "All runs". Its heading takes the `schedules` section's active state;
-  its list icon links the schedules page. Headings are `.nav-group-title` (`label-caps`), and
+  its list icon links the schedules page. Headings are `.nav-group-title`, on the `label-caps` utility, and
   the rows' times and counts (`.nav-row__meta`, a firing's date) are Geist Mono. When the
   lists cannot be read (`SidebarLists.failed`), each says so in place of its empty state, whose
   "No sessions yet" would be untrue. The queries run once per page, behind the lazy

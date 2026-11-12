@@ -89,6 +89,11 @@
   font-variant-ligatures: none;
 }
 
+/* DESIGN.md's `label-caps` role: the small uppercase group labels. */
+@utility label-caps {
+  @apply font-mono text-[11px] font-semibold uppercase tracking-[0.14em];
+}
+
 @layer base {
   code,
   kbd,
@@ -292,8 +297,7 @@
   }
 
   .nav-group-title {
-    @apply relative -mx-1.5 rounded-md px-1.5 py-0.5 font-mono text-[11px] font-semibold uppercase
-           tracking-[0.14em] text-text-faint;
+    @apply label-caps relative -mx-1.5 rounded-md px-1.5 py-0.5 text-text-faint;
   }
 
   .nav-group-actions {

@@ -233,9 +233,6 @@ def _group(sidebar, testid):
     return sidebar.select_one(f'[data-testid="{testid}"]')
 
 
-GROUPS = ("nav-sessions-group", "nav-scheduled-group")
-
-
 @pytest.mark.django_db
 class TestSidebarSessionsGroup:
     def test_rows_link_their_sessions(self, member_user, member_client):
@@ -322,7 +319,9 @@ class TestSidebarSessionsGroup:
 
         sidebar = _sidebar(member_client)
 
-        sessions, schedules = (_group(sidebar, testid).select_one(".nav-empty") for testid in GROUPS)
+        sessions, schedules = (
+            _group(sidebar, testid).select_one(".nav-empty") for testid in ("nav-sessions-group", "nav-scheduled-group")
+        )
         assert sessions.get_text(strip=True) == "Couldn't load your sessions."
         assert schedules.get_text(strip=True) == "Couldn't load your schedules."
         assert not sidebar.select(".nav-empty__link")

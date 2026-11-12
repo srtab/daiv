@@ -134,21 +134,11 @@ class ScheduledJobQuerySet(models.QuerySet["ScheduledJob"]):
 
     def followed_by(self, user: User) -> Self:
         """Schedules ``user`` owns or subscribes to, each once however many subscribers it has."""
-        subscribed = ScheduledJob.objects.filter(subscribers=user).values("pk")
-        return self.filter(models.Q(user=user) | models.Q(pk__in=subscribed))
+        return self.filter(models.Q(user=user) | models.Q(pk__in=user.subscribed_schedules.values("pk")))
 
     def current(self, *, since: datetime) -> Self:
         """Enabled schedules, and disabled ones that last ran at or after ``since``."""
         return self.filter(models.Q(is_enabled=True) | models.Q(last_run_at__gte=since))
-
-    def with_newest_sessions_since(self, count: int) -> Self:
-        """Annotate ``newest_sessions_since``: when the ``count``-th newest unarchived session of each schedule was
-        created, or ``None`` when it has fewer."""
-        from sessions.models import Session
-
-        newest = Session.objects.filter(scheduled_job=models.OuterRef("pk"), archived_at__isnull=True)
-        cutoff = newest.order_by("-created_at").values("created_at")[count - 1 : count]
-        return self.annotate(newest_sessions_since=models.Subquery(cutoff))
 
 
 class ScheduledJobManager(models.Manager.from_queryset(ScheduledJobQuerySet)):

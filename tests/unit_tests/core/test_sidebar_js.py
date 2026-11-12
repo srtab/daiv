@@ -34,11 +34,11 @@ let captured = false;
 let resizingMidDrag = null;
 
 // The CSS clamp the shell applies: `clamp(min, chosen, max)`.
-let windowMax = maxWidth;
 const aside = {
-  getBoundingClientRect: () => ({
-    width: Math.max(MIN_WIDTH, Math.min(parseFloat(vars["--app-sidebar-chosen"]) || 0, windowMax)),
-  }),
+  getBoundingClientRect: () => {
+    const chosen = parseFloat(vars["--app-sidebar-chosen"]) || 0;
+    return { width: Math.max(MIN_WIDTH, Math.min(chosen, parseFloat(bounds["--app-sidebar-max"]))) };
+  },
 };
 const handle = {
   setPointerCapture: () => { captured = true; },
@@ -114,8 +114,7 @@ for (const action of actions) {
   }
   else if (action.reset) sidebar.resetWidth();
   else if (action.windowMax) {
-    windowMax = action.windowMax;
-    bounds["--app-sidebar-max"] = `${windowMax}px`;
+    bounds["--app-sidebar-max"] = `${action.windowMax}px`;
     (windowListeners.resize || []).forEach((cb) => cb());
   }
   else if (action.drag) {

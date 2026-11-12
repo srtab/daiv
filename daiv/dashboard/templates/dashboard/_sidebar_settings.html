@@ -21,7 +21,7 @@ sets up once, and for admins the instance's own.
   {% translate "Optional. Usually set up once, often by a teammate." as setup_hint %}
   <div data-testid="nav-setup-group">
     <div class="sidebar__group-heading mt-5 mb-1 px-3" title="{{ setup_hint }}">
-      <span class="sidebar__collapsible font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text-faint">
+      <span class="sidebar__collapsible label-caps text-text-faint">
         {% translate "Agent setup" %}
       </span>
       <span class="sidebar__collapsible nav-description">{{ setup_hint }}</span>
@@ -46,7 +46,7 @@ sets up once, and for admins the instance's own.
   {% if user.is_admin %}
   <div data-testid="nav-admin-group">
     <div class="sidebar__group-heading mt-5 mb-1 px-3">
-      <span class="sidebar__collapsible font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text-faint">
+      <span class="sidebar__collapsible label-caps text-text-faint">
         {% translate "Admin" %}
       </span>
     </div>

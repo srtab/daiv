@@ -1,7 +1,5 @@
 """The rows the sidebar lists: the user's own sessions, and their schedules with each one's recent firings."""
 
-from __future__ import annotations
-
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -40,7 +38,6 @@ _OPENS_SCHEDULE = frozenset({RunStatus.FAILED, RunStatus.WAITING_INPUT})
 NEWEST_SESSIONS = FIRINGS_PER_SCHEDULE * MAX_REPOS_PER_BATCH
 
 _SESSION_FIELDS = ("thread_id", "title", "last_active_at", "latest_run_status")
-_FIRING_FIELDS = ("scheduled_job_id", "runs__batch_id", "runs__created_at", "thread_id", "latest_run_status")
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,7 +95,6 @@ class _Firing:
     """One dispatch of a schedule, gathered from the rows of the sessions it started."""
 
     batch_id: Any
-    schedule_id: int
     fired_at: datetime
     statuses: dict[str, str] = field(default_factory=dict)
 
@@ -178,11 +174,13 @@ class Sidebar:
         )
 
     def _schedules(self) -> list[dict[str, Any]]:
+        newest = Session.objects.filter(scheduled_job=OuterRef("pk"), archived_at__isnull=True).order_by("-created_at")
+        cutoff = newest.values("created_at")[NEWEST_SESSIONS - 1 : NEWEST_SESSIONS]
         schedules = (
             ScheduledJob.objects
             .followed_by(self.user)
             .current(since=self.now - FIRED_WITHIN)
-            .with_newest_sessions_since(NEWEST_SESSIONS)
+            .annotate(newest_sessions_since=Subquery(cutoff))
         )
         fields = ["pk", "name", "next_run_at", "newest_sessions_since"]
         if self.viewing:
@@ -205,31 +203,33 @@ class Sidebar:
         A firing starts one session per repository, so each schedule's ``NEWEST_SESSIONS`` newest sessions reach its
         newest firings; they are picked from those alone, so the cost stays flat as history grows, then read whole.
         """
-        picked = self._newest_batches(reduce(or_, (self._newest_sessions_of(schedule) for schedule in schedules)))
+        picked = self._newest_batches(schedules)
         newest = [batch_id for batch_ids in picked.values() for batch_id in batch_ids]
-        viewed = next((schedule["viewed_batch"] for schedule in schedules if schedule.get("viewed_batch")), None)
-        extra = [viewed] if viewed is not None and viewed not in newest else []
-        if not newest and not extra:
-            return {}
-        read = self._gather([*newest, *extra])
+        viewed_schedule, viewed_batch = next(
+            ((schedule["pk"], schedule["viewed_batch"]) for schedule in schedules if schedule.get("viewed_batch")),
+            (None, None),
+        )
+        if viewed_batch in newest:
+            viewed_batch = None
+        read = self._gather([*newest, viewed_batch] if viewed_batch else newest)
         firings = {
             schedule_id: sorted(
                 (read[batch_id] for batch_id in batch_ids if batch_id in read), key=attrgetter("fired_at"), reverse=True
             )
             for schedule_id, batch_ids in picked.items()
         }
-        for firing in (read[batch_id] for batch_id in extra if batch_id in read):
-            firings.setdefault(firing.schedule_id, []).append(firing)
+        if viewed_schedule is not None and viewed_batch in read:
+            firings.setdefault(viewed_schedule, []).append(read[viewed_batch])
         return firings
 
     @staticmethod
     def _newest_sessions_of(schedule: dict[str, Any]) -> Q:
-        newest = Q(scheduled_job_id=schedule["pk"], archived_at__isnull=True)
+        newest = Q(scheduled_job_id=schedule["pk"])
         since = schedule["newest_sessions_since"]
         return newest & Q(created_at__gte=since) if since is not None else newest
 
-    def _newest_batches(self, where: Q) -> dict[int, list[Any]]:
-        """The ``batch_id`` of each schedule's newest firings among the user's sessions ``where`` selects, newest first.
+    def _newest_batches(self, schedules: list[dict[str, Any]]) -> dict[int, list[Any]]:
+        """The ``batch_id`` of each schedule's newest firings among its ``NEWEST_SESSIONS`` newest, newest first.
 
         Each session's batch is a lookup of its own, not a join, which Postgres would serve by reading every run.
         """
@@ -239,7 +239,9 @@ class Sidebar:
         rows = (
             Session.objects
             .owned_by(self.user)
-            .filter(where)
+            .filter(
+                reduce(or_, (self._newest_sessions_of(schedule) for schedule in schedules)), archived_at__isnull=True
+            )
             .order_by()
             .annotate(schedule_batch=Subquery(batch.values("batch_id")[:1]))
             .values_list("scheduled_job_id", "schedule_batch", "created_at")
@@ -254,17 +256,22 @@ class Sidebar:
         }
 
     def _gather(self, batch_ids: list[Any]) -> dict[Any, _Firing]:
-        """The firings ``batch_ids`` name, whole, from the sessions the user's lists show."""
+        """The firings ``batch_ids`` name, whole, from the user's unarchived sessions.
+
+        Not ``listed_for``: no schedule session is a CI-watch placeholder, and its check costs Postgres a scan here.
+        """
         rows = (
             Session.objects
-            .listed_for(self.user, mine=True)
+            .owned_by(self.user)
+            .filter(archived_at__isnull=True)
+            .with_latest_status()
             .filter(runs__batch_id__in=batch_ids, runs__trigger_type=SessionOrigin.SCHEDULE)
             .order_by()
-            .values_list(*_FIRING_FIELDS)
+            .values_list("runs__batch_id", "runs__created_at", "thread_id", "latest_run_status")
         )
         firings: dict[Any, _Firing] = {}
-        for schedule_id, batch_id, created_at, thread_id, status in rows:
-            firing = firings.setdefault(batch_id, _Firing(batch_id, schedule_id, created_at))
+        for batch_id, created_at, thread_id, status in rows:
+            firing = firings.setdefault(batch_id, _Firing(batch_id, created_at))
             firing.add(thread_id, status or "", created_at)
         return firings
 
