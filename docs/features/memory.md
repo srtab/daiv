@@ -1,5 +1,5 @@
 ---
-description: "DAIV extracts observations from finished runs, consolidates them into a short per-repository document, and adds that document to the system prompt of later runs on the same repository."
+description: "DAIV extracts observations from finished runs, consolidates them into a short per-repository document (dreaming), and adds that document to the system prompt of later runs on the same repository."
 ---
 
 # Repository memory
@@ -20,7 +20,7 @@ Memory forms in three steps, none of which needs you to act.
     | **Reviewer preference** | What the repository's reviewers ask for |
     | **Workflow** | Conventions for working on the repository |
 
-2. **Consolidation.** An hourly sweep finds the repositories that are due, and the consolidation model folds their pending observations into the repository's entries. [Environment variables](../reference/env-variables.md#memory) lists the settings that choose the extraction and consolidation models. For each observation it adds a fact, corrects or merges existing entries, confirms a duplicate, or discards noise. DAIV rewrites only the entries an operation names.
+2. **Consolidation**, which DAIV also calls *dreaming*. An hourly sweep finds the repositories that are due, and the consolidation model folds their pending observations into the repository's entries. [Environment variables](../reference/env-variables.md#memory) lists the settings that choose the extraction and consolidation models. For each observation it adds a fact, corrects or merges existing entries, confirms a duplicate, or discards noise. DAIV rewrites only the entries an operation names.
 
 3. **Injection.** DAIV renders the surviving entries into one document, grouped by category in a fixed order with one line per entry. No model is involved in rendering, so the same entries always give the same document. A later run on the repository gets the document appended to its system prompt, under the header `# Learned repository memory (auto-generated from past runs; may be stale — verify before relying on it)`. A [multi-repository session](jobs-api.md#multi-repository-sessions) gets the main repository's memory only.
 
