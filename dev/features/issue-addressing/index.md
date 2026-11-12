@@ -100,7 +100,7 @@ issue_addressing:
 
 ## Related pages
 
-- [Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/index.md) — turn issue addressing on or off, restrict who can trigger DAIV, and set branch and commit conventions
-- [Slash Commands & Skills](https://srtab.github.io/daiv/dev/features/slash-commands/index.md) — steer an issue with `/plan` and custom skills
-- [Pull Request Assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md) — what happens once the merge request is open
-- [Sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md) — where the implementation is built and tested
+- [Repository Config](https://docs.daivagent.com/dev/customization/repository-config/index.md) — turn issue addressing on or off, restrict who can trigger DAIV, and set branch and commit conventions
+- [Slash Commands & Skills](https://docs.daivagent.com/dev/features/slash-commands/index.md) — steer an issue with `/plan` and custom skills
+- [Pull Request Assistant](https://docs.daivagent.com/dev/features/pull-request-assistant/index.md) — what happens once the merge request is open
+- [Sandbox](https://docs.daivagent.com/dev/features/sandbox/index.md) — where the implementation is built and tested

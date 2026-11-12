@@ -12,7 +12,7 @@
         <meta name="author" content="Sandro Rodrigues">
       
       
-        <link rel="canonical" href="https://srtab.github.io/daiv/dev/reference/env-variables/">
+        <link rel="canonical" href="https://docs.daivagent.com/dev/reference/env-variables/">
       
       
         <link rel="prev" href="../../customization/mcp-tools/">
@@ -64,6 +64,16 @@
     <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
+  
+
+
+  
+
+  <script defer src="https://cloud.umami.is/script.js" data-website-id="f2d8b948-0c1b-48e7-b0ca-e296f9d48863" data-domains="docs.daivagent.com" data-do-not-track="true"></script>
+
+  
+    <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
+  
 
     
     
@@ -1423,6 +1433,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#analytics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Analytics
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2024,6 +2045,17 @@
     <span class="md-ellipsis">
       
         Other
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#analytics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Analytics
       
     </span>
   </a>
@@ -2961,6 +2993,35 @@
 <p class="admonition-title">Note</p>
 <p><code>DAIV_ENCRYPTION_KEY</code> protects API keys and other secrets stored in the configuration database. If you provide a raw Fernet key it is used directly; otherwise the value is treated as a passphrase and a key is derived via HKDF-SHA256. When omitted, the key is derived from <code>DJANGO_SECRET_KEY</code> — changing the Django secret key in that case will make existing encrypted values unreadable.</p>
 </div>
+<h3 id="analytics">Analytics</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DAIV_UMAMI_WEBSITE_ID</code></td>
+<td><a href="https://umami.is/">Umami</a> website ID. When set, the public homepage and <code>/compare/</code> pages load Umami's tracker for signed-out visitors.</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>0b6bd0c4-5d6c-4f2e-9a43-1d2e3f4a5b6c</code></td>
+</tr>
+<tr>
+<td><code>DAIV_UMAMI_SCRIPT_URL</code></td>
+<td>URL of Umami's tracker script; set it to use a self-hosted Umami.</td>
+<td style="text-align: center;"><code>https://cloud.umami.is/script.js</code></td>
+<td><code>https://stats.example.com/script.js</code></td>
+</tr>
+</tbody>
+</table>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Analytics is off unless <code>DAIV_UMAMI_WEBSITE_ID</code> is set, so a DAIV install sends no visitor data anywhere by default. When it is set, the tracker uses no cookies, honours the browser's Do Not Track setting, and never loads for signed-in users or on dashboard pages.</p>
+</div>
 <hr />
 <h2 id="codebase">Codebase</h2>
 <h3 id="general_1">General</h3>
@@ -3677,6 +3738,8 @@ server-side JSON format setting and endpoint contract.</p>
     
   </aside>
 
+
+  
 
 
 

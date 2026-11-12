@@ -40,7 +40,7 @@ graph TB
 
 ## End-to-end flow
 
-1. **Trigger** — a webhook event from GitLab/GitHub, or a [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) request
+1. **Trigger** — a webhook event from GitLab/GitHub, or a [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md) request
 1. **Dispatch** — the callback handler (webhooks) or API view (jobs) enqueues a background task
 1. **Context setup** — the task sets up the runtime context (repository, branch, scope) and creates the agent
 1. **Agent execution** — LangGraph runs the agent loop: call LLM → execute tools → repeat
@@ -90,7 +90,7 @@ How a loaded tool reaches the model depends on the model, so that loading one do
 | ------ | ----------------------------------------------------------- |
 | `bash` | Execute commands in a persistent, isolated Docker container |
 
-Commands are evaluated against a [command policy](https://srtab.github.io/daiv/dev/features/sandbox/index.md) before execution. See [Sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md) for details.
+Commands are evaluated against a [command policy](https://docs.daivagent.com/dev/features/sandbox/index.md) before execution. See [Sandbox](https://docs.daivagent.com/dev/features/sandbox/index.md) for details.
 
 ### Web
 
@@ -101,20 +101,20 @@ Commands are evaluated against a [command policy](https://srtab.github.io/daiv/d
 
 ### Skills
 
-| Tool    | Description                                                                                             |
-| ------- | ------------------------------------------------------------------------------------------------------- |
-| `skill` | Execute a [skill](https://srtab.github.io/daiv/dev/customization/agent-skills/index.md) (slash command) |
+| Tool    | Description                                                                                           |
+| ------- | ----------------------------------------------------------------------------------------------------- |
+| `skill` | Execute a [skill](https://docs.daivagent.com/dev/customization/agent-skills/index.md) (slash command) |
 
 ### Artifacts
 
-| Tool               | Description                                                                                                                                                                                                                                                                                |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `publish_artifact` | Copy a workspace file (an HTML/Markdown report, a CSV, a chart) into DAIV as a run [artifact](https://srtab.github.io/daiv/dev/features/sessions/#artifacts) and return its viewer URL; with `artifact_id`, replace the file of an artifact the session already published, keeping its URL |
-| `fetch_artifact`   | Copy an artifact the session already published back into `/workspace/tmp`, so it can be revised                                                                                                                                                                                            |
+| Tool               | Description                                                                                                                                                                                                                                                                              |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `publish_artifact` | Copy a workspace file (an HTML/Markdown report, a CSV, a chart) into DAIV as a run [artifact](https://docs.daivagent.com/dev/features/sessions/#artifacts) and return its viewer URL; with `artifact_id`, replace the file of an artifact the session already published, keeping its URL |
+| `fetch_artifact`   | Copy an artifact the session already published back into `/workspace/tmp`, so it can be revised                                                                                                                                                                                          |
 
 ### MCP
 
-External tools provided via [MCP servers](https://srtab.github.io/daiv/dev/customization/mcp-tools/index.md) (Sentry error tracking, Context7 documentation lookup).
+External tools provided via [MCP servers](https://docs.daivagent.com/dev/customization/mcp-tools/index.md) (Sentry error tracking, Context7 documentation lookup).
 
 ### Asking the user
 
@@ -122,7 +122,7 @@ External tools provided via [MCP servers](https://srtab.github.io/daiv/dev/custo
 | ------------------- | -------------------------------------------------------------------------------------- |
 | `ask_user_question` | Ask the user 1 to 4 questions and end the turn; the answer arrives as the next message |
 
-See [Answering a question](https://srtab.github.io/daiv/dev/features/sessions/#answering-a-question) for what this looks like from the user's side.
+See [Answering a question](https://docs.daivagent.com/dev/features/sessions/#answering-a-question) for what this looks like from the user's side.
 
 ## Middlewares
 
@@ -161,14 +161,14 @@ Middlewares are the backbone of the agent — they inject tools, system prompts,
 
 ## Subagents
 
-The main agent can delegate work to two general-use subagents. See [Subagents](https://srtab.github.io/daiv/dev/features/subagents/index.md) for the user-facing explanation.
+The main agent can delegate work to two general-use subagents. See [Subagents](https://docs.daivagent.com/dev/features/subagents/index.md) for the user-facing explanation.
 
 | Subagent        | Model                   | Fallback           | Tools                | Use case                                     |
 | --------------- | ----------------------- | ------------------ | -------------------- | -------------------------------------------- |
 | General-purpose | Same as main agent      | Same as main agent | Full tool access     | Complex searches, multi-step research        |
 | Explore         | Claude Haiku 5.5 (fast) | Same as main agent | Read-only filesystem | Quick file lookups, code structure questions |
 
-In addition, a set of read-only **code-review detector subagents** (`cr-correctness`, `cr-security`, `cr-performance`, `cr-structure`, `cr-tests`, `cr-custom-rules`) is built and registered on every run. The [code review](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md) skill picks the detectors applicable to the change, fans out across them in parallel, and aggregates their markdown reports into a single review report; each detector runs with a read-only tool stack. [Custom subagents](https://srtab.github.io/daiv/dev/features/subagents/#custom-subagents) defined per repository are also added to the available-agents list.
+In addition, a set of read-only **code-review detector subagents** (`cr-correctness`, `cr-security`, `cr-performance`, `cr-structure`, `cr-tests`, `cr-custom-rules`) is built and registered on every run. The [code review](https://docs.daivagent.com/dev/features/pull-request-assistant/index.md) skill picks the detectors applicable to the change, fans out across them in parallel, and aggregates their markdown reports into a single review report; each detector runs with a read-only tool stack. [Custom subagents](https://docs.daivagent.com/dev/features/subagents/#custom-subagents) defined per repository are also added to the available-agents list.
 
 All subagents (including custom subagents) support automatic model fallback via `ModelFallbackMiddleware`. When the primary model fails, the subagent retries with the configured fallback model. Every subagent uses the main agent's fallback model.
 
@@ -194,7 +194,7 @@ Models are resolved at four levels (highest priority first):
 
 1. **Per-run model** — a model picked in the agent picker, or `agent_model` through the API and MCP
 1. **Issue labels** — `daiv-max` switches to a stronger model with higher thinking
-1. **Repository config** — `.daiv.yml` [model overrides](https://srtab.github.io/daiv/dev/customization/repository-config/#model-overrides)
+1. **Repository config** — `.daiv.yml` [model overrides](https://docs.daivagent.com/dev/customization/repository-config/#model-overrides)
 1. **Environment variables** — global defaults (`DAIV_AGENT_*`)
 
-See [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/#daiv-agent) for all agent model settings.
+See [Environment Variables](https://docs.daivagent.com/dev/reference/env-variables/#daiv-agent) for all agent model settings.

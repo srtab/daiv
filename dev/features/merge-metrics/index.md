@@ -132,5 +132,5 @@ Records are unique per `(repo_id, merge_request_iid, platform)`. Duplicate webho
 
 ## Related pages
 
-- [Sessions](https://srtab.github.io/daiv/dev/features/sessions/index.md) — the run history behind the DAIV-authored commits these metrics attribute
-- [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md) — the workflow that produces most DAIV-authored merges
+- [Sessions](https://docs.daivagent.com/dev/features/sessions/index.md) — the run history behind the DAIV-authored commits these metrics attribute
+- [Issue Addressing](https://docs.daivagent.com/dev/features/issue-addressing/index.md) — the workflow that produces most DAIV-authored merges

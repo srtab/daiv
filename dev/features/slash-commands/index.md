@@ -34,7 +34,7 @@ Shows all available slash commands **and** skills for the current scope. The out
 @daiv /agents
 ```
 
-Lists the available subagents with their names and descriptions. See [Subagents](https://srtab.github.io/daiv/dev/features/subagents/index.md) for details.
+Lists the available subagents with their names and descriptions. See [Subagents](https://docs.daivagent.com/dev/features/subagents/index.md) for details.
 
 ### /clear
 
@@ -62,7 +62,7 @@ Skills are invoked the same way as commands. DAIV ships with the following built
 @daiv /plan implement rate limiting for the API
 ```
 
-DAIV explores the codebase without making any changes and posts a detailed implementation plan. This is what runs automatically when an issue is addressed without the `daiv-auto` label (see [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md)).
+DAIV explores the codebase without making any changes and posts a detailed implementation plan. This is what runs automatically when an issue is addressed without the `daiv-auto` label (see [Issue Addressing](https://docs.daivagent.com/dev/features/issue-addressing/index.md)).
 
 ### /code-review
 
@@ -70,9 +70,9 @@ DAIV explores the codebase without making any changes and posts a detailed imple
 @daiv /code-review
 ```
 
-Reviews the current merge/pull request diff for correctness, security, performance, structure, and your repository's [custom review rules](https://srtab.github.io/daiv/dev/features/pull-request-assistant/#custom-review-rules). Posts numbered findings grouped by severity, as a single report comment.
+Reviews the current merge/pull request diff for correctness, security, performance, structure, and your repository's [custom review rules](https://docs.daivagent.com/dev/features/pull-request-assistant/#custom-review-rules). Posts numbered findings grouped by severity, as a single report comment.
 
-How it scores on the ReviewBench benchmark, and at what cost, is on the [Benchmarks](https://srtab.github.io/daiv/dev/reference/benchmarks/index.md) page.
+How it scores on the ReviewBench benchmark, and at what cost, is on the [Benchmarks](https://docs.daivagent.com/dev/reference/benchmarks/index.md) page.
 
 ### /security-audit
 
@@ -96,7 +96,7 @@ Analyzes the repository structure and generates an `AGENTS.md` file with short, 
 @daiv /skill-creator
 ```
 
-Walks you through creating a new custom skill for your repository. See [Agent Skills](https://srtab.github.io/daiv/dev/customization/agent-skills/index.md) for more on custom skills.
+Walks you through creating a new custom skill for your repository. See [Agent Skills](https://docs.daivagent.com/dev/customization/agent-skills/index.md) for more on custom skills.
 
 ## Custom commands (skills)
 
@@ -107,4 +107,4 @@ To create a custom command like `/my-command`:
 1. Create `.agents/skills/my-command/SKILL.md` with YAML frontmatter
 1. Invoke it with `@daiv /my-command`
 
-Custom commands appear alongside built-in ones in `/help` and are invoked the same way. For the full guide on creating skills, see [Agent Skills](https://srtab.github.io/daiv/dev/customization/agent-skills/index.md).
+Custom commands appear alongside built-in ones in `/help` and are invoked the same way. For the full guide on creating skills, see [Agent Skills](https://docs.daivagent.com/dev/customization/agent-skills/index.md).

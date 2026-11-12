@@ -56,16 +56,16 @@ models:
 
 ## Repository settings
 
-| Option                 | Type          | Default            | Description                                                                                                                                                                                                                                                                  |
-| ---------------------- | ------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `default_branch`       | `str \| null` | Repository default | Branch DAIV uses to load `.daiv.yml` and as the base for merge requests.                                                                                                                                                                                                     |
-| `context_file_name`    | `str \| null` | `"AGENTS.md"`      | Name of the [AGENTS.md](https://agents.md/) guidance file. Set to `null` to disable.                                                                                                                                                                                         |
-| `suggest_context_file` | `bool`        | `true`             | Suggest creating the context file when DAIV opens a merge request and the file is missing. See [AGENTS.md suggestion](https://srtab.github.io/daiv/dev/features/issue-addressing/#agentsmd-suggestion).                                                                      |
-| `session_link`         | `bool`        | `true`             | Link back to the DAIV sessions that produced the changes, from the description of merge requests DAIV opens and from a `DAIV-Session` trailer on every commit. See [Linking back to sessions](https://srtab.github.io/daiv/dev/features/sessions/#linking-back-to-sessions). |
+| Option                 | Type          | Default            | Description                                                                                                                                                                                                                                                                |
+| ---------------------- | ------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `default_branch`       | `str \| null` | Repository default | Branch DAIV uses to load `.daiv.yml` and as the base for merge requests.                                                                                                                                                                                                   |
+| `context_file_name`    | `str \| null` | `"AGENTS.md"`      | Name of the [AGENTS.md](https://agents.md/) guidance file. Set to `null` to disable.                                                                                                                                                                                       |
+| `suggest_context_file` | `bool`        | `true`             | Suggest creating the context file when DAIV opens a merge request and the file is missing. See [AGENTS.md suggestion](https://docs.daivagent.com/dev/features/issue-addressing/#agentsmd-suggestion).                                                                      |
+| `session_link`         | `bool`        | `true`             | Link back to the DAIV sessions that produced the changes, from the description of merge requests DAIV opens and from a `DAIV-Session` trailer on every commit. See [Linking back to sessions](https://docs.daivagent.com/dev/features/sessions/#linking-back-to-sessions). |
 
 Tip
 
-The `AGENTS.md` file helps DAIV understand your repository's structure, conventions, and constraints. You can generate one using the `/init` skill — see [Slash Commands & Skills](https://srtab.github.io/daiv/dev/features/slash-commands/#init).
+The `AGENTS.md` file helps DAIV understand your repository's structure, conventions, and constraints. You can generate one using the `/init` skill — see [Slash Commands & Skills](https://docs.daivagent.com/dev/features/slash-commands/#init).
 
 ## Access control
 
@@ -90,7 +90,7 @@ Push events (e.g., configuration cache invalidation) are not affected by the all
 
 Warning
 
-The allowlist decides who can **trigger** DAIV, not who it reads. On a merge request a DAIV session owns, a comment that doesn't mention DAIV is remembered from anyone and shown to that session's next run as context (see [Pull request assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/#a-merge-request-daiv-published)). On a public repository, treat those comments as untrusted input.
+The allowlist decides who can **trigger** DAIV, not who it reads. On a merge request a DAIV session owns, a comment that doesn't mention DAIV is remembered from anyone and shown to that session's next run as context (see [Pull request assistant](https://docs.daivagent.com/dev/features/pull-request-assistant/#a-merge-request-daiv-published)). On a public repository, treat those comments as untrusted input.
 
 ## File access
 
@@ -117,14 +117,14 @@ slash_commands:
   enabled: false
 ```
 
-| Section                  | Option         | Default   | Description                                                                                                                                                                |
-| ------------------------ | -------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `issue_addressing`       | `enabled`      | `true`    | [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md)                                                                                    |
-| `pull_request_assistant` | `enabled`      | `true`    | [Pull Request Assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md)                                                                        |
-| `slash_commands`         | `enabled`      | `true`    | [Slash Commands & Skills](https://srtab.github.io/daiv/dev/features/slash-commands/index.md)                                                                               |
-| `pipeline_watch`         | `enabled`      | site-wide | [Pipeline Watch](https://srtab.github.io/daiv/dev/features/pipeline-watch/index.md) — disable to stop DAIV watching CI on published MRs.                                   |
-| `pipeline_watch`         | `max_attempts` | site-wide | [Pipeline Watch](https://srtab.github.io/daiv/dev/features/pipeline-watch/index.md) — maximum fix attempts before giving up, clamped to the site-wide cap.                 |
-| `orchestration`          | `enabled`      | `true`    | [Orchestration](https://srtab.github.io/daiv/dev/features/orchestration/index.md) — let the agent delegate sub-jobs to other repositories, or to new sessions on this one. |
+| Section                  | Option         | Default   | Description                                                                                                                                                              |
+| ------------------------ | -------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `issue_addressing`       | `enabled`      | `true`    | [Issue Addressing](https://docs.daivagent.com/dev/features/issue-addressing/index.md)                                                                                    |
+| `pull_request_assistant` | `enabled`      | `true`    | [Pull Request Assistant](https://docs.daivagent.com/dev/features/pull-request-assistant/index.md)                                                                        |
+| `slash_commands`         | `enabled`      | `true`    | [Slash Commands & Skills](https://docs.daivagent.com/dev/features/slash-commands/index.md)                                                                               |
+| `pipeline_watch`         | `enabled`      | site-wide | [Pipeline Watch](https://docs.daivagent.com/dev/features/pipeline-watch/index.md) — disable to stop DAIV watching CI on published MRs.                                   |
+| `pipeline_watch`         | `max_attempts` | site-wide | [Pipeline Watch](https://docs.daivagent.com/dev/features/pipeline-watch/index.md) — maximum fix attempts before giving up, clamped to the site-wide cap.                 |
+| `orchestration`          | `enabled`      | `true`    | [Orchestration](https://docs.daivagent.com/dev/features/orchestration/index.md) — let the agent delegate sub-jobs to other repositories, or to new sessions on this one. |
 
 ## Branch naming and commit conventions
 
@@ -151,7 +151,7 @@ Override the default models on a per-repository basis. Useful for using smaller 
 Configuration priority (highest to lowest):
 
 1. **A model picked for the run** — in the agent picker, or as `agent_model` through the API and MCP
-1. **Issue labels** (`daiv-max`) — see [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/#max-mode); max mode uses the site's max thinking level, not `thinking_level`
+1. **Issue labels** (`daiv-max`) — see [Issue Addressing](https://docs.daivagent.com/dev/features/issue-addressing/#max-mode); max mode uses the site's max thinking level, not `thinking_level`
 1. **`.daiv.yml` models section** — per-repository overrides
 1. **Site settings** — global defaults (environment variables or the configuration page)
 
@@ -208,4 +208,4 @@ For a given name, the model resolves in this order, first match wins:
 
 A model picked for the run, `daiv-max`, or an exact model passed to the jobs API does not override these entries. Configured models run with the run's thinking level.
 
-Values are checked when a run uses them, not when the file loads, so a typo never drops the rest of `.daiv.yml`. An entry that can't be used falls back to the model the file declares, else the run's model, not to the site entry; the failure is logged at ERROR. Names that match no skill or subagent are ignored. See [Agent Skills](https://srtab.github.io/daiv/dev/customization/agent-skills/#running-a-skill-on-another-model) and [Subagents](https://srtab.github.io/daiv/dev/features/subagents/#choosing-a-subagents-model).
+Values are checked when a run uses them, not when the file loads, so a typo never drops the rest of `.daiv.yml`. An entry that can't be used falls back to the model the file declares, else the run's model, not to the site entry; the failure is logged at ERROR. Names that match no skill or subagent are ignored. See [Agent Skills](https://docs.daivagent.com/dev/customization/agent-skills/#running-a-skill-on-another-model) and [Subagents](https://docs.daivagent.com/dev/features/subagents/#choosing-a-subagents-model).

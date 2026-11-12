@@ -96,17 +96,17 @@ Note
 
 Note
 
-LangSmith variables can also use `LANGCHAIN_` prefix (e.g., `LANGCHAIN_TRACING_V2`, `LANGCHAIN_API_KEY`). The `LANGSMITH_API_KEY` supports Docker secrets via the `_FILE` suffix. For setup details, see [Monitoring](https://srtab.github.io/daiv/dev/reference/monitoring/index.md).
+LangSmith variables can also use `LANGCHAIN_` prefix (e.g., `LANGCHAIN_TRACING_V2`, `LANGCHAIN_API_KEY`). The `LANGSMITH_API_KEY` supports Docker secrets via the `_FILE` suffix. For setup details, see [Monitoring](https://docs.daivagent.com/dev/reference/monitoring/index.md).
 
 ### Sandbox (client-side)
 
-| Variable                               | Description                                                                                                                                           | Default               | Example                     |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | --------------------------- |
-| `DAIV_SANDBOX_URL`                     | URL of the sandbox service                                                                                                                            | `http://sandbox:8000` | `http://sandbox:8000`       |
-| `DAIV_SANDBOX_TIMEOUT`                 | Timeout for sandbox requests in seconds, and the longest timeout the agent can give a bash command, whose request waits up to 60 seconds longer       | `600`                 | `600`                       |
-| `DAIV_SANDBOX_API_KEY`                 | API key for sandbox requests                                                                                                                          | *(none)*              | `random-api-key`            |
-| `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` | JSON array of extra bash command rules to block globally                                                                                              | *(none)*              | `'["curl", "npm publish"]'` |
-| `DAIV_SANDBOX_COMMAND_POLICY_ALLOW`    | JSON array of bash command rules to permit; currently has no effect (see [Precedence](https://srtab.github.io/daiv/dev/features/sandbox/#precedence)) | *(none)*              | `'["my-safe-tool"]'`        |
+| Variable                               | Description                                                                                                                                         | Default               | Example                     |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | --------------------------- |
+| `DAIV_SANDBOX_URL`                     | URL of the sandbox service                                                                                                                          | `http://sandbox:8000` | `http://sandbox:8000`       |
+| `DAIV_SANDBOX_TIMEOUT`                 | Timeout for sandbox requests in seconds, and the longest timeout the agent can give a bash command, whose request waits up to 60 seconds longer     | `600`                 | `600`                       |
+| `DAIV_SANDBOX_API_KEY`                 | API key for sandbox requests                                                                                                                        | *(none)*              | `random-api-key`            |
+| `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` | JSON array of extra bash command rules to block globally                                                                                            | *(none)*              | `'["curl", "npm publish"]'` |
+| `DAIV_SANDBOX_COMMAND_POLICY_ALLOW`    | JSON array of bash command rules to permit; currently has no effect (see [Precedence](https://docs.daivagent.com/dev/features/sandbox/#precedence)) | *(none)*              | `'["my-safe-tool"]'`        |
 
 Info
 
@@ -114,11 +114,11 @@ Check the [daiv-sandbox](https://github.com/srtab/daiv-sandbox) repository for s
 
 Command policy
 
-Both policy settings take a JSON array; a plain string such as `curl wget` (or an empty value) fails to parse and DAIV will not start. The outer single quotes in the examples are YAML or shell quoting, not part of the value. For how entries are matched and which rules are built in, see [Sandbox](https://srtab.github.io/daiv/dev/features/sandbox/#global-rules).
+Both policy settings take a JSON array; a plain string such as `curl wget` (or an empty value) fails to parse and DAIV will not start. The outer single quotes in the examples are YAML or shell quoting, not part of the value. For how entries are matched and which rules are built in, see [Sandbox](https://docs.daivagent.com/dev/features/sandbox/#global-rules).
 
 ### Authentication
 
-DAIV uses [django-allauth](https://docs.allauth.org/) for web authentication. Users are created by admins and sign in via social providers (GitHub, GitLab) or passwordless login-by-code. Social signup is restricted to pre-existing accounts — users must be created by an admin first via the user management interface at `/accounts/users/`. On a fresh install, the first social login bootstraps the initial admin account, or you can use `django-admin bootstrap_admin <email>` to create one via login-by-code (see [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md)).
+DAIV uses [django-allauth](https://docs.allauth.org/) for web authentication. Users are created by admins and sign in via social providers (GitHub, GitLab) or passwordless login-by-code. Social signup is restricted to pre-existing accounts — users must be created by an admin first via the user management interface at `/accounts/users/`. On a fresh install, the first social login bootstraps the initial admin account, or you can use `django-admin bootstrap_admin <email>` to create one via login-by-code (see [Deployment](https://docs.daivagent.com/dev/getting-started/deployment/index.md)).
 
 OAuth credentials can be configured via environment variables (shown below) or through the **Configuration** page at `/dashboard/configuration/` under the **Authentication** section. The UI also provides an **enable OAuth login** toggle to turn social login on or off without removing credentials.
 
@@ -190,6 +190,17 @@ Note
 
 `DAIV_ENCRYPTION_KEY` protects API keys and other secrets stored in the configuration database. If you provide a raw Fernet key it is used directly; otherwise the value is treated as a passphrase and a key is derived via HKDF-SHA256. When omitted, the key is derived from `DJANGO_SECRET_KEY` — changing the Django secret key in that case will make existing encrypted values unreadable.
 
+### Analytics
+
+| Variable                | Description                                                                                                                              | Default                            | Example                                |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | -------------------------------------- |
+| `DAIV_UMAMI_WEBSITE_ID` | [Umami](https://umami.is/) website ID. When set, the public homepage and `/compare/` pages load Umami's tracker for signed-out visitors. | *(none)*                           | `0b6bd0c4-5d6c-4f2e-9a43-1d2e3f4a5b6c` |
+| `DAIV_UMAMI_SCRIPT_URL` | URL of Umami's tracker script; set it to use a self-hosted Umami.                                                                        | `https://cloud.umami.is/script.js` | `https://stats.example.com/script.js`  |
+
+Note
+
+Analytics is off unless `DAIV_UMAMI_WEBSITE_ID` is set, so a DAIV install sends no visitor data anywhere by default. When it is set, the tracker uses no cookies, honours the browser's Do Not Track setting, and never loads for signed-in users or on dashboard pages.
+
 ______________________________________________________________________
 
 ## Codebase
@@ -209,7 +220,7 @@ Set `CODEBASE_CLIENT` to either `gitlab` or `github` depending on which platform
 
 Repository access sync
 
-`CODEBASE_REPO_ACCESS_SYNC_CRON` controls how often DAIV mirrors per-user repository membership from the connected Git platform into the database (one member-list call per repository). Admins are exempt from repository authorization and always have full access. Freshness is tracked per repository: if a repository's sync stops succeeding — e.g. the platform token loses access to it — its access data keeps working on the last known-good data until `CODEBASE_REPO_ACCESS_HARD_TTL_HOURS` elapses, after which that repository fails closed while others keep syncing normally. See [Accounts & Roles](https://srtab.github.io/daiv/dev/getting-started/accounts/#repository-access) for the access model this enforces.
+`CODEBASE_REPO_ACCESS_SYNC_CRON` controls how often DAIV mirrors per-user repository membership from the connected Git platform into the database (one member-list call per repository). Admins are exempt from repository authorization and always have full access. Freshness is tracked per repository: if a repository's sync stops succeeding — e.g. the platform token loses access to it — its access data keeps working on the last known-good data until `CODEBASE_REPO_ACCESS_HARD_TTL_HOURS` elapses, after which that repository fails closed while others keep syncing normally. See [Accounts & Roles](https://docs.daivagent.com/dev/getting-started/accounts/#repository-access) for the access model this enforces.
 
 ### GitLab Integration
 
@@ -251,7 +262,7 @@ This section documents the environment variables for each LLM provider.
 
 Note
 
-At least one of the [supported providers](https://srtab.github.io/daiv/dev/getting-started/llm-providers/index.md) should be configured to use the automation features.
+At least one of the [supported providers](https://docs.daivagent.com/dev/getting-started/llm-providers/index.md) should be configured to use the automation features.
 
 Provider keys are seed-only
 
@@ -337,7 +348,7 @@ The native `web_fetch` tool fetches a URL, converts HTML to markdown, then uses 
 
 ### Artifacts
 
-The `publish_artifact` tool stores files the agent generates (reports, datasets, charts) as run [artifacts](https://srtab.github.io/daiv/dev/features/sessions/#artifacts), served from the dashboard. Files are written to Django's default file storage (`MEDIA_ROOT`, `~/data/media` in the containers), which the web and worker containers must share.
+The `publish_artifact` tool stores files the agent generates (reports, datasets, charts) as run [artifacts](https://docs.daivagent.com/dev/features/sessions/#artifacts), served from the dashboard. Files are written to Django's default file storage (`MEDIA_ROOT`, `~/data/media` in the containers), which the web and worker containers must share.
 
 | Variable                      | Description                                                                               | Default             | Example    |
 | ----------------------------- | ----------------------------------------------------------------------------------------- | ------------------- | ---------- |
@@ -362,7 +373,7 @@ MCP (Model Context Protocol) tools extend agent capabilities by providing access
 
 Info
 
-For detailed MCP server configuration including user-defined servers, see [MCP Tools](https://srtab.github.io/daiv/dev/customization/mcp-tools/index.md).
+For detailed MCP server configuration including user-defined servers, see [MCP Tools](https://docs.daivagent.com/dev/customization/mcp-tools/index.md).
 
 ### Deferred Tools (Tool Search)
 
@@ -381,24 +392,24 @@ ______________________________________________________________________
 
 ## Automation: Agents
 
-These variables control the models and behavior of DAIV's agents. You can also override models per repository via `.daiv.yml` — see [Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/#model-overrides).
+These variables control the models and behavior of DAIV's agents. You can also override models per repository via `.daiv.yml` — see [Repository Config](https://docs.daivagent.com/dev/customization/repository-config/#model-overrides).
 
 ### DAIV Agent
 
 The main agent used for issue addressing, pull request assistance, and all interactive tasks. Variables use the `DAIV_AGENT_` prefix.
 
-| Variable                             | Description                                                                                                                                                                                                                                                                                                                                                                                                                  | Default             |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
-| `DAIV_AGENT_RECURSION_LIMIT`         | Maximum recursion depth for agent execution                                                                                                                                                                                                                                                                                                                                                                                  | `500`               |
-| `DAIV_AGENT_MODEL_NAME`              | Primary model for agent tasks                                                                                                                                                                                                                                                                                                                                                                                                | `claude-sonnet-5.5` |
-| `DAIV_AGENT_FALLBACK_MODEL_NAME`     | Fallback model if the primary model fails                                                                                                                                                                                                                                                                                                                                                                                    | `gpt-6.1-sol`       |
-| `DAIV_AGENT_THINKING_LEVEL`          | Extended thinking level (`minimal`, `low`, `medium`, `high`, `xhigh`, in any case; empty or `off` to disable)                                                                                                                                                                                                                                                                                                                | `medium`            |
-| `DAIV_AGENT_FALLBACK_THINKING_LEVEL` | Thinking level applied when the primary model fails over to the fallback model (same values as `DAIV_AGENT_THINKING_LEVEL`, set independently of it)                                                                                                                                                                                                                                                                         | `medium`            |
-| `DAIV_AGENT_MAX_MODEL_NAME`          | Model used when the `daiv-max` label is present                                                                                                                                                                                                                                                                                                                                                                              | `claude-opus-5.5`   |
-| `DAIV_AGENT_MAX_THINKING_LEVEL`      | Thinking level for `daiv-max` tasks (same values as `DAIV_AGENT_THINKING_LEVEL`)                                                                                                                                                                                                                                                                                                                                             | `high`              |
-| `DAIV_AGENT_SKILL_MODELS`            | Model per skill name, as a JSON object (`{"code-review": "openrouter:anthropic/claude-sonnet-5.5"}`); see [Agent Skills](https://srtab.github.io/daiv/dev/customization/agent-skills/#running-a-skill-on-another-model). A null or empty entry is unset; a malformed value is logged and ignored.                                                                                                                            | `{}`                |
-| `DAIV_AGENT_SUBAGENT_MODELS`         | Model per subagent name, as a JSON object (`{"explore": "openrouter:anthropic/claude-haiku-5.5"}`). See [Subagents](https://srtab.github.io/daiv/dev/features/subagents/#choosing-a-subagents-model). A null or empty entry is unset; a malformed value is logged and ignored. The deprecated `DAIV_AGENT_EXPLORE_MODEL_NAME` is still read as the `explore` entry when there is none, logged at ERROR, until it is removed. | `{}`                |
-| `DAIV_AGENT_CUSTOM_SKILLS_PATH`      | Path to custom global skills directory. Set to `None` to disable.                                                                                                                                                                                                                                                                                                                                                            | `~/data/skills`     |
+| Variable                             | Description                                                                                                                                                                                                                                                                                                                                                                                                                | Default             |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| `DAIV_AGENT_RECURSION_LIMIT`         | Maximum recursion depth for agent execution                                                                                                                                                                                                                                                                                                                                                                                | `500`               |
+| `DAIV_AGENT_MODEL_NAME`              | Primary model for agent tasks                                                                                                                                                                                                                                                                                                                                                                                              | `claude-sonnet-5.5` |
+| `DAIV_AGENT_FALLBACK_MODEL_NAME`     | Fallback model if the primary model fails                                                                                                                                                                                                                                                                                                                                                                                  | `gpt-6.1-sol`       |
+| `DAIV_AGENT_THINKING_LEVEL`          | Extended thinking level (`minimal`, `low`, `medium`, `high`, `xhigh`, in any case; empty or `off` to disable)                                                                                                                                                                                                                                                                                                              | `medium`            |
+| `DAIV_AGENT_FALLBACK_THINKING_LEVEL` | Thinking level applied when the primary model fails over to the fallback model (same values as `DAIV_AGENT_THINKING_LEVEL`, set independently of it)                                                                                                                                                                                                                                                                       | `medium`            |
+| `DAIV_AGENT_MAX_MODEL_NAME`          | Model used when the `daiv-max` label is present                                                                                                                                                                                                                                                                                                                                                                            | `claude-opus-5.5`   |
+| `DAIV_AGENT_MAX_THINKING_LEVEL`      | Thinking level for `daiv-max` tasks (same values as `DAIV_AGENT_THINKING_LEVEL`)                                                                                                                                                                                                                                                                                                                                           | `high`              |
+| `DAIV_AGENT_SKILL_MODELS`            | Model per skill name, as a JSON object (`{"code-review": "openrouter:anthropic/claude-sonnet-5.5"}`); see [Agent Skills](https://docs.daivagent.com/dev/customization/agent-skills/#running-a-skill-on-another-model). A null or empty entry is unset; a malformed value is logged and ignored.                                                                                                                            | `{}`                |
+| `DAIV_AGENT_SUBAGENT_MODELS`         | Model per subagent name, as a JSON object (`{"explore": "openrouter:anthropic/claude-haiku-5.5"}`). See [Subagents](https://docs.daivagent.com/dev/features/subagents/#choosing-a-subagents-model). A null or empty entry is unset; a malformed value is logged and ignored. The deprecated `DAIV_AGENT_EXPLORE_MODEL_NAME` is still read as the `explore` entry when there is none, logged at ERROR, until it is removed. | `{}`                |
+| `DAIV_AGENT_CUSTOM_SKILLS_PATH`      | Path to custom global skills directory. Set to `None` to disable.                                                                                                                                                                                                                                                                                                                                                          | `~/data/skills`     |
 
 ### Model Requests
 
@@ -411,7 +422,7 @@ These bound every LLM API call, whatever the provider: the main agent, subagents
 
 ### Jobs API
 
-The [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) allows programmatic agent execution.
+The [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md) allows programmatic agent execution.
 
 | Variable                  | Description                                                                                           | Default   |
 | ------------------------- | ----------------------------------------------------------------------------------------------------- | --------- |

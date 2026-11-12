@@ -2,7 +2,7 @@
 
 Skills are modular capabilities that extend DAIV's agent with specialized knowledge and workflows. Each skill is a directory containing a `SKILL.md` file with instructions the agent follows when the skill is triggered.
 
-DAIV ships with [built-in skills](https://srtab.github.io/daiv/dev/features/slash-commands/#built-in-skills) (`/plan`, `/code-review`, `/security-audit`, `/init`, `/skill-creator`). You can also create your own.
+DAIV ships with [built-in skills](https://docs.daivagent.com/dev/features/slash-commands/#built-in-skills) (`/plan`, `/code-review`, `/security-audit`, `/init`, `/skill-creator`). You can also create your own.
 
 ## How skills work
 
@@ -66,7 +66,7 @@ Custom global skills are user-defined skills that are available across **all rep
        - ./custom-skills:/home/daiv/data/skills:ro
    ```
 
-   The path inside the container is configurable via the `DAIV_AGENT_CUSTOM_SKILLS_PATH` environment variable (see [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/#daiv-agent)).
+   The path inside the container is configurable via the `DAIV_AGENT_CUSTOM_SKILLS_PATH` environment variable (see [Environment Variables](https://docs.daivagent.com/dev/reference/env-variables/#daiv-agent)).
 
 ### Manage skills from the dashboard
 
@@ -159,16 +159,16 @@ description: Brief description of what this skill does and when the agent should
 
 Once the agent invokes a skill, its model calls run on the skill's model until your next message. The first of these that is set names that model:
 
-1. the skill's entry under `models.skills` in the repository's `.daiv.yml` (see [Model overrides](https://srtab.github.io/daiv/dev/customization/repository-config/#skill-and-subagent-models));
+1. the skill's entry under `models.skills` in the repository's `.daiv.yml` (see [Model overrides](https://docs.daivagent.com/dev/customization/repository-config/#skill-and-subagent-models));
 1. the skill's entry on its **Models** tab in the dashboard's Skills pages (or in `DAIV_AGENT_SKILL_MODELS`);
 1. the `metadata.model` of a built-in or global skill file;
 1. the run's model.
 
-The **Models** tab changes a skill's model for every repository, built-in skills included, without copying or editing the skill file. On `/code-review` it also sets the model of each detector the skill ships (see [Subagents](https://srtab.github.io/daiv/dev/features/subagents/#choosing-a-subagents-model)). A model the user picks for the run, even an exact model passed to the jobs API, does not override an entry.
+The **Models** tab changes a skill's model for every repository, built-in skills included, without copying or editing the skill file. On `/code-review` it also sets the model of each detector the skill ships (see [Subagents](https://docs.daivagent.com/dev/features/subagents/#choosing-a-subagents-model)). A model the user picks for the run, even an exact model passed to the jobs API, does not override an entry.
 
 A skill that exists only in repositories has no page: give it a model with a `models.skills` entry in each repository's `.daiv.yml`.
 
-A built-in or global skill file can name its own model in `metadata.model`, as a model spec (`provider-slug:model`, as in [subagents](https://srtab.github.io/daiv/dev/features/subagents/index.md)):
+A built-in or global skill file can name its own model in `metadata.model`, as a model spec (`provider-slug:model`, as in [subagents](https://docs.daivagent.com/dev/features/subagents/index.md)):
 
 ```
 ---

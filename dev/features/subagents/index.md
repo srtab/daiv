@@ -117,7 +117,7 @@ description: Helps with API stuff.
 
 Operators can run any subagent on a chosen model by name, without editing its file: the general-purpose and explore subagents, each code-review detector (`cr-security`, `cr-tests`, …) and custom subagents. A custom subagent's file lives in the repository, so the dashboard does not list it: set its model in `.daiv.yml`, or for every repository in `DAIV_AGENT_SUBAGENT_MODELS`. A subagent's model is the first of these that is set:
 
-1. its entry under `models.subagents` in the repository's `.daiv.yml` (see [Model overrides](https://srtab.github.io/daiv/dev/customization/repository-config/#skill-and-subagent-models));
+1. its entry under `models.subagents` in the repository's `.daiv.yml` (see [Model overrides](https://docs.daivagent.com/dev/customization/repository-config/#skill-and-subagent-models));
 1. its entry in the dashboard (or in `DAIV_AGENT_SUBAGENT_MODELS`): **Configuration → Agent → Subagent models** for the general-purpose and explore subagents, and the **Models** tab of the `code-review` skill's page for the detectors;
 1. the `model` its file or detector charter declares (Claude Haiku 5.5 for explore);
 1. the main agent's model.
@@ -130,6 +130,6 @@ When a call on the configured model fails, for example because the provider does
 
 ## Related pages
 
-- [Agent Architecture](https://srtab.github.io/daiv/dev/reference/agent-architecture/index.md) — which model each subagent runs, its tool stack, and its fallback behaviour
-- [Agent Skills](https://srtab.github.io/daiv/dev/customization/agent-skills/index.md) — author the reusable instruction packages the main agent loads from `.agents/skills/`
-- [Slash Commands & Skills](https://srtab.github.io/daiv/dev/features/slash-commands/index.md) — run `/agents` to list every subagent available in a repository
+- [Agent Architecture](https://docs.daivagent.com/dev/reference/agent-architecture/index.md) — which model each subagent runs, its tool stack, and its fallback behaviour
+- [Agent Skills](https://docs.daivagent.com/dev/customization/agent-skills/index.md) — author the reusable instruction packages the main agent loads from `.agents/skills/`
+- [Slash Commands & Skills](https://docs.daivagent.com/dev/features/slash-commands/index.md) — run `/agents` to list every subagent available in a repository

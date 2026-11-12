@@ -1,6 +1,6 @@
 # Benchmarks
 
-DAIV's [`/code-review`](https://srtab.github.io/daiv/dev/features/slash-commands/#code-review) is measured on [ReviewBench](https://github.com/review-bench/ReviewBench), an open benchmark of real pull requests. Each pull request comes with a human-reviewed golden set of known issues. This page reports the current baseline, how it was measured, and what it does not tell you.
+DAIV's [`/code-review`](https://docs.daivagent.com/dev/features/slash-commands/#code-review) is measured on [ReviewBench](https://github.com/review-bench/ReviewBench), an open benchmark of real pull requests. Each pull request comes with a human-reviewed golden set of known issues. This page reports the current baseline, how it was measured, and what it does not tell you.
 
 ______________________________________________________________________
 

@@ -10,7 +10,7 @@ DAIV ships exactly two roles. New users default to **member**.
 
 | Role       | Can do                                                                                                                                                                                                                                                                                                                                                                         |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Member** | Start and view agent runs, chat, and [scheduled jobs](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) — scoped to the repositories they can access on the connected Git platform (see [Repository access](#repository-access)); create and revoke their own API keys; manage their own notification channels.                                               |
+| **Member** | Start and view agent runs, chat, and [scheduled jobs](https://docs.daivagent.com/dev/features/scheduled-jobs/index.md) — scoped to the repositories they can access on the connected Git platform (see [Repository access](#repository-access)); create and revoke their own API keys; manage their own notification channels.                                                 |
 | **Admin**  | Everything a member can, but without the repository restriction — admins see and act on every repository. Plus: edit **Site Configuration** at `/dashboard/configuration/`; create, edit, and delete users at `/accounts/users/`; manage global (shared) skills and global sandbox environments; view system-wide velocity metrics and the full API-key list on the dashboard. |
 
 How role checks work
@@ -23,10 +23,10 @@ Being a member does not, by itself, grant access to any repository. DAIV mirrors
 
 Two access tiers are checked, matched to the platform's own roles:
 
-| Tier      | Required platform role                                           | Gates                                                                                                                                                                                   |
-| --------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Read**  | GitLab Reporter or above, GitHub read (or higher) collaborator   | Repository/branch pickers, the memory dashboard, and the MCP `list_repositories` tool.                                                                                                  |
-| **Write** | GitLab Developer or above, GitHub write (or higher) collaborator | Starting an agent run or chat, and creating or running a [scheduled job](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) — from the dashboard, the Jobs API, or MCP. |
+| Tier      | Required platform role                                           | Gates                                                                                                                                                                                 |
+| --------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Read**  | GitLab Reporter or above, GitHub read (or higher) collaborator   | Repository/branch pickers, the memory dashboard, and the MCP `list_repositories` tool.                                                                                                |
+| **Write** | GitLab Developer or above, GitHub write (or higher) collaborator | Starting an agent run or chat, and creating or running a [scheduled job](https://docs.daivagent.com/dev/features/scheduled-jobs/index.md) — from the dashboard, the Jobs API, or MCP. |
 
 A repository the user can't read never appears in a listing; one they can read but not write to appears but rejects run/chat/schedule attempts with a friendly "not accessible" message rather than a stack trace.
 
@@ -64,7 +64,7 @@ OAuth is configured by an admin in **Site Configuration** under the **Authentica
 
 Tip
 
-OAuth can be toggled on and off at any time from `/dashboard/configuration/` — you do not need to redeploy. The same credentials can also be seeded from the `ALLAUTH_CLIENT_ID`, `ALLAUTH_CLIENT_SECRET`, `ALLAUTH_GITLAB_URL`, and `ALLAUTH_GITLAB_SERVER_URL` environment variables. See [Authentication in the env-variables reference](https://srtab.github.io/daiv/dev/reference/env-variables/#authentication) and [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md).
+OAuth can be toggled on and off at any time from `/dashboard/configuration/` — you do not need to redeploy. The same credentials can also be seeded from the `ALLAUTH_CLIENT_ID`, `ALLAUTH_CLIENT_SECRET`, `ALLAUTH_GITLAB_URL`, and `ALLAUTH_GITLAB_SERVER_URL` environment variables. See [Authentication in the env-variables reference](https://docs.daivagent.com/dev/reference/env-variables/#authentication) and [Deployment](https://docs.daivagent.com/dev/getting-started/deployment/index.md).
 
 ### Email login-by-code
 
@@ -100,7 +100,7 @@ The `bootstrap_admin` command creates an admin user and prints how to sign in. I
 
 Info
 
-For end-to-end first-run setup including OAuth credentials and email, see the first-admin notes in [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md).
+For end-to-end first-run setup including OAuth credentials and email, see the first-admin notes in [Deployment](https://docs.daivagent.com/dev/getting-started/deployment/index.md).
 
 ## Managing users (admin only)
 
@@ -143,7 +143,7 @@ Every signed-in user — member or admin — has these self-service pages. All b
 | **API keys**              | `/accounts/api-keys/` | Create and revoke personal API keys for programmatic access.                                              |
 | **Notification channels** | `/accounts/channels/` | Choose how you're notified about your agent runs (in-app, email, and Rocket.Chat when enabled).           |
 
-API keys authenticate calls to the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) and the [MCP endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md). Members see only their own keys; admins see every user's keys in the list.
+API keys authenticate calls to the [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md) and the [MCP endpoint](https://docs.daivagent.com/dev/features/mcp-endpoint/index.md). Members see only their own keys; admins see every user's keys in the list.
 
 ## Related pages
 
@@ -153,7 +153,7 @@ API keys authenticate calls to the [Jobs API](https://srtab.github.io/daiv/dev/f
 
   Install DAIV, configure email, and bring up the first admin.
 
-  [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md)
+  [Deployment](https://docs.daivagent.com/dev/getting-started/deployment/index.md)
 
 - **Platform Setup**
 
@@ -161,7 +161,7 @@ API keys authenticate calls to the [Jobs API](https://srtab.github.io/daiv/dev/f
 
   Connect DAIV to GitLab or GitHub — the same platform used for OAuth login.
 
-  [Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/index.md)
+  [Platform Setup](https://docs.daivagent.com/dev/getting-started/platform-setup/index.md)
 
 - **Jobs API**
 
@@ -169,4 +169,4 @@ API keys authenticate calls to the [Jobs API](https://srtab.github.io/daiv/dev/f
 
   Authenticate programmatic agent runs with a personal API key.
 
-  [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md)
+  [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md)

@@ -71,23 +71,23 @@ It runs as the user who triggered the coordinator's run, keeps the coordinator's
 Between resumes, the coordinator has two more tools:
 
 - `check_delegated_jobs` reports where its batches stand: each leg's status (`queued`, `running`, `stopping`, `succeeded`, `failed`, `cancelled`, or *not run* for a leg follow-up whose merge request was merged or closed), session, branch, merge request and reply. Given a `batch_id` it reports that batch, with replies up to 4,000 characters; without one, the session's five latest, with replies up to 1,000. The agent uses it when you ask how the work is going, never to wait for the legs: the resume comes on its own.
-- `cancel_delegated_jobs` cancels a batch's unfinished legs, or only the ones it names by `thread_id`, leg follow-ups included. A queued leg never starts, and cancelling a waiting leg follow-up leaves every other request waiting on the leg's session in place. A running leg shows as `stopping` until it stops, within about ten seconds, and may push to its branch or open a merge request before then. If it finishes first, it keeps its outcome. A cancelled leg's session shows it as stopped, and [Notifications](https://srtab.github.io/daiv/dev/features/notifications/index.md) count it as failed.
+- `cancel_delegated_jobs` cancels a batch's unfinished legs, or only the ones it names by `thread_id`, leg follow-ups included. A queued leg never starts, and cancelling a waiting leg follow-up leaves every other request waiting on the leg's session in place. A running leg shows as `stopping` until it stops, within about ten seconds, and may push to its branch or open a merge request before then. If it finishes first, it keeps its outcome. A cancelled leg's session shows it as stopped, and [Notifications](https://docs.daivagent.com/dev/features/notifications/index.md) count it as failed.
 
 The agent cancels when you ask it to, or when the work a leg does is no longer wanted. The coordinator is still resumed once the batch has finished, with the cancelled legs marked as such, unless every leg was cancelled: then no resume comes.
 
 ## Choosing between `task` and `delegate_jobs`
 
-| Use                                                                                | When                                                                                                                                                      |
-| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [Subagents](https://srtab.github.io/daiv/dev/features/subagents/index.md) (`task`) | Focused or parallel work that fits in the current turn and the current workspace. Subagents share the run's working tree and report back within the turn. |
-| `delegate_jobs` on the same repository                                             | Work too big for one turn, or a separate change that deserves its own merge request.                                                                      |
-| `delegate_jobs` on other repositories                                              | Work that belongs there.                                                                                                                                  |
+| Use                                                                              | When                                                                                                                                                      |
+| -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Subagents](https://docs.daivagent.com/dev/features/subagents/index.md) (`task`) | Focused or parallel work that fits in the current turn and the current workspace. Subagents share the run's working tree and report back within the turn. |
+| `delegate_jobs` on the same repository                                           | Work too big for one turn, or a separate change that deserves its own merge request.                                                                      |
+| `delegate_jobs` on other repositories                                            | Work that belongs there.                                                                                                                                  |
 
 ## Writing the prompts
 
 A leg sees only its own prompt — not the coordinator's conversation, the ticket, or anything the coordinator looked up. Each target's prompt must therefore carry everything that leg needs, and should end with the no-change convention: *"If there is nothing to change, reply saying so and make no changes."*
 
-A target can also carry `references`, linked into the leg's merge request like the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md)'s; `relation: closes` resolves the issue on merge where the provider supports it.
+A target can also carry `references`, linked into the leg's merge request like the [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md)'s; `relation: closes` resolves the issue on merge where the provider supports it.
 
 ```
 {
@@ -129,7 +129,7 @@ The resumed run's summary never quotes DAIV's own error text, so the coordinator
 
 A coordination repository can hold no production code at all and act as a routing hub:
 
-1. **Attach your ticketing system** as an [MCP server](https://srtab.github.io/daiv/dev/customization/mcp-tools/index.md) (Jira, Linear, Request Tracker, …), so the coordinator can read tickets and comment on them.
+1. **Attach your ticketing system** as an [MCP server](https://docs.daivagent.com/dev/customization/mcp-tools/index.md) (Jira, Linear, Request Tracker, …), so the coordinator can read tickets and comment on them.
 
 1. **Write the routing rules in its `AGENTS.md`**:
 
@@ -141,7 +141,7 @@ A coordination repository can hold no production code at all and act as a routin
    - Unclassified tickets → skip, comment "needs triage label"
    ```
 
-1. **Trigger it** with a [Scheduled Job](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) that polls the queue, or from your ticketing system through the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md):
+1. **Trigger it** with a [Scheduled Job](https://docs.daivagent.com/dev/features/scheduled-jobs/index.md) that polls the queue, or from your ticketing system through the [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md):
 
    ```
    Fetch the open tickets not yet dispatched. Route each one with the rules in AGENTS.md and delegate one
@@ -150,7 +150,7 @@ A coordination repository can hold no production code at all and act as a routin
 
 ### One fix per Sentry finding
 
-With orchestration on in the application's own repository and the Sentry [MCP server](https://srtab.github.io/daiv/dev/customization/mcp-tools/index.md) enabled, a single prompt — run by hand or from a [Scheduled Job](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) — triages and fans out:
+With orchestration on in the application's own repository and the Sentry [MCP server](https://docs.daivagent.com/dev/customization/mcp-tools/index.md) enabled, a single prompt — run by hand or from a [Scheduled Job](https://docs.daivagent.com/dev/features/scheduled-jobs/index.md) — triages and fans out:
 
 ```
 Triage the unresolved Sentry issues of the last 24 hours. For each one worth fixing, delegate a fix on this
@@ -166,21 +166,21 @@ While the agent works on a task in chat, it may come across an unrelated problem
 
 ## Seeing the batch
 
-Every leg is its own session in the [Sessions](https://srtab.github.io/daiv/dev/features/sessions/index.md) list, and the legs of one call share a batch. The coordinator's session page shows where each leg stands now, not where it stood when it was delegated:
+Every leg is its own session in the [Sessions](https://docs.daivagent.com/dev/features/sessions/index.md) list, and the legs of one call share a batch. The coordinator's session page shows where each leg stands now, not where it stood when it was delegated:
 
 - **Transcript** — each `delegate_jobs` call is a **Delegated jobs** card: its goal, and one row per leg with its state, merge request and session.
 - **Sidebar** — the **Delegated jobs** section of the **Info** tab lists the legs batch by batch, newest first.
 
 A leg is *Queued*, *Starts after this turn*, *Running*, *Stopping*, *Finished*, *Failed*, *Cancelled*, *Lost* (it started, but DAIV lost track of it), or *Not run: merge request merged* / *closed* (a leg follow-up that stopped at its start). A leg that served several batches, through leg follow-ups, is listed under each batch and counted once in the **Delegated jobs** count, and the call card marks a leg follow-up's row as **Leg follow-up**. An open page updates within a few seconds of a leg starting or finishing. In both places, a leg whose session you cannot see shows only its repository, branch and state. A leg's own session page links back to the coordinator's (**Delegated by**) when you can see it.
 
-The coordinator's session then shows the resumed run with the legs' summary. [Notifications](https://srtab.github.io/daiv/dev/features/notifications/index.md) treat the legs as a batch, so you get one rollup when they need a look.
+The coordinator's session then shows the resumed run with the legs' summary. [Notifications](https://docs.daivagent.com/dev/features/notifications/index.md) treat the legs as a batch, so you get one rollup when they need a look.
 
 Why not call DAIV's own MCP endpoint?
 
-[`submit_job`](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md) starts the same kind of jobs, but a caller can only poll or block for the result. That suits an editor or a script; inside an agent run it would hold a worker while the legs wait for one, with no way to resume afterwards. `delegate_jobs` ends the coordinator's turn and resumes it when the work is done.
+[`submit_job`](https://docs.daivagent.com/dev/features/mcp-endpoint/index.md) starts the same kind of jobs, but a caller can only poll or block for the result. That suits an editor or a script; inside an agent run it would hold a worker while the legs wait for one, with no way to resume afterwards. `delegate_jobs` ends the coordinator's turn and resumes it when the work is done.
 
 ## See also
 
-- [Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/index.md) — the `orchestration` toggle
-- [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) and [MCP Endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md) — a batch can also give each repository its own `prompt`
-- [Subagents](https://srtab.github.io/daiv/dev/features/subagents/index.md) — parallel work inside one turn
+- [Repository Config](https://docs.daivagent.com/dev/customization/repository-config/index.md) — the `orchestration` toggle
+- [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md) and [MCP Endpoint](https://docs.daivagent.com/dev/features/mcp-endpoint/index.md) — a batch can also give each repository its own `prompt`
+- [Subagents](https://docs.daivagent.com/dev/features/subagents/index.md) — parallel work inside one turn

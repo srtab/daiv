@@ -81,7 +81,7 @@ POST /api/jobs
 | `references`           | array of objects | no       | Up to 20 external work-item references (Jira/Sentry/RT tickets, git-platform issues, …) that DAIV links into the MR/PR it creates. Each item: `{ "key": "PROJ-123", "url": "https://…", "provider": "jira", "relation": "relates" }` — only `key` is required.                                                                                                                                                                                                                                                                                                                                                           |
 | `mcp_overrides`        | object           | no       | MCP servers to switch on or off for every job in the batch, relative to the default set: `{"grafana": true}` adds an on-demand server, `{"sentry": false}` drops an active one. Names are those of the global servers and your own personal ones; an unknown name is rejected with `400`, and a value other than `true`/`false` with `422`. On a continued thread (`thread_id`) they apply on top of the thread's own, so a server you don't name keeps its setting. A continuation that would change them while another run on the thread is unfinished is returned in `failed`, since that run would pick them up too. |
 
-`references` is the same schema the MCP `submit_job` tool takes, validated by the same code; see [`references` on the MCP endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/#available-tools) for the per-field rules, the provider list, the `closes` auto-close semantics, the continuation merge, and the v1 limitation on existing MRs. An invalid reference (bad key charset, non-`http(s)` URL, more than 20 entries) is rejected with `422` and nothing is stored.
+`references` is the same schema the MCP `submit_job` tool takes, validated by the same code; see [`references` on the MCP endpoint](https://docs.daivagent.com/dev/features/mcp-endpoint/#available-tools) for the per-field rules, the provider list, the `closes` auto-close semantics, the continuation merge, and the v1 limitation on existing MRs. An invalid reference (bad key charset, non-`http(s)` URL, more than 20 entries) is rejected with `422` and nothing is stored.
 
 Note
 
@@ -155,7 +155,7 @@ GET /api/jobs/{job_id}
 
 `merge_request_url` is populated when the agent produced code changes that were committed and pushed; `null` otherwise (e.g. read-only triage runs). In a [multi-repository session](#multi-repository-sessions) it is the main repository's merge request, else the first one opened. `thread_id` identifies the thread this job ran on — pass it back as the `thread_id` field on a new submission to continue the conversation.
 
-`artifacts` lists the files the agent published with its `publish_artifact` tool (reports, datasets, charts) — see [Artifacts](https://srtab.github.io/daiv/dev/features/sessions/#artifacts). Each entry carries the viewer page (`url`), a direct download (`download_url`), and a `kind` (`markdown`, `html`, `image`, `text`, or `other`) describing how the viewer renders it. Both `url` and `download_url` require a signed-in DAIV user who can see the run. An artifact that a later job on the same thread revises keeps its id and URLs, and is listed under both the job that first published it and every job that revised it, with its current file ([Revising an artifact](https://srtab.github.io/daiv/dev/features/sessions/#revising-an-artifact)). The list is empty for runs that published nothing, and it is populated as the run progresses, so it can be read while the job is still `RUNNING`. If DAIV cannot list the artifacts, `artifacts` is empty and `artifacts_error` explains why; the rest of the status is unaffected.
+`artifacts` lists the files the agent published with its `publish_artifact` tool (reports, datasets, charts) — see [Artifacts](https://docs.daivagent.com/dev/features/sessions/#artifacts). Each entry carries the viewer page (`url`), a direct download (`download_url`), and a `kind` (`markdown`, `html`, `image`, `text`, or `other`) describing how the viewer renders it. Both `url` and `download_url` require a signed-in DAIV user who can see the run. An artifact that a later job on the same thread revises keeps its id and URLs, and is listed under both the job that first published it and every job that revised it, with its current file ([Revising an artifact](https://docs.daivagent.com/dev/features/sessions/#revising-an-artifact)). The list is empty for runs that published nothing, and it is populated as the run progresses, so it can be read while the job is still `RUNNING`. If DAIV cannot list the artifacts, `artifacts` is empty and `artifacts_error` explains why; the rest of the status is unaffected.
 
 **Status values:**
 
@@ -185,7 +185,7 @@ curl -s -X POST https://daiv.example.com/api/jobs \
 
 This starts a new run that continues the agent's work from where it stopped. As with any `thread_id` continuation, `repos` must have exactly one entry (for a [multi-repository session](#continuing-a-multi-repository-session), the main repository alone or the session's full list), and the thread's most recent run must belong to you.
 
-You don't have to poll for it: when a job ends in `WAITING_INPUT`, DAIV also sends you a [notification](https://srtab.github.io/daiv/dev/features/notifications/index.md) listing the questions, unless you've muted it. In a multi-repo job, the run is counted in the batch rollup (and listed, in email and Rocket Chat) once every repository's run has settled.
+You don't have to poll for it: when a job ends in `WAITING_INPUT`, DAIV also sends you a [notification](https://docs.daivagent.com/dev/features/notifications/index.md) listing the questions, unless you've muted it. In a multi-repo job, the run is counted in the batch rollup (and listed, in email and Rocket Chat) once every repository's run has settled.
 
 **Error responses:**
 
@@ -221,7 +221,7 @@ By default, several entries in `repos` fan out into independent jobs, one sessio
 }
 ```
 
-- You can also start such a session from the dashboard chat, which takes the same list: see [Starting a chat over several repositories](https://srtab.github.io/daiv/dev/features/sessions/#starting-a-chat-over-several-repositories).
+- You can also start such a session from the dashboard chat, which takes the same list: see [Starting a chat over several repositories](https://docs.daivagent.com/dev/features/sessions/#starting-a-chat-over-several-repositories).
 - `repos` takes up to 5 entries (the first is the main one), each repository at most once, and no per-repository `prompt`: the session runs the one `prompt`.
 - The response holds **one** job and one `thread_id`; the job's `repo_id` is the first entry, the **main repository**.
 - You need write access to every repository. If any is missing or unknown, the call fails with the usual opaque `404`.
@@ -249,7 +249,7 @@ Pass the session's `thread_id`. `shared_session` is optional and ignored: the se
 
 A multi-repository session (runs, transcript, artifacts and merge request links) is visible only to its owner, admins, and users who can read every repository in it.
 
-The session owns every merge request it opens, the main repository's and each other repository's, so their [CI watch](https://srtab.github.io/daiv/dev/features/pipeline-watch/index.md) results and `@daiv` comments reach the session's [inbox](https://srtab.github.io/daiv/dev/features/sessions/#the-session-inbox). A CI failure or a mention on any of them is handled by the session's next run, on the main repository's branch with every repository checked out, and DAIV answers a mention on the merge request it was made on. Each merge request has its own CI fix attempts. In the dashboard, a multi-repository session continued in chat keeps all its repositories, its main repository cannot be switched, and the session page lists every repository and merge request.
+The session owns every merge request it opens, the main repository's and each other repository's, so their [CI watch](https://docs.daivagent.com/dev/features/pipeline-watch/index.md) results and `@daiv` comments reach the session's [inbox](https://docs.daivagent.com/dev/features/sessions/#the-session-inbox). A CI failure or a mention on any of them is handled by the session's next run, on the main repository's branch with every repository checked out, and DAIV answers a mention on the merge request it was made on. Each merge request has its own CI fix attempts. In the dashboard, a multi-repository session continued in chat keeps all its repositories, its main repository cannot be switched, and the session page lists every repository and merge request.
 
 Requires a recent daiv-sandbox
 
@@ -352,4 +352,4 @@ Store `DAIV_URL` and `DAIV_API_KEY` as CI/CD variables in your GitLab project se
 
 ## Related pages
 
-- [Request Tracker Triage](https://srtab.github.io/daiv/dev/integrations/rt/index.md) — an end-to-end example of using the Jobs API from an RT Scrip to triage new support tickets automatically.
+- [Request Tracker Triage](https://docs.daivagent.com/dev/integrations/rt/index.md) — an end-to-end example of using the Jobs API from an RT Scrip to triage new support tickets automatically.

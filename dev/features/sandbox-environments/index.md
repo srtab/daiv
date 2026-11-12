@@ -1,12 +1,12 @@
 # Sandbox Environments
 
-A sandbox environment is a named, reusable [sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md) configuration — base image, CPU and memory limits, network access, encrypted environment variables, and the repositories it applies to. Define it once in the dashboard and DAIV reuses that runtime across every run, chat, scheduled job, and API/MCP call that lands in a matching repository, instead of reconfiguring the container each time.
+A sandbox environment is a named, reusable [sandbox](https://docs.daivagent.com/dev/features/sandbox/index.md) configuration — base image, CPU and memory limits, network access, encrypted environment variables, and the repositories it applies to. Define it once in the dashboard and DAIV reuses that runtime across every run, chat, scheduled job, and API/MCP call that lands in a matching repository, instead of reconfiguring the container each time.
 
 Manage environments at **Dashboard > Sandbox Environments** (`/dashboard/sandbox-envs/`). The page lists your own environments and, separately, the organization-wide ones.
 
 When you need one
 
-The sandbox runs with **networking disabled** and **no base image** unless an environment supplies them. If the agent needs to install dependencies, run a specific toolchain image, or read a secret (an API token, a private registry credential), capture that in an environment. See [Sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md) for what the agent does with the runtime.
+The sandbox runs with **networking disabled** and **no base image** unless an environment supplies them. If the agent needs to install dependencies, run a specific toolchain image, or read a secret (an API token, a private registry credential), capture that in an environment. See [Sandbox](https://docs.daivagent.com/dev/features/sandbox/index.md) for what the agent does with the runtime.
 
 ## Scopes
 
@@ -48,7 +48,7 @@ Leaving **CPUs** or **Memory** on *default* means the field is unset, and the va
 
 ### Environment variables (encrypted at rest)
 
-Environment-variable values are **Fernet-encrypted before they are stored** and decrypted only when a run needs them. Encryption uses `DAIV_ENCRYPTION_KEY` (see [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/index.md)).
+Environment-variable values are **Fernet-encrypted before they are stored** and decrypted only when a run needs them. Encryption uses `DAIV_ENCRYPTION_KEY` (see [Environment Variables](https://docs.daivagent.com/dev/reference/env-variables/index.md)).
 
 - Each entry has a **name** (a valid shell identifier: letters, digits, underscores, not starting with a digit) and a **value**.
 - Mark a value as **secret** to mask it in the dashboard and in API/MCP responses (shown as `******`, never echoed back). Re-saving the form keeps a masked secret unchanged unless you type a new value.
@@ -108,7 +108,7 @@ A repository ID may be claimed by at most one environment **within the same scop
 
 When a run is requested — a webhook arrives, a job is submitted, a chat session starts — DAIV picks its environment using this precedence (per repository) and records it on the run. A session keeps the environment of its first run:
 
-1. **Explicit selection** — an environment chosen for the run (the picker in the dashboard, the `environment` argument to the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md)/[MCP](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md), or the session header). Selecting an environment overrides all binding/default logic.
+1. **Explicit selection** — an environment chosen for the run (the picker in the dashboard, the `environment` argument to the [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md)/[MCP](https://docs.daivagent.com/dev/features/mcp-endpoint/index.md), or the session header). Selecting an environment overrides all binding/default logic.
 1. **User repository binding** — your **User** environment whose **Repositories** list contains this repository.
 1. **Global repository binding** — a **Global** (non-default) environment whose **Repositories** list contains this repository.
 1. **Global default** — the single **Global** environment marked as default.
@@ -118,9 +118,9 @@ The selected per-run environment is then **merged with the global default** to p
 
 Issue and merge request webhooks
 
-Runs triggered by an issue or merge request webhook (for example, [issue addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md)) are not scoped to a DAIV user's environments, so step 2 (User bindings) is skipped — resolution starts at Global bindings and falls back to the global default.
+Runs triggered by an issue or merge request webhook (for example, [issue addressing](https://docs.daivagent.com/dev/features/issue-addressing/index.md)) are not scoped to a DAIV user's environments, so step 2 (User bindings) is skipped — resolution starts at Global bindings and falls back to the global default.
 
-The run then starts from that recorded choice, so changing a binding afterwards doesn't move it. A [pipeline-watch](https://srtab.github.io/daiv/dev/features/pipeline-watch/index.md) CI run, like any run that session's inbox starts, uses the environment recorded on the session that published the merge request, even if the repository has been bound to another one since. The exception is a run for someone else, such as a reply to another person's mention: it never gets the owner's private environment, and resolves one for the person it runs for instead (their own, a repository binding, or the global default). When that session has no environment recorded (the publishing run had none, it started before any existed, or its environment was deleted), its CI runs and chat turns run on the global default.
+The run then starts from that recorded choice, so changing a binding afterwards doesn't move it. A [pipeline-watch](https://docs.daivagent.com/dev/features/pipeline-watch/index.md) CI run, like any run that session's inbox starts, uses the environment recorded on the session that published the merge request, even if the repository has been bound to another one since. The exception is a run for someone else, such as a reply to another person's mention: it never gets the owner's private environment, and resolves one for the person it runs for instead (their own, a repository binding, or the global default). When that session has no environment recorded (the publishing run had none, it started before any existed, or its environment was deleted), its CI runs and chat turns run on the global default.
 
 Editing an environment reaches an existing session on its next turn. DAIV replaces the session's container instead of reusing it when the turn's resolved environment (the session's environment merged over the global default) differs from the one the container was started from in base image, memory, CPUs, environment variables or network rules, so switching the session to another environment or editing the global default replaces it too. The new container starts from the repository: anything installed in the old one, or left uncommitted by a stopped turn, is gone. A new git token is not a change; it is updated on the running container.
 
@@ -143,15 +143,15 @@ You don't have to bind an environment to a repository — you can pick one expli
 
 ### From the dashboard run composer
 
-When you start a run from **Dashboard > Sessions** (or from a [Sessions](https://srtab.github.io/daiv/dev/features/sessions/index.md) detail page), the composer includes a **Sandbox environment** picker listing your User environments and all Global ones. Leave it on **(global default)** to use [auto-resolution](#how-an-environment-is-resolved).
+When you start a run from **Dashboard > Sessions** (or from a [Sessions](https://docs.daivagent.com/dev/features/sessions/index.md) detail page), the composer includes a **Sandbox environment** picker listing your User environments and all Global ones. Leave it on **(global default)** to use [auto-resolution](#how-an-environment-is-resolved).
 
 ### From a chat session
 
-The dashboard [chat session](https://srtab.github.io/daiv/dev/features/sessions/#chat-sessions) workspace remembers the environment chosen when the session is created (sent as the `X-Sandbox-Env` header, by name or UUID). Omitting it auto-resolves the environment for the session's repository. The chosen environment is snapshotted at session creation, so an existing session keeps the environment it started with.
+The dashboard [chat session](https://docs.daivagent.com/dev/features/sessions/#chat-sessions) workspace remembers the environment chosen when the session is created (sent as the `X-Sandbox-Env` header, by name or UUID). Omitting it auto-resolves the environment for the session's repository. The chosen environment is snapshotted at session creation, so an existing session keeps the environment it started with.
 
 ### From a scheduled job
 
-A [Scheduled Job](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) has a **Sandbox environment** field. Set it to pin every run of that schedule to one environment, or leave it unset to fall back to per-repository auto-resolution for each target repo.
+A [Scheduled Job](https://docs.daivagent.com/dev/features/scheduled-jobs/index.md) has a **Sandbox environment** field. Set it to pin every run of that schedule to one environment, or leave it unset to fall back to per-repository auto-resolution for each target repo.
 
 ### From the Jobs API
 
@@ -165,11 +165,11 @@ A [Scheduled Job](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index
 }
 ```
 
-See the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) reference for the full request shape.
+See the [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md) reference for the full request shape.
 
 ### From the MCP endpoint
 
-The [MCP](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md) `submit_job` tool takes an `environment` argument (name or UUID), applied to every job in the batch. Two companion tools help discover environments:
+The [MCP](https://docs.daivagent.com/dev/features/mcp-endpoint/index.md) `submit_job` tool takes an `environment` argument (name or UUID), applied to every job in the batch. Two companion tools help discover environments:
 
 - `list_environments` — your User environments plus all Global ones (env-var values are not included at all).
 - `get_environment` — full details for one environment by name or UUID (secret values masked as `******`).
@@ -182,7 +182,7 @@ The [MCP](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md) `subm
 
   What the agent runs inside the container, and the command policy that governs it.
 
-  [Sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md)
+  [Sandbox](https://docs.daivagent.com/dev/features/sandbox/index.md)
 
 - **Scheduled Jobs**
 
@@ -190,7 +190,7 @@ The [MCP](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md) `subm
 
   Pin a sandbox environment to a recurring agent run.
 
-  [Scheduled Jobs](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md)
+  [Scheduled Jobs](https://docs.daivagent.com/dev/features/scheduled-jobs/index.md)
 
 - **Jobs API**
 
@@ -198,7 +198,7 @@ The [MCP](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md) `subm
 
   Submit jobs over HTTP with an `environment` parameter.
 
-  [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md)
+  [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md)
 
 - **MCP Endpoint**
 
@@ -206,4 +206,4 @@ The [MCP](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md) `subm
 
   Pick environments from Claude Code, Cursor, and other MCP clients.
 
-  [MCP Endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md)
+  [MCP Endpoint](https://docs.daivagent.com/dev/features/mcp-endpoint/index.md)

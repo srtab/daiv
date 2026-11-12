@@ -1,123 +1,123 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
-         <loc>https://srtab.github.io/daiv/dev/</loc>
+         <loc>https://docs.daivagent.com/dev/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/community/</loc>
+         <loc>https://docs.daivagent.com/dev/community/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/customization/agent-skills/</loc>
+         <loc>https://docs.daivagent.com/dev/customization/agent-skills/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/customization/mcp-tools/</loc>
+         <loc>https://docs.daivagent.com/dev/customization/mcp-tools/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/customization/repository-config/</loc>
+         <loc>https://docs.daivagent.com/dev/customization/repository-config/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/features/issue-addressing/</loc>
+         <loc>https://docs.daivagent.com/dev/features/issue-addressing/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/features/jobs-api/</loc>
+         <loc>https://docs.daivagent.com/dev/features/jobs-api/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/features/mcp-endpoint/</loc>
+         <loc>https://docs.daivagent.com/dev/features/mcp-endpoint/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/features/merge-metrics/</loc>
+         <loc>https://docs.daivagent.com/dev/features/merge-metrics/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/features/notifications/</loc>
+         <loc>https://docs.daivagent.com/dev/features/notifications/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/features/orchestration/</loc>
+         <loc>https://docs.daivagent.com/dev/features/orchestration/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/features/pipeline-watch/</loc>
+         <loc>https://docs.daivagent.com/dev/features/pipeline-watch/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/features/pull-request-assistant/</loc>
+         <loc>https://docs.daivagent.com/dev/features/pull-request-assistant/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/features/sandbox-environments/</loc>
+         <loc>https://docs.daivagent.com/dev/features/sandbox-environments/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/features/sandbox/</loc>
+         <loc>https://docs.daivagent.com/dev/features/sandbox/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/features/scheduled-jobs/</loc>
+         <loc>https://docs.daivagent.com/dev/features/scheduled-jobs/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/features/sessions/</loc>
+         <loc>https://docs.daivagent.com/dev/features/sessions/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/features/slash-commands/</loc>
+         <loc>https://docs.daivagent.com/dev/features/slash-commands/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/features/subagents/</loc>
+         <loc>https://docs.daivagent.com/dev/features/subagents/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/getting-started/accounts/</loc>
+         <loc>https://docs.daivagent.com/dev/getting-started/accounts/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/getting-started/deployment/</loc>
+         <loc>https://docs.daivagent.com/dev/getting-started/deployment/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/getting-started/llm-providers/</loc>
+         <loc>https://docs.daivagent.com/dev/getting-started/llm-providers/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/getting-started/platform-setup/</loc>
+         <loc>https://docs.daivagent.com/dev/getting-started/platform-setup/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/getting-started/quickstart/</loc>
+         <loc>https://docs.daivagent.com/dev/getting-started/quickstart/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/integrations/rt/</loc>
+         <loc>https://docs.daivagent.com/dev/integrations/rt/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/reference/agent-architecture/</loc>
+         <loc>https://docs.daivagent.com/dev/reference/agent-architecture/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/reference/benchmarks/</loc>
+         <loc>https://docs.daivagent.com/dev/reference/benchmarks/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/reference/env-variables/</loc>
+         <loc>https://docs.daivagent.com/dev/reference/env-variables/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/reference/monitoring/</loc>
+         <loc>https://docs.daivagent.com/dev/reference/monitoring/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
     <url>
-         <loc>https://srtab.github.io/daiv/dev/reference/site-configuration/</loc>
+         <loc>https://docs.daivagent.com/dev/reference/site-configuration/</loc>
          <lastmod>2026-11-12</lastmod>
     </url>
 </urlset>

@@ -15,7 +15,7 @@ ______________________________________________________________________
 
 Before configuring a GitLab repository, ensure you have:
 
-- **DAIV installed and running** - Follow the [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md) guide first
+- **DAIV installed and running** - Follow the [Deployment](https://docs.daivagent.com/dev/getting-started/deployment/index.md) guide first
 - **GitLab repository access** - Admin or maintainer permissions on the repository you want to connect
 - **A GitLab account for DAIV** - A separate user that DAIV acts as, created in Step 1
 
@@ -114,7 +114,7 @@ Click **Test** → **Push events** to verify connectivity.
 
 To customize DAIV's behavior, create a `.daiv.yml` file in your repository's root.
 
-For complete configuration options, see [Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/index.md).
+For complete configuration options, see [Repository Config](https://docs.daivagent.com/dev/customization/repository-config/index.md).
 
 ### Step 5: Test the Integration
 
@@ -138,7 +138,7 @@ Verify that DAIV is properly connected to your repository.
 
 Tip
 
-For more on how issue addressing works, see [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md).
+For more on how issue addressing works, see [Issue Addressing](https://docs.daivagent.com/dev/features/issue-addressing/index.md).
 
 ### Troubleshooting
 
@@ -179,7 +179,7 @@ ______________________________________________________________________
 
 Before configuring a GitHub repository, ensure you have:
 
-- **DAIV installed and running** - Follow the [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md) guide first
+- **DAIV installed and running** - Follow the [Deployment](https://docs.daivagent.com/dev/getting-started/deployment/index.md) guide first
 - **GitHub repository or organization access** - Admin permissions to create and install GitHub Apps
 - **GitHub account** - On GitHub.com or GitHub Enterprise
 
@@ -211,7 +211,7 @@ DAIV uses GitHub App authentication to securely interact with your repositories.
    - Contents: **Read & Write** (to create branches and commits)
    - Issues: **Read & Write** (to read and comment on issues)
    - Pull requests: **Read & Write** (to create and update pull requests)
-   - Actions: **Read-only** (to read workflow runs and job logs for [Pipeline Watch](https://srtab.github.io/daiv/dev/features/pipeline-watch/index.md))
+   - Actions: **Read-only** (to read workflow runs and job logs for [Pipeline Watch](https://docs.daivagent.com/dev/features/pipeline-watch/index.md))
    - Workflows: **Read & Write** (optional; lets DAIV push changes to files under `.github/workflows/`, such as a conflict resolved there. Code running in the sandbox can then change workflows too, and they run with the repository's Actions secrets)
    - Metadata: **Read-only** (automatically selected)
    - **Subscribe to events:**
@@ -369,7 +369,7 @@ If webhook deliveries are failing:
 
 To customize DAIV's behavior, create a `.daiv.yml` file in your repository's root.
 
-For complete configuration options, see [Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/index.md).
+For complete configuration options, see [Repository Config](https://docs.daivagent.com/dev/customization/repository-config/index.md).
 
 ### Step 6: Test the Integration
 
@@ -388,7 +388,7 @@ Verify that DAIV is properly connected to your GitHub repository.
 
 Tip
 
-For more on how issue addressing works, see [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md).
+For more on how issue addressing works, see [Issue Addressing](https://docs.daivagent.com/dev/features/issue-addressing/index.md).
 
 ### Troubleshooting
 
@@ -417,7 +417,7 @@ ______________________________________________________________________
 
 With your repository connected, you can now:
 
-- **[LLM Providers](https://srtab.github.io/daiv/dev/getting-started/llm-providers/index.md)** — configure your LLM provider and API keys
-- **[Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/index.md)** — customize DAIV's behavior per repository
-- **[Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md)** — learn how DAIV handles issues
-- **[Pull Request Assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md)** — learn how DAIV reviews code
+- **[LLM Providers](https://docs.daivagent.com/dev/getting-started/llm-providers/index.md)** — configure your LLM provider and API keys
+- **[Repository Config](https://docs.daivagent.com/dev/customization/repository-config/index.md)** — customize DAIV's behavior per repository
+- **[Issue Addressing](https://docs.daivagent.com/dev/features/issue-addressing/index.md)** — learn how DAIV handles issues
+- **[Pull Request Assistant](https://docs.daivagent.com/dev/features/pull-request-assistant/index.md)** — learn how DAIV reviews code

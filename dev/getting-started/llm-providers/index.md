@@ -20,7 +20,7 @@ Models use a **prefix system** to identify the provider:
 | `gpt-4`, `gpt-5`, `gpt-6`, `o4` | OpenAI (direct)        | `gpt-6.1-sol`                            |
 | `gemini`                        | Google Gemini (direct) | `gemini-3.8-flash`                       |
 
-DAIV resolves the provider automatically from the model name. No extra configuration is needed beyond setting the API key for the provider you want to use, before DAIV's first start, as an environment variable or as a Docker secret named after it in lowercase (`openrouter_api_key`): DAIV copies the keys into its database then, and from there on you change them under **Configuration → Providers** in the dashboard, not in the environment (see [Provider keys are seed-only](https://srtab.github.io/daiv/dev/reference/env-variables/#automation-llm-providers)).
+DAIV resolves the provider automatically from the model name. No extra configuration is needed beyond setting the API key for the provider you want to use, before DAIV's first start, as an environment variable or as a Docker secret named after it in lowercase (`openrouter_api_key`): DAIV copies the keys into its database then, and from there on you change them under **Configuration → Providers** in the dashboard, not in the environment (see [Provider keys are seed-only](https://docs.daivagent.com/dev/reference/env-variables/#automation-llm-providers)).
 
 Tip
 
@@ -34,7 +34,7 @@ In the dashboard, the agent picker offers a live model dropdown built from each 
 | Max mode         | Claude Opus 5.5   | The main agent's models |
 | Explore subagent | Claude Haiku 5.5  | The main agent's models |
 
-Smaller tasks such as titling, merge request metadata and memory have their own defaults, listed in [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/index.md). All defaults route through OpenRouter, so only `OPENROUTER_API_KEY` is required for a basic setup. Choose the explore subagent's model with an `explore` entry in the subagent models (see [Subagents](https://srtab.github.io/daiv/dev/features/subagents/#choosing-a-subagents-model)). Override models per repository in `.daiv.yml` — see [Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/#model-overrides).
+Smaller tasks such as titling, merge request metadata and memory have their own defaults, listed in [Environment Variables](https://docs.daivagent.com/dev/reference/env-variables/index.md). All defaults route through OpenRouter, so only `OPENROUTER_API_KEY` is required for a basic setup. Choose the explore subagent's model with an `explore` entry in the subagent models (see [Subagents](https://docs.daivagent.com/dev/features/subagents/#choosing-a-subagents-model)). Override models per repository in `.daiv.yml` — see [Repository Config](https://docs.daivagent.com/dev/customization/repository-config/#model-overrides).
 
 ______________________________________________________________________
 
@@ -189,7 +189,7 @@ Once the row exists, reference its models using the slug as a prefix:
 your-slug:model_name
 ```
 
-You can use this prefix anywhere a model is specified, including the `.daiv.yml` [model overrides](https://srtab.github.io/daiv/dev/customization/repository-config/#model-overrides).
+You can use this prefix anywhere a model is specified, including the `.daiv.yml` [model overrides](https://docs.daivagent.com/dev/customization/repository-config/#model-overrides).
 
 Prompt caching with on-demand tools
 
@@ -201,4 +201,4 @@ The four built-in providers (OpenRouter, OpenAI, Anthropic, Google Gemini) are l
 
 Admin only
 
-Managing providers requires an admin account. See [Automation: LLM Providers](https://srtab.github.io/daiv/dev/reference/env-variables/#automation-llm-providers) for how the built-in providers map to environment variables.
+Managing providers requires an admin account. See [Automation: LLM Providers](https://docs.daivagent.com/dev/reference/env-variables/#automation-llm-providers) for how the built-in providers map to environment variables.

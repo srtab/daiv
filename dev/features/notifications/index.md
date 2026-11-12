@@ -12,20 +12,20 @@ A run is classified **needs-input** when the agent stopped to ask you a question
 
 There are four event types for runs and schedules:
 
-| Event                                               | When it fires                                                                                                                                                                             | Recipients                                                                                                                         |
-| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| **Job finished** (`job.finished`)                   | A single agent run finishes with a notify-worthy classification                                                                                                                           | The user who started the run                                                                                                       |
-| **Job batch finished** (`job_batch.finished`)       | Every run in a multi-run batch is terminal — a single rollup, not one message per run                                                                                                     | The batch owner (and, for [scheduled](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) batches, any subscribers) |
-| **Schedule finished** (`schedule.finished`)         | A run tied to a [scheduled job](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) finishes with a notify-worthy classification                                           | The schedule owner and its subscribers                                                                                             |
-| **Schedule can't run** (`schedule_dispatch.failed`) | A [scheduled job](https://srtab.github.io/daiv/dev/features/scheduled-jobs/#when-a-schedule-cant-run) fails to start a run. Sent once per failing streak, even when the schedule is muted | The schedule owner                                                                                                                 |
+| Event                                               | When it fires                                                                                                                                                                           | Recipients                                                                                                                       |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| **Job finished** (`job.finished`)                   | A single agent run finishes with a notify-worthy classification                                                                                                                         | The user who started the run                                                                                                     |
+| **Job batch finished** (`job_batch.finished`)       | Every run in a multi-run batch is terminal — a single rollup, not one message per run                                                                                                   | The batch owner (and, for [scheduled](https://docs.daivagent.com/dev/features/scheduled-jobs/index.md) batches, any subscribers) |
+| **Schedule finished** (`schedule.finished`)         | A run tied to a [scheduled job](https://docs.daivagent.com/dev/features/scheduled-jobs/index.md) finishes with a notify-worthy classification                                           | The schedule owner and its subscribers                                                                                           |
+| **Schedule can't run** (`schedule_dispatch.failed`) | A [scheduled job](https://docs.daivagent.com/dev/features/scheduled-jobs/#when-a-schedule-cant-run) fails to start a run. Sent once per failing streak, even when the schedule is muted | The schedule owner                                                                                                               |
 
 Batches collapse into one message
 
-A batch is a group of runs sharing a batch ID — for example a [scheduled job](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) that fans out across several repositories. DAIV suppresses the per-run notifications for a multi-run batch and sends a single **Job batch finished** rollup once the last sibling is terminal, summarising how many runs were notify-worthy and how many were all-clear. A run waiting for an answer counts as notify-worthy in the rollup and is listed right after failures.
+A batch is a group of runs sharing a batch ID — for example a [scheduled job](https://docs.daivagent.com/dev/features/scheduled-jobs/index.md) that fans out across several repositories. DAIV suppresses the per-run notifications for a multi-run batch and sends a single **Job batch finished** rollup once the last sibling is terminal, summarising how many runs were notify-worthy and how many were all-clear. A run waiting for an answer counts as notify-worthy in the rollup and is listed right after failures.
 
 Webhook-triggered runs notify on worthy outcomes
 
-Runs triggered by a GitLab/GitHub issue or merge/pull-request webhook (for example [issue addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md) or the [pull request assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md)) report back inside the issue or MR/PR thread and, like prompt-driven job runs (via the dashboard, [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md), or [MCP endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md)), also notify their initiator when the outcome is notify-worthy. The exception is a run waiting for an answer, whose question comment already mentions you (see above). All-clear runs stay silent on both paths.
+Runs triggered by a GitLab/GitHub issue or merge/pull-request webhook (for example [issue addressing](https://docs.daivagent.com/dev/features/issue-addressing/index.md) or the [pull request assistant](https://docs.daivagent.com/dev/features/pull-request-assistant/index.md)) report back inside the issue or MR/PR thread and, like prompt-driven job runs (via the dashboard, [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md), or [MCP endpoint](https://docs.daivagent.com/dev/features/mcp-endpoint/index.md)), also notify their initiator when the outcome is notify-worthy. The exception is a run waiting for an answer, whose question comment already mentions you (see above). All-clear runs stay silent on both paths.
 
 ## Channels
 
@@ -76,7 +76,7 @@ Notifications fire automatically on notify-worthy classifications — there is n
 
 **Per-schedule mute** — each schedule has a **Mute** checkbox (default off). When enabled, it silences *all* notifications for that schedule's runs: no in-app entry and no external delivery. It doesn't silence **Schedule can't run**, which is about the schedule not running at all. A per-run override is available via `Run.muted` (the same field the `muted` flag on the API/MCP call sets) for schedule runs when you need to silence a single dispatch without muting the whole schedule.
 
-**Non-scheduled runs** — runs started from the dashboard, [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md), or [MCP endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md) notify their initiator on a notify-worthy outcome. Pass the `muted` flag in the API or MCP call to silence a specific run.
+**Non-scheduled runs** — runs started from the dashboard, [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md), or [MCP endpoint](https://docs.daivagent.com/dev/features/mcp-endpoint/index.md) notify their initiator on a notify-worthy outcome. Pass the `muted` flag in the API or MCP call to silence a specific run.
 
 Muting a schedule silences its runs completely. Disconnecting your email channel (from `/accounts/channels/`) suppresses email delivery without silencing in-app notifications.
 
@@ -145,18 +145,18 @@ When a run finishes with a notify-worthy classification, DAIV records the notifi
 
 ## Related pages
 
-- **[Scheduled Jobs](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md)**
+- **[Scheduled Jobs](https://docs.daivagent.com/dev/features/scheduled-jobs/index.md)**
 
   Recurring runs with a mute toggle and subscriber list.
 
-- **[Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md)**
+- **[Jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md)**
 
   Submit runs programmatically with a `muted` flag.
 
-- **[Sessions](https://srtab.github.io/daiv/dev/features/sessions/index.md)**
+- **[Sessions](https://docs.daivagent.com/dev/features/sessions/index.md)**
 
   Every notification links to the session or batch in the sessions list.
 
-- **[MCP Endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md)**
+- **[MCP Endpoint](https://docs.daivagent.com/dev/features/mcp-endpoint/index.md)**
 
   Submit jobs from MCP clients, with a `muted` flag.

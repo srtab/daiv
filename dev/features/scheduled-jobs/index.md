@@ -13,18 +13,18 @@ This is useful when you want to:
 
 Navigate to **Dashboard > Schedules > Create schedule** and fill in the form:
 
-| Field                   | Description                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Name**                | A short label for the schedule (e.g., "Weekly dep audit")                                                                                                                                                                                                                                                                                                                                                                   |
-| **Prompt**              | What the agent should do — same format as a Jobs API prompt                                                                                                                                                                                                                                                                                                                                                                 |
-| **Repositories**        | One to 20 repositories, added through the repo picker. Each entry has its own branch — leave a repository's ref blank to start from its default branch. A merge/pull request a run opens targets that branch and is assigned to the schedule's owner when their DAIV account is OAuth-linked to the git platform. Each run [fans out](#how-it-works) into one agent run per repository                                      |
-| **Agent model**         | The model and thinking level the runs use, chosen with the agent picker. The picker pre-selects the instance's configured model, so the runs try it first and the repository's `models.agent` model after it. A schedule without a model, such as one created over [MCP](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md) without `agent_model`, leads with the repository's model, else the system default |
-| **Frequency**           | How often the job runs (see [Frequency options](#frequency-options))                                                                                                                                                                                                                                                                                                                                                        |
-| **Time**                | Time of day for Daily, Weekdays, and Weekly schedules                                                                                                                                                                                                                                                                                                                                                                       |
-| **Date & time**         | The specific date and time a one-off (**Once**) schedule fires                                                                                                                                                                                                                                                                                                                                                              |
-| **Mute**                | When checked, silences all notifications for this schedule's runs (in-app and external channels). Off by default — notifications fire automatically on notify-worthy outcomes. The owner still gets the [Schedule can't run](#when-a-schedule-cant-run) notice                                                                                                                                                              |
-| **Subscribers**         | Other DAIV users to CC on finish notifications (see [Subscribers](#subscribers))                                                                                                                                                                                                                                                                                                                                            |
-| **Sandbox environment** | The named [sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md) environment the runs use. Leave it unset to fall back to the per-repository environment resolution                                                                                                                                                                                                                                          |
+| Field                   | Description                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Name**                | A short label for the schedule (e.g., "Weekly dep audit")                                                                                                                                                                                                                                                                                                                                                                 |
+| **Prompt**              | What the agent should do — same format as a Jobs API prompt                                                                                                                                                                                                                                                                                                                                                               |
+| **Repositories**        | One to 20 repositories, added through the repo picker. Each entry has its own branch — leave a repository's ref blank to start from its default branch. A merge/pull request a run opens targets that branch and is assigned to the schedule's owner when their DAIV account is OAuth-linked to the git platform. Each run [fans out](#how-it-works) into one agent run per repository                                    |
+| **Agent model**         | The model and thinking level the runs use, chosen with the agent picker. The picker pre-selects the instance's configured model, so the runs try it first and the repository's `models.agent` model after it. A schedule without a model, such as one created over [MCP](https://docs.daivagent.com/dev/features/mcp-endpoint/index.md) without `agent_model`, leads with the repository's model, else the system default |
+| **Frequency**           | How often the job runs (see [Frequency options](#frequency-options))                                                                                                                                                                                                                                                                                                                                                      |
+| **Time**                | Time of day for Daily, Weekdays, and Weekly schedules                                                                                                                                                                                                                                                                                                                                                                     |
+| **Date & time**         | The specific date and time a one-off (**Once**) schedule fires                                                                                                                                                                                                                                                                                                                                                            |
+| **Mute**                | When checked, silences all notifications for this schedule's runs (in-app and external channels). Off by default — notifications fire automatically on notify-worthy outcomes. The owner still gets the [Schedule can't run](#when-a-schedule-cant-run) notice                                                                                                                                                            |
+| **Subscribers**         | Other DAIV users to CC on finish notifications (see [Subscribers](#subscribers))                                                                                                                                                                                                                                                                                                                                          |
+| **Sandbox environment** | The named [sandbox](https://docs.daivagent.com/dev/features/sandbox/index.md) environment the runs use. Leave it unset to fall back to the per-repository environment resolution                                                                                                                                                                                                                                          |
 
 Schedule times use the DAIV instance's configured timezone (set by the deployment); there is no per-schedule timezone choice. See [Timezone handling](#timezone-handling).
 
@@ -53,7 +53,7 @@ A **Once** schedule runs a single time at the chosen date and time, then retires
 
 A background task runs every minute and checks for schedules whose next run time has passed. For each due schedule it:
 
-1. Fans the schedule out into one agent run per target repository — enqueuing each via the same task backend used by the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) — and records the resulting batch ID
+1. Fans the schedule out into one agent run per target repository — enqueuing each via the same task backend used by the [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md) — and records the resulting batch ID
 1. Records the run timestamp and increments the run counter
 1. Computes the next run time based on the cron expression and the configured timezone (a **Once** schedule retires instead)
 
@@ -87,14 +87,14 @@ Schedule times are interpreted in the configured timezone. DAIV converts the loc
 From the **Scheduled Jobs** list, each schedule's actions menu lets you:
 
 - **Pause / Resume** a schedule directly from the list — no need to open the edit page (it is also available via the **Enabled** checkbox there)
-- **Run now** to dispatch an immediate batch run without waiting for the next scheduled time. You land on the resulting session (or the [Sessions](https://srtab.github.io/daiv/dev/features/sessions/index.md) list filtered to the batch when it spans multiple repositories)
+- **Run now** to dispatch an immediate batch run without waiting for the next scheduled time. You land on the resulting session (or the [Sessions](https://docs.daivagent.com/dev/features/sessions/index.md) list filtered to the batch when it spans multiple repositories)
 - **Duplicate** a schedule to create a new one pre-filled from this one — the only way to re-run a fired one-off schedule
 - **Edit** a schedule to change any field, including the **Enabled** checkbox
 - **Delete** a schedule permanently — any currently running job will complete, but no new runs will be dispatched
 
 Fired one-off (**Once**) schedules only offer **Duplicate** and **Delete**.
 
-Each schedule card shows its name, status (**Active**, **Failing**, **Paused**, or **Fired**), frequency, the target repository (or "*N* repositories" when it targets more than one), next run time, last run time, total run count, and the owner avatar. Clicking the run count opens the [Sessions](https://srtab.github.io/daiv/dev/features/sessions/index.md) list filtered to that schedule's sessions.
+Each schedule card shows its name, status (**Active**, **Failing**, **Paused**, or **Fired**), frequency, the target repository (or "*N* repositories" when it targets more than one), next run time, last run time, total run count, and the owner avatar. Clicking the run count opens the [Sessions](https://docs.daivagent.com/dev/features/sessions/index.md) list filtered to that schedule's sessions.
 
 Note
 
@@ -105,7 +105,7 @@ Non-admin users only see their own schedules; admins see everyone's. The owner a
 A scheduled run can fail to start. Most often DAIV couldn't confirm that the schedule's owner has write access to one of its repositories: schedules run with their owner's repository permissions. It can also be an unexpected error, including every repository in the batch failing to enqueue. When that happens:
 
 - The schedule card shows **Failing** with the reason, and the edit page explains how to fix it. A paused schedule reads **Paused** but keeps the reason.
-- The owner gets one **Schedule can't run** [notification](https://srtab.github.io/daiv/dev/features/notifications/index.md) per failing streak, even when the schedule is muted. Subscribers aren't told, since they can't fix the owner's access.
+- The owner gets one **Schedule can't run** [notification](https://docs.daivagent.com/dev/features/notifications/index.md) per failing streak, even when the schedule is muted. Subscribers aren't told, since they can't fix the owner's access.
 - A recurring schedule keeps trying at each scheduled time. A one-off schedule retires; give it a new date and time and enable it to retry.
 
 The failing state clears at the next scheduled run that starts, or when you change the schedule's repositories. **Run now** doesn't clear it.
@@ -134,7 +134,7 @@ Subscribers receive the same notifications as the owner (classification-driven: 
 
 ## Relationship with the Jobs API
 
-Scheduled Jobs and the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) use the same underlying task to execute agent work. The difference is how the job is triggered:
+Scheduled Jobs and the [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md) use the same underlying task to execute agent work. The difference is how the job is triggered:
 
 |                | Jobs API                 | Scheduled Jobs            |
 | -------------- | ------------------------ | ------------------------- |
@@ -145,7 +145,7 @@ Scheduled Jobs and the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs
 
 Info
 
-If you need programmatic control over scheduling (e.g., creating schedules from a script), use the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) with an external scheduler like GitLab CI scheduled pipelines or system cron.
+If you need programmatic control over scheduling (e.g., creating schedules from a script), use the [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md) with an external scheduler like GitLab CI scheduled pipelines or system cron.
 
 ## Schedule templates
 

@@ -59,7 +59,7 @@ docker stack deploy -c stack.yml daiv
 1. Create a test issue with the `daiv` label
 1. Open your LangSmith project — traces should appear within a few minutes
 
-See [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/#monitoring-langsmith) for all LangSmith-related variables.
+See [Environment Variables](https://docs.daivagent.com/dev/reference/env-variables/#monitoring-langsmith) for all LangSmith-related variables.
 
 ______________________________________________________________________
 

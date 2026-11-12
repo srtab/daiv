@@ -2,14 +2,14 @@
 
 This page gets you from a clean machine to a first merge request in about 15 minutes: you run DAIV on one Linux host with Docker Compose, connect a GitLab project, and let DAIV turn an issue into a merge request.
 
-It is a trial setup: one worker, no email, no single sign-on. For a production install, or to connect GitHub, follow [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md) and [Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/index.md).
+It is a trial setup: one worker, no email, no single sign-on. For a production install, or to connect GitHub, follow [Deployment](https://docs.daivagent.com/dev/getting-started/deployment/index.md) and [Platform Setup](https://docs.daivagent.com/dev/getting-started/platform-setup/index.md).
 
 ## Before you start
 
 You need:
 
 - **A Linux host with Docker Engine and Docker Compose v2.** About 3 GB of free disk: the DAIV images are about 1.1 GB, and the image the sandbox runs the agent in is another 1.1 GB, pulled on the first run.
-- **An [OpenRouter API key](https://openrouter.ai/settings/keys).** To use another provider, see [LLM Providers](https://srtab.github.io/daiv/dev/getting-started/llm-providers/index.md).
+- **An [OpenRouter API key](https://openrouter.ai/settings/keys).** To use another provider, see [LLM Providers](https://docs.daivagent.com/dev/getting-started/llm-providers/index.md).
 - **A GitLab project** on GitLab.com or a self-managed GitLab, where you are a Maintainer or Owner.
 - **A URL GitLab can reach DAIV at.** GitLab tells DAIV about new issues and comments with webhooks, so it must be able to open DAIV's port 8000:
   - **Self-managed GitLab on your network:** the host's address, such as `http://192.168.1.10:8000`, is enough.
@@ -29,7 +29,7 @@ Use a token from your own account, and label issues `daiv-auto` instead of `daiv
 
 ## 2. Create the configuration
 
-Create a directory for DAIV, and in it a certificate authority for the sandbox's egress proxy. DAIV runs git inside the [sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md); the proxy is what lets those commands reach GitLab, adding the credentials so the token never enters the sandbox.
+Create a directory for DAIV, and in it a certificate authority for the sandbox's egress proxy. DAIV runs git inside the [sandbox](https://docs.daivagent.com/dev/features/sandbox/index.md); the proxy is what lets those commands reach GitLab, adding the credentials so the token never enters the sandbox.
 
 ```
 mkdir daiv && cd daiv
@@ -163,9 +163,9 @@ volumes:
   media:
 ```
 
-1. Prints sign-in emails to the app's log instead of sending them, so you need no mail server. [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md) shows how to configure SMTP.
+1. Prints sign-in emails to the app's log instead of sending them, so you need no mail server. [Deployment](https://docs.daivagent.com/dev/getting-started/deployment/index.md) shows how to configure SMTP.
 1. DAIV needs Redis 8 or later: the agent's checkpoints use its search commands, which Redis 7 does not have.
-1. One worker that serves every queue. [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md) splits agent runs and short interactive tasks across two.
+1. One worker that serves every queue. [Deployment](https://docs.daivagent.com/dev/getting-started/deployment/index.md) splits agent runs and short interactive tasks across two.
 1. Runs DAIV's periodic tasks, among them adding the webhook to your GitLab projects.
 1. The sandbox starts a container for each agent run through the Docker socket.
 
@@ -216,7 +216,7 @@ A self-managed GitLab refuses webhooks to private network addresses by default (
 1. **Approve it** with a comment that mentions DAIV's user, for example `@daiv proceed`.
 1. **Wait for the merge request.** DAIV implements the plan and opens a merge request, usually within a few minutes. The first run takes longer while the sandbox pulls its image.
 
-See [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md) for what else you can do on an issue.
+See [Issue Addressing](https://docs.daivagent.com/dev/features/issue-addressing/index.md) for what else you can do on an issue.
 
 ## If something goes wrong
 
@@ -225,13 +225,13 @@ See [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressin
 | Nothing happens after you add the label       | The webhook is missing, or GitLab can't reach `DAIV_EXTERNAL_URL`    | Run `setup_webhooks` (step 5) and check that DAIV's user is a Maintainer. Under **Settings → Webhooks → Edit → Recent events**, GitLab shows each delivery and its error |
 | DAIV ignores your comment                     | You commented as DAIV's own user, or didn't mention its username     | Comment from your own account and mention DAIV's user                                                                                                                    |
 | DAIV comments *An unexpected error occurred*  | The run failed                                                       | `docker compose logs worker sandbox` shows the error                                                                                                                     |
-| Sign-in fails with *Server Error (500)*       | DAIV couldn't send the sign-in email                                 | Keep `EMAIL_BACKEND` as above, or configure SMTP as in [Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md)                                |
+| Sign-in fails with *Server Error (500)*       | DAIV couldn't send the sign-in email                                 | Keep `EMAIL_BACKEND` as above, or configure SMTP as in [Deployment](https://docs.daivagent.com/dev/getting-started/deployment/index.md)                                  |
 | Sign-in fails with *CSRF verification failed* | You opened DAIV over plain HTTP on an address other than `localhost` | See [Sign in](#4-sign-in)                                                                                                                                                |
 
 To remove everything, including the database, run `docker compose down -v`, then delete the containers the sandbox started: `docker rm -f $(docker ps -aq --filter label=daiv.sandbox.type)`.
 
 ## Next steps
 
-- **[Deployment](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md)** — a production install: Docker Swarm, a reverse proxy with HTTPS, email and single sign-on
-- **[Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/index.md)** — tune DAIV per repository with `.daiv.yml`
-- **[Pull Request Assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md)** — mention DAIV on a merge request to get a review or a fix
+- **[Deployment](https://docs.daivagent.com/dev/getting-started/deployment/index.md)** — a production install: Docker Swarm, a reverse proxy with HTTPS, email and single sign-on
+- **[Repository Config](https://docs.daivagent.com/dev/customization/repository-config/index.md)** — tune DAIV per repository with `.daiv.yml`
+- **[Pull Request Assistant](https://docs.daivagent.com/dev/features/pull-request-assistant/index.md)** — mention DAIV on a merge request to get a review or a fix

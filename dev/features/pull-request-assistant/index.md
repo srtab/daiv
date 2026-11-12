@@ -29,9 +29,9 @@ DAIV has context of the diff and the comment's position, so inline comments give
 
 ### A merge request DAIV published
 
-When a DAIV session published the merge or pull request, a mention goes to that session instead of starting a new one: the session that owns it (see [The session inbox](https://srtab.github.io/daiv/dev/features/sessions/#the-session-inbox)). It picks up where the session left off, and acts as you: as the DAIV account you signed in to with that GitLab/GitHub account, with its personal MCP servers, never as the session's owner. If you never signed in to DAIV with that account, the run gets no personal tools, even when a DAIV user shares your username. Its final message, or its question, is posted in the thread of your mention; when you mentioned DAIV in several threads before it answered, the full reply goes in the latest one, and each other thread gets a line linking to it.
+When a DAIV session published the merge or pull request, a mention goes to that session instead of starting a new one: the session that owns it (see [The session inbox](https://docs.daivagent.com/dev/features/sessions/#the-session-inbox)). It picks up where the session left off, and acts as you: as the DAIV account you signed in to with that GitLab/GitHub account, with its personal MCP servers, never as the session's owner. If you never signed in to DAIV with that account, the run gets no personal tools, even when a DAIV user shares your username. Its final message, or its question, is posted in the thread of your mention; when you mentioned DAIV in several threads before it answered, the full reply goes in the latest one, and each other thread gets a line linking to it.
 
-A mention on a diff line reaches DAIV only on a merge request a session owns. On GitHub this also needs the App subscribed to **Pull request review comment** (see [Platform setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/#github-configuration)). Comments that don't mention DAIV aren't answered, but the owning session remembers them, and its next run sees them. It remembers them from anyone but DAIV itself, even from people left out of [`allowed_usernames`](https://srtab.github.io/daiv/dev/customization/repository-config/#access-control); only a mention needs its author on that list.
+A mention on a diff line reaches DAIV only on a merge request a session owns. On GitHub this also needs the App subscribed to **Pull request review comment** (see [Platform setup](https://docs.daivagent.com/dev/getting-started/platform-setup/#github-configuration)). Comments that don't mention DAIV aren't answered, but the owning session remembers them, and its next run sees them. It remembers them from anyone but DAIV itself, even from people left out of [`allowed_usernames`](https://docs.daivagent.com/dev/customization/repository-config/#access-control); only a mention needs its author on that list.
 
 ## What it can do
 
@@ -118,7 +118,7 @@ Every custom-rule finding passes the same confidence gate and skeptical aggregat
 
 ## Related pages
 
-- [Slash Commands & Skills](https://srtab.github.io/daiv/dev/features/slash-commands/index.md) — invoke `/code-review` from a merge request, and write custom skills to extend it
-- [Sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md) — the isolated container where DAIV reproduces and repairs failing pipelines
-- [Sessions](https://srtab.github.io/daiv/dev/features/sessions/index.md) — follow a running review and revisit what the agent changed
-- [Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/index.md) — tune review behaviour per repository with `.daiv.yml`
+- [Slash Commands & Skills](https://docs.daivagent.com/dev/features/slash-commands/index.md) — invoke `/code-review` from a merge request, and write custom skills to extend it
+- [Sandbox](https://docs.daivagent.com/dev/features/sandbox/index.md) — the isolated container where DAIV reproduces and repairs failing pipelines
+- [Sessions](https://docs.daivagent.com/dev/features/sessions/index.md) — follow a running review and revisit what the agent changed
+- [Repository Config](https://docs.daivagent.com/dev/customization/repository-config/index.md) — tune review behaviour per repository with `.daiv.yml`

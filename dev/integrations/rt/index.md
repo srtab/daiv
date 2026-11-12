@@ -26,8 +26,8 @@ The Scrip is fire-and-forget: it submits the job with a 5-second socket timeout 
 
 ## Prerequisites
 
-- A DAIV deployment reachable from the RT host, with the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) enabled.
-- The RT MCP server wired into the DAIV agent (see [MCP Tools](https://srtab.github.io/daiv/dev/customization/mcp-tools/index.md)). The RT MCP must authenticate as a user with rights to **comment** on the target queues. A dedicated `daiv-bot` RT user is recommended so comments are clearly attributed.
+- A DAIV deployment reachable from the RT host, with the [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md) enabled.
+- The RT MCP server wired into the DAIV agent (see [MCP Tools](https://docs.daivagent.com/dev/customization/mcp-tools/index.md)). The RT MCP must authenticate as a user with rights to **comment** on the target queues. A dedicated `daiv-bot` RT user is recommended so comments are clearly attributed.
 - A DAIV API key for a dedicated service user:
 
 ```
@@ -61,10 +61,10 @@ Reload RT after editing: `apache2ctl graceful` (or whichever reload command your
 | Stage       | `TransactionCreate`                            |
 | Applies To  | *(leave empty for now — configured in step 3)* |
 
-1. Put `return 1;` in the **Custom action preparation code** field and paste the body of [`rt-daiv-triage.scrip.pl`](https://srtab.github.io/daiv/dev/integrations/rt/rt-daiv-triage.scrip.pl) into the **Custom action cleanup code** field. Leave **Custom condition** empty. Save. (Cleanup runs after the ticket transaction is committed, so the agent can load the new ticket via the RT MCP.)
+1. Put `return 1;` in the **Custom action preparation code** field and paste the body of [`rt-daiv-triage.scrip.pl`](https://docs.daivagent.com/dev/integrations/rt/rt-daiv-triage.scrip.pl) into the **Custom action cleanup code** field. Leave **Custom condition** empty. Save. (Cleanup runs after the ticket transaction is committed, so the agent can load the new ticket via the RT MCP.)
 1. Edit the `%QUEUE_REPO_MAP` hash at the top of the pasted code so each queue you care about maps to the correct DAIV `repo_id` (e.g. `group/project`).
 
-A queue can map to several repositories. To have one agent session work across them, send them as one `repos` list with `"shared_session": true`: the first entry is the main repository and each changed repository gets its own merge request (see [Multi-repository sessions](https://srtab.github.io/daiv/dev/features/jobs-api/#multi-repository-sessions)). Without `shared_session`, each repository runs as a separate job.
+A queue can map to several repositories. To have one agent session work across them, send them as one `repos` list with `"shared_session": true`: the first entry is the main repository and each changed repository gets its own merge request (see [Multi-repository sessions](https://docs.daivagent.com/dev/features/jobs-api/#multi-repository-sessions)). Without `shared_session`, each repository runs as a separate job.
 
 ### 3. Attach the Scrip to queues
 
@@ -100,11 +100,11 @@ daiv-triage: submitted job <uuid> (batch <uuid>) for ticket <id> (queue=... repo
 
 ## Cost considerations
 
-The Scrip requests high reasoning effort by submitting `agent_thinking_level: high` — which applies high effort to the repository's `models.agent` model, else the system default model. This produces better triage but is more expensive. To force the most capable model (rather than the default), also pass an explicit `agent_model` (e.g. the Opus spec). See the [agent-override fields](https://srtab.github.io/daiv/dev/features/jobs-api/#submit-a-job) on the Jobs API page. For high-volume queues, consider:
+The Scrip requests high reasoning effort by submitting `agent_thinking_level: high` — which applies high effort to the repository's `models.agent` model, else the system default model. This produces better triage but is more expensive. To force the most capable model (rather than the default), also pass an explicit `agent_model` (e.g. the Opus spec). See the [agent-override fields](https://docs.daivagent.com/dev/features/jobs-api/#submit-a-job) on the Jobs API page. For high-volume queues, consider:
 
 - Lowering or omitting `agent_thinking_level` in the Scrip body for a cheaper first pass — the repository's `models.agent` model, else the system default model, then runs at its default effort.
 - Adding a queue-level rate limit via a separate DAIV API-key user with a lower `jobs_throttle_rate` (Site Configuration).
 
 ## Files
 
-- [`rt-daiv-triage.scrip.pl`](https://srtab.github.io/daiv/dev/integrations/rt/rt-daiv-triage.scrip.pl) — pasteable Scrip body.
+- [`rt-daiv-triage.scrip.pl`](https://docs.daivagent.com/dev/integrations/rt/rt-daiv-triage.scrip.pl) — pasteable Scrip body.

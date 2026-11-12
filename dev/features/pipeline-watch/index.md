@@ -188,14 +188,14 @@ Subscribe the App instead — this covers every repository it is installed on at
 1. Save. If Actions is a new permission for the App, each installation owner must accept it, from GitHub's email or the installation's **Configure** page; until then, pipeline watch is inert on that installation.
 1. After the next workflow run, check **Advanced → Recent Deliveries** for a `workflow_run` delivery.
 
-See [Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/index.md) for the full event checklist.
+See [Platform Setup](https://docs.daivagent.com/dev/getting-started/platform-setup/index.md) for the full event checklist.
 
 ______________________________________________________________________
 
 ## Related pages
 
-- [Issue Addressing](https://srtab.github.io/daiv/dev/features/issue-addressing/index.md) — the workflow that produces most DAIV-published merge requests
-- [Pull Request Assistant](https://srtab.github.io/daiv/dev/features/pull-request-assistant/index.md) — mention DAIV in a comment to request a manual pipeline fix
-- [Sessions](https://srtab.github.io/daiv/dev/features/sessions/index.md) — CI runs appear in the session that published the merge request
-- [Notifications](https://srtab.github.io/daiv/dev/features/notifications/index.md) — how run and give-up notifications are delivered
-- [Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/index.md) — full `.daiv.yml` reference
+- [Issue Addressing](https://docs.daivagent.com/dev/features/issue-addressing/index.md) — the workflow that produces most DAIV-published merge requests
+- [Pull Request Assistant](https://docs.daivagent.com/dev/features/pull-request-assistant/index.md) — mention DAIV in a comment to request a manual pipeline fix
+- [Sessions](https://docs.daivagent.com/dev/features/sessions/index.md) — CI runs appear in the session that published the merge request
+- [Notifications](https://docs.daivagent.com/dev/features/notifications/index.md) — how run and give-up notifications are delivered
+- [Repository Config](https://docs.daivagent.com/dev/customization/repository-config/index.md) — full `.daiv.yml` reference

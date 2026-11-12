@@ -6,7 +6,7 @@ Navigate to **Dashboard > Sessions** (`/dashboard/sessions/`) to see the unified
 
 What you can see
 
-Admins see all sessions across every repository. Regular users see their own sessions, sessions started by a GitLab/GitHub account they signed in to DAIV with (matched by the account's id, not its username), and sessions from [Scheduled Jobs](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) they subscribe to. The same scoping applies to the detail page, live updates, and retries.
+Admins see all sessions across every repository. Regular users see their own sessions, sessions started by a GitLab/GitHub account they signed in to DAIV with (matched by the account's id, not its username), and sessions from [Scheduled Jobs](https://docs.daivagent.com/dev/features/scheduled-jobs/index.md) they subscribe to. The same scoping applies to the detail page, live updates, and retries.
 
 ______________________________________________________________________
 
@@ -17,7 +17,7 @@ A **Session** groups all runs that share the same agent thread:
 - **Session** — the thread. Has a repository, ref, origin (how it was first triggered), title, and an optional link to an issue or merge request, schedule, or user.
 - **Run** — one agent execution inside that session. A session can have many runs: retries, follow-up chat turns, and API submissions that continue the thread all add new runs to the same session.
 
-A session can also span several repositories: a [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/#multi-repository-sessions) or MCP request with `shared_session` opens one session over up to five repositories, with the first as the main one. The agent edits them together, each changed repository gets its own merge request, and the session page lists every repository and merge request. Only users who can read all of them (and admins) can see it.
+A session can also span several repositories: a [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/#multi-repository-sessions) or MCP request with `shared_session` opens one session over up to five repositories, with the first as the main one. The agent edits them together, each changed repository gets its own merge request, and the session page lists every repository and merge request. Only users who can read all of them (and admins) can see it.
 
 A chat conversation is a session where the origin is `Chat`; each turn you send creates a new Run. A webhook event (issue or MR) creates a session tied to the issue or merge request; the single agent invocation is its first Run.
 
@@ -27,16 +27,16 @@ ______________________________________________________________________
 
 Each session is tagged with the origin that created it:
 
-| Origin            | Source                                                                                                                                                                         | Example                                            |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------- |
-| **Chat**          | Dashboard session workspace                                                                                                                                                    | You type a prompt and stream a reply               |
-| **API Run**       | [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) `POST /api/jobs`                                                                                       | A CI pipeline or script submits a prompt           |
-| **MCP Run**       | [MCP Endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md) `submit_job` tool                                                                              | Claude Code or Cursor delegates a task             |
-| **Scheduled Run** | [Scheduled Jobs](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) cron dispatch                                                                              | A weekly dependency audit fires on Monday          |
-| **UI Run**        | Dashboard run composer (see below)                                                                                                                                             | You start a run from **Dashboard > Sessions**      |
-| **Issue Webhook** | GitLab/GitHub issue event                                                                                                                                                      | An issue is labelled `daiv`                        |
-| **MR/PR Webhook** | GitLab/GitHub merge request event                                                                                                                                              | A reviewer mentions `@daiv` on a merge request     |
-| **Delegated Run** | A coordinator's `delegate_jobs` call ([Orchestration](https://srtab.github.io/daiv/dev/features/orchestration/index.md)), including a leg follow-up that continues the session | One repository's part of a multi-repository change |
+| Origin            | Source                                                                                                                                                                       | Example                                            |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| **Chat**          | Dashboard session workspace                                                                                                                                                  | You type a prompt and stream a reply               |
+| **API Run**       | [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md) `POST /api/jobs`                                                                                       | A CI pipeline or script submits a prompt           |
+| **MCP Run**       | [MCP Endpoint](https://docs.daivagent.com/dev/features/mcp-endpoint/index.md) `submit_job` tool                                                                              | Claude Code or Cursor delegates a task             |
+| **Scheduled Run** | [Scheduled Jobs](https://docs.daivagent.com/dev/features/scheduled-jobs/index.md) cron dispatch                                                                              | A weekly dependency audit fires on Monday          |
+| **UI Run**        | Dashboard run composer (see below)                                                                                                                                           | You start a run from **Dashboard > Sessions**      |
+| **Issue Webhook** | GitLab/GitHub issue event                                                                                                                                                    | An issue is labelled `daiv`                        |
+| **MR/PR Webhook** | GitLab/GitHub merge request event                                                                                                                                            | A reviewer mentions `@daiv` on a merge request     |
+| **Delegated Run** | A coordinator's `delegate_jobs` call ([Orchestration](https://docs.daivagent.com/dev/features/orchestration/index.md)), including a leg follow-up that continues the session | One repository's part of a multi-repository change |
 
 ______________________________________________________________________
 
@@ -61,7 +61,7 @@ Below it are your five most recent sessions, the ways to start work (issue label
 - **Agent activity** — runs, success rate, runs that changed code and average duration, each compared with the period of the same length just before, up to the same time of day (the page names both). Running now is live and not compared.
 - **Runs over time** — a column per day (weeks for 30 and 90 days, months for all time), stacked by outcome: changed code, done without changes, needs input, failed. A column opens the sessions active in its days. Hidden for Today.
 - **Sessions by origin** — each origin's sessions this period and the period before, the change, and a small bar per day. Every count for this period opens the session list it counts; the period before and the bars count sessions with a run in those days, so later activity doesn't move them.
-- **Code velocity** — see [Merge Metrics](https://srtab.github.io/daiv/dev/features/merge-metrics/index.md).
+- **Code velocity** — see [Merge Metrics](https://docs.daivagent.com/dev/features/merge-metrics/index.md).
 
 ## Sessions list
 
@@ -144,11 +144,11 @@ The viewer's header shows the artifact's kind, its repository, and a link back t
 
 Navigate to **Dashboard > Artifacts** (`/dashboard/artifacts/`) for every artifact you can see across all sessions — your own sessions, plus sessions on repositories you can read (admins see every artifact) — newest first, grouped by date (Today, Yesterday, Previous 7 days, Previous 30 days, then by month), 25 per page. Search by title or filename, and filter by kind (All, Markdown, HTML, Image, Text, or File) and repository. Each row links to the viewer, back to the session and run that produced it, and to a download. The viewer's breadcrumb links back to this list.
 
-Artifacts are also listed in the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/#poll-job-status) and [MCP](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md) job-status responses, with absolute viewer and download URLs, so a CI pipeline or an editor assistant can hand the report to a person.
+Artifacts are also listed in the [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/#poll-job-status) and [MCP](https://docs.daivagent.com/dev/features/mcp-endpoint/index.md) job-status responses, with absolute viewer and download URLs, so a CI pipeline or an editor assistant can hand the report to a person.
 
 Limits and storage
 
-A file is capped at `DAIV_ARTIFACT_MAX_BYTES` (default 10 MiB) and a run at `DAIV_ARTIFACTS_PER_RUN_MAX` files (default 20). Files live in Django's default file storage under `MEDIA_ROOT` (`/home/daiv/data/media` in the containers), which the `app` and `worker` containers must share through one volume — see the [deployment guide](https://srtab.github.io/daiv/dev/getting-started/deployment/index.md). Deleting a run deletes its artifacts and their files.
+A file is capped at `DAIV_ARTIFACT_MAX_BYTES` (default 10 MiB) and a run at `DAIV_ARTIFACTS_PER_RUN_MAX` files (default 20). Files live in Django's default file storage under `MEDIA_ROOT` (`/home/daiv/data/media` in the containers), which the `app` and `worker` containers must share through one volume — see the [deployment guide](https://docs.daivagent.com/dev/getting-started/deployment/index.md). Deleting a run deletes its artifacts and their files.
 
 ### Revising an artifact
 
@@ -181,8 +181,8 @@ The Workspace card takes up to 5 repositories, for work that spans them (a backe
 
 - The first repository is the **main** one, tagged **Main** once there is more than one. Its `.daiv.yml`, sandbox environment, skills and memory drive the session. Use **Make main** on another row to promote it; removing the main row promotes the next one.
 - The **Environment** field shows `Auto · <environment>` for the current main repository while it is on **Auto**.
-- The list is fixed after your first message: later turns in the session reuse it, as in the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/#multi-repository-sessions).
-- Every repository the agent changes gets its own merge/pull request, as described under [Merge requests](https://srtab.github.io/daiv/dev/features/jobs-api/#merge-requests).
+- The list is fixed after your first message: later turns in the session reuse it, as in the [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/#multi-repository-sessions).
+- Every repository the agent changes gets its own merge/pull request, as described under [Merge requests](https://docs.daivagent.com/dev/features/jobs-api/#merge-requests).
 
 As the agent works, the workspace streams updates live:
 
@@ -202,11 +202,11 @@ Stop is offered to the session's owner, on chat runs and on the runs a job or th
 
 Each session pins three choices, set before your first message (the environment in the Workspace card) and then locked for the rest of the session:
 
-| Choice                  | What it controls                                                                                                                     | Default                                     |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------- |
-| **Agent model**         | Which configured LLM the agent runs on                                                                                               | The admin-configured system default         |
-| **Thinking level**      | Reasoning effort: Minimal, Low, Medium, High, or Extra high                                                                          | The admin-configured default (if any)       |
-| **Sandbox environment** | The named [Sandbox Environment](https://srtab.github.io/daiv/dev/features/sandbox-environments/index.md) the agent's commands run in | **Auto** — resolved for the main repository |
+| Choice                  | What it controls                                                                                                                   | Default                                     |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| **Agent model**         | Which configured LLM the agent runs on                                                                                             | The admin-configured system default         |
+| **Thinking level**      | Reasoning effort: Minimal, Low, Medium, High, or Extra high                                                                        | The admin-configured default (if any)       |
+| **Sandbox environment** | The named [Sandbox Environment](https://docs.daivagent.com/dev/features/sandbox-environments/index.md) the agent's commands run in | **Auto** — resolved for the main repository |
 
 These selections are fixed at session creation. To use a different model, effort level, or sandbox environment, start a new session.
 
@@ -223,7 +223,7 @@ The sidebar has two tabs, and remembers the tab and which sections you folded in
   - **Environment** — the sandbox and the model.
   - **Context** and **Spend** — how full the model's context window is, and what the session has cost.
   - **Outputs** — the artifacts the session published, once there are any.
-- **Info** — status, who started the session, its owner, the number of runs, when it was created and its **Session ID** (with a copy button), then, on a session that delegated work, the **Delegated jobs** of each batch (see [Orchestration](https://srtab.github.io/daiv/dev/features/orchestration/#seeing-the-batch)).
+- **Info** — status, who started the session, its owner, the number of runs, when it was created and its **Session ID** (with a copy button), then, on a session that delegated work, the **Delegated jobs** of each batch (see [Orchestration](https://docs.daivagent.com/dev/features/orchestration/#seeing-the-batch)).
 
 A repository card shows the repository, tagged **Main** when the session spans several; the branch; the merge request with its title and a **Draft** badge; the merge request's CI status, with **What DAIV found** when a run explained a failure; and the lines added and removed with the number of files changed. A repository where the agent ran but changed nothing shows as a quiet card marked *no changes*. A repository DAIV could not publish shows the reason on its card.
 
@@ -231,7 +231,7 @@ A card's **⋯** menu, offered once the repository has a merge request, holds:
 
 - **Open on GitLab** (or **GitHub**) and **Copy link**
 - **Other sessions on !iid**, on the main repository's card: the [sessions list](#filtering) filtered to that merge request
-- **Fix CI failures**, for the people who can run agents on the repository: turns the [CI watch](https://srtab.github.io/daiv/dev/features/pipeline-watch/#the-session-page) on or off for that merge request
+- **Fix CI failures**, for the people who can run agents on the repository: turns the [CI watch](https://docs.daivagent.com/dev/features/pipeline-watch/#the-session-page) on or off for that merge request
 
 ### Merge request awareness
 
@@ -254,7 +254,7 @@ When the agent hits a request that's genuinely ambiguous or a decision that's yo
 
 The card is only interactive on the session's last turn, and only while no run is in flight — once answered it stays visible but goes inert (options disabled, free-text field and buttons hidden), keeps the options your answer picked highlighted, even after a reload, and your answer shows as the next message. This isn't chat-only: the same card renders on a webhook or job session's transcript wherever a run ended on a question.
 
-For job runs (a dashboard job submission, the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) or [MCP](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md)) and [scheduled](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md) runs, DAIV also sends a [notification](https://srtab.github.io/daiv/dev/features/notifications/index.md) listing the questions, so you know the run is waiting on you. Chat runs don't notify, and webhook runs rely on the question comment on the issue or merge/pull request, which mentions you.
+For job runs (a dashboard job submission, the [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md) or [MCP](https://docs.daivagent.com/dev/features/mcp-endpoint/index.md)) and [scheduled](https://docs.daivagent.com/dev/features/scheduled-jobs/index.md) runs, DAIV also sends a [notification](https://docs.daivagent.com/dev/features/notifications/index.md) listing the questions, so you know the run is waiting on you. Chat runs don't notify, and webhook runs rely on the question comment on the issue or merge/pull request, which mentions you.
 
 ______________________________________________________________________
 
@@ -262,10 +262,10 @@ ______________________________________________________________________
 
 Everything that asks an existing session to act arrives in its inbox: a CI result on a merge request the session published, a mention or a comment on that merge request, a chat message sent while the session was busy, a follow-up job, a delegated batch finishing, a coordinator's **Leg follow-up** asking a delegated session to continue its work. Each one either **wakes** the agent or is only **remembered**.
 
-- **Waking** — a person's request (a chat message, a mention, a follow-up job) and a leg follow-up always wake the agent. A CI failure wakes it only on a commit DAIV pushed, once per commit, while attempts are left (see [Pipeline Watch](https://srtab.github.io/daiv/dev/features/pipeline-watch/index.md)); a finished delegated batch wakes it to carry on.
+- **Waking** — a person's request (a chat message, a mention, a follow-up job) and a leg follow-up always wake the agent. A CI failure wakes it only on a commit DAIV pushed, once per commit, while attempts are left (see [Pipeline Watch](https://docs.daivagent.com/dev/features/pipeline-watch/index.md)); a finished delegated batch wakes it to carry on.
 - **Remembered** — a CI pass, a pipeline that needs a person, a push someone else made to the branch, a merge or close, a comment that doesn't mention DAIV. These start no run. They appear in the session's timeline as compact rows between runs, and the next run on the session gets them as context, so the agent knows the branch moved before it pushes.
 
-One run handles everything one person is waiting for on the session's branch: a message you sent to your session and a CI failure that arrived during the same run are answered together, in one run, when the current one ends. A builtin slash command such as `/help` is the exception: it runs on its own, after what you sent before it and before what you sent after it, since DAIV answers a command only when it is the whole request. A leg follow-up also runs on its own, as a Delegated Run that answers only its coordinator, with what the session remembered as context; it is never retried, and it does not run when the session's merge request was merged or closed meanwhile (see [Orchestration](https://srtab.github.io/daiv/dev/features/orchestration/#following-up-a-leg)). Requests from different people wait for runs of their own, one after another, so one person's request never runs with another's access or tools. A message you sent while the session was busy, a follow-up job sent without a branch and a finished delegated batch follow it to the branch the current run publishes to; a mention or a CI result stays with its merge request's branch, and a run on another of the session's merge requests updates that merge request. A run started by a warm sandbox whose branch someone pushed to brings its checkout up to the remote first, unless it holds commits it hasn't published, and says so to the agent.
+One run handles everything one person is waiting for on the session's branch: a message you sent to your session and a CI failure that arrived during the same run are answered together, in one run, when the current one ends. A builtin slash command such as `/help` is the exception: it runs on its own, after what you sent before it and before what you sent after it, since DAIV answers a command only when it is the whole request. A leg follow-up also runs on its own, as a Delegated Run that answers only its coordinator, with what the session remembered as context; it is never retried, and it does not run when the session's merge request was merged or closed meanwhile (see [Orchestration](https://docs.daivagent.com/dev/features/orchestration/#following-up-a-leg)). Requests from different people wait for runs of their own, one after another, so one person's request never runs with another's access or tools. A message you sent while the session was busy, a follow-up job sent without a branch and a finished delegated batch follow it to the branch the current run publishes to; a mention or a CI result stays with its merge request's branch, and a run on another of the session's merge requests updates that merge request. A run started by a warm sandbox whose branch someone pushed to brings its checkout up to the remote first, unless it holds commits it hasn't published, and says so to the agent.
 
 A run acts as the person whose request woke it: a mention by a teammate runs with the DAIV account they signed in to with that GitLab/GitHub account, and its personal MCP servers, not the session owner's. A commenter who never signed in to DAIV with that platform account, or whose DAIV account is deactivated, gets no personal tools, even when a DAIV user shares their username or email. Before it starts, a run checks that the person it acts as may still run on the repository, except for a mention, which is checked where it is made; a person who may not only has their own requests fail. A session an issue or merge request comment starts is owned the same way: by the DAIV account linked to its author's GitLab/GitHub account, else by no one until that account is linked, when its sessions and runs, the merge requests those sessions own and its requests still waiting pass to that user. A run DAIV woke for a CI failure acts as the session's owner, and one that resumes a finished delegated batch as the user who delegated it, muted when their run was.
 
@@ -300,9 +300,9 @@ The composer accepts:
 - **Prompt** — what you want the agent to do
 - **Repositories** — one or more repositories. Submitting one prompt across multiple repositories creates a [batch](#filtering): each repository runs as an independent session.
 - **Ref** — the starting branch each run reads from, and the target branch of any merge/pull request it opens (defaults to the repository's default branch)
-- **Sandbox environment** — the named [sandbox environment](https://srtab.github.io/daiv/dev/features/sandbox-environments/index.md) the run executes in
+- **Sandbox environment** — the named [sandbox environment](https://docs.daivagent.com/dev/features/sandbox-environments/index.md) the run executes in
 - **Agent model and thinking level** — per-run overrides (leave empty to inherit the repo defaults)
-- Notifications are automatic: DAIV notifies on notify-worthy outcomes (found-issues, needs-attention, needs-input, failed). To silence a run, pass `muted` via the [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md) or [MCP endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md); for scheduled runs, use the schedule's Mute toggle.
+- Notifications are automatic: DAIV notifies on notify-worthy outcomes (found-issues, needs-attention, needs-input, failed). To silence a run, pass `muted` via the [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md) or [MCP endpoint](https://docs.daivagent.com/dev/features/mcp-endpoint/index.md); for scheduled runs, use the schedule's Mute toggle.
 
 Runs started this way are tagged with the **UI Run** origin. Every submission, single- or multi-repository, takes you to the batch-filtered Sessions list, where each new session has its own row.
 
@@ -352,7 +352,7 @@ ______________________________________________________________________
 
   Configure the named environments the agent's commands run in, and how Auto resolution picks one.
 
-  [Sandbox Environments](https://srtab.github.io/daiv/dev/features/sandbox-environments/index.md)
+  [Sandbox Environments](https://docs.daivagent.com/dev/features/sandbox-environments/index.md)
 
 - **Scheduled Jobs**
 
@@ -360,7 +360,7 @@ ______________________________________________________________________
 
   Recurring agent runs — each dispatch creates a session per repository.
 
-  [Scheduled Jobs](https://srtab.github.io/daiv/dev/features/scheduled-jobs/index.md)
+  [Scheduled Jobs](https://docs.daivagent.com/dev/features/scheduled-jobs/index.md)
 
 - **Jobs API**
 
@@ -368,7 +368,7 @@ ______________________________________________________________________
 
   Submit runs programmatically; each job creates or continues a session.
 
-  [Jobs API](https://srtab.github.io/daiv/dev/features/jobs-api/index.md)
+  [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/index.md)
 
 - **Notifications**
 
@@ -376,4 +376,4 @@ ______________________________________________________________________
 
   Know the moment a run finishes, in the app, by email, or in Rocket Chat.
 
-  [Notifications](https://srtab.github.io/daiv/dev/features/notifications/index.md)
+  [Notifications](https://docs.daivagent.com/dev/features/notifications/index.md)

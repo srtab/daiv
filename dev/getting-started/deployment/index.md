@@ -11,11 +11,11 @@ This guide walks you through deploying DAIV using Docker Swarm or Docker Compose
 - **[DAIV Application](https://github.com/srtab/daiv)** — web dashboard and API
 - **[DAIV Worker](https://docs.djangoproject.com/en/6.0/topics/tasks/)** — background task processor
 - **[DAIV Scheduler](https://pypi.org/project/django-crontask/)** — periodic tasks, among them adding webhooks to your GitLab projects and syncing repository access
-- **[DAIV Sandbox](https://github.com/srtab/daiv-sandbox)** — isolated containers where the agent runs commands and git, through an egress proxy that holds the git credentials (see [Sandbox](https://srtab.github.io/daiv/dev/features/sandbox/index.md))
+- **[DAIV Sandbox](https://github.com/srtab/daiv-sandbox)** — isolated containers where the agent runs commands and git, through an egress proxy that holds the git credentials (see [Sandbox](https://docs.daivagent.com/dev/features/sandbox/index.md))
 
 Just trying DAIV?
 
-The [Quickstart](https://srtab.github.io/daiv/dev/getting-started/quickstart/index.md) runs the smallest working setup on one machine and gets you to a first merge request in about 15 minutes.
+The [Quickstart](https://docs.daivagent.com/dev/getting-started/quickstart/index.md) runs the smallest working setup on one machine and gets you to a first merge request in about 15 minutes.
 
 ______________________________________________________________________
 
@@ -37,12 +37,12 @@ ______________________________________________________________________
 
 - **`django_secret_key`** - Random secret key for Django ([generate one here](https://djecrety.ir/))
 - **`db_password`** - Random password for the PostgreSQL database
-- **`codebase_gitlab_auth_token`** - GitLab personal access token with `api` scope (see [Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/#gitlab-configuration))
+- **`codebase_gitlab_auth_token`** - GitLab personal access token with `api` scope (see [Platform Setup](https://docs.daivagent.com/dev/getting-started/platform-setup/#gitlab-configuration))
 - **`codebase_gitlab_webhook_secret`** - Random secret for GitLab webhook validation
 - **`daiv_sandbox_api_key`** - Random API key for Sandbox service authentication
 - **`email_host_password`** - SMTP authentication password (if your relay requires authentication)
 - **`openrouter_api_key`** - [OpenRouter API key](https://openrouter.ai/settings/keys) for LLM access
-- **`allauth_client_id`** - OAuth client ID for the configured Git platform (see [Authentication](https://srtab.github.io/daiv/dev/reference/env-variables/#authentication))
+- **`allauth_client_id`** - OAuth client ID for the configured Git platform (see [Authentication](https://docs.daivagent.com/dev/reference/env-variables/#authentication))
 - **`allauth_client_secret`** - OAuth client secret for the configured Git platform
 - **`daiv_sandbox_egress_ca_cert`** and **`daiv_sandbox_egress_ca_key`** - the certificate authority the sandbox's egress proxy signs with, created below
 
@@ -64,7 +64,7 @@ docker secret create daiv_sandbox_egress_ca_key egress-ca.key
 
 Additional Secrets May Be Required
 
-These are the minimal secrets for basic DAIV functionality. Check the [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/index.md) page for additional secrets needed for specific features or services.
+These are the minimal secrets for basic DAIV functionality. Check the [Environment Variables](https://docs.daivagent.com/dev/reference/env-variables/index.md) page for additional secrets needed for specific features or services.
 
 ### Step 2: Create `stack.yml` file
 
@@ -72,7 +72,7 @@ These are the minimal secrets for basic DAIV functionality. Check the [Environme
 
 Customize Environment Variables
 
-**Replace all annotated values with your own configuration**. See the [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/index.md) page for complete configuration options.
+**Replace all annotated values with your own configuration**. See the [Environment Variables](https://docs.daivagent.com/dev/reference/env-variables/index.md) page for complete configuration options.
 
 Raise the open-file limit (`nofile`)
 
@@ -334,8 +334,8 @@ secrets:
 1. **Required**: Sandbox needs Docker socket access to create isolated containers
 1. **Optional**: Remove this volume if you don't need private registry access
 1. **Scaling**: Increase `replicas` to handle more concurrent agent runs (e.g., `replicas: 3`). A worker runs one task to completion before claiming the next, so concurrency is the number of worker containers; each claims independently from the queues named in its command, and adding replicas scales DAIV's throughput with no architecture changes
-1. **Optional**: Uncomment to mount [custom global skills](https://srtab.github.io/daiv/dev/customization/agent-skills/#custom-global-skills) that are available across all repositories
-1. **Required**: The web and worker containers must share this directory. It holds the [artifacts](https://srtab.github.io/daiv/dev/features/sessions/#artifacts) (reports and other files) the agent publishes: `app` writes them for chat turns and serves them, and `worker` writes them for jobs and webhook runs. Any shared filesystem works; on a multi-node swarm use a network-backed volume driver
+1. **Optional**: Uncomment to mount [custom global skills](https://docs.daivagent.com/dev/customization/agent-skills/#custom-global-skills) that are available across all repositories
+1. **Required**: The web and worker containers must share this directory. It holds the [artifacts](https://docs.daivagent.com/dev/features/sessions/#artifacts) (reports and other files) the agent publishes: `app` writes them for chat turns and serves them, and `worker` writes them for jobs and webhook runs. Any shared filesystem works; on a multi-node swarm use a network-backed volume driver
 1. **Redis 8 or later**: the agent's checkpoints use Redis search commands, which Redis 7 does not have, and they must stay on database `0`, the only one Redis can index
 1. **Required**: the egress CA you stored as secrets in [Step 1](#step-1-create-docker-secrets). The sandbox's egress proxy signs with it; without it, every agent run fails when the sandbox rejects the session
 
@@ -343,7 +343,7 @@ Task queues
 
 Background work is split in two: `default` carries agent runs, which hold a worker for as long as the run lasts, while `interactive` carries short user-visible work — session titles, run classification and notification delivery. The `worker` and `worker-interactive` services above each serve one of them, so a title never queues behind a run. A worker started with no queue argument serves every queue, which is fine for a small deployment as long as you accept that wait.
 
-MCP tools are configured from the dashboard at `/dashboard/mcp-servers/` — see [MCP Tools](https://srtab.github.io/daiv/dev/customization/mcp-tools/index.md).
+MCP tools are configured from the dashboard at `/dashboard/mcp-servers/` — see [MCP Tools](https://docs.daivagent.com/dev/customization/mcp-tools/index.md).
 
 ### Step 3: Deploy the stack
 
@@ -369,7 +369,7 @@ Deployment Time
 
 ### Step 4: Next steps
 
-Your DAIV deployment is running. Follow the [Reverse Proxy](#reverse-proxy) guide below to configure external access, then proceed to [Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/index.md) to connect your first repository.
+Your DAIV deployment is running. Follow the [Reverse Proxy](#reverse-proxy) guide below to configure external access, then proceed to [Platform Setup](https://docs.daivagent.com/dev/getting-started/platform-setup/index.md) to connect your first repository.
 
 ______________________________________________________________________
 
@@ -402,7 +402,7 @@ The sandbox service runs as UID 1001, so it needs read access to the key.
 
 Environment Variable Configuration
 
-**Replace all annotated values with your specific configuration**. See the [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/index.md) page for additional options.
+**Replace all annotated values with your specific configuration**. See the [Environment Variables](https://docs.daivagent.com/dev/reference/env-variables/index.md) page for additional options.
 
 ```
 x-app-defaults: &x_app_default
@@ -561,21 +561,21 @@ volumes:
     driver: local
 ```
 
-1. **Required**: every service built from this anchor shares this directory. It holds the [artifacts](https://srtab.github.io/daiv/dev/features/sessions/#artifacts) the agent publishes: `app` writes them for chat turns and serves them, and `worker` writes them for jobs and webhook runs
+1. **Required**: every service built from this anchor shares this directory. It holds the [artifacts](https://docs.daivagent.com/dev/features/sessions/#artifacts) the agent publishes: `app` writes them for chat turns and serves them, and `worker` writes them for jobs and webhook runs
 1. **Raise the open-file limit**: each agent run holds many concurrent sockets (sandbox, LLM API, tracing, database, Redis, git-over-HTTPS). Docker's default soft limit of 1024 open files is too low and surfaces under load as `[Errno 24] Too many open files`. This raises `nofile` for every service built from this anchor
 1. **Generate a Django secret key**, a long random string such as the output of `openssl rand -hex 32`
 1. **Replace with your domain name**, without the scheme (e.g., `daiv.com`). Keep `app` and `127.0.0.1` for internal service communication
 1. **Include the full URL with scheme** (e.g., `https://your-hostname.com`). Your GitLab sends webhooks to this URL, so it must be able to reach it
 1. **Generate a secure random password** for the database, such as the output of `openssl rand -hex 16`
 1. **Set your GitLab instance URL** (e.g., `https://gitlab.com`)
-1. **The personal access token of DAIV's own GitLab user**, with the `api` scope and the Maintainer role on your projects. Use a dedicated account: DAIV ignores comments written by the account its token belongs to (see [Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/#gitlab-configuration))
+1. **The personal access token of DAIV's own GitLab user**, with the `api` scope and the Maintainer role on your projects. Use a dedicated account: DAIV ignores comments written by the account its token belongs to (see [Platform Setup](https://docs.daivagent.com/dev/getting-started/platform-setup/#gitlab-configuration))
 1. **Generate a random webhook secret** for GitLab webhook validation, such as the output of `openssl rand -hex 32`
-1. **Get an OpenRouter API key** for LLM model access. DAIV copies it into its database on the first start; to change it later, edit the provider under **Configuration → Providers** in the dashboard (see [LLM Providers](https://srtab.github.io/daiv/dev/getting-started/llm-providers/index.md))
+1. **Get an OpenRouter API key** for LLM model access. DAIV copies it into its database on the first start; to change it later, edit the provider under **Configuration → Providers** in the dashboard (see [LLM Providers](https://docs.daivagent.com/dev/getting-started/llm-providers/index.md))
 1. **The SMTP server DAIV sends sign-in codes through.** Without one, replace the three `EMAIL_*` lines with `EMAIL_BACKEND: django.core.mail.backends.console.EmailBackend` and read the codes from `docker compose logs app`
 1. **Generate a random API key** for Sandbox service authentication, such as the output of `openssl rand -hex 32`
 1. **Use the same password** as defined in annotation 6
 1. **Redis 8 or later**: the agent's checkpoints use Redis search commands, which Redis 7 does not have, and they must stay on database `0`, the only one Redis can index
-1. **Optional**: Uncomment to mount [custom global skills](https://srtab.github.io/daiv/dev/customization/agent-skills/#custom-global-skills) that are available across all repositories. A service-level `volumes:` replaces the anchor's list instead of merging with it, so keep the `media-volume` line
+1. **Optional**: Uncomment to mount [custom global skills](https://docs.daivagent.com/dev/customization/agent-skills/#custom-global-skills) that are available across all repositories. A service-level `volumes:` replaces the anchor's list instead of merging with it, so keep the `media-volume` line
 1. **Scaling**: Increase `replicas` to handle more concurrent agent runs (e.g., `replicas: 3`). A worker runs one task to completion before claiming the next, so concurrency is the number of worker containers; each claims independently from the queues named in its command, and adding replicas scales DAIV's throughput with no architecture changes
 1. **Replace `987` with the group of the Docker socket**, the output of `stat -c '%g' /var/run/docker.sock`. The sandbox starts a container for each agent run through it
 1. **Use the same API key** as defined in annotation 12
@@ -585,7 +585,7 @@ Task queues
 
 Background work is split in two: `default` carries agent runs, which hold a worker for as long as the run lasts, while `interactive` carries short user-visible work — session titles, run classification and notification delivery. The `worker` and `worker-interactive` services above each serve one of them, so a title never queues behind a run. A worker started with no queue argument serves every queue, which is fine for a small deployment as long as you accept that wait.
 
-MCP tools are configured from the dashboard at `/dashboard/mcp-servers/` — see [MCP Tools](https://srtab.github.io/daiv/dev/customization/mcp-tools/index.md).
+MCP tools are configured from the dashboard at `/dashboard/mcp-servers/` — see [MCP Tools](https://docs.daivagent.com/dev/customization/mcp-tools/index.md).
 
 ### Step 3: Run the compose file
 
@@ -605,11 +605,11 @@ The command returns once every service is healthy. If one isn't, `docker compose
 docker compose exec app django-admin bootstrap_admin admin@example.com
 ```
 
-Sign in at `/accounts/login/` with a one-time code DAIV emails to that address. See [Accounts & Roles](https://srtab.github.io/daiv/dev/getting-started/accounts/index.md) for Git platform sign-in and for adding users.
+Sign in at `/accounts/login/` with a one-time code DAIV emails to that address. See [Accounts & Roles](https://docs.daivagent.com/dev/getting-started/accounts/index.md) for Git platform sign-in and for adding users.
 
 ### Step 5: Next steps
 
-Your DAIV instance is running. Continue with the [Reverse Proxy](#reverse-proxy) configuration below, then proceed to [Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/index.md) to connect your first repository.
+Your DAIV instance is running. Continue with the [Reverse Proxy](#reverse-proxy) configuration below, then proceed to [Platform Setup](https://docs.daivagent.com/dev/getting-started/platform-setup/index.md) to connect your first repository.
 
 ______________________________________________________________________
 
@@ -707,10 +707,10 @@ ______________________________________________________________________
 
 Your DAIV instance is now running and accessible. Continue with:
 
-1. **[Platform Setup](https://srtab.github.io/daiv/dev/getting-started/platform-setup/index.md)** — connect DAIV to your GitLab or GitHub repositories
-1. **[LLM Providers](https://srtab.github.io/daiv/dev/getting-started/llm-providers/index.md)** — configure your LLM provider and API keys
-1. **[Repository Config](https://srtab.github.io/daiv/dev/customization/repository-config/index.md)** — customize DAIV's behavior per repository
-1. **[Site Configuration](https://srtab.github.io/daiv/dev/reference/site-configuration/index.md)** — manage settings from the admin UI instead of environment variables
+1. **[Platform Setup](https://docs.daivagent.com/dev/getting-started/platform-setup/index.md)** — connect DAIV to your GitLab or GitHub repositories
+1. **[LLM Providers](https://docs.daivagent.com/dev/getting-started/llm-providers/index.md)** — configure your LLM provider and API keys
+1. **[Repository Config](https://docs.daivagent.com/dev/customization/repository-config/index.md)** — customize DAIV's behavior per repository
+1. **[Site Configuration](https://docs.daivagent.com/dev/reference/site-configuration/index.md)** — manage settings from the admin UI instead of environment variables
 
 First Login & User Management
 

@@ -103,7 +103,7 @@ Every user, including admins, can add their own MCP servers from the personal **
 
 ## Related pages
 
-- [MCP Endpoint](https://srtab.github.io/daiv/dev/features/mcp-endpoint/index.md) — the inverse direction: exposing DAIV *itself* as an MCP server, so Claude Code, Cursor, or Codex CLI can delegate to it
-- [Request Tracker Triage](https://srtab.github.io/daiv/dev/integrations/rt/index.md) — a worked example of DAIV driven from an external system
-- [Agent Architecture](https://srtab.github.io/daiv/dev/reference/agent-architecture/index.md) — how MCP tools are loaded into the agent's tool set
-- [Environment Variables](https://srtab.github.io/daiv/dev/reference/env-variables/index.md) — the MCP-related settings
+- [MCP Endpoint](https://docs.daivagent.com/dev/features/mcp-endpoint/index.md) — the inverse direction: exposing DAIV *itself* as an MCP server, so Claude Code, Cursor, or Codex CLI can delegate to it
+- [Request Tracker Triage](https://docs.daivagent.com/dev/integrations/rt/index.md) — a worked example of DAIV driven from an external system
+- [Agent Architecture](https://docs.daivagent.com/dev/reference/agent-architecture/index.md) — how MCP tools are loaded into the agent's tool set
+- [Environment Variables](https://docs.daivagent.com/dev/reference/env-variables/index.md) — the MCP-related settings
