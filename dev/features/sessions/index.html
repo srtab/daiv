@@ -775,6 +775,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#archived-sessions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Archived sessions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#live-updates" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1832,6 +1843,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#archived-sessions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Archived sessions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#live-updates" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2275,6 +2297,14 @@
 </tbody>
 </table>
 <p>Filters are combined with AND logic and reflected in the URL query string, so filtered views can be bookmarked or shared.</p>
+<h3 id="archived-sessions">Archived sessions</h3>
+<p>Archived sessions leave the list, the home page's recent sessions and its inbox. The <strong>Archived</strong> control swaps the list for them; links that should show a merge request's or a period's sessions whatever their state (the <strong>view sessions</strong> link in a merge request description, the repository card, <strong>Your week</strong> and <strong>Insights</strong>) open the list with archived sessions included, shown by an <strong>Including archived</strong> chip you can clear. <strong>Your week</strong> and <strong>Insights</strong> count archived sessions too.</p>
+<p>An archived session is archived for everyone. It gets archived in one of two ways:</p>
+<ul>
+<li><strong>From its page</strong>, by anyone who can run agents on its repository, from the session's <strong>⋯</strong> menu.</li>
+<li><strong>When its merge request merges</strong>: DAIV archives every session that worked on it — the session that opened it, its review and comment sessions, and issue sessions that published it. A session that still owns another open merge request stays listed and is archived when that one merges. A session with a run still going, or with a delegated session still running or owning an open merge request, is archived once that run ends or that merge request merges or closes. A merge request closed without merging archives nothing.</li>
+</ul>
+<p>An archived session refuses follow-ups — chat messages, <code>thread_id</code> jobs and leg follow-ups. A mention or label on its issue or merge request, or a mention on a merge request it owns, starts nothing; DAIV replies once with a link to the session. CI failures and delegation results that reach it wait, and run once it is unarchived. <strong>Unarchive</strong> from the session's <strong>⋯</strong> menu or its composer, which also needs run access to its repository, brings it back for everyone.</p>
 <h3 id="live-updates">Live updates</h3>
 <p>Sessions with in-flight runs (Queued, Pending, or Running) update automatically via server-sent events. The status dot and timing update in real time without a page refresh.</p>
 <hr />
@@ -2402,7 +2432,7 @@
 </table>
 <p>These selections are fixed at session creation. To use a different model, effort level, or sandbox environment, start a new session.</p>
 <h3 id="the-session-page">The session page</h3>
-<p>The header carries only the session's title (rename it from the pencil when you can run agents on the repository), its status and a <strong>⋯</strong> menu with <strong>Copy session link</strong>, the linked issue and Archive. Everything about the work itself sits in the sidebar beside the transcript.</p>
+<p>The header carries only the session's title (rename it from the pencil when you can run agents on the repository), its status and a <strong>⋯</strong> menu with <strong>Copy session link</strong>, the linked issue and, when you can run agents on the repository, Archive. Everything about the work itself sits in the sidebar beside the transcript.</p>
 <p>From 1100px wide the sidebar is always open. Below that it is a sheet, which a summary button in the header opens: the main repository, <code>+N</code> for the others, the merge request (<code>!iid</code>, or a count) and a CI dot. The sheet opens on the Overview tab, scrolled to the repositories with that section unfolded.</p>
 <p>The sidebar has two tabs, and remembers the tab and which sections you folded in this browser:</p>
 <ul>
@@ -2545,7 +2575,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 11, 2026 00:36:16 UTC">November 11, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 12, 2026 11:17:41 UTC">November 12, 2026</span>
   </span>
 
     

@@ -1909,13 +1909,13 @@
 <li><strong>Works where the leg's work is.</strong> It runs in the leg's session, with the leg's earlier conversation, and pushes to the leg's branch and merge request, even one a reviewer approved or set to merge when its pipeline passes: your platform's approval rules decide whether that push resets the approvals. A leg that published nothing opens a branch and merge request of its own, as a new leg would, never the branch it started from.</li>
 <li><strong>Waits its turn.</strong> When the leg's session is busy — fixing CI on its merge request, or answering a person's chat — the leg follow-up waits in its inbox, as <strong>Leg follow-up</strong>, until the session is free. It then runs alone, never in the same run as other waiting requests, and sees what happened meanwhile (a push to the branch, for example) as context.</li>
 <li><strong>Runs once.</strong> It is never retried: if its run fails, the batch reports it as failed and the coordinator decides whether to send another.</li>
-<li><strong>Stops when its merge request is gone.</strong> If the leg's merge request was merged or closed while the leg follow-up waited, it stops when it would start, without changing anything, and the coordinator reads <em>not run: its merge request was merged</em> (or <em>closed</em>) with the advice to delegate a new leg.</li>
+<li><strong>Stops when its merge request is gone or its session is archived.</strong> If the leg's merge request was merged or closed while the leg follow-up waited, it stops when it would start, without changing anything, and the coordinator reads <em>not run: its merge request was merged</em> (or <em>closed</em>) with the advice to delegate a new leg. If the leg's session is archived while it waits, it stops at once and the coordinator reads <em>not run: its session was archived</em>.</li>
 </ul>
 <p>It runs as the user who triggered the coordinator's run, keeps the coordinator's mute and cannot ask questions, like a leg. That user's repository access is checked when it is sent, as for a new leg, and again when its run starts: one refused there is reported as failed.</p>
 <h2 id="following-and-cancelling-the-legs">Following and cancelling the legs</h2>
 <p>Between resumes, the coordinator has two more tools:</p>
 <ul>
-<li><code>check_delegated_jobs</code> reports where its batches stand: each leg's status (<code>queued</code>, <code>running</code>, <code>stopping</code>, <code>succeeded</code>, <code>failed</code>, <code>cancelled</code>, or <em>not run</em> for a leg follow-up whose merge request was merged or closed), session, branch, merge request and reply. Given a <code>batch_id</code> it reports that batch, with replies up to 4,000 characters; without one, the session's five latest, with replies up to 1,000. The agent uses it when you ask how the work is going, never to wait for the legs: the resume comes on its own.</li>
+<li><code>check_delegated_jobs</code> reports where its batches stand: each leg's status (<code>queued</code>, <code>running</code>, <code>stopping</code>, <code>succeeded</code>, <code>failed</code>, <code>cancelled</code>, or <em>not run</em> for a leg follow-up whose merge request was merged or closed, or whose session was archived), session, branch, merge request and reply. Given a <code>batch_id</code> it reports that batch, with replies up to 4,000 characters; without one, the session's five latest, with replies up to 1,000. The agent uses it when you ask how the work is going, never to wait for the legs: the resume comes on its own.</li>
 <li><code>cancel_delegated_jobs</code> cancels a batch's unfinished legs, or only the ones it names by <code>thread_id</code>, leg follow-ups included. A queued leg never starts, and cancelling a waiting leg follow-up leaves every other request waiting on the leg's session in place. A running leg shows as <code>stopping</code> until it stops, within about ten seconds, and may push to its branch or open a merge request before then. If it finishes first, it keeps its outcome. A cancelled leg's session shows it as stopped, and <a href="../notifications/">Notifications</a> count it as failed.</li>
 </ul>
 <p>The agent cancels when you ask it to, or when the work a leg does is no longer wanted. The coordinator is still resumed once the batch has finished, with the cancelled legs marked as such, unless every leg was cancelled: then no resume comes.</p>
@@ -1983,7 +1983,7 @@
 </tr>
 <tr>
 <td>A leg follow-up names a leg of its own coordinator, its repository and no branch</td>
-<td>Otherwise that target is refused with what to do instead, and the call's other targets still start. A leg the person it runs as archived, one DAIV lost track of, and one whose merge request was merged or closed are refused too.</td>
+<td>Otherwise that target is refused with what to do instead, and the call's other targets still start. An archived leg, one DAIV lost track of, and one whose merge request was merged or closed are refused too.</td>
 </tr>
 <tr>
 <td>A leg follow-up always wakes the leg</td>
@@ -2068,7 +2068,7 @@
 <li><strong>Transcript</strong> — each <code>delegate_jobs</code> call is a <strong>Delegated jobs</strong> card: its goal, and one row per leg with its state, merge request and session.</li>
 <li><strong>Sidebar</strong> — the <strong>Delegated jobs</strong> section of the <strong>Info</strong> tab lists the legs batch by batch, newest first.</li>
 </ul>
-<p>A leg is <em>Queued</em>, <em>Starts after this turn</em>, <em>Running</em>, <em>Stopping</em>, <em>Finished</em>, <em>Failed</em>, <em>Cancelled</em>, <em>Lost</em> (it started, but DAIV lost track of it), or <em>Not run: merge request merged</em> / <em>closed</em> (a leg follow-up that stopped at its start). A leg that served several batches, through leg follow-ups, is listed under each batch and counted once in the <strong>Delegated jobs</strong> count, and the call card marks a leg follow-up's row as <strong>Leg follow-up</strong>. An open page updates within a few seconds of a leg starting or finishing. In both places, a leg whose session you cannot see shows only its repository, branch and state. A leg's own session page links back to the coordinator's (<strong>Delegated by</strong>) when you can see it.</p>
+<p>A leg is <em>Queued</em>, <em>Starts after this turn</em>, <em>Running</em>, <em>Stopping</em>, <em>Finished</em>, <em>Failed</em>, <em>Cancelled</em>, <em>Lost</em> (it started, but DAIV lost track of it), or <em>Not run: merge request merged</em> / <em>closed</em> / <em>session archived</em> (a leg follow-up that stopped before it ran). A leg that served several batches, through leg follow-ups, is listed under each batch and counted once in the <strong>Delegated jobs</strong> count, and the call card marks a leg follow-up's row as <strong>Leg follow-up</strong>. An open page updates within a few seconds of a leg starting or finishing. In both places, a leg whose session you cannot see shows only its repository, branch and state. A leg's own session page links back to the coordinator's (<strong>Delegated by</strong>) when you can see it.</p>
 <p>The coordinator's session then shows the resumed run with the legs' summary. <a href="../notifications/">Notifications</a> treat the legs as a batch, so you get one rollup when they need a look.</p>
 <div class="admonition note">
 <p class="admonition-title">Why not call DAIV's own MCP endpoint?</p>
@@ -2102,7 +2102,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 11, 2026 00:59:44 UTC">November 11, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 12, 2026 12:14:09 UTC">November 12, 2026</span>
   </span>
 
     
