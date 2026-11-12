@@ -11,4 +11,5 @@
 - [ ] `make lint`
 - [ ] `make test`
 - [ ] Docs updated, if behaviour or configuration changed
-- [ ] `CHANGELOG.md` entry under **Unreleased**, if the change is notable for users
+- [ ] `CHANGELOG.md` line under **Unreleased** linking this PR, if users, operators or integrators notice the change
+- [ ] `UPGRADING.md` steps, if the change is breaking
