@@ -1,90 +1,85 @@
 ---
-description: "DAIV learns from its finished runs: candidate observations are extracted from each run, consolidated into a small per-repository document, and fed back into later runs on that repository."
+description: "DAIV extracts observations from finished runs, consolidates them into a short per-repository document, and adds that document to the system prompt of later runs on the same repository."
 ---
 
-# Repository Memory
+# Repository memory
 
-DAIV remembers what it learns on a repository. When a run finishes, DAIV reads its transcript and extracts candidate learnings — how the project builds, facts about the codebase, mistakes to avoid, what its reviewers ask for. A periodic consolidation pass folds those candidates into a small, curated document, and later runs on the same repository start with that document in their context, headed *"Learned repository memory (auto-generated from past runs; may be stale — verify before relying on it)"*.
+Repository memory is what DAIV remembers about a repository from its past runs: how the project builds and tests, facts about the code, mistakes to avoid and what reviewers ask for. Later runs on the same repository start with that knowledge, so you do not repeat it in each prompt. Memory is per repository, and DAIV never shows what it learned on one repository to a run on another.
 
-Memory is per repository: nothing learned on one repository is ever shown to a run on another.
+## How memory forms
 
----
+Memory forms in three steps, none of which needs you to act.
 
-## How it works
-
-1. **Extraction** — when a run finishes, a background task reads the run's transcript and asks the extraction model for candidate observations. Each observation is stored as *pending*, under one of five categories:
+1. **Extraction.** When a run finishes, DAIV reads its transcript and asks the extraction model for candidate observations. It stores each one as pending, under one of five categories:
 
     | Category | What it captures |
     |---|---|
-    | Build & test | How the project builds, tests and lints |
-    | Codebase fact | Durable facts about the code and its layout |
-    | Pitfall | Mistakes and traps a run should avoid repeating |
-    | Reviewer preference | What the repository's reviewers ask for |
-    | Workflow | Conventions for working on the repository |
+    | **Build & test** | How the project builds, tests and lints |
+    | **Codebase fact** | Durable facts about the code and its layout |
+    | **Pitfall** | Mistakes and traps a run should avoid repeating |
+    | **Reviewer preference** | What the repository's reviewers ask for |
+    | **Workflow** | Conventions for working on the repository |
 
-    Transcripts live behind a time-to-live, so extraction runs promptly; a run whose transcript has already expired is skipped silently. A [multi-repository session](jobs-api.md) adds no observations — its transcript holds the other repositories' code.
+2. **Consolidation.** An hourly sweep finds the repositories that are due, and the consolidation model folds their pending observations into the repository's entries. For each observation it adds a fact, corrects or merges existing entries, confirms a duplicate, or discards noise. DAIV rewrites only the entries an operation names.
 
-2. **Consolidation ("dreaming")** — an hourly sweep looks for repositories that are due: at least `memory_consolidation_min_pending` observations pending, **or** the oldest pending observation older than `memory_consolidation_max_pending_age_days` (so a quiet repository still forms memory eventually) — and in both cases only if the last attempt is older than `memory_consolidation_min_interval_hours`. For a due repository, the consolidation model decides per observation: add a fact, correct or merge existing entries, confirm a duplicate, or discard noise. Only the entries an operation names are rewritten.
+3. **Injection.** DAIV renders the surviving entries into one document, grouped by category in a fixed order with one line per entry. No model is involved in rendering, so the same entries always give the same document. A later run on the repository gets the document appended to its system prompt, under the header `# Learned repository memory (auto-generated from past runs; may be stale — verify before relying on it)`. A multi-repository session gets the main repository's memory only.
 
-3. **The document** — after each round the document is re-rendered from the surviving entries: one line per entry, grouped under its category heading in a fixed order. Rendering is deterministic — no model is involved — so the same entries always produce the same document.
+### What a run contributes
 
-If memory is off — site-wide or for the repository — extraction and consolidation both skip, and the repository's document stops growing.
+DAIV extracts observations from every finished run, failed ones included. It extracts nothing from:
 
----
+- A run started from the dashboard chat.
+- A run in a multi-repository session, whose transcript holds the other repositories' code.
+- A run whose transcript has expired. DAIV keeps transcripts for a limited time and reads them shortly after the run ends.
+- A run in which the agent never replied, for example because the sandbox never started.
 
-## The dashboard
+### When a repository is consolidated
 
-**Memory** in the dashboard (`/dashboard/memory/`) lists every repository you can read that has memory activity: its observation totals, how many are still pending, whether a document exists, and when it was last consolidated. Repositories can be filtered by name and by status.
+A repository is due when either of these holds:
 
-A repository's page shows the consolidated document with its current size against the caps, and every observation with its status (*pending*, *consolidated*, *discarded*) and category, filterable by both.
+- It has at least a set number of pending observations.
+- Its oldest pending observation is older than a set number of days, so a quiet repository still forms memory.
 
-An admin can run a round on demand with **Consolidate now** on the repository's page instead of waiting for the hourly sweep. The same round is available from the shell as the `consolidate_memory` management command, and `backfill_memory_entries` rebuilds a repository's entries from its consolidated observations after an upgrade or a repair.
+In both cases DAIV consolidates only if the last attempt was longer ago than the minimum interval. A failed attempt counts, so a repository whose rounds keep failing is retried at the same pace as a healthy one. The consolidation model has a cap on the operations it returns per round, and the observations beyond it stay pending for the next round.
 
----
+[Environment variables](../reference/env-variables.md#memory) gives the thresholds and their defaults.
 
-## Settings
+## Read a repository's memory
 
-### Site-wide
+**Memory** in the dashboard sidebar, under **Agent setup**, lists the repositories you can read that have memory activity. Each row shows whether the repository has a document (**Document** or **No document**), when it was last consolidated, how many observations are pending and how many exist in total. Search by repository name, or filter by **All**, **Document**, **No document** or **Pending**.
 
-Configure under **Configuration → Memory** in the dashboard (admin only). Every setting can also be set via environment variable or Docker secret, which takes precedence over the UI.
+Select a repository to open its page:
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `memory_enabled` | `true` | Master switch for repository memory: when on, finished runs yield observations and due repositories are consolidated into memory documents. Env var: `DAIV_MEMORY_ENABLED`. |
-| `memory_extraction_model_name` | `openrouter:openai/gpt-6-luna` | Model that reads each finished run's transcript and proposes memory observations. Env var: `DAIV_MEMORY_EXTRACTION_MODEL_NAME`. |
-| `memory_extraction_fallback_model_name` | `openrouter:anthropic/claude-haiku-5.5` | Used when the extraction model is unavailable. Env var: `DAIV_MEMORY_EXTRACTION_FALLBACK_MODEL_NAME`. |
-| `memory_consolidation_model_name` | — | Model that folds pending observations into a repository's memory entries. Leave empty to use the extraction model. Env var: `DAIV_MEMORY_CONSOLIDATION_MODEL_NAME`. |
-| `memory_consolidation_min_pending` | `10` | A repository becomes due for consolidation once this many observations are waiting. Env var: `DAIV_MEMORY_CONSOLIDATION_MIN_PENDING`. |
-| `memory_consolidation_max_pending_age_days` | `7` | However few are waiting, a repository is due once its oldest pending observation is this old. Env var: `DAIV_MEMORY_CONSOLIDATION_MAX_PENDING_AGE_DAYS`. |
-| `memory_consolidation_min_interval_hours` | `24` | Minimum hours between consolidation attempts for the same repository — the real throttle on the hourly sweep. Env var: `DAIV_MEMORY_CONSOLIDATION_MIN_INTERVAL_HOURS`. |
-| `memory_max_lines` | `200` | Hard cap on the rendered document's line count. Env var: `DAIV_MEMORY_MAX_LINES`. |
-| `memory_max_bytes` | `10240` | Hard cap on the rendered document's size in bytes. Env var: `DAIV_MEMORY_MAX_BYTES`. |
+- The header shows when the repository was last consolidated and the document's size in lines and bytes. Before the first consolidation it reads **Never consolidated**.
+- **Consolidated document** shows the text DAIV adds to later runs.
+- **Observations** lists every observation with its status (**Pending**, **Consolidated** or **Discarded**) and its category. Filter by either, and select **View source run** to open the run it came from.
 
-### Per repository
+### Who can read a repository's memory
 
-The only per-repository switch is `memory.enabled` in `.daiv.yml`; models, thresholds and caps are site-wide only.
+You can read a repository's memory when you have read access to the repository on your Git platform, and admins can read every repository's. A repository you cannot read does not appear in the list, and its page returns a 404. A pending observation can quote the repository's code, which is why read access is the rule. [Accounts and roles](../getting-started/accounts.md#repository-access) explains how DAIV learns your access.
 
-```yaml
-memory:
-  enabled: false
-```
+## Consolidate a repository now
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `memory.enabled` | `bool` | site-wide | Set to `false` and this repository grows no memory: its runs yield no observations and it is never consolidated. It cannot switch memory back on where the operator turned it off site-wide. |
+An admin can run a round without waiting for the hourly sweep. The round ignores the thresholds and the minimum interval.
 
-See [Repository Config](../customization/repository-config.md) for the full `.daiv.yml` reference.
+1. Open **Memory** and select the repository.
+2. Select **Consolidate now**.
 
----
+DAIV queues the round and shows `Consolidation queued for <repository> (<n> pending observation(s)).`. The button is absent while memory is off site-wide. DAIV tells you why it queued nothing when there are no pending observations, or when the repository has a stored document but no entries, which `backfill_memory_entries` repairs.
 
-## Size caps
+From a shell, [`consolidate_memory`](../reference/management-commands.md#consolidate_memory) runs the same round, and [`backfill_memory_entries`](../reference/management-commands.md#backfill_memory_entries) rebuilds a repository's entries after an upgrade or a repair.
 
-The rendered document is capped at `memory_max_lines` lines and `memory_max_bytes` bytes so memory stays a short briefing, not an archive. While the document fits, nothing is evicted. When a consolidation round pushes it over budget, the largest category gives up its least-recently-confirmed entry, repeatedly, until it fits again — so a small category is never drained to make room for a large one. Evicted entries are superseded, not deleted: they stay in the repository's history but no longer render. The last remaining entry is never evicted.
+## Turn memory off
 
----
+Memory has two switches, and a repository's memory works only while both are on:
 
-## Related pages
+- The site-wide switch, in the **Memory** group of the site configuration. [Site configuration](../reference/site-configuration.md#setting-groups) lists the group, and [Environment variables](../reference/env-variables.md#memory) lists the `DAIV_MEMORY_*` variables that set the same values.
+- A repository's `memory.enabled` in `.daiv.yml`. [Repository configuration](../customization/repository-config.md#feature-toggles) describes it. A repository can opt out, but it cannot switch memory on where the site has it off.
 
-- [Accounts & Roles](../getting-started/accounts.md) — read access to a repository is what gates its memory pages
-- [Jobs API](jobs-api.md) — multi-repository sessions read the main repository's memory but add no observations
-- [Site Configuration](../reference/site-configuration.md) — the full settings reference
+While memory is off, DAIV extracts and consolidates nothing, and later runs get no document. The existing entries stay, and the dashboard shows them.
+
+## Size limit
+
+The document has a limit in lines and in bytes, 200 lines and 10240 bytes by default, so memory stays a short briefing and not an archive. [Environment variables](../reference/env-variables.md#memory) gives the settings that change them.
+
+While the document fits, DAIV evicts nothing. When a round pushes it over a limit, DAIV evicts the least recently confirmed entry of the category with the most text, and repeats until the document fits. A small category is never drained to make room for a large one. DAIV never evicts the last remaining entry, even if it alone exceeds the limit. An evicted entry no longer appears in the document, and the dashboard does not show it.
