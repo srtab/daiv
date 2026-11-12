@@ -4,16 +4,16 @@ import logging
 from typing import Any
 
 from django.db import Error as DatabaseError
-from django.db.models import Count, Max
+from django.db.models import Count, Max, Q
 from django.utils.functional import SimpleLazyObject
 
-from sessions.models import Run, RunStatus
+from sessions.models import Run, RunStatus, Session
 
 from dashboard.sidebar import SidebarLists, sidebar_lists
 
 logger = logging.getLogger("daiv.dashboard")
 
-SECTION_URL_NAMES: dict[str, set[str]] = {
+_MAIN_SECTION_URL_NAMES: dict[str, set[str]] = {
     "dashboard": {"dashboard"},
     "insights": {"insights"},
     "sessions": {
@@ -36,12 +36,6 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
         "schedule_toggle",
         "schedule_run_now",
     },
-    "schedule_templates": {
-        "schedule_template_list",
-        "schedule_template_create",
-        "schedule_template_update",
-        "schedule_template_delete",
-    },
     "notifications": {"notifications:list"},
     # The account menu's pages; the mfa_* names are passkey (WebAuthn) pages under /accounts/mfa/.
     "account": {
@@ -55,6 +49,15 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
         "mfa_edit_webauthn",
         "mfa_remove_webauthn",
         "mfa_reauthenticate_webauthn",
+    },
+}
+
+_SETTINGS_SECTION_URL_NAMES: dict[str, set[str]] = {
+    "schedule_templates": {
+        "schedule_template_list",
+        "schedule_template_create",
+        "schedule_template_update",
+        "schedule_template_delete",
     },
     "users": {"user_list", "user_create", "user_update", "user_delete"},
     "configuration": {"site_configuration", "site_configuration_index"},
@@ -83,17 +86,8 @@ SECTION_URL_NAMES: dict[str, set[str]] = {
     "mcp_servers_global": {"mcp_connectors:global_list", "mcp_connectors:global_create"},
 }
 
-
-SETTINGS_SECTIONS: frozenset[str] = frozenset({
-    "sandbox_envs",
-    "mcp_servers",
-    "memory",
-    "users",
-    "configuration",
-    "schedule_templates",
-    "skills",
-    "mcp_servers_global",
-})
+SECTION_URL_NAMES: dict[str, set[str]] = {**_MAIN_SECTION_URL_NAMES, **_SETTINGS_SECTION_URL_NAMES}
+SETTINGS_SECTIONS: frozenset[str] = frozenset(_SETTINGS_SECTION_URL_NAMES)
 
 
 def _resolve_active_section(request) -> str:
@@ -107,16 +101,31 @@ def _resolve_active_section(request) -> str:
     return ""
 
 
-def running_snapshot(visible) -> dict[str, Any]:
-    """The RUNNING rows of a ``Run.objects.visible_to(user)`` queryset, under the nav stream's keys.
+def running_snapshot(visible, user) -> dict[str, Any]:
+    """The RUNNING rows of ``visible`` (``Run.objects.visible_to(user)``), under the nav stream's keys.
 
     ``running_runs`` is the badge. ``latest_running_start`` moves whenever another run starts, even when one
     finishing at the same moment leaves the count unchanged; it is kept for session pages loaded before the nav
     stream carried ``session`` frames, which watch it to hear that a run started after they rendered.
+    The ``own_`` pair is the same snapshot over the sessions the user owns, which the sidebar's lists show.
     """
-    stats = visible.filter(status=RunStatus.RUNNING).aggregate(running_runs=Count("pk"), latest=Max("started_at"))
-    latest = stats["latest"]
-    return {"running_runs": stats["running_runs"], "latest_running_start": latest.isoformat() if latest else ""}
+    own = Q(session__in=Session.objects.owned_by(user).values("pk"))
+    stats = visible.filter(status=RunStatus.RUNNING).aggregate(
+        running_runs=Count("pk"),
+        latest=Max("started_at"),
+        own_running_runs=Count("pk", filter=own),
+        own_latest=Max("started_at", filter=own),
+    )
+    return {
+        "running_runs": stats["running_runs"],
+        "latest_running_start": _isoformat(stats["latest"]),
+        "own_running_runs": stats["own_running_runs"],
+        "own_latest_running_start": _isoformat(stats["own_latest"]),
+    }
+
+
+def _isoformat(moment) -> str:
+    return moment.isoformat() if moment else ""
 
 
 def query_running_snapshot(user) -> dict[str, Any]:
@@ -130,7 +139,7 @@ def query_running_snapshot(user) -> dict[str, Any]:
 
     SYNC ONLY — ``visible_to`` resolves platform identity with a DB read at query-build time.
     """
-    return running_snapshot(Run.objects.visible_to(user))
+    return running_snapshot(Run.objects.visible_to(user), user)
 
 
 def running_state(request, user) -> dict[str, Any]:
@@ -146,13 +155,17 @@ def running_state(request, user) -> dict[str, Any]:
         state = query_running_snapshot(user)
     except DatabaseError:
         logger.exception("Failed to compute nav_running_jobs for user %s", user.pk)
-        state = {"running_runs": 0, "latest_running_start": ""}
+        state = {"running_runs": 0, "latest_running_start": "", "own_running_runs": 0, "own_latest_running_start": ""}
     request._daiv_running_state = state
     return state
 
 
 def running_jobs_count(request, user) -> int:
     return running_state(request, user)["running_runs"]
+
+
+def own_running_jobs_count(request, user) -> int:
+    return running_state(request, user)["own_running_runs"]
 
 
 def _viewed_thread_id(request) -> str:
@@ -177,9 +190,9 @@ def sidebar_state(request, user) -> SidebarLists:
 
 
 def nav(request) -> dict[str, Any]:
-    """Supply the nav's running count, active section, settings mode and sidebar lists to every authenticated request.
+    """Supply the nav's running counts, active section, settings mode and sidebar lists to every authenticated request.
 
-    The running count and the lists are wrapped in ``SimpleLazyObject`` so their queries run only if the
+    The running counts and the lists are wrapped in ``SimpleLazyObject`` so their queries run only if the
     template actually references them — non-HTML responses (redirects, HTMX fragments, SSE)
     skip them entirely.
     """
@@ -190,8 +203,9 @@ def nav(request) -> dict[str, Any]:
     active_section = _resolve_active_section(request)
     return {
         "nav_running_jobs": SimpleLazyObject(lambda: running_jobs_count(request, user)),
+        "nav_own_running_jobs": SimpleLazyObject(lambda: own_running_jobs_count(request, user)),
         "nav_active_section": active_section,
         "nav_settings_mode": active_section in SETTINGS_SECTIONS,
-        "nav_viewing": _viewed_thread_id(request),
+        "nav_session_thread_id": _viewed_thread_id(request),
         "nav_sidebar": SimpleLazyObject(lambda: sidebar_state(request, user)),
     }

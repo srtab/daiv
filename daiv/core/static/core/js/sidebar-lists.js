@@ -14,14 +14,14 @@
  *
  * A refresh that fails — an error status, a redirect to the sign-in page, a body that is not
  * the lists — keeps the rows already shown. Expand choices persist per browser, the scroll
- * position per tab, and "Show more" depth not at all.
+ * position per tab, and "Show more" depth not at all. The server sets each "Show more" depth
+ * and its cap; at the cap the row is a plain link to the sessions page.
  */
 document.addEventListener("alpine:init", () => {
   const CHOICES_KEY = "daiv.sidebar.schedules";
   const SCROLL_KEY = "daiv.sidebar.scroll";
   const CONTAINERS = '[data-testid="sidebar-lists"]';
   const LISTS_MARKER = 'data-testid="nav-sessions-group"';
-  const PAGE = 8;
   const DEBOUNCE_MS = 400;
 
   function readChoices() {
@@ -34,7 +34,7 @@ document.addEventListener("alpine:init", () => {
   }
 
   Alpine.store("sidebarLists", {
-    limit: PAGE,
+    limit: null,
     choices: readChoices(),
     _timer: null,
     _inFlight: false,
@@ -58,8 +58,8 @@ document.addEventListener("alpine:init", () => {
       }
     },
 
-    more() {
-      this.limit += PAGE;
+    more(limit) {
+      this.limit = limit;
       this._fetch();
     },
 
@@ -69,12 +69,20 @@ document.addEventListener("alpine:init", () => {
     },
 
     restoreScroll(scroller) {
-      const top = Number(sessionStorage.getItem(SCROLL_KEY));
-      if (top > 0) scroller.scrollTop = top;
+      try {
+        const top = Number(sessionStorage.getItem(SCROLL_KEY));
+        if (top > 0) scroller.scrollTop = top;
+      } catch {
+        // Blocked storage: the lists open at the top.
+      }
     },
 
     saveScroll(scroller) {
-      sessionStorage.setItem(SCROLL_KEY, String(scroller.scrollTop));
+      try {
+        sessionStorage.setItem(SCROLL_KEY, String(scroller.scrollTop));
+      } catch {
+        // Blocked storage: the next page opens the lists at the top.
+      }
     },
 
     async _fetch() {
@@ -86,9 +94,10 @@ document.addEventListener("alpine:init", () => {
       if (!container) return;
       this._inFlight = true;
       try {
-        const viewing = encodeURIComponent(container.dataset.viewing || "");
-        const url = `${container.dataset.url}?limit=${this.limit}&viewing=${viewing}`;
-        const response = await fetch(url, { credentials: "same-origin" });
+        const { url, viewing = "", section = "" } = container.dataset;
+        const query = new URLSearchParams({ viewing, section });
+        if (this.limit) query.set("limit", String(this.limit));
+        const response = await fetch(`${url}?${query}`, { credentials: "same-origin" });
         if (!response.ok || response.redirected) return;
         const html = await response.text();
         if (html.includes(LISTS_MARKER)) this._swap(html);

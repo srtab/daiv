@@ -618,7 +618,8 @@ wordmark and the New split button) that is the only nav entry point on a phone.
   `#search`; shortcut `/`), Home (URL name `dashboard`), Notifications, Artifacts — sit
   above a scroller holding two lists, `dashboard/_sidebar_lists.html` read from
   `nav_sidebar` (`dashboard/sidebar.py`). **Sessions**: the user's own sessions outside any
-  schedule, newest first, 8 at a time with "Show more", a status dot, the state word while
+  schedule, newest first, 8 at a time with "Show more" (up to 80, then it links the
+  sessions page), a status dot, the state word while
   running, waiting or failed and a short relative time otherwise; the session being viewed
   is marked and appended when off the page. **Scheduled**: up to 10 schedules the user owns
   or subscribes to that are enabled or fired in the last 14 days, each expanding to its 3
@@ -627,7 +628,7 @@ wordmark and the New split button) that is the only nav entry point on a phone.
   "Manage" links the schedules page. The queries run once per page, behind the lazy
   `nav_sidebar`, and never on a settings page. Order and contents are pinned by
   `dashboard/test_sidebar.py` and `dashboard/test_sidebar_lists.py`.
-- **Settings mode.** A page whose section is in `SETTINGS_SECTIONS`
+- **Settings mode.** A page whose section is in `_SETTINGS_SECTION_URL_NAMES`
   (`dashboard/context_processors.py`) renders `_sidebar_settings.html` in place of the
   fixed rows and lists: Back (Home), **Agent setup** — Sandbox environments, MCP servers,
   Memory, set up once, so the heading carries a one-line "optional" hint and each item a
@@ -637,8 +638,10 @@ wordmark and the New split button) that is the only nav entry point on a phone.
   Schedules and Insights are not settings: their pages keep the lists, and Insights is
   reached from Home.
 - **Live lists.** The `nav` store announces `daiv:runs-changed` when a frame moves the
-  running snapshot or the stream reopens; the `sidebarLists` store
-  (`core/js/sidebar-lists.js`) then refetches the `sidebar_lists` fragment into every
+  running snapshot of the user's own sessions (`own_running_runs`, `own_latest_running_start`;
+  runs they merely see do not count) or the stream reopens; the `sidebarLists` store
+  (`core/js/sidebar-lists.js`) then refetches the `sidebar_lists` fragment, passing the
+  page's section so the Scheduled heading keeps its highlight, into every
   `[data-testid="sidebar-lists"]`, both copies at once, and keeps the rows shown if the
   response is not the lists. Expand state is the store's (per browser, `localStorage`
   `daiv.sidebar.schedules`, over the server's open-when-failed default), so a swap cannot

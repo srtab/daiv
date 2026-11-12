@@ -116,7 +116,7 @@ def test_the_new_chat_page_subscribes_to_no_session(member_client):
         resp = member_client.get(reverse("session_new_chat"))
 
     assert "url: '/api/nav/events'" in resp.content.decode()
-    assert "nav_session_thread_id" not in resp.context
+    assert resp.context["nav_session_thread_id"] == ""
 
 
 @pytest.mark.django_db

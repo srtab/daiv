@@ -10,6 +10,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 import pytest
+from bs4 import BeautifulSoup
 from dashboard import landing
 from dashboard.comparisons import COMPARISONS
 from dashboard.home import INBOX_LIMIT
@@ -935,10 +936,8 @@ class TestSidebarListsView:
         assert response.status_code == 302
         assert response.url.startswith("/accounts/login/")
 
-    @pytest.mark.parametrize(
-        ("query", "limit"), [("", 8), ("?limit=16", 16), ("?limit=9999", 80), ("?limit=abc", 8), ("?limit=1", 8)]
-    )
-    def test_clamps_limit(self, member_user, member_client, mocker, query, limit):
+    @pytest.mark.parametrize(("query", "limit"), [("", 8), ("?limit=16", 16), ("?limit=9999", 9999), ("?limit=abc", 8)])
+    def test_parses_limit(self, member_user, member_client, mocker, query, limit):
         spy = mocker.patch("dashboard.views.sidebar_lists", return_value=SidebarLists())
 
         member_client.get(reverse("sidebar_lists") + query)
@@ -951,3 +950,11 @@ class TestSidebarListsView:
         member_client.get(reverse("sidebar_lists") + "?viewing=thread-1")
 
         spy.assert_called_once_with(member_user, limit=8, viewing="thread-1")
+
+    @pytest.mark.parametrize(("query", "section"), [("?section=schedules", "schedules"), ("", "")])
+    def test_highlights_the_section_of_the_page_it_refreshes(self, member_client, query, section):
+        response = member_client.get(reverse("sidebar_lists") + query)
+
+        assert response.context["nav_active_section"] == section
+        heading = BeautifulSoup(response.content, "html.parser").select_one('[data-testid="nav-scheduled-group"] h2')
+        assert ("sidebar__nav-item--active" in heading["class"]) is bool(section)

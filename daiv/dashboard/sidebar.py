@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 
 SESSIONS_PAGE = 8
+SESSIONS_MAX = 80
 STATE_WORD_STATUSES = frozenset({RunStatus.RUNNING, RunStatus.WAITING_INPUT, RunStatus.FAILED})
 SCHEDULES_LIMIT = 10
 FIRINGS_PER_SCHEDULE = 3
@@ -51,6 +52,7 @@ class SessionRow:
 
 @dataclass(frozen=True, slots=True)
 class FiringRow:
+    batch_id: str
     fired_at: datetime
     status: str
     repo_count: int
@@ -74,6 +76,12 @@ class SidebarLists:
     sessions: tuple[SessionRow, ...] = ()
     has_more: bool = False
     schedules: tuple[ScheduleRow, ...] = ()
+    limit: int = SESSIONS_PAGE
+
+    @property
+    def next_limit(self) -> int | None:
+        """The depth "Show more" asks for next, or ``None`` at the cap, where it links to the sessions page instead."""
+        return min(self.limit + SESSIONS_PAGE, SESSIONS_MAX) if self.limit < SESSIONS_MAX else None
 
 
 def _own_sessions(user: User) -> QuerySet[Session, dict[str, Any]]:
@@ -170,6 +178,7 @@ def _firing_row(firing: dict[str, Any], sessions: list[tuple[str, str]]) -> Firi
     else:
         url = reverse("session_list") + f"?batch={firing['batch_id']}"
     return FiringRow(
+        batch_id=str(firing["batch_id"]),
         fired_at=firing["fired_at"],
         status=_worst([status for _, status in sessions]),
         repo_count=len(sessions),
@@ -215,5 +224,9 @@ def schedule_rows(user: User, *, viewing: str = "", now: datetime | None = None)
 
 
 def sidebar_lists(user: User, *, limit: int = SESSIONS_PAGE, viewing: str = "") -> SidebarLists:
+    """Both lists, with ``limit`` sessions clamped to between one page and ``SESSIONS_MAX``."""
+    limit = min(max(limit, SESSIONS_PAGE), SESSIONS_MAX)
     sessions, has_more = session_rows(user, limit=limit, viewing=viewing)
-    return SidebarLists(sessions=sessions, has_more=has_more, schedules=schedule_rows(user, viewing=viewing))
+    return SidebarLists(
+        sessions=sessions, has_more=has_more, schedules=schedule_rows(user, viewing=viewing), limit=limit
+    )

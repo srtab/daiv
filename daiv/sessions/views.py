@@ -290,8 +290,6 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         ctx = super().get_context_data(**kwargs)
         session = ctx.setdefault("session", None)
-        if session is not None:
-            ctx["nav_session_thread_id"] = session.thread_id
 
         env_id = session.sandbox_environment_id if session is not None else None
         ctx["selected_sandbox_env_id"] = str(env_id) if env_id else ""

@@ -19,10 +19,11 @@
  * On a session page `url` carries `?session=<thread_id>`, and each `session` frame the stream
  * then sends is re-announced to the page as a `daiv:session-changed` window event.
  *
- * A frame that moves the running snapshot (`running_runs` or `latest_running_start`) is
- * announced as `daiv:runs-changed`, and so is every reopen after the tab was hidden, since
- * runs may have started and finished unseen. The page seed never is: it carries no start,
- * so the first frame's start is only recorded. The sidebar's lists refetch on it.
+ * A frame that moves the user's own running snapshot (`own_running_runs` or
+ * `own_latest_running_start`) is announced as `daiv:runs-changed`, and so is every reopen after
+ * the tab was hidden, since runs may have started and finished unseen. The page seed never is:
+ * it carries no start, so the first frame's start is only recorded. The sidebar's lists, which
+ * show only the user's own sessions, refetch on it; runs they merely see do not move it.
  */
 document.addEventListener("alpine:init", () => {
   Alpine.store("nav", {
@@ -32,7 +33,8 @@ document.addEventListener("alpine:init", () => {
     _source: null,
     _ended: false,
     _opened: false,
-    _latestStart: null,
+    _ownRunning: 0,
+    _ownLatestStart: null,
 
     /** Seed from the page render and open the stream. Idempotent per tab. */
     start({ url, state }) {
@@ -86,11 +88,11 @@ document.addEventListener("alpine:init", () => {
 
     _runsMoved(state) {
       if (!state) return false;
-      const count = state.running_runs;
-      const start = state.latest_running_start;
+      const count = state.own_running_runs;
+      const start = state.own_latest_running_start;
       return (
-        (typeof count === "number" && count !== this.running) ||
-        (typeof start === "string" && this._latestStart !== null && start !== this._latestStart)
+        (typeof count === "number" && count !== this._ownRunning) ||
+        (typeof start === "string" && this._ownLatestStart !== null && start !== this._ownLatestStart)
       );
     },
 
@@ -118,7 +120,8 @@ document.addEventListener("alpine:init", () => {
       if (!state) return;
       if (typeof state.unread_count === "number") this.unread = state.unread_count;
       if (typeof state.running_runs === "number") this.running = state.running_runs;
-      if (typeof state.latest_running_start === "string") this._latestStart = state.latest_running_start;
+      if (typeof state.own_running_runs === "number") this._ownRunning = state.own_running_runs;
+      if (typeof state.own_latest_running_start === "string") this._ownLatestStart = state.own_latest_running_start;
     },
   });
 });

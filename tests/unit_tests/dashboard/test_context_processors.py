@@ -62,6 +62,7 @@ class TestNavContextProcessor:
         )
 
         assert _nav_for(member_user)["nav_running_jobs"] == 1
+        assert _nav_for(member_user)["nav_own_running_jobs"] == 1
 
     def test_resolves_active_section_from_url_name(self, member_client):
         response = member_client.get(reverse("dashboard"))
@@ -115,7 +116,9 @@ class TestNavContextProcessor:
             repo_id="daiv/api",
         )
 
-        assert _nav_for(member_user)["nav_running_jobs"] == 1  # bob's running job, on a repo the member can read
+        nav_context = _nav_for(member_user)
+        assert nav_context["nav_running_jobs"] == 1  # bob's running job, on a repo the member can read
+        assert nav_context["nav_own_running_jobs"] == 0
 
 
 class TestResolveActiveSection:
@@ -207,7 +210,9 @@ class TestNavSidebar:
     )
     def test_viewing_comes_from_the_session_detail_url(self, member_user, mocker, view_name, viewing):
         spy = mocker.patch("dashboard.context_processors.sidebar_lists", return_value=SidebarLists())
+        request = _request_at(member_user, view_name, thread_id="thread-1")
 
-        sidebar_state(_request_at(member_user, view_name, thread_id="thread-1"), member_user)
+        sidebar_state(request, member_user)
 
         spy.assert_called_once_with(member_user, viewing=viewing)
+        assert nav(request)["nav_session_thread_id"] == viewing

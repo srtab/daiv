@@ -28,7 +28,7 @@ import vm from "node:vm";
 const { src, stored, scroll, responses, actions, html } = JSON.parse(readFileSync(0, "utf8"));
 const stores = {};
 const local = { ...stored };
-const session = scroll === null ? {} : { "daiv.sidebar.scroll": String(scroll) };
+const session = scroll === null || scroll === "blocked" ? {} : { "daiv.sidebar.scroll": String(scroll) };
 const fetched = [];
 const timers = new Map();
 const frames = [];
@@ -38,7 +38,8 @@ let focused = null;
 const results = [];
 
 function makeContainer(name) {
-  const container = { name, dataset: { url: "/dashboard/sidebar/lists/", viewing: "thread-1" }, rows: [] };
+  const dataset = { url: "/dashboard/sidebar/lists/", viewing: "thread-1", section: "schedules" };
+  const container = { name, dataset, rows: [] };
   const scroller = { scrollTop: 300 };
   Object.defineProperty(container, "innerHTML", {
     get() { return this._html; },
@@ -93,9 +94,10 @@ const sandbox = {
     setItem: (k, v) => { if (stored === "blocked") throw new Error("SecurityError"); local[k] = v; },
   },
   sessionStorage: {
-    getItem: (k) => session[k] ?? null,
-    setItem: (k, v) => { session[k] = v; },
+    getItem: (k) => { if (scroll === "blocked") throw new Error("SecurityError"); return session[k] ?? null; },
+    setItem: (k, v) => { if (scroll === "blocked") throw new Error("SecurityError"); session[k] = v; },
   },
+  URLSearchParams,
 };
 sandbox.window = sandbox;
 sandbox.Alpine = { store: (name, value) => { stores[name] = value; value.init?.(); } };
@@ -111,7 +113,7 @@ const scroller = containers[0].scroller;
 const rowOf = (key) => (key === "outside" ? outside : containers[0].rows.find((r) => r.dataset.rowKey === key));
 for (const action of actions) {
   if (action === "refresh") lists.refresh();
-  else if (action === "more") lists.more();
+  else if (action.more) lists.more(action.more);
   else if (action === "runs-changed") (windowListeners["daiv:runs-changed"] || []).forEach((cb) => cb());
   else if (action === "tick") {
     const pending = [...timers.values()];
@@ -190,7 +192,7 @@ class TestRefresh:
 
         assert waiting["fetched"] == []
         assert fired["fetched"] == [
-            {"url": "/dashboard/sidebar/lists/?limit=8&viewing=thread-1", "credentials": "same-origin"}
+            {"url": "/dashboard/sidebar/lists/?viewing=thread-1&section=schedules", "credentials": "same-origin"}
         ]
 
     def test_a_burst_of_refreshes_fetches_once(self):
@@ -218,24 +220,26 @@ class TestRefresh:
 
         assert state["html"] == [FRESH, FRESH]
 
-    def test_show_more_fetches_the_next_page_at_once(self):
-        state = drive(["more", "flush"], responses=[ok()])
+    def test_show_more_fetches_the_depth_the_server_offered_at_once(self):
+        state = drive([{"more": 16}, "flush"], responses=[ok()])
 
         assert state["limit"] == 16
-        assert [entry["url"] for entry in state["fetched"]] == ["/dashboard/sidebar/lists/?limit=16&viewing=thread-1"]
+        assert [entry["url"] for entry in state["fetched"]] == [
+            "/dashboard/sidebar/lists/?viewing=thread-1&section=schedules&limit=16"
+        ]
 
     def test_a_refresh_keeps_the_show_more_depth(self):
-        state = drive(["more", "flush", "refresh", "tick", "flush"], responses=[ok(), ok()])
+        state = drive([{"more": 16}, "flush", "refresh", "tick", "flush"], responses=[ok(), ok()])
 
-        assert state["fetched"][-1]["url"] == "/dashboard/sidebar/lists/?limit=16&viewing=thread-1"
+        assert state["fetched"][-1]["url"] == "/dashboard/sidebar/lists/?viewing=thread-1&section=schedules&limit=16"
 
     def test_fetches_never_overlap(self):
         """A call made while one is in flight runs after it, with the depth asked for last."""
-        state = drive(["more", "more", "flush"], responses=[ok(), ok()])
+        state = drive([{"more": 16}, {"more": 24}, "flush"], responses=[ok(), ok()])
 
         assert [entry["url"] for entry in state["fetched"]] == [
-            "/dashboard/sidebar/lists/?limit=16&viewing=thread-1",
-            "/dashboard/sidebar/lists/?limit=24&viewing=thread-1",
+            "/dashboard/sidebar/lists/?viewing=thread-1&section=schedules&limit=16",
+            "/dashboard/sidebar/lists/?viewing=thread-1&section=schedules&limit=24",
         ]
 
     def test_focus_on_a_row_follows_it_into_the_fresh_rows(self):
@@ -259,3 +263,9 @@ class TestScroll:
 
     def test_saves_the_position_for_this_tab(self):
         assert drive([{"saveScroll": 180}])["session"] == {"daiv.sidebar.scroll": "180"}
+
+    def test_blocked_storage_neither_restores_nor_throws(self):
+        state = drive([{"restoreScroll": True}, {"saveScroll": 180}], scroll="blocked")
+
+        assert state["results"] == [300]
+        assert state["session"] == {}

@@ -9,6 +9,7 @@ from dashboard.sidebar import (
     FIRED_WITHIN,
     FIRINGS_PER_SCHEDULE,
     SCHEDULES_LIMIT,
+    SESSIONS_MAX,
     SESSIONS_PAGE,
     SidebarLists,
     schedule_rows,
@@ -187,6 +188,7 @@ class TestScheduleRows:
 
         ((firing,),) = [row.firings for row in schedule_rows(member_user)]
 
+        assert firing.batch_id == str(batch_id)
         assert firing.repo_count == 3
         assert firing.url == reverse("session_list") + f"?batch={batch_id}"
 
@@ -316,3 +318,23 @@ class TestScheduleRows:
         assert [row.thread_id for row in lists.sessions] == [own.thread_id]
         assert lists.has_more is False
         assert [row.pk for row in lists.schedules] == [schedule.pk]
+
+    @pytest.mark.parametrize(
+        ("asked", "limit"), [(1, SESSIONS_PAGE), (SESSIONS_PAGE * 2, SESSIONS_PAGE * 2), (9999, SESSIONS_MAX)]
+    )
+    def test_sidebar_lists_clamps_the_limit(self, member_user, asked, limit):
+        assert sidebar_lists(member_user, limit=asked).limit == limit
+
+
+class TestNextLimit:
+    @pytest.mark.parametrize(
+        ("limit", "next_limit"),
+        [
+            (SESSIONS_PAGE, SESSIONS_PAGE * 2),
+            (SESSIONS_MAX - SESSIONS_PAGE, SESSIONS_MAX),
+            (SESSIONS_MAX - 1, SESSIONS_MAX),
+            (SESSIONS_MAX, None),
+        ],
+    )
+    def test_steps_a_page_and_stops_at_the_cap(self, limit, next_limit):
+        assert SidebarLists(limit=limit).next_limit == next_limit

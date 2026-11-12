@@ -34,7 +34,7 @@ response of the `sidebar_lists` endpoint, which the sidebar swaps in when runs s
   <a href="{% url 'session_list' %}"
      data-testid="nav-sessions-more"
      data-row-key="more"
-     @click.prevent="$store.sidebarLists.more()"
+     {% if lists.next_limit %}@click.prevent="$store.sidebarLists.more({{ lists.next_limit }})"{% endif %}
      class="nav-row nav-row--quiet">{% translate "Show more" %}</a>
   {% endif %}
 </section>
@@ -73,7 +73,7 @@ response of the `sidebar_lists` endpoint, which the sidebar swaps in when runs s
         <li>
           <a href="{{ firing.url }}"
              data-testid="nav-firing-row"
-             data-row-key="f:{{ schedule.pk }}:{{ forloop.counter0 }}"
+             data-row-key="f:{{ firing.batch_id }}"
              {% if firing.active %}aria-current="page"{% endif %}
              class="nav-row nav-row--nested{% if firing.active %} nav-row--active{% endif %}">
             <span class="status-dot status-dot-{{ firing.status|status_variant }}" aria-hidden="true"></span>

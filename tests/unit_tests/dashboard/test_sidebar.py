@@ -283,8 +283,18 @@ class TestSidebarSessionsGroup:
         make_session(member_user, minutes_ago=99)
         (more,) = _sidebar(member_client).select('[data-testid="nav-sessions-more"]')
         assert more["href"] == reverse("session_list")
-        assert more["@click.prevent"] == "$store.sidebarLists.more()"
+        assert more["@click.prevent"] == f"$store.sidebarLists.more({SESSIONS_PAGE * 2})"
         assert more["data-row-key"] == "more"
+
+    def test_show_more_at_the_cap_links_the_sessions_page(self, member_user, member_client, mocker):
+        mocker.patch("dashboard.sidebar.SESSIONS_MAX", SESSIONS_PAGE)
+        for minutes_ago in range(SESSIONS_PAGE + 1):
+            make_session(member_user, minutes_ago=minutes_ago)
+
+        (more,) = _sidebar(member_client).select('[data-testid="nav-sessions-more"]')
+
+        assert more["href"] == reverse("session_list")
+        assert not more.has_attr("@click.prevent")
 
     def test_empty_state_invites_a_chat(self, member_client):
         group = _group(_sidebar(member_client), "nav-sessions-group")
@@ -303,7 +313,9 @@ class TestSidebarSessionsGroup:
 
         assert on_home["data-url"] == reverse("sidebar_lists")
         assert on_home["data-viewing"] == ""
+        assert on_home["data-section"] == "dashboard"
         assert on_session["data-viewing"] == session.thread_id
+        assert on_session["data-section"] == "sessions"
 
 
 @pytest.mark.django_db
@@ -328,6 +340,15 @@ class TestSidebarScheduledGroup:
         assert row["data-starts-open"] == "true"
         assert "Failed" in row.select_one("[data-row-key]").get_text()
         assert not firing.find_parent("ul").has_attr("x-cloak")
+
+    def test_firing_rows_are_keyed_by_their_batch(self, member_user, member_client):
+        schedule = make_schedule(member_user)
+        older, _ = make_firing(schedule, RunStatus.SUCCESSFUL, minutes_ago=60)
+        newer, _ = make_firing(schedule, RunStatus.SUCCESSFUL)
+
+        rows = _sidebar(member_client).select('[data-testid="nav-firing-row"]')
+
+        assert [row["data-row-key"] for row in rows] == [f"f:{newer}", f"f:{older}"]
 
     def test_closed_schedule_keeps_its_firings_hidden_until_the_store_says(self, member_user, member_client):
         """Without JavaScript the server's default stands; `x-cloak` hides them until Alpine reads the user's choice."""

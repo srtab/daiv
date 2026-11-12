@@ -93,7 +93,10 @@ def drive(
     """
     payload = {
         "src": str(NAV_EVENTS_JS),
-        "props": {"url": "/api/nav/events", "state": {"unread_count": 0, "running_runs": 0, **(seed or {})}},
+        "props": {
+            "url": "/api/nav/events",
+            "state": {"unread_count": 0, "running_runs": 0, "own_running_runs": 0, **(seed or {})},
+        },
         "starts": starts,
         "frames": frames or [],
         "dispatch": dispatch or [],
@@ -201,23 +204,43 @@ def _runs_changed(state) -> int:
 
 
 def test_the_seed_and_a_frame_that_matches_it_announce_nothing():
-    state = drive({"running_runs": 2}, frames=[{"unread_count": 0, "running_runs": 2, "latest_running_start": "t1"}])
+    state = drive(
+        {"own_running_runs": 2}, frames=[{"unread_count": 0, "own_running_runs": 2, "own_latest_running_start": "t1"}]
+    )
     assert _runs_changed(state) == 0
 
 
 @pytest.mark.parametrize(
-    "frame", [{"running_runs": 3, "latest_running_start": "t1"}, {"running_runs": 2, "latest_running_start": "t2"}]
+    "frame",
+    [
+        {"own_running_runs": 3, "own_latest_running_start": "t1"},
+        {"own_running_runs": 2, "own_latest_running_start": "t2"},
+    ],
 )
-def test_a_frame_that_moves_the_running_snapshot_announces_it(frame):
+def test_a_frame_that_moves_the_own_running_snapshot_announces_it(frame):
     """The start moves when one run starts as another finishes, which leaves the count alone."""
     state = drive(
-        {"running_runs": 2}, frames=[{"running_runs": 2, "latest_running_start": "t1"}, {"unread_count": 0, **frame}]
+        {"own_running_runs": 2},
+        frames=[{"own_running_runs": 2, "own_latest_running_start": "t1"}, {"unread_count": 0, **frame}],
     )
     assert _runs_changed(state) == 1
 
 
+def test_runs_the_user_only_sees_announce_nothing():
+    """The lists show only the user's own sessions, so a teammate's run cannot change them."""
+    state = drive(
+        {"running_runs": 1, "own_running_runs": 1},
+        frames=[
+            {"running_runs": 1, "latest_running_start": "t1", "own_running_runs": 1, "own_latest_running_start": "t1"},
+            {"running_runs": 3, "latest_running_start": "t9", "own_running_runs": 1, "own_latest_running_start": "t1"},
+        ],
+    )
+    assert state["running"] == 3
+    assert _runs_changed(state) == 0
+
+
 def test_an_unread_change_alone_announces_nothing():
-    state = drive({"running_runs": 1}, frames=[{"unread_count": 4, "running_runs": 1}])
+    state = drive({"own_running_runs": 1}, frames=[{"unread_count": 4, "own_running_runs": 1}])
     assert _runs_changed(state) == 0
 
 

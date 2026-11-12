@@ -4,12 +4,13 @@ The nav badges (unread notifications, running runs) are fed by one long-lived st
 per tab: the first frame carries a snapshot, and thereafter a frame is sent only when
 a ``core.ui_events`` poke means the snapshot actually moved. Beside the two counts it
 carries the latest running run's start, which only session pages loaded before the
-``session`` frames existed still watch. A session page subscribes with ``?session=<thread_id>``,
+``session`` frames existed still watch, and the same count and start over the user's own
+sessions, which the sidebar's lists refetch on. A session page subscribes with ``?session=<thread_id>``,
 and the same stream then also carries ``event: session`` frames with that session's
 change revision, so the page needs no connection of its own to hear that it changed.
 
-Why a snapshot rather than a delta log: the payload *is* the whole state (two
-integers and a timestamp), so a reconnect needs no ``Last-Event-ID`` replay — it just
+Why a snapshot rather than a delta log: the payload *is* the whole state (three
+integers and two timestamps), so a reconnect needs no ``Last-Event-ID`` replay — it just
 resends the truth. That makes the duration cap do double duty: it bounds how long a worker
 stays occupied by one tab, and the reconnect it forces is the periodic resync
 that repairs anything a dropped poke lost. Every failure short of "this
@@ -95,7 +96,7 @@ def _snapshot(user: User, visible) -> dict[str, Any] | None:
     and pushing one would blank a badge that is still correct in the browser.
     """
     try:
-        return {"unread_count": query_unread_count(user), **running_snapshot(visible)}
+        return {"unread_count": query_unread_count(user), **running_snapshot(visible, user)}
     except DatabaseError as err:
         logger.warning("nav: recount failed for user pk=%s: %s", user.pk, err)
         return None
