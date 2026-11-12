@@ -6,7 +6,7 @@ description: "Every DAIV agent execution is recorded as a session: chat with the
 
 DAIV records every agent execution in a **Session**. A session is one agent thread — a persistent conversation context tied to a repository and ref. Every way you can trigger DAIV (webhooks, the Jobs API, the MCP endpoint, scheduled jobs, or a chat conversation you type yourself) produces a session, and every time the agent runs against that thread produces a **Run** inside it.
 
-Navigate to **Dashboard > Sessions** (`/dashboard/sessions/`) to see the unified list. Clicking any session opens its detail page — the transcript, run timeline, and timing and usage for every execution.
+Your own sessions are listed in the [sidebar](#the-sidebar); **All** beside its **Sessions** heading opens the unified list (`/dashboard/sessions/`). Clicking any session opens its detail page — the transcript, run timeline, and timing and usage for every execution.
 
 !!! info "What you can see"
     Admins see all sessions across every repository. Regular users see their own sessions, sessions started by a GitLab/GitHub account they signed in to DAIV with (matched by the account's id, not its username), and sessions from [Scheduled Jobs](scheduled-jobs.md) they subscribe to. The same scoping applies to the detail page, live updates, and retries.
@@ -36,12 +36,23 @@ Each session is tagged with the origin that created it:
 | **API Run** | [Jobs API](jobs-api.md) `POST /api/jobs` | A CI pipeline or script submits a prompt |
 | **MCP Run** | [MCP Endpoint](mcp-endpoint.md) `submit_job` tool | Claude Code or Cursor delegates a task |
 | **Scheduled Run** | [Scheduled Jobs](scheduled-jobs.md) cron dispatch | A weekly dependency audit fires on Monday |
-| **UI Run** | Dashboard run composer (see below) | You start a run from **Dashboard > Sessions** |
+| **UI Run** | Dashboard run composer (see below) | You pick **New > Background run** in the sidebar |
 | **Issue Webhook** | GitLab/GitHub issue event | An issue is labelled `daiv` |
 | **MR/PR Webhook** | GitLab/GitHub merge request event | A reviewer mentions `@daiv` on a merge request |
 | **Delegated Run** | A coordinator's `delegate_jobs` call ([Orchestration](orchestration.md)), including a leg follow-up that continues the session | One repository's part of a multi-repository change |
 
 ---
+
+## The sidebar
+
+The sidebar lists your sessions, so any of them is one click away from every page:
+
+- **Sessions** — your own sessions, most recently active first, eight at a time (**Show more** adds eight). Each has a status dot and, while it is running, waiting for your input or failed, that state; otherwise how long ago it was active. The session you are viewing is always in the list. **All** opens the sessions list. Sessions a schedule started are listed under their schedule instead.
+- **Scheduled** — up to ten schedules you own or subscribe to that are enabled or ran in the last 14 days, each with its next run. Expand one for its three latest runs: one row per run of the schedule, with the worst status across its repositories and, past one, how many repositories it ran on. A run on one repository opens its session; a wider one opens the sessions it started. **All runs** lists every session of the schedule, and **Manage** opens the schedules page. A schedule whose latest run failed or is waiting for input starts expanded; otherwise it remembers, in this browser, whether you expanded it.
+- **Search** (shortcut `/`) opens the sessions list with its search box focused.
+- **Settings**, above your account, opens the pages you set up once — sandbox environments, MCP servers and memory, and for admins users, configuration, schedule templates, skills and global MCP servers — along with the documentation links. **Back** returns to Home.
+
+The lists update as runs start and finish, without a reload. Where the sidebar narrows to icons, **Sessions** and **Scheduled** open their pages instead.
 
 ## Home
 
@@ -59,7 +70,7 @@ Below it are your five most recent sessions, the ways to start work (issue label
 
 ## Insights
 
-**Insights** (`/dashboard/insights/`) shows how DAIV is used across the repositories you can see, over Today, 7 days (the default), 30 days, 90 days or all time.
+**Insights** (`/dashboard/insights/`), linked as **Team insights** from Home, shows how DAIV is used across the repositories you can see, over Today, 7 days (the default), 30 days, 90 days or all time.
 
 - **Agent activity** — runs, success rate, runs that changed code and average duration, each compared with the period of the same length just before, up to the same time of day (the page names both). Running now is live and not compared.
 - **Runs over time** — a column per day (weeks for 30 and 90 days, months for all time), stacked by outcome: changed code, done without changes, needs input, failed. A column opens the sessions active in its days. Hidden for Today.
@@ -144,7 +155,7 @@ Markdown and text files over 1 MiB are not previewed; the viewer offers the down
 
 The viewer's header shows the artifact's kind, its repository, and a link back to the session run that produced it. **Open raw** serves the file as-is under the same sandbox policy, so opening an HTML report in its own tab is as safe as the embedded frame. Whoever can open the session can open its artifacts.
 
-Navigate to **Dashboard > Artifacts** (`/dashboard/artifacts/`) for every artifact you can see across all sessions — your own sessions, plus sessions on repositories you can read (admins see every artifact) — newest first, grouped by date (Today, Yesterday, Previous 7 days, Previous 30 days, then by month), 25 per page. Search by title or filename, and filter by kind (All, Markdown, HTML, Image, Text, or File) and repository. Each row links to the viewer, back to the session and run that produced it, and to a download. The viewer's breadcrumb links back to this list.
+**Artifacts** in the sidebar (`/dashboard/artifacts/`) lists every artifact you can see across all sessions — your own sessions, plus sessions on repositories you can read (admins see every artifact) — newest first, grouped by date (Today, Yesterday, Previous 7 days, Previous 30 days, then by month), 25 per page. Search by title or filename, and filter by kind (All, Markdown, HTML, Image, Text, or File) and repository. Each row links to the viewer, back to the session and run that produced it, and to a download. The viewer's breadcrumb links back to this list.
 
 Artifacts are also listed in the [Jobs API](jobs-api.md#poll-job-status) and [MCP](mcp-endpoint.md) job-status responses, with absolute viewer and download URLs, so a CI pipeline or an editor assistant can hand the report to a person.
 
@@ -161,7 +172,7 @@ A revised artifact stays on the run that first published it — on the dashboard
 
 ## Chat sessions
 
-Chat is the interactive dashboard workspace where you converse with the agent in real time. Go to **Dashboard > Sessions** and click **New session** (`/dashboard/sessions/new/`) to open the empty workspace.
+Chat is the interactive dashboard workspace where you converse with the agent in real time. Go to the sessions list (**All** beside **Sessions** in the sidebar) and click **New session** (`/dashboard/sessions/new/`) to open the empty workspace.
 
 Before your first message, set up the **Workspace** card in the hero: the repositories the session works on, and its sandbox environment. A session is bound to its repositories and a ref for each:
 
@@ -292,7 +303,7 @@ Admins can turn both off for the whole instance (**Settings > Agent > Link sessi
 
 ## Starting a background run from the dashboard
 
-You can launch an agent background run without typing in the chat workspace. Click **Start a run** on the Sessions page (or open **Dashboard > Runs > New**) to reach the run composer.
+You can launch an agent background run without typing in the chat workspace. Click **Start a run** on the Sessions page (or pick **New > Background run** in the sidebar) to reach the run composer.
 
 The composer accepts:
 

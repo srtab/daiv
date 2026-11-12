@@ -613,27 +613,53 @@ wordmark and the New split button) that is the only nav entry point on a phone.
   Meta held, or while a dialog, sheet or menu is open — any visible `data-surface`, the hook
   every floating surface carries and the one selector `surface-rise` animates. Every rail icon carries a `title`, its
   name and tooltip once the label is hidden.
-- **Groups.** Daily work comes first with no heading: Home (URL name `dashboard`), Sessions,
-  Notifications, Artifacts, Schedules. Then **Agent setup** — Sandbox environments, MCP
-  servers, Memory: pages set up once that most teammates can skip, so the heading carries
-  a one-line "optional" hint and each item a `.nav-description` under its label
-  (the item takes `sidebar__nav-item--described`). The rail hides that text, so each
-  item's `title` repeats label and description as its tooltip. Last, **Admin**
-  (`is_admin` only). Order and grouping are pinned by `dashboard/test_sidebar.py`.
+- **Layout.** Top to bottom: brand and toggle, New, then the `<nav>`, then Settings and the
+  account chip. In the `<nav>`, fixed rows — Search (the sessions page's search box,
+  `#search`; shortcut `/`), Home (URL name `dashboard`), Notifications, Artifacts — sit
+  above a scroller holding two lists, `dashboard/_sidebar_lists.html` read from
+  `nav_sidebar` (`dashboard/sidebar.py`). **Sessions**: the user's own sessions outside any
+  schedule, newest first, 8 at a time with "Show more", a status dot, the state word while
+  running, waiting or failed and a short relative time otherwise; the session being viewed
+  is marked and appended when off the page. **Scheduled**: up to 10 schedules the user owns
+  or subscribes to that are enabled or fired in the last 14 days, each expanding to its 3
+  newest firings (one row per dispatch, worst status of its sessions, a repository count
+  past one) and "All runs". Its heading takes the `schedules` section's active state;
+  "Manage" links the schedules page. The queries run once per page, behind the lazy
+  `nav_sidebar`, and never on a settings page. Order and contents are pinned by
+  `dashboard/test_sidebar.py` and `dashboard/test_sidebar_lists.py`.
+- **Settings mode.** A page whose section is in `SETTINGS_SECTIONS`
+  (`dashboard/context_processors.py`) renders `_sidebar_settings.html` in place of the
+  fixed rows and lists: Back (Home), **Agent setup** — Sandbox environments, MCP servers,
+  Memory, set up once, so the heading carries a one-line "optional" hint and each item a
+  `.nav-description` (the item takes `sidebar__nav-item--described`, and its `title` repeats
+  both for the rail) — then **Admin** (`is_admin` only), then Help & docs, API documentation
+  and the build line. The Settings row links the first of them and is active in this mode.
+  Schedules and Insights are not settings: their pages keep the lists, and Insights is
+  reached from Home.
+- **Live lists.** The `nav` store announces `daiv:runs-changed` when a frame moves the
+  running snapshot or the stream reopens; the `sidebarLists` store
+  (`core/js/sidebar-lists.js`) then refetches the `sidebar_lists` fragment into every
+  `[data-testid="sidebar-lists"]`, both copies at once, and keeps the rows shown if the
+  response is not the lists. Expand state is the store's (per browser, `localStorage`
+  `daiv.sidebar.schedules`, over the server's open-when-failed default), so a swap cannot
+  close a schedule; focus follows `data-row-key` and the scroll position is kept per tab.
 - **Sidebar hooks.** The rail's rules are written once, under the `sidebar-rail` custom
   variant in `input.css`: forced between `md` and `lg`, and from `lg` up under
   `:root[data-sidebar="rail"]`, which also sets `--app-sidebar-width` to 4rem so the sheet
-  inset follows. Anything the rail must hide carries `sidebar__collapsible`, and
-  anything only the rail shows carries `sidebar__rail-only` (the dot that stands in for the
-  unread count). The elements it re-centres carry `sidebar__brand` / `sidebar__cta` /
-  `sidebar__nav-item` / `sidebar__footer-link` / `sidebar__account`, a group heading
-  keeps its box via `sidebar__group-heading`, and the toggle stacks under the mark with its
-  chevron (`sidebar__toggle-icon`) turned outward. A new nav item wraps its text in
-  `sidebar__collapsible`, or the label overflows the 4rem rail. The mobile sheet includes
-  the same partial *without* `sidebar--rail`, so it keeps its labels. A nav item's
-  appearance is the `.sidebar__nav-item` component class, not a utility chain, and its
-  active state comes from `{% nav_active %}` — which adds `sidebar__nav-item--active`,
-  the class that draws the 3px brand rail.
+  inset follows. Anything the rail must hide carries `sidebar__collapsible` — the lists'
+  whole scroller does — and anything only the rail shows carries `sidebar__rail-only`: the
+  dot that stands in for the unread count, and the Sessions (dotted while anything runs)
+  and Scheduled icons that stand in for the lists. The elements it re-centres carry
+  `sidebar__brand` / `sidebar__cta` / `sidebar__nav-item` / `sidebar__footer-link` /
+  `sidebar__account`, a group heading keeps its box via `sidebar__group-heading`, and the
+  toggle stacks under the mark with its chevron (`sidebar__toggle-icon`) turned outward. A
+  new nav item wraps its text in `sidebar__collapsible`, or the label overflows the 4rem
+  rail. The mobile sheet includes the same partial *without* `sidebar--rail`, so it keeps
+  its labels and lists. A nav item's appearance is the `.sidebar__nav-item` component class,
+  not a utility chain, and its active state comes from `{% nav_active %}` — which adds
+  `sidebar__nav-item--active`, the class that draws the 3px brand rail. The lists' rows are
+  `.nav-row` (with `--active`, `--nested`, `--quiet`), never seen by the rail, so they are
+  not `sidebar__` hooks.
 - **New.** `dashboard/_new_split.html`, a split button: the main part starts a chat
   (`session_new_chat`), the chevron opens a menu of Chat and Background run
   (`runs:agent_run_new`). It sits above the `<nav>` in the sidebar and, with `compact=True`,
@@ -643,9 +669,9 @@ wordmark and the New split button) that is the only nav entry point on a phone.
   Sessions list's New button and the empty states.
 - **Page bars and side columns.** A page that needs a bar above its scrolling `<main>` or a column beside it
   overrides `{% block app_body %}` and renders its own single `<main>` (the session page's top bar and sidebar do). Keep that `<main>` the only one: chat scrolling and the sticky composer look it up.
-- **Only the `<nav>` scrolls.** The `<aside>` carries no `overflow`, so the footer
-  (API docs, build info, account chip) stays pinned and the account and New menus can
-  open past the rail's edge without being clipped.
+- **Only the lists scroll.** The `<aside>` and `<nav>` carry no `overflow` — the scroller
+  inside the `<nav>` does — so the fixed rows, Settings and the account chip stay pinned and
+  the account and New menus can open past the rail's edge without being clipped.
 - **Account menu.** The chip at the bottom of the sidebar (`.sidebar__account`) opens a
   menu holding the personal pages — notification channels, API keys, passkeys — and
   sign-out. It opens upward over the full sidebar and the sheet, and beside the rail

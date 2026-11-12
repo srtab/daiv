@@ -58,7 +58,7 @@ DAIV reaches you through channels. In-app notifications are always available; em
 The in-app entry is written for **notify-worthy** runs — those classified as found-issues, needs-attention, needs-input, or failed. All-clear runs are silent and do not produce an in-app entry.
 
 - `/dashboard/notifications/` lists your full history with `All` / `Unread` / `Read` filters and a **Mark all as read** action. Opening a notification marks it read.
-- The unread badge next to *Notifications* — and the **N running** badge next to *Sessions* — update live over a server-sent-events stream (`GET /api/nav/events`), so a new notification or a run starting or finishing shows up without a page reload. The stream requires Redis (already required for chat and caching); without it the badges simply show their page-load values.
+- The unread badge next to *Notifications* and the session lists in the sidebar update live over a server-sent-events stream (`GET /api/nav/events`), so a new notification or a run starting or finishing shows up without a page reload. The stream requires Redis (already required for chat and caching); without it they simply show their page-load values.
 
 ### Email
 
@@ -100,7 +100,7 @@ Select **Disconnect** in the same row to remove the binding and stop Rocket Chat
     Connecting only succeeds when the configured Rocket Chat bot can look your username up. If the instance is temporarily unavailable or the user is not found, DAIV shows a message and leaves your channel unbound — no unverified binding is stored.
 
 !!! note "Enabling Rocket Chat is an administrator task"
-    The Rocket Chat instance URL, bot user ID, and auth token are configured under **Dashboard > Configuration > Rocket Chat** (`/dashboard/configuration/rocketchat/`), which requires the **admin** role. Until an admin enables it there, the channel does not appear on your channels page.
+    The Rocket Chat instance URL, bot user ID, and auth token are configured under **Settings > Configuration > Rocket Chat** (`/dashboard/configuration/rocketchat/`), which requires the **admin** role. Until an admin enables it there, the channel does not appear on your channels page.
 
 ## Connecting Telegram
 
@@ -127,7 +127,7 @@ To stop delivery, either select **Disconnect** on your channels page, send `/sto
     DAIV notifications are per-account, so the bot only links one-to-one chats. Adding it to a group and sending `/start` there gets a "message me directly" reply and links nothing.
 
 !!! note "Enabling Telegram is an administrator task"
-    The bot token is configured under **Dashboard > Configuration > Telegram** (`/dashboard/configuration/telegram/`), which requires the **admin** role. Until an admin enables it there, the channel does not appear on your channels page. Sending notifications only needs outbound internet access, but the connect handshake needs DAIV to be reachable from the internet over HTTPS — on an instance without public ingress, Telegram delivery works for chats already linked, but new links cannot be made.
+    The bot token is configured under **Settings > Configuration > Telegram** (`/dashboard/configuration/telegram/`), which requires the **admin** role. Until an admin enables it there, the channel does not appear on your channels page. Sending notifications only needs outbound internet access, but the connect handshake needs DAIV to be reachable from the internet over HTTPS — on an instance without public ingress, Telegram delivery works for chats already linked, but new links cannot be made.
 
 !!! warning "One bot token serves exactly one instance"
     Telegram allows a single webhook per bot, so a second environment configured with the same token steals the handshake from the first. DAIV's reconcile job surfaces that in the logs — naming the URL it found — but it cannot prevent it. Give staging its own bot.

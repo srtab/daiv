@@ -15,7 +15,7 @@ This is useful when you want to:
 
 ## Creating a schedule
 
-Navigate to **Dashboard > Schedules > Create schedule** and fill in the form:
+Click **Manage** beside **Scheduled** in the sidebar, then **Create schedule**, and fill in the form:
 
 | Field                   | Description |
 |-------------------------|-------------|
@@ -150,7 +150,7 @@ Scheduled Jobs and the [Jobs API](jobs-api.md) use the same underlying task to e
 
 Admins can curate reusable **schedule templates** so teammates start from a known-good configuration rather than assembling a schedule from scratch.
 
-Templates are managed at **Dashboard → Schedule templates** (admin nav). A template carries the same fields as a schedule (prompt, default repositories, frequency, time or cron, agent model and thinking level, notification preference) plus an optional description that helps users pick the right one. The repo picker is optional on templates — leave it empty to let users choose at schedule-create time.
+Templates are managed at **Settings > Schedule templates** (admins only). A template carries the same fields as a schedule (prompt, default repositories, frequency, time or cron, agent model and thinking level, notification preference) plus an optional description that helps users pick the right one. The repo picker is optional on templates — leave it empty to let users choose at schedule-create time.
 
 When at least one template exists, templates are discoverable in three places:
 

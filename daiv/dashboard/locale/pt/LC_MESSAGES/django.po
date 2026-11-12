@@ -26,10 +26,6 @@ msgstr "Painel"
 msgid "Sessions"
 msgstr "Sessões"
 
-#, python-brace-format
-msgid "{count} running"
-msgstr "{count} em execução"
-
 msgid "Schedules"
 msgstr "Agendamentos"
 
@@ -77,3 +73,55 @@ msgstr "Abrir navegação"
 
 msgid "Artifacts"
 msgstr "Artefactos"
+
+msgid "Search"
+msgstr "Pesquisar"
+
+msgid "Search sessions"
+msgstr "Pesquisar sessões"
+
+msgid "Scheduled"
+msgstr "Agendadas"
+
+msgid "No sessions yet."
+msgstr "Ainda não há sessões."
+
+msgid "Manage"
+msgstr "Gerir"
+
+msgid "All runs"
+msgstr "Todas as execuções"
+
+msgid "No schedules yet."
+msgstr "Ainda não há agendamentos."
+
+msgid "Create one"
+msgstr "Criar um"
+
+msgid "Back"
+msgstr "Voltar"
+
+#, python-format
+msgid "%(counter)s repo"
+msgid_plural "%(counter)s repos"
+msgstr[0] "%(counter)s repositório"
+msgstr[1] "%(counter)s repositórios"
+
+msgid "now"
+msgstr "agora"
+
+#, python-format
+msgid "in %(time)s"
+msgstr "dentro de %(time)s"
+
+#, python-format
+msgid "%(count)dm"
+msgstr "%(count)d min"
+
+#, python-format
+msgid "%(count)dh"
+msgstr "%(count)d h"
+
+#, python-format
+msgid "%(count)dd"
+msgstr "%(count)d d"
