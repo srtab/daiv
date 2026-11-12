@@ -73,6 +73,18 @@ that did not land, and disclosure through error paths.
 
 **Rules:** `patterns/errors.md`.
 
+### VII. Documentation Users Can Act On
+
+The user documentation is part of the change: a feature, setting or behaviour users see
+ships with the pages that describe it. A page describes what the published version does, in
+the reader's terms; every fact on it is read from the code, and every procedure has been
+run. Each fact has one home.
+
+**Prevents:** pages that describe a product that no longer exists, steps that fail on a clean
+machine, and two pages that disagree.
+
+**Rules:** `patterns/user-docs.md`.
+
 ## Technology Constraints
 
 These are the selected project technologies. Changes follow Governance.
@@ -110,14 +122,15 @@ A change MUST NOT merge until its gates pass:
 - **`make test`:** the unit suite with a coverage report. Every change
 - **Docs build:** `mkdocs build --strict`, run by CI on pull requests that touch the docs. A
   new page is in both the `mkdocs.yml` `nav` and the `llmstxt` sections, with a
-  `description` in its front matter
+  `description` in its front matter. Pages follow [user documentation](patterns/user-docs.md)
 - **Evals:** per [agent evals](patterns/agent-evals.md). Agent-behaviour changes
 - **Constitution check:** the plan and the review name the affected principles and the
   evidence of compliance. Every change
 
-User-facing changes add an `Unreleased` entry to `CHANGELOG.md` in Common Changelog form,
-listing notable changes only. A breaking change starts with **Breaking:** and carries an
-**Upgrade note** when operators must act.
+User-facing changes update the pages under `docs/` that describe them, and add an
+`Unreleased` entry to `CHANGELOG.md` in Common Changelog form, listing notable changes only.
+A breaking change starts with **Breaking:** and carries an **Upgrade note** when operators
+must act.
 
 ## Governance
 
@@ -174,5 +187,15 @@ documents when the answer changes their rules.
 - **TODO(PLATFORM_PARITY):** `RepoClient` makes both clients implement each abstract method,
   but nothing checks that a feature behaves the same on both platforms. Until something
   does, review checks it.
+- **TODO(DOCS_ACCURACY):** `test_env_variables_doc.py` and `test_docs_reference.py` check
+  that every site setting's environment variable, every Site Configuration group and every
+  `.daiv.yml` key is on its reference page. Nothing checks a page's other claims against the
+  code, the defaults and values it states, or runs its procedures. Principle VII rests on the
+  author and the reviewer.
+- **TODO(DOCS_STYLE):** `test_docs_style.py` checks user-docs rules 4, 6, 7, 9, 10, 11 and 12
+  in every page: time-relative wording, second-person voice, heading case and shape, fence
+  languages, shell prompts, placeholders, link text, menu paths, admonition kinds, alt text and
+  symbol meaning. Review alone checks rules 1, 2, 3, 5 and 8, where a warning sits relative to
+  its step (rule 11) and the text that stands in for a diagram (rule 12).
 
 **Version:** 1.0.0, proposed | **Ratified:** pending | **Last Amended:** pending

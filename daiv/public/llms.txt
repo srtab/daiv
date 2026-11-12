@@ -19,7 +19,7 @@ DAIV turns issues into working code. You create an issue, DAIV analyzes your cod
 - Sessions dashboard for live chat, background runs, and unified run history with retries
 - Scheduled jobs on cron for dependency audits, code-quality scans, and recurring maintenance
 - Sandbox environments with configurable base image, resources, network egress policy, and encrypted secrets
-- Notifications on run completion via in-app bell, email, or Rocket Chat
+- Notifications on run completion via in-app bell, email, Rocket Chat or Telegram
 - Merge metrics with commit-level DAIV-vs-human attribution
 - Secure sandboxed code execution in isolated Docker containers
 - MCP (Model Context Protocol) tool integrations for external services

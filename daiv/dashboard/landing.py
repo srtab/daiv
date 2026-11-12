@@ -47,7 +47,7 @@ FAQS = (
             "GitHub it works with GitHub.com and GitHub Enterprise Server, as a GitHub App you create and install. "
             "Issue addressing, answers to review comments, slash commands and CI fixes work on both. The "
             "Quickstart uses GitLab; "
-            f'<a href="{DOCS_ROOT}/getting-started/platform-setup/">Platform Setup</a> '
+            f'<a href="{DOCS_ROOT}/getting-started/platform-setup/">Platform setup</a> '
             "covers both."
         ),
     ),
@@ -57,7 +57,7 @@ FAQS = (
             "DAIV itself costs nothing: there is no per-seat pricing and no paid tier today. You pay for the "
             "servers it runs on and for your LLM provider's usage, billed to your own API keys, or nothing for "
             "the model if you run your own. DAIV records the token usage and "
-            f'<a href="{DOCS_ROOT}/reference/monitoring/#internal-usage-and-cost-tracking">'
+            f'<a href="{DOCS_ROOT}/reference/monitoring/#usage-and-cost">'
             "estimated cost</a> of every run."
         ),
     ),
@@ -76,7 +76,7 @@ FAQS = (
             "reads; with a model on your own server, none of that leaves. DAIV also calls your GitLab or GitHub. "
             "Its web search (DuckDuckGo by default) and web fetch tools, and the built-in Context7 MCP server "
             "for library documentation, reach the internet; you can turn each off, or point search at your own "
-            f'<a href="{DOCS_ROOT}/reference/env-variables/#web-search">SearXNG</a>. The '
+            f'<a href="{DOCS_ROOT}/reference/site-configuration/#set-up-searxng">SearXNG</a>. The '
             "sandbox has no network unless a "
             f'<a href="{DOCS_ROOT}/features/sandbox-environments/">sandbox environment</a> '
             "allows specific hosts. LangSmith tracing and Sentry error reporting are off unless you configure them."

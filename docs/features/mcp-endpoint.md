@@ -2,48 +2,25 @@
 description: "Connect Claude Code, Cursor or Codex CLI to DAIV over the Model Context Protocol (MCP) and delegate coding tasks to the agent from your editor."
 ---
 
-# MCP Endpoint
+# MCP endpoint
 
-DAIV exposes a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server endpoint, allowing AI coding assistants to delegate tasks to the DAIV agent — directly from your editor or terminal.
+DAIV runs a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server endpoint at `/mcp/`, so an AI coding assistant can delegate tasks to the DAIV agent from your editor or terminal.
 
-The DAIV agent can read and modify code, run commands in a sandbox, create commits and branches, open merge requests or pull requests, and debug CI/CD pipelines. Through the MCP endpoint, your local assistant can offload these tasks to DAIV and get the results back.
+The DAIV agent reads and modifies code, runs commands in a sandbox, creates commits and branches, opens merge or pull requests, and debugs CI/CD pipelines. Through the endpoint, your local assistant offloads these tasks to DAIV and gets the results back.
 
-## Authentication
+## Connect your editor
 
-The endpoint accepts two authentication methods:
+You need:
 
-- **OAuth 2.0** (default for interactive clients) — on first use a browser window opens for you to log in with your existing DAIV account. Your client manages tokens and refreshes them automatically. This is what the editor integrations below use out of the box.
-- **API key** — pass an `Authorization: Bearer <api-key>` header. This is aimed at headless or non-interactive clients (CI jobs, scripts) that can't complete the browser flow. Create a key self-service in the dashboard at `/accounts/api-keys/` (see [Creating an API key](jobs-api.md#creating-an-api-key)); the same key also works against the HTTP [Jobs API](jobs-api.md).
+- A DAIV account.
+- An MCP client that supports the Streamable HTTP transport. Claude Code, Cursor and Codex CLI do.
+- The address of your DAIV instance. The examples use `https://daiv.example.com`; replace it with yours.
 
-!!! note
-    API keys are scoped to your user, not to a specific surface — a key that authenticates against the MCP endpoint has the same access as it does on the REST Jobs/Chat API. Revoke a key from the dashboard to cut off both at once.
-
-### Authenticating with an API key
-
-Any MCP client that lets you set request headers can pass the key. For example, with Claude Code:
-
-```bash
-claude mcp add daiv --transport http https://daiv.example.com/mcp/ \
-  --header "Authorization: Bearer <prefix.secret>"
-```
-
-Or in Cursor's `mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "daiv": {
-      "type": "streamable-http",
-      "url": "https://daiv.example.com/mcp/",
-      "headers": { "Authorization": "Bearer <prefix.secret>" }
-    }
-  }
-}
-```
-
-## Getting started
+On first use, an interactive client opens a browser window where you sign in with your DAIV account. The client stores the OAuth 2.0 token and refreshes it. To authenticate without a browser, for a CI job or script, see [API key authentication](#api-key-authentication).
 
 ### Claude Code
+
+Run:
 
 ```bash
 claude mcp add daiv --transport http https://daiv.example.com/mcp/
@@ -51,7 +28,7 @@ claude mcp add daiv --transport http https://daiv.example.com/mcp/
 
 ### Cursor
 
-Add to `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` (global):
+Add DAIV to `.cursor/mcp.json` for one project, or to `~/.cursor/mcp.json` for all projects:
 
 ```json
 {
@@ -66,63 +43,117 @@ Add to `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` (global):
 
 ### Codex CLI
 
-Add to `.codex/config.toml` (project) or `~/.codex/config.toml` (global):
+Add DAIV to `.codex/config.toml` for one project, or to `~/.codex/config.toml` for all projects:
 
 ```toml
 [mcp_servers.daiv]
 url = "https://daiv.example.com/mcp/"
 ```
 
-!!! tip
-    Any MCP client that supports Streamable HTTP transport can connect to DAIV using the same `/mcp/` URL.
+Any other MCP client that supports the Streamable HTTP transport connects to the same `/mcp/` URL.
+
+## API key authentication
+
+A client that cannot complete the browser sign-in sends an API key instead. Create the key as described in [Create an API key](jobs-api.md#create-an-api-key), then pass it in an `Authorization: Bearer` header. Any MCP client that lets you set request headers can do this.
+
+An API key belongs to your user, not to one surface. A key that authenticates against the MCP endpoint has the same access on the [jobs API](jobs-api.md) and the chat API, and revoking it cuts off all of them at once.
+
+In Claude Code, run:
+
+```bash
+claude mcp add daiv --transport http https://daiv.example.com/mcp/ \
+  --header "Authorization: Bearer <prefix.secret>"
+```
+
+In Cursor's `mcp.json`, set the header:
+
+```json
+{
+  "mcpServers": {
+    "daiv": {
+      "type": "streamable-http",
+      "url": "https://daiv.example.com/mcp/",
+      "headers": { "Authorization": "Bearer <prefix.secret>" }
+    }
+  }
+}
+```
+
+Replace `<prefix.secret>` with your API key.
 
 ## Available tools
 
 | Tool | Description |
 |------|-------------|
-| `submit_job` | Submit a prompt to the DAIV agent as a batch of jobs — one independent job per repository. Returns a `batch_id` and a `jobs` list, or set `wait=True` to block until every job in the batch completes (up to 10 minutes total); each finished job's status then includes its `artifacts`. |
-| `get_job_status` | Get the status and result of a previously submitted job, plus the `artifacts` it published or revised (reports and other files, with viewer and download URLs — see [Artifacts](sessions.md#artifacts)). A `WAITING_INPUT` status means the agent stopped to ask a question: `question` holds it and `result` its rendered text — answer with `submit_job` using the same `thread_id`. Also supports `wait=True` to block until completion (a `WAITING_INPUT` result also ends the wait, since it's terminal). |
-| `list_repositories` | Discover repositories accessible to DAIV, optionally filtered by `search` (partial name match) or `topics`. Served from DAIV's local repository catalog — a periodically synced mirror — not a live platform call. Supports `limit` (default 20, max 50) and `cursor`, ordered by slug — a `search` matching more repositories than `limit` is still fully reachable by paging. |
-| `list_environments` | List the sandbox environments visible to you (your own `USER` environments plus all `GLOBAL` ones), ordered by scope then name. Supports `limit` (default 20, max 50) and `cursor`; use a returned `name` or `id` as `submit_job`'s `environment` argument. |
-| `get_environment` | Look up a single sandbox environment by name or UUID. Returns full details with secret env-var values masked, or nothing if it is not in your visible scopes. |
-| `list_jobs` | List your recent agent runs (newest first), optionally filtered by `repo_id` and `status`. Supports `limit` (default 20, max 50) and `cursor`. Returns a lean summary per run plus `next_cursor` — use `get_job_status` for a single run's full result text. |
-| `schedule_job` | Create a recurring or one-off scheduled run owned by you. Takes `name`, `prompt`, a 1–20 entry `repos` list, and a `frequency` (`hourly`/`daily`/`weekdays`/`weekly`/`custom`/`once`) with its companion field (`time` for daily/weekdays/weekly, `cron_expression` for custom, `run_at` for once). Optional `agent_model`, `agent_thinking_level`, `environment`, `mcp_overrides`, and `muted` mirror `submit_job`. |
-| `list_scheduled_jobs` | List your scheduled jobs (newest first), optionally filtered by `enabled_only` or `repo_id`. Supports `limit` (default 20, max 50) and `cursor`. |
+| `submit_job` | Submit a prompt to the DAIV agent as a batch of jobs, one independent job per repository. Returns a `batch_id` and a `jobs` list. See [`submit_job` parameters](#submit_job-parameters). |
+| `get_job_status` | Get the status and result of a submitted job, plus the `artifacts` it published or revised (reports and other files, with viewer and download URLs; see [Artifacts](sessions.md#artifacts)). A `WAITING_INPUT` status means the agent stopped to ask a question: `question` holds it and `result` its rendered text, and you answer with `submit_job` using the same `thread_id`. With `wait=True` it blocks until the job completes; a `WAITING_INPUT` result also ends the wait, since it is final. |
+| `list_repositories` | Discover the repositories DAIV can access, optionally filtered by `search` (partial name match) or `topics`. DAIV serves them from its local repository catalog, a periodically synced mirror, not a live platform call. Ordered by slug, so a `search` that matches more repositories than `limit` is fully reachable by paging. |
+| `list_environments` | List the sandbox environments you can see: your own `USER` environments plus all `GLOBAL` ones, ordered by scope then name, with no environment-variable values at all. Use a returned `name` or `id` as the `environment` argument of `submit_job`. |
+| `get_environment` | Look up one sandbox environment by name or UUID. Returns the full details with secret environment-variable values masked, or nothing if the environment is not in your visible scopes. |
+| `list_jobs` | List your recent agent runs, newest first, optionally filtered by `repo_id` and `status`. Returns a lean summary per run plus `next_cursor`; use `get_job_status` for one run's full result text. |
+| `schedule_job` | Create a recurring or one-off [scheduled run](scheduled-jobs.md) that you own. See [`schedule_job` parameters](#schedule_job-parameters). |
+| `list_scheduled_jobs` | List your scheduled jobs, newest first, optionally filtered by `enabled_only` or `repo_id`. |
 
-The paginated listing tools (`list_jobs`, `list_scheduled_jobs`, `list_environments`, `list_repositories`) share one pagination contract: pass an optional `limit` and `cursor`, and read back `{ "<items>": [...], "next_cursor": <token or null> }`. To page, call again with `cursor` set to the previous response's `next_cursor` until it comes back `null`; a cursor encodes only sort position, so reuse it with the **same** filters.
+The four listing tools (`list_jobs`, `list_scheduled_jobs`, `list_environments` and `list_repositories`) share one pagination contract. Pass an optional `limit` (default 20, at most 50) and `cursor`, and read back `{ "<items>": [...], "next_cursor": <token or null> }`. To page, call again with `cursor` set to the previous `next_cursor` until it is `null`. A cursor encodes only a sort position, so reuse it with the same filters.
 
-`submit_job` takes a `repos` list (1–20 entries) and a single `prompt` that runs as an independent job against each repository. Each entry is `{repo_id, ref, prompt}`, where `ref` is the starting branch the agent reads from — it is optional and defaults to the repository's default branch, and must be a branch that exists on the remote (a commit SHA fails the clone) — and `prompt`, also optional and not blank, replaces the batch `prompt` for that repository only (`schedule_job` takes `{repo_id, ref}` entries only and refuses any other key, a per-repository `prompt` included). A merge/pull request the job opens targets that branch and is assigned to the token's owner when their DAIV account is OAuth-linked to the git platform. The response includes a `batch_id`, a `jobs` list (one entry per submitted job, each with its `job_id`, `repo_id`, `ref`, `thread_id`, and `status`), and a `failed` list for repositories that could not be enqueued.
+### `submit_job` parameters
 
-`submit_job` also accepts these optional parameters:
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `repos` | yes | 1–20 entries of `{repo_id, ref, prompt}`. `ref` is the branch the agent starts from; it is optional, defaults to the repository's default branch, and must be a branch that exists on the remote (a commit SHA fails the clone). `prompt` is optional, must not be blank, and replaces the batch `prompt` for that repository only. A merge or pull request the job opens targets that branch, and DAIV assigns it to the token's owner when their DAIV account is OAuth-linked to the git platform. |
+| `prompt` | yes | The instruction. It runs as an independent job against each repository, except one that gives its own `prompt`. |
+| `wait` | no | Block until every job in the batch completes, for up to 10 minutes in total, and return each job's status with its `artifacts`. Default `false`. |
+| `agent_model` | no | Override the model, as `provider_slug:model_name`, for example `openrouter:anthropic/claude-sonnet-5.5`. The provider slug must match an enabled provider. Without it, DAIV uses the repository's `models.agent` model, else the system default. |
+| `agent_thinking_level` | no | Reasoning effort: `minimal`, `low`, `medium`, `high` or `xhigh`. Without it, DAIV uses the repository's `models.agent` thinking level, else the system default. |
+| `muted` | no | Mute this run's notifications. Default `false`. DAIV rejects `notify_on` with an unknown-argument error. |
+| `environment` | no | The [sandbox environment](sandbox-environments.md) to run every job in, by name or UUID; find names with `list_environments`. Without it, DAIV resolves a runtime for each repository. |
+| `shared_session` | no | Run up to 5 `repos` in one session instead of one job each. The first repository is the main one. The response holds one job, and `get_job_status` and `list_jobs` add `merge_requests` and `publish_errors`. See [Multi-repository sessions](jobs-api.md#multi-repository-sessions); the dashboard chat starts them too, from its [Workspace card](sessions.md#start-a-chat-over-several-repositories). |
+| `thread_id` | no | Continue an existing thread, by the UUID from an earlier `submit_job` or `get_job_status` response. `repos` must hold exactly one repository (a multi-repository session also accepts its full list, in order), whose latest activity is yours. An [archived session](sessions.md#archived-sessions) cannot be continued. This is also how you answer a `WAITING_INPUT` job: submit the answer as `prompt` with the same `thread_id`. If the session is busy, the job joins its next run for the job's branch and comes back `QUEUED`; jobs that join the same next run share its `job_id` (see [Job lifecycle](jobs-api.md#job-lifecycle)). |
+| `references` | no | Up to 20 external work-item references to link into the merge or pull request DAIV creates. See [References](#references). |
+| `mcp_overrides` | no | MCP servers to switch on or off for every job in the batch, relative to the default set: `{"grafana": true}` adds an on-demand server, `{"sentry": false}` drops an active one. Names are those of the global servers and your own personal ones; DAIV returns an unknown name, or a value other than `true` or `false`, as an error. On a continued thread (`thread_id`) the overrides apply on top of the thread's own, so a server you do not name keeps its setting. DAIV returns a continuation that would change them while another run on the thread is unfinished in `failed`, since that run would pick them up too. |
 
-- `agent_model` — override the default model as a `provider_slug:model_name` string (e.g. `openrouter:anthropic/claude-sonnet-5.5`); the provider slug must match an enabled provider. Omit to use the repository's `models.agent` model, else the system default.
-- `agent_thinking_level` — control reasoning effort: one of `minimal`, `low`, `medium`, `high`, or `xhigh`. Omit to inherit the repository's `models.agent` thinking level, else the system default.
-- `muted` — mute this run's notifications; default false. `notify_on` is no longer accepted (removed); sending it returns an unknown-argument error.
-- `environment` — the [sandbox environment](sandbox.md) to run every job in, given as its name or UUID (discover names via `list_environments`). Omit to auto-resolve a runtime per repository.
-- `shared_session` — run up to 5 `repos` in one session instead of one job each. The first repository is the main one; the response holds a single job, and `get_job_status` / `list_jobs` add `merge_requests` and `publish_errors`. See [Multi-repository sessions](jobs-api.md#multi-repository-sessions); the dashboard chat starts them too, from its [Workspace card](sessions.md#starting-a-chat-over-several-repositories).
-- `thread_id` — continue an existing thread by passing the UUID from a prior `submit_job` or `get_job_status` response. Continuation requires exactly one repository (a multi-repository session also accepts its full list, in order), whose latest activity must belong to you, in a session that is not archived. This is also how you answer a `WAITING_INPUT` job: submit a new job with the same `thread_id` and the answer as `prompt`. If the session is busy, the job joins its next run for the job's branch and comes back `QUEUED`; two jobs that join the same next run share its `job_id` (see [Job lifecycle](jobs-api.md#job-lifecycle)).
-- `references` — a list of up to 20 external work-item references to link into the MR/PR DAIV creates. Each entry is an object with these fields:
-    - `key` *(required)* — the issue or ticket identifier, 1–64 characters, matching `[A-Za-z0-9][A-Za-z0-9._/#-]*` (e.g. `"PROJ-123"`, `"42"`, `"DAIV-1V"`). When `relation` is `"closes"` the key must additionally be a bare identifier — no `/` and no `#` — because DAIV emits it next to a closing keyword, where `namespace/project#7` would be a valid cross-project reference and would close an issue in someone else's project.
-    - `url` *(optional)* — an `http(s)` URL for the work item, up to 500 characters. Used as the link target when DAIV renders the reference. Anything outside the URL character set (RFC 3986), **parentheses included**, must be percent-encoded: DAIV renders the value into a markdown link destination in the MR/PR description, so a space, a newline or a `)` would end the link and let the rest of the value become body text the git platform parses.
-    - `provider` *(optional)* — identifies the ticketing system. Accepted values: `gitlab-issue`, `github-issue`, `sentry`, `jira`, or any lowercase alphanumeric-and-hyphen string up to 32 characters for other systems. Defaults to `generic`. The named providers get platform-specific output: `gitlab-issue`/`github-issue` render the platform's own closing/relating line in the MR description, `sentry` with `relation: "closes"` renders a `Fixes <short-id>` description line and commit trailer, and `jira` gets a `Refs: <key>` commit trailer for dev-panel linking — a link, never a workflow transition (its description entry is the plain reference link). Any other provider value is accepted and renders as a plain reference link — no DAIV change is needed to add a new ticketing system.
-    - `relation` *(optional)* — either `"relates"` (default) or `"closes"`. `"closes"` opts into auto-close on merge **where the provider supports it**: GitLab and GitHub close an issue when a merged MR description contains a closing keyword referencing it; Sentry resolves an issue whose short ID appears in a `Fixes …` commit line reaching the tracked branch (which also requires the Sentry–repository integration to be configured on Sentry's side — DAIV only emits the syntax). Auto-closing is always an explicit opt-in; the default `"relates"` only links.
+The response holds a `batch_id`, a `jobs` list with one entry per submitted job (each with its `job_id`, `repo_id`, `ref`, `thread_id` and `status`), and a `failed` list for repositories DAIV could not enqueue. The tool shares the [jobs API](jobs-api.md#rate-limiting) rate limit. For the full response schema, see the [jobs API](jobs-api.md).
 
-  On thread continuation (when `thread_id` is set), newly supplied references are **merged** into the session's existing set when the run that takes the job starts, deduped by `(provider, key)` — the first-seen entry wins. A session accumulates at most 50 references in total across all turns.
+### References
 
-  **Note (v1 limitation):** DAIV writes the MR description only when the MR is first created. References declared on a later turn reach that turn's commit trailers but do not rewrite an existing MR's description body.
-- `mcp_overrides` — MCP servers to switch on or off for every job in the batch, relative to the default set: `{"grafana": true}` adds an on-demand server, `{"sentry": false}` drops an active one. Names are those of the global servers and your own personal ones; an unknown name or a value other than `true`/`false` is returned as an error. On a continued thread (`thread_id`) they apply on top of the thread's own, so a server you don't name keeps its setting. A continuation that would change them while another run on the thread is unfinished is returned in `failed`, since that run would pick them up too.
+Each entry of `references` is an object with these fields:
 
-For the full request/response schema, the batch `repos` contract, and the job lifecycle, see the [Jobs API](jobs-api.md).
+| Field | Required | Description |
+|-------|----------|-------------|
+| `key` | yes | The issue or ticket identifier, 1–64 characters, matching `[A-Za-z0-9][A-Za-z0-9._/#-]*`, for example `PROJ-123`, `42` or `DAIV-1V`. When `relation` is `closes`, the key must be a bare identifier, with no `/` and no `#`: DAIV emits it next to a closing keyword, where `namespace/project#7` would be a valid cross-project reference and would close an issue in someone else's project. |
+| `url` | no | An `http` or `https` URL for the work item, up to 500 characters, used as the link target. DAIV renders it into a markdown link destination in the merge or pull request description, so percent-encode anything outside the RFC 3986 URL character set, parentheses included. A space, a newline or a `)` would end the link and let the rest of the value become body text the git platform parses. |
+| `provider` | no | The ticketing system: `gitlab-issue`, `github-issue`, `sentry`, `jira`, or any other lowercase alphanumeric-and-hyphen string up to 32 characters. Default `generic`. |
+| `relation` | no | `relates` (default) only links. `closes` opts into auto-close on merge where the provider supports it. |
 
-`schedule_job` creates a [scheduled run](scheduled-jobs.md). Pick a `frequency` and supply its companion field: `time` (`"HH:MM"`, 24-hour) for `daily`, `weekdays`, and `weekly` (which fires on Mondays); a five-field `cron_expression` for `custom`; or an ISO-8601 `run_at` for a one-off `once` schedule. A `run_at` without a timezone offset is interpreted in the server timezone and must be in the future (a ~60-second grace into the past is tolerated). New schedules are always enabled. The response includes the schedule `id` and the computed `next_run_at`. Manage existing schedules (edit, disable, delete) from the DAIV dashboard.
+How each provider renders:
+
+- `gitlab-issue` and `github-issue` write the platform's own closing or relating line in the description. GitLab and GitHub close an issue when a merged description contains a closing keyword that references it.
+- `sentry` with `relation: "closes"` writes a `Fixes <short-id>` line in the description and as a commit trailer. Sentry resolves an issue whose short ID appears in a `Fixes` commit line that reaches the tracked branch, which also needs the Sentry and repository integration set up on Sentry's side: DAIV only writes the syntax.
+- `jira` adds a `Refs: <key>` commit trailer for dev-panel linking, a link and never a workflow transition. Its description entry is a plain reference link.
+- Any other provider is accepted and renders as a plain reference link.
+
+DAIV writes the merge or pull request description only when it first creates the request. On a continued thread (`thread_id` set), DAIV merges newly supplied references into the session's set when the run that takes the job starts, deduplicated by `(provider, key)` with the first-seen entry winning, and a session keeps at most 50 references across all turns. References from a later turn reach that turn's commit trailers, but do not rewrite the description of an existing request.
+
+### `schedule_job` parameters
+
+`schedule_job` takes `name`, `prompt`, a `repos` list of 1–20 `{repo_id, ref}` entries, and a `frequency` with its companion field. It refuses any other key in a `repos` entry, a per-repository `prompt` included. The optional `agent_model`, `agent_thinking_level`, `environment`, `mcp_overrides` and `muted` work as on `submit_job`.
+
+| `frequency` | Companion field |
+|-------------|-----------------|
+| `daily`, `weekdays`, `weekly` | `time`, as `HH:MM` in 24-hour form. `weekly` runs on Mondays. |
+| `custom` | `cron_expression`, a five-field cron expression. |
+| `once` | `run_at`, an ISO 8601 date and time in the future. DAIV tolerates about 60 seconds in the past. A value without an offset is read in the server's [time zone](../reference/env-variables.md#time-zone). |
+| `hourly` | None. |
+
+New schedules are always enabled. The response includes the schedule `id` and the computed `next_run_at`. To edit, disable or delete a schedule, use the dashboard.
 
 ## Usage examples
 
-Once connected, you can interact with DAIV naturally from your AI coding assistant:
+Once connected, ask your assistant in plain language:
 
-- *"Ask DAIV to refactor the authentication module in mygroup/myproject to use JWT tokens"*
-- *"Submit a job to mygroup/myproject on the develop branch: fix the broken CI pipeline"*
-- *"Check the status of my last DAIV job"*
+- "Ask DAIV to refactor the authentication module in mygroup/myproject to use JWT tokens."
+- "Submit a job to mygroup/myproject on the develop branch: fix the broken CI pipeline."
+- "Check the status of my last DAIV job."
 
 !!! tip
-    Be specific in your prompts — include file paths, function names, error messages, or branch names. The more context you give, the better the result.
+    Be specific: include file paths, function names, error messages or branch names. The more context you give, the better the result.

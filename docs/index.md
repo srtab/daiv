@@ -26,26 +26,26 @@ DAIV (pronounced "dive", from *dev* + *AI*) integrates directly with **GitLab** 
 
 ## Three ways to put DAIV to work
 
-### In your Git platform — webhooks, zero setup
+### In your git platform
 
-- **[Issue Addressing](features/issue-addressing.md)** — DAIV reads a labelled issue, proposes a plan, and — once you approve — opens a merge/pull request with the implementation.
-- **[Pull Request Assistant](features/pull-request-assistant.md)** — answers reviewer comments, applies requested changes, and repairs failing CI/CD pipelines, all inside the merge/pull request thread.
-- **[Slash Commands & Skills](features/slash-commands.md)** — invoke `/plan`, `/code-review`, `/help`, and your own custom skills straight from issues and merge requests.
+- **[Issue addressing](features/issue-addressing.md)** — DAIV reads a labelled issue, proposes a plan, and — once you approve — opens a merge/pull request with the implementation.
+- **[Pull request assistant](features/pull-request-assistant.md)** — answers reviewer comments, applies requested changes, and repairs failing CI/CD pipelines, all inside the merge/pull request thread.
+- **[Slash commands and skills](features/slash-commands.md)** — invoke `/plan`, `/code-review`, `/help`, and your own custom skills straight from issues and merge requests.
 
 ### From your editor and pipelines
 
-- **[MCP Endpoint](features/mcp-endpoint.md)** — connect Claude Code, Cursor, or Codex CLI over the [Model Context Protocol](https://modelcontextprotocol.io/) and delegate tasks without leaving your editor.
+- **[MCP endpoint](features/mcp-endpoint.md)** — connect Claude Code, Cursor, or Codex CLI over the [Model Context Protocol](https://modelcontextprotocol.io/) and delegate tasks without leaving your editor.
 - **[Jobs API](features/jobs-api.md)** — trigger agents programmatically from CI, scripts, or other tools, then poll for the result.
 
 ### From the dashboard
 
 - **[Sessions](features/sessions.md)** — a unified workspace and history: chat with the agent live, start background runs, and see every execution — webhook, API, MCP, scheduled, or manual — in one list, with retries.
-- **[Scheduled Jobs](features/scheduled-jobs.md)** — run agents on any cron schedule: dependency audits, code-quality scans, stale-branch cleanup, and more.
+- **[Scheduled jobs](features/scheduled-jobs.md)** — run agents on any cron schedule: dependency audits, code-quality scans, stale-branch cleanup, and more.
 - **[Orchestration](features/orchestration.md)** — let the agent fan work out as tailored jobs, across your other repositories or as new sessions on the same one, then report the combined result.
-- **[Sandbox Environments](features/sandbox-environments.md)** — define a reusable runtime once: base image, CPU/memory, **network egress policy**, and encrypted secrets, scoped to the repositories you choose.
+- **[Sandbox environments](features/sandbox-environments.md)** — define a reusable runtime once: base image, CPU/memory, **network egress policy**, and encrypted secrets, scoped to the repositories you choose.
 - **Per-run model & effort** — pick the LLM and thinking effort for each run.
-- **[Notifications](features/notifications.md)** — know the moment work finishes, in the app, by email, or in Rocket Chat.
-- **[Merge Metrics](features/merge-metrics.md)** — track code velocity with commit-level DAIV-vs-human attribution.
+- **[Notifications](features/notifications.md)** — know the moment work finishes, in the app, by email, in Rocket.Chat or on Telegram.
+- **[Merge metrics](features/merge-metrics.md)** — track code velocity with commit-level DAIV-vs-human attribution.
 
 ## Quick example
 
@@ -62,12 +62,12 @@ DAIV is powered by [Deep Agents](https://github.com/langchain-ai/deepagents), a 
 
 - **[Subagents](features/subagents.md)** — specialized agents for fast codebase exploration and complex multi-step tasks.
 - **[Sandbox](features/sandbox.md)** — secure command execution for tests, builds, linters, and package management inside an isolated Docker container.
-- **[MCP Tools](customization/mcp-tools.md)** — external integrations over the [Model Context Protocol](https://modelcontextprotocol.io/), such as Sentry for error tracking.
+- **[MCP tools](customization/mcp-tools.md)** — external integrations over the [Model Context Protocol](https://modelcontextprotocol.io/), such as Sentry for error tracking.
 - **[Monitoring](reference/monitoring.md)** — trace every agent execution with [LangSmith](https://www.langchain.com/langsmith) to analyze performance and spot issues.
 - **Scalable Workers** — background workers scale horizontally by adding replicas, with a dedicated scheduler for recurring jobs.
-- **[LLM Providers](getting-started/llm-providers.md)** — run on OpenRouter, Anthropic, OpenAI, or Google, or on your own OpenAI-compatible server (vLLM, llama.cpp, LiteLLM) — your keys, your choice.
+- **[LLM providers](getting-started/llm-providers.md)** — run on OpenRouter, Anthropic, OpenAI, or Google, or on your own OpenAI-compatible server (vLLM, llama.cpp, LiteLLM) — your keys, your choice.
 
-For how these pieces fit together — the middleware stack, skill loading, and how a single run is assembled — see [Agent Architecture](reference/agent-architecture.md).
+For the tools the agent works with and when each is on, see [Agent tools](reference/agent-architecture.md).
 
 ## Supported platforms
 
@@ -113,7 +113,7 @@ For how these pieces fit together — the middleware stack, skill loading, and h
 
     Link DAIV to your GitLab or GitHub repository.
 
-    [:octicons-arrow-right-24: Platform Setup](getting-started/platform-setup.md)
+    [:octicons-arrow-right-24: Platform setup](getting-started/platform-setup.md)
 
 -   **Choose your LLM**
 
@@ -121,7 +121,7 @@ For how these pieces fit together — the middleware stack, skill loading, and h
 
     Configure OpenRouter, Anthropic, OpenAI, or Google as your provider.
 
-    [:octicons-arrow-right-24: LLM Providers](getting-started/llm-providers.md)
+    [:octicons-arrow-right-24: LLM providers](getting-started/llm-providers.md)
 
 -   **Customize behavior**
 
@@ -129,7 +129,7 @@ For how these pieces fit together — the middleware stack, skill loading, and h
 
     Tailor DAIV to your team with `.daiv.yml`, skills, and MCP tools.
 
-    [:octicons-arrow-right-24: Repository Config](customization/repository-config.md)
+    [:octicons-arrow-right-24: Repository configuration](customization/repository-config.md)
 
 -   **Use from your editor**
 
@@ -137,7 +137,7 @@ For how these pieces fit together — the middleware stack, skill loading, and h
 
     Connect Claude Code, Cursor, or Codex CLI to DAIV via MCP.
 
-    [:octicons-arrow-right-24: MCP Endpoint](features/mcp-endpoint.md)
+    [:octicons-arrow-right-24: MCP endpoint](features/mcp-endpoint.md)
 
 -   **Automate recurring tasks**
 
@@ -145,7 +145,7 @@ For how these pieces fit together — the middleware stack, skill loading, and h
 
     Run agents on a schedule — dependency audits, cleanup, reports, and more.
 
-    [:octicons-arrow-right-24: Scheduled Jobs](features/scheduled-jobs.md)
+    [:octicons-arrow-right-24: Scheduled jobs](features/scheduled-jobs.md)
 
 </div>
 
