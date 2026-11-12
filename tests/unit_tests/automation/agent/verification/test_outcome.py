@@ -167,25 +167,6 @@ def test_render_report_has_no_changed_files_line_when_the_checks_changed_nothing
     assert "Running the checks changed" not in report
 
 
-def test_render_report_says_a_command_that_passed_on_a_second_run_may_be_flaky():
-    flaky = _command(exit_code=1)
-    flaky["flaky"] = True
-
-    report = render_report(_outcome("passed", [flaky]))
-
-    assert "- `make test` failed (exit 1), then passed when run again, so it may be flaky" in report
-    assert "<details>" not in report
-
-
-def test_command_outcomes_marks_flaky_commands_and_keeps_no_output_for_them():
-    results = [CheckResult("make test", 1, "boom"), CheckResult("make lint", 1, "lint")]
-
-    test, lint = command_outcomes(results, frozenset(), flaky=frozenset({"make test"}), with_output=True)
-
-    assert test.get("flaky") is True and "output_tail" not in test
-    assert "flaky" not in lint and lint["output_tail"] == "lint"
-
-
 def test_render_report_none_when_not_configured():
     assert render_report(_outcome("not_configured")) is None
 

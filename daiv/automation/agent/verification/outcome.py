@@ -23,7 +23,6 @@ class CommandOutcome(TypedDict):
     timed_out: bool
     already_failing: bool
     output_changed: NotRequired[bool]
-    flaky: NotRequired[bool]
     output_tail: NotRequired[str]
 
 
@@ -41,11 +40,9 @@ def command_outcomes(
     already_failing: Container[str],
     output_changed: Container[str] = (),
     *,
-    flaky: Container[str] = (),
     with_output: bool,
 ) -> list[CommandOutcome]:
-    """One outcome per result. ``flaky`` commands failed and then passed when run again; ``with_output`` keeps the end
-    of each failing command's output, for publishing."""
+    """One outcome per result. ``with_output`` keeps the end of each failing command's output, for publishing."""
     outcomes: list[CommandOutcome] = []
     for result in results:
         outcome = CommandOutcome(
@@ -56,9 +53,7 @@ def command_outcomes(
         )
         if outcome["already_failing"] and result.command in output_changed:
             outcome["output_changed"] = True
-        if not result.passed and result.command in flaky:
-            outcome["flaky"] = True
-        elif with_output and not result.passed:
+        if with_output and not result.passed:
             outcome["output_tail"] = result.output_tail
         outcomes.append(outcome)
     return outcomes
@@ -137,8 +132,6 @@ class VerificationReport:
         span = code_span(command["command"])
         if command["exit_code"] == 0:
             return f"- {span} passed"
-        if command.get("flaky"):
-            return f"- {span} failed (exit {command['exit_code']}), then passed when run again, so it may be flaky"
         if command["already_failing"]:
             if command.get("output_changed"):
                 return f"- {span} was already failing before this change, but its output changed"

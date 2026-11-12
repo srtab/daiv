@@ -119,9 +119,7 @@ class VerificationMiddleware(AgentMiddleware):
     is re-run once on the starting code; one that failed there too is reported, not sent back, unless its output now
     has lines it did not have there, which the agent is shown without the run counting as failed. The other failures,
     and any file the checks changed, go back to the agent as a reminder, for at most ``MAX_FIX_ROUNDS`` rounds; a stop
-    on the tree a reminder was sent for records the failure without another round. Before a failure is recorded with no
-    round left to fix it, each command that failed only on the agent's code is run once more on the same tree, and one
-    that passes then is reported as flaky rather than failed. Without commands, the agent gets
+    on the tree a reminder was sent for records the failure without another round. Without commands, the agent gets
     one reminder when the tree changed after the last check it ran through bash, or that check failed. No reminder is
     sent once the step budget is finalizing, ``LoopBreakerMiddleware`` has ended the run or the run ends on a question
     ``AskUserQuestionMiddleware`` delivered, which therefore sits inside this one: the outcome is still recorded.
@@ -168,7 +166,6 @@ class VerificationMiddleware(AgentMiddleware):
         self._rounds = 0
         self._starting: dict[str, frozenset[str] | None] = {}
         self._runs: dict[str, CheckRun] = {}
-        self._reruns: dict[str, frozenset[str]] = {}
         self._reminded_tree: str | None = None
         self._agent_check: _AgentCheck | None = None
         self._fallback_sent = False
@@ -276,21 +273,15 @@ class VerificationMiddleware(AgentMiddleware):
                 and tree != self._reminded_tree
                 and self._rounds < MAX_FIX_ROUNDS
             )
-            flaky = frozenset() if remind else await self._passing_on_rerun(failures, tree, before, merging=merging)
         except ChecksUnavailableError as exc:
             logger.exception("Could not run the before_publish checks; publishing as not verified: %s", exc)
             return self._not_verified(changed, str(exc))
 
-        failures = [result for result in failures if result.command not in flaky]
         failed = bool(failures or run.changed_by_checks)
         outcome = _outcome(
             "failed" if failed else "passed",
             commands=command_outcomes(
-                run.results,
-                baseline,
-                {result.command for result in output_changed},
-                flaky=flaky,
-                with_output=self._publish_output,
+                run.results, baseline, {result.command for result in output_changed}, with_output=self._publish_output
             ),
             changed=changed,
             rounds=self._rounds + 1 if remind else self._rounds,
@@ -302,20 +293,6 @@ class VerificationMiddleware(AgentMiddleware):
             failures, run.changed_by_checks, MAX_FIX_ROUNDS - self._rounds, changed_output=output_changed
         )
         return _Verdict(outcome, reminder, tree)
-
-    async def _passing_on_rerun(
-        self, failures: Sequence[CheckResult], tree: str, before: str, *, merging: bool
-    ) -> frozenset[str]:
-        """The ``failures`` that pass when run once more on the same tree, as a flaky check does: asked before a failure
-        is final, since that opens the merge request as a draft and keeps the CI fix loop off. Once per tree."""
-        if not failures:
-            return frozenset()
-        if tree not in self._reruns:
-            rerun = await self._checks.run_in_place(
-                [result.command for result in failures], before=before, merging=merging
-            )
-            self._reruns[tree] = frozenset(result.command for result in rerun.results if result.passed)
-        return self._reruns[tree]
 
     async def _baseline(self, failing: Sequence[CheckResult], *, merging: bool) -> dict[str, frozenset[str]]:
         """The ``failing`` commands that also fail on the starting code, each with its output signature there,

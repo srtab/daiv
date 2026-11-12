@@ -268,7 +268,7 @@ async def test_failures_stop_after_two_fix_rounds():
     outcome = _outcome(result)
     assert outcome["status"] == "failed"
     assert outcome["rounds"] == 2
-    assert repo.check_runs == 4
+    assert repo.check_runs == 3
     assert len(seen) == 1
 
 
@@ -396,44 +396,8 @@ async def test_unchanged_tree_after_reminder_is_not_rechecked():
     outcome = _outcome(result)
     assert outcome["status"] == "failed"
     assert outcome["rounds"] == 1
-    assert repo.check_runs == 2
-    assert len(seen) == 2
-
-
-async def test_a_failure_that_passes_when_run_again_is_recorded_as_flaky_not_failed():
-    repo = FakeRepo(fail_once={"make test"})
-    handler, seen = _scripted(_final())
-
-    result = await _middleware(repo, finalizing=True).awrap_model_call(_request(), handler)
-
-    outcome = _outcome(result)
-    assert outcome["status"] == "passed"
-    assert outcome["commands"][0]["flaky"] is True
-    assert repo.check_runs == 2
-    assert len(seen) == 1
-
-
-async def test_a_failure_that_fails_again_stays_failed_and_its_tree_is_rerun_once():
-    repo = FakeRepo(failing={"make test"})
-    middleware = _middleware(repo, finalizing=True)
-
-    for _ in range(2):
-        handler, _seen = _scripted(_final())
-        outcome = _outcome(await middleware.awrap_model_call(_request(), handler))
-
-    assert outcome["status"] == "failed"
-    assert "flaky" not in outcome["commands"][0]
-    assert repo.check_runs == 2
-
-
-async def test_a_failure_sent_back_for_fixing_is_not_run_again():
-    repo = FakeRepo(fail_once={"make test"})
-    handler, seen = _scripted(_final(), _tool_call())
-
-    await _middleware(repo).awrap_model_call(_request(), handler)
-
     assert repo.check_runs == 1
-    assert "make test: exit code 1" in seen[1].messages[-1].content
+    assert len(seen) == 2
 
 
 async def test_finalizing_budget_records_failure_without_reminder():
@@ -477,7 +441,7 @@ async def test_failed_reminder_call_keeps_the_round_for_the_retry():
     outcome = _outcome(result)
     assert outcome["status"] == "failed"
     assert outcome["rounds"] == 1
-    assert repo.check_runs == 2
+    assert repo.check_runs == 1
     assert repo.stashes == 1
 
 
