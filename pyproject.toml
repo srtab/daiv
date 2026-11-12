@@ -73,7 +73,7 @@ urls.source = "https://github.com/srtab/daiv"
 [dependency-groups]
 dev = [
   "coverage==7.17.2",
-  "datasets==5.1.0",
+  "datasets==5.2.0",
   "djade==1.10.0",
   "django-stubs==6.1.2",
   "import-linter==2.16",
