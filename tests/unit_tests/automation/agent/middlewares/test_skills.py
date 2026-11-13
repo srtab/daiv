@@ -1466,17 +1466,43 @@ class TestSkillModel:
         assert served[:2] == ("fake:cheap", "")
         get_model.assert_called_once_with(model="fake:cheap", thinking_level="high")
 
-    async def test_a_failed_skill_call_stops_using_the_model_at_its_level_only(self):
+    async def test_a_failed_skill_call_stops_using_the_model_at_that_level(self):
         failing = _ToolModel(messages=iter([]))
         failing._generate = Mock(side_effect=RuntimeError("boom"))
         get_model = Mock(return_value=failing)
+        again = {**LEVELED_SKILL_CALL, "id": "call_leveled_again"}
 
         result = await self._run(
-            [AIMessage(content="", tool_calls=[LEVELED_SKILL_CALL]), AIMessage(content="from the run model")], get_model
+            [
+                AIMessage(content="", tool_calls=[LEVELED_SKILL_CALL]),
+                AIMessage(content="", tool_calls=[again]),
+                AIMessage(content="from the run model"),
+            ],
+            get_model,
         )
 
         assert result["messages"][-1].content == "from the run model"
-        get_model.assert_called_once_with(model="fake:cheap", thinking_level="xhigh")
+        assert [(c.kwargs["model"], c.kwargs["thinking_level"]) for c in get_model.call_args_list] == [
+            ("fake:cheap", "xhigh"),
+            ("fake:run", "xhigh"),
+        ]
+
+    async def test_a_failed_skill_call_leaves_the_same_model_at_another_level_usable(self):
+        failing = _ToolModel(messages=iter([]))
+        failing._generate = Mock(side_effect=RuntimeError("boom"))
+        working = _ToolModel(messages=iter([AIMessage(content="from the other level")]))
+        get_model = Mock(side_effect=[failing, working])
+
+        result = await self._run(
+            [
+                AIMessage(content="", tool_calls=[LEVELED_SKILL_CALL]),
+                AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL]),
+            ],
+            get_model,
+        )
+
+        assert result["messages"][-1].content == "from the other level"
+        assert [call.kwargs["thinking_level"] for call in get_model.call_args_list] == ["xhigh", None]
 
     async def test_user_follow_up_clears_the_skill_level(self):
         agent = _skills_agent(
@@ -1485,11 +1511,11 @@ class TestSkillModel:
             checkpointer=InMemorySaver(),
         )
         config = {"configurable": {"thread_id": "thread-level"}}
-        skill_model = _ToolModel(messages=iter([AIMessage(content="the plan")]))
+        get_model = Mock(return_value=_ToolModel(messages=iter([AIMessage(content="the plan")])))
 
         with (
             patch("automation.agent.middlewares.skills.record_invocation", new_callable=AsyncMock),
-            patch("automation.agent.configured_models.get_model", Mock(return_value=skill_model)),
+            patch("automation.agent.configured_models.get_model", get_model),
         ):
             await agent.ainvoke(
                 {"messages": [HumanMessage(content="/leveled")], "skills_metadata": _SKILLS_METADATA}, config
@@ -1497,7 +1523,7 @@ class TestSkillModel:
             result = await agent.ainvoke({"messages": [HumanMessage(content="proceed")]}, config)
 
         assert result["messages"][-1].content == "from the run model"
-        assert result.get("active_skill_thinking_level") is None
+        get_model.assert_called_once_with(model="fake:cheap", thinking_level="xhigh")
 
 
 DEMO_SKILL_CALL = {"name": "skill", "args": {"skill": "demo"}, "id": "call_demo"}

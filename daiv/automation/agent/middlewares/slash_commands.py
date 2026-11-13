@@ -41,9 +41,8 @@ class SlashCommandMiddleware(AgentMiddleware):
     ``/help`` cannot list them; the agent's ``<available_skills>`` prompt does once the loop runs.
     """
 
-    # Declares the skills state channels so this middleware may reset ``active_skill_mode``, ``active_skill_model``
-    # and ``active_skill_thinking_level``
-    # when a command wipes the thread (see ``_apply_builtin_slash_commands``); ``SkillsMiddleware`` owns them.
+    # Declares the skills state channels so this middleware may reset them when a command wipes the thread;
+    # ``SkillsMiddleware`` owns them.
     state_schema = DAIVSkillsState
 
     def __init__(self, *, subagents: Sequence[SubAgent | CompiledSubAgent] | None = None) -> None:
