@@ -410,11 +410,11 @@ async def test_adeclared_skill_choice_tolerates_a_missing_custom_root(skill_root
     assert await adeclared_skill_choice("code-review") == ModelChoice(thinking_level="low")
 
 
-async def test_adeclared_skill_choice_is_empty_when_the_scan_fails(skill_roots, caplog):
+async def test_adeclared_skill_choice_is_empty_when_the_lookup_fails(skill_roots, caplog):
     from skills.services import adeclared_skill_choice
 
     from core.model_choice import EMPTY_CHOICE
 
-    with patch("skills.services.global_skill_dirs", side_effect=OSError("boom")):
+    with patch("skills.services._global_skill_root", side_effect=OSError("boom")):
         assert await adeclared_skill_choice("code-review") == EMPTY_CHOICE
     assert any("code-review" in r.message and r.levelno == logging.WARNING for r in caplog.records)

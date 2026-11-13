@@ -200,6 +200,20 @@ def test_the_skill_s_map_locked_by_its_variable_leaves_the_detectors_editable(ad
     assert config.agent_subagent_models == {"cr-security": "openai:gpt-5.4"}
 
 
+@pytest.mark.django_db
+def test_a_locked_row_keeps_its_level_when_the_form_comes_back_with_errors(admin_client, monkeypatch):
+    from core import site_settings as ss_module
+
+    monkeypatch.setenv("DAIV_AGENT_SUBAGENT_MODELS", '{"cr-security": {"thinking_level": "high"}}')
+    ss_module._docker_secret_cache.clear()
+
+    form = _post(admin_client, **{f"{SKILL_FIELD}__thinking": "extreme"}).context["form"]
+
+    assert form.errors
+    picker = form.fields[SECURITY_FIELD].widget.get_context("x", "", {})["widget"]["picker"]
+    assert picker["initial_thinking_level"] == "high"
+
+
 def _skill_zip(skill_md: str) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:

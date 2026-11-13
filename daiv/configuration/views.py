@@ -285,21 +285,21 @@ def _mono(text: str) -> str:
 
 def skill_model_entries(page: SkillPage) -> list[ModelEntry]:
     """The model entries of ``page``'s skill: its own, then one per subagent it ships."""
-    declared = page.declared_choice.model
-    skill_site_choice = site_settings.agent_skill_models.get(page.name, EMPTY_CHOICE)
+    declared = page.declared_choice
     skill_help = format_html(
         gettext("Serves the run from the moment {} is invoked until the next message."), _mono(page.name)
     )
-    if declared:
-        declares = format_html(gettext("Its SKILL.md declares {}."), _mono(declared))
+    if declared.model:
+        declares = format_html(gettext("Its SKILL.md declares {}."), _mono(declared.model))
         skill_help = format_html("{} {}", skill_help, declares)
-    skill_default = short_model_name(declared) or RUN_MODEL_LABEL
-    detector_fallback = skill_site_choice.over(page.declared_choice)
-    return [
-        ModelEntry(
-            "agent_skill_models", page.name, _("Skill"), skill_help, skill_default, page.declared_choice.thinking_level
-        ),
-        *(
+    skill_default = short_model_name(declared.model) or RUN_MODEL_LABEL
+    entries = [
+        ModelEntry("agent_skill_models", page.name, _("Skill"), skill_help, skill_default, declared.thinking_level)
+    ]
+    detector_fallback = site_settings.agent_skill_models.get(page.name, EMPTY_CHOICE).over(declared)
+    for subagent in skill_subagents(page.name):
+        default = subagent.choice.over(detector_fallback)
+        entries.append(
             ModelEntry(
                 "agent_subagent_models",
                 subagent.name,
@@ -308,10 +308,8 @@ def skill_model_entries(page: SkillPage) -> list[ModelEntry]:
                 short_model_name(default.model) or RUN_MODEL_LABEL,
                 default.thinking_level,
             )
-            for subagent in skill_subagents(page.name)
-            for default in [subagent.choice.over(detector_fallback)]
-        ),
-    ]
+        )
+    return entries
 
 
 class SkillModelsView(AdminRequiredMixin, SkillPageMixin, TemplateView):

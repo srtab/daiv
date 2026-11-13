@@ -46,8 +46,6 @@ def parse_model_choice(value: object, *, source: str, log_level: int = logging.E
         source: Where the value came from, named in log lines.
         log_level: Level for every "dropped" log line.
     """
-    if isinstance(value, ModelChoice):
-        return value
     if value is None:
         return EMPTY_CHOICE
     if isinstance(value, str):
@@ -92,6 +90,8 @@ def parse_model_choices(value: object, *, source: str) -> dict[str, ModelChoice]
             logger.error("Ignoring a model choice from %s whose name is not a string", source)
             continue
         # Logs name the source only: a map read from a Docker secret must not reach the log.
+        if isinstance(raw, Mapping) and not raw.keys() <= {"model", "thinking_level"}:
+            logger.error("Ignoring unknown keys in a model choice from %s: expected model and thinking_level", source)
         if choice := parse_model_choice(raw, source=source):
             choices[name] = choice
     return choices

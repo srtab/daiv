@@ -260,9 +260,17 @@ def declared_skill_choice(root: Path) -> ModelChoice:
     return parse_model_choice(metadata, source=f"{root.name} SKILL.md", log_level=logging.WARNING)
 
 
+def _global_skill_root(name: str) -> Path | None:
+    """The directory of the global skill ``name``: the custom one, else the built-in; ``None`` when neither exists."""
+    for base in (settings.CUSTOM_SKILLS_PATH, BUILTIN_SKILLS_PATH):
+        if base is not None and (base / name / "SKILL.md").is_file():
+            return base / name
+    return None
+
+
 def _declared_choice_of(name: str) -> ModelChoice:
     try:
-        root = global_skill_dirs().dirs.get(name)
+        root = _global_skill_root(name)
         return declared_skill_choice(root) if root is not None else EMPTY_CHOICE
     except Exception:
         logger.warning("Could not read the declared model of skill '%s'", name, exc_info=True)

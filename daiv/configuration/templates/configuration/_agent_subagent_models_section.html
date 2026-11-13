@@ -20,8 +20,7 @@ The Agent group's models of the subagents every run can delegate to. Context: `s
             <div class="model-entry__text">
                 <div class="font-mono text-sm text-gray-200">{{ row.field.label }}</div>
                 <p class="text-xs text-gray-500">{{ row.field.help_text }}</p>
-                {% for error in row.field.errors %}<p class="mt-1 text-xs text-red-300">{{ error }}</p>{% endfor %}
-                {% for error in row.thinking.errors %}<p class="mt-1 text-xs text-red-300">{{ error }}</p>{% endfor %}
+                {% for error in row.errors %}<p class="mt-1 text-xs text-red-300">{{ error }}</p>{% endfor %}
             </div>
             {{ row.field }}
         </div>

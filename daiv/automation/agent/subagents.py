@@ -185,14 +185,6 @@ def _build_detector_middleware(
     ]
 
 
-def _declared_choice(frontmatter: dict, source: str) -> ModelChoice:
-    return parse_model_choice(
-        {"model": frontmatter.get("model"), "thinking_level": frontmatter.get("thinking_level")},
-        source=source,
-        log_level=logging.WARNING,
-    )
-
-
 def load_builtin_code_review_detectors(
     model: BaseChatModel,
     backend: BackendProtocol,
@@ -251,13 +243,12 @@ def load_builtin_code_review_detectors(
 
         frontmatter, body = parsed
 
-        declared = _declared_choice(frontmatter, str(md_file))
-        frontmatter_model = declared.model
+        declared = parse_model_choice(frontmatter, source=str(md_file), log_level=logging.WARNING)
         try:
             detector_model = configured_models.for_subagent(frontmatter["name"], declared, model, inherited=inherited)
         except ValueError:
             # Unknown/empty model spec — a charter config typo. Skip just this detector.
-            logger.warning("Skipping detector %s: invalid model '%s'", md_file, frontmatter_model)
+            logger.warning("Skipping detector %s: invalid model '%s'", md_file, declared.model)
             failed.append(md_file.stem)
             continue
         except Exception:
@@ -265,7 +256,7 @@ def load_builtin_code_review_detectors(
             # environment problem, not a bad charter. Don't mislabel it "invalid model" —
             # log the full traceback so it's distinguishable, then skip rather than abort
             # the whole agent build over one detector.
-            logger.exception("Skipping detector %s: failed to initialize model '%s'", md_file, frontmatter_model)
+            logger.exception("Skipping detector %s: failed to initialize model '%s'", md_file, declared.model)
             failed.append(md_file.stem)
             continue
 
@@ -614,12 +605,11 @@ async def load_custom_subagents(
                 )
                 continue
 
-            declared = _declared_choice(frontmatter, file_path)
-            frontmatter_model = declared.model
+            declared = parse_model_choice(frontmatter, source=file_path, log_level=logging.WARNING)
             try:
                 subagent_model = configured_models.for_subagent(frontmatter["name"], declared, model)
             except Exception:
-                logger.warning("Skipping %s: invalid model '%s'", file_path, frontmatter_model)
+                logger.warning("Skipping %s: invalid model '%s'", file_path, declared.model)
                 continue
 
             middleware = _build_general_purpose_middleware(

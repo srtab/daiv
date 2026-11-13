@@ -31,7 +31,7 @@ logger = logging.getLogger("daiv.skills")
 def _choice_label(choice: ModelChoice) -> str:
     """``"Sonnet 5.5 · High"``, or the model or level alone; empty when ``choice`` is unset."""
     level = choice.thinking_level
-    level_label = _("Off") if level == THINKING_OFF else dict(ThinkingLevelChoices.choices).get(level, level)
+    level_label = _("Off") if level == THINKING_OFF else (ThinkingLevelChoices(level).label if level else "")
     return " · ".join(str(part) for part in (short_model_name(choice.model), level_label) if part)
 
 

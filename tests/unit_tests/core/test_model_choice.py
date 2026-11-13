@@ -12,7 +12,6 @@ from core.model_choice import EMPTY_CHOICE, ModelChoice, merge_model_choices, pa
         ({"thinking_level": "HIGH"}, ModelChoice(thinking_level="high")),
         ({"model": "openai:gpt-5.4", "thinking_level": "off"}, ModelChoice("openai:gpt-5.4", "off")),
         ({"model": None, "thinking_level": None}, EMPTY_CHOICE),
-        (ModelChoice(model="x:y"), ModelChoice(model="x:y")),
         ("", EMPTY_CHOICE),
         (None, EMPTY_CHOICE),
     ],
@@ -96,3 +95,22 @@ def test_a_boolean_false_level_is_off_because_yaml_reads_an_unquoted_off_that_wa
 @pytest.mark.parametrize("level", ["False", "false", " FALSE "])
 def test_a_stringified_false_level_is_off_because_deepagents_stringifies_metadata(level):
     assert parse_model_choice({"thinking_level": level}, source="test") == ModelChoice(thinking_level="off")
+
+
+def test_a_map_entry_with_an_unknown_key_is_logged_by_source_only(caplog):
+    with caplog.at_level(logging.ERROR):
+        choices = parse_model_choices({"cr-tests": {"thinking": "xhigh"}}, source=".daiv.yml")
+
+    assert choices == {}
+    assert "unknown keys" in caplog.text
+    assert ".daiv.yml" in caplog.text
+    assert "cr-tests" not in caplog.text
+    assert "xhigh" not in caplog.text
+
+
+def test_a_single_choice_reads_its_keys_from_a_wider_mapping_silently(caplog):
+    with caplog.at_level(logging.DEBUG):
+        choice = parse_model_choice({"name": "cr-tests", "model": "a:b", "thinking_level": "low"}, source="charter")
+
+    assert choice == ModelChoice("a:b", "low")
+    assert not caplog.records

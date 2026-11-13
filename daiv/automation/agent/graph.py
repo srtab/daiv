@@ -253,7 +253,7 @@ async def create_daiv_agent(
     mcp_tools = await load_mcp_tools(mcp_servers, backend)
 
     subagent_models = ConfiguredModels("subagent", settings.subagent_models, chain=chain)
-    skill_models = ConfiguredModels("skill", settings.skill_models, chain=chain)
+    skill_models = ConfiguredModels("skill", settings.skill_models, chain=chain, builds=subagent_models.builds)
     code_review = skill_models.skill_choice(CODE_REVIEW_SKILL, await adeclared_skill_choice(CODE_REVIEW_SKILL))
     general_purpose_model = subagent_models.for_subagent(GENERAL_PURPOSE_NAME, EMPTY_CHOICE, model)
     explore_model = subagent_models.for_subagent(

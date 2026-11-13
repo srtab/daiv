@@ -38,13 +38,14 @@ class ConfiguredModels:
     An entry's level, then the declared one, then the inherited one, wins over ``chain``'s; ``"off"`` turns thinking
     off and ``""`` keeps the run's. A spec that cannot be built is logged at ERROR and never fails the run: the next
     model in line serves. So does a skill's spec once one of its calls failed (``call_failed``). The exception: a
-    subagent's declared model is built uncached and may raise (see ``for_subagent``).
+    subagent's declared model is built uncached and may raise (see ``for_subagent``). Instances of one run may share
+    ``builds``, so a spec and level both use is built once.
     """
 
     target: Literal["skill", "subagent"]
     entries: Mapping[str, ModelChoice] = field(default_factory=dict)
     chain: ModelChain | None = None
-    _builds: dict[tuple[str, str], BaseChatModel | None] = field(default_factory=dict, init=False)
+    builds: dict[tuple[str, ThinkingLevel | None], BaseChatModel | None] = field(default_factory=dict, repr=False)
 
     @property
     def run_spec(self) -> str:
@@ -58,26 +59,27 @@ class ConfiguredModels:
 
     def build(self, spec: str, thinking_level: str = "", name: str = "the active skill") -> BaseChatModel | None:
         """``spec``'s model at ``thinking_level``, or ``None`` when it cannot be used; ``name`` is whose it is."""
-        key = (spec, thinking_level)
-        if key not in self._builds:
+        key = (spec, self.resolve_level(thinking_level))
+        if key not in self.builds:
             try:
-                self._builds[key] = get_model(model=spec, thinking_level=self.resolve_level(thinking_level))
+                self.builds[key] = get_model(model=spec, thinking_level=key[1])
             except Exception:
                 # Safe to continue: the caller serves on the next model in line.
                 _log_unusable(self.target, spec, name)
-                self._builds[key] = None
-        return self._builds[key]
+                self.builds[key] = None
+        return self.builds[key]
 
     def call_failed(self, spec: str, thinking_level: str, error: Exception) -> None:
         """Stop using ``spec`` at ``thinking_level`` for the rest of the run after ``error`` failed a call."""
         logger.error("Configured %s model '%s' failed a call", self.target, spec, exc_info=error)
-        self._builds[(spec, thinking_level)] = None
+        self.builds[(spec, self.resolve_level(thinking_level))] = None
 
     def skill_choice(self, name: str, declared: ModelChoice) -> ModelChoice:
         """Skill ``name``'s model and level: each the entry's, else ``declared``'s; a model that cannot be built is
         dropped (``""`` keeps the run's)."""
-        level = self.entries.get(name, EMPTY_CHOICE).thinking_level or declared.thinking_level
-        for spec in (self.entries.get(name, EMPTY_CHOICE).model, declared.model):
+        entry = self.entries.get(name, EMPTY_CHOICE)
+        level = entry.over(declared).thinking_level
+        for spec in (entry.model, declared.model):
             if spec and self.build(spec, level, name) is not None:
                 return ModelChoice(model=spec, thinking_level=level)
         return ModelChoice(thinking_level=level)
@@ -98,7 +100,7 @@ class ConfiguredModels:
         ``never_skip``. A model that cannot be built never leaves the subagent out: the next in line serves.
         """
         entry = self.entries.get(name, EMPTY_CHOICE)
-        level = entry.thinking_level or declared.thinking_level or inherited.thinking_level
+        level = entry.over(declared).over(inherited).thinking_level
         if entry.model and (built := self.build(entry.model, level, name)) is not None:
             return built
         if declared.model:

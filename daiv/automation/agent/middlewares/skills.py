@@ -78,6 +78,9 @@ class DAIVSkillsState(SkillsState):
     active_skill_thinking_level: NotRequired[Annotated[str | None, PrivateStateAttr, _last_write_wins]]
 
 
+ACTIVE_SKILL_KEYS = ("active_skill_mode", "active_skill_model", "active_skill_thinking_level")
+
+
 class SkillModelMiddleware(AgentMiddleware):
     """Serves a call on ``run_model`` on the active skill's model and thinking level (``active_skill_model`` and
     ``active_skill_thinking_level``, see ``SkillsMiddleware``); a level alone runs the run's model at that level.
@@ -238,19 +241,10 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         and are never cleared mid-session, so a misconfig fixed mid-session keeps surfacing in
         ``<skill_load_warnings>`` until restart.
         """
-        skill_active = any(
-            state.get(key) is not None
-            for key in ("active_skill_mode", "active_skill_model", "active_skill_thinking_level")
-        )
-        clear_skill_state = skill_active and self._has_user_followup(state["messages"])
+        active = {key: state[key] for key in ACTIVE_SKILL_KEYS if state.get(key) is not None}
+        clear_skill_state = bool(active) and self._has_user_followup(state["messages"])
         if clear_skill_state:
-            logger.info(
-                "[%s] Clearing active skill mode '%s', model '%s' and thinking level '%s' on user follow-up",
-                self.name,
-                state.get("active_skill_mode"),
-                state.get("active_skill_model"),
-                state.get("active_skill_thinking_level"),
-            )
+            logger.info("[%s] Clearing active skill state %s on user follow-up", self.name, active)
 
         # Every turn, not only when ``skills_metadata`` is unset: the ``SKILLS_PATH`` cache is per-container but
         # ``skills_metadata`` persists in the checkpoint, so a fresh-worker resume would hit ``file_not_found``.
@@ -274,12 +268,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                 skills_update = {**(skills_update or {}), "skills_load_errors": merged}
 
         if clear_skill_state:
-            return {
-                **(skills_update or {}),
-                "active_skill_mode": None,
-                "active_skill_model": None,
-                "active_skill_thinking_level": None,
-            }
+            return {**(skills_update or {}), **dict.fromkeys(ACTIVE_SKILL_KEYS)}
 
         return skills_update
 
@@ -404,15 +393,13 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
     def _file_choice(self, loaded_skill: SkillMetadata) -> ModelChoice:
         """The ``metadata`` model and thinking level of a built-in or global skill, which live under ``SKILLS_PATH``."""
         metadata = loaded_skill.get("metadata", {})
-        choice = parse_model_choice(
-            {key: metadata[key] for key in ("model", "thinking_level") if key in metadata},
-            source=f"skill '{loaded_skill['name']}' metadata",
-            log_level=logging.WARNING,
-        )
-        if choice != EMPTY_CHOICE and not loaded_skill["path"].startswith(f"{SKILLS_PATH}/"):
-            logger.info("[%s] Ignoring model metadata of repository skill '%s'", self.name, loaded_skill["name"])
+        if not loaded_skill["path"].startswith(f"{SKILLS_PATH}/"):
+            if metadata.keys() & {"model", "thinking_level"}:
+                logger.info("[%s] Ignoring model metadata of repository skill '%s'", self.name, loaded_skill["name"])
             return EMPTY_CHOICE
-        return choice
+        return parse_model_choice(
+            metadata, source=f"skill '{loaded_skill['name']}' metadata", log_level=logging.WARNING
+        )
 
     def _skill_tool_generator(self) -> BaseTool:
         """Generate a skill tool."""

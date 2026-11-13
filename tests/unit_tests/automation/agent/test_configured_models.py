@@ -253,3 +253,26 @@ class TestSkillChoice:
 
     def test_nothing_set_is_empty(self):
         assert _skill_choice(FakeModels(), configured={}) == EMPTY_CHOICE
+
+
+def test_instances_sharing_builds_build_a_spec_and_level_once():
+    models = FakeModels("fake:review")
+    subagents = ConfiguredModels("subagent", chain=CHAIN)
+    skills = ConfiguredModels("skill", chain=CHAIN, builds=subagents.builds)
+
+    with patch("automation.agent.configured_models.get_model", models):
+        skill_model = skills.build("fake:review", "low")
+        subagent_model = subagents.build("fake:review", "low")
+
+    assert skill_model is subagent_model
+    assert models.calls == [("fake:review", "low")]
+
+
+def test_the_run_s_level_and_the_same_level_named_share_one_build():
+    models = FakeModels("fake:x")
+    configured_models = ConfiguredModels("skill", chain=CHAIN)
+
+    with patch("automation.agent.configured_models.get_model", models):
+        assert configured_models.build("fake:x", "") is configured_models.build("fake:x", "high")
+
+    assert len(models.calls) == 1

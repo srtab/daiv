@@ -10,7 +10,7 @@ from langgraph.runtime import Runtime  # noqa: TC002
 from skills.services import list_global_skills
 
 from automation.agent.context import RuntimeCtx  # noqa: TC001
-from automation.agent.middlewares.skills import DAIVSkillsState
+from automation.agent.middlewares.skills import ACTIVE_SKILL_KEYS, DAIVSkillsState
 from automation.agent.synthetic import is_person_message
 from automation.agent.utils import extract_text_content, streamed_assistant_message
 from slash_commands.parser import SlashCommandCommand, parse_slash_command
@@ -94,9 +94,7 @@ class SlashCommandMiddleware(AgentMiddleware):
                 # _has_user_followup (needs surviving history) could never clear it — every write
                 # tool would stay refused. SkillsMiddleware's clear-on-followup never runs here
                 # (we jump to end), so reset it, and the skill's model and level, explicitly.
-                update["active_skill_mode"] = None
-                update["active_skill_model"] = None
-                update["active_skill_thinking_level"] = None
+                update.update(dict.fromkeys(ACTIVE_SKILL_KEYS))
             return update
 
     @staticmethod

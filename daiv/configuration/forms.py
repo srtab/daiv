@@ -113,12 +113,9 @@ class _AgentPickerWidget(forms.Widget):
 
     template_name = "configuration/fields/agent_picker_widget.html"
 
-    def __init__(
-        self, *, paired_thinking_field: str | None = None, allow_off: bool | None = None, attrs: dict | None = None
-    ):
+    def __init__(self, *, paired_thinking_field: str | None = None, allow_off: bool = False, attrs: dict | None = None):
         super().__init__(attrs)
         self.paired_thinking_field = paired_thinking_field
-        # ``None`` defers to ``SiteConfiguration.THINKING_OFF_FIELDS``.
         self.allow_off = allow_off
         # Set by ``SiteConfigurationForm._apply_defaults`` so the placeholder
         # pill can render "Default (env-value)". Empty when no default is
@@ -178,11 +175,7 @@ class _AgentPickerWidget(forms.Widget):
             "default_thinking": self.default_thinking,
             "placeholder_label": placeholder,
             "with_effort": with_effort,
-            "allow_off": (
-                self.allow_off
-                if self.allow_off is not None
-                else self.paired_thinking_field in SiteConfiguration.THINKING_OFF_FIELDS
-            ),
+            "allow_off": self.allow_off,
             "disabled": is_disabled,
             # ``_apply_env_locks`` is the only path that sets ``title`` in the
             # settings flow, so we surface its value as the locked-pill tooltip
@@ -371,7 +364,9 @@ class SiteConfigurationForm(forms.ModelForm):
             widget = field_obj.widget
             if isinstance(widget, (forms.TextInput, forms.NumberInput)) and name in SiteConfiguration.MODEL_NAME_FIELDS:
                 paired = _PAIRED_THINKING_FIELDS.get(name)
-                field_obj.widget = _AgentPickerWidget(paired_thinking_field=paired)
+                field_obj.widget = _AgentPickerWidget(
+                    paired_thinking_field=paired, allow_off=paired in SiteConfiguration.THINKING_OFF_FIELDS
+                )
             elif isinstance(widget, forms.NumberInput):
                 for validator in model_field.validators if model_field else ():
                     if isinstance(validator, MinValueValidator):
@@ -682,9 +677,9 @@ class ModelEntriesForm(forms.Form):
         self._stored = stored
         locks = {site_field: site_settings.is_env_locked(site_field) for site_field in MODEL_MAP_FIELDS}
         maps = {
-            site_field: parse_model_choices(
-                getattr(site_settings if locked else stored, site_field), source=f"site {site_field}"
-            )
+            site_field: getattr(site_settings, site_field)
+            if locked
+            else parse_model_choices(getattr(stored, site_field), source=f"site {site_field}")
             for site_field, locked in locks.items()
         }
         spec_error = cache(model_spec_error)
@@ -697,9 +692,6 @@ class ModelEntriesForm(forms.Form):
             widget = _AgentPickerWidget(paired_thinking_field=thinking_name, allow_off=True)
             widget.placeholder = str(entry.default_label)
             widget.default_thinking = entry.default_thinking
-            widget.initial_thinking = (
-                str(self.data.get(thinking_name, "") or "") if self.is_bound else choice.thinking_level
-            )
             if value and (reason := spec_error(value)):
                 widget.stale = True
                 self.stale_reasons[field_name] = reason
@@ -713,17 +705,18 @@ class ModelEntriesForm(forms.Form):
                 disabled=locked,
                 widget=widget,
             )
-            thinking_field = forms.CharField(required=False, initial=choice.thinking_level, disabled=locked)
-            thinking_field.is_rendered_inline = True  # type: ignore[attr-defined]
-            self.fields[entry.thinking_field_name] = thinking_field
+            self.fields[entry.thinking_field_name] = forms.CharField(
+                required=False, initial=choice.thinking_level, disabled=locked
+            )
+            self.fields[field_name].widget.initial_thinking = str(self[entry.thinking_field_name].value() or "")
 
     @property
     def rows(self) -> list[dict[str, Any]]:
-        """One row per entry for the templates: its model field, its thinking-level field and why its model is stale."""
+        """One row per entry for the templates: its model field, its fields' errors and why its model is stale."""
         return [
             {
                 "field": self[name],
-                "thinking": self[entry.thinking_field_name],
+                "errors": [*self[name].errors, *self[entry.thinking_field_name].errors],
                 "stale": self.stale_reasons.get(name, ""),
             }
             for name, entry in self.entries.items()

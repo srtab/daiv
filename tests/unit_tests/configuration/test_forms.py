@@ -532,7 +532,6 @@ class TestModelEntriesForm:
         widget = form.fields[SKILL_FIELD].widget
         assert widget.paired_thinking_field == f"p-{SKILL_FIELD}__thinking"
         assert widget.initial_thinking == "low"
-        assert form.fields[f"{SKILL_FIELD}__thinking"].is_rendered_inline
 
     @pytest.mark.parametrize(
         ("change", "model", "expected"),

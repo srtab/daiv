@@ -1,14 +1,13 @@
 {% load i18n %}
 {% comment %}
-One model entry on the skill page's Models tab. Context: `row` ({field, stale}), `mono` for a subagent's name.
+One model entry on the skill page's Models tab. Context: `row` ({field, errors, stale}), `mono` for a subagent's name.
 {% endcomment %}
 <div class="model-entry px-6 py-4">
     <div class="model-entry__text">
         <div class="{% if mono %}font-mono text-[13px]{% else %}text-[14px] font-medium{% endif %} text-text">{{ row.field.label }}</div>
         <p class="mt-0.5 text-[13px] text-text-muted">{{ row.field.help_text }}</p>
-        {% if row.field.errors or row.thinking.errors %}
-        {% for error in row.field.errors %}<p class="mt-1 text-[13px] text-status-fail">{{ error }}</p>{% endfor %}
-        {% for error in row.thinking.errors %}<p class="mt-1 text-[13px] text-status-fail">{{ error }}</p>{% endfor %}
+        {% if row.errors %}
+        {% for error in row.errors %}<p class="mt-1 text-[13px] text-status-fail">{{ error }}</p>{% endfor %}
         {% elif row.stale %}
         <p class="mt-1 text-[13px] text-status-found">{{ row.stale }} {% translate "Runs use the default until you pick another model." %}</p>
         {% endif %}
