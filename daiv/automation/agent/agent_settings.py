@@ -21,8 +21,8 @@ attempt cap count as unset), else the site's. Every chain drops blank model name
 11. Pipeline watch: enabled: site AND repo · attempts: min(repo, site). Outside ``AgentSettings``: ``WatchPolicy``
     resolves them when the watch arms, so a run never reads them.
 12. Orchestration (``delegate_jobs``): repo only, on unless ``.daiv.yml`` turns it off.
-13. Skill and subagent models: repo ``models.skills`` / ``models.subagents`` entries over the site's
-    ``agent_skill_models`` / ``agent_subagent_models``, by name, every branch; an empty repo entry is unset.
+13. Skill and subagent models and thinking levels: repo ``models.skills`` / ``models.subagents`` entries over the
+    site's ``agent_skill_models`` / ``agent_subagent_models``, by name and per field, every branch.
 
 A non-empty site or run thinking level that is not a ``ThinkingLevel`` becomes ``None`` (no thinking) and is logged as
 an error; ``.daiv.yml`` levels are validated when the file loads.
@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
+from core.model_choice import merge_model_choices
 from core.models import ThinkingLevelChoices as ThinkingLevel
 
 if TYPE_CHECKING:
@@ -43,6 +44,7 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
     from codebase.repo_config import AgentModelConfig, RepositoryConfig
+    from core.model_choice import ModelChoice
     from core.site_settings import SiteSnapshot
 
     from .validators import AgentConfigurationError
@@ -87,8 +89,8 @@ class AgentSettings:
     web_search_enabled: bool
     web_fetch_enabled: bool
     features: Features
-    skill_models: Mapping[str, str]
-    subagent_models: Mapping[str, str]
+    skill_models: Mapping[str, ModelChoice]
+    subagent_models: Mapping[str, ModelChoice]
 
 
 def resolve_agent_settings(*, site: SiteSnapshot, repo: RepositoryConfig, run: RunOverrides) -> AgentSettings:
@@ -106,8 +108,8 @@ def resolve_agent_settings(*, site: SiteSnapshot, repo: RepositoryConfig, run: R
         web_search_enabled=_run_or_site(run.web_search_enabled, site.web_search_enabled),
         web_fetch_enabled=_run_or_site(run.web_fetch_enabled, site.web_fetch_enabled),
         features=resolve_features(site=site, repo=repo),
-        skill_models=MappingProxyType({**site.agent_skill_models, **repo.models.skills}),
-        subagent_models=MappingProxyType({**site.agent_subagent_models, **repo.models.subagents}),
+        skill_models=MappingProxyType(merge_model_choices(repo.models.skills, site.agent_skill_models)),
+        subagent_models=MappingProxyType(merge_model_choices(repo.models.subagents, site.agent_subagent_models)),
     )
 
 

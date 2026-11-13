@@ -299,7 +299,7 @@ Select a skill to open its page, which has four tabs:
 
 - **SKILL.md**: the skill's instructions.
 - **Files**: the files in the skill.
-- **Models**: the model the skill runs on (see [Run a skill on another model](#run-a-skill-on-another-model)).
+- **Models**: the model and thinking level the skill runs on (see [Run a skill on another model](#run-a-skill-on-another-model)).
 - **Usage**: the invocations over the last 30 days, and the latest runs that invoked the skill, each linking to its run in its session.
 
 To download a custom skill's original ZIP archive, select **Download zip** on its card menu or its page.
@@ -317,11 +317,11 @@ You cannot delete a built-in skill.
 
 ## Run a skill on another model
 
-Once the agent invokes a skill, its model calls run on the skill's model until your next message. The model comes from the skill's `models.skills` entry in the repository's `.daiv.yml`, else its entry on the **Models** tab or in `DAIV_AGENT_SKILL_MODELS`, else the skill file's `metadata.model`, else the run's model. [Skill and subagent models](repository-config.md#skill-and-subagent-models) gives the order and the entry format.
+Once the agent invokes a skill, its model calls run on the skill's model and thinking level until your next message. The model and the level each come from the first of these that sets the field: the skill's `models.skills` entry in the repository's `.daiv.yml`, its entry on the **Models** tab or in `DAIV_AGENT_SKILL_MODELS`, the skill file's `metadata.model` and `metadata.thinking_level`, then the run's. A skill with only a level runs the run's model at that level. [Skill and subagent models](repository-config.md#skill-and-subagent-models) gives the order and the entry format.
 
-The **Models** tab changes a skill's model for every repository, built-in skills included, without copying or editing the skill file. On `/code-review` it also sets the model of each detector the skill ships (see [Subagent model precedence](../features/subagents.md#subagent-model-precedence)). A skill that exists only in repositories, or that you only mounted, has no page: give it a model with `DAIV_AGENT_SKILL_MODELS`, or with a `models.skills` entry in each repository's `.daiv.yml`.
+The **Models** tab changes a skill's model and thinking level for every repository, built-in skills included, without copying or editing the skill file. On `/code-review` it also sets the model and level of each detector the skill ships, and a detector without its own setting inherits the skill's (see [Subagent model precedence](../features/subagents.md#subagent-model-precedence)). A skill that exists only in repositories, or that you only mounted, has no page: give it a model or thinking level with `DAIV_AGENT_SKILL_MODELS`, or with a `models.skills` entry in each repository's `.daiv.yml`.
 
-A built-in or global skill file can name its own model in `metadata.model`, as a model spec (`provider-slug:model`, as in [subagents](../features/subagents.md)):
+A built-in or global skill file can name its own model in `metadata.model`, as a model spec (`provider-slug:model`, as in [subagents](../features/subagents.md)), and its thinking level in `metadata.thinking_level`: one of `minimal`, `low`, `medium`, `high`, `xhigh` or `off`. `off` turns thinking off.
 
 ```yaml
 ---
@@ -329,11 +329,12 @@ name: changelog
 description: Update CHANGELOG.md for the current changes.
 metadata:
   model: openrouter:anthropic/claude-haiku-5.5
+  thinking_level: low
 ---
 ```
 
-DAIV ignores a repository skill's `metadata.model`, because the file comes from the branch the run works on, which the author of a merge request controls.
+DAIV ignores a repository skill's `metadata.model` and `metadata.thinking_level`, because the file comes from the branch the run works on, which the author of a merge request controls.
 
-The run's thinking level carries over. The run's model serves any model call whose conversation no longer fits the skill model's context window. Once the skill model fails a call, the run's model serves that call and every later one in the run, before the run's fallback models. Switching models starts a fresh prompt cache on each side, so a cheaper skill model pays off only for skills that do substantial work.
+A thinking level set at any step beats the run's, `daiv-max`'s included. The run's model serves any model call whose conversation no longer fits the skill model's context window. When the skill's model fails a call, the run's model serves that call and the rest of the skill's invocation, at the run's thinking level, before the run's fallback models. If the agent invokes the skill again later in the run, DAIV skips the model that failed and runs the next model in line at the skill's thinking level. Switching models starts a fresh prompt cache on each side, so a cheaper skill model pays off only for skills that do substantial work.
 
-When a configured entry names a provider that is unknown, disabled or missing its API key, the skill runs on its `metadata.model`, else the run's model, and DAIV logs the failure at ERROR. A `metadata.model` that DAIV can't use keeps the run's model, logged the same way.
+When a configured entry names a provider that is unknown, disabled or missing its API key, the skill runs on its `metadata.model`, else the run's model, and DAIV logs the failure at ERROR. A `metadata.model` that DAIV can't use keeps the run's model, logged the same way. DAIV drops an unknown thinking level and logs it as an error, and the rest of the entry still applies.

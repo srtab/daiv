@@ -1,6 +1,7 @@
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from automation.agent.mcp.schemas import UserMcpServer
+from core.model_choice import EMPTY_CHOICE
 from tests.unit_tests.conftest import FakeWorkspace, agent_settings, site_snapshot
 
 MCP_SERVERS = [("acme", UserMcpServer(type="http", url="http://acme/mcp"))]
@@ -18,6 +19,7 @@ def _common_patches():
         # middlewares.deferred_tools (used by both the main agent and subagents), so patch it there.
         patch("automation.agent.middlewares.deferred_tools.deferred_settings"),
         patch("automation.agent.graph.get_model"),
+        patch("automation.agent.graph.adeclared_skill_choice", AsyncMock(return_value=EMPTY_CHOICE)),
         # Middleware constructors that validate input — replaced with no-op mocks
         patch("automation.agent.graph.SkillsMiddleware"),
         patch("automation.agent.graph.AnthropicPromptCachingMiddleware"),

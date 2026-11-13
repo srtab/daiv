@@ -14,6 +14,7 @@ from automation.agent.agent_settings import (
 )
 from automation.agent.validators import AgentConfigurationError
 from codebase.repo_config import RepositoryConfig
+from core.model_choice import ModelChoice
 from core.models import SiteConfiguration
 from core.site_settings import site_settings
 from tests.unit_tests.automation.agent.agent_settings_cases import AGENT_SETTINGS_CASES
@@ -169,8 +170,11 @@ def test_the_diff_to_metadata_chain_drops_a_blank_site_fallback():
     assert agent_settings(site=site).diff_to_metadata == ModelChain(names=("site-d2m",))
 
 
-SITE_SKILL_MODELS = {"code-review": "openrouter:site/review"}
-SITE_SUBAGENT_MODELS = {"cr-security": "openrouter:site/security", "general-purpose": "openrouter:site/gp"}
+SITE_SKILL_MODELS = {"code-review": ModelChoice(model="openrouter:site/review")}
+SITE_SUBAGENT_MODELS = {
+    "cr-security": ModelChoice(model="openrouter:site/security"),
+    "general-purpose": ModelChoice(model="openrouter:site/gp"),
+}
 
 
 @pytest.mark.parametrize("run", BRANCHES.values(), ids=list(BRANCHES))
@@ -186,9 +190,9 @@ def test_the_resolved_maps_are_read_only():
     settings = agent_settings(site=site_snapshot(agent_skill_models=dict(SITE_SKILL_MODELS)))
 
     with pytest.raises(TypeError):
-        settings.skill_models["plan"] = "openrouter:other/model"  # type: ignore[index]
+        settings.skill_models["plan"] = ModelChoice(model="openrouter:other/model")  # type: ignore[index]
     with pytest.raises(TypeError):
-        settings.subagent_models["plan"] = "openrouter:other/model"  # type: ignore[index]
+        settings.subagent_models["plan"] = ModelChoice(model="openrouter:other/model")  # type: ignore[index]
 
 
 def test_a_repo_entry_overrides_only_the_site_entry_of_the_same_name():
@@ -202,11 +206,29 @@ def test_a_repo_entry_overrides_only_the_site_entry_of_the_same_name():
 
     settings = agent_settings(site=site, repo=repo)
 
-    assert settings.skill_models == {"code-review": "openrouter:repo/review", "plan": "openrouter:repo/plan"}
-    assert settings.subagent_models == {
-        "cr-security": "openrouter:repo/security",
-        "general-purpose": "openrouter:site/gp",
+    assert settings.skill_models == {
+        "code-review": ModelChoice(model="openrouter:repo/review"),
+        "plan": ModelChoice(model="openrouter:repo/plan"),
     }
+    assert settings.subagent_models == {
+        "cr-security": ModelChoice(model="openrouter:repo/security"),
+        "general-purpose": ModelChoice(model="openrouter:site/gp"),
+    }
+
+
+def test_a_repo_entry_merges_with_the_site_entry_per_field():
+    site = site_snapshot(
+        agent_skill_models={"code-review": ModelChoice(model="openrouter:site/review", thinking_level="high")},
+        agent_subagent_models={"cr-tests": ModelChoice(thinking_level="low")},
+    )
+    repo = RepositoryConfig(
+        models={"skills": {"code-review": {"thinking_level": "off"}}, "subagents": {"cr-tests": "openrouter:a/b"}}
+    )
+
+    settings = agent_settings(site=site, repo=repo)
+
+    assert settings.skill_models["code-review"] == ModelChoice("openrouter:site/review", "off")
+    assert settings.subagent_models["cr-tests"] == ModelChoice("openrouter:a/b", "low")
 
 
 @pytest.mark.parametrize("empty", [None, ""], ids=["null", "blank"])
@@ -222,7 +244,7 @@ def test_a_repo_entry_applies_on_a_run_pinned_to_an_exact_chain():
 
     settings = agent_settings(repo=repo, run=BRANCHES["exact"])
 
-    assert settings.skill_models == {"code-review": "openrouter:repo/review"}
+    assert settings.skill_models == {"code-review": ModelChoice(model="openrouter:repo/review")}
 
 
 def test_the_recursion_limit_is_the_sites():

@@ -10,7 +10,7 @@ from langgraph.runtime import Runtime  # noqa: TC002
 from skills.services import list_global_skills
 
 from automation.agent.context import RuntimeCtx  # noqa: TC001
-from automation.agent.middlewares.skills import DAIVSkillsState
+from automation.agent.middlewares.skills import ACTIVE_SKILL_KEYS, DAIVSkillsState
 from automation.agent.synthetic import is_person_message
 from automation.agent.utils import extract_text_content, streamed_assistant_message
 from slash_commands.parser import SlashCommandCommand, parse_slash_command
@@ -41,8 +41,8 @@ class SlashCommandMiddleware(AgentMiddleware):
     ``/help`` cannot list them; the agent's ``<available_skills>`` prompt does once the loop runs.
     """
 
-    # Declares the skills state channels so this middleware may reset ``active_skill_mode`` and ``active_skill_model``
-    # when a command wipes the thread (see ``_apply_builtin_slash_commands``); ``SkillsMiddleware`` owns them.
+    # Declares the skills state channels so this middleware may reset them when a command wipes the thread;
+    # ``SkillsMiddleware`` owns them.
     state_schema = DAIVSkillsState
 
     def __init__(self, *, subagents: Sequence[SubAgent | CompiledSubAgent] | None = None) -> None:
@@ -93,9 +93,8 @@ class SlashCommandMiddleware(AgentMiddleware):
                 # active_skill_mode="read-only") must not survive onto the fresh thread, where
                 # _has_user_followup (needs surviving history) could never clear it — every write
                 # tool would stay refused. SkillsMiddleware's clear-on-followup never runs here
-                # (we jump to end), so reset it, and the skill's model, explicitly.
-                update["active_skill_mode"] = None
-                update["active_skill_model"] = None
+                # (we jump to end), so reset it, and the skill's model and level, explicitly.
+                update.update(dict.fromkeys(ACTIVE_SKILL_KEYS))
             return update
 
     @staticmethod

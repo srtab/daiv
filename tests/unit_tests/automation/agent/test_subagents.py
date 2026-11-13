@@ -8,6 +8,7 @@ the compiled runnable, which keeps coverage focused on DAIV's choices about
 which middlewares to compose.
 """
 
+import logging
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock, call, patch
 
@@ -36,6 +37,7 @@ from automation.agent.subagents import (
     load_custom_subagents,
 )
 from automation.agent.workspace.backends import WORKSPACE_FENCE_PERMISSIONS
+from core.model_choice import EMPTY_CHOICE, ModelChoice
 from tests.unit_tests.automation.agent.configured_model_fakes import FakeModels
 from tests.unit_tests.conftest import OPENROUTER_CACHE_SETTINGS, FakeWorkspace, model_attempts_with_failing_primary
 
@@ -575,10 +577,19 @@ class TestExploreSubagent:
         assert "CRITICAL: READ-ONLY" not in prompt
 
 
-def _make_subagent_md(*, name: str, description: str, model: str | None = None, body: str = "You are a custom agent."):
+def _make_subagent_md(
+    *,
+    name: str,
+    description: str,
+    model: str | None = None,
+    thinking_level: str | None = None,
+    body: str = "You are a custom agent.",
+):
     lines = ["---", f"name: {name}", f"description: {description}"]
     if model:
         lines.append(f"model: {model}")
+    if thinking_level:
+        lines.append(f"thinking_level: {thinking_level}")
     lines.append("---")
     lines.append("")
     lines.append(body)
@@ -1498,7 +1509,7 @@ class TestBuiltinCodeReviewDetectors:
                 mock_model, mock_backend, working_directory="/workspace/repo/", agents_dir=agents_dir
             )
 
-        get_model.assert_called_once_with(model="some:override")
+        get_model.assert_called_once_with(model="some:override", thinking_level=None)
         assert mock_create.call_args.kwargs["model"] is override_model
 
 
@@ -1506,7 +1517,11 @@ RUN_MODEL = Mock(name="run-model")
 
 
 def _configured(configured: dict) -> ConfiguredModels:
-    return ConfiguredModels("subagent", configured, chain=ModelChain(names=("fake:run",), thinking_level="high"))
+    return ConfiguredModels(
+        "subagent",
+        {name: ModelChoice(model=spec) for name, spec in configured.items()},
+        chain=ModelChain(names=("fake:run",), thinking_level="high"),
+    )
 
 
 def _served_by(create_agent: Mock) -> dict:
@@ -1514,14 +1529,26 @@ def _served_by(create_agent: Mock) -> dict:
 
 
 class TestConfiguredDetectorModels:
-    def _load(self, tmp_path, models: FakeModels, *, configured: dict, charters: dict | None = None):
+    def _load(
+        self,
+        tmp_path,
+        models: FakeModels,
+        *,
+        configured: dict,
+        charters: dict | None = None,
+        levels: dict | None = None,
+        inherited: ModelChoice = EMPTY_CHOICE,
+    ):
         from automation.agent.subagents import load_builtin_code_review_detectors
 
         agents_dir = tmp_path / "agents"
         agents_dir.mkdir()
         charters = charters if charters is not None else {"cr-security": "fake:charter", "cr-tests": None}
         for name, model in charters.items():
-            (agents_dir / f"{name}.md").write_text(_make_subagent_md(name=name, description=name, model=model))
+            charter = _make_subagent_md(
+                name=name, description=name, model=model, thinking_level=(levels or {}).get(name)
+            )
+            (agents_dir / f"{name}.md").write_text(charter)
         with (
             patch("automation.agent.configured_models.get_model", models),
             patch("automation.agent.subagents.create_agent") as create_agent,
@@ -1533,6 +1560,7 @@ class TestConfiguredDetectorModels:
                 agents_dir=agents_dir,
                 expected_names=tuple(charters),
                 configured_models=_configured(configured),
+                inherited=inherited,
             )
         return _served_by(create_agent)
 
@@ -1559,14 +1587,45 @@ class TestConfiguredDetectorModels:
 
         assert served == {}
 
+    def test_a_charter_thinking_level_builds_the_detector_at_it(self, tmp_path):
+        models = FakeModels("fake:run")
+
+        self._load(tmp_path, models, configured={}, charters={"cr-tests": None}, levels={"cr-tests": "high"})
+
+        assert ("fake:run", "high") in models.calls
+
+    def test_detectors_inherit_the_code_review_skill_choice(self, tmp_path):
+        models = FakeModels("fake:skill")
+
+        self._load(
+            tmp_path, models, configured={}, charters={"cr-tests": None}, inherited=ModelChoice("fake:skill", "medium")
+        )
+
+        assert models.calls == [("fake:skill", "medium")]
+
+    def test_a_bad_charter_thinking_level_is_dropped_with_a_warning_naming_the_file(self, tmp_path, caplog):
+        models = FakeModels("fake:run")
+
+        with caplog.at_level(logging.WARNING):
+            served = self._load(
+                tmp_path, models, configured={}, charters={"cr-tests": None}, levels={"cr-tests": "bogus"}
+            )
+
+        assert served == {"cr-tests": RUN_MODEL}
+        assert any("cr-tests.md" in r.message and r.levelno == logging.WARNING for r in caplog.records)
+
 
 class TestConfiguredCustomSubagentModels:
-    async def _load(self, tmp_path, models: FakeModels, *, configured: dict, file_model: str | None):
+    async def _load(
+        self, tmp_path, models: FakeModels, *, configured: dict, file_model: str | None, file_level: str | None = None
+    ):
         from automation.agent.workspace.backends import DAIVFilesystemBackend
 
         subagents_dir = tmp_path / "repo" / ".agents" / "subagents"
         subagents_dir.mkdir(parents=True)
-        (subagents_dir / "mine.md").write_text(_make_subagent_md(name="mine", description="Mine", model=file_model))
+        (subagents_dir / "mine.md").write_text(
+            _make_subagent_md(name="mine", description="Mine", model=file_model, thinking_level=file_level)
+        )
         ctx = Mock()
         ctx.gitrepo.working_dir = str(tmp_path / "repo")
         with (
@@ -1589,6 +1648,13 @@ class TestConfiguredCustomSubagentModels:
         served = await self._load(tmp_path, models, configured={"mine": "fake:configured"}, file_model="fake:file")
 
         assert served == {"mine": models.by_spec["fake:configured"]}
+
+    async def test_a_custom_subagent_file_thinking_level_is_honoured(self, tmp_path):
+        models = FakeModels("fake:run")
+
+        await self._load(tmp_path, models, configured={}, file_model="fake:run", file_level="xhigh")
+
+        assert ("fake:run", "xhigh") in models.calls
 
     async def test_an_invalid_file_model_without_an_entry_still_skips_the_subagent(self, tmp_path):
         served = await self._load(tmp_path, FakeModels(), configured={}, file_model="broken:file")

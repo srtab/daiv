@@ -1473,6 +1473,23 @@ class TestAgentGroupSubagentModels:
         assert f'name="{GENERAL_PURPOSE_FIELD}"' in content
         assert reverse("skills:list") in content
 
+    def test_the_built_in_rows_render_effort_dots_and_post_their_level(self, admin_client):
+        _enable_seed_provider("openai")
+        form = admin_client.get(AGENT_GROUP_URL).context["subagent_models_form"]
+
+        for name in ("explore", "general-purpose"):
+            picker = form.fields[f"agent_subagent_models__{name}"].widget.get_context("x", "", {})["widget"]["picker"]
+            assert picker["with_effort"] is True
+            assert picker["allow_off"] is True
+
+        admin_client.post(
+            AGENT_GROUP_URL, {EXPLORE_FIELD: "", GENERAL_PURPOSE_FIELD: "", f"{GENERAL_PURPOSE_FIELD}__thinking": "low"}
+        )
+
+        assert SiteConfiguration.objects.get_instance().agent_subagent_models == {
+            "general-purpose": {"thinking_level": "low"}
+        }
+
     def test_saving_writes_the_entries_beside_the_map_s_others(self, admin_client):
         config = SiteConfiguration.objects.get_instance()
         config.agent_subagent_models = {"cr-security": "openai:gpt-5.4"}
@@ -1485,6 +1502,15 @@ class TestAgentGroupSubagentModels:
             "cr-security": "openai:gpt-5.4",
             "explore": "openai:gpt-5.4-mini",
         }
+
+    def test_an_unknown_level_is_shown_and_saves_nothing(self, admin_client):
+        response = admin_client.post(
+            AGENT_GROUP_URL, {EXPLORE_FIELD: "", GENERAL_PURPOSE_FIELD: "", f"{EXPLORE_FIELD}__thinking": "extreme"}
+        )
+
+        assert response.status_code == 200
+        assert "Unknown thinking level: extreme." in response.content.decode()
+        assert SiteConfiguration.objects.get_instance().agent_subagent_models == {}
 
     def test_an_entry_its_provider_cannot_serve_saves_nothing(self, admin_client):
         response = admin_client.post(AGENT_GROUP_URL, {EXPLORE_FIELD: "nosuch:model", GENERAL_PURPOSE_FIELD: ""})

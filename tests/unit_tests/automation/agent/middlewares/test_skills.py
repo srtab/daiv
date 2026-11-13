@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware, ModelFallbackMiddleware
-from langchain.agents.middleware.types import ToolCallRequest
+from langchain.agents.middleware.types import ModelRequest, ToolCallRequest
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool
@@ -27,6 +27,7 @@ from automation.agent.synthetic import synthetic_message
 from automation.agent.utils import extract_text_content
 from codebase.base import Scope
 from codebase.repo_config import RepositoryConfig, SlashCommands
+from core.model_choice import ModelChoice
 from tests.unit_tests.automation.agent.configured_model_fakes import FakeModels
 from tests.unit_tests.conftest import write_skill
 
@@ -597,7 +598,6 @@ class TestSkillsMiddleware:
 
     def test_system_prompt_renders_skills_load_warnings(self):
         """When skills_load_errors is in state, the rendered prompt includes the warnings block."""
-        from langchain.agents.middleware.types import ModelRequest
         from langchain_core.messages import SystemMessage
 
         middleware = SkillsMiddleware(backend=Mock(), sources=["/skills"])
@@ -1008,6 +1008,7 @@ def _write_file(file_path: str, content: str) -> str:
 
 
 REPO_CHEAP_PATH = "/workspace/repo/.agents/skills/repo-cheap/SKILL.md"
+REPO_LEVELED_PATH = "/workspace/repo/.agents/skills/repo-leveled/SKILL.md"
 
 _SKILL_BODIES = {
     "/skills/plan/SKILL.md": b"---\nname: plan\ndescription: Plan\n---\nPlan it.",
@@ -1015,6 +1016,8 @@ _SKILL_BODIES = {
     "/skills/demo/SKILL.md": b"---\nname: demo\ndescription: Demo\n---\nRun this.",
     "/skills/review/SKILL.md": b"---\nname: review\ndescription: Review\n---\nReview it.",
     f"{SKILLS_PATH}/cheap/SKILL.md": b"---\nname: cheap\ndescription: Cheap\n---\nRun cheap.",
+    f"{SKILLS_PATH}/leveled/SKILL.md": b"---\nname: leveled\ndescription: Leveled\n---\nRun leveled.",
+    REPO_LEVELED_PATH: b"---\nname: repo-leveled\ndescription: Repo leveled\n---\nRun repo leveled.",
     REPO_CHEAP_PATH: b"---\nname: repo-cheap\ndescription: Repo cheap\n---\nRun repo cheap.",
 }
 _SKILLS_METADATA = [
@@ -1039,6 +1042,18 @@ _SKILLS_METADATA = [
         "metadata": {"model": "fake:cheap"},
     },
     {"name": "repo-cheap", "description": "Repo cheap", "path": REPO_CHEAP_PATH, "metadata": {"model": "fake:cheap"}},
+    {
+        "name": "leveled",
+        "description": "Leveled",
+        "path": f"{SKILLS_PATH}/leveled/SKILL.md",
+        "metadata": {"model": "fake:cheap", "thinking_level": "xhigh"},
+    },
+    {
+        "name": "repo-leveled",
+        "description": "Repo leveled",
+        "path": REPO_LEVELED_PATH,
+        "metadata": {"model": "fake:cheap", "thinking_level": "xhigh"},
+    },
 ]
 
 
@@ -1047,7 +1062,7 @@ def _skills_agent(
     tools: list,
     *,
     thinking_level: str | None = None,
-    configured: dict | None = None,
+    configured: dict[str, str | ModelChoice] | None = None,
     run_profile: dict | None = None,
     run_model_is_the_agents: bool = True,
     fallback_replies: list[AIMessage] | None = None,
@@ -1065,7 +1080,12 @@ def _skills_agent(
     backend.adownload_files = AsyncMock(side_effect=download)
     run_model = _ToolModel(messages=iter(replies), profile=run_profile)
     skill_models = ConfiguredModels(
-        "skill", configured or {}, chain=ModelChain(names=("fake:run",), thinking_level=thinking_level)
+        "skill",
+        {
+            name: choice if isinstance(choice, ModelChoice) else ModelChoice(model=choice)
+            for name, choice in (configured or {}).items()
+        },
+        chain=ModelChain(names=("fake:run",), thinking_level=thinking_level),
     )
     middleware = [
         *([ModelFallbackMiddleware(_ToolModel(messages=iter(fallback_replies)))] if fallback_replies else []),
@@ -1202,6 +1222,8 @@ def test_skills_prompt_states_the_invocation_rule_in_one_bullet():
 
 
 CHEAP_SKILL_CALL = {"name": "skill", "args": {"skill": "cheap"}, "id": "call_cheap"}
+LEVELED_SKILL_CALL = {"name": "skill", "args": {"skill": "leveled"}, "id": "call_leveled"}
+REPO_LEVELED_SKILL_CALL = {"name": "skill", "args": {"skill": "repo-leveled"}, "id": "call_repo_leveled"}
 
 
 class TestSkillModel:
@@ -1397,6 +1419,111 @@ class TestSkillModel:
             "the plan",
             "from the run model",
         ]
+
+    async def test_a_skill_level_without_a_model_runs_the_run_model_at_that_level(self):
+        get_model = Mock(return_value=_ToolModel(messages=iter([AIMessage(content="from the skill model")])))
+
+        result = await self._run(
+            [AIMessage(content="", tool_calls=[DEMO_SKILL_CALL])],
+            get_model,
+            configured={"demo": ModelChoice(thinking_level="low")},
+            thinking_level="high",
+        )
+
+        assert result["messages"][-1].content == "from the skill model"
+        get_model.assert_called_once_with(model="fake:run", thinking_level="low")
+
+    async def test_a_skill_files_thinking_level_applies(self):
+        get_model = Mock(return_value=_ToolModel(messages=iter([AIMessage(content="from the skill model")])))
+
+        await self._run([AIMessage(content="", tool_calls=[LEVELED_SKILL_CALL])], get_model, thinking_level="high")
+
+        get_model.assert_called_once_with(model="fake:cheap", thinking_level="xhigh")
+
+    async def test_a_repository_skills_thinking_level_is_ignored(self):
+        get_model = Mock(return_value=_ToolModel(messages=iter([AIMessage(content="from the skill model")])))
+
+        result = await self._run(
+            [AIMessage(content="", tool_calls=[REPO_LEVELED_SKILL_CALL]), AIMessage(content="from the run model")],
+            get_model,
+        )
+
+        assert result["messages"][-1].content == "from the run model"
+        get_model.assert_not_called()
+
+    async def test_a_thread_checkpointed_with_only_a_skill_model_resumes_at_the_runs_level(self):
+        get_model = Mock(return_value=_ToolModel(messages=iter([AIMessage(content="from the skill model")])))
+        run_model = _ToolModel(messages=iter([]))
+        models = ConfiguredModels("skill", chain=ModelChain(names=("fake:run",), thinking_level="high"))
+        request = ModelRequest(
+            model=run_model, messages=[HumanMessage(content="go")], state={"active_skill_model": "fake:cheap"}
+        )
+
+        with patch("automation.agent.configured_models.get_model", get_model):
+            served = SkillModelMiddleware(models, run_model=run_model)._skill_model(request)
+
+        assert served is not None
+        assert served[:2] == ("fake:cheap", "")
+        get_model.assert_called_once_with(model="fake:cheap", thinking_level="high")
+
+    async def test_a_failed_skill_call_stops_using_the_model_at_that_level(self):
+        failing = _ToolModel(messages=iter([]))
+        failing._generate = Mock(side_effect=RuntimeError("boom"))
+        get_model = Mock(return_value=failing)
+        again = {**LEVELED_SKILL_CALL, "id": "call_leveled_again"}
+
+        result = await self._run(
+            [
+                AIMessage(content="", tool_calls=[LEVELED_SKILL_CALL]),
+                AIMessage(content="", tool_calls=[again]),
+                AIMessage(content="from the run model"),
+            ],
+            get_model,
+        )
+
+        assert result["messages"][-1].content == "from the run model"
+        assert [(c.kwargs["model"], c.kwargs["thinking_level"]) for c in get_model.call_args_list] == [
+            ("fake:cheap", "xhigh"),
+            ("fake:run", "xhigh"),
+        ]
+
+    async def test_a_failed_skill_call_leaves_the_same_model_at_another_level_usable(self):
+        failing = _ToolModel(messages=iter([]))
+        failing._generate = Mock(side_effect=RuntimeError("boom"))
+        working = _ToolModel(messages=iter([AIMessage(content="from the other level")]))
+        get_model = Mock(side_effect=[failing, working])
+
+        result = await self._run(
+            [
+                AIMessage(content="", tool_calls=[LEVELED_SKILL_CALL]),
+                AIMessage(content="", tool_calls=[CHEAP_SKILL_CALL]),
+            ],
+            get_model,
+        )
+
+        assert result["messages"][-1].content == "from the other level"
+        assert [call.kwargs["thinking_level"] for call in get_model.call_args_list] == ["xhigh", None]
+
+    async def test_user_follow_up_clears_the_skill_level(self):
+        agent = _skills_agent(
+            [AIMessage(content="", tool_calls=[LEVELED_SKILL_CALL]), AIMessage(content="from the run model")],
+            [],
+            checkpointer=InMemorySaver(),
+        )
+        config = {"configurable": {"thread_id": "thread-level"}}
+        get_model = Mock(return_value=_ToolModel(messages=iter([AIMessage(content="the plan")])))
+
+        with (
+            patch("automation.agent.middlewares.skills.record_invocation", new_callable=AsyncMock),
+            patch("automation.agent.configured_models.get_model", get_model),
+        ):
+            await agent.ainvoke(
+                {"messages": [HumanMessage(content="/leveled")], "skills_metadata": _SKILLS_METADATA}, config
+            )
+            result = await agent.ainvoke({"messages": [HumanMessage(content="proceed")]}, config)
+
+        assert result["messages"][-1].content == "from the run model"
+        get_model.assert_called_once_with(model="fake:cheap", thinking_level="xhigh")
 
 
 DEMO_SKILL_CALL = {"name": "skill", "args": {"skill": "demo"}, "id": "call_demo"}

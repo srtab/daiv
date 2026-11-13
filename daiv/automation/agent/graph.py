@@ -12,7 +12,8 @@ from langchain.agents.middleware import (
     TodoListMiddleware,
     dynamic_prompt,
 )
-from skills.constants import SKILLS_PATH
+from skills.constants import CODE_REVIEW_SKILL, SKILLS_PATH
+from skills.services import adeclared_skill_choice
 
 from automation.agent.base import get_model
 from automation.agent.configured_models import ConfiguredModels
@@ -69,6 +70,7 @@ from automation.agent.subagents import (
 )
 from codebase.base import GitPlatform
 from core.constants import BOT_NAME
+from core.model_choice import EMPTY_CHOICE, ModelChoice
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -251,9 +253,12 @@ async def create_daiv_agent(
     mcp_tools = await load_mcp_tools(mcp_servers, backend)
 
     subagent_models = ConfiguredModels("subagent", settings.subagent_models, chain=chain)
-    skill_models = ConfiguredModels("skill", settings.skill_models, chain=chain)
-    general_purpose_model = subagent_models.for_subagent(GENERAL_PURPOSE_NAME, "", model)
-    explore_model = subagent_models.for_subagent(EXPLORE_NAME, EXPLORE_MODEL_NAME, model, never_skip=True)
+    skill_models = ConfiguredModels("skill", settings.skill_models, chain=chain, builds=subagent_models.builds)
+    code_review = skill_models.skill_choice(CODE_REVIEW_SKILL, await adeclared_skill_choice(CODE_REVIEW_SKILL))
+    general_purpose_model = subagent_models.for_subagent(GENERAL_PURPOSE_NAME, EMPTY_CHOICE, model)
+    explore_model = subagent_models.for_subagent(
+        EXPLORE_NAME, ModelChoice(model=EXPLORE_MODEL_NAME), model, never_skip=True
+    )
     subagents = [
         create_general_purpose_subagent(
             general_purpose_model,
@@ -267,7 +272,12 @@ async def create_daiv_agent(
         ),
         create_explore_subagent(workspace, working_directory, model=explore_model, fallback_models=fallback_models),
         *load_builtin_code_review_detectors(
-            model, backend, working_directory, fallback_models=fallback_models, configured_models=subagent_models
+            model,
+            backend,
+            working_directory,
+            fallback_models=fallback_models,
+            configured_models=subagent_models,
+            inherited=code_review,
         ),
     ]
 

@@ -262,13 +262,13 @@ class SiteConfiguration(models.Model):
         _("skill models"),
         default=dict,
         blank=True,
-        help_text=_("JSON object `{skill name: model spec}`: the model each skill runs on."),
+        help_text=_('JSON object `{skill name: model spec, or {"model", "thinking_level"}}`: what each runs on.'),
     )
     agent_subagent_models = models.JSONField(
         _("subagent models"),
         default=dict,
         blank=True,
-        help_text=_("JSON object `{subagent name: model spec}`: the model each subagent runs on."),
+        help_text=_('JSON object `{subagent name: model spec, or {"model", "thinking_level"}}`: what each runs on.'),
     )
     model_request_timeout_seconds = models.PositiveIntegerField(
         _("model request timeout"),

@@ -42,6 +42,7 @@ from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddlewa
 from automation.agent.middlewares.summarization import build_summarization_middleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
+from core.model_choice import EMPTY_CHOICE, ModelChoice, parse_model_choice
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -193,6 +194,7 @@ def load_builtin_code_review_detectors(
     agents_dir: Path = CODE_REVIEW_AGENTS_PATH,
     expected_names: tuple[str, ...] = CODE_REVIEW_DETECTOR_NAMES,
     configured_models: ConfiguredModels | None = None,
+    inherited: ModelChoice = EMPTY_CHOICE,
 ) -> list[CompiledSubAgent]:
     """Compile the code-review detector subagents from their charter markdown files.
 
@@ -212,7 +214,8 @@ def load_builtin_code_review_detectors(
     builders, the detector stack has no ``GitPlatformMiddleware`` — detectors never post — so it
     needs nothing from the run context.
 
-    A detector with a ``configured_models`` entry runs on it over its charter's ``model:`` (see
+    A detector's model and thinking level are each the first set of: its ``configured_models`` entry, its charter's
+    ``model:`` / ``thinking_level:``, ``inherited`` (the code-review skill's resolved choice), the run's (see
     ``ConfiguredModels.for_subagent``).
     """
     configured_models = configured_models or ConfiguredModels("subagent")
@@ -240,12 +243,12 @@ def load_builtin_code_review_detectors(
 
         frontmatter, body = parsed
 
-        frontmatter_model = str(frontmatter.get("model", "")).strip()
+        declared = parse_model_choice(frontmatter, source=str(md_file), log_level=logging.WARNING)
         try:
-            detector_model = configured_models.for_subagent(frontmatter["name"], frontmatter_model, model)
+            detector_model = configured_models.for_subagent(frontmatter["name"], declared, model, inherited=inherited)
         except ValueError:
             # Unknown/empty model spec — a charter config typo. Skip just this detector.
-            logger.warning("Skipping detector %s: invalid model '%s'", md_file, frontmatter_model)
+            logger.warning("Skipping detector %s: invalid model '%s'", md_file, declared.model)
             failed.append(md_file.stem)
             continue
         except Exception:
@@ -253,7 +256,7 @@ def load_builtin_code_review_detectors(
             # environment problem, not a bad charter. Don't mislabel it "invalid model" —
             # log the full traceback so it's distinguishable, then skip rather than abort
             # the whole agent build over one detector.
-            logger.exception("Skipping detector %s: failed to initialize model '%s'", md_file, frontmatter_model)
+            logger.exception("Skipping detector %s: failed to initialize model '%s'", md_file, declared.model)
             failed.append(md_file.stem)
             continue
 
@@ -602,11 +605,11 @@ async def load_custom_subagents(
                 )
                 continue
 
-            frontmatter_model = str(frontmatter.get("model", "")).strip()
+            declared = parse_model_choice(frontmatter, source=file_path, log_level=logging.WARNING)
             try:
-                subagent_model = configured_models.for_subagent(frontmatter["name"], frontmatter_model, model)
+                subagent_model = configured_models.for_subagent(frontmatter["name"], declared, model)
             except Exception:
-                logger.warning("Skipping %s: invalid model '%s'", file_path, frontmatter_model)
+                logger.warning("Skipping %s: invalid model '%s'", file_path, declared.model)
                 continue
 
             middleware = _build_general_purpose_middleware(

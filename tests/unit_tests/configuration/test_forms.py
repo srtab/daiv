@@ -479,6 +479,60 @@ class TestModelEntriesForm:
         form.apply_to(config)
         assert config.agent_skill_models == {"plan": "openai:gpt-5.4"}
 
+    def test_an_object_entry_shows_its_model_and_level_and_stores_what_the_row_posts(self, usable_openai):
+        config = _stored(agent_skill_models={"code-review": {"model": "openai:gpt-5.4", "thinking_level": "low"}})
+        unchanged = ModelEntriesForm(
+            ENTRIES,
+            {SKILL_FIELD: "openai:gpt-5.4", f"{SKILL_FIELD}__thinking": "low", DETECTOR_FIELD: ""},
+            stored=config,
+        )
+        changed = ModelEntriesForm(
+            ENTRIES,
+            {SKILL_FIELD: "openai:gpt-5.4-mini", f"{SKILL_FIELD}__thinking": "high", DETECTOR_FIELD: ""},
+            stored=config,
+        )
+
+        assert unchanged.is_valid() and unchanged.changed_data == []
+        assert changed.is_valid(), changed.errors
+        changed.apply_to(config)
+        assert config.agent_skill_models == {"code-review": {"model": "openai:gpt-5.4-mini", "thinking_level": "high"}}
+
+    def test_clearing_the_model_keeps_an_entry_that_still_has_a_level(self, usable_openai):
+        config = _stored(agent_subagent_models={"cr-security": {"model": "openai:gpt-5.4", "thinking_level": "low"}})
+        form = ModelEntriesForm(
+            ENTRIES, {SKILL_FIELD: "", DETECTOR_FIELD: "", f"{DETECTOR_FIELD}__thinking": "low"}, stored=config
+        )
+
+        assert form.is_valid(), form.errors
+        form.apply_to(config)
+        assert config.agent_subagent_models == {"cr-security": {"thinking_level": "low"}}
+
+    def test_clearing_the_model_and_the_level_removes_the_entry(self, usable_openai):
+        config = _stored(agent_subagent_models={"cr-security": {"model": "openai:gpt-5.4", "thinking_level": "low"}})
+        form = ModelEntriesForm(ENTRIES, {SKILL_FIELD: "", DETECTOR_FIELD: ""}, stored=config)
+
+        assert form.is_valid(), form.errors
+        form.apply_to(config)
+        assert "cr-security" not in config.agent_subagent_models
+
+    def test_a_level_is_stored_lowercase_and_an_unknown_one_is_refused(self, db):
+        config = _stored()
+        form = ModelEntriesForm(ENTRIES, {SKILL_FIELD: "", f"{SKILL_FIELD}__thinking": "High"}, stored=config)
+        bad = ModelEntriesForm(ENTRIES, {SKILL_FIELD: "", f"{SKILL_FIELD}__thinking": "extreme"}, stored=config)
+
+        assert form.is_valid(), form.errors
+        form.apply_to(config)
+        assert config.agent_skill_models == {"code-review": {"thinking_level": "high"}}
+        assert not bad.is_valid()
+        assert f"{SKILL_FIELD}__thinking" in bad.errors
+
+    def test_the_picker_posts_the_level_under_the_row_s_prefixed_thinking_field(self, db):
+        form = ModelEntriesForm(ENTRIES, {f"p-{SKILL_FIELD}__thinking": "low"}, stored=_stored(), prefix="p")
+
+        widget = form.fields[SKILL_FIELD].widget
+        assert widget.paired_thinking_field == f"p-{SKILL_FIELD}__thinking"
+        assert widget.initial_thinking == "low"
+
     @pytest.mark.parametrize(
         ("change", "model", "expected"),
         [

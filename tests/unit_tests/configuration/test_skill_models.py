@@ -71,6 +71,78 @@ def test_saving_writes_the_entries_beside_the_others(admin_client, usable_openai
 
 
 @pytest.mark.django_db
+def test_saving_a_level_without_a_model_stores_it(admin_client):
+    response = _post(admin_client, **{f"{SECURITY_FIELD}__thinking": "xhigh"})
+
+    assert response.status_code == 302
+    assert SiteConfiguration.objects.get_instance().agent_subagent_models == {
+        "cr-security": {"thinking_level": "xhigh"}
+    }
+
+
+@pytest.mark.django_db
+def test_saving_off_without_a_model_stores_off(admin_client):
+    _post(admin_client, **{f"{SKILL_FIELD}__thinking": "off"})
+
+    assert SiteConfiguration.objects.get_instance().agent_skill_models == {"code-review": {"thinking_level": "off"}}
+
+
+@pytest.mark.django_db
+def test_saving_a_model_and_level_stores_an_object(admin_client, usable_openai):
+    _post(admin_client, **{SKILL_FIELD: "openai:gpt-5.4", f"{SKILL_FIELD}__thinking": "high"})
+
+    assert SiteConfiguration.objects.get_instance().agent_skill_models == {
+        "code-review": {"model": "openai:gpt-5.4", "thinking_level": "high"}
+    }
+
+
+@pytest.mark.django_db
+def test_clearing_both_fields_removes_the_entry(admin_client):
+    config = SiteConfiguration.objects.get_instance()
+    config.agent_subagent_models = {"cr-security": {"thinking_level": "low"}}
+    config.save()
+
+    _post(admin_client)
+
+    assert "cr-security" not in SiteConfiguration.objects.get_instance().agent_subagent_models
+
+
+@pytest.mark.django_db
+def test_an_unknown_level_is_rejected(admin_client):
+    response = _post(admin_client, **{f"{SECURITY_FIELD}__thinking": "extreme"})
+
+    assert response.status_code == 200
+    assert response.context["form"].errors
+    assert "Unknown thinking level: extreme." in response.content.decode()
+    assert SiteConfiguration.objects.get_instance().agent_subagent_models == {}
+
+
+@pytest.mark.django_db
+def test_a_stored_level_seeds_the_row_s_effort_dots(admin_client):
+    config = SiteConfiguration.objects.get_instance()
+    config.agent_subagent_models = {"cr-security": {"thinking_level": "high"}}
+    config.save()
+
+    form = admin_client.get(MODELS_URL).context["form"]
+
+    picker = form.fields["agent_subagent_models__cr-security"].widget.get_context("x", "", {})["widget"]["picker"]
+    assert picker["with_effort"] and picker["allow_off"]
+    assert picker["initial_thinking_level"] == "high"
+    assert form.fields["agent_subagent_models__cr-security__thinking"].initial == "high"
+
+
+@pytest.mark.django_db
+def test_a_detector_row_shows_the_skills_level_as_its_default(admin_client):
+    config = SiteConfiguration.objects.get_instance()
+    config.agent_skill_models = {"code-review": {"thinking_level": "medium"}}
+    config.save()
+
+    form = admin_client.get(MODELS_URL).context["form"]
+
+    assert form.fields["agent_subagent_models__cr-security"].widget.default_thinking == "medium"
+
+
+@pytest.mark.django_db
 def test_a_model_no_provider_serves_saves_nothing(admin_client):
     response = _post(admin_client, **{SKILL_FIELD: "nosuch:model"})
 
@@ -126,6 +198,20 @@ def test_the_skill_s_map_locked_by_its_variable_leaves_the_detectors_editable(ad
     config = SiteConfiguration.objects.get_instance()
     assert config.agent_skill_models == {}
     assert config.agent_subagent_models == {"cr-security": "openai:gpt-5.4"}
+
+
+@pytest.mark.django_db
+def test_a_locked_row_keeps_its_level_when_the_form_comes_back_with_errors(admin_client, monkeypatch):
+    from core import site_settings as ss_module
+
+    monkeypatch.setenv("DAIV_AGENT_SUBAGENT_MODELS", '{"cr-security": {"thinking_level": "high"}}')
+    ss_module._docker_secret_cache.clear()
+
+    form = _post(admin_client, **{f"{SKILL_FIELD}__thinking": "extreme"}).context["form"]
+
+    assert form.errors
+    picker = form.fields[SECURITY_FIELD].widget.get_context("x", "", {})["widget"]["picker"]
+    assert picker["initial_thinking_level"] == "high"
 
 
 def _skill_zip(skill_md: str) -> bytes:
