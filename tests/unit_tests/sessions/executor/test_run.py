@@ -568,6 +568,44 @@ async def test_the_claim_carries_the_sha_the_run_pushed():
     assert stack.claimed == [{"run_id": "run-1", "merge_request": MR, "pushed_sha": "e96f1f77", "repo_id": None}]
 
 
+def _verification(status: str, **extra) -> dict:
+    command = {"command": "make test", "exit_code": 1, "timed_out": False, "already_failing": False}
+    return {"status": status, "commands": [command], "rounds": 2, "suspicious_paths": [], **extra}
+
+
+async def test_the_reply_is_the_closing_text_the_publish_already_added_the_report_to():
+    with agent_stack(_agent(state={"verification": _verification("failed")})):
+        outcome = await execute_run(make_spec())
+
+    assert outcome.response_text == "done"
+    assert outcome.agent_result["response"] == "done"
+
+
+async def test_a_run_with_a_verification_outcome_logs_it_with_the_pushed_sha(caplog):
+    payload = publish_result_payload(status="pushed", pushed_sha="abc")
+    agent = _agent(state={"merge_request": MR, "published": True, "verification": _verification("failed")})
+
+    async def _ainvoke(_input, *, config, **_kwargs):
+        await RunnableLambda(_dispatch_publish_result).ainvoke(payload, config=config)
+        return {"messages": [MagicMock(content="done")]}
+
+    agent.ainvoke = AsyncMock(side_effect=_ainvoke)
+    persist, measure, record = _unrecorded()
+    with agent_stack(agent), persist, measure, record, caplog.at_level("INFO", logger="daiv.sessions"):
+        await execute_run(make_spec(arm_watch=True, run_id="run-1"))
+
+    [line] = [entry.getMessage() for entry in caplog.records if "verification status=" in entry.getMessage()]
+    assert "status=failed rounds=2 failed_commands=1" in line
+    assert "pushed_sha=abc" in line
+
+
+async def test_a_run_without_a_verification_outcome_logs_none(caplog):
+    with agent_stack(_agent(state={})), caplog.at_level("INFO", logger="daiv.sessions"):
+        await execute_run(make_spec())
+
+    assert not any("verification status=" in entry.getMessage() for entry in caplog.records)
+
+
 def _sibling_state(*repo_ids: str, published: bool = True, created: bool = False) -> list[dict]:
     from automation.agent.git_state import RepoPublish
     from codebase.base import MergeRequest, User

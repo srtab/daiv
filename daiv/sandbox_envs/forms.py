@@ -9,6 +9,7 @@ from django import forms
 from django.core.exceptions import NON_FIELD_ERRORS
 from django.utils.translation import gettext_lazy as _
 
+from core.constants import BEFORE_PUBLISH_MAX_COMMANDS
 from sandbox_envs.models import _ENV_VAR_NAME_RE, _REPO_ID_RE, ENV_VARS_MAX_ENTRIES, SandboxEnvironment, Visibility
 
 logger = logging.getLogger("daiv.sandbox_envs")
@@ -55,13 +56,22 @@ class SandboxEnvironmentForm(forms.ModelForm):
     cpu_mode = forms.ChoiceField(
         required=False, choices=[("default", "default"), ("custom", "custom")], initial="default"
     )
+    before_publish_mode = forms.ChoiceField(
+        required=False, choices=[("default", "default"), ("custom", "custom")], initial="default"
+    )
+
+    before_publish = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 3, "class": "font-mono"}),
+        help_text=SandboxEnvironment._meta.get_field("before_publish").help_text,
+    )
 
     class Meta:
         model = SandboxEnvironment
         # Excludes ``is_default`` deliberately: the template renders no checkbox,
         # so including it here would demote the default on save (missing
         # BooleanField → ``False``). Promotion is handled by a dedicated view.
-        fields = ("name", "description", "scope", "base_image", "cpus")
+        fields = ("name", "description", "scope", "base_image", "cpus", "before_publish")
         widgets = {"description": forms.Textarea(attrs={"rows": 2})}
 
     def __init__(self, *args, user=None, is_admin=False, **kwargs):
@@ -87,6 +97,11 @@ class SandboxEnvironmentForm(forms.ModelForm):
                     self.initial.setdefault("memory_unit", "MiB")
             self.initial.setdefault("memory_mode", "custom" if instance.memory_bytes else "default")
             self.initial.setdefault("cpu_mode", "custom" if instance.cpus else "default")
+            self.initial.setdefault(
+                "before_publish_mode", "custom" if instance.before_publish is not None else "default"
+            )
+        self._stored_before_publish = instance.before_publish
+        self.initial["before_publish"] = "\n".join(instance.before_publish or [])
         self.fields["env_vars_json"].initial = self._initial_env_vars_json()
         self.fields["repo_ids_json"].initial = self._initial_repo_ids_json()
         self.fields["egress_json"].initial = self._initial_egress_json()
@@ -176,6 +191,10 @@ class SandboxEnvironmentForm(forms.ModelForm):
                 "has_existing_value": has_cred,
             })
         return json.dumps({"default": policy.get("default", "deny"), "hosts": hosts})
+
+    def clean_before_publish(self) -> list[str]:
+        lines = [line.strip() for line in self.cleaned_data["before_publish"].splitlines()]
+        return [line for line in lines if line]
 
     def clean_scope(self):
         scope = self.cleaned_data["scope"]
@@ -298,6 +317,7 @@ class SandboxEnvironmentForm(forms.ModelForm):
             self.add_error("memory_value", _("Enter a memory value or switch back to default."))
         if cleaned.get("cpu_mode") == "custom" and cleaned.get("cpus") is None:
             self.add_error("cpus", _("Enter a CPU value or switch back to default."))
+        self._clean_before_publish_mode(cleaned)
         choice = cleaned.get("network_choice") or "off"
         if choice == "off":
             # Off forces no network regardless of any editor state.
@@ -317,10 +337,28 @@ class SandboxEnvironmentForm(forms.ModelForm):
         cleaned["egress_policy"], cleaned["egress_secrets"] = policy, secrets
         return cleaned
 
+    def _clean_before_publish_mode(self, cleaned: dict) -> None:
+        """*default* stores ``None`` (inherit the global default's list); *custom* stores the listed commands, where
+        ``[]`` runs none. The global default has nothing to inherit, so its empty list is stored as ``None``."""
+        if cleaned.get("before_publish_mode") != "custom":
+            cleaned["before_publish"] = None
+            return
+        commands = cleaned.get("before_publish") or []
+        if len(commands) > BEFORE_PUBLISH_MAX_COMMANDS:
+            self.add_error(
+                "before_publish",
+                forms.ValidationError(
+                    _("At most %(max)d commands."), code="too_many", params={"max": BEFORE_PUBLISH_MAX_COMMANDS}
+                ),
+            )
+        elif not commands and self.instance.is_global_default:
+            cleaned["before_publish"] = None
+
     def save(self, commit: bool = True) -> SandboxEnvironment:
         env_vars = self.cleaned_data.get("env_vars_json") or []
         instance: SandboxEnvironment = super().save(commit=False)
         instance.memory_bytes = self.cleaned_data.get("memory_bytes")
+        instance.before_publish = self.cleaned_data.get("before_publish")
         instance.repo_ids = self.cleaned_data.get("repo_ids_json") or []
         if instance.scope == Visibility.GLOBAL:
             instance.user = None
@@ -337,7 +375,23 @@ class SandboxEnvironmentForm(forms.ModelForm):
         if commit:
             instance.full_clean()
             instance.save()
+            self._log_before_publish_change(instance)
         return instance
+
+    def _log_before_publish_change(self, instance: SandboxEnvironment) -> None:
+        if self._stored_before_publish == instance.before_publish:
+            return
+        logger.info(
+            "Sandbox environment %s before_publish changed by user %s (commands: %s -> %s)",
+            instance.pk,
+            getattr(self.user, "pk", None),
+            self._command_count(self._stored_before_publish),
+            self._command_count(instance.before_publish),
+        )
+
+    @staticmethod
+    def _command_count(commands: list[str] | None) -> int | str:
+        return "default" if commands is None else len(commands)
 
     @staticmethod
     def _build_egress(parsed: dict) -> tuple[dict | None, dict]:

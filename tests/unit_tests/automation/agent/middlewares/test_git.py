@@ -390,6 +390,90 @@ class TestGitMiddleware:
             result = await middleware.abefore_agent({}, runtime)
         assert result["published"] is False
 
+    @staticmethod
+    def _verification(status="passed"):
+        return {
+            "status": status,
+            "commands": [
+                {
+                    "command": "make test",
+                    "exit_code": 0 if status == "passed" else 1,
+                    "timed_out": False,
+                    "already_failing": False,
+                }
+            ],
+            "rounds": 0,
+            "suspicious_paths": [],
+        }
+
+    async def _publish_with(self, verification, *, created=False, published=True):
+        mw = GitMiddleware(settings=SETTINGS, auto_commit_changes=True, workspace=FakeWorkspace())
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        state = {"merge_request": None}
+        if verification is not None:
+            state["verification"] = verification
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub = pub_cls.return_value
+            pub.publish = AsyncMock(
+                return_value=PublishOutcome(merge_request=_mr(), published=published, created_merge_request=created)
+            )
+            result = await mw.aafter_agent(state, runtime)
+        return pub.publish.await_args.kwargs, result
+
+    async def test_after_agent_publishes_a_failed_verification_as_a_normal_merge_request(self):
+        verification = self._verification("failed")
+
+        kwargs, _ = await self._publish_with(verification)
+
+        assert kwargs.get("as_draft", False) is False
+        assert kwargs["verification"] == verification
+
+    async def test_after_agent_passes_and_keeps_the_outcome(self):
+        verification = self._verification("passed")
+
+        kwargs, result = await self._publish_with(verification, created=True)
+
+        assert kwargs.get("as_draft", False) is False
+        assert kwargs["verification"] == verification
+        assert result["verification"] == verification
+
+    async def test_after_agent_without_outcome_publishes_as_before(self):
+        kwargs, result = await self._publish_with(None)
+
+        assert kwargs.get("as_draft", False) is False
+        assert kwargs["verification"] is None
+        assert "verification" not in result
+
+    async def test_after_agent_reply_says_when_an_unconfigured_run_ran_no_check(self):
+        verification = {
+            "status": "not_configured",
+            "commands": [],
+            "rounds": 0,
+            "suspicious_paths": [],
+            "agent_check": None,
+        }
+
+        _, result = await self._publish_with(verification)
+
+        [message] = result["messages"]
+        assert "The agent ran no test, linter or build after its final edit." in message.content
+
+    async def test_after_agent_replies_with_the_report_after_pushing_to_an_existing_merge_request(self):
+        _, result = await self._publish_with(self._verification("failed"))
+
+        [message] = result["messages"]
+        assert message.content.startswith("### Verification\n")
+        assert "- `make test` failed (exit 1)" in message.content
+        assert "draft" not in message.content
+
+    @pytest.mark.parametrize(("created", "published"), [(True, True), (False, False)])
+    async def test_after_agent_sends_no_report_reply_for_a_new_merge_request_or_nothing_published(
+        self, created, published
+    ):
+        _, result = await self._publish_with(self._verification("failed"), created=created, published=published)
+
+        assert "messages" not in result
+
     async def test_repo_publishes_reset_each_turn(self):
         middleware = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
         runtime = _make_runtime(scope=Scope.GLOBAL)

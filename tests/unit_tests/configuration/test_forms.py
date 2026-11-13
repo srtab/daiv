@@ -600,6 +600,11 @@ class TestModelEntriesForm:
 
 
 @pytest.mark.django_db
+def test_site_configuration_form_includes_verification_enabled():
+    assert "verification_enabled" in SiteConfigurationForm().fields
+
+
+@pytest.mark.django_db
 class TestSearXNGForm:
     def form(self, data, **kwargs):
         return SiteConfigurationForm(

@@ -20,6 +20,7 @@ from automation.agent.agent_settings import resolve_agent_settings
 from automation.agent.questions import render_questions
 from automation.agent.synthetic import SYNTHETIC_KWARG, is_synthetic
 from automation.agent.validators import AgentConfigurationError
+from automation.agent.verification.outcome import VerificationReport
 from codebase.base import GitPlatform, Issue, MergeRequest, Scope, User
 from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL
@@ -216,6 +217,22 @@ class TestIssueAfterRunMatrix:
         run.recover.assert_not_awaited()
         [reply] = captured_client.create_issue_comment.call_args_list
         assert reply.args[2] == "done"
+
+    async def test_issue_follow_up_reply_carries_verification_footer(self, captured_client):
+        outcome = {"status": "failed", "commands": [], "rounds": 2, "suspicious_paths": [], "reason": "tests fail"}
+        report = VerificationReport(outcome, new_merge_request=False).markdown()
+        agent = addressor_agent(
+            return_value={"messages": [AIMessage(content="done"), AIMessage(content=report)]},
+            state_values={"verification": outcome},
+        )
+
+        with addressor_run(agent, ctx=_ctx()):
+            await _address(**_mention(captured_client))
+
+        [reply] = captured_client.create_issue_comment.call_args_list
+        assert reply.args[2].startswith("done\n\n### Verification\n")
+        assert reply.args[2].count("### Verification") == 1
+        assert "opened as a draft" not in reply.args[2]
 
     async def test_a_question_is_posted_under_the_mention_with_the_reply_footer(self, captured_client):
         with addressor_run(_question_agent(), ctx=_ctx()):

@@ -924,3 +924,143 @@ def test_off_forces_null_policy_even_with_hosts(make_form_data):
     form = build_env_form(data)
     assert form.is_valid(), form.errors
     assert form.cleaned_data["egress_policy"] is None
+
+
+@pytest.mark.django_db
+class TestBeforePublishField:
+    @pytest.fixture
+    def bp_user(self):
+        return User.objects.create(username="bp", email="bp@x.test")
+
+    def _form(self, make_form_data, user, instance=None, is_admin=False, **overrides):
+        return SandboxEnvironmentForm(data=make_form_data(**overrides), instance=instance, user=user, is_admin=is_admin)
+
+    def test_custom_lines_become_list(self, make_form_data, bp_user):
+        form = self._form(
+            make_form_data, bp_user, before_publish_mode="custom", before_publish="make lint\n\n make test \n"
+        )
+
+        assert form.is_valid(), form.errors
+        assert form.save().before_publish == ["make lint", "make test"]
+
+    def test_custom_blank_saves_empty_list(self, make_form_data, bp_user):
+        form = self._form(make_form_data, bp_user, before_publish_mode="custom", before_publish="  \n")
+
+        assert form.is_valid(), form.errors
+        assert form.save().before_publish == []
+
+    def test_default_saves_none_and_ignores_the_listed_commands(self, make_form_data, bp_user):
+        env = SandboxEnvironment.objects.create(
+            scope=Visibility.USER, user=bp_user, name="dev", base_image="alpine", before_publish=["make test"]
+        )
+        form = self._form(
+            make_form_data,
+            bp_user,
+            instance=env,
+            before_publish_mode="default",
+            before_publish="\n".join(f"make check-{n}" for n in range(11)),
+        )
+
+        assert form.is_valid(), form.errors
+        assert form.save().before_publish is None
+
+    def test_more_than_ten_custom_commands_are_refused(self, make_form_data, bp_user):
+        form = self._form(
+            make_form_data,
+            bp_user,
+            before_publish_mode="custom",
+            before_publish="\n".join(f"make check-{n}" for n in range(11)),
+        )
+
+        assert not form.is_valid()
+        assert form.errors["before_publish"] == ["At most 10 commands."]
+
+    def test_custom_blank_on_the_global_default_saves_none(self, make_form_data, bp_user):
+        SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).delete()
+        env = SandboxEnvironment.objects.create(
+            scope=Visibility.GLOBAL, name="Default", base_image="alpine", is_default=True, before_publish=["make test"]
+        )
+        form = self._form(
+            make_form_data,
+            bp_user,
+            instance=env,
+            is_admin=True,
+            name="Default",
+            scope=Visibility.GLOBAL,
+            before_publish_mode="custom",
+            before_publish="",
+        )
+
+        assert form.is_valid(), form.errors
+        assert form.save().before_publish is None
+
+    @pytest.mark.parametrize(
+        ("stored", "mode"),
+        [
+            pytest.param(None, "default", id="inherit"),
+            pytest.param([], "custom", id="no-commands"),
+            pytest.param(["make test"], "custom", id="commands"),
+        ],
+    )
+    def test_existing_environment_starts_in_its_stored_mode(self, bp_user, stored, mode):
+        env = SandboxEnvironment.objects.create(
+            scope=Visibility.USER, user=bp_user, name="dev", base_image="alpine", before_publish=stored
+        )
+
+        form = SandboxEnvironmentForm(instance=env, user=bp_user)
+
+        assert form["before_publish_mode"].value() == mode
+
+    def test_form_shows_saved_commands_one_per_line(self):
+        env = SandboxEnvironment.objects.create(name="e", scope=Visibility.GLOBAL, before_publish=["a", "b"])
+
+        form = SandboxEnvironmentForm(instance=env, is_admin=True)
+
+        assert form["before_publish"].value() == "a\nb"
+
+    def test_form_shows_an_empty_custom_list_as_no_lines(self, bp_user):
+        env = SandboxEnvironment.objects.create(
+            scope=Visibility.USER, user=bp_user, name="dev", base_image="alpine", before_publish=[]
+        )
+
+        form = SandboxEnvironmentForm(instance=env, user=bp_user)
+
+        assert form["before_publish"].value() == ""
+
+    def test_a_change_logs_the_user_and_command_counts_but_not_the_commands(self, make_form_data, bp_user, caplog):
+        env = SandboxEnvironment.objects.create(
+            scope=Visibility.USER, user=bp_user, name="dev", base_image="alpine", before_publish=["make secret-lint"]
+        )
+        form = self._form(
+            make_form_data,
+            bp_user,
+            instance=env,
+            before_publish_mode="custom",
+            before_publish="make secret-test\nmake secret-build",
+        )
+        assert form.is_valid(), form.errors
+        caplog.set_level(logging.INFO, logger="daiv.sandbox_envs")
+
+        form.save()
+
+        records = [r for r in caplog.records if "before_publish" in r.getMessage()]
+        assert [r.levelno for r in records] == [logging.INFO]
+        message = records[0].getMessage()
+        assert str(env.pk) in message
+        assert f"by user {bp_user.pk}" in message
+        assert "1 -> 2" in message
+        assert "secret" not in message
+
+    def test_an_unchanged_list_is_not_logged(self, make_form_data, bp_user, caplog):
+        env = SandboxEnvironment.objects.create(
+            scope=Visibility.USER, user=bp_user, name="dev", base_image="alpine", before_publish=["make test"]
+        )
+        form = self._form(
+            make_form_data, bp_user, instance=env, before_publish_mode="custom", before_publish="make test"
+        )
+        assert form.is_valid(), form.errors
+        caplog.set_level(logging.INFO, logger="daiv.sandbox_envs")
+
+        form.save()
+
+        assert "before_publish" not in caplog.text

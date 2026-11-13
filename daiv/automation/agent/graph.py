@@ -15,6 +15,7 @@ from langchain.agents.middleware import (
 from skills.constants import CODE_REVIEW_SKILL, SKILLS_PATH
 from skills.services import adeclared_skill_choice
 
+from automation.agent.agent_settings import resolve_before_publish
 from automation.agent.base import get_model
 from automation.agent.configured_models import ConfiguredModels
 from automation.agent.constants import (
@@ -55,6 +56,7 @@ from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.middlewares.summarization import build_summarization_middleware
 from automation.agent.middlewares.tool_media import ToolMediaMiddleware
+from automation.agent.middlewares.verification import VerificationMiddleware, VerificationResetMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.profile import register as _register_harness_profile
@@ -297,8 +299,22 @@ async def create_daiv_agent(
 
     deferred_tools = deferred_tools_middleware(ALWAYS_LOADED_TOOLS, mcp_tools)
     step_budget = StepBudgetMiddleware()
+    # finalize (not raise) on the parent: a raise would skip after_agent (publish/patch capture)
+    # and discard work — the failure mode StepBudget guards against.
+    loop_breaker = LoopBreakerMiddleware(terminal="finalize")
+    verification: VerificationMiddleware | None = None
+    if settings.features.verification and auto_commit_changes and bash_tool_enabled:
+        verification = VerificationMiddleware(
+            workspace=workspace,
+            commands=resolve_before_publish(
+                repo=ctx.config, sandbox_default=ctx.sandbox.before_publish if ctx.sandbox else None
+            ),
+            step_budget=step_budget,
+            loop_breaker=loop_breaker,
+        )
 
     user_middleware: list[AgentMiddleware[Any, Any, Any]] = [
+        VerificationResetMiddleware(),
         # Replaces the FilesystemMiddleware create_deep_agent would auto-add: 0.7 merges custom
         # middleware into the base stack by ``.name``, taking the same slot and preserving order.
         # Passed only to restrict the toolset (see WORKSPACE_FS_TOOLS); ``_permissions`` must keep
@@ -329,6 +345,8 @@ async def create_daiv_agent(
         *([ArtifactsMiddleware(workspace=workspace, store=artifact_store)] if artifact_store is not None else []),
         *([ToolMediaMiddleware(store=tool_media_store)] if tool_media_store is not None else []),
         *([DelegateJobsMiddleware(delegator=delegator)] if delegator is not None else []),
+        # Outside the fallback, so a fallback model retries only the model call, never the checks.
+        *([verification] if verification is not None else []),
         *([ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:])] if fallback_models else []),
         # Inside the fallback and outside the deferred tools and context meter, which act on the model serving the call.
         SkillModelMiddleware(skill_models, run_model=model),
@@ -338,9 +356,7 @@ async def create_daiv_agent(
         *([AskUserQuestionMiddleware()] if ask_user_enabled else []),
         # Before the caching middleware so the cache-control placement sees the final
         # message list, including any injected budget reminder.
-        # finalize (not raise) on the parent: a raise would skip after_agent (publish/patch capture)
-        # and discard work — the failure mode StepBudget guards against.
-        LoopBreakerMiddleware(terminal="finalize"),
+        loop_breaker,
         step_budget,
         ContextUsageMiddleware(),
         AnthropicPromptCachingMiddleware(),

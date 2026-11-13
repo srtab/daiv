@@ -58,6 +58,7 @@ You need a base image for the environment, such as `python:3.14`. To let the age
 | **Resources** | Expand it to set **Memory** and **CPUs**. Each is **Use default** or **Custom**. |
 | **Memory** | A whole number of at least 1, with the unit **MiB** or **GiB**. |
 | **CPUs** | A number of at least 0.25, in steps of 0.25. |
+| **Before publish commands** | The commands DAIV runs to check a run's changes before it publishes them. **Use default** or **Custom**. See [Before publish commands](#before-publish-commands). |
 
 **Use default** leaves **Memory** or **CPUs** unset, so the value comes from the global default environment. If that sets none either, DAIV asks for no limit. On the global default itself, the option reads **Unconstrained**. **Network** never comes from the global default: each environment sets its own.
 
@@ -127,6 +128,15 @@ If DAIV cannot decrypt an environment's egress credentials at run time, or its e
 The **Repositories** field lists the repositories the environment claims. To add one, type `owner/repo` or `group/subgroup/repo` and select **+ Add**. When a run targets a claimed repository and no environment is selected, DAIV picks this one (see [How an environment is resolved](#how-an-environment-is-resolved)).
 
 A repository can be claimed by one environment per scope. For User environments, that means one of your own. DAIV rejects a binding that overlaps another environment of the same scope and names that environment. The same repository can still appear in one User environment and one Global environment, and the User one wins.
+
+## Before publish commands
+
+**Before publish commands** sets the [verification hooks](../customization/repository-config.md#verification-hooks) that every repository using the environment runs before DAIV publishes. A `hooks.before_publish` list in a repository's `.daiv.yml` replaces this list entirely, and `before_publish: []` turns verification off for that repository.
+
+- **Use default** runs the global default environment's list.
+- **Custom** runs the environment's own list, one command per line, up to 10. An empty custom list runs no commands, even when the global default has some.
+
+On the global default itself, there is nothing to inherit, so the first option reads **No commands**. Choose it, or leave the custom list empty, for no default commands. DAIV logs who changed an environment's commands, and how many it now has.
 
 ## How an environment is resolved
 

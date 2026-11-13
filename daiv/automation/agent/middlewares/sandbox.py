@@ -122,6 +122,11 @@ def _bash_tool_description(default_timeout: int, max_timeout: int) -> str:
     )
 
 
+def is_bare_timeout_notice(result: RunCommandResult, timeout: int) -> bool:
+    """Whether ``result`` is daiv-sandbox 0.5.0's timeout, which sets no ``timed_out`` and leaves only its notice."""
+    return result.exit_code == SANDBOX_TIMEOUT_EXIT_CODE and result.output == f"Command timed out after {timeout}s"
+
+
 def _explain_sandbox_timeout(result: RunCommandResult, timeout: int, max_timeout: int) -> RunCommandResult:
     """Tell the agent what to do about a command the sandbox timed out.
 
@@ -135,7 +140,7 @@ def _explain_sandbox_timeout(result: RunCommandResult, timeout: int, max_timeout
     advice = f"{next_step}; for a test suite, run a subset of the tests instead."
     if result.timed_out:
         return result.model_copy(update={"output": f"{result.output}\n{advice}"})
-    if result.exit_code == SANDBOX_TIMEOUT_EXIT_CODE and result.output == f"Command timed out after {timeout}s":
+    if is_bare_timeout_notice(result, timeout):
         output = (
             f"Command timed out after {timeout}s and may still be running in the sandbox. Stop it (for example "
             f"with `pkill -f`) before you run it again, or the two runs overlap. {advice}"

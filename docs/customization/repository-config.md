@@ -46,6 +46,12 @@ orchestration:
 memory:
   enabled: true
 
+# Verification hooks
+hooks:
+  before_publish:
+    - "uv run ruff check ."
+    - "uv run pytest -q"
+
 # Model overrides
 models:
   agent:
@@ -134,6 +140,50 @@ slash_commands:
 | `memory` | `enabled` | `true` | Repository memory: capture observations from finished runs, consolidate them, and add them to the system prompt of later runs. Set it to `false` to opt this repository out. |
 
 `pipeline_watch.enabled` and `memory.enabled` apply only while the matching site-wide setting is on too: **Pipeline Watch** and **Memory** in [Site configuration](../reference/site-configuration.md). The other toggles apply to the repository alone.
+
+## Verification hooks
+
+`hooks.before_publish` lists commands DAIV runs to check the agent's work before it publishes:
+
+```yaml
+hooks:
+  before_publish:
+    - "uv run ruff check ."
+    - "uv run pytest -q"
+```
+
+| Section | Option | Default | Description |
+|---------|--------|---------|-------------|
+| `hooks` | `before_publish` | the sandbox environment's list | Commands to run before publishing, up to 10. `[]` turns verification off for the repository. See [Default commands](#default-commands). |
+
+A command passes when it exits 0. When the agent finishes, DAIV runs the commands in order, from the repository root inside the sandbox. They run only in sandbox runs and never when the agent works on a local checkout. You can list up to 10 commands. Each command has 10 minutes before it counts as failed. When the sandbox has `timeout`, DAIV then stops the command and every process it started, except ones that detach into a session of their own (`setsid`, daemons). All the checks in a run share 30 minutes: once those are spent, no further check starts and the run is published as not verified.
+
+In a run that works on several repositories, only the main repository's commands run. Changes in the other repositories are published without verification.
+
+When a command fails, DAIV sends the output back to the agent and the agent fixes the code, for up to 2 rounds. DAIV checks again after each round. A command that also fails on the code from before the change is reported as already failing and not sent back for fixing.
+
+!!! note
+    Files a command changes stay in the tree and are published with the agent's changes, so you can list a formatter (`ruff format .`). Add files the checks generate, such as coverage reports, to `.gitignore`.
+
+### What happens when checks still fail
+
+DAIV publishes the merge request as usual, with a **Verification** section that lists each command and its result. The checks' output isn't published. The section also lists suspicious edits: test files, lint and test configuration, task runners such as a `Makefile`, CI files and `.daiv.yml`. Suspicious edits are flagged for review, not blocked.
+
+On an existing merge request, the section goes in DAIV's reply: the chat reply, the comment it posts on the issue or merge request, or the result of a job, MCP call or scheduled job. When DAIV opened the merge request, the section in its description is replaced with the new one, so it always shows the latest checks. The [CI fix loop](../features/pipeline-watch.md) works as usual.
+
+If the agent gets stuck in a loop and DAIV stops it, the checks still run and are reported, but no fix round is spent. If the checks can't run at all, for example when the sandbox fails, DAIV publishes normally and says in the report that the run was not verified, and why.
+
+### Default commands
+
+A [sandbox environment](../features/sandbox-environments.md#before-publish-commands) can set default `before_publish` commands for every repository that uses it. A list in `.daiv.yml` replaces the environment's list entirely. Set `before_publish: []` to turn verification off for the repository: DAIV runs no commands and sends no reminder.
+
+### Without commands
+
+When no commands are declared, DAIV sends the agent one reminder if the files changed after the last test, linter or build the agent ran, or that check failed. The run is published as usual. A new merge request's description says which check the agent last ran after its final edit and how it ended, or that it ran none. When that check passed, the description also has a `hooks.before_publish` snippet to add it to `.daiv.yml`. On an existing merge request, DAIV's reply says so only when no passing check ran.
+
+### Site switch
+
+Administrators can turn verification off for all repositories with **Verification enabled** in the **Agent** group of [Site configuration](../reference/site-configuration.md). It is on by default. When it is off, DAIV runs no `before_publish` commands and sends no reminder.
 
 ## Model overrides
 
