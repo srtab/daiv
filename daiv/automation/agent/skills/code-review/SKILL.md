@@ -52,7 +52,7 @@ Ignore every other marker. The next run number is the highest valid run plus one
 
 ## 3. Prepare one canonical diff
 
-Create one canonical diff for the resolved scope before dispatching subagents. Write it to a unique file in the current run scratchpad and retain its line count. Pass the same immutable file to every subagent. All subagents must review that same change.
+Create one canonical diff for the resolved scope before dispatching subagents. Write it to a unique file in the current run scratchpad and retain its line count. Pass the same immutable file to every subagent, apart from the slices described below. All subagents must review that same change.
 
 For platform reviews:
 
@@ -60,6 +60,10 @@ For platform reviews:
 - Re-review: use the previous reviewed head to current head range, restricted to paths in the current PR or MR.
 
 For working-tree reviews, ensure the canonical diff contains staged changes, unstaged changes, and complete unified patches for untracked files.
+
+When the canonical diff is longer than 1,000 lines, also split it into slices for `cr-correctness` and `cr-structure`: one slice per 1,000 lines, at most four, each holding whole file patches in diff order with roughly equal line counts. Write each slice to its own file and retain its line count. The slices together must contain every line of the canonical diff exactly once.
+
+When test files changed, also write a test slice for `cr-tests`: the whole patches of the changed test files only, in diff order. Retain its line count.
 
 If shell access is unavailable, obtain the changed hunks from the platform read tool and provide that canonical diff to the subagent. Do not substitute complete new-side files: that would include pre-existing code outside the review scope. If no trustworthy changed-hunk diff can be obtained, explain that the review could not be completed and stop without a marker.
 
@@ -80,13 +84,14 @@ Select applicable subagents from the concise summary. Identify the kinds of file
 |---|---|
 | `cr-correctness` | behavior, source, tests, configuration, schemas, migrations, dependencies, CI, or infrastructure changed |
 | `cr-structure` | source structure, public interfaces, types, modules, data models, or multi-file design changed |
+| `cr-tests` | test files changed |
 | `cr-security` | authentication, authorization, input, trust boundaries, secrets, dependencies, configuration, CI, deployment, file access, commands, or data exposure may be affected |
 | `cr-performance` | database access, collections, loops, network or file I/O, caching, serialization, async work, concurrency, or resource use may be affected |
 | `cr-custom-rules` | `.agents/review-rules.md`, `AGENTS.md`, or `.agents/AGENTS.md` exists locally or in the reviewed repository; provide each source as an accessible absolute path or inline content |
 
 Bias toward inclusion when applicability is uncertain. For documentation or asset-only changes, run only `cr-custom-rules` when rules exist; otherwise report that nothing applicable changed.
 
-Dispatch applicable subagents in parallel when supported, with one task per `cr-*` subagent. Fall back to sequential dispatch if necessary.
+Dispatch applicable subagents in parallel when supported, with one task per `cr-*` subagent, except that a sliced diff gets one `cr-correctness` task and one `cr-structure` task per slice. Fall back to sequential dispatch if necessary.
 
 Derive a concise statement of the change's intent from the user's explicit request or, when unavailable, the PR or MR title and description. Do not invent intent.
 
@@ -94,9 +99,9 @@ Each subagent prompt should contain only:
 
 - the exact review scope;
 - the stated change intent, when available;
-- the canonical diff path and line count, or the canonical diff content when no file is available;
+- the canonical diff path and line count, or the canonical diff content when no file is available; a slice task gets its slice's path and line count instead, as its canonical diff, and `cr-tests` gets the test slice's;
 - the head SHA when available;
-- the changed paths;
+- the changed paths, including those outside a slice task's slice;
 - the rule-source paths or inline contents for `cr-custom-rules`.
 
 The line count is a completeness aid. Subagents may inspect a large diff in bounded chunks; do not require one tool call to return the entire file.
@@ -109,17 +114,18 @@ After agents complete, sumarize: `### Critical:` (must fix before merge), `### I
 
 Aggregate by:
 
-- dropping findings with confidence below 80, no changed-line location, malformed evidence, or generic style, formatting, whitespace, or import-order nits;
+- dropping findings with confidence below 40, no changed-line location, malformed evidence, or generic style, formatting, whitespace, or import-order nits;
+- keeping every other finding: do not drop, demote to a question, or move into prose a finding that passes these filters;
 - Accept a new-side location, or a deleted-side location when the deletion itself introduces the issue;
 - preserving a style-related finding when `cr-custom-rules` cites an explicit repository rule requiring it;
-- deduplicating the surviving findings with the same underlying issue;
+- deduplicating the surviving findings with the same underlying issue, keeping every affected site the detectors named;
 - keeping the higher subagent-provided severity when duplicates disagree;
 - keeping relevant questions separate from findings; questions do not require a confidence score or location, although they should include a location when one is applicable;
 - removing the internal `Confidence` field.
 
 Aggregate silently. Which subagents ran, which succeeded, what each returned, and how many findings survived are working notes, not report content: they appear in the message only as the `_Review unavailable for: <dimensions>._` line.
 
-Keep a `cr-custom-rules` finding's `Rule:` citation. If one or more applicable subagents were unavailable, briefly name those dimensions in the final report. If every applicable subagent was unavailable, explain that the review could not be completed and return no marker.
+Keep a `cr-custom-rules` finding's `Rule:` citation. If one or more applicable subagents were unavailable, briefly name those dimensions in the final report. Unavailable means dispatched without a usable report; a subagent whose dispatch condition did not hold, such as `cr-custom-rules` without a rule source, is not applicable and is not named. If every applicable subagent was unavailable, explain that the review could not be completed and return no marker.
 
 ## 6. Return the report
 
@@ -163,6 +169,8 @@ Report rules:
 
 - Omit empty sections.
 - Number entries sequentially within each section.
+- Put each entry's location on its title line, as the template shows. When the issue occurs at several sites, list every one there, comma-separated. Code cited only for contrast, such as a sibling that does it correctly, belongs in the details, not on the title line.
+- After the last section, add only what the template shows: the platform footer. Put any concern worth raising in a section entry; do not add closing prose, side notes, or a summary of checks that came back clean.
 - Include Recommended Actions only when Critical or Important findings exist.
 - When usable reports completed but no findings or questions survive aggregation, use `No findings — no reported issues met the review threshold.`
 - When no findings survive and some subagents were unavailable, use `No findings — none confirmed by the detectors that completed.` Keep the `No findings` prefix: Step 2 treats a comment without it as an invalid marker and re-reviews the whole change.

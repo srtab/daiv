@@ -7,7 +7,7 @@ import logging
 
 logger = logging.getLogger("daiv.sandbox_envs")
 
-_FALLBACK_IMAGE = "python:3.12-alpine"
+_FALLBACK_IMAGE = "ghcr.io/astral-sh/uv:python3.14-bookworm"
 
 
 def seed_global_default(SandboxEnvironment) -> None:  # noqa: N803

@@ -141,19 +141,25 @@ def assert_can_run(user: User, repo_ids: Iterable[str]) -> None:
         RepositoryAccessDenied: carrying the denied repo ids.
     """
     repo_ids = list(repo_ids)
+    writable = runnable_repo_ids(user, repo_ids)
+    denied = [repo_id for repo_id in repo_ids if repo_id not in writable]
+    if denied:
+        raise RepositoryAccessDenied(denied)
+
+
+def runnable_repo_ids(user: User, repo_ids: Iterable[str]) -> set[str]:
+    """Subset of ``repo_ids`` on which the user holds WRITE access (fresh within the hard TTL); one query."""
+    repo_ids = list(repo_ids)
     if user.is_admin:
-        return
+        return set(repo_ids)
     uid = _resolve_uid(user)
     if uid is None:
-        raise RepositoryAccessDenied(repo_ids)
-    writable = set(
+        return set()
+    return set(
         _fresh_rows(uid)
         .filter(repo_id__in=repo_ids, access_level=RepoAccessLevel.WRITE)
         .values_list("repo_id", flat=True)
     )
-    denied = [repo_id for repo_id in repo_ids if repo_id not in writable]
-    if denied:
-        raise RepositoryAccessDenied(denied)
 
 
 def viewable_repo_ids(user: User, repo_ids: Iterable[str]) -> set[str]:

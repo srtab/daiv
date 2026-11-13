@@ -1,8 +1,16 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from automation.agent.context import RepoHandle
 from codebase.base import MergeRequest, User
+
+
+@pytest.fixture(autouse=True)
+def _no_unusable_model_reported_yet():
+    from automation.agent import configured_models
+
+    configured_models._reported.clear()
 
 
 @pytest.fixture
@@ -30,3 +38,19 @@ def make_merge_request(**overrides) -> MergeRequest:
     }
     defaults.update(overrides)
     return MergeRequest(**defaults)
+
+
+def make_repo_handle(
+    slug: str, *, current_ref: str = "main", default_branch: str = "main", head_detached: bool = False
+) -> RepoHandle:
+    return RepoHandle(
+        repo_id=slug,
+        client=Mock(),
+        repository=Mock(slug=slug),
+        gitrepo=Mock(),
+        config=Mock(default_branch=default_branch),
+        ref=current_ref,
+        current_ref=current_ref,
+        head_detached=head_detached,
+        clone_seconds=0.0,
+    )

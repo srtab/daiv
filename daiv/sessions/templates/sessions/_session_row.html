@@ -1,4 +1,8 @@
 {% load humanize i18n icon_tags session_tags %}
+{% comment %}
+Context:
+- session: the row's session, with its runs prefetched newest first.
+{% endcomment %}
 {% with latest=session.runs.all|first %}
 <div class="session-row group{% if latest.status == 'FAILED' %} session-row--failed{% endif %}">
     <a href="{% url 'session_detail' thread_id=session.thread_id %}" class="absolute inset-0"
@@ -33,10 +37,10 @@
             {% endif %}
             {% if merge_request %}
                 {% if merge_request.url %}
-                <a href="{{ merge_request.url }}" target="_blank" rel="noopener"
-                   class="mr-pill relative z-10 shrink-0">{% icon "merge-request" "h-3 w-3" %}!{{ merge_request.iid }}</a>
+                <a href="{{ merge_request.url }}" target="_blank" rel="noopener" title="{{ merge_request.state.label }}"
+                   class="mr-pill mr-pill--{{ merge_request.state }} relative z-10 shrink-0">{% icon "merge-request" "h-3 w-3" %}!{{ merge_request.iid }}</a>
                 {% else %}
-                <span class="mr-pill shrink-0">{% icon "merge-request" "h-3 w-3" %}!{{ merge_request.iid }}</span>
+                <span class="mr-pill mr-pill--{{ merge_request.state }} shrink-0" title="{{ merge_request.state.label }}">{% icon "merge-request" "h-3 w-3" %}!{{ merge_request.iid }}</span>
                 {% endif %}
             {% endif %}
         </div>

@@ -14,6 +14,7 @@
                     {% icon "ellipsis-horizontal" "h-4 w-4" %}
                 </button>
                 <div x-show="open" @click.outside="open = false" x-cloak
+                     data-surface
                      class="card__menu-panel">
                     <a href="{% url 'skills:download' skill.name %}" class="card__menu-item">
                         {% icon "arrow-down-tray" "h-4 w-4 shrink-0" %}
@@ -40,6 +41,7 @@
                 {% icon "bolt" "h-3 w-3" %}
                 {% blocktranslate count counter=skill.invocations_count %}{{ counter }} invocation{% plural %}{{ counter }} invocations{% endblocktranslate %}
             </span>
+            {% include "skills/_skill_model_pills.html" %}
             <p class="card__description">{{ skill.description }}</p>
 
             <div class="mt-3">
@@ -51,7 +53,7 @@
             </div>
 
             <p class="card__footer">
-                {% blocktranslate with when=skill.created|timesince size=skill.size_bytes|filesizeformat count counter=skill.file_count %}
+                {% blocktranslate with when=skill.modified|timesince size=skill.size_bytes|filesizeformat count counter=skill.file_count %}
                 Uploaded {{ when }} ago · {{ size }} · {{ counter }} file
                 {% plural %}
                 Uploaded {{ when }} ago · {{ size }} · {{ counter }} files

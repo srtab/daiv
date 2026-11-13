@@ -96,6 +96,54 @@ async def test_seed_session_treats_409_as_already_seeded(fake_settings, mock_pos
         await client.seed_session("sid-123", repo_archive=b"tar")
 
 
+async def test_seed_sends_repos_archive(fake_settings, mock_post):
+    from core.sandbox.client import DAIVSandboxClient
+
+    mock_post["json_body"] = {"seeded": ["repo", "repos"]}
+    async with DAIVSandboxClient() as client:
+        result = await client.seed_session("sid", repo_archive=b"r", repos_archive=b"x")
+
+    assert result is None
+    files = mock_post["kwargs"]["files"]
+    assert set(files) == {"repo_archive", "repos_archive"}
+    assert files["repos_archive"][1] == b"x"
+
+
+async def test_seed_raises_when_sandbox_ignored_repos_archive(fake_settings, mock_post):
+    from core.sandbox.client import DAIVSandboxClient, SandboxCapabilityError
+
+    mock_post["status"] = 204
+    async with DAIVSandboxClient() as client:
+        with pytest.raises(SandboxCapabilityError):
+            await client.seed_session("sid", repo_archive=b"r", repos_archive=b"x")
+
+
+async def test_seed_raises_when_repos_missing_from_seeded(fake_settings, mock_post):
+    from core.sandbox.client import DAIVSandboxClient, SandboxCapabilityError
+
+    mock_post["json_body"] = {"seeded": ["repo"]}
+    async with DAIVSandboxClient() as client:
+        with pytest.raises(SandboxCapabilityError):
+            await client.seed_session("sid", repo_archive=b"r", repos_archive=b"x")
+
+
+async def test_seed_without_repos_archive_accepts_204(fake_settings, mock_post):
+    from core.sandbox.client import DAIVSandboxClient
+
+    mock_post["status"] = 204
+    async with DAIVSandboxClient() as client:
+        await client.seed_session("sid", repo_archive=b"r")
+
+
+async def test_seed_409_is_still_a_noop_with_repos_archive(fake_settings, mock_post):
+    from core.sandbox.client import DAIVSandboxClient
+
+    mock_post["status"] = 409
+    mock_post["json_body"] = {"detail": "Session already seeded"}
+    async with DAIVSandboxClient() as client:
+        await client.seed_session("sid", repo_archive=b"r", repos_archive=b"x")
+
+
 async def test_connection_pool_reused_across_calls_in_one_block(fake_settings, mock_post):
     """One ``async with`` block must reuse a single httpx.AsyncClient across N calls."""
     from core.sandbox.client import DAIVSandboxClient
@@ -154,6 +202,29 @@ async def test_call_before_open_raises(fake_settings):
     client = DAIVSandboxClient()
     with pytest.raises(AttributeError):
         await client.run_commands("sid", RunCommandsRequest(commands=["echo"], fail_fast=True))
+
+
+async def test_run_commands_with_a_timeout_waits_for_every_command_to_time_out(fake_settings, mock_post):
+    """The HTTP call outlasts the commands, so the sandbox, not the client, ends a long command."""
+    from core.sandbox.client import DAIVSandboxClient
+    from core.sandbox.schemas import RunCommandsRequest
+
+    mock_post["json_body"] = {"results": []}
+    async with DAIVSandboxClient() as client:
+        await client.run_commands("sid", RunCommandsRequest(commands=["a", "b"], timeout=300))
+
+    assert mock_post["kwargs"]["timeout"] == 660
+
+
+async def test_run_commands_without_a_timeout_uses_the_client_timeout(fake_settings, mock_post):
+    from core.sandbox.client import DAIVSandboxClient
+    from core.sandbox.schemas import RunCommandsRequest
+
+    mock_post["json_body"] = {"results": []}
+    async with DAIVSandboxClient() as client:
+        await client.run_commands("sid", RunCommandsRequest(commands=["a"]))
+
+    assert mock_post["kwargs"]["timeout"] is httpx.USE_CLIENT_DEFAULT
 
 
 async def test_fs_write_posts_to_fs_write(fake_settings, mock_post):
@@ -348,7 +419,12 @@ async def test_start_session_sends_egress_with_plaintext_secret(fake_settings, h
     egress = json.loads(body)["egress"]
     assert egress["secrets"]["tok"] == {"header": "PRIVATE-TOKEN", "value": "supersecret"}
     assert egress["policy"]["default"] == "deny"
-    assert egress["policy"]["rules"][0] == {"host": "gitlab.com", "methods": ["*"], "inject": "tok"}
+    assert egress["policy"]["rules"][0] == {
+        "host": "gitlab.com",
+        "methods": ["*"],
+        "inject": "tok",
+        "path_prefix": None,
+    }
 
 
 async def test_start_session_sends_policy_only_egress_with_empty_secrets(fake_settings, httpx_mock):

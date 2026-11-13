@@ -1,0 +1,81 @@
+{
+  "pr": {
+    "repo": "https://github.com/konturio/disaster-ninja-fe",
+    "pr_number": 1230,
+    "base": "3c1900acccaae22cb69adb02dd8351f24fe4e8b5",
+    "head": "d169e9da6b816d04a9697359406cdf154b2f8067"
+  },
+  "agent": "daiv/anthropic:claude-haiku-5-5",
+  "findings": [
+    {
+      "file": "src/core/logical_layers/renderers/GenericRenderer.ts",
+      "start_line": 239,
+      "end_line": 240,
+      "message": "Basemap remount calls reatom atoms as functions, so overlays are dropped on every Kontur switch\n\n`mountedLayersAtom` stores `LayerAtom` values (`src/core/logical_layers/atoms/mountedLayers.ts:6`, `src/core/logical_layers/utils/logicalLayerFabric.ts:299`). `LayerAtom` is a reatom v2 atom whose `enable`/`disable` are methods (`src/core/logical_layers/types/logicalLayer.ts:23-40`). The codebase always calls them as `layerAtom.disable()` / `layerAtom.enable()` through `store.dispatch` (`src/core/logical_layers/utils/applyNewLayerSource.ts:10-19`). The reatom v2 `Atom` type is an object type with no call signature (`patches/@reatom__core-v2@3.1.4.patch`, `build/types.d.ts` hunk). So `layer('disable')` throws `layer is not a function` at runtime, and `tsc` should report TS2349. CI runs `pnpm run typecheck` (`.github/workflows/build.yml:92`).\n\nConsequences:\n- `setStyle` (line 234) removes every custom source and layer. Overlays only come back if this loop re-adds them.\n- The first throw stops the `forEach`. The remaining layers stay in `mountedLayersAtom` but are missing from the map.\n- The throw happens inside a map `styledata` listener, outside `willMount`'s try/catch.\n- Even with correct calls, `disable()` and `enable()` in one batch net to no change, so nothing unmounts or remounts (`logicalLayerFabric.ts:288-300`). That is why `applyNewLayerSource` dispatches in two steps.\n\nThe test passes against this code because its mock entry is `vi.fn()` (`GenericRenderer.test.ts:18`), which is callable.\n\nFix: import `store` from `~core/store/store`, then for each captured layer dispatch `store.dispatch([layer.disable()])` and, as a separate call, `store.dispatch([layer.enable()])`. Fix the test mock as described in finding 4.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/core/logical_layers/renderers/GenericRenderer.ts",
+      "start_line": 383,
+      "end_line": 384,
+      "message": "Disabling a Kontur basemap never restores the default style\n\n`willUnMount` removes only this layer's own source and layers. Nothing resets the style. `setStyle` is called only from the new branch (line 234). After the Kontur basemap is toggled off, the map keeps the Kontur style. At boot, the fallback is `stageConfig.mapBaseStyle` when no Kontur basemap is enabled (`src/boot.ts:81-87`), so the intended behavior is a revert.\n\nFix: when a `maplibre-style-url` layer unmounts and no other such layer is mounted, call `setStyle` with the default base style URL, reusing the same remount helper. If the UI never allows having no basemap enabled, state that in the PR instead.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/core/logical_layers/renderers/GenericRenderer.ts",
+      "start_line": 236,
+      "end_line": 237,
+      "message": "Basemap switching and a second `layersOrderManager.init` call live inside a per-layer renderer\n\n`ConnectedMap` currently owns the order-manager lifecycle: `init` on map `load` (`src/components/ConnectedMap/ConnectedMap.tsx:79-81`) and `destroy` on map destroy. This diff adds a second `init` caller with the same arguments, fired on `styledata`. It also clears `mapLibreParentsIds` and remounts every other layer, all from inside one layer's `willMount`. The deferred callback closes over `map`. If the map is destroyed before `styledata` fires, it would re-init the singleton against a destroyed map. I did not verify that timing.\n\nFix: move the switch into one owner beside `layersOrder.ts` (for example `switchBasemapStyle(map, url)`) that calls `setStyle`, clears parents, re-inits, and remounts. `GenericRenderer` should only call it.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/core/logical_layers/renderers/GenericRenderer.test.ts",
+      "start_line": 18,
+      "end_line": 18,
+      "message": "The test cannot detect the bugs it targets\n\n- Only `'disable'` is asserted (lines 48-52). Dropping the `enable` call still passes, and the order is never checked.\n- `initSpy` (line 41) is never asserted. Deleting the `layersOrderManager.init` call at `GenericRenderer.ts:237` still passes.\n- The `once` stub (lines 24-26) runs the `styledata` callback synchronously, so the real ordering (`setStyle` \u2192 `styledata` \u2192 remount) is never exercised.\n- `mockRestore()` (line 53) is not in `afterEach` or `finally`, so a failed assertion leaks the spy.\n- The mounted entry is a `vi.fn()` instead of an object with `enable`/`disable` actions (line 18). This is why the test passes despite finding 1.\n\nFix: capture the `styledata` callback and invoke it after asserting `setStyle`. Assert `otherLayer` receives `['disable']` then `['enable']` with `toEqual`. Assert `initSpy` was called once with `map`. Use an entry with action methods. Restore spies in `afterEach`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/core/logical_layers/utils/layersOrder/layersOrder.ts",
+      "start_line": 52,
+      "end_line": 56,
+      "message": "Each basemap load adds another `layersSettingsAtom` subscription\n\n`init` pushes a new subscription into `_unsubscribe` on every call and never unsubscribes the old ones. Fix: unsubscribe and clear `_unsubscribe` at the start of `init`, or call `destroy()` before re-initializing. Results are unaffected; this is a small leak.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/core/logical_layers/renderers/GenericRenderer.ts",
+      "start_line": 237,
+      "end_line": 237,
+      "message": "Each basemap load adds another `layersSettingsAtom` subscription\n\n`init` pushes a new subscription into `_unsubscribe` on every call and never unsubscribes the old ones. Fix: unsubscribe and clear `_unsubscribe` at the start of `init`, or call `destroy()` before re-initializing. Results are unaffected; this is a small leak.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/core/logical_layers/renderers/GenericRenderer.ts",
+      "start_line": 231,
+      "end_line": 231,
+      "message": "The remount list is captured before the async style swap\n\n`mountedLayersAtom` can change between `setStyle` and `styledata`. A layer unmounted in that window gets re-enabled from a stale snapshot. A layer mounted in that window is dropped by the style swap. Fix: read `mountedLayersAtom.getState()` inside the `styledata` callback.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/core/logical_layers/renderers/GenericRenderer.test.ts",
+      "start_line": 45,
+      "end_line": 51,
+      "message": "Assertion messages omit input data\n\n**Rule:** `AGENTS.md`: \"Testing: Always add a custom assertion message \u2026 Incorporate input data and relevant test details\u2026\"\n\nThe message on line 45 omits the layer id and URL. The messages at lines 48-51 omit the layer id and the actual calls. Fix: include `kontur_lines`, `style.json`, and `JSON.stringify(otherLayer.mock.calls)`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/core/logical_layers/renderers/GenericRenderer.ts",
+      "start_line": 229,
+      "end_line": 230,
+      "message": "A missing style URL is skipped silently\n\n**Rule:** `AGENTS.md`: \"Debugging: Don't stub stuff out with insane fallbacks \u2026 instead make the rest of the code work around data absence and inform user.\"\n\n`urls` is optional in `LayerSourceDto`, so `if (styleUrl)` silently does nothing. Fix: log or throw with the layer id, following the pattern in `mountTileLayer`. This rule is aimed at fabricated values, so it may not apply here.",
+      "producer": "daiv"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 2928028,
+    "completion_tokens": 211085,
+    "total_tokens": 3139113,
+    "time_in_ms": 565312,
+    "cost_usd": 0.1674873
+  }
+}

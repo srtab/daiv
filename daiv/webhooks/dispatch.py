@@ -1,12 +1,17 @@
 """Start an addressor run for a webhook event that a platform's callback has parsed and accepted.
 
-Each dispatch enqueues the addressor task and records its ``Run`` on the issue's or merge request's ``Session`` in
-one transaction, then reacts with 👀 on what triggered it. A worker sees the task only once its session and ``Run``
-exist, so every addressor run waits for the session's slot and knows its ``Run``. The repository, iid and mentioning
-note are the task's ``dedup_on`` key: a repeated delivery or an edited comment finds the earlier trigger's task,
-which has its ``Run`` already, and stops without writing or reacting. A label trigger only repeats a queued or
+A comment on a merge request a session owns goes to that session's inbox instead: a mention as a waking event, which
+gets the 👀 reaction once, any other comment as a remembered one. Only an owned merge request takes a mention on a
+diff line.
+
+Otherwise each dispatch enqueues the addressor task and records its ``Run`` on the issue's or merge request's
+``Session`` in one transaction, then reacts with 👀 on what triggered it. A worker sees the task only once its session
+and ``Run`` exist, so every addressor run waits for the session's slot and knows its ``Run``. The repository, iid and
+mentioning note are the task's ``dedup_on`` key: a repeated delivery or an edited comment finds the earlier trigger's
+task, which has its ``Run`` already, and stops without writing or reacting. A label trigger only repeats a queued or
 running one. The enqueue holds the key's lock until the transaction commits, so of concurrent deliveries exactly one
-creates the task and its ``Run``.
+creates the task and its ``Run``. A trigger whose session is archived, or a mention on a merge request an archived
+session owns, starts nothing; DAIV replies once, linking the session, for someone with run access to unarchive it.
 """
 
 import logging
@@ -14,49 +19,64 @@ from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
+from django.core.cache import cache
 from django.db import transaction
+from django.urls import reverse
 
 from asgiref.sync import sync_to_async
 from sandbox_envs.selection import resolve_env_for_run
 from sessions.ids import compute_thread_id
-from sessions.models import SessionOrigin
+from sessions.inbox import kinds
+from sessions.inbox.ownership import Ownerships
+from sessions.inbox.post import Inbox
+from sessions.models import EventKind, Session, SessionOrigin
 from sessions.services import create_run
 
-from accounts.utils import resolve_user
+from accounts.utils import resolve_linked_user
 from codebase.base import GitPlatform, Scope
-from codebase.clients.base import PLATFORM_ERRORS, Emoji
+from codebase.clients.base import PLATFORM_ERRORS, CommentThread, Emoji
 from core.site_settings import site_settings
+from core.utils import build_absolute_url
 from webhooks.tasks import address_issue_label_task, address_issue_task, address_mr_comments_task
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from sessions.models import MergeRequestOwnership
 
     from codebase.clients import RepoClient
     from core.backends.deduplicating import DeduplicatingTask
 
 logger = logging.getLogger("daiv.webhooks")
 
+ARCHIVED_REPLY_TTL = 24 * 60 * 60
+
 
 @dataclass(frozen=True)
 class Author:
-    """The platform account that triggered the event."""
+    """The platform account that triggered the event. DAIV knows it only as the DAIV user who signed in with it
+    (:func:`accounts.utils.resolve_linked_user`): that user owns, acts in and is notified about what it starts."""
 
     provider: GitPlatform
     uid: int
     username: str
-    email: str = ""
 
 
 @dataclass(frozen=True)
 class Mention:
-    """A comment that mentioned DAIV."""
+    """A comment that mentioned DAIV or, on a merge request a session owns, any comment."""
 
     note_id: int
     """The comment DAIV reacts on, the one run it may start, and the note that run answers."""
 
     comment_id: str
     """The discussion holding it, which the addressor reads and replies under: GitLab's discussion id, GitHub's
-    comment id."""
+    comment id, or for a GitHub review comment the id of the first comment in its thread."""
+
+    body: str = ""
+    web_url: str = ""
+    on_diff: bool = False
+    """A GitLab DiffNote or a GitHub review comment."""
 
 
 async def dispatch_issue_run(
@@ -81,6 +101,7 @@ async def dispatch_issue_run(
         task_kwargs={"issue_iid": issue_iid, "mention_comment_id": comment_id, "mention_note_id": note_id},
         trigger_type=SessionOrigin.ISSUE_WEBHOOK,
         title=title,
+        reply=lambda body: client.create_issue_comment(repo_id, issue_iid, body, reply_to_id=comment_id),
     )
     if started:
         await _react(
@@ -99,11 +120,37 @@ async def dispatch_mr_comment_run(
     author: Author,
     mention: Mention,
 ) -> None:
-    """Address a comment that mentioned DAIV on a merge request.
+    """Address a comment that mentioned DAIV on a merge request, in the session that owns it when one does.
 
     ``ref`` is the merge request's source branch, ``None`` when the payload omits it (GitHub's ``issue_comment``);
-    it is then fetched, and left blank if that fails, since the run is still worth starting.
+    it is then fetched, and left blank if that fails, since the run is still worth starting. ``use_max`` runs it on the
+    site's max model either way: a mention for the owning session carries that model for the run that takes it.
     """
+    thread = CommentThread(mention.comment_id, on_diff=mention.on_diff)
+
+    def reply(body: str) -> object:
+        return client.create_merge_request_comment(repo_id, merge_request_iid, body, reply_to=thread)
+
+    if (ownership := await Ownerships(repo_id).afind_open(merge_request_iid, title=title)) is not None:
+        if ownership.session.archived_at is not None:
+            await _reply_archived(reply, author, ownership.session.thread_id, note_id=mention.note_id)
+            return
+        if await _post_comment(ownership, client, author, mention, kind=EventKind.MENTION, use_max=use_max):
+            await _react(
+                partial(
+                    client.create_merge_request_note_emoji,
+                    repo_id,
+                    merge_request_iid,
+                    Emoji.EYES,
+                    mention.note_id,
+                    on_diff=mention.on_diff,
+                ),
+                f"merge request comment {repo_id}#{merge_request_iid}",
+            )
+        return
+    if mention.on_diff:
+        logger.info("Ignoring a diff mention on %s#%s: no session owns it", repo_id, merge_request_iid)
+        return
     if ref is None:
         ref = await _fetch_source_branch(client, repo_id, merge_request_iid)
     started = await _start_run(
@@ -120,6 +167,7 @@ async def dispatch_mr_comment_run(
         },
         trigger_type=SessionOrigin.MR_WEBHOOK,
         title=title,
+        reply=reply,
         ref=ref,
     )
     if started:
@@ -127,6 +175,56 @@ async def dispatch_mr_comment_run(
             partial(client.create_merge_request_note_emoji, repo_id, merge_request_iid, Emoji.EYES, mention.note_id),
             f"merge request comment {repo_id}#{merge_request_iid}",
         )
+
+
+async def dispatch_mr_comment(
+    *, client: RepoClient, repo_id: str, merge_request_iid: int, title: str, author: Author, comment: Mention
+) -> None:
+    """Remember a comment that did not mention DAIV in the session that owns the merge request; with no such session
+    it concerns no one."""
+    if (ownership := await Ownerships(repo_id).afind_open(merge_request_iid, title=title)) is not None:
+        await _post_comment(ownership, client, author, comment, kind=EventKind.COMMENT)
+
+
+async def _post_comment(
+    ownership: MergeRequestOwnership,
+    client: RepoClient,
+    author: Author,
+    comment: Mention,
+    *,
+    kind: str,
+    use_max: bool = False,
+) -> bool:
+    """Post ``comment`` to the owning session's inbox, on the merge request's branch; returns whether it is new,
+    since an edit keeps the comment's key. A remembered comment has a key of its own, so editing it to mention DAIV
+    still wakes the session. With ``use_max`` the payload names the model and thinking level the drain runs it on."""
+    review_comment = comment.on_diff and client.git_platform == GitPlatform.GITHUB
+    payload: dict[str, Any] = {
+        "body": comment.body,
+        "web_url": comment.web_url,
+        "discussion_id": comment.comment_id,
+        "is_diff": comment.on_diff,
+        ("review_comment_id" if review_comment else "note_id"): comment.note_id,
+    }
+    if use_max:
+        payload["agent_model"], payload["agent_thinking_level"] = _pinned_model(use_max)
+    source_key = (
+        kinds.SourceKey.review_comment(comment.note_id) if review_comment else kinds.SourceKey.note(comment.note_id)
+    )
+    result = await Inbox(ownership.session.thread_id).apost(
+        kind=kind,
+        source_key=source_key if kind == EventKind.MENTION else kinds.SourceKey.comment(source_key),
+        payload=payload,
+        wake=kind == EventKind.MENTION,
+        ref=ownership.source_branch,
+        merge_request_iid=ownership.merge_request_iid,
+        repo_id=ownership.repo_id,
+        author=await resolve_linked_user(author.provider, author.uid),
+        author_username=author.username,
+        author_provider=author.provider,
+        author_uid=str(author.uid),
+    )
+    return result.created
 
 
 def _pinned_model(use_max: bool) -> tuple[str, str]:
@@ -143,6 +241,31 @@ async def _fetch_source_branch(client: RepoClient, repo_id: str, merge_request_i
         logger.exception("Failed to resolve source branch for merge request %s#%s", repo_id, merge_request_iid)
         return ""
     return merge_request.source_branch
+
+
+async def _reply_archived(
+    reply: Callable[[str], object], author: Author, thread_id: str, *, note_id: int | None
+) -> None:
+    """Tell ``author`` the session ``thread_id`` is archived, once per trigger, so a redelivery posts nothing; a label
+    trigger has no ``note_id`` and is told once a day."""
+    logger.info("Ignoring a trigger on session %s: it is archived", thread_id)
+    key = f"webhooks:archived-reply:{thread_id}:{note_id or 'label'}"
+    if not await cache.aadd(key, True, ARCHIVED_REPLY_TTL):
+        return
+
+    @sync_to_async
+    def post() -> None:
+        url = build_absolute_url(reverse("session_detail", kwargs={"thread_id": thread_id}))
+        reply(
+            f"@{author.username} This session is archived, so I won't act on this. Anyone who can run DAIV on this "
+            f"repository can unarchive it: {url}"
+        )
+
+    try:
+        await post()
+    except PLATFORM_ERRORS:
+        await cache.adelete(key)
+        logger.exception("Failed to tell %s that session %s is archived", author.username, thread_id)
 
 
 async def _react(add_reaction: Callable[[], object], target: str) -> None:
@@ -163,20 +286,25 @@ async def _start_run(
     task_kwargs: dict[str, Any],
     trigger_type: SessionOrigin,
     title: str,
+    reply: Callable[[str], object],
     ref: str = "",
 ) -> bool:
     """Enqueue ``task`` with ``task_kwargs`` plus what every addressor task takes, and record its ``Run`` on the
-    issue's or merge request's ``Session`` in one transaction. Returns whether it did: ``False`` when the enqueue
-    found an earlier trigger's task, which has its ``Run`` already.
+    issue's or merge request's ``Session`` in one transaction, for the DAIV user linked to ``author``, whom the task
+    acts as. Returns whether it did: ``False`` when the enqueue found an earlier trigger's task, which has its ``Run``
+    already, or when the session is archived, which answers the trigger with ``reply`` instead.
 
     A failed session or ``Run`` write rolls the enqueue back and raises, so the platform redelivers the event.
     """
     thread_id = compute_thread_id(repo_slug=repo_id, scope=scope, entity_iid=iid)
+    if await Session.objects.filter(pk=thread_id).archived().aexists():
+        await _reply_archived(reply, author, thread_id, note_id=task_kwargs["mention_note_id"])
+        return False
     # user=None: the webhook fires for whoever touched the issue/MR, not the agent owner, so USER envs never apply.
     sandbox_env = await resolve_env_for_run(user=None, repo_id=repo_id)
     sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
     agent_model, agent_thinking_level = _pinned_model(use_max)
-    user = await resolve_user(author.provider, author.uid, username=author.username, email=author.email)
+    user = await resolve_linked_user(author.provider, author.uid)
 
     @sync_to_async
     @transaction.atomic
@@ -201,6 +329,8 @@ async def _start_run(
                 merge_request_iid=iid if scope == Scope.MERGE_REQUEST else None,
                 user=user,
                 external_username=author.username,
+                external_provider=author.provider,
+                external_uid=str(author.uid),
                 title=title,
                 sandbox_environment_id=sandbox_environment_id,
             )

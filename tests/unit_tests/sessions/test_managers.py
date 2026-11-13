@@ -1,16 +1,21 @@
 import uuid
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from django.db.models import Q
 from django.test import TestCase
+from django.utils import timezone
 
 import pytest
+from allauth.socialaccount.models import SocialAccount
 from asgiref.sync import sync_to_async
-from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
-from sessions.signal_defs import run_finished
+from django_tasks_db.models import DBTaskResult
+from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin, SessionRepository
+from sessions.signal_defs import run_ended, run_finished
 
-from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
-from tests.unit_tests.sessions.conftest import grant_read_access, make_artifact
+from core.constants import CANCELLED_BY_COORDINATOR_MESSAGE, CROSS_PROJECT_SESSION_REFUSED_MESSAGE
+from schedules.models import ScheduledJob
+from tests.unit_tests.sessions.conftest import grant_read_access, make_artifact, make_task_result
 
 
 def _create_run(*, status: str = RunStatus.RUNNING, trigger_type: str = SessionOrigin.PIPELINE_WEBHOOK) -> Run:
@@ -61,6 +66,18 @@ class TestFinish:
         badge.assert_called_once()
         assert not run_finished_spy.called
 
+    @pytest.mark.parametrize("trigger_type", [SessionOrigin.CHAT, SessionOrigin.API_JOB])
+    def test_every_finished_run_emits_run_ended_chat_included(self, trigger_type):
+        run = _create_run(trigger_type=trigger_type)
+        spy = MagicMock()
+        run_ended.connect(spy, dispatch_uid="tests-run-ended-spy")
+        try:
+            Run.objects.finish(run, RunStatus.SUCCESSFUL)
+        finally:
+            run_ended.disconnect(dispatch_uid="tests-run-ended-spy")
+
+        assert spy.call_args.kwargs["run"] is run
+
     def test_a_finished_row_is_never_overwritten(self, run_finished_spy, badge):
         run = _create_run()
         Run.objects.filter(pk=run.pk).update(status=RunStatus.SUCCESSFUL)
@@ -109,6 +126,114 @@ class TestFinish:
 
 
 @pytest.mark.django_db
+class TestCancel:
+    @pytest.mark.parametrize("status", [RunStatus.READY, RunStatus.QUEUED])
+    def test_a_run_that_is_not_running_finishes_failed_at_once(self, run_finished_spy, badge, status):
+        run = _create_run(status=status)
+
+        assert Run.objects.cancel(run) is True
+
+        assert run.status == RunStatus.FAILED
+        run.refresh_from_db()
+        assert (run.status, run.error_message) == (RunStatus.FAILED, CANCELLED_BY_COORDINATOR_MESSAGE)
+        assert run.started_at is not None and run.finished_at is not None
+        assert run.is_cancelled
+        assert run_finished_spy.call_args.kwargs["never_started"] is True
+
+    def test_its_queued_task_fails_with_it_so_no_worker_claims_it(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.READY)
+        Run.objects.filter(pk=run.pk).update(task_result=make_task_result(status="READY"))
+
+        assert Run.objects.cancel(run) is True
+
+        task_result = DBTaskResult.objects.get(run=run)
+        assert task_result.status == "FAILED"
+        assert task_result.exception_class_path == "sessions.executor.run.RunStoppedError"
+
+    def test_a_task_a_worker_claimed_is_left_to_it(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.READY)
+        Run.objects.filter(pk=run.pk).update(task_result=make_task_result(status="RUNNING"))
+
+        assert Run.objects.cancel(run) is True
+
+        assert DBTaskResult.objects.get(run=run).status == "RUNNING"
+        run.refresh_from_db()
+        assert run.is_cancelled
+
+    def test_a_running_run_is_only_asked_to_stop(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.RUNNING)
+
+        assert Run.objects.cancel(run) is True
+
+        assert run.status == RunStatus.RUNNING
+        run.refresh_from_db()
+        assert (run.status, run.error_message) == (RunStatus.RUNNING, "")
+        assert run.cancel_requested_at is not None
+        assert not run.is_cancelled
+        assert not run_finished_spy.called
+
+    def test_a_running_run_keeps_what_its_task_recorded(self, run_finished_spy, badge):
+        task_result = make_task_result(
+            status="SUCCESSFUL",
+            return_value={
+                "response": "Opened the merge request.",
+                "code_changes": True,
+                "merge_request_id": 7,
+                "merge_request_web_url": "https://git.example/mr/7",
+            },
+        )
+        run = _create_run(status=RunStatus.RUNNING)
+        Run.objects.filter(pk=run.pk).update(task_result=task_result)
+        Run.objects.cancel(run)
+
+        run = Run.objects.select_related("task_result").get(pk=run.pk)
+        assert run.sync_and_save() is True
+
+        run.refresh_from_db()
+        assert (run.status, run.merge_request_web_url) == (RunStatus.SUCCESSFUL, "https://git.example/mr/7")
+        assert not run.is_cancelled
+
+    def test_a_running_run_its_task_stops_is_cancelled(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.RUNNING)
+        Run.objects.filter(pk=run.pk).update(
+            task_result=make_task_result(status="FAILED", exception_class_path="sessions.executor.run.RunStoppedError")
+        )
+        Run.objects.cancel(run)
+
+        run = Run.objects.select_related("task_result").get(pk=run.pk)
+        run.sync_and_save()
+
+        run.refresh_from_db()
+        assert run.is_cancelled
+        assert run_finished_spy.call_args.kwargs["never_started"] is False
+
+    def test_a_run_asked_once_is_not_asked_again(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.RUNNING)
+        Run.objects.cancel(run)
+
+        assert Run.objects.cancel(run) is False
+
+    def test_a_finished_run_is_left_as_it_ended(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.SUCCESSFUL)
+
+        assert Run.objects.cancel(run) is False
+
+        run.refresh_from_db()
+        assert (run.status, run.cancel_requested_at) == (RunStatus.SUCCESSFUL, None)
+        assert not run_finished_spy.called
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("requested", [True, False])
+async def test_acancel_requested_is_true_once_cancel_asked(requested):
+    run = await sync_to_async(_create_run)(status=RunStatus.RUNNING)
+    if requested:
+        await sync_to_async(Run.objects.cancel)(run)
+
+    assert await Run.objects.acancel_requested(str(run.pk)) is requested
+
+
+@pytest.mark.django_db
 class TestUpdateUnfinished:
     def test_a_finished_row_is_left_alone(self, badge):
         run = _create_run(status=RunStatus.SUCCESSFUL)
@@ -148,6 +273,19 @@ class TestAfinish:
         publish.assert_called_once()
         assert not run_finished_spy.called
 
+    async def test_the_worker_threads_connection_is_returned_even_when_a_receiver_raises(self):
+        run = await sync_to_async(_create_run)(trigger_type=SessionOrigin.CHAT)
+
+        with (
+            patch("core.ui_events.publisher.runs_changed"),
+            patch("sessions.managers.close_old_connections") as close,
+            patch.object(type(Run.objects), "_emit_run_finished", side_effect=RuntimeError("boom")),
+            pytest.raises(RuntimeError),
+        ):
+            await Run.objects.afinish(run, RunStatus.SUCCESSFUL)
+
+        close.assert_called_once_with()
+
     async def test_a_finished_row_is_never_overwritten(self, run_finished_spy):
         run = await sync_to_async(_create_run)()
         await Run.objects.filter(pk=run.pk).aupdate(status=RunStatus.FAILED)
@@ -159,7 +297,7 @@ class TestAfinish:
         assert not run_finished_spy.called
 
 
-def _session(**kwargs) -> Session:
+def _shared_session(**kwargs) -> Session:
     defaults = {"thread_id": str(uuid.uuid4()), "origin": SessionOrigin.API_JOB, "repo_id": "group/repo"}
     return Session.objects.create(**(defaults | kwargs))
 
@@ -193,7 +331,7 @@ def fetcher(member_user):
 @pytest.fixture
 def shared_session(fetcher, other_user):
     """A webhook session both people acted in, readable by ``other_user`` through the attached repo."""
-    session = _session(origin=SessionOrigin.ISSUE_WEBHOOK)
+    session = _shared_session(origin=SessionOrigin.ISSUE_WEBHOOK)
     _run(session, user=fetcher)
     _run(session, user=other_user)
     grant_read_access(other_user, session.repo_id)
@@ -222,7 +360,7 @@ class TestSessionVisibility:
         assert shared_session in Session.objects.by_owner(admin_user)
 
     def test_a_schedule_subscriber_loses_it(self, fetcher, other_user):
-        session = _session(user=fetcher, scheduled_job=_subscribed_schedule(fetcher, other_user))
+        session = _shared_session(user=fetcher, scheduled_job=_subscribed_schedule(fetcher, other_user))
         assert session in Session.objects.by_owner(other_user)
 
         Session.objects.filter(pk=session.pk).update(cross_project_user_ids=[fetcher.pk])
@@ -267,7 +405,7 @@ class TestRunAndArtifactVisibility:
         assert artifact in RunArtifact.objects.visible_to(fetcher)
 
     def test_a_schedule_subscriber_loses_the_runs(self, fetcher, other_user):
-        session = _session(user=fetcher, scheduled_job=_subscribed_schedule(fetcher, other_user))
+        session = _shared_session(user=fetcher, scheduled_job=_subscribed_schedule(fetcher, other_user))
         run = _run(session, user=fetcher, trigger_type=SessionOrigin.SCHEDULE)
 
         Session.objects.filter(pk=session.pk).update(cross_project_user_ids=[fetcher.pk])
@@ -278,7 +416,7 @@ class TestRunAndArtifactVisibility:
 @pytest.mark.django_db
 class TestRequesterResults:
     def test_a_requester_reads_their_own_runs_of_an_unrestricted_session(self, other_user):
-        run = _run(_session(), user=other_user, trigger_type=SessionOrigin.API_JOB)
+        run = _run(_shared_session(), user=other_user, trigger_type=SessionOrigin.API_JOB)
 
         assert list(Run.objects.results_for(other_user)) == [run]
 
@@ -302,6 +440,171 @@ class TestRequesterResults:
 
     def test_an_admin_reads_only_their_own_runs_as_before(self, shared_session, fetcher, admin_user):
         Session.objects.filter(pk=shared_session.pk).update(cross_project_user_ids=[fetcher.pk])
-        own = _run(_session(), user=admin_user, trigger_type=SessionOrigin.API_JOB)
+        own = _run(_shared_session(), user=admin_user, trigger_type=SessionOrigin.API_JOB)
 
         assert list(Run.objects.results_for(admin_user)) == [own]
+
+
+@pytest.mark.django_db
+class TestMultiRepoVisibility:
+    @staticmethod
+    def _user(django_user_model, name):
+        return django_user_model.objects.create_user(username=name, email=f"{name}@x.io", password="x")  # noqa: S106
+
+    @staticmethod
+    def _session(extra=(), **kwargs):
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="g/app", **kwargs
+        )
+        for position, repo_id in enumerate(extra, start=1):
+            SessionRepository.objects.create(session=session, position=position, repo_id=repo_id)
+        run = Run.objects.create(session=session, trigger_type=SessionOrigin.API_JOB, repo_id="g/app")
+        return session, run
+
+    def test_hidden_from_user_reading_only_the_main_repository(self, django_user_model):
+        user = self._user(django_user_model, "main-only")
+        session, run = self._session(extra=["g/mod"])
+        grant_read_access(user, "g/app")
+
+        assert not Session.objects.visible_to(user).filter(pk=session.pk).exists()
+        assert not Run.objects.visible_to(user).filter(pk=run.pk).exists()
+
+    def test_visible_to_user_reading_every_repository(self, django_user_model):
+        user = self._user(django_user_model, "all-repos")
+        session, run = self._session(extra=["g/mod", "g/lib"])
+        for repo_id in ("g/app", "g/mod", "g/lib"):
+            grant_read_access(user, repo_id)
+
+        assert Session.objects.visible_to(user).filter(pk=session.pk).exists()
+        assert Run.objects.visible_to(user).filter(pk=run.pk).exists()
+
+    def test_visible_to_owner_and_admin_without_repository_access(self, django_user_model, admin_user):
+        owner = self._user(django_user_model, "owner")
+        session, run = self._session(extra=["g/mod"], user=owner)
+        run.user = owner
+        run.save()
+
+        for user in (owner, admin_user):
+            assert Session.objects.visible_to(user).filter(pk=session.pk).exists()
+            assert Run.objects.visible_to(user).filter(pk=run.pk).exists()
+
+    def test_single_repository_session_still_visible_with_main_access(self, django_user_model):
+        user = self._user(django_user_model, "single")
+        session, run = self._session()
+        grant_read_access(user, "g/app")
+
+        assert Session.objects.visible_to(user).filter(pk=session.pk).exists()
+        assert Run.objects.visible_to(user).filter(pk=run.pk).exists()
+
+
+@pytest.mark.django_db
+class TestOwnedBy:
+    def test_an_admin_gets_only_their_own_sessions(self, admin_user, other_user):
+        mine = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, user=admin_user)
+        Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, user=other_user)
+
+        assert list(Session.objects.owned_by(admin_user)) == [mine]
+
+    def test_a_run_actor_owns_the_shared_thread(self, other_user):
+        SocialAccount.objects.create(user=other_user, provider="gitlab", uid="77")
+        session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.ISSUE_WEBHOOK)
+        Run.objects.create(
+            session=session,
+            trigger_type=SessionOrigin.ISSUE_WEBHOOK,
+            repo_id="acme/api",
+            external_provider="gitlab",
+            external_uid="77",
+        )
+
+        assert list(Session.objects.owned_by(other_user)) == [session]
+
+
+def _run_at(session, created_at, **fields) -> Run:
+    run = Run.objects.create(
+        session=session, trigger_type=session.origin, repo_id=session.repo_id, user=session.user, **fields
+    )
+    Run.objects.filter(pk=run.pk).update(created_at=created_at)
+    return run
+
+
+def _session(user, origin=SessionOrigin.UI_JOB, **fields) -> Session:
+    return Session.objects.create(thread_id=str(uuid.uuid4()), origin=origin, repo_id="acme/api", user=user, **fields)
+
+
+@pytest.mark.django_db
+class TestStartedBy:
+    def test_matches_the_user_or_their_linked_account_never_the_platform_username(self, member_user, other_user):
+        SocialAccount.objects.create(user=member_user, provider="gitlab", uid="77")
+        by_user = _run_at(_session(member_user), timezone.now())
+        by_linked_account = _run_at(_session(None), timezone.now(), external_provider="gitlab", external_uid="77")
+        _run_at(_session(None), timezone.now(), external_provider="github", external_uid="77")
+        _run_at(_session(None), timezone.now(), external_username=member_user.username)
+        _run_at(_session(other_user), timezone.now())
+
+        assert set(Run.objects.started_by(member_user)) == {by_user, by_linked_account}
+
+
+@pytest.mark.django_db
+class TestLatestInSession:
+    def test_keeps_only_the_newest_run_of_each_session(self, member_user):
+        now = timezone.now()
+        session = _session(member_user)
+        _run_at(session, now - timedelta(hours=1))
+        newest = _run_at(session, now)
+        other = _run_at(_session(member_user), now - timedelta(days=1))
+
+        assert set(Run.objects.latest_in_session()) == {newest, other}
+
+    def test_a_tie_on_created_at_goes_to_the_higher_id(self, member_user):
+        now = timezone.now()
+        session = _session(member_user)
+        runs = sorted([_run_at(session, now), _run_at(session, now)], key=lambda run: run.id)
+
+        assert list(Run.objects.latest_in_session()) == [runs[-1]]
+
+
+@pytest.mark.django_db
+class TestWithRetried:
+    def _retried(self, run, user) -> bool:
+        return Run.objects.with_retried(user).get(pk=run.pk).retried
+
+    def test_a_later_run_with_the_same_prompt_and_repository_retries_it(self, member_user):
+        now = timezone.now()
+        failed = _run_at(_session(member_user), now - timedelta(hours=1), prompt="Fix it")
+        _run_at(_session(member_user), now, prompt="Fix it")
+
+        assert self._retried(failed, member_user) is True
+
+    def test_a_different_prompt_or_an_empty_one_does_not(self, member_user):
+        now = timezone.now()
+        failed = _run_at(_session(member_user), now - timedelta(hours=1), prompt="Fix it")
+        _run_at(_session(member_user), now, prompt="Something else")
+        empty = _run_at(_session(member_user), now - timedelta(hours=1))
+        _run_at(_session(member_user), now)
+
+        assert (self._retried(failed, member_user), self._retried(empty, member_user)) == (False, False)
+
+    def test_a_later_run_of_the_same_schedule_retries_it(self, member_user):
+        schedule = ScheduledJob.objects.create(
+            user=member_user, name="s", prompt="p", repos=[{"repo_id": "acme/api", "ref": ""}]
+        )
+        now = timezone.now()
+        failed = _run_at(_session(member_user, SessionOrigin.SCHEDULE, scheduled_job=schedule), now - timedelta(1))
+        _run_at(_session(member_user, SessionOrigin.SCHEDULE, scheduled_job=schedule), now)
+
+        assert self._retried(failed, member_user) is True
+
+
+@pytest.mark.django_db
+class TestArchived:
+    def _session(self, user):
+        return Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, user=user)
+
+    def test_the_list_leaves_out_archived_sessions_unless_asked_for_them(self, member_user):
+        shown = self._session(member_user)
+        archived = self._session(member_user)
+        Session.objects.filter(pk=archived.pk).update(archived_at=timezone.now())
+
+        assert list(Session.objects.listed_for(member_user, mine=True)) == [shown]
+        assert list(Session.objects.listed_for(member_user, mine=True, archived=True)) == [archived]
+        assert set(Session.objects.listed_for(member_user, mine=True, archived=None)) == {shown, archived}

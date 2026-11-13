@@ -1,15 +1,18 @@
 # Makefile
 
-.PHONY: help setup test test-ci lint lint-check lint-format lint-fix lint-imports lint-typing evals eval-prompts tailwind-build tailwind-watch
+.PHONY: help setup test test-ci lint lint-check lint-format lint-fix lint-imports lint-design lint-typing evals eval-prompts tailwind-build tailwind-watch up db-reset
 
 help:
 	@echo "Available commands:"
 	@echo "  make setup          - Set up local development environment"
+	@echo "  make up             - Start this checkout's stack (in a worktree: its own slot)"
+	@echo "  make db-reset       - Copy the main database into this worktree's slot again, then start it"
 	@echo "  make test           - Run tests with coverage report"
 	@echo "  make lint           - Run lint, format and import-layering checks"
 	@echo "  make lint-check     - Run lint check only (ruff)"
 	@echo "  make lint-format    - Check code formatting"
 	@echo "  make lint-imports   - Check app import layering (import-linter)"
+	@echo "  make lint-design    - Validate DESIGN.md against the design.md spec (needs Node)"
 	@echo "  make lint-fix       - Fix linting and formatting issues"
 	@echo "  make lint-typing    - Run type checking with ty"
 	@echo "  make lock           - Update uv lock"
@@ -57,6 +60,12 @@ lint-format:
 lint-imports:
 	PYTHONPATH=daiv uv run --only-group=dev lint-imports
 
+DESIGNMD := @google/design.md@0.4.0
+
+# The CLI exits 0 on warnings (contrast, orphaned tokens); the gate fails on those too.
+lint-design:
+	npx --yes $(DESIGNMD) lint DESIGN.md | tee /dev/stderr | node -e 'const { summary: s } = JSON.parse(require("fs").readFileSync(0, "utf8")); process.exit(s.errors + s.warnings ? 1 : 0)'
+
 lint-fix:
 	uv run --only-group=dev ruff check . --fix
 	uv run --only-group=dev ruff format .
@@ -65,7 +74,7 @@ lint-fix:
 	$(MAKE) --no-print-directory lint-imports
 
 lint-typing:
-	uv run --only-group=dev ty check daiv
+	uv run ty check daiv
 
 makemessages:
 	uv run django-admin makemessages --ignore=*/node_modules/* --ignore=.venv --no-location --no-wrap --all
@@ -84,7 +93,7 @@ integration-tests:
 	uv run pytest --envfile +docker/local/app/config.secrets.env --reuse-db tests/integration_tests --no-cov --log-level=INFO -m "diff_to_metadata or memory"
 
 EVAL_MODEL ?= openrouter:z-ai/glm-5.2
-EVAL_SUITE_MODEL_VARS := ASK_USER SKILLS TODOS WEB_SEARCH SUBAGENTS CODE_REVIEW
+EVAL_SUITE_MODEL_VARS := ASK_USER SKILLS TODOS WEB_SEARCH SUBAGENTS CODE_REVIEW INBOX DELEGATION
 empty :=
 space := $(empty) $(empty)
 
@@ -142,6 +151,12 @@ swerebench-clean:
 
 docs-serve:
 	uv run --only-group=docs mkdocs serve -o -a localhost:4000 -w docs/
+
+up:
+	docker/local/stack up
+
+db-reset:
+	docker/local/stack db-reset
 
 tailwind-build:
 	docker compose exec app tailwindcss -i daiv/static_src/css/input.css -o daiv/static/css/styles.css --minify

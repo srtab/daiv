@@ -1,8 +1,245 @@
+---
+version: alpha
+name: DAIV
+description: Dark-only, server-rendered UI for an autonomous coding agent. Violet marks who; teal marks what you can do.
+colors:
+  ground: "#0D1117"
+  surface-1: "#10151D"
+  surface-2: "#161C26"
+  surface-3: "#1E2733"
+  border: "#232B36"
+  text: "#E6EDF3"
+  text-strong: "#FFFFFF"
+  text-muted: "#9AA4B0"
+  text-faint: "#878F9C"
+  brand: "#8B5CF6"
+  brand-bright: "#A78BFA"
+  accent: "#2DD4BF"
+  accent-bright: "#5FE6D4"
+  accent-ink: "#04211D"
+  primary: "{colors.accent}"
+  focus: "{colors.accent-bright}"
+  status-clear: "#3FB950"
+  status-found: "#D6A036"
+  status-attn: "#38BDF8"
+  status-fail: "#F8564E"
+typography:
+  body:
+    fontFamily: Geist
+    fontSize: 14px
+    fontWeight: 400
+    lineHeight: 1.5
+  body-sm:
+    fontFamily: Geist
+    fontSize: 13px
+    fontWeight: 400
+    lineHeight: 1.5
+  caption:
+    fontFamily: Geist
+    fontSize: 11px
+    fontWeight: 400
+    lineHeight: 1.375
+  heading-page:
+    fontFamily: Geist
+    fontSize: 24px
+    fontWeight: 700
+    letterSpacing: -0.025em
+  heading-section:
+    fontFamily: Geist
+    fontSize: 15px
+    fontWeight: 600
+    letterSpacing: -0.025em
+  wordmark:
+    fontFamily: Geist
+    fontSize: 17px
+    fontWeight: 700
+    letterSpacing: -0.025em
+  action:
+    fontFamily: Geist
+    fontSize: 14px
+    fontWeight: 600
+    letterSpacing: -0.025em
+  data:
+    fontFamily: Geist Mono
+    fontSize: 12px
+    fontWeight: 400
+  label-caps:
+    fontFamily: Geist Mono
+    fontSize: 11px
+    fontWeight: 600
+    letterSpacing: 0.14em
+  stat:
+    fontFamily: Geist Mono
+    fontSize: 34px
+    fontWeight: 600
+    lineHeight: 1
+rounded:
+  md: 0.375rem
+  lg: 0.5rem
+  xl: 0.75rem
+  2xl: 1rem
+  full: 9999px
+spacing:
+  unit: 0.25rem
+  xs: 0.375rem
+  sm: 0.5rem
+  md: 0.75rem
+  lg: 1rem
+  xl: 1.5rem
+  2xl: 2rem
+  page-x: 1rem
+components:
+  page:
+    backgroundColor: "{colors.ground}"
+    textColor: "{colors.text}"
+    typography: "{typography.body}"
+  page-heading:
+    backgroundColor: "{colors.ground}"
+    textColor: "{colors.text-strong}"
+    typography: "{typography.heading-page}"
+  daiv-notice-author:
+    backgroundColor: "{colors.ground}"
+    textColor: "{colors.brand-bright}"
+  sidebar-nav-item:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.text-muted}"
+    typography: "{typography.body}"
+    rounded: "{rounded.lg}"
+  sidebar-nav-item-hover:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.text}"
+  sidebar-nav-item-active-rail:
+    backgroundColor: "{colors.brand}"
+    width: 3px
+  sidebar-nav-description:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.text-faint}"
+    typography: "{typography.caption}"
+  brand-mark:
+    backgroundColor: "{colors.brand}"
+    rounded: "{rounded.md}"
+    size: 1.5rem
+  brand-wordmark:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.text-strong}"
+    typography: "{typography.wordmark}"
+  button-primary:
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.accent-ink}"
+    typography: "{typography.action}"
+    rounded: "{rounded.lg}"
+  button-primary-hover:
+    backgroundColor: "{colors.accent-bright}"
+    textColor: "{colors.accent-ink}"
+  link:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.accent}"
+  link-hover:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.accent-bright}"
+  card:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.text}"
+    rounded: "{rounded.2xl}"
+    padding: "{spacing.xl}"
+  card-row-hover:
+    backgroundColor: "{colors.surface-3}"
+    textColor: "{colors.text-strong}"
+  card-meta:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.text-faint}"
+    typography: "{typography.data}"
+  card-row-hover-meta:
+    backgroundColor: "{colors.surface-3}"
+    textColor: "{colors.text-faint}"
+    typography: "{typography.data}"
+  outcome-label-clear:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.status-clear}"
+  outcome-label-found:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.status-found}"
+  outcome-label-attn:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.status-attn}"
+  outcome-label-fail:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.status-fail}"
+  outcome-label-fail-hover:
+    backgroundColor: "{colors.surface-3}"
+    textColor: "{colors.status-fail}"
+  menu:
+    backgroundColor: "{colors.surface-2}"
+    rounded: "{rounded.xl}"
+    padding: "{spacing.unit}"
+  menu-item:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.text-muted}"
+    typography: "{typography.body-sm}"
+    rounded: "{rounded.lg}"
+  menu-item-hover:
+    backgroundColor: "{colors.surface-3}"
+    textColor: "{colors.text}"
+  menu-item-danger:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.status-fail}"
+  menu-item-danger-hover:
+    backgroundColor: "{colors.surface-3}"
+    textColor: "{colors.status-fail}"
+  menu-divider:
+    backgroundColor: "{colors.border}"
+    height: 1px
+  confirm-dialog:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.text}"
+    rounded: "{rounded.2xl}"
+    padding: 1.25rem
+  confirm-dialog-title:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.text-strong}"
+    typography: "{typography.heading-section}"
+  confirm-dialog-button-danger:
+    backgroundColor: "{colors.status-fail}"
+    textColor: "{colors.ground}"
+    rounded: "{rounded.lg}"
+    height: 2rem
+  stat-value:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.text-strong}"
+    typography: "{typography.stat}"
+  section-label:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.text-muted}"
+    typography: "{typography.label-caps}"
+  data-row:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.text-muted}"
+    typography: "{typography.data}"
+---
+
 # Design System Rules
 
 This document defines the design system for DAIV's UI. Follow these rules when creating or modifying any template, component, or style.
 
-## Stack
+## Overview
+
+The UI is dark-only and server-rendered. Two hues carry meaning: violet `brand` marks *who*
+(DAIV, its mark, the active nav rail) and teal `accent` marks *what you can do* — it owns
+"clickable". Depth comes from a ramp of surfaces and hairline borders, not shadows. Data —
+counts, timestamps, repo tags — is set in Geist Mono, prose in Geist.
+
+The front matter above holds the tokens in Google's [design.md](https://github.com/google-labs-code/design.md)
+format, so agents and design tools can read them. `input.css`'s `@theme` owns the values:
+
+- The front matter mirrors its `--color-*` set; `tests/unit_tests/test_design_md.py` fails
+  when they drift. Change a value in `input.css` first, then here.
+- `make lint-design` runs the official linter (version pinned in the `Makefile`) and fails on
+  any error or warning, CI included.
+- Every text token clears WCAG AA on every surface (`test_surface_contrast.py`). The linter
+  also measures each `components` entry's `textColor` on its `backgroundColor`, so a pairing
+  outside that set, like text on a solid status fill, gets an entry.
+
+### Stack
 
 | Layer         | Technology                           | Notes                                          |
 |---------------|--------------------------------------|-------------------------------------------------|
@@ -14,52 +251,37 @@ This document defines the design system for DAIV's UI. Follow these rules when c
 
 There is no separate `tailwind.config.js` — all theme configuration lives inside `input.css` using Tailwind v4's `@theme` block.
 
-## Token Definitions
-
-### Typography
-
-| Token              | Value                                                       |
-|--------------------|-------------------------------------------------------------|
-| Sans family        | `"Geist"`, ui-sans-serif, system-ui, sans-serif (`font-sans`) — prose, headings, section headers, body |
-| Mono family        | `"Geist Mono"`, ui-monospace, SFMono-Regular, monospace (`font-mono`) — all *data*: counts, timestamps, repo tags, uppercase eyebrow/label roles |
-| Hosting            | **Self-hosted woff2** at `daiv/static/fonts/geist/` (variable weight `100 900`, `font-display: swap`, latin subset covers ã ç õ é). `@font-face` lives in `input.css`. **No font CDN.** |
-| Body text          | `text-[14px]` regular, `text-text` or `text-text-muted`    |
-| Small / meta text  | `text-[13px]` or `text-[12px]`, often `font-mono`           |
-| Headings           | `font-semibold` or `font-bold`, `text-text` or `text-text-strong` |
-| Uppercase labels   | `tracking-[0.14em]` to `tracking-[0.2em]`, `font-semibold`, `font-mono` |
-| Tabular figures    | `tabular-nums` wherever digits align or change             |
-
-### Color Palette
+## Colors
 
 The UI is **dark-mode only** (no light theme). The app shell and every new or
 restyled surface use the **semantic design-token layer** below; older pages still
 use the raw Tailwind utilities in the legacy table that follows. Prefer the tokens.
 
-#### Semantic Design Tokens (Tailwind v4 `@theme`)
+### Semantic Design Tokens (Tailwind v4 `@theme`)
 
 Declared as `--color-*` / `--font-*` / `--shadow-*` in `input.css`'s `@theme`
 block, so utilities generate automatically (`bg-ground`, `text-text-muted`,
-`border-border`, `text-status-found`, `font-mono`, `shadow-overlay`, …). `input.css`
-declares each value exactly once and the table below documents the roles; **nothing
-else restates a value.**
+`border-border`, `text-status-found`, `font-mono`, `shadow-overlay`, …). The table below
+documents the roles.
 
-| Token | Value | Role |
-|---|---|---|
-| `ground` | `#0D1117` | base plane (`bg-ground` on `<body>`) |
-| `surface-1` | `#10151D` | sidebar + mobile top bar |
-| `surface-2` | `#161C26` | cards + hero |
-| `surface-3` | `#1E2733` | hover / inset chips |
-| `border` | `#232B36` | 1px hairline separators |
-| `text` / `text-strong` / `text-muted` / `text-faint` | `#E6EDF3` / `#FFFFFF` / `#9AA4B0` / `#767F8E` | text ramp |
-| `brand` / `brand-bright` | `#8B5CF6` / `#A78BFA` | violet — WHO/brand & mark only, **never a CTA** |
-| `accent` / `accent-bright` / `accent-ink` | `#2DD4BF` / `#5FE6D4` / `#04211D` | teal — DO/action; owns "clickable" |
-| `focus` | = `accent-bright` | focus ring — reads the accent token, so the teal ramp moves as one |
-| `status-clear` / `status-found` / `status-attn` / `status-fail` | `#3FB950` / `#D6A036` / `#38BDF8` / `#F85149` | green / amber / cyan / red — each AA-legible on `ground`; a status color never signals "clickable" |
+| Token | Role |
+|---|---|
+| `ground` | base plane (`bg-ground` on `<body>`) |
+| `surface-1` | sidebar + mobile top bar |
+| `surface-2` | cards + hero |
+| `surface-3` | hover / inset chips |
+| `border` | 1px hairline separators |
+| `text` / `text-strong` / `text-muted` / `text-faint` | text ramp |
+| `brand` / `brand-bright` | violet — WHO/brand & mark only, **never a CTA** |
+| `accent` / `accent-bright` / `accent-ink` | teal — DO/action; owns "clickable" |
+| `primary` | front matter only: names `accent`, the action color, because the design.md spec requires a `primary` |
+| `focus` | focus ring — reads the accent token, so the teal ramp moves as one |
+| `status-clear` / `status-found` / `status-attn` / `status-fail` | green / amber / cyan / red — each AA-legible on `ground` and every surface; a status color never signals "clickable" |
 
 Weak-tint status backgrounds = the status token at ~14–16% alpha via
 `color-mix(in srgb, <token> 14%, transparent)`; such tints carry no text.
 
-#### Legacy raw utilities (pages not yet on the tokens)
+### Legacy raw utilities (pages not yet on the tokens)
 
 These are what most pages still use. The last column is the token each row becomes, so
 migrating a page is mechanical rather than a judgement call — take the whole page at once,
@@ -92,26 +314,23 @@ error→`status-fail`). New surfaces use the tokens.
 | Error      | `border-red-800/50`       | `bg-red-950/80`        | `text-red-200`     |
 | Info       | `border-gray-800/50`      | `bg-gray-900/80`       | `text-gray-300`    |
 
-### Spacing Scale
+## Typography
 
-Use Tailwind's default spacing scale. Common values:
+The front matter's `typography` scale names these roles (`body`, `data`, `label-caps`, `stat`, …).
 
-- **Page padding**: `px-4`, `sm:px-(--app-content-gutter)` (1.5rem) — see §Layout
-- **Section gaps**: `gap-6`, `mt-8`
-- **Card padding**: `p-6`
-- **Component gaps**: `gap-4`, `gap-3`, `gap-2`
-- **Inline spacing**: `gap-2`, `gap-1.5`
+| Token              | Value                                                       |
+|--------------------|-------------------------------------------------------------|
+| Sans family        | `"Geist"`, ui-sans-serif, system-ui, sans-serif (`font-sans`) — prose, headings, section headers, body |
+| Mono family        | `"Geist Mono"`, ui-monospace, SFMono-Regular, monospace (`font-mono`) — all *data*: counts, timestamps, repo tags, uppercase eyebrow/label roles |
+| Hosting            | **Self-hosted woff2** at `daiv/static/fonts/geist/` (variable weight `100 900`, `font-display: swap`, latin subset covers ã ç õ é). `@font-face` lives in `input.css`. **No font CDN.** |
+| Body text          | `text-[14px]` regular, `text-text` or `text-text-muted`    |
+| Small / meta text  | `text-[13px]` or `text-[12px]`, often `font-mono`           |
+| Headings           | `font-semibold` or `font-bold`, `text-text` or `text-text-strong` |
+| Uppercase labels   | `tracking-[0.14em]` to `tracking-[0.2em]`, `font-semibold`, `font-mono` |
+| Tabular figures    | `tabular-nums` wherever digits align or change             |
+| Mono ligatures     | **Off.** Geist Mono's ligatures swallow the space before `--` (`daiv --transport` renders as `daiv--transport`). `input.css` sets `font-variant-ligatures: none` on the `font-mono` utility (so `@apply font-mono` carries it) and on `code`, `kbd`, `samp`, `pre`. Set mono with `font-mono`, never a raw `font-family: var(--font-mono)`; `font-feature-settings` does not turn this ligature off in Chromium. |
 
-### Border Radius
-
-| Element         | Radius          |
-|-----------------|-----------------|
-| Cards           | `rounded-2xl`   |
-| Buttons/inputs  | `rounded-xl`    |
-| Small controls  | `rounded-lg`    |
-| Badges/pills    | `rounded-full`  |
-
-### Layout
+## Layout
 
 - **Content width — `container_width` tier system.** `base_app.html` exposes a
   `{% block container_width %}` whose allowed values are `max-w-3xl` (narrow),
@@ -121,13 +340,11 @@ Use Tailwind's default spacing scale. Common values:
 - **Responsive breakpoints**: mobile-first; `sm:` (640px), `lg:` (1024px), `xl:` (1280px).
   The app shell itself reflows at **768px** (`md:` — sidebar → sheet + slim top
   bar) and **1024px** (`lg:` — icon rail → full sidebar). `--app-sidebar-width` *is*
-  that second tier — 4rem, widened to 15rem in a `:root` switch at `lg:` — so the
+  that second tier — 4rem, widened at `lg:` in a `:root` switch to the width the user dragged it
+  to (17rem to 32rem, see §App Shell), and back to 4rem there when the user collapses it
+  (`:root[data-sidebar="rail"]`) — so the
   sidebar's width lives in one place and everything keyed to it (the `--sheet-inset-*`
   switch, which tracks `md:` rather than `sm:`) follows both tiers for free.
-- **Flat elevation.** Depth is built from the `surface-1 → surface-2 → surface-3`
-  ramp plus hairline `border-border` — **persistent surfaces carry no box-shadow.**
-  The single sanctioned shadow (`shadow-overlay`, `0 16px 40px -24px rgba(0,0,0,.85)`)
-  is reserved for transient overlays (menus / popovers / dialogs).
 - **Focus & keyboard.** A global `:focus-visible` teal ring
   (`outline: 2px solid var(--color-focus); outline-offset: 2px`) applies to every
   interactive element that doesn't draw its own — the chat composer and the pickers
@@ -136,20 +353,75 @@ Use Tailwind's default spacing scale. Common values:
   drawer/popover. No command palette.
 - Grid columns: single on mobile, multi-column at `sm:` and `lg:`
 
-## Component Library
+### Spacing Scale
+
+Use Tailwind's default spacing scale (the front matter's `spacing`). Common values:
+
+- **Page padding**: `px-4`, `sm:px-(--app-content-gutter)` (1.5rem) — see §Layout
+- **Section gaps**: `gap-6`, `mt-8`
+- **Card padding**: `p-6`
+- **Component gaps**: `gap-4`, `gap-3`, `gap-2`
+- **Inline spacing**: `gap-2`, `gap-1.5`
+
+### Responsive Design
+
+Mobile-first approach. Common patterns:
+
+```html
+<!-- Single column on mobile, 2 columns on sm, 3 on lg -->
+<div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+
+<!-- Stack on mobile, row on sm -->
+<div class="flex flex-col gap-4 sm:flex-row sm:items-center">
+```
+
+Breakpoints are viewport-relative, but from `md:` up a page sits next to the shell —
+a 64px icon rail, then `--app-sidebar-width` (17rem to 32rem from `lg:`, or 4rem when the
+user collapses it) — so the
+content area a rule switches on is always narrower than the width the rule names.
+Where the switch depends on whether two blocks still fit (a title and its actions, a
+list row and its controls), wrap on content instead: see §Page Header.
+
+A `position: fixed` surface has the same problem with no layout to lean on: it measures
+the viewport, not the column it belongs to. From `md:` up — the width the sidebar
+appears at — bottom sheets (pickers and the composer's own) are therefore inset to the
+content column instead, so one never opens across the sidebar. The `--sheet-inset-*`
+switch in `input.css` is keyed to `--breakpoint-md` for exactly that reason: move the
+sidebar's tier and that switch moves with it.
+
+## Elevation & Depth
+
+**Flat elevation.** Depth is built from the `surface-1 → surface-2 → surface-3` ramp plus
+hairline `border-border` — **persistent surfaces carry no box-shadow.** The single
+sanctioned shadow (`shadow-overlay`, `0 16px 40px -24px rgba(0,0,0,.85)`) is reserved for
+transient overlays (menus / popovers / dialogs).
+
+## Shapes
+
+| Element         | Radius          |
+|-----------------|-----------------|
+| Cards           | `rounded-2xl`   |
+| Buttons/inputs  | `rounded-xl`    |
+| Small controls  | `rounded-lg`    |
+| Badges/pills    | `rounded-full`  |
+
+## Components
 
 All components are Django templates. Reusable partials are **underscore-prefixed** (`_component.html`).
 
 ### Buttons
 
 **Legacy until migrated** — `.btn-primary`'s white fill predates the token layer, where
-teal `accent` owns "clickable" (see the sidebar's `bg-accent text-accent-ink` CTA). Keep
+teal `accent` owns "clickable" (see the mobile top bar's `bg-accent text-accent-ink` New chat). Keep
 using these classes on pages still on the legacy utilities; a page moved to the tokens
-moves its primary action to `accent` at the same time.
+moves its primary action to `.btn-accent` at the same time.
 
 Defined as Tailwind `@layer components` classes in `input.css`:
 
 ```html
+<!-- Primary on a page moved to the tokens (teal accent, accent-ink text) -->
+<button class="btn-accent">Save</button>
+
 <!-- Primary (white bg, dark text) -->
 <button class="btn-primary">Save</button>
 
@@ -186,6 +458,45 @@ Interactive (linked) cards add hover:
 </a>
 ```
 
+### Workspace card
+
+The new-chat page's setup card (`chat/_workspace_card.html`, classes `.workspace-card*` in `input.css`):
+a titled card holding the repository list (`codebase/_repo_picker.html`, `variant="card"`) and, below a
+divider, an **Environment** field (`sandbox_envs/_env_picker.html`, `variant="field"`). It is static markup
+in the hero, not inserted by Alpine, so HTMX processes the pickers at load. It carries no shadow, opacity or
+transform, so the popovers it hosts are not trapped in a stacking context. On phones a row's branch button
+wraps under the repository name.
+
+### Public homepage
+
+`dashboard/homepage.html` is on the tokens, through its own `landing-*` classes in `input.css`.
+What is particular to it:
+
+- **Display sizes.** The hero `<h1>` (`.landing-display`, 36px, 60px from `sm:`) and the section
+  `<h2>`s (`.landing-heading`, 30px, 36px from `sm:`) sit above `heading-page`. No other page uses them.
+- **Static cards.** `.landing-card` and the Why points are not links, so they carry no hover state;
+  only the comparison cards, `.landing-card--link`, do.
+- **Comparison pages.** `/compare/<slug>/` (`dashboard/comparison.html`) shares the homepage's nav and
+  footer partials. Its side-by-side rows (`.landing-compare*`) come from `dashboard/comparisons.py`,
+  where every cell names the public docs it was taken from.
+- **Flow diagram.** "How it works" is inline SVG (`.landing-flow*`), painted with the color tokens:
+  a wide drawing from `lg:` and a tall one below it, since SVG text scales with the drawing. DAIV's
+  steps carry the violet `brand` stroke, yours stay neutral. Screen readers get the `sr-only` list
+  beside it.
+- **FAQ.** `<details>` rows (`.landing-faq*`), no Alpine. The questions and answers live in
+  `dashboard/landing.py`, which the `FAQPage` JSON-LD repeats.
+- **Actions.** `.landing-button--primary` is the teal `accent`; `.btn-primary` stays white on legacy pages.
+- **Logo.** The nav keeps `accounts/img/logo.svg`, as the sign-in pages do, not the app shell's `brand-mark`.
+
+### Guide fold
+
+Reference material beside live data, e.g. Home's Ways to use DAIV (`dashboard/_ways_to_use.html`):
+a `<details>` with `.guide` — unfilled, a dashed border — so it never reads as a data card. Its
+summary holds the title, a one-line hint while folded, and Show/Hide; a `<summary>` is a button,
+so the section's `<h2>` sits outside it, `sr-only`. The open state is per
+browser (`localStorage` key `daiv.home.ways`), applied by an inline script right after the element
+so a folded guide never paints open.
+
 ### Empty State
 
 Centered card for "nothing here yet" and "can't show this" states, classes in `input.css`:
@@ -198,6 +509,25 @@ Centered card for "nothing here yet" and "can't show this" states, classes in `i
     <!-- optional: <a class="btn-primary mt-5 ..."> call to action -->
 </div>
 ```
+
+### Confirm Dialog
+
+A small yes/no question before a destructive action, on the native `<dialog>` opened with
+`showModal()`, which gives the focus trap, `Esc` and the inert page for free. Classes are in
+`input.css`; the session page's Archive (`sessions/_session_topbar.html`) is the reference:
+
+```html
+<dialog id="…" class="confirm-dialog" aria-labelledby="…-title" aria-describedby="…-body">
+    <h2 id="…-title" class="confirm-dialog__title">…</h2>
+    <p id="…-body" class="confirm-dialog__body">…</p>
+    <form method="dialog" class="confirm-dialog__actions">
+        <button type="submit" class="confirm-dialog__button" autofocus>Cancel</button>
+        <button type="button" class="confirm-dialog__button confirm-dialog__button--danger">…</button>
+    </form>
+</dialog>
+```
+
+Cancel takes the initial focus, so `Enter` never confirms by accident.
 
 ### Page Header
 
@@ -219,11 +549,25 @@ when there is more than one:
 The title block takes whatever the actions leave and wraps its own text; the actions
 drop to a line of their own once it would go below `16rem`. **Never add a breakpoint
 for this**: a viewport breakpoint can't see the shell beside it — the sidebar is a
-64px rail from `md:` and 240px from `lg:`, so the content area a `sm:`/`lg:` rule
+64px rail from `md:` and 17rem to 32rem from `lg:`, so the content area a `sm:`/`lg:` rule
 switches on is never the width the rule names. The same wrap — grow the
 details, floor them, let the controls fall below — is how list rows with trailing
 controls stack (`mcp_connectors/_server_list.html`), and it adapts per row when the
 controls are conditional.
+
+### Segmented Nav
+
+Links to a page's views, each its own URL: a skill page's tabs, the Insights periods. The current
+link carries `aria-current`, which puts it on `surface-3` in `text-strong`; a count beside a label
+goes in `.segmented-nav__count`. Tabs that switch in place without a URL use `.details-tabs`
+(§Session sidebar) instead.
+
+```html
+<nav aria-label="Skill" class="segmented-nav">
+    <a href="…" class="segmented-nav__item" aria-current="page">SKILL.md</a>
+    <a href="…" class="segmented-nav__item">Files<span class="segmented-nav__count">7</span></a>
+</nav>
+```
 
 ### Badges / Pills
 
@@ -266,23 +610,96 @@ Requires `is_paginated` and `page_obj` in template context (standard Django `Lis
 
 `base_app.html` is the chrome every signed-in page inherits: the sidebar and a
 scrolling `<main>`. There is no top bar from `md:` up — everything global lives in the
-sidebar. Below `md:` the sidebar becomes a sheet, opened from a slim top bar (menu button
-plus wordmark) that is the only nav entry point on a phone.
+sidebar. Below `md:` the sidebar becomes a sheet, opened from a slim top bar (menu button,
+wordmark and a teal New chat `+`) that is the only nav entry point on a phone.
 
-- **Tiers.** `< md` sheet + slim top bar; `md–lg` icon rail; `>= lg` full sidebar.
-- **Sidebar hooks.** Anything the rail must hide carries `sidebar__collapsible`, and
-  anything only the rail shows carries `sidebar__rail-only` (the dot that stands in for the
-  unread count). The elements it re-centres carry `sidebar__brand` / `sidebar__cta` /
-  `sidebar__nav-item` / `sidebar__footer-link` / `sidebar__account`, and a group heading
-  keeps its box via `sidebar__group-heading`. A new nav item wraps its text in
-  `sidebar__collapsible`, or the label overflows the 4rem rail. The mobile sheet includes
-  the same partial *without* `sidebar--rail`, so it keeps its labels. A nav item's
-  appearance is the `.sidebar__nav-item` component class, not a utility chain, and its
-  active state comes from `{% nav_active %}` — which adds `sidebar__nav-item--active`,
-  the class that draws the 3px brand rail.
-- **Only the `<nav>` scrolls.** The `<aside>` carries no `overflow`, so the footer
-  (API docs, build info, account chip) stays pinned and the account menu can open past
-  the rail's edge without being clipped.
+- **Tiers.** `< md` sheet + slim top bar; `md–lg` icon rail; `>= lg` full sidebar, which the
+  collapse toggle (`sidebar__toggle`, by the brand, `lg:` only; shortcut `[`) folds back to the
+  same icon rail — never to zero, since from `md:` up the sidebar is the only home of New chat, the
+  badges and the account menu. The choice is per browser (`localStorage` key `daiv.sidebar`):
+  an inline script in `base.html`'s `<head>` sets `data-sidebar="rail"` on `<html>` before
+  first paint, and the `sidebar` store (`core/js/sidebar.js`) owns it from there. The `[`
+  shortcut works only while its button is shown, and stands down while typing, with Ctrl or
+  Meta held, or while a dialog, sheet or menu is open — any visible `data-surface`, the hook
+  every floating surface carries and the one selector `surface-rise` animates. Every rail icon carries a `title`, its
+  name and tooltip once the label is hidden.
+- **Width.** The full sidebar's right edge (`.sidebar__resize`, a focusable `role="separator"`)
+  resizes it: drag it, nudge it with the arrow keys (Home and End jump to the bounds), double-click
+  to reset. At rest it is the plain border; it turns teal under the pointer and through a drag, and
+  keyboard focus draws the global focus ring around it. Its `aria-valuenow`, `aria-valuemin` and
+  `aria-valuemax` are measured as it renders, and again on focus, through a drag, when the
+  sidebar expands and when the window resizes. The store writes `--app-sidebar-chosen` on `<html>`, and `input.css` clamps it
+  between `--app-sidebar-min` (17rem, the default) and `--app-sidebar-max` (32rem, less on
+  windows that would leave the content under 48rem), so the clamp also follows window resizes.
+  The width shown is what `localStorage` keeps (`daiv.sidebar.width`, dropped at the default),
+  and the same head script restores it before first paint. Neither the rail nor the sheet resizes.
+- **Layout.** Top to bottom: brand and toggle, then the `<nav>`, then the account chip with
+  the Settings cog beside it (`.sidebar__footer`; the rail stacks the cog above the chip). In the `<nav>`, fixed rows — Home (URL name `dashboard`), Notifications,
+  Artifacts — sit above a scroller holding two lists, `dashboard/_sidebar_lists.html` read from
+  `nav_sidebar` (`dashboard/sidebar.py`). Each list's heading carries icon actions
+  (`.nav-group-action`). **Sessions**: search (the sessions page's search box, `#search`;
+  shortcut `/`) and a teal `+` for New chat; the user's own sessions outside any
+  schedule, newest first, 8 at a time with "Show more" (up to 80, then it links the
+  sessions page), a status dot, the state word while
+  running, waiting or failed and a short relative time otherwise, with the state word kept
+  for screen readers (`sr-only`) so no status is colour alone; the session being viewed
+  is marked and appended when off the page. **Scheduled**: up to 10 schedules the user owns
+  or subscribes to that are enabled or fired in the last 14 days, each expanding to its 3
+  newest firings (one row per dispatch, worst status of its sessions, a repository count
+  past one) and "All runs". Its heading takes the `schedules` section's active state;
+  its list icon links the schedules page. Headings are `.nav-group-title`, on the `label-caps` utility, and
+  the rows' times and counts (`.nav-row__meta`, a firing's date) are Geist Mono. When the
+  lists cannot be read (`SidebarLists.failed`), each says so in place of its empty state, whose
+  "No sessions yet" would be untrue. The queries run once per page, behind the lazy
+  `nav_sidebar`. Order and contents are pinned by
+  `dashboard/test_sidebar.py` and `dashboard/test_sidebar_lists.py`.
+- **Settings menu.** The `<nav>` holds two menus side by side in one clipped grid row
+  (`.nav-panels`, each a `.nav-panel`): the fixed rows and lists, and `_sidebar_settings.html`
+  — Back, **Agent setup** — Sandbox environments, MCP servers, Memory, set up once, so the
+  heading carries a one-line "optional" hint and each item a `.nav-description` (the item takes
+  `sidebar__nav-item--described`, and its `title` repeats both for the rail) — then **Admin**
+  (`is_admin` only), then Help & docs, API documentation and the build line. The cog
+  (`.nav-cog`, a disclosure button) slides Settings in and Back or Escape slides it out, with
+  no page load; focus moves to Back, then back to the cog, and the hidden menu is `inert`.
+  Each sidebar copy keeps its own state in a `sidebarMenus` component (`core/js/sidebar.js`),
+  started open on a page whose section is in `_SETTINGS_SECTION_URL_NAMES`
+  (`dashboard/context_processors.py`), with the lists already behind it for Back. Schedules and Insights are not settings: their pages
+  open on the lists, and Insights is reached from Home.
+- **Live lists.** The `nav` store announces `daiv:runs-changed` when a frame moves the
+  running snapshot of the user's own sessions (`own_running_runs`, `own_latest_running_start`;
+  runs they merely see do not count) or the stream reopens; the `sidebarLists` store
+  (`core/js/sidebar-lists.js`) then refetches the `sidebar_lists` fragment, passing the
+  page's section so the Scheduled heading keeps its highlight, into every
+  `[data-testid="sidebar-lists"]`, both copies at once, and keeps the rows shown if the
+  response is not the lists. Expand state is the store's (per browser, `localStorage`
+  `daiv.sidebar.schedules`, over the server's open-when-failed default), so a swap cannot
+  close a schedule; focus follows `data-row-key` and the scroll position is kept per tab.
+- **Sidebar hooks.** The rail's rules are written once, under the `sidebar-rail` custom
+  variant in `input.css`: forced between `md` and `lg`, and from `lg` up under
+  `:root[data-sidebar="rail"]`, which also sets `--app-sidebar-width` to 4rem so the sheet
+  inset follows. Anything the rail must hide carries `sidebar__collapsible` — the lists'
+  whole scroller does — and anything only the rail shows carries `sidebar__rail-only`: the
+  dot that stands in for the unread count, and the New chat, Search, Sessions (dotted while
+  anything runs) and Scheduled icons that stand in for the lists and their headings. The elements it
+  re-centres carry `sidebar__brand` / `sidebar__nav-item` / `sidebar__footer-link` /
+  `sidebar__account`, a group heading keeps its box via `sidebar__group-heading`, and the
+  toggle stacks under the mark with its chevron (`sidebar__toggle-icon`) turned outward. A
+  new nav item wraps its text in `sidebar__collapsible`, or the label overflows the 4rem
+  rail. The mobile sheet includes the same partial *without* `sidebar--rail`, so it keeps
+  its labels and lists. A nav item's appearance is the `.sidebar__nav-item` component class,
+  not a utility chain, and its active state comes from `{% nav_active %}` — which adds
+  `sidebar__nav-item--active`, the class that draws the 3px brand rail. The lists' rows are
+  `.nav-row` (with `--active`, `--nested`, `--quiet`), never seen by the rail, so they are
+  not `sidebar__` hooks.
+- **New chat.** The `+` in the Sessions heading starts a chat (`session_new_chat`); the
+  rail, which hides that heading, shows its own `+` above Sessions, and the mobile top bar a
+  teal one. A background run (`runs:agent_run_new`) starts from the Sessions list's New
+  button, through the `session_new` chooser, or from Home's Ways to use DAIV.
+- **Page bars and side columns.** A page that needs a bar above its scrolling `<main>` or a column beside it
+  overrides `{% block app_body %}` and renders its own single `<main>` (the session page's top bar and sidebar do). Keep that `<main>` the only one: chat scrolling and the sticky composer look it up.
+- **Only the lists scroll.** The `<aside>` and `<nav>` carry no `overflow` — the scroller
+  inside the `<nav>` does — so the fixed rows, the cog and the account chip stay pinned and
+  the account menu can open past the rail's edge without being clipped.
 - **Account menu.** The chip at the bottom of the sidebar (`.sidebar__account`) opens a
   menu holding the personal pages — notification channels, API keys, passkeys — and
   sign-out. It opens upward over the full sidebar and the sheet, and beside the rail
@@ -290,6 +707,38 @@ plus wordmark) that is the only nav entry point on a phone.
   share the one `account` section in `SECTION_URL_NAMES`.
 - **Notifications.** A nav item with the unread count from the `nav` store; the rail shows
   a dot instead, and the mobile top bar's menu button carries the same dot.
+
+### Session sidebar
+
+`sessions/_session_details.html` is the session page's home for repositories, merge requests, CI,
+external references, environment and usage; the header (`_session_topbar.html`) keeps only title,
+status and the `⋯` menu.
+
+- **Column or sheet.** From 1100px (`WIDE` in `session-page.js`) it is an always-open column with
+  no title and no close button; below that it is a sheet, opened by the header's `.session-summary`
+  button (main repository slug, `+N`, `!iid` or MR count, a CI dot). The switch is `(min-width: 1100px)`
+  and the same in CSS and JS.
+- **Tabs.** Overview and Info, `.details-tabs` / `.details-tab` (`--on` is `bg-surface-3` with
+  `text-text-strong`). The tab and each fold persist per browser.
+- **Folds.** `.details-fold` with a `__head` button, a `__chevron` that turns 90deg when open, and a
+  `__summary` figure in `font-mono`: `text-text-muted` while folded, `text-text-faint` while open.
+- **Repository card.** `.repo-card`: `bg-surface-2`, `border-border`, `rounded-xl`; `--quiet`
+  (agent ran, nothing to show) drops the fill and shows `__quiet-note`. Head: icon, slug in
+  `font-mono`, the `__tag` pill ("Main", only with several repositories) and the `⋯` menu (`.session-menu`,
+  the only `shadow-overlay` here). Then the branch (`font-mono`, muted), the merge request line (`!iid` in
+  `text-accent` because it links; the title; `.draft-badge` outside the link, so a status colour never marks
+  something clickable), and a CI and diff row: `.ci-dot` tinted by `.ci-tone--attn|clear|found|fail` (the
+  `status-*` tokens), the diff as `__added` / `__removed` counts in `font-mono`. Errors use `status-fail`.
+- **Reference card.** `.ref-card`, the last Overview fold: same fill, border and radius as the repository
+  card, one per external reference, from the header's `references` so it stays current. The provider's
+  icon (GitLab, GitHub, Sentry, Jira, else `link`; drawn by `TranscriptLabels.iconHTML`) in
+  `text-text-muted`, the key in `font-mono` (`#42` for a platform issue), a `__source` line (provider ·
+  host, truncating, then a "closes" that never does) in `text-text-faint`. A reference with a URL is a
+  link (`.ref-card[href]`): the key in `text-accent`, a hover fill and a trailing open-in-new-tab icon.
+  One without has no `href`, so it is not a link.
+- **Shared classes.** `.ci-dot`, `.ci-tone--<tone>` and `.draft-badge` are neutral: the header summary
+  and the cards both use them. `.leg-tag` is the repository card's `__tag` pill for a leg follow-up, the
+  same on the Delegated jobs card, the details panel and the call's table.
 
 ### Prose / Markdown Content
 
@@ -302,6 +751,18 @@ Use the `.prose-dark` component class for rendered markdown inside dark containe
 ```
 
 Defined in `input.css` under `@layer components`. Handles headings, lists, links, code blocks, blockquotes, tables, and horizontal rules.
+
+## Do's and Don'ts
+
+### Accessibility
+
+- Use semantic HTML: `<nav>`, `<main>`, `<header>`, `<footer>`, `<section>`
+- Add `aria-label` on navigation landmarks
+- Focus is global: `input.css` puts a teal `:focus-visible` ring on everything. Only
+  opt out (`focus:outline-none`) when replacing it with an equally visible ring
+- Ensure color contrast: every text token is AA-legible on `ground` and on every surface,
+  hover (`surface-3`) included; any other pairing goes in the front matter's `components`
+- Use `x-cloak` to prevent flash of unstyled Alpine content
 
 ## Icon System
 
@@ -378,8 +839,13 @@ its own `{% comment %}` block); the Alpine state lives in `sessions/static/sessi
 as `promptBox(...)`:
 
 ```django
-{% include "codebase/_repo_picker.html" with variant="context" max_repos=1 field_name="" required=False on_change_event="daiv:chat-repo-changed" %}
+{% include "codebase/_repo_picker.html" with variant="card" max_repos=5 unique_repos=True field_name="" required=False on_change_event="daiv:chat-repo-changed" %}
 ```
+
+`variant="card"` renders one `.workspace-row` per repository (a **Main** tag once there is more than one,
+a branch button, **Make main** on every row but the first, a remove button) and an **Add repository**
+button; the default variant renders chips. `unique_repos=True` lists each repository once, whatever its
+branch, and the first row is the main repository.
 
 Both popovers are HTMX fragments served by `codebase.views` — debounced search on the input, and
 the repository list pages in on scroll via an `intersect`-triggered sentinel row. Adding to a
@@ -389,6 +855,10 @@ choices. Successful repository results, search, and scroll position survive reop
 page; reopening after a failed request retries the current search. A failed fragment
 request is surfaced by `promptBox`, which listens for both `htmx:sendError` and `htmx:responseError`
 (HTMX skips the swap on 4xx/5xx, so without the latter the popover stays blank).
+
+The environment picker (`sandbox_envs/_env_picker.html`) takes `variant="field"` for the select-like trigger
+used in the Workspace card; `auto_label_expr` is an Alpine expression whose value names what **Auto**
+resolves to (`Auto · <env>`).
 
 **Picker error row** — `window.pickerError` (`core/js/picker-error.js`, loaded in `base.html`) renders
 the failure row for every HTMX picker popover, reading its message from the nearest
@@ -426,41 +896,6 @@ All pages extend `core/templates/base.html`, which provides:
 - Page templates: `name.html` (no prefix)
 - Located in each app's `templates/<app>/` directory
 
-## Accessibility
-
-- Use semantic HTML: `<nav>`, `<main>`, `<header>`, `<footer>`, `<section>`
-- Add `aria-label` on navigation landmarks
-- Focus is global: `input.css` puts a teal `:focus-visible` ring on everything. Only
-  opt out (`focus:outline-none`) when replacing it with an equally visible ring
-- Ensure color contrast: the `text` / `text-muted` / `text-faint` ramp and every
-  `status-*` token are AA-legible on `ground`; check anything outside them
-- Use `x-cloak` to prevent flash of unstyled Alpine content
-
-## Responsive Design
-
-Mobile-first approach. Common patterns:
-
-```html
-<!-- Single column on mobile, 2 columns on sm, 3 on lg -->
-<div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-
-<!-- Stack on mobile, row on sm -->
-<div class="flex flex-col gap-4 sm:flex-row sm:items-center">
-```
-
-Breakpoints are viewport-relative, but from `md:` up a page sits next to the shell —
-a 64px icon rail, then the full `--app-sidebar-width` (15rem) from `lg:` — so the
-content area a rule switches on is always narrower than the width the rule names.
-Where the switch depends on whether two blocks still fit (a title and its actions, a
-list row and its controls), wrap on content instead: see §Page Header.
-
-A `position: fixed` surface has the same problem with no layout to lean on: it measures
-the viewport, not the column it belongs to. From `md:` up — the width the sidebar
-appears at — bottom sheets (pickers and the composer's own) are therefore inset to the
-content column instead, so one never opens across the sidebar. The `--sheet-inset-*`
-switch in `input.css` is keyed to `--breakpoint-md` for exactly that reason: move the
-sidebar's tier and that switch moves with it.
-
 ## File Paths Reference
 
 | What                    | Path                                          |
@@ -477,3 +912,5 @@ sidebar's tier and that switch moves with it.
 | Icon SVGs               | `daiv/core/static/core/img/icons/`            |
 | Icon template tag       | `daiv/core/templatetags/icon_tags.py`         |
 | Repo + branch picker    | `daiv/codebase/templates/codebase/_repo_picker.html` |
+| Front matter ↔ `@theme` check | `tests/unit_tests/test_design_md.py`    |
+| Token contrast check    | `tests/unit_tests/test_surface_contrast.py`   |

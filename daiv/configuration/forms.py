@@ -3,15 +3,18 @@ from __future__ import annotations
 import json
 import logging
 import re
-from functools import cached_property
+from dataclasses import dataclass
+from functools import cache, cached_property
 from typing import TYPE_CHECKING, Any, ClassVar, TypedDict
 from urllib.parse import urlparse
 
 from django import forms
+from django.core.validators import MaxValueValidator, MinValueValidator
+from django.db import transaction
 from django.forms.models import BaseModelFormSet, modelformset_factory
 from django.utils.translation import gettext_lazy as _
 
-from automation.agent.model_spec import HTTPX_CLIENT_PROVIDER_TYPES, parse_model_spec
+from automation.agent.model_spec import HTTPX_CLIENT_PROVIDER_TYPES, canonical_model_spec, parse_model_spec
 from core.models import (
     THINKING_OFF,
     Provider,
@@ -20,8 +23,14 @@ from core.models import (
     ThinkingLevelChoices,
     WebFetchAuthHeader,
 )
+from core.site_settings import MODEL_MAP_FIELDS, site_settings
+from core.utils import short_model_name
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
+    from django_stubs_ext import StrOrPromise
+
     from core.models import FieldGroup
 
 logger = logging.getLogger("daiv.configuration")
@@ -59,15 +68,6 @@ assert set(_PAIRED_THINKING_FIELDS).issubset(SiteConfiguration.MODEL_NAME_FIELDS
 )
 
 
-def _shorten_model_spec(spec: str) -> str:
-    """Strip ``provider:`` prefix and any ``org/`` path so the placeholder pill
-    label ("Default (...)") stays compact."""
-    if not spec:
-        return ""
-    name = spec.split(":", 1)[1] if ":" in spec else spec
-    return name.rsplit("/", 1)[-1] or name
-
-
 class _PickerContext(TypedDict):
     """Shape of the per-widget context blob the settings widget passes into
     ``automation/_agent_picker.html``. Defined here so renaming a key trips
@@ -89,6 +89,8 @@ class _PickerContext(TypedDict):
     locked_title: str
     seed_default: bool
     required: bool
+    default_hint: bool
+    stale: bool
 
 
 class _AgentPickerWidget(forms.Widget):
@@ -123,10 +125,16 @@ class _AgentPickerWidget(forms.Widget):
         # Populated by the form so the partial can seed the effort dots from
         # the paired field's stored value. Standalone widgets leave it empty.
         self.initial_thinking: str = ""
+        # Model entries set these: the unselected pill names what serves instead, beside a "default" hint, and a
+        # stored spec no provider serves any more renders stale.
+        self.placeholder: str = ""
+        self.stale: bool = False
 
     def get_context(self, name: str, value: Any, attrs: dict | None) -> dict[str, Any]:
         context = super().get_context(name, value, attrs)
         widget_ctx = context["widget"]
+        # The picker cannot seed a bare model name, and would post the field back empty.
+        value = canonical_model_spec(value or "")
 
         # Use the cached snapshot so the agent settings group (10 model fields)
         # doesn't re-run the same provider query 10x per GET. ``get_cached_rows``
@@ -140,11 +148,12 @@ class _AgentPickerWidget(forms.Widget):
         ]
 
         with_effort = self.paired_thinking_field is not None
-        placeholder = (
-            _("Default (%(name)s)") % {"name": _shorten_model_spec(self.default_model)}
-            if self.default_model
-            else _("Pick a model")
-        )
+        if self.placeholder:
+            placeholder = self.placeholder
+        elif self.default_model:
+            placeholder = _("Default (%(name)s)") % {"name": short_model_name(self.default_model)}
+        else:
+            placeholder = _("Pick a model")
 
         # ``attrs`` here is the per-render arg from ``BoundField`` (carries
         # ``disabled`` for env-locked fields). ``self.attrs`` is the widget's
@@ -157,7 +166,7 @@ class _AgentPickerWidget(forms.Widget):
             "field_name_model": name,
             "field_name_thinking": self.paired_thinking_field or "",
             "initial_agent_model": value or "",
-            "initial_model_display": _shorten_model_spec(value) if value else "",
+            "initial_model_display": short_model_name(value) if value else "",
             "initial_thinking_level": self.initial_thinking,
             "initial_effort_dots": ThinkingLevelChoices.dots_for(self.initial_thinking),
             "default_model": self.default_model,
@@ -175,6 +184,8 @@ class _AgentPickerWidget(forms.Widget):
             # save is a meaningful "use the configured default" state.
             "seed_default": False,
             "required": False,
+            "default_hint": bool(self.placeholder),
+            "stale": self.stale,
         }
         widget_ctx["picker"] = picker
         return context
@@ -190,6 +201,19 @@ class _AgentPickerWidget(forms.Widget):
         # drops the ``for`` attribute — pointing it at a hidden input would mislead autofill
         # heuristics and accessibility tools.
         return ""
+
+
+def model_spec_error(model_spec: str) -> str | None:
+    """Why ``model_spec`` cannot be used: no enabled Provider row with an API key serves it; ``None`` when one does."""
+    try:
+        row = parse_model_spec(model_spec).row
+    except ValueError:
+        return _("Unsupported model: %(m)s.") % {"m": model_spec}
+    if not row.is_enabled:
+        return _("Provider '%(s)s' is disabled. Enable it in the Providers section.") % {"s": row.slug}
+    if row.api_key is None:
+        return _("Provider '%(s)s' has no API key. Set it in the Providers section.") % {"s": row.slug}
+    return None
 
 
 class SiteConfigurationForm(forms.ModelForm):
@@ -221,9 +245,9 @@ class SiteConfigurationForm(forms.ModelForm):
             "agent_fallback_thinking_level",
             "agent_max_model_name",
             "agent_max_thinking_level",
-            "agent_explore_model_name",
-            "agent_explore_fallback_model_name",
             "agent_recursion_limit",
+            "model_request_timeout_seconds",
+            "model_max_retries",
             "diff_to_metadata_model_name",
             "diff_to_metadata_fallback_model_name",
             "titling_model_name",
@@ -242,6 +266,8 @@ class SiteConfigurationForm(forms.ModelForm):
             "web_search_enabled",
             "web_search_max_results",
             "web_search_engine",
+            "web_search_searxng_url",
+            "web_search_searxng_timeout_seconds",
             "web_fetch_enabled",
             "web_fetch_model_name",
             "web_fetch_cache_ttl_seconds",
@@ -340,6 +366,15 @@ class SiteConfigurationForm(forms.ModelForm):
                 paired = _PAIRED_THINKING_FIELDS.get(name)
                 field_obj.widget = _AgentPickerWidget(paired_thinking_field=paired)
             elif isinstance(widget, forms.NumberInput):
+                for validator in model_field.validators if model_field else ():
+                    if isinstance(validator, MinValueValidator):
+                        limit = validator.limit_value() if callable(validator.limit_value) else validator.limit_value
+                        if "min" not in widget.attrs or float(widget.attrs["min"]) < limit:
+                            widget.attrs["min"] = limit
+                    elif isinstance(validator, MaxValueValidator):
+                        limit = validator.limit_value() if callable(validator.limit_value) else validator.limit_value
+                        if "max" not in widget.attrs or float(widget.attrs["max"]) > limit:
+                            widget.attrs["max"] = limit
                 widget.attrs.setdefault("min", "0")
 
             # Set template and default attributes on remaining non-secret fields
@@ -467,35 +502,17 @@ class SiteConfigurationForm(forms.ModelForm):
         cleaned_data = super().clean()
         self._validate_model_api_keys(cleaned_data)
         self._validate_web_search_api_key(cleaned_data)
+        self._validate_searxng_url(cleaned_data)
         self._validate_auth_credentials(cleaned_data)
         self._validate_telegram_token(cleaned_data)
         return cleaned_data
 
     def _validate_model_api_keys(self, cleaned_data: dict[str, Any]) -> None:
         """Validate that each chosen model resolves to an enabled, keyed Provider row."""
-        rows = Provider.get_cached_by_slug()
         for field_name in SiteConfiguration.MODEL_NAME_FIELDS:
             model_spec = cleaned_data.get(field_name)
-            if not model_spec:
-                continue
-            try:
-                slug = parse_model_spec(model_spec).row.slug
-            except ValueError:
-                self.add_error(field_name, _("Unsupported model: %(m)s.") % {"m": model_spec})
-                continue
-            row = rows.get(slug)
-            if row is None:
-                self.add_error(field_name, _("Provider '%(s)s' is not configured.") % {"s": slug})
-                continue
-            if not row.is_enabled:
-                self.add_error(
-                    field_name, _("Provider '%(s)s' is disabled. Enable it in the Providers section.") % {"s": slug}
-                )
-                continue
-            if row.api_key is None:
-                self.add_error(
-                    field_name, _("Provider '%(s)s' has no API key. Set it in the Providers section.") % {"s": slug}
-                )
+            if model_spec and (error := model_spec_error(model_spec)):
+                self.add_error(field_name, error)
 
     def _validate_web_search_api_key(self, cleaned_data: dict[str, Any]) -> None:
         """Validate that Tavily has an API key when selected."""
@@ -508,6 +525,17 @@ class SiteConfigurationForm(forms.ModelForm):
                 "web_search_engine",
                 _("Tavily requires an API key. Set the web search API key below or via environment variable."),
             )
+
+    def _validate_searxng_url(self, cleaned_data: dict[str, Any]) -> None:
+        """Require an endpoint for SearXNG while allowing other engines to leave it unset."""
+        from core.models import WebSearchEngineChoices
+
+        if (
+            cleaned_data.get("web_search_engine") == WebSearchEngineChoices.SEARXNG
+            and not cleaned_data.get("web_search_searxng_url")
+            and "web_search_searxng_url" not in self.errors
+        ):
+            self.add_error("web_search_searxng_url", _("SearXNG requires a search endpoint URL."))
 
     def _validate_auth_credentials(self, cleaned_data: dict[str, Any]) -> None:
         """Validate that OAuth client ID and secret are configured as a pair."""
@@ -569,20 +597,23 @@ class SiteConfigurationForm(forms.ModelForm):
     # ------------------------------------------------------------------
 
     def save(self, commit: bool = True) -> SiteConfiguration:
+        """Saves only this form's columns, so it never undoes another writer's concurrent save of the others."""
         instance = super().save(commit=False)
+        update_fields = [name for name in self.fields if name not in self.SECRET_FIELDS]
 
         for field_name in self.SECRET_FIELDS:
             if field_name in self.env_locked_fields:
                 continue
             if field_name in self.cleared_secrets:
                 setattr(instance, field_name, None)
+            elif value := self.cleaned_data.get(field_name, ""):
+                setattr(instance, field_name, value)
             else:
-                value = self.cleaned_data.get(field_name, "")
-                if value:
-                    setattr(instance, field_name, value)
+                continue
+            update_fields.append(f"_{field_name}_encrypted")
 
         if commit:
-            instance.save()
+            instance.save(update_fields=update_fields)
         return instance
 
     # ------------------------------------------------------------------
@@ -603,6 +634,100 @@ class SiteConfigurationForm(forms.ModelForm):
             "telegram_bot_token": _("Bot token issued by @BotFather, in the form 123456:ABC-DEF."),
         }
         return labels.get(name, "")
+
+
+RUN_MODEL_LABEL = _("Run's model")
+
+
+@dataclass(frozen=True)
+class ModelEntry:
+    """One ``{name: model spec}`` entry of ``agent_skill_models`` or ``agent_subagent_models``, as its row shows it:
+    ``default_label`` names what serves while the entry is unset."""
+
+    site_field: str
+    name: str
+    label: StrOrPromise
+    help_text: StrOrPromise
+    default_label: StrOrPromise = RUN_MODEL_LABEL
+
+    @property
+    def field_name(self) -> str:
+        return f"{self.site_field}__{self.name}"
+
+
+class ModelEntriesForm(forms.Form):
+    """A model picker per ``ModelEntry``, saved into the site's model maps without touching their other entries.
+
+    A map set by its environment variable shows its value locked. Only a changed entry must name a usable model, so an
+    entry whose provider went away is kept, flagged ``stale``, until someone picks another.
+    """
+
+    def __init__(self, entries: Sequence[ModelEntry], *args: Any, stored: SiteConfiguration, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.entries = {entry.field_name: entry for entry in entries}
+        self.stale_reasons: dict[str, str] = {}
+        self._stored = stored
+        locks = {site_field: site_settings.is_env_locked(site_field) for site_field in MODEL_MAP_FIELDS}
+        maps = {
+            site_field: getattr(site_settings if locked else stored, site_field) for site_field, locked in locks.items()
+        }
+        spec_error = cache(model_spec_error)
+        for field_name, entry in self.entries.items():
+            locked = locks[entry.site_field]
+            # Canonical, as the picker posts it back: a bare stored name would read as changed, and be cleared.
+            value = canonical_model_spec(maps[entry.site_field].get(entry.name, ""))
+            widget = _AgentPickerWidget()
+            widget.placeholder = str(entry.default_label)
+            if value and (reason := spec_error(value)):
+                widget.stale = True
+                self.stale_reasons[field_name] = reason
+            if locked:
+                widget.attrs["title"] = _("Locked by environment variable")
+            self.fields[field_name] = forms.CharField(
+                label=entry.label,
+                help_text=entry.help_text,
+                required=False,
+                initial=value,
+                disabled=locked,
+                widget=widget,
+            )
+
+    @property
+    def is_editable(self) -> bool:
+        return any(not field.disabled for field in self.fields.values())
+
+    def is_submitted(self, data: Mapping[str, Any]) -> bool:
+        """Whether ``data`` posts this form's pickers; a POST that leaves them out keeps the stored entries."""
+        return any(self.add_prefix(name) in data for name, field in self.fields.items() if not field.disabled)
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean() or {}
+        for name in self.changed_data:
+            if (spec := cleaned.get(name)) and (error := model_spec_error(spec)):
+                self.add_error(name, error)
+        return cleaned
+
+    def apply_to(self, config: SiteConfiguration) -> list[str]:
+        """Write the changed entries into ``config``; returns the fields it changed, for ``save(update_fields=...)``."""
+        changed: list[str] = []
+        for name in self.changed_data:
+            entry = self.entries[name]
+            entries = dict(getattr(config, entry.site_field))
+            if spec := self.cleaned_data[name]:
+                entries[entry.name] = spec
+            else:
+                entries.pop(entry.name, None)
+            setattr(config, entry.site_field, entries)
+            if entry.site_field not in changed:
+                changed.append(entry.site_field)
+        return changed
+
+    def save(self) -> None:
+        """Save the changed entries under a row lock, leaving the maps' other entries and every other column."""
+        with transaction.atomic():
+            config = SiteConfiguration.objects.select_for_update().get(pk=self._stored.pk)
+            if changed := self.apply_to(config):
+                config.save(update_fields=changed)
 
 
 WEB_FETCH_AUTH_HEADERS_FORMSET_PREFIX = "headers"

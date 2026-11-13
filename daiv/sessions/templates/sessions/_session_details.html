@@ -1,0 +1,191 @@
+{% load humanize i18n icon_tags %}
+{% comment %}
+A column beside the transcript from 1100px, a bottom sheet below it. Must sit inside ``sessionPage`` inside
+``chat({…})``: the repositories, usage, spend, outputs and references read the chat component's live state.
+{% endcomment %}
+{% include "core/_sheet_backdrop.html" with show_expr="detailsOpen && !wide" %}
+<aside id="session-details" class="session-details" x-show="detailsOpen" x-cloak
+       @click.outside="setDetails(false)" @keydown.escape.window="setDetails(false)"
+       aria-label="{% translate 'Session details' %}" data-testid="session-details">
+  <div class="session-details__head">
+    <div class="details-tabs" role="tablist" aria-label="{% translate 'Session details' %}"
+         @keydown.arrow-left.prevent="cycleTab($el, -1)" @keydown.arrow-right.prevent="cycleTab($el, 1)"
+         data-testid="session-details-tabs">
+      <button type="button" role="tab" id="session-details-tab-overview" class="details-tab"
+              :class="{ 'details-tab--on': detailsTab === 'overview' }"
+              :aria-selected="(detailsTab === 'overview').toString()" :tabindex="detailsTab === 'overview' ? 0 : -1"
+              aria-controls="session-details-overview" @click="selectTab('overview')">{% translate "Overview" %}</button>
+      <button type="button" role="tab" id="session-details-tab-info" class="details-tab"
+              :class="{ 'details-tab--on': detailsTab === 'info' }"
+              :aria-selected="(detailsTab === 'info').toString()" :tabindex="detailsTab === 'info' ? 0 : -1"
+              aria-controls="session-details-info" @click="selectTab('info')">{% translate "Info" %}</button>
+    </div>
+    <button type="button" class="session-topbar__icon-btn" x-show="!wide" @click="setDetails(false)"
+            aria-label="{% translate 'Close details' %}">
+      {% icon "x-mark" "h-4 w-4" %}
+    </button>
+  </div>
+
+  <div class="session-details__body scrollbar-thin">
+    <div id="session-details-overview" role="tabpanel" aria-labelledby="session-details-tab-overview"
+         x-show="detailsTab === 'overview'">
+      <section class="details-fold" id="session-details-repositories">
+        {% if header.repositories.rows|length == 1 %}{% translate "Repository" as repositories_heading %}{% else %}{% translate "Repositories" as repositories_heading %}{% endif %}
+        {% include "sessions/_details_fold_head.html" with section="repositories" label=repositories_heading label_expr="repositoriesHeading" summary_expr="repositoriesSummary" %}
+        <div class="details-fold__body" id="session-details-repositories-body" x-show="!isFolded('repositories')">
+          <template x-for="(row, index) in repositoryRows" :key="row.repo_id">
+            {% include "sessions/_repository_card.html" %}
+          </template>
+        </div>
+      </section>
+
+      <section class="details-fold" id="session-details-environment">
+        {% include "sessions/_details_fold_head.html" with section="environment" label=_("Environment") %}
+        <div class="details-fold__body" id="session-details-environment-body" x-show="!isFolded('environment')">
+          <dl class="session-details__grid">
+            <dt>{% translate "Sandbox" %}</dt>
+            <dd class="truncate font-mono text-[12px]" :title="lockedEnvLabel" x-text="lockedEnvLabel"></dd>
+            <dt>{% translate "Model" %}</dt>
+            <dd x-text="[lockedAgentLabel, lockedAgentThinking].filter(Boolean).join(' · ')"></dd>
+          </dl>
+        </div>
+      </section>
+
+      <section class="details-fold" id="session-details-context" x-show="contextUsage" x-cloak>
+        {% include "sessions/_details_fold_head.html" with section="context" label=_("Context") summary_expr="contextMeter?.label || ''" %}
+        <div class="details-fold__body" id="session-details-context-body" x-show="!isFolded('context')">
+          {% include "chat/_context_readout.html" %}
+        </div>
+      </section>
+
+      <section class="details-fold" id="session-details-spend" x-show="spend" x-cloak>
+        {% include "sessions/_details_fold_head.html" with section="spend" label=_("Spend") summary_expr="spendTotal" %}
+        <div class="details-fold__body" id="session-details-spend-body" x-show="!isFolded('spend')">
+          {% include "chat/_spend_readout.html" %}
+        </div>
+      </section>
+
+      <section class="details-fold" id="session-details-outputs" x-show="latestArtifactsById.size" x-cloak>
+        {% include "sessions/_details_fold_head.html" with section="outputs" label=_("Outputs") summary_expr="latestArtifactsById.size" %}
+        <div class="details-fold__body" id="session-details-outputs-body" x-show="!isFolded('outputs')">
+          <ul class="session-details__list">
+            <template x-for="item in [...latestArtifactsById.values()]" :key="item.id">
+              <li><a :href="item.url" x-text="item.title || item.filename" target="_blank" rel="noopener noreferrer"></a></li>
+            </template>
+          </ul>
+        </div>
+      </section>
+
+      <section class="details-fold" id="session-details-references" x-show="references.length" x-cloak>
+        {% translate "References" context "external work-item references card" as references_heading %}
+        {% include "sessions/_details_fold_head.html" with section="references" label=references_heading summary_expr="references.length" %}
+        <div class="details-fold__body" id="session-details-references-body" x-show="!isFolded('references')">
+          <ul class="session-details__list">
+            <template x-for="(ref, index) in references" :key="index">
+              <li>
+                <a class="ref-card" :href="ref.url || null" :title="ref.url || null" target="_blank" rel="noopener noreferrer">
+                  <span class="ref-card__icon" x-html="TranscriptLabels.iconHTML(ref.icon)" aria-hidden="true"></span>
+                  <span class="ref-card__body">
+                    <span class="ref-card__key" x-text="ref.key"></span>
+                    <span class="ref-card__source" x-show="ref.source || ref.closing">
+                      <span class="truncate" x-show="ref.source" x-text="ref.source"></span>
+                      <span class="shrink-0" x-show="ref.closing" x-text="ref.closing"></span>
+                    </span>
+                  </span>
+                  <span class="contents" x-show="ref.url">{% icon "arrow-top-right-on-square" "ref-card__open" %}</span>
+                </a>
+              </li>
+            </template>
+          </ul>
+        </div>
+      </section>
+    </div>
+
+    <div id="session-details-info" class="details-info" role="tabpanel" aria-labelledby="session-details-tab-info"
+         x-show="detailsTab === 'info'" x-cloak>
+      <dl class="session-details__grid">
+        <dt>{% translate "Status" %}</dt>
+        <dd>
+          <span x-text="status?.label || '—'">{{ header.latest_run.label|default:"—" }}</span>
+          <template x-if="!busy && latest?.finished_at">
+            <span class="text-text-faint">· <time :datetime="latest.finished_at" :title="absoluteTime(latest.finished_at)" x-text="relativeTime(latest.finished_at)"></time></span>
+          </template>
+        </dd>
+        <dt>{% translate "Started by" %}</dt>
+        <dd>
+          {% if header.parent %}
+            {% translate "Delegated by" %} <a href="{{ header.parent.url }}">{{ header.parent.title }}</a>
+          {% elif header.issue %}
+            {% blocktranslate with iid=header.issue.iid asvar issue_label %}Issue #{{ iid }}{% endblocktranslate %}
+            {% if header.issue.url %}<a href="{{ header.issue.url }}" target="_blank" rel="noopener noreferrer">{{ issue_label }}</a>{% else %}{{ issue_label }}{% endif %}
+          {% elif session.scheduled_job %}
+            {% blocktranslate with name=session.scheduled_job.name %}Schedule · {{ name }}{% endblocktranslate %}
+          {% else %}
+            {{ session.get_origin_display }}
+          {% endif %}
+        </dd>
+        <dt>{% translate "Owner" %}</dt>
+        <dd>
+          {% if session.user %}
+            <span class="inline-flex min-w-0 items-center gap-2">{% include "accounts/_avatar.html" with user=session.user label=_("Owner") %}<span class="truncate">{{ session.user.name|default:session.user.email }}</span></span>
+          {% else %}
+            {{ session.external_username|default:"—" }}
+          {% endif %}
+        </dd>
+        <dt>{% translate "Runs" %}</dt>
+        <dd class="font-mono tabular-nums" x-text="runCount">{{ header.run_count }}</dd>
+        <dt>{% translate "Created" %}</dt>
+        <dd><time datetime="{{ session.created_at|date:'c' }}">{{ session.created_at|naturalday|capfirst }}, {{ session.created_at|time }}</time></dd>
+        <dt>{% translate "Session ID" %}</dt>
+        <dd class="details-info__copy">
+          <span class="truncate font-mono text-[12px]" title="{{ session.thread_id }}">{{ session.thread_id }}</span>
+          <button type="button" class="details-info__copy-btn" @click="copyText('{{ session.thread_id|escapejs }}')"
+                  aria-label="{% translate 'Copy session ID' %}" title="{% translate 'Copy session ID' %}">
+            {% icon "clipboard-document" "h-3.5 w-3.5" %}
+          </button>
+        </dd>
+      </dl>
+
+      <section class="session-details__section details-info__section" id="session-details-delegations" x-show="delegations" x-cloak>
+        <h3 class="session-details__label">
+          {% translate "Delegated jobs" context "delegated jobs card" %}
+          <span class="session-details__count" x-text="delegations?.total"></span>
+        </h3>
+        <template x-for="(batch, bi) in delegations?.batches ?? []" :key="bi">
+          <div class="delegations-batch">
+            <p class="delegations-batch__line">
+              <span x-show="batch.goal" x-text="`${batch.goal} ·`"></span>
+              <time :datetime="batch.created_at" :title="absoluteTime(batch.created_at)"
+                    x-text="relativeTime(batch.created_at)"></time>
+            </p>
+            <ul class="session-details__list">
+              <template x-for="(leg, li) in batch.legs" :key="li">
+                <li class="delegated-leg">
+                  <span class="leg-dot" :class="`leg-dot--${leg.state}`" aria-hidden="true"></span>
+                  <span class="delegated-leg__body">
+                    <span class="delegated-leg__repo">
+                      <span x-text="leg.repo_id"></span>
+                      <span class="leg-tag" x-show="leg.leg_follow_up" x-text="TranscriptLabels.t('leg_follow_up')"></span>
+                      <template x-if="mergeRequestLabel(leg.merge_request_url)">
+                        <span>· <a :href="leg.merge_request_url" target="_blank" rel="noopener noreferrer"
+                                   x-text="mergeRequestLabel(leg.merge_request_url)"></a></span>
+                      </template>
+                    </span>
+                    <span class="delegated-leg__sub">
+                      <span x-text="TranscriptLabels.t(`leg_${leg.state}`)"></span>
+                      <template x-if="leg.session_url">
+                        <span>·
+                          <a :href="leg.session_url" target="_blank" rel="noopener">{% translate "Open session →" %}</a>
+                        </span>
+                      </template>
+                    </span>
+                  </span>
+                </li>
+              </template>
+            </ul>
+          </div>
+        </template>
+      </section>
+    </div>
+  </div>
+</aside>

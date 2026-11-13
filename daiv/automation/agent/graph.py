@@ -15,8 +15,16 @@ from langchain.agents.middleware import (
 from skills.constants import SKILLS_PATH
 
 from automation.agent.base import get_model
-from automation.agent.constants import REPO_PATH, SKILLS_SOURCES, SKILLS_TOOL_NAME, SUBAGENTS_SOURCES
+from automation.agent.configured_models import ConfiguredModels
+from automation.agent.constants import (
+    EXPLORE_MODEL_NAME,
+    REPO_PATH,
+    SKILLS_SOURCES,
+    SKILLS_TOOL_NAME,
+    SUBAGENTS_SOURCES,
+)
 from automation.agent.context import RuntimeCtx
+from automation.agent.delegation import DELEGATE_JOBS_TOOL_NAME
 from automation.agent.mcp.toolkits import load_mcp_tools
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
@@ -26,6 +34,7 @@ from automation.agent.middlewares.deferred_tools import (
     direct_mcp_tools,
     inline_tool_definitions_middleware,
 )
+from automation.agent.middlewares.delegate_jobs import DelegateJobsMiddleware
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
 from automation.agent.middlewares.file_system import (
     CUSTOM_TOOL_DESCRIPTIONS,
@@ -40,16 +49,19 @@ from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
 from automation.agent.middlewares.memory import RepositoryMemoryMiddleware, build_agents_memory_middleware
 from automation.agent.middlewares.prompt_cache import AnthropicPromptCachingMiddleware
 from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddleware
-from automation.agent.middlewares.skills import SkillsMiddleware
+from automation.agent.middlewares.skills import SkillModelMiddleware, SkillsMiddleware
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.middlewares.summarization import build_summarization_middleware
+from automation.agent.middlewares.tool_media import ToolMediaMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.profile import register as _register_harness_profile
 from automation.agent.prompts import AGENTS_MEMORY_SYSTEM_PROMPT, DAIV_SYSTEM_PROMPT, WRITE_TODOS_SYSTEM_PROMPT
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME
 from automation.agent.subagents import (
+    EXPLORE_NAME,
+    GENERAL_PURPOSE_NAME,
     create_explore_subagent,
     create_general_purpose_subagent,
     load_builtin_code_review_detectors,
@@ -66,8 +78,10 @@ if TYPE_CHECKING:
 
     from automation.agent.agent_settings import AgentSettings
     from automation.agent.artifacts import ArtifactStore
+    from automation.agent.delegation import JobDelegator
     from automation.agent.mcp.schemas import UserMcpServer
     from automation.agent.session_links import SessionLinksResolver
+    from automation.agent.tool_media import ToolMediaStore
     from automation.agent.workspace.base import Workspace
 
 
@@ -92,6 +106,7 @@ ALWAYS_LOADED_TOOLS = frozenset({
     SKILLS_TOOL_NAME,
     "task",
     ASK_USER_QUESTION_TOOL_NAME,
+    DELEGATE_JOBS_TOOL_NAME,
 })
 
 
@@ -165,6 +180,7 @@ async def create_daiv_agent(
     ctx: RuntimeCtx,
     workspace: Workspace,
     artifact_store: ArtifactStore | None = None,
+    tool_media_store: ToolMediaStore | None = None,
     mcp_servers: Sequence[tuple[str, UserMcpServer]] = (),
     auto_commit_changes: bool = True,
     capture_patch: bool = False,
@@ -175,6 +191,8 @@ async def create_daiv_agent(
     middleware: list[AgentMiddleware] | None = None,
     ask_user_enabled: bool = True,
     session_links: SessionLinksResolver | None = None,
+    delegator: JobDelegator | None = None,
+    fork_branch: bool = False,
 ):
     """
     Create the DAIV agent.
@@ -185,6 +203,7 @@ async def create_daiv_agent(
         workspace: Where the agent works, built by the run executor: the worker's clone, or the run's sandbox session.
         artifact_store: Where ``publish_artifact`` keeps files and ``fetch_artifact`` reads them; ``None`` leaves both
             tools out (the run executor always passes one).
+        tool_media_store: Where the images and files of tool results are kept for the transcript; ``None`` keeps none.
         mcp_servers: The ``(name, server)`` pairs whose tools the agent gets, resolved by the run executor for the
             acting user; empty leaves MCP tools out.
         auto_commit_changes: Whether to commit the changes to the repository when the agent finishes.
@@ -198,6 +217,10 @@ async def create_daiv_agent(
         ask_user_enabled: Whether the agent may stop to ask the user; off when nobody can answer during the run.
         session_links: What builds the run's session links, from the run executor, for the publish to put in the commit
             and the merge request; ``None`` publishes without them.
+        delegator: What starts ``delegate_jobs`` sub-jobs, from the run executor unless the repository turns
+            orchestration off; ``None`` binds no ``delegate_jobs`` tool.
+        fork_branch: Whether the run publishes to a new branch and merge request even when the checked-out branch
+            already has an open one; set for a delegated leg.
 
     Returns:
         The DAIV agent.
@@ -225,11 +248,15 @@ async def create_daiv_agent(
     # parent's MCP toolset — otherwise a `task` delegation that calls an MCP tool fails with
     # "command not found". Explore and the code-review detectors stay deliberately scoped and don't
     # receive it.
-    mcp_tools = await load_mcp_tools(mcp_servers)
+    mcp_tools = await load_mcp_tools(mcp_servers, backend)
 
+    subagent_models = ConfiguredModels("subagent", settings.subagent_models, chain=chain)
+    skill_models = ConfiguredModels("skill", settings.skill_models, chain=chain)
+    general_purpose_model = subagent_models.for_subagent(GENERAL_PURPOSE_NAME, "", model)
+    explore_model = subagent_models.for_subagent(EXPLORE_NAME, EXPLORE_MODEL_NAME, model, never_skip=True)
     subagents = [
         create_general_purpose_subagent(
-            model,
+            general_purpose_model,
             workspace,
             ctx,
             working_directory,
@@ -239,8 +266,10 @@ async def create_daiv_agent(
             fallback_models=fallback_models,
             mcp_tools=mcp_tools,
         ),
-        create_explore_subagent(workspace, working_directory, models=settings.explore),
-        *load_builtin_code_review_detectors(model, backend, working_directory, fallback_models=fallback_models),
+        create_explore_subagent(workspace, working_directory, model=explore_model, fallback_models=fallback_models),
+        *load_builtin_code_review_detectors(
+            model, backend, working_directory, fallback_models=fallback_models, configured_models=subagent_models
+        ),
     ]
 
     custom_subagents = await load_custom_subagents(
@@ -254,6 +283,7 @@ async def create_daiv_agent(
         cross_project_enabled=settings.cross_project_enabled,
         fallback_models=fallback_models,
         mcp_tools=mcp_tools,
+        configured_models=subagent_models,
     )
     subagents.extend(custom_subagents)
 
@@ -284,11 +314,16 @@ async def create_daiv_agent(
             sources=[(global_skills_source, "Global"), *[f"{agent_root}/{source}" for source in SKILLS_SOURCES]],
             copy_global_skills=not workspace.provisions_skills,
             provisioning_errors=workspace.skills_provisioning_errors,
+            configured_models=skill_models,
         ),
         *([WebSearchMiddleware()] if settings.web_search_enabled else []),
         *([WebFetchMiddleware()] if settings.web_fetch_enabled else []),
         *([ArtifactsMiddleware(workspace=workspace, store=artifact_store)] if artifact_store is not None else []),
+        *([ToolMediaMiddleware(store=tool_media_store)] if tool_media_store is not None else []),
+        *([DelegateJobsMiddleware(delegator=delegator)] if delegator is not None else []),
         *([ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:])] if fallback_models else []),
+        # Inside the fallback and outside the deferred tools and context meter, which act on the model serving the call.
+        SkillModelMiddleware(skill_models, run_model=model),
         # Web search/fetch, git-platform, and MCP tools are all deferred behind tool_search; only the
         # file/bash/todo core in ALWAYS_LOADED_TOOLS is eagerly bound.
         *deferred_tools,
@@ -309,6 +344,7 @@ async def create_daiv_agent(
             auto_commit_changes=auto_commit_changes,
             capture_patch=capture_patch,
             session_links=session_links,
+            fork_branch=fork_branch,
         ),
         GitPlatformMiddleware(
             git_platform=ctx.git_platform, backend=backend, cross_project_enabled=settings.cross_project_enabled

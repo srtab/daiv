@@ -22,8 +22,8 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from ag_ui.core.events import BaseEvent
-    from langchain.agents import CompiledAgent
     from langchain_core.runnables import RunnableConfig
+    from langgraph.graph.state import CompiledStateGraph
 
     from automation.agent.context import RuntimeCtx
 
@@ -83,7 +83,7 @@ async def publish_event(run_relay: RunRelay, event: BaseEvent) -> None:
 
 
 async def ainvoke_live(
-    agent: CompiledAgent,
+    agent: CompiledStateGraph[Any, RuntimeCtx],
     graph_input: dict[str, Any],
     *,
     config: RunnableConfig,
@@ -97,10 +97,10 @@ async def ainvoke_live(
     The graph's own outcome decides the call: its output is returned and its exception re-raised as is, though one
     that is not an ``Exception`` (the graph's run cancelled under it) raises ``LiveRunError``. Translation and the relay
     are best-effort: when ag-ui fails mid-run the graph still runs to its end, and its RUN_ERROR is published only if
-    the graph does not return. The first relay failure is logged and ends the stream, so viewers fall back to polling,
-    and the run carries on unpublished. No graph run outlives the call. A RUN_ERROR is published with the generic
-    message, since viewers other than the run's owner can read the stream. The caller ends the stream (``end_stream``)
-    once the run has settled.
+    the graph does not return. The first relay failure is logged and ends the stream, so viewers fall back to the
+    session's turns, and the run carries on unpublished. No graph run outlives the call. A RUN_ERROR is published with
+    the generic message, since viewers other than the run's owner can read the stream. The caller ends the stream
+    (``end_stream``) once the run has settled.
     """
     outcome = _RootOutcome()
     publishing = await _publish(run_relay, run_relay.clear())
@@ -172,7 +172,7 @@ async def end_stream(run_relay: RunRelay) -> None:
 
 
 async def _publish(run_relay: RunRelay, operation: Awaitable[None]) -> bool:
-    """Run one relay write; a failure ends the stream so its viewers go back to polling the run."""
+    """Run one relay write; a failure ends the stream so its viewers go back to fetching the session's turns."""
     try:
         await operation
     except Exception:

@@ -1,0 +1,95 @@
+{
+  "pr": {
+    "repo": "https://github.com/scotthamilton77/agents-config",
+    "pr_number": 1,
+    "base": "3776d9195827d79efec978fb900573f3a5a53339",
+    "head": "1fc789709ae044579908fed58c8c14638d0db095"
+  },
+  "agent": "daiv/anthropic:claude-haiku-5-5",
+  "findings": [
+    {
+      "file": "src/user/.agents/INSTRUCTIONS.md.template",
+      "start_line": 33,
+      "end_line": 33,
+      "message": "\"Decide, don't defer\" was rewritten, not moved\n\nThe PR describes the extraction as a move, but this line changed behavior. The original (`src/user/.claude/AGENTS.md.template`, old line 39) applied only to presenting plans or designs for review: use judgment on implementation details, and escalate only when architecture or requirements are affected. The new line applies to all work and adds \"Don't ask clarifying questions for decisions you can reasonably make yourself.\" It sits inside a `<!-- PRESERVE: high-level process \u2026 -->` block and now goes to every tool.\n\nFix: restore the original wording. If the broader rule is intended, make it a separate, reviewed change.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/user/.agents/skills/self-improving-agent/SKILL.md",
+      "start_line": 36,
+      "end_line": 36,
+      "message": "Claude-only mechanisms are now shared content, installed into Codex and Gemini too\n\nInstall phases 1\u20133 copy all of `.agents/` into `~/.codex/` and `~/.gemini/` as well as `~/.claude/`.\n- The self-improving-agent skill saves preferences to `~/.claude/AGENTS.md` and `~/.claude/projects/*/memory/MEMORY.md`. Codex and Gemini do not load those files, so corrections are saved where the tool never reads them.\n- `tech-lead.md` scans `.claude/agents/*` for the team roster.\n- The shared instructions reference \"Plan mode\" and invoke the self-improving-agent skill for every tool.\n- `ralf-it` uses `bd show` (`SKILL.md:90`, `:297`), which depends on the beads definition that lives only in `CLAUDE-EXTENSIONS.md.template`.\n\nFix: move Claude-only items into `src/user/.claude/`, or make the paths tool-relative (for example, the active tool's user instruction file under `~/.<tool>/`).",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/user/.agents/agents/tech-lead.md",
+      "start_line": 41,
+      "end_line": 41,
+      "message": "Claude-only mechanisms are now shared content, installed into Codex and Gemini too\n\nInstall phases 1\u20133 copy all of `.agents/` into `~/.codex/` and `~/.gemini/` as well as `~/.claude/`.\n- The self-improving-agent skill saves preferences to `~/.claude/AGENTS.md` and `~/.claude/projects/*/memory/MEMORY.md`. Codex and Gemini do not load those files, so corrections are saved where the tool never reads them.\n- `tech-lead.md` scans `.claude/agents/*` for the team roster.\n- The shared instructions reference \"Plan mode\" and invoke the self-improving-agent skill for every tool.\n- `ralf-it` uses `bd show` (`SKILL.md:90`, `:297`), which depends on the beads definition that lives only in `CLAUDE-EXTENSIONS.md.template`.\n\nFix: move Claude-only items into `src/user/.claude/`, or make the paths tool-relative (for example, the active tool's user instruction file under `~/.<tool>/`).",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/user/.agents/INSTRUCTIONS.md.template",
+      "start_line": 32,
+      "end_line": 32,
+      "message": "Claude-only mechanisms are now shared content, installed into Codex and Gemini too\n\nInstall phases 1\u20133 copy all of `.agents/` into `~/.codex/` and `~/.gemini/` as well as `~/.claude/`.\n- The self-improving-agent skill saves preferences to `~/.claude/AGENTS.md` and `~/.claude/projects/*/memory/MEMORY.md`. Codex and Gemini do not load those files, so corrections are saved where the tool never reads them.\n- `tech-lead.md` scans `.claude/agents/*` for the team roster.\n- The shared instructions reference \"Plan mode\" and invoke the self-improving-agent skill for every tool.\n- `ralf-it` uses `bd show` (`SKILL.md:90`, `:297`), which depends on the beads definition that lives only in `CLAUDE-EXTENSIONS.md.template`.\n\nFix: move Claude-only items into `src/user/.claude/`, or make the paths tool-relative (for example, the active tool's user instruction file under `~/.<tool>/`).",
+      "producer": "daiv"
+    },
+    {
+      "file": "scripts/install.sh",
+      "start_line": 147,
+      "end_line": 147,
+      "message": "Tool list is hard-coded in several places, and auto-detect bypasses the registry\n\nAuto-detect loops over `codex gemini` literally. Adding a tool to `ALL_TOOLS` makes `--tools=` accept it, but auto-detect never selects it, so an existing `~/.<tool>` is skipped. The help text and AGENTS.md repeat the list.\n\nFix: iterate `ALL_TOOLS` in auto-detect, with claude as the always-on tool.",
+      "producer": "daiv"
+    },
+    {
+      "file": "scripts/install.sh",
+      "start_line": 564,
+      "end_line": 564,
+      "message": "`--tools=` exclusions are reported as \"not detected\"\n\nWith `--tools=claude` and an existing `~/.codex`, the summary prints `codex (not detected, skipped)`, which contradicts the filesystem. Fix: print \"excluded by --tools\" when `TOOLS_OVERRIDE` is set.",
+      "producer": "daiv"
+    },
+    {
+      "file": "scripts/install.sh",
+      "start_line": 204,
+      "end_line": 204,
+      "message": "The confirm/compare/copy flow is duplicated and has drifted\n\nThe two blocks already differ: `Installed \u2026 (new, $label)` versus `Installed \u2026 (new)`, and different confirm prompts. Fix: extract one `sync_file` helper.",
+      "producer": "daiv"
+    },
+    {
+      "file": "AGENTS.md",
+      "start_line": 27,
+      "end_line": 27,
+      "message": "AGENTS.md no longer matches the layout\n\nThe `src/user/.claude/` listing dropped `AGENTS.md`, the folder README that the old doc listed. The file still exists. Line 14 still says the `<beads>` section is in the AGENTS.md template; it now lives in `src/user/.claude/CLAUDE-EXTENSIONS.md.template:27`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "scripts/install.sh",
+      "start_line": 337,
+      "end_line": 337,
+      "message": "Shared and tool-specific sources write to the same destination directories\n\n`~/.<tool>/skills/` and `agents/` receive both shared items (phases 2\u20133) and tool-specific items (phase 5). There is no current name collision, so this is latent. If a tool-specific item shares a name with a shared one, each run would prompt to replace the other. Fix: fail fast on overlapping names in `install_tool`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "scripts/install.sh",
+      "start_line": 172,
+      "end_line": 172,
+      "message": "Counters and warnings key off `CURRENT_TOOL`, not the destination argument\n\nThe functions accept a destination but tally into `tool_*[$CURRENT_TOOL]` and print `~/.$CURRENT_TOOL`. Every current caller passes the matching directory, so this is not a bug today. Fix: pass the tool name explicitly.",
+      "producer": "daiv"
+    },
+    {
+      "file": "scripts/install.sh",
+      "start_line": 492,
+      "end_line": 492,
+      "message": "The copy set is literal code, so unlisted content and missing tool directories are skipped silently\n\nAnything added under `.agents/` outside the listed directories and templates is never installed. A missing `src/user/.<tool>/` drops all of that tool's content with no message. Fix: warn on unconsumed top-level source entries and on a missing tool source directory.",
+      "producer": "daiv"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 2218714,
+    "completion_tokens": 285736,
+    "total_tokens": 2504450,
+    "time_in_ms": 444318,
+    "cost_usd": 0.20776648
+  }
+}

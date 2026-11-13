@@ -1,126 +1,193 @@
-# Site Configuration
+---
+description: "The admin-only DAIV Site Configuration UI: tune agent models, tools, LLM providers and OAuth login at runtime, with environment variables taking precedence."
+---
 
-Site Configuration is the **admin-only** web UI for tuning DAIV's runtime behavior without redeploying. Settings are grouped by area, stored in the database, and **override the matching environment-variable defaults** — so you can pick agent models, toggle agent tools, register LLM providers, and switch OAuth login on or off, all from the dashboard.
+# Site configuration
 
-It lives at `/dashboard/configuration/` and is reachable only by users with the **admin** role. Members do not see it.
+Site Configuration is the admin-only page where you change DAIV's runtime behavior without redeploying. It groups settings by area and stores them in the database. You pick agent models, turn agent tools on or off, register LLM providers and switch OAuth login on or off, unless an environment variable or Docker secret overrides the field.
 
-!!! info "Admin only"
-    Both the index and the per-group pages are guarded by `AdminRequiredMixin`. A signed-in member who navigates to `/dashboard/configuration/` is denied access.
+## Open the configuration page
 
-## Where to find it
+You need an account with the **admin** role. Members do not see Site Configuration, and a member who opens its address is denied access.
 
-Open `/dashboard/configuration/`. The index immediately redirects you to the first group, **Agent**, at `/dashboard/configuration/agent/`. Each group is a separate page reached at `/dashboard/configuration/<group_key>/`; an unknown key returns a 404.
+1. Sign in as an admin.
+2. Open `/dashboard/configuration/`. DAIV redirects you to the first group, **Agent**, at `/dashboard/configuration/agent/`.
+3. Select a group. Each group is a page at `/dashboard/configuration/<group_key>/`, and an unknown key returns a 404.
+4. Change the fields, then select **Save configuration**. DAIV shows "Configuration saved."
 
-Saving a group writes only that group's fields, then shows a "Configuration saved." banner. A change you make here takes effect immediately: the save commits inside a transaction and invalidates the read cache on commit, so the next read sees the new value. An agent run reads its settings once, when it starts, so a change applies from the next run. The 5-minute read-cache TTL only matters for changes made outside this UI (for example, a direct database edit), which can take up to that long to propagate.
+Saving a group writes only that group's fields. A saved change takes effect immediately for the next read: the save commits in a transaction and clears the read cache when it commits. An agent run reads its settings once, when it starts, so a change applies from the next run. The read cache keeps a value for 5 minutes, which matters only for changes made outside this page, such as a direct database edit: they can take that long to appear.
 
 ## Setting groups
 
-The configuration is split into the following groups, organized by category.
+The configuration has the following groups, organized by category.
 
 | Group | Category | What it configures |
 |-------|----------|--------------------|
-| **Agent** | AI tasks | Primary, fallback, `daiv-max`, and explore models; their thinking levels; the agent recursion limit; and whether to suggest a context file (e.g. `AGENTS.md`) on new merge requests. |
+| **Agent** | AI tasks | Primary, fallback and `daiv-max` models; their thinking levels; the agent recursion limit; the per-request LLM timeout and retry count (applied to every provider and model-backed task); whether to suggest a context file (e.g. `AGENTS.md`) on new merge requests; whether to link sessions from merge requests; and **Subagent models**, the model the general-purpose and explore subagents run on in every repository (see [Subagents](../features/subagents.md#subagent-model-precedence)). An entry already stored for a skill or subagent that only repositories define is listed there too, so it can be changed or cleared. A skill's model, and those of the code-review detectors, are set on the skill's page in **Skills** (see [Agent skills](../customization/agent-skills.md#run-a-skill-on-another-model)). |
 | **Commit & PR Writer** | AI tasks | Primary and fallback models that generate commit messages and pull/merge request descriptions from diffs. |
 | **Titling** | AI tasks | Primary and fallback models that generate session and run titles from prompts. |
-| **Providers** | Models | LLM provider records — slug, wire protocol, base URL, API key, and extra headers — that every model field draws from. |
-| **Web Search** | Agent tools | Enable/disable the web search tool, pick the engine (DuckDuckGo or Tavily), set max results, and store the Tavily API key. |
-| **Web Fetch** | Agent tools | Enable/disable the web fetch tool, choose the model that processes fetched pages, set cache TTL / timeout / max content size, and define per-domain auth headers. |
-| **Cross-project access** | Agent tools | Enable/disable [cross-project access](../features/cross-project-access.md), where the git platform tools may target a project other than the one a run is attached to, acting as the person the run acts for. A second switch, **allow for webhook-triggered runs**, extends it to runs started by an issue label or a mention. Both are off by default. |
+| **Memory** | AI tasks | Capture learnings from finished runs, consolidate them into a per-repository memory document, and inject them into future runs. The models that extract observations from each finished run's transcript and rewrite the memory document, the consolidation thresholds (minimum pending observations, maximum pending age, minimum interval), and the caps on the memory document's lines and bytes. |
+| **Run classifier** | AI tasks | Primary and fallback models that classify each finished scheduled run's report into an envelope. |
+| **Providers** | Models | LLM provider records (slug, wire protocol, base URL, API key, extra headers and more) that every model field draws from. See [Providers](#providers). |
+| **Web Search** | Agent tools | Turn the web search tool on or off, pick DuckDuckGo, Tavily or SearXNG, set the maximum results, store the Tavily API key, and set the SearXNG search URL and timeout. See [Set up SearXNG](#set-up-searxng). |
+| **Web Fetch** | Agent tools | Turn the web fetch tool on or off, choose the model that processes fetched pages, set the cache TTL, timeout and maximum content size, and define per-domain auth headers. |
+| **Cross-project access** | Agent tools | Turn [cross-project access](../features/cross-project-access.md) on or off: the git platform tools may then target a project other than the one a run is attached to, acting as the person the run acts for. A second switch, **Allow for webhook-triggered runs**, extends it to runs started by an issue label or a mention. Both are off by default. |
 | **Sandbox** | Runtime | Sandbox request timeout and the sandbox API key. |
 | **Jobs** | Runtime | Per-user rate limit for [Jobs API](../features/jobs-api.md) submissions (e.g. `20/hour`). |
-| **Rocket Chat** | Integrations | Enable Rocket Chat as a notification channel, with the instance URL, bot user ID, and auth token. |
-| **Telegram** | Integrations | Enable Telegram as a notification channel, with the bot token from @BotFather. The bot username and the webhook secret are derived and generated by DAIV, not typed. |
-| **Authentication** | Integrations | OAuth login with your Git platform — toggle login, control open signup, and store the OAuth client ID/secret and (for GitLab) instance URLs. |
+| **Pipeline Watch** | Runtime | Watch CI on merge requests DAIV publishes and try to fix failures, and how many fix attempts (at least 1) to spend on one merge request before handing back. |
+| **Rocket Chat** | Integrations | Offer Rocket.Chat as a notification channel, with the instance URL, bot user ID and auth token. |
+| **Telegram** | Integrations | Offer Telegram as a notification channel, with the bot token from @BotFather. See [Set up Telegram](#set-up-telegram). |
+| **Authentication** | Integrations | OAuth login with your Git platform: the login toggle, open signup, the OAuth client ID and secret and, for GitLab, the instance URLs. See [Turn on OAuth login](#turn-on-oauth-login). |
 
-!!! tip "Model pickers and providers"
-    The model fields in **Agent**, **Commit & PR Writer**, **Titling**, and **Web Fetch** only offer models from providers you configure under **Providers**. Selecting a model whose provider is disabled or has no API key is rejected on save with a message pointing you to the Providers section.
+## How environment variables and the UI interact
 
-## Relationship to environment variables
+Each configurable field resolves through three tiers, highest first:
 
-Site Configuration shares a value space with DAIV's environment variables. Each configurable field resolves through a three-tier priority chain (highest to lowest):
+1. **Environment variable or Docker secret.** When set, the matching field is **locked**: the page shows a "Locked by environment variable" tooltip and you cannot edit the field.
+2. **Database value.** The value you save here, when it is not empty.
+3. **Built-in default.** The value DAIV ships with.
 
-1. **Environment variable or Docker secret** — a hard override. When set, the matching UI field is shown **locked** with a "Locked by environment variable" tooltip and cannot be edited from the dashboard.
-2. **Database value** — the value you set through this UI (when non-empty).
-3. **Built-in default** — the hardcoded fallback DAIV ships with.
+A value you save here takes effect only if no environment variable overrides it. If you leave a field blank, DAIV falls back to the environment variable, if any, and then to the built-in default. To keep a field editable, leave its variable unset rather than set to an empty value: an empty variable still locks the field.
 
-So a value you save here is stored in the database and takes effect **only if no environment variable overrides it**; if you leave a field blank, DAIV falls back to the environment variable (if any) or the built-in default.
-
-The environment-variable name for a field follows the `DAIV_<FIELD_NAME>` convention (for example, `agent_recursion_limit` maps to `DAIV_AGENT_RECURSION_LIMIT`). The **Authentication** fields are the exception — they map to the `ALLAUTH_*` variables:
+The environment variable for a field is `DAIV_<FIELD_NAME>`; for example, `agent_recursion_limit` maps to `DAIV_AGENT_RECURSION_LIMIT`. The **Authentication** fields are the exception and map to the `ALLAUTH_*` variables:
 
 | Field | Environment variable |
 |-------|----------------------|
 | OAuth client ID | `ALLAUTH_CLIENT_ID` |
-| OAuth client secret | `ALLAUTH_CLIENT_SECRET` |
+| Auth Client Secret | `ALLAUTH_CLIENT_SECRET` |
 | GitLab URL | `ALLAUTH_GITLAB_URL` |
 | GitLab server URL | `ALLAUTH_GITLAB_SERVER_URL` |
 
-For the full list of variables, their defaults, and which settings are env-only versus UI-manageable, see [Environment Variables](env-variables.md).
+[Environment variables](env-variables.md) lists every variable with its default, and marks the ones that are env-only.
 
-!!! note "Secrets are encrypted at rest"
-    API keys, the OAuth client secret, the sandbox key, the Rocket Chat token, the Telegram bot token and webhook secret, and per-domain web-fetch header values are stored Fernet-encrypted in the database. The UI never re-displays a stored secret — it shows a masked hint instead. Leaving a secret field blank keeps the existing value; use the field's **Clear** action to remove it. Encryption depends on `DAIV_ENCRYPTION_KEY`, so do not rotate that key without re-entering your secrets.
+## Secrets
 
-## Providers and API keys
+DAIV stores the secret fields on this page encrypted in the database: the **Web Search API key**, **Sandbox API key**, **Auth Client Secret**, **Rocketchat Auth Token**, **Telegram Bot Token**, each provider's **API key** and the per-domain web fetch header values. [External URL and encryption key](env-variables.md#external-url-and-encryption-key) lists everything DAIV encrypts. The page never shows a stored secret again: it shows a masked hint. Leave a secret field blank to keep the stored value, or select **Clear** to remove it. The key comes from `DAIV_ENCRYPTION_KEY`.
 
-The **Providers** group manages the LLM endpoints DAIV can call. Four provider rows (OpenAI, Anthropic, Google Gemini, and OpenRouter) are seeded on first run and **locked** — their slug and provider type cannot change and they cannot be deleted, though you still supply their API keys, base URLs, and toggle them on or off. You can add custom rows for OpenAI-compatible gateways (vLLM, LiteLLM, hosted proxies, and so on).
+## Providers
 
-Each row carries:
+The **Providers** group holds the LLM providers DAIV can call. Every model field in the other groups draws its models from the providers you enable here, and a model is written as `<slug>:<model-name>`; [LLM providers](../getting-started/llm-providers.md) explains how a model spec picks its provider.
 
-- **Slug** — used as the `slug:model_name` prefix when selecting a model (immutable after creation).
-- **Provider type** — the wire protocol: OpenAI, Anthropic, Google Gemini, or OpenRouter.
-- **Base URL** and optional **extra headers** (a JSON object).
-- **API key** (encrypted at rest).
-- **Use Responses API** — only honored for OpenAI-typed providers; enable for servers exposing `/v1/responses`, disable for `/v1/chat/completions`-only servers.
-- **Verify TLS certificates** — disable only for self-hosted endpoints behind an internal CA.
+DAIV creates four built-in providers the first time it runs: `anthropic`, `openai`, `google_genai` and `openrouter`, listed under **Built-in**. Their slug and provider type are locked, and you cannot delete them, but you can set their API keys and base URLs and turn them on or off. A built-in provider whose key was not seeded starts disabled; see [the LLM provider variables](env-variables.md#llm-providers) for how the keys are seeded. You add any other provider under **Custom**, for example a vLLM, llama.cpp or LiteLLM server or an internal gateway.
 
-!!! warning "Enabled providers need a key"
-    Enabling a provider row requires an API key. A model field anywhere in the configuration will fail validation if it points at a provider that is disabled or unkeyed.
+### Provider fields
 
-For how model prefixes resolve and how to mix providers, see [LLM Providers](../getting-started/llm-providers.md).
+| Field | Description |
+|-------|-------------|
+| **Slug** | The prefix of `<slug>:<model-name>`. It starts with a lowercase letter, holds lowercase letters, digits, `-` and `_`, and has at most 32 characters. `google` is reserved. It cannot change after creation: delete the provider and add it again to change it. |
+| **Display name** | The name shown in the list. It has at most 64 characters. |
+| **Provider type** | The wire protocol: OpenAI, Anthropic, Google Gemini or OpenRouter. |
+| **Base URL** | The endpoint to call instead of the provider's default, with an `http` or `https` scheme. For an OpenAI-typed server, include the version segment, for example `/v1`: DAIV warns when it is missing, because requests would reach the wrong route. |
+| **API key** | The credential for the endpoint, stored encrypted. |
+| **Extra headers (JSON)** | A JSON object of additional request headers, for example `{"X-Foo": "bar"}`. Header values must be strings. Headers the agent manages itself take precedence. |
+| **Enabled** | Whether models can use the provider. Enabling a provider needs an API key. |
+| **Use Responses API** | Applies to OpenAI-typed providers only. Turn it on for servers that expose `/v1/responses`, and leave it off for servers that offer only `/v1/chat/completions`, such as most vLLM, llama.cpp and LiteLLM setups. |
+| **Verify TLS certificates** | On by default. Applies to OpenAI- and OpenRouter-typed providers only: for the others, DAIV warns that turning it off has no effect. |
 
-## Toggling OAuth login
+A model field anywhere in the configuration is rejected on save when its provider is disabled or has no API key, with a message that points you to the **Providers** group.
 
-The **Authentication** group controls whether users can sign in with their Git platform account. The fields shown adapt to your configured Git platform (`CODEBASE_CLIENT`): GitLab installs see the GitLab URL fields; GitHub installs do not.
+### Add a custom provider
 
-- **Enable OAuth login** — the group's toggle; lets users sign in via the configured Git platform (GitHub or GitLab).
-- **Open social signup** — when enabled, anyone who authenticates via the Git platform can create an account; when disabled, only users an admin pre-created may sign in.
-- **OAuth client ID** and **client secret** — must be configured as a pair; saving one without the other is rejected.
-- **GitLab URL** / **GitLab server URL** — the browser-facing instance URL and the optional server-to-server URL for API calls in Docker-internal networks.
+Add a provider to use models from a server other than the four built-in providers. You need the admin role, the endpoint's URL and its API key.
 
-!!! note
-    Standard email signup is disabled in DAIV; account creation flows through the configured Git platform's OAuth.
+1. In **Configuration** → **Providers**, select **Add custom provider**.
+2. In **Slug**, enter the model prefix.
+3. In **Display name**, enter the name to show in the list.
+4. In **Provider type**, choose the wire protocol the server speaks.
+5. In **Base URL**, enter the endpoint's URL.
+6. In **API key**, enter the key.
+7. Select **Save configuration**.
+8. Use `<slug>:<model-name>` wherever a model is specified, with `<slug>` replaced by the slug and `<model-name>` by a model the endpoint serves.
 
-## Telegram
+!!! warning
+    Turn off **Verify TLS certificates** only for self-hosted endpoints behind an internal or self-signed CA. Without verification, the connection is open to man-in-the-middle attacks. Mount the CA certificate into the DAIV containers instead when you can.
 
-The **Telegram** group takes one value: the bot token issued by [@BotFather](https://t.me/botfather). Everything else is derived.
+## Set up SearXNG
 
-- **Bot username** — read from Telegram with `getMe` when you save the group, and again on a 15-minute reconcile job. It is shown read-only because a hand-typed username that disagrees with the token breaks only the connect link, and does so invisibly. An empty value here is the signal that derivation has not run yet.
-- **Webhook secret** — generated by DAIV, stored encrypted, and sent to Telegram with the webhook registration. It is never displayed and never typed. The webhook rejects every update until it exists, so a blank value means the sync has not completed.
+!!! warning
+    SearXNG forwards queries to its upstream search engines. Self-hosting does not keep the query text local, and a query can contain repository code or other private information.
 
-Saving the group with a token DAIV cannot verify is rejected on the spot; a token DAIV cannot *reach* Telegram to check is saved with a warning, so an outage cannot block an unrelated configuration edit.
+By default, web search uses DuckDuckGo. To send the agent's searches to a SearXNG instance instead, you need:
 
-A configuration save is not the only trigger: a 15-minute job compares Telegram's registered webhook against the desired URL and re-registers on drift. That is what makes an instance configured purely by `DAIV_TELEGRAM_BOT_TOKEN` and `DAIV_TELEGRAM_ENABLED` — which may never visit this page — converge on its own, and what recovers a webhook Telegram disabled after repeated failures.
+- A SearXNG instance that the DAIV app and workers can reach without authentication, and that allows JSON responses: `json` is in `search.formats` of its settings, for example `[html, json]`.
+- The complete search endpoint, for example `https://search.example.com/search`, or `https://search.example.com/searxng/search` when SearXNG runs under a prefix. It must use `http` or `https` and hold no credentials, query string or fragment.
 
-Disabling Telegram retains the stored webhook secret. If the channel is disabled with no bot token available — whether it was just cleared or was never set while a webhook was registered — DAIV cannot deregister the webhook, and a warning asks you to remove it in BotFather or to restore the token and disable the channel again. A group that never had a webhook registered saves silently.
+1. In **Configuration** → **Web Search**, set **Web search engine** to **SearXNG**.
+2. Enter the endpoint in **SearXNG search URL**.
+3. Optionally, set **SearXNG request timeout**, from 1 to 120 seconds. The default is 15 seconds.
+4. Select **Save configuration**.
+
+Leave the Tavily API key as it is: SearXNG does not use it. The existing maximum results and web search switch apply to SearXNG too. To configure it from the environment instead, set `DAIV_WEB_SEARCH_ENGINE`, `DAIV_WEB_SEARCH_SEARXNG_URL` and `DAIV_WEB_SEARCH_SEARXNG_TIMEOUT_SECONDS`; see [Web search](env-variables.md#web-search).
+
+DAIV sends a `GET` request with `q` and `format=json` and does not follow redirects, so enter the final endpoint. Chat, GitLab and GitHub runs and other agent entry points share the web search tool, and the model decides when to call it. DAIV itself makes the request, so it does not need an opening in a sandbox environment's egress policy. DAIV keeps HTTPS certificate verification on. A failed search reaches the agent as a tool failure, not as an empty result.
+
+### Allow DAIV through the SearXNG limiter
+
+DAIV sends `Accept-Language: en`, which SearXNG's header checks expect. If the SearXNG limiter (`server.limiter`) is on, it can still answer automated requests with HTTP 429. To exempt DAIV, add its source address to `/etc/searxng/limiter.toml`:
+
+```toml
+[botdetection.ip_lists]
+pass_ip = ["192.0.2.10"]
+```
+
+Replace `192.0.2.10` with the address SearXNG sees for the DAIV app and workers, or with a narrow trusted subnet. The list exempts those clients from bot detection, so keep it narrow rather than turning the limiter off. For pass lists and reverse-proxy client addresses, see the [SearXNG limiter documentation](https://docs.searxng.org/admin/searx.limiter). For the JSON format setting and the endpoint contract, see the [SearXNG Search API](https://docs.searxng.org/dev/search_api.html).
+
+## Turn on OAuth login
+
+OAuth login lets users sign in with their Git platform account. You need an OAuth app on that platform: see [Create the OAuth app](../getting-started/accounts.md#create-the-oauth-app).
+
+1. In **Configuration**, open **Authentication**.
+2. Turn on the toggle next to the group title. It is the **Enable OAuth login** setting, and DAIV hides the group's other fields while it is off.
+3. Enter the **OAuth client ID** and the **Auth Client Secret**. Enter both: DAIV rejects a save that sets only one.
+4. On GitLab, set **GitLab URL** to the address your users' browsers open. If DAIV reaches GitLab at a different address, such as one inside a Docker network, set **GitLab server URL** to it. GitHub installs do not show these two fields.
+5. Optionally, turn on **Open social signup** to let anyone who authenticates through the Git platform create an account. When it is off, only users an admin created can sign in.
+6. Select **Save configuration**.
+
+The `CODEBASE_CLIENT` setting decides which fields the group shows and which provider DAIV offers. DAIV creates no accounts through standard email signup, which is off.
+
+## Set up Telegram
+
+You need a bot token from [@BotFather](https://t.me/botfather), and a `DAIV_EXTERNAL_URL` that Telegram can reach.
+
+!!! warning
+    Give each DAIV instance its own bot. Telegram allows one webhook per bot, so if a second instance uses the same token, the webhook moves to it and the first instance stops receiving Telegram's updates, including the connect handshake. DAIV's reconcile job logs the URL it finds but cannot prevent this.
+
+1. In **Configuration** → **Telegram**, turn on the toggle next to the group title. It is the **Enable Telegram** setting, and DAIV hides the group's other fields while it is off.
+2. Enter the token in **Telegram Bot Token**.
+3. Select **Save configuration**.
+
+DAIV checks a typed token with Telegram when you save. It rejects a token Telegram refuses, and saves a token it could not check because Telegram was unreachable, with a warning, so an outage does not block an unrelated edit. The group then shows the bot username. Users connect their account from the notification channels page; see [Notifications](../features/notifications.md).
+
+## Telegram derived values
+
+You type only the bot token. DAIV derives the rest:
+
+- **Bot username.** DAIV reads it from Telegram with `getMe` when you save the group, and again in a reconcile job that runs every 15 minutes. The page shows it read-only, because a hand-typed username that disagrees with the token breaks the connect link without any visible error. An empty value means the derivation has not run yet.
+- **Webhook secret.** DAIV generates it, stores it encrypted and sends it to Telegram when it registers the webhook. You never see it or type it. The webhook rejects every update until the secret exists, so a blank value means the sync has not finished.
+
+Saving is not the only trigger: the reconcile job compares the webhook Telegram has registered with the desired URL and registers it again when they differ. That brings an instance configured only through `DAIV_TELEGRAM_BOT_TOKEN` and `DAIV_TELEGRAM_ENABLED`, which may never open this page, into line, and it recovers a webhook that Telegram disabled after repeated failures.
+
+Turning Telegram off keeps the stored webhook secret. If you turn it off with no bot token available, because you cleared it or never set it while a webhook was registered, DAIV cannot remove the webhook and shows a warning: remove it in BotFather, or restore the token and turn the channel off again. A group that never had a webhook registered saves without a warning.
 
 ## Related pages
 
 <div class="grid cards" markdown>
 
--   **Environment Variables**
+-   **Environment variables**
 
     ---
 
-    Every supported variable, its default, and which settings are UI-manageable.
+    Every supported variable, its default, and which settings the UI manages.
 
-    [:octicons-arrow-right-24: Environment Variables](env-variables.md)
+    [:octicons-arrow-right-24: Environment variables](env-variables.md)
 
--   **LLM Providers**
+-   **LLM providers**
 
     ---
 
     How model prefixes resolve and how to mix providers.
 
-    [:octicons-arrow-right-24: LLM Providers](../getting-started/llm-providers.md)
+    [:octicons-arrow-right-24: LLM providers](../getting-started/llm-providers.md)
 
 -   **Deployment**
 

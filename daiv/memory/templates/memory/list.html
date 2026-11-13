@@ -31,7 +31,7 @@
         {% icon "magnifying-glass" "h-4 w-4" %}
       </span>
       <input type="text" class="filter-search" x-model="q"
-             placeholder="{% translate 'Search by repository' %}"
+             placeholder="{% translate 'Search by repository' %}" aria-label="{% translate 'Search by repository' %}"
              @input.debounce.350ms="_apply()" @keydown.enter.prevent="_apply()">
     </div>
     <div class="filter-seg">

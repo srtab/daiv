@@ -32,3 +32,72 @@ def test_backfill_ineligible_freezes_only_terminal_runs():
     assert runs[RunStatus.FAILED].classify_eligible is False
     assert runs[RunStatus.RUNNING].classify_eligible is True
     assert runs[RunStatus.QUEUED].classify_eligible is True
+
+
+open_watches_migration = import_module("sessions.migrations.0021_session_inbox")
+
+
+@pytest.mark.django_db
+def test_open_watches_become_ownerships_of_their_merge_request_thread(member_user):
+    from django.apps import apps as global_apps
+
+    from sessions.models import MergeRequestOwnership
+
+    def _watch(state, iid):
+        return Session.objects.create(
+            thread_id=str(uuid.uuid4()),
+            origin=SessionOrigin.PIPELINE_WEBHOOK,
+            repo_id="group/repo",
+            ref=f"daiv/branch-{iid}",
+            merge_request_iid=iid,
+            user=member_user,
+            watch_state=state,
+            watch_attempts=2,
+            watch_pipeline_id=830724,
+        )
+
+    watching, fixing = _watch("watching", 1), _watch("fixing", 2)
+    for state, iid in (("green", 3), ("exhausted", 4), ("off", 5)):
+        _watch(state, iid)
+
+    open_watches_migration.migrate_open_watches(global_apps, None)
+
+    rows = {row.merge_request_iid: row for row in MergeRequestOwnership.objects.all()}
+    assert set(rows) == {1, 2}
+    for session in (watching, fixing):
+        row = rows[session.merge_request_iid]
+        assert (row.session_id, row.owner_id, row.source_branch) == (session.pk, member_user.pk, session.ref)
+        assert (row.attempts, row.last_pipeline_id, row.last_daiv_sha) == (2, 830724, "")
+
+
+@pytest.mark.django_db(transaction=True)
+def test_a_session_its_owner_archived_stays_archived_and_other_archives_are_dropped(member_user, admin_user):
+    from datetime import UTC, datetime
+
+    from django.db import connection
+    from django.db.migrations.executor import MigrationExecutor
+
+    before = ("agent_sessions", "0033_archive_pending")
+    executor = MigrationExecutor(connection)
+    executor.migrate([before])
+    try:
+        old = executor.loader.project_state(before).apps
+        sessions, hidden = old.get_model("agent_sessions", "Session"), old.get_model("agent_sessions", "HiddenSession")
+        owners, merged = datetime(2026, 11, 5, tzinfo=UTC), datetime(2026, 11, 3, tzinfo=UTC)
+        archived, kept, untouched = (
+            sessions.objects.create(
+                thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, user_id=member_user.pk, **fields
+            )
+            for fields in ({"archive_pending": True}, {"archived_at": merged}, {})
+        )
+        hidden.objects.create(session=archived, user_id=admin_user.pk, hidden_at=datetime(2026, 11, 1, tzinfo=UTC))
+        hidden.objects.create(session=archived, user_id=member_user.pk, hidden_at=owners)
+        hidden.objects.create(session=kept, user_id=member_user.pk, hidden_at=owners)
+        hidden.objects.create(session=untouched, user_id=admin_user.pk, hidden_at=owners)
+    finally:
+        executor = MigrationExecutor(connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())
+
+    rows = Session.objects.in_bulk([archived.pk, kept.pk, untouched.pk])
+    assert (rows[archived.pk].archived_at, rows[archived.pk].archive_pending) == (owners, False)
+    assert (rows[kept.pk].archived_at, rows[untouched.pk].archived_at) == (merged, None)

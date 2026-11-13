@@ -1,0 +1,17 @@
+{% load i18n %}
+{% comment %}
+A count's change from the previous period, for a table cell.
+
+Context:
+- change: a dict from ``dashboard.insights._change`` (direction, amount, was; optional pct), or None to render nothing.
+{% endcomment %}
+{% if change %}
+{% if change.direction == "up" %}
+<span aria-hidden="true">▲</span><span class="sr-only">{% translate "Up" %}</span> {{ change.amount }}
+{% elif change.direction == "down" %}
+<span aria-hidden="true">▼</span><span class="sr-only">{% translate "Down" %}</span> {{ change.amount }}
+{% else %}
+<span class="text-text-faint">{% translate "No change" %}</span>
+{% endif %}
+{% if change.pct %}<span class="text-text-faint">({{ change.pct }})</span>{% endif %}
+{% endif %}

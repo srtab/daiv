@@ -5,11 +5,16 @@ import pytest
 from git import GitCommandError
 from langchain_core.messages import AIMessage
 
+from automation.agent.context import RuntimeCtx
+from automation.agent.events import ASSISTANT_MESSAGE_EVENT, PUBLISH_RESULT_EVENT, publish_result_payload
+from automation.agent.git_state import RepoPublish
 from automation.agent.middlewares.git import GitMiddleware
 from automation.agent.publishers import PublishOutcome, UnresolvedMergeConflictsError
+from automation.agent.synthetic import is_synthetic
 from automation.agent.workspace.git_manager import GitPushPermissionError
 from automation.agent.workspace.git_runners import SandboxGitProtocolError
 from codebase.base import MergeRequest, MergeRequestDiffStats, Scope, User
+from tests.unit_tests.automation.agent.conftest import make_repo_handle
 from tests.unit_tests.conftest import FakeWorkspace, agent_settings
 
 SETTINGS = agent_settings()
@@ -22,7 +27,11 @@ def _make_runtime(*, scope: Scope = Scope.ISSUE) -> Mock:
     runtime.context.merge_request = None
     runtime.context.repository = Mock(slug="a/b")
     runtime.context.config = Mock(default_branch="main")
+    runtime.context.repo.repository = runtime.context.repository
+    runtime.context.repo.repo_id = "a/b"
+    runtime.context.repo.config = runtime.context.config
     runtime.context.repo.head_detached = False
+    runtime.context.extra_repos = ()
     return runtime
 
 
@@ -50,7 +59,93 @@ def _build_runtime_for_prompt(*, scope: Scope = Scope.GLOBAL) -> Mock:
     runtime.context.repository = Mock(slug="a/b")
     runtime.context.config = Mock(default_branch="main")
     runtime.context.git_platform = Mock(value="gitlab")
+    runtime.context.extra_repos = ()
     return runtime
+
+
+@pytest.fixture(autouse=True)
+def dispatched():
+    with patch("automation.agent.middlewares.git.adispatch_custom_event", new=AsyncMock()) as dispatch:
+        yield dispatch
+
+
+class TestPublishResult:
+    @staticmethod
+    async def _after_agent(*, outcome=None, raises=None):
+        mw = GitMiddleware(settings=SETTINGS, auto_commit_changes=True, workspace=FakeWorkspace())
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
+            pub_cls.return_value.publish = AsyncMock(return_value=outcome, side_effect=raises)
+            return await mw.aafter_agent({"merge_request": None}, runtime)
+
+    @pytest.mark.parametrize(
+        ("outcome", "status", "error_kind"),
+        [
+            (PublishOutcome(merge_request=_mr(), published=True, created_merge_request=True), "opened", None),
+            (PublishOutcome(merge_request=_mr(), published=True), "pushed", None),
+            (PublishOutcome(merge_request=None, published=True), "pushed", "mr_pending"),
+        ],
+        ids=["opened", "pushed", "mr-pending"],
+    )
+    async def test_the_status_follows_what_the_publish_did(self, dispatched, outcome, status, error_kind):
+        await self._after_agent(outcome=outcome)
+
+        dispatched.assert_awaited_once()
+        name, payload = dispatched.await_args.args
+        assert (name, payload["status"], payload["error_kind"]) == (PUBLISH_RESULT_EVENT, status, error_kind)
+
+    async def test_the_result_carries_the_merge_request_and_diff_stats(self, dispatched):
+        stats = MergeRequestDiffStats(files_changed=2, lines_added=5, lines_removed=1)
+        outcome = PublishOutcome(merge_request=_mr(), published=True, created_merge_request=True, diff_stats=stats)
+
+        await self._after_agent(outcome=outcome)
+
+        dispatched.assert_awaited_once_with(
+            PUBLISH_RESULT_EVENT,
+            publish_result_payload(status="opened", merge_request=_mr(), diff_stats=stats, repository="a/b"),
+        )
+
+    async def test_a_turn_with_nothing_to_publish_dispatches_no_result(self, dispatched):
+        await self._after_agent(outcome=PublishOutcome(merge_request=_mr(), published=False))
+
+        dispatched.assert_not_awaited()
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [{"workspace": FakeWorkspace(is_ready=False)}, {"workspace": FakeWorkspace(), "auto_commit_changes": False}],
+        ids=["workspace-not-ready", "auto-commit-off"],
+    )
+    async def test_a_turn_end_that_skips_the_publish_dispatches_no_result(self, dispatched, kwargs):
+        await GitMiddleware(settings=SETTINGS, **kwargs).aafter_agent({}, _make_runtime(scope=Scope.GLOBAL))
+
+        dispatched.assert_not_awaited()
+
+    async def test_conflicts_are_not_published(self, dispatched):
+        await self._after_agent(raises=UnresolvedMergeConflictsError(["a.py", "b.py"]))
+
+        dispatched.assert_awaited_once_with(
+            PUBLISH_RESULT_EVENT,
+            publish_result_payload(status="not_published", error_kind="conflicts", repository="a/b"),
+        )
+
+    @pytest.mark.parametrize(
+        ("failure", "kind"), [(GitPushPermissionError("denied"), "push_rejected"), (RuntimeError("boom"), "unknown")]
+    )
+    async def test_a_failure_is_emitted_as_failed_then_raised_as_is(self, dispatched, failure, kind):
+        with pytest.raises(type(failure)) as info:
+            await self._after_agent(raises=failure)
+
+        assert info.value is failure
+        dispatched.assert_awaited_once_with(
+            PUBLISH_RESULT_EVENT, publish_result_payload(status="failed", error_kind=kind, repository="a/b")
+        )
+
+    async def test_a_failed_dispatch_does_not_fail_the_turn(self, dispatched):
+        dispatched.side_effect = RuntimeError("no parent run")
+
+        update = await self._after_agent(outcome=PublishOutcome(merge_request=_mr(), published=True))
+
+        assert update["published"] is True
 
 
 class TestGitMiddleware:
@@ -162,6 +257,7 @@ class TestGitMiddleware:
         mw = GitMiddleware(settings=SETTINGS, auto_commit_changes=True, workspace=FakeWorkspace())
         runtime = MagicMock()
         runtime.context.scope = Scope.GLOBAL
+        runtime.context.extra_repos = ()
         with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
             pub_cls.return_value.publish = AsyncMock(
                 return_value=PublishOutcome(merge_request=None, published=False, diff_stats=stats)
@@ -175,6 +271,7 @@ class TestGitMiddleware:
         mw = GitMiddleware(settings=SETTINGS, auto_commit_changes=True, workspace=FakeWorkspace())
         runtime = MagicMock()
         runtime.context.scope = Scope.GLOBAL
+        runtime.context.extra_repos = ()
         with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
             pub_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=None, published=True))
             result = await mw.aafter_agent({"session_id": "s", "merge_request": None}, runtime)
@@ -293,6 +390,18 @@ class TestGitMiddleware:
             result = await middleware.abefore_agent({}, runtime)
         assert result["published"] is False
 
+    async def test_repo_publishes_reset_each_turn(self):
+        middleware = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        state = {
+            "repo_publishes": [{"repo_id": "g/mod", "error": "Publishing to g/mod failed (RuntimeError)"}],
+            "main_publish_error": "Publishing to g/app failed (RuntimeError)",
+        }
+        with patch.object(GitMiddleware, "_alookup_open_mr", AsyncMock(return_value=None)):
+            result = await middleware.abefore_agent(state, runtime)
+        assert result["repo_publishes"] == []
+        assert result["main_publish_error"] is None
+
     async def test_aafter_agent_passes_the_workspace_to_publisher(self):
         """The publisher publishes through the run's workspace, handed over at construction (no session id is threaded
         through publish)."""
@@ -323,8 +432,23 @@ class TestGitMiddleware:
         with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
             result = await mw.aafter_agent({"merge_request": None}, runtime)
 
-        assert result is None
+        assert result == {"code_changes": False, "published": False, "repo_publishes": [], "main_publish_error": None}
         pub_cls.assert_not_called()
+
+    async def test_a_short_circuited_turn_clears_the_previous_turns_publish_results(self):
+        """The slash command's jump also skips ``abefore_agent``, the only other reset: without this the executor
+        would report, persist and re-arm the CI watch of the previous turn's publishes."""
+        mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace(is_ready=False), auto_commit_changes=True)
+        previous = {
+            "published": True,
+            "code_changes": True,
+            "repo_publishes": [{"repo_id": "g/mod", "published": True}],
+            "main_publish_error": "Publishing to g/app failed (RuntimeError)",
+        }
+
+        result = await mw.aafter_agent({"merge_request": None, **previous}, _make_runtime(scope=Scope.GLOBAL))
+
+        assert result == {"code_changes": False, "published": False, "repo_publishes": [], "main_publish_error": None}
 
     async def test_aafter_agent_skips_patch_capture_when_the_workspace_is_not_ready(self):
         """The capture-patch branch runs git too, so the not-ready short-circuit must skip it — before the publish
@@ -334,7 +458,7 @@ class TestGitMiddleware:
 
         result = await mw.aafter_agent({"merge_request": None}, _make_runtime(scope=Scope.GLOBAL))
 
-        assert result is None
+        assert result == {"code_changes": False, "published": False, "repo_publishes": [], "main_publish_error": None}
         assert workspace.git.mock_calls == []
 
     async def test_aafter_agent_skips_when_auto_commit_disabled(self):
@@ -370,7 +494,22 @@ class TestGitMiddleware:
             "code_changes": False,
             "published": False,
             "protected_branch_fallback_source": None,
+            "repo_publishes": [],
+            "main_publish_error": None,
         }
+
+    async def test_a_forked_run_leaves_the_checked_out_branchs_open_mr_alone(self):
+        middleware = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace(), fork_branch=True)
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+
+        with (
+            patch.object(runtime.context.repo, "current_ref", "feature-x"),
+            patch("automation.agent.middlewares.git.GitMiddleware._alookup_open_mr", new=AsyncMock()) as lookup,
+        ):
+            result = await middleware.abefore_agent({}, runtime)
+
+        lookup.assert_not_called()
+        assert result["merge_request"] is None
 
     async def test_abefore_agent_skips_lookup_when_state_has_mr(self):
         middleware = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
@@ -385,6 +524,22 @@ class TestGitMiddleware:
 
         lookup.assert_not_called()
         assert result["merge_request"] is state_mr
+
+    async def test_a_checkout_of_another_branch_finds_that_branchs_open_mr(self):
+        middleware = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+        runtime = _make_runtime(scope=Scope.GLOBAL)
+        other_mr = _mr(branch="feature-y")
+        open_mr = MagicMock(source_branch="feature-x")
+
+        with (
+            patch.object(runtime.context.repo, "current_ref", "feature-x"),
+            patch(
+                "automation.agent.middlewares.git.GitMiddleware._alookup_open_mr", new=AsyncMock(return_value=open_mr)
+            ),
+        ):
+            result = await middleware.abefore_agent({"merge_request": other_mr}, runtime)
+
+        assert result["merge_request"] is open_mr
 
     async def test_abefore_agent_runtime_context_overrides_state_in_mr_scope(self):
         middleware = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
@@ -670,8 +825,8 @@ class TestGitMiddleware:
 
         assert "merge request #" not in captured["system_prompt"]
 
-    async def _render_git_prompt(self, middleware) -> str:
-        runtime = _build_runtime_for_prompt(scope=Scope.GLOBAL)
+    async def _render_git_prompt(self, middleware, runtime=None) -> str:
+        runtime = runtime or _build_runtime_for_prompt(scope=Scope.GLOBAL)
         captured = {}
 
         async def fake_handler(req):
@@ -693,6 +848,27 @@ class TestGitMiddleware:
         prompt = await self._render_git_prompt(GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace()))
 
         assert "Committing and pushing is automatic" in prompt
+
+    async def test_prompt_lists_other_repositories(self):
+        runtime = _build_runtime_for_prompt(scope=Scope.GLOBAL)
+        runtime.context.extra_repos = (
+            SimpleNamespace(
+                repository=SimpleNamespace(slug="g/mod"),
+                current_ref="fix-x",
+                config=SimpleNamespace(default_branch="main"),
+            ),
+        )
+
+        prompt = await self._render_git_prompt(GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace()), runtime)
+
+        assert "## Other repositories in this session" in prompt
+        assert "`g/mod` at `/workspace/repos/g/mod` (current branch: `fix-x`, default branch: `main`)" in prompt
+        assert "git -C <path>" in prompt
+
+    async def test_single_repo_prompt_has_no_other_repositories_section(self):
+        prompt = await self._render_git_prompt(GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace()))
+
+        assert "Other repositories in this session" not in prompt
 
     async def test_awrap_model_call_prefers_context_mr_over_state(self):
         """When ``context.merge_request`` is set (true MR-scoped trigger), it
@@ -737,15 +913,19 @@ class TestGitMiddleware:
             git=MagicMock(get_changed_files=AsyncMock(return_value=[]), get_diff=AsyncMock(return_value=""))
         )
         mw = GitMiddleware(settings=SETTINGS, workspace=workspace, auto_commit_changes=True, capture_patch=True)
+        repository, config = Mock(slug="a/b"), Mock(default_branch="main")
         runtime = Mock(
             context=SimpleNamespace(
                 scope=Scope.GLOBAL,
                 merge_request=None,
                 issue=None,
-                repository=Mock(slug="a/b"),
-                config=Mock(default_branch="main"),
+                repository=repository,
+                config=config,
                 git_platform=Mock(value="gitlab"),
+                extra_repos=(),
                 repo=SimpleNamespace(
+                    repository=repository,
+                    config=config,
                     current_ref="feature-x",
                     head_detached=False,
                     client=MagicMock(get_merge_request_by_branches=MagicMock(return_value=None)),
@@ -908,6 +1088,7 @@ class TestAgentSummaryReachesThePublisher:
         mw = GitMiddleware(settings=SETTINGS, auto_commit_changes=True, workspace=FakeWorkspace())
         runtime = MagicMock()
         runtime.context.scope = Scope.GLOBAL
+        runtime.context.extra_repos = ()
         with patch("automation.agent.middlewares.git.GitChangePublisher") as pub_cls:
             pub_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(), published=True))
             await mw.aafter_agent(state, runtime)
@@ -943,3 +1124,339 @@ class TestAgentSummaryReachesThePublisher:
 
         assert summary is None
         assert "closing summary" in caplog.text
+
+
+def _multi_repo_runtime(*extra_repos) -> Mock:
+    return Mock(context=RuntimeCtx(bot_username="daiv", repos=(make_repo_handle("g/app"), *extra_repos)))
+
+
+_SIBLING_ERROR = RepoPublish(
+    repo_id="g/mod",
+    merge_request=None,
+    published=False,
+    current_ref="main",
+    error="Publishing to g/mod failed (RuntimeError)",
+    error_kind="unknown",
+)
+
+
+class TestExtraRepoPublish:
+    async def test_the_siblings_publish_after_the_main_repository(self):
+        """The turn-end claim is what marks a sibling's push as DAIV's, so the siblings push last."""
+        order: list[str] = []
+        mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+
+        with (
+            patch("automation.agent.publishers.GitChangePublisher") as sibling_cls,
+            patch("automation.agent.middlewares.git.GitChangePublisher") as main_cls,
+        ):
+            sibling_cls.return_value.publish = AsyncMock(
+                side_effect=lambda **_: order.append("g/mod") or PublishOutcome(merge_request=None, published=False)
+            )
+            main_cls.return_value.publish = AsyncMock(
+                side_effect=lambda **_: order.append("g/app") or PublishOutcome(merge_request=_mr(), published=True)
+            )
+            await mw.aafter_agent({"merge_request": None}, _multi_repo_runtime(make_repo_handle("g/mod")))
+
+        assert order == ["g/app", "g/mod"]
+
+    async def test_sibling_failure_is_recorded_and_main_still_publishes(self, caplog):
+        mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+
+        with (
+            patch("automation.agent.publishers.GitChangePublisher") as sibling_cls,
+            patch("automation.agent.middlewares.git.GitChangePublisher") as main_cls,
+            caplog.at_level("ERROR"),
+        ):
+            sibling_cls.return_value.publish = AsyncMock(side_effect=RuntimeError("push rejected"))
+            main_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(), published=True))
+            result = await mw.aafter_agent({"merge_request": None}, _multi_repo_runtime(make_repo_handle("g/mod")))
+
+        main_cls.return_value.publish.assert_awaited_once()
+        assert result["merge_request"] == _mr()
+        assert result["repo_publishes"] == [_SIBLING_ERROR.to_state()]
+        assert "push rejected" in caplog.text
+
+    async def test_a_failed_main_publish_keeps_the_sibling_publishes(self, caplog):
+        """Raising would discard this node's writes, and with them the siblings' freshly opened merge requests."""
+        workspace = FakeWorkspace()
+        links = AsyncMock()
+        mw = GitMiddleware(settings=SETTINGS, workspace=workspace, skip_ci=True, session_links=links)
+        runtime = _multi_repo_runtime(make_repo_handle("g/mod"))
+
+        with (
+            patch(
+                "automation.agent.middlewares.git.apublish_extra_repos", AsyncMock(return_value=[_SIBLING_ERROR])
+            ) as publish,
+            patch("automation.agent.middlewares.git.GitChangePublisher") as main_cls,
+            caplog.at_level("ERROR"),
+        ):
+            main_cls.return_value.publish = AsyncMock(side_effect=RuntimeError("platform 500"))
+            result = await mw.aafter_agent({"merge_request": None, "messages": [AIMessage("Fixed both.")]}, runtime)
+
+        publish.assert_awaited_once_with(
+            runtime.context, workspace, settings=SETTINGS, session_links=links, skip_ci=True
+        )
+        assert result["repo_publishes"] == [_SIBLING_ERROR.to_state()]
+        assert result["main_publish_error"] == "Publishing to g/app failed (RuntimeError)"
+        notice, failures = result["messages"]
+        assert "main repository `g/app`" in notice.content
+        assert not is_synthetic(notice)
+        assert is_synthetic(failures)
+        assert f"- `g/mod`: {_SIBLING_ERROR.error}" in failures.content
+        assert "platform 500" in caplog.text
+
+    async def test_a_failed_main_publish_still_raises_without_extra_repositories(self):
+        mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+
+        with (
+            patch("automation.agent.middlewares.git.GitChangePublisher") as main_cls,
+            pytest.raises(RuntimeError, match="platform 500"),
+        ):
+            main_cls.return_value.publish = AsyncMock(side_effect=RuntimeError("platform 500"))
+            await mw.aafter_agent({"merge_request": None}, _multi_repo_runtime())
+
+    async def test_a_main_conflict_keeps_the_sibling_publishes(self):
+        mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+
+        with (
+            patch("automation.agent.middlewares.git.apublish_extra_repos", AsyncMock(return_value=[_SIBLING_ERROR])),
+            patch("automation.agent.middlewares.git.GitChangePublisher") as main_cls,
+        ):
+            main_cls.return_value.publish = AsyncMock(side_effect=UnresolvedMergeConflictsError(["a.py"]))
+            result = await mw.aafter_agent({"merge_request": None}, _multi_repo_runtime(make_repo_handle("g/mod")))
+
+        assert result["messages"][0].content.startswith(
+            "I didn't publish the merge in the main repository `g/app`: `a.py` still has conflict markers, "
+            "so nothing was committed or pushed there."
+        )
+        assert result["repo_publishes"] == [_SIBLING_ERROR.to_state()]
+        assert result["main_publish_error"] == str(UnresolvedMergeConflictsError(["a.py"]))
+
+    async def test_every_repository_dispatches_its_own_result_in_order(self, dispatched):
+        opened = RepoPublish(
+            repo_id="g/mod", merge_request=_mr(), published=True, current_ref="fix", created_merge_request=True
+        )
+        pushed = RepoPublish(repo_id="g/stack", merge_request=_mr(), published=True, current_ref="fix")
+        idle = RepoPublish(repo_id="g/idle", merge_request=None, published=False, current_ref="main")
+        mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+        runtime = _multi_repo_runtime(
+            make_repo_handle("g/mod"), make_repo_handle("g/stack"), make_repo_handle("g/idle")
+        )
+
+        with (
+            patch(
+                "automation.agent.middlewares.git.apublish_extra_repos", AsyncMock(return_value=[opened, pushed, idle])
+            ),
+            patch("automation.agent.middlewares.git.GitChangePublisher") as main_cls,
+        ):
+            main_cls.return_value.publish = AsyncMock(
+                return_value=PublishOutcome(merge_request=_mr(), published=True, created_merge_request=True)
+            )
+            await mw.aafter_agent({"merge_request": None}, runtime)
+
+        payloads = [call.args[1] for call in dispatched.await_args_list if call.args[0] == PUBLISH_RESULT_EVENT]
+        assert [p["repository"] for p in payloads] == [runtime.context.repo.repo_id, "g/mod", "g/stack"]
+        assert [bool(p.get("sibling")) for p in payloads] == [False, True, True]
+
+    async def test_a_failed_main_publish_names_the_main_repository_in_its_result(self, dispatched):
+        mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+        runtime = _multi_repo_runtime(make_repo_handle("g/mod"))
+
+        with (
+            patch("automation.agent.middlewares.git.apublish_extra_repos", AsyncMock(return_value=[_SIBLING_ERROR])),
+            patch("automation.agent.middlewares.git.GitChangePublisher") as main_cls,
+        ):
+            main_cls.return_value.publish = AsyncMock(side_effect=RuntimeError("boom"))
+            await mw.aafter_agent({"merge_request": None}, runtime)
+
+        [payload, _sibling] = [call.args[1] for call in dispatched.await_args_list]
+        assert payload["repository"] == runtime.context.repo.repo_id
+
+    async def test_the_main_result_waits_for_the_extra_repositories_to_publish(self, dispatched):
+        mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+
+        async def _publish_extras(*_args, **_kwargs):
+            dispatched.assert_not_awaited()
+            return [_SIBLING_ERROR]
+
+        with (
+            patch("automation.agent.middlewares.git.apublish_extra_repos", AsyncMock(side_effect=_publish_extras)),
+            patch("automation.agent.middlewares.git.GitChangePublisher") as main_cls,
+        ):
+            main_cls.return_value.publish = AsyncMock(
+                return_value=PublishOutcome(merge_request=_mr(), published=True, created_merge_request=True)
+            )
+            await mw.aafter_agent({"merge_request": None}, _multi_repo_runtime(make_repo_handle("g/mod")))
+
+        assert dispatched.await_count == 2
+
+    async def test_a_sibling_failure_list_is_synthetic_and_never_streamed(self):
+        mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+
+        with (
+            patch("automation.agent.middlewares.git.apublish_extra_repos", AsyncMock(return_value=[_SIBLING_ERROR])),
+            patch("automation.agent.middlewares.git.GitChangePublisher") as main_cls,
+            patch("automation.agent.utils.adispatch_custom_event", new=AsyncMock()) as streamed,
+        ):
+            main_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=None, published=False))
+            result = await mw.aafter_agent({"merge_request": None}, _multi_repo_runtime(make_repo_handle("g/mod")))
+
+        [notice] = result["messages"]
+        assert is_synthetic(notice)
+        assert "g/mod" in notice.content
+        assert [c for c in streamed.await_args_list if c.args[0] == ASSISTANT_MESSAGE_EVENT] == []
+
+    async def test_a_sibling_conflict_keeps_a_visible_notice_naming_the_files(self):
+        conflict = RepoPublish(
+            repo_id="g/mod",
+            merge_request=None,
+            published=False,
+            current_ref="main",
+            error="conflicts",
+            error_kind="conflicts",
+            conflicted_paths=("a.py",),
+        )
+        mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+
+        with (
+            patch("automation.agent.middlewares.git.apublish_extra_repos", AsyncMock(return_value=[conflict])),
+            patch("automation.agent.middlewares.git.GitChangePublisher") as main_cls,
+            patch("automation.agent.utils.adispatch_custom_event", new=AsyncMock()) as streamed,
+        ):
+            main_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=None, published=False))
+            result = await mw.aafter_agent({"merge_request": None}, _multi_repo_runtime(make_repo_handle("g/mod")))
+
+        [notice] = result["messages"]
+        assert not is_synthetic(notice)
+        [message_call] = [c for c in streamed.await_args_list if c.args[0] == ASSISTANT_MESSAGE_EVENT]
+        assert message_call.args[1]["message"] == notice.content
+        assert "`a.py`" in notice.content
+        assert "in `g/mod`" in notice.content
+        assert "Ask me to finish resolving them." in notice.content
+
+    async def test_a_turn_with_nothing_to_publish_still_records_the_siblings(self):
+        mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+
+        with (
+            patch("automation.agent.middlewares.git.apublish_extra_repos", AsyncMock(return_value=[_SIBLING_ERROR])),
+            patch("automation.agent.middlewares.git.GitChangePublisher") as main_cls,
+        ):
+            main_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=None, published=False))
+            result = await mw.aafter_agent({"merge_request": None}, _multi_repo_runtime(make_repo_handle("g/mod")))
+
+        assert result["repo_publishes"] == [_SIBLING_ERROR.to_state()]
+        [notice] = result["messages"]
+        assert notice.content == (
+            f"I couldn't publish the changes in these repositories:\n- `g/mod`: {_SIBLING_ERROR.error}"
+        )
+
+    async def test_a_turn_whose_siblings_all_published_adds_no_notice(self):
+        mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+        published = RepoPublish(repo_id="g/mod", merge_request=None, published=True, current_ref="fix")
+
+        with (
+            patch("automation.agent.middlewares.git.apublish_extra_repos", AsyncMock(return_value=[published])),
+            patch("automation.agent.middlewares.git.GitChangePublisher") as main_cls,
+        ):
+            main_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=None, published=False))
+            result = await mw.aafter_agent({"merge_request": None}, _multi_repo_runtime(make_repo_handle("g/mod")))
+
+        assert result == {"repo_publishes": [published.to_state()], "main_publish_error": None}
+
+    async def test_the_main_publish_of_a_multi_repo_turn_gets_no_closing_summary(self):
+        """The agent's closing summary covers every repository's work, so the main MR would describe the others'."""
+        mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+        state = {"merge_request": None, "messages": [AIMessage("Fixed g/mod; tests in g/lib did not run.")]}
+        published = RepoPublish(repo_id="g/mod", merge_request=None, published=True, current_ref="fix")
+
+        with (
+            patch("automation.agent.middlewares.git.apublish_extra_repos", AsyncMock(return_value=[published])),
+            patch("automation.agent.middlewares.git.GitChangePublisher") as main_cls,
+        ):
+            main_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=None, published=False))
+            await mw.aafter_agent(state, _multi_repo_runtime(make_repo_handle("g/mod")))
+
+        assert main_cls.return_value.publish.await_args.kwargs["agent_summary"] is None
+
+    async def test_no_repository_publishes_when_auto_commit_is_off(self):
+        mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace(), auto_commit_changes=False)
+
+        with patch("automation.agent.middlewares.git.apublish_extra_repos", AsyncMock()) as publish:
+            result = await mw.aafter_agent({"merge_request": None}, _multi_repo_runtime(make_repo_handle("g/mod")))
+
+        assert result is None
+        publish.assert_not_awaited()
+
+    async def test_a_single_repo_run_records_no_repo_publishes(self):
+        mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+
+        with (
+            patch("automation.agent.middlewares.git.apublish_extra_repos", AsyncMock()) as publish,
+            patch("automation.agent.middlewares.git.GitChangePublisher") as main_cls,
+        ):
+            main_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(), published=True))
+            result = await mw.aafter_agent({"merge_request": None}, _multi_repo_runtime())
+
+        publish.assert_not_awaited()
+        assert "repo_publishes" not in result
+
+
+class TestRelatedLinks:
+    @staticmethod
+    def _sibling_publish() -> RepoPublish:
+        return RepoPublish(repo_id="g/mod", merge_request=_mr(iid=9), published=True, current_ref="feat/y")
+
+    async def _run(self, state, main_publish, runtime):
+        mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+        with (
+            patch(
+                "automation.agent.middlewares.git.apublish_extra_repos",
+                AsyncMock(return_value=[self._sibling_publish()]),
+            ),
+            patch("automation.agent.middlewares.git.GitChangePublisher") as main_cls,
+            patch("automation.agent.middlewares.git.aensure_related_links", AsyncMock()) as ensure,
+        ):
+            main_cls.return_value.publish = main_publish
+            await mw.aafter_agent(state, runtime)
+        return ensure
+
+    async def test_after_agent_links_main_and_sibling_mrs(self):
+        runtime = _multi_repo_runtime(make_repo_handle("g/mod"))
+        publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(iid=3), published=True))
+
+        ensure = await self._run({"merge_request": None}, publish, runtime)
+
+        [entries] = ensure.await_args.args
+        assert [(e.repo_slug, e.merge_request.merge_request_id) for e in entries] == [("g/app", 3), ("g/mod", 9)]
+        assert entries[0].client is runtime.context.repo.client
+        assert entries[1].client is runtime.context.extra_repos[0].client
+
+    async def test_a_failed_main_publish_still_links_siblings_to_the_existing_main_mr(self):
+        runtime = _multi_repo_runtime(make_repo_handle("g/mod"))
+
+        ensure = await self._run({"merge_request": _mr(iid=3)}, AsyncMock(side_effect=RuntimeError("500")), runtime)
+
+        [entries] = ensure.await_args.args
+        assert [e.repo_slug for e in entries] == ["g/app", "g/mod"]
+
+    async def test_a_main_conflict_links_the_siblings_alone_when_there_is_no_main_mr(self):
+        runtime = _multi_repo_runtime(make_repo_handle("g/mod"))
+
+        ensure = await self._run(
+            {"merge_request": None}, AsyncMock(side_effect=UnresolvedMergeConflictsError(["a.py"])), runtime
+        )
+
+        [entries] = ensure.await_args.args
+        assert [e.repo_slug for e in entries] == ["g/mod"]
+
+    async def test_a_single_repo_run_does_not_link(self):
+        mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+        with (
+            patch("automation.agent.middlewares.git.GitChangePublisher") as main_cls,
+            patch("automation.agent.middlewares.git.aensure_related_links", AsyncMock()) as ensure,
+        ):
+            main_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(), published=True))
+            await mw.aafter_agent({"merge_request": None}, _multi_repo_runtime())
+
+        ensure.assert_not_awaited()

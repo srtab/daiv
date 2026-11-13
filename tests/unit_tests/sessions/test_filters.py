@@ -7,8 +7,8 @@ from django.utils import timezone
 
 import pytest
 from sessions.artifacts import ArtifactKind, content_types_for_kind
-from sessions.filters import ArtifactFilter, SessionFilter
-from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
+from sessions.filters import STATUS_CHOICES, ArtifactFilter, SessionFilter, resolve_scope
+from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin, SessionRepository
 
 from accounts.models import User
 from schedules.models import Frequency, ScheduledJob
@@ -49,6 +49,41 @@ def _create_run(session: Session, **kwargs) -> Run:
 def _qs():
     """Base queryset with the annotation required by filter_status."""
     return Session.objects.with_latest_status()
+
+
+def test_status_choices_put_what_waits_on_the_developer_first():
+    assert [value for value, _label in STATUS_CHOICES] == [
+        RunStatus.WAITING_INPUT,
+        RunStatus.FAILED,
+        RunStatus.RUNNING,
+        RunStatus.QUEUED,
+        RunStatus.READY,
+        RunStatus.SUCCESSFUL,
+    ]
+
+
+def test_status_choices_cover_every_run_status():
+    assert sorted(value for value, _label in STATUS_CHOICES) == sorted(RunStatus.values)
+
+
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        ({}, "mine"),
+        ({"q": "fix", "status": "FAILED"}, "mine"),
+        ({"repo": "group/project"}, "all"),
+        ({"mr": "42"}, "all"),
+        ({"schedule": "7"}, "all"),
+        ({"batch": str(uuid.UUID(int=1))}, "all"),
+        ({"repo": ""}, "mine"),
+        ({"repo": "group/project", "scope": "mine"}, "mine"),
+        ({"scope": "all"}, "all"),
+        ({"scope": "everyone"}, "mine"),
+        ({"scope": "everyone", "repo": "group/project"}, "all"),
+    ],
+)
+def test_resolve_scope(data, expected):
+    assert resolve_scope(data) == expected
 
 
 @pytest.mark.django_db
@@ -131,6 +166,21 @@ class TestSessionFilter:
         assert inside.pk in pks
         assert before.pk not in pks
         assert after.pk not in pks
+
+    def test_ran_on_matches_a_run_that_day_not_the_last_activity(self, user):
+        day = timezone.localdate() - timedelta(days=3)
+        ran_that_day = _create_session()
+        Run.objects.filter(pk=_create_run(ran_that_day).pk).update(
+            created_at=timezone.make_aware(datetime.combine(day, time(12)))
+        )
+        other_day = _create_session()
+        Run.objects.filter(pk=_create_run(other_day).pk).update(
+            created_at=timezone.make_aware(datetime.combine(day - timedelta(days=1), time(12)))
+        )
+
+        pks = list(SessionFilter({"ran_on": day.isoformat()}, queryset=_qs()).qs.values_list("pk", flat=True))
+
+        assert pks == [ran_that_day.pk]
 
     def test_invalid_date_is_ignored(self, user):
         a = _create_session()
@@ -239,6 +289,13 @@ class TestSessionFilter:
         pks = list(SessionFilter({"mr": "42", "repo": "group/project"}, queryset=_qs()).qs.values_list("pk", flat=True))
         assert here.pk in pks
         assert elsewhere.pk not in pks
+
+    def test_mr_with_a_repository_matches_it_on_any_of_a_session_s_repositories(self, user):
+        shared = _create_session(repo_id="group/main")
+        SessionRepository.objects.create(session=shared, position=1, repo_id="group/project", merge_request_iid=42)
+
+        pks = list(SessionFilter({"mr": "42", "repo": "group/project"}, queryset=_qs()).qs.values_list("pk", flat=True))
+        assert pks == [shared.pk]
 
     def test_mr_filter_invalid_value_is_ignored(self, user):
         a = _create_session(merge_request_iid=42)

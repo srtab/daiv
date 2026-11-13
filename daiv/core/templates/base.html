@@ -3,14 +3,16 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    {# Before first paint, or a collapsed or widened sidebar jumps; core/js/sidebar.js owns both from here. #}
+    <script>try { var root = document.documentElement, width = parseInt(localStorage.getItem("daiv.sidebar.width"), 10); if (localStorage.getItem("daiv.sidebar") === "rail") root.dataset.sidebar = "rail"; if (width > 0) root.style.setProperty("--app-sidebar-chosen", width + "px"); } catch (e) {}</script>
     <title>{% block title %}DAIV{% endblock %}</title>
-    {% block meta_description %}<meta name="description" content="DAIV is an open-source async SWE agent that integrates natively with GitLab and GitHub. Create an issue, get a merge request.">{% endblock %}
+    {% block meta_description %}<meta name="description" content="DAIV: open-source, self-hosted SWE agents for GitLab &amp; GitHub. Turn issues into merge requests, answer review comments, and fix failing CI on your infrastructure.">{% endblock %}
     {% block meta_robots %}{% endblock %}
     {% block canonical %}{% endblock %}
     {% block open_graph %}
     <meta property="og:type" content="website">
-    <meta property="og:title" content="DAIV — Open-source async SWE agent for your Git platform">
-    <meta property="og:description" content="DAIV integrates directly with GitLab and GitHub through webhooks. Create an issue, get a merge request. No context switching, no separate tools.">
+    <meta property="og:title" content="{% block og_title %}DAIV — Open-source, self-hosted SWE agents for GitLab &amp; GitHub{% endblock %}">
+    <meta property="og:description" content="{% block og_description %}Issues in. Merge requests out. On your infrastructure. DAIV turns issues into merge requests, answers review comments, and fixes failing CI, in a sandbox you control with the LLM provider you choose.{% endblock %}">
     <meta property="og:site_name" content="DAIV">
     {% endblock open_graph %}
     <meta name="twitter:card" content="summary">

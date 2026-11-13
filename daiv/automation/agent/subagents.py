@@ -12,9 +12,15 @@ from langchain_core.messages import AIMessage
 # wraps (`accepts_config` -> `inspect.signature`), which evaluates their annotations, so `Runnable`
 # and `RunnableConfig` must resolve at runtime — see _guard_subagent_crash.
 from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda
-from skills.constants import BUILTIN_SKILLS_PATH, FRONTMATTER_RE
+from skills.constants import CODE_REVIEW_AGENTS_PATH, FRONTMATTER_RE
 
-from automation.agent.base import get_model
+from automation.agent.configured_models import ConfiguredModels
+from automation.agent.constants import (
+    BUILTIN_SUBAGENT_NAMES,
+    CODE_REVIEW_DETECTOR_NAMES,
+    EXPLORE_NAME,
+    GENERAL_PURPOSE_NAME,
+)
 from automation.agent.middlewares.deferred_tools import (
     deferred_tools_middleware,
     direct_mcp_tools,
@@ -44,19 +50,10 @@ if TYPE_CHECKING:
     from langchain.chat_models import BaseChatModel
     from langchain_core.tools import BaseTool
 
-    from automation.agent.agent_settings import ModelChain
     from automation.agent.context import RuntimeCtx
     from automation.agent.workspace.base import Workspace
 
 logger = logging.getLogger("daiv.agent")
-
-GENERAL_PURPOSE_NAME = "general-purpose"
-EXPLORE_NAME = "explore"
-
-CODE_REVIEW_DETECTOR_NAMES = ("cr-correctness", "cr-security", "cr-performance", "cr-structure", "cr-custom-rules")
-
-_CODE_REVIEW_SKILL_PATH = BUILTIN_SKILLS_PATH / "code-review"
-CODE_REVIEW_AGENTS_PATH = _CODE_REVIEW_SKILL_PATH / "agents"
 
 
 GENERAL_PURPOSE_DESCRIPTION = "General-purpose agent for researching complex questions, searching for code, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. This agent has access to all tools as the main agent."  # noqa: E501
@@ -199,6 +196,7 @@ def load_builtin_code_review_detectors(
     *,
     agents_dir: Path = CODE_REVIEW_AGENTS_PATH,
     expected_names: tuple[str, ...] = CODE_REVIEW_DETECTOR_NAMES,
+    configured_models: ConfiguredModels | None = None,
 ) -> list[CompiledSubAgent]:
     """Compile the code-review detector subagents from their charter markdown files.
 
@@ -217,7 +215,11 @@ def load_builtin_code_review_detectors(
     There is deliberately no ``runtime`` parameter: unlike the general-purpose and custom subagent
     builders, the detector stack has no ``GitPlatformMiddleware`` — detectors never post — so it
     needs nothing from the run context.
+
+    A detector with a ``configured_models`` entry runs on it over its charter's ``model:`` (see
+    ``ConfiguredModels.for_subagent``).
     """
+    configured_models = configured_models or ConfiguredModels("subagent")
     if not agents_dir.is_dir():
         # Louder than a single failed charter: this is the whole capability gone, every dimension
         # uncovered, and a review would run with no detectors at all.
@@ -242,23 +244,22 @@ def load_builtin_code_review_detectors(
 
         frontmatter, body = parsed
 
-        detector_model = model
-        if frontmatter_model := str(frontmatter.get("model", "")).strip():
-            try:
-                detector_model = get_model(model=frontmatter_model)
-            except ValueError:
-                # Unknown/empty model spec — a charter config typo. Skip just this detector.
-                logger.warning("Skipping detector %s: invalid model '%s'", md_file, frontmatter_model)
-                failed.append(md_file.stem)
-                continue
-            except Exception:
-                # Anything else (disabled provider, missing API key, SDK init failure) is an
-                # environment problem, not a bad charter. Don't mislabel it "invalid model" —
-                # log the full traceback so it's distinguishable, then skip rather than abort
-                # the whole agent build over one detector.
-                logger.exception("Skipping detector %s: failed to initialize model '%s'", md_file, frontmatter_model)
-                failed.append(md_file.stem)
-                continue
+        frontmatter_model = str(frontmatter.get("model", "")).strip()
+        try:
+            detector_model = configured_models.for_subagent(frontmatter["name"], frontmatter_model, model)
+        except ValueError:
+            # Unknown/empty model spec — a charter config typo. Skip just this detector.
+            logger.warning("Skipping detector %s: invalid model '%s'", md_file, frontmatter_model)
+            failed.append(md_file.stem)
+            continue
+        except Exception:
+            # Anything else (disabled provider, missing API key, SDK init failure) is an
+            # environment problem, not a bad charter. Don't mislabel it "invalid model" —
+            # log the full traceback so it's distinguishable, then skip rather than abort
+            # the whole agent build over one detector.
+            logger.exception("Skipping detector %s: failed to initialize model '%s'", md_file, frontmatter_model)
+            failed.append(md_file.stem)
+            continue
 
         middleware = _build_detector_middleware(detector_model, backend, fallback_models)
         detectors.append(
@@ -364,24 +365,18 @@ Complete the user's search request efficiently and report your findings clearly.
 EXPLORE_SUBAGENT_DESCRIPTION = """Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns (eg. "src/components/**/*.tsx"), search code for keywords (eg. "API endpoints"), or answer questions about the codebase (eg. "how do API endpoints work?"). When calling this agent, specify the desired thoroughness level: "quick" for basic searches, "medium" for moderate exploration, or "very thorough" for comprehensive analysis across multiple locations and naming conventions."""  # noqa: E501
 
 
-def create_explore_subagent(workspace: Workspace, working_directory: str, *, models: ModelChain) -> CompiledSubAgent:
+def create_explore_subagent(
+    workspace: Workspace,
+    working_directory: str,
+    *,
+    model: BaseChatModel,
+    fallback_models: list[BaseChatModel] | None = None,
+) -> CompiledSubAgent:
     """
-    Create the explore subagent on ``models``, the run's explore chain.
+    Create the explore subagent on ``model``.
     """
     # Local import to break a circular dependency: graph.py imports this module.
     from automation.agent.graph import dynamic_write_todos_system_prompt
-
-    model_name, *fallback_model_names = models.names
-    model = get_model(model=model_name, thinking_level=models.thinking_level)
-
-    fallback_models = []
-    for fallback_model_name in fallback_model_names:
-        try:
-            fallback_models.append(get_model(model=fallback_model_name, thinking_level=models.fallback_thinking_level))
-        except Exception:
-            logger.exception(
-                "Could not initialize explore fallback model '%s', proceeding without fallback", fallback_model_name
-            )
 
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(system_prompt=dynamic_write_todos_system_prompt(bash_tool_enabled=False)),
@@ -402,10 +397,6 @@ def create_explore_subagent(workspace: Workspace, working_directory: str, *, mod
         name=EXPLORE_NAME,
     )
     return CompiledSubAgent(name=EXPLORE_NAME, description=EXPLORE_SUBAGENT_DESCRIPTION, runnable=runnable)
-
-
-# Names reserved for built-in subagents. Custom (per-repo) subagents may not use these names.
-BUILTIN_SUBAGENT_NAMES: frozenset[str] = frozenset({GENERAL_PURPOSE_NAME, EXPLORE_NAME, *CODE_REVIEW_DETECTOR_NAMES})
 
 
 def _parse_subagent_frontmatter(content: str, file_path: str) -> tuple[dict, str] | None:
@@ -549,6 +540,7 @@ async def load_custom_subagents(
     fallback_models: list[BaseChatModel] | None = None,
     mcp_tools: list[BaseTool] | None = None,
     *,
+    configured_models: ConfiguredModels | None = None,
     cross_project_enabled: bool = False,
 ) -> list[CompiledSubAgent]:
     """
@@ -569,6 +561,8 @@ async def load_custom_subagents(
         fallback_models: Optional fallback models for model failover.
         mcp_tools: The parent agent's MCP toolset, exposed to each custom subagent (deferred behind
             tool_search when deferral is on, bound directly when off) so a delegated MCP call works.
+        configured_models: The run's subagent models; an entry beats the file's ``model:`` (see
+            ``ConfiguredModels.for_subagent``).
         cross_project_enabled: The run's cross-project switch, the parent's own, so they agree for the whole run.
 
     Returns:
@@ -579,6 +573,7 @@ async def load_custom_subagents(
     if not workspace.is_ready:
         return subagents
 
+    configured_models = configured_models or ConfiguredModels("subagent")
     for source_path in sources:
         try:
             result = await workspace.backend.als(source_path)
@@ -622,13 +617,12 @@ async def load_custom_subagents(
                 )
                 continue
 
-            subagent_model = model
-            if frontmatter_model := str(frontmatter.get("model", "")).strip():
-                try:
-                    subagent_model = get_model(model=frontmatter_model)
-                except Exception:
-                    logger.warning("Skipping %s: invalid model '%s'", file_path, frontmatter_model)
-                    continue
+            frontmatter_model = str(frontmatter.get("model", "")).strip()
+            try:
+                subagent_model = configured_models.for_subagent(frontmatter["name"], frontmatter_model, model)
+            except Exception:
+                logger.warning("Skipping %s: invalid model '%s'", file_path, frontmatter_model)
+                continue
 
             middleware = _build_general_purpose_middleware(
                 subagent_model,

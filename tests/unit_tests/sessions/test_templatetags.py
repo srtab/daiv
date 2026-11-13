@@ -15,12 +15,14 @@ from django.utils import timezone
 
 import pytest
 from sessions.artifacts import ArtifactKind
+from sessions.models import MergeRequestState
 from sessions.templatetags.session_tags import (
     artifact_icon,
     date_bucket,
     duration,
     format_cost,
     format_tokens,
+    linked_merge_request,
     origin_icon,
     session_cost,
     session_merge_request,
@@ -160,6 +162,8 @@ def test_date_bucket_exact_window_edges(monkeypatch):
         ("ui_job", "bolt"),
         ("issue_webhook", "exclamation-circle"),
         ("mr_webhook", "merge-request"),
+        ("delegated_job", "agent"),
+        ("delegation_resume", "arrow-path"),
         ("unknown", "jobs"),
     ],
 )
@@ -197,13 +201,19 @@ def _mr_run(iid=None, url=""):
     ],
     ids=["newest-run-that-published", "session-scope-wins", "older-run-url", "never-another-mrs-url", "no-url"],
 )
-def test_session_merge_request(scoped_iid, runs, expected):
+def test_linked_merge_request(scoped_iid, runs, expected):
     session = types.SimpleNamespace(merge_request_iid=scoped_iid, runs=_Runs(runs))
-    assert session_merge_request(session) == {"iid": expected[0], "url": expected[1]}
+    assert linked_merge_request(session) == {"iid": expected[0], "url": expected[1]}
+
+
+def test_session_merge_request_carries_the_attached_state():
+    runs = _Runs([_mr_run(5, "https://git/mr/5")])
+    session = types.SimpleNamespace(merge_request_iid=None, runs=runs, merge_request_state=MergeRequestState.MERGED)
+    assert session_merge_request(session) == {"iid": 5, "url": "https://git/mr/5", "state": MergeRequestState.MERGED}
 
 
 def test_session_merge_request_none_when_nothing_published():
-    session = types.SimpleNamespace(merge_request_iid=None, runs=_Runs([_mr_run()]))
+    session = types.SimpleNamespace(merge_request_iid=None, runs=_Runs([_mr_run()]), merge_request_state=None)
     assert session_merge_request(session) is None
 
 

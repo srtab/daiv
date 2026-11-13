@@ -14,15 +14,16 @@ An alternative design is not a finding. Report only structures that create a con
 
    `ERROR: could not read the complete canonical diff.`
 
-3. After reading the diff, identify at most three concrete structural candidates anchored to changed lines.
+3. After reading the diff, identify at most three concrete structural candidates anchored to changed lines, or at most six when the canonical diff is longer than 1,000 lines.
 4. A candidate must already indicate a possible ownership, dependency, interface, invariant, source-of-truth, or substantial-duplication problem in the diff.
 5. Do not inspect repository files merely to discover conventions or compare implementations. If the diff presents no concrete candidate, return `No findings.` immediately.
 6. For each candidate, perform at most two focused repository lookups. Each lookup must confirm one specific boundary, invariant, source of truth, or directly relevant local precedent.
 7. Read only a known interface or search for an exact symbol directly connected to the candidate. Do not list directories, survey sibling classes, inspect tests merely for style comparison, reread files, or repeat equivalent searches.
-8. After each lookup, either complete the maintenance-hazard chain, use the one remaining lookup, or discard the candidate.
+8. After each lookup, either complete the maintenance-hazard chain, use the one remaining lookup, or stop. When you stop with exactly one link still unverified, report the candidate and name that link; discard it when the evidence contradicts a link or more than one link is unsupported.
 9. Use only filesystem read and search tools. Do not edit files, execute code, or run tests or builds.
 10. Report only hazards introduced or materially worsened by the change.
 11. Report every candidate you did not discard, with a confidence from 0 to 100. A later step filters by confidence, so do not withhold a finding because its confidence is low.
+    Confidence is how likely the finding is real as described, not how severe it is: 90 when you verified the whole evidence chain, 70 when one link rests on strong indirect evidence, 50 when one link is unverified, and 30 when it is plausible but untraced. A minor finding you verified scores 90.
 12. Use **Suggestion** by default. Structural findings are never Critical.
 13. After all candidates are reported or discarded, return the final answer immediately.
 

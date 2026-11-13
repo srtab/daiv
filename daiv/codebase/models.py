@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from django.conf import settings as django_settings
 from django.db import models
@@ -10,6 +11,9 @@ from django_extensions.db.models import TimeStampedModel
 from codebase.base import RepoAccessLevel
 from codebase.conf import settings as codebase_settings
 from core.constants import CrossProjectOutcome
+
+if TYPE_CHECKING:
+    from accounts.models import User
 
 
 class PlatformType(models.TextChoices):
@@ -33,6 +37,16 @@ _OUTCOME_LABELS = {
     CrossProjectOutcome.ERROR: _("Error"),
 }
 CROSS_PROJECT_OUTCOME_CHOICES = [(outcome.value, _OUTCOME_LABELS[outcome]) for outcome in CrossProjectOutcome]
+
+
+class MergeMetricQuerySet(models.QuerySet):
+    def visible_to(self, user: User) -> MergeMetricQuerySet:
+        """Merges on the repositories ``user`` can read; an admin reads them all. SYNC ONLY."""
+        if user.is_admin:
+            return self.all()
+        from codebase.authorization import viewable_repo_ids_subquery
+
+        return self.filter(repo_id__in=viewable_repo_ids_subquery(user))
 
 
 class MergeMetric(TimeStampedModel):
@@ -65,6 +79,8 @@ class MergeMetric(TimeStampedModel):
     target_branch = models.CharField(_("target branch"), max_length=255)
     source_branch = models.CharField(_("source branch"), max_length=255)
     platform = models.CharField(_("platform"), max_length=10, choices=PlatformType.choices)
+
+    objects = MergeMetricQuerySet.as_manager()
 
     class Meta:
         verbose_name = _("Merge Metric")

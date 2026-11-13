@@ -28,6 +28,7 @@ def has_auto_label(label_names: Iterable[str]) -> bool:
 
 
 SANDBOX_DOWNLOAD_MAX_BYTES = 64 * 1024 * 1024
+SANDBOX_TIMEOUT_EXIT_CODE = 124
 
 # A cross-project write carries a person's attribution, so the webhook's "is this my own event?"
 # check cannot recognise it. Renders as nothing on both platforms.
@@ -54,6 +55,8 @@ class CrossProjectOutcome(StrEnum):
 CANCELLED_BY_USER_MESSAGE = "Stopped by user."
 INTERRUPTED_MESSAGE = "Run was interrupted before completing."
 RUN_FAILED_MESSAGE = "Run failed. Check server logs for details."
+# The "aborted" marker's message for a run its delegating session cancelled (``Run.is_cancelled``).
+CANCELLED_BY_COORDINATOR_MESSAGE = "Stopped by the session that delegated it."
 # Every trigger shows it verbatim: the chat stream, the job APIs, the transcript and the webhook reply.
 CROSS_PROJECT_SESSION_REFUSED_MESSAGE = (
     "This conversation holds results fetched from other projects on another person's behalf, so DAIV won't "

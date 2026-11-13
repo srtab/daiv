@@ -122,6 +122,7 @@ async def extract_observations_task(run_id: str) -> None:
     pipeline's own failure contract.
     """
     from sessions.models import Run, Session
+    from sessions.multi_repo import ais_multi_repo
 
     from memory.extraction import extract_observations
 
@@ -142,6 +143,10 @@ async def extract_observations_task(run_id: str) -> None:
     restricted = Session.objects.filter(pk=run.session_id).holding_cross_project()
     if await restricted.aexists():
         logger.info("extract_observations_task: run %s's session holds cross-project results, skipping", run_id)
+        return
+    # The transcript also holds the other repositories' code, which the main repository's readers may not see.
+    if await ais_multi_repo(run.session_id):
+        logger.info("extract_observations_task: run %s belongs to a multi-repository session, skipping", run_id)
         return
 
     config = await asyncio.to_thread(RepositoryConfig.get_config, run.repo_id)

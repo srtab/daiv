@@ -3,13 +3,16 @@
 
 {% block alpine_stores %}
 <script defer src="{% static 'core/js/nav-events.js' %}"></script>
+<script defer src="{% static 'core/js/menu-button.js' %}"></script>
+<script defer src="{% static 'core/js/sidebar.js' %}"></script>
+<script defer src="{% static 'core/js/sidebar-lists.js' %}"></script>
 {% endblock alpine_stores %}
 
 {% block content %}
-{% translate "{count} running" as nav_running_label %}
 <div x-data="{ mobileNavOpen: false }"
-     x-init="$store.nav.start({ url: '{% url 'api:nav_events' %}', state: { unread_count: {{ unread_count|default:0 }}, running_runs: {{ nav_running_jobs|default:0 }} }, runningLabel: '{{ nav_running_label|escapejs }}' })"
+     x-init="$store.nav.start({ url: '{% url 'api:nav_events' %}{% if nav_session_thread_id %}?session={{ nav_session_thread_id|urlencode }}{% endif %}', state: { unread_count: {{ unread_count|default:0 }}, running_runs: {{ nav_running_jobs|default:0 }}, own_running_runs: {{ nav_own_running_jobs|default:0 }} } })"
      @keydown.escape.window="mobileNavOpen = false"
+     @keydown.window="$store.sidebar.onKey($event)"
      class="flex h-dvh bg-ground">
   {% include "dashboard/_sidebar.html" %}
 
@@ -29,7 +32,7 @@
          x-transition:leave-start="translate-x-0"
          x-transition:leave-end="-translate-x-full"
          class="relative flex h-full w-[85%] max-w-[260px] flex-col bg-surface-1 shadow-overlay">
-      {% include "dashboard/_sidebar.html" with sidebar_root_class="flex min-h-0 w-full flex-1 flex-col" %}
+      {% include "dashboard/_sidebar.html" with sheet=True %}
     </div>
   </div>
 
@@ -48,15 +51,25 @@
         <span class="brand-mark"></span>
         DAIV
       </a>
+      <a href="{% url 'session_new_chat' %}"
+         data-testid="topbar-new-chat"
+         title="{% translate 'New chat' %}"
+         aria-label="{% translate 'New chat' %}"
+         class="ml-auto inline-flex h-11 w-11 items-center justify-center rounded-lg bg-accent text-accent-ink transition-colors hover:bg-accent-bright">
+        {% icon "plus" "h-5 w-5" %}
+      </a>
     </header>
 
-    <main class="flex-1 overflow-y-auto overflow-x-hidden px-4 pt-6 {% block main_padding_bottom %}pb-10{% endblock %} sm:px-(--app-content-gutter) sm:pt-8">
+    {# A page that needs a bar or a side column beside its scrolling <main> replaces the whole body. #}
+    {% block app_body %}
+    <main class="scrollbar-thin flex-1 overflow-y-auto overflow-x-hidden px-4 pt-6 {% block main_padding_bottom %}pb-10{% endblock %} sm:px-(--app-content-gutter) sm:pt-8">
       {# container_width tier — allowed: max-w-3xl (narrow) | max-w-6xl (default) | max-w-screen-2xl (wide) | max-w-none (fluid) #}
       <div class="mx-auto {% block container_width %}max-w-6xl{% endblock %}">
         {% block breadcrumb %}{% endblock %}
         {% block app_content %}{% endblock %}
       </div>
     </main>
+    {% endblock app_body %}
   </div>
 </div>
 {% endblock content %}

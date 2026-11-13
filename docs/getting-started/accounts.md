@@ -1,151 +1,193 @@
-# Accounts & Roles
+---
+description: "How sign-in works in the DAIV dashboard: admin and member roles, Git platform OAuth, one-time email codes or passkeys, the first admin, and managing users."
+---
 
-DAIV's web dashboard requires you to sign in. Every authenticated user has one of two roles — **admin** or **member** — which decide what they can see and change. Members manage their own work (agent runs, chats, schedules, and API keys); admins additionally manage the deployment: site configuration, users, global skills, and global sandbox environments.
+# Accounts and roles
 
-Self-service signup is **disabled**. Users either sign in with their Git platform account (when OAuth is enabled) or are pre-created by an admin and sign in with a one-time email code.
+DAIV's web dashboard requires you to sign in. Every signed-in user has one of two roles, **admin** or **member**, which decide what they can see and change. Members manage their own work: agent runs, chats, schedules and API keys. Admins also manage the deployment: users, site configuration, schedule templates, skills, and global MCP servers and sandbox environments.
+
+DAIV does not offer email-and-password signup. Signup through your Git platform is off by default: an admin turns it on with **Open social signup**, described in [Turn on OAuth login](../reference/site-configuration.md#turn-on-oauth-login). Otherwise an admin creates each user, who then signs in with a one-time email code, a passkey, or the Git platform account when OAuth login is on.
 
 ## Roles
 
-DAIV ships exactly two roles. New users default to **member**.
+DAIV has two roles. New users are members.
 
-| Role | Can do |
-|------|--------|
-| **Member** | Start and view agent runs, chat, and [scheduled jobs](../features/scheduled-jobs.md) — scoped to the repositories they can access on the connected Git platform (see [Repository access](#repository-access)); create and revoke their own API keys; manage their own notification channels. |
-| **Admin** | Everything a member can, but without the repository restriction — admins see and act on every repository. Plus: edit **Site Configuration** at `/dashboard/configuration/`; create, edit, and delete users at `/accounts/users/`; manage global (shared) skills and global sandbox environments; view system-wide velocity metrics and the full API-key list on the dashboard. |
+| Capability | Member | Admin |
+|------------|--------|-------|
+| Start and view agent runs and chats | On the repositories they can access (see [Repository access](#repository-access)) | On every repository |
+| Create and view [scheduled jobs](../features/scheduled-jobs.md) | Their own, on repositories they can write to | Everyone's, on every repository |
+| Create API keys | Their own | Their own |
+| Revoke API keys | Their own | Any user's key |
+| Manage notification channels | Their own | Their own |
+| **Users**: create, edit and delete users | No | Yes |
+| **Configuration**: edit the site configuration | No | Yes |
+| **Schedule templates**: create, edit and delete them | No | Yes |
+| **Skills**: open the skills dashboard | No | Yes |
+| **Global MCP servers**: manage the servers every user gets | No | Yes |
+| Create and change global sandbox environments | No | Yes |
+| Consolidate a repository's memory on demand | No | Yes |
 
-!!! note "How role checks work"
-    Admin-only pages are guarded by `AdminRequiredMixin`, which raises *permission denied* for any signed-in user whose role is not `admin`. In code this is the `user.is_admin` property. There are no other privilege levels — a user is either an admin or a member.
+The admin-only pages are under **Admin** in the sidebar's **Settings** menu, the cog beside your account.
 
 ## Repository access
 
-Being a member does not, by itself, grant access to any repository. DAIV mirrors each user's repository membership from the connected Git platform (GitLab or GitHub) and enforces it before letting the user see or act on a repository — there is no separate DAIV-side permission to manage.
+A member sees and acts on a repository only when they have access to it on the connected Git platform, GitLab or GitHub. DAIV mirrors each user's repository membership from the platform and checks it before it shows or runs anything on a repository. There is no separate DAIV-side permission to manage. Admins skip these checks.
 
-Two access tiers are checked, matched to the platform's own roles:
+DAIV checks two tiers, matched to the platform's own roles:
 
 | Tier | Required platform role | Gates |
 |------|------------------------|-------|
-| **Read** | GitLab Reporter or above, GitHub read (or higher) collaborator | Repository/branch pickers, the memory dashboard, and the MCP `list_repositories` tool. |
-| **Write** | GitLab Developer or above, GitHub write (or higher) collaborator | Starting an agent run or chat, and creating or running a [scheduled job](../features/scheduled-jobs.md) — from the dashboard, the Jobs API, or MCP. |
+| **Read** | GitLab Reporter or above, GitHub read (or higher) collaborator | Repository and branch pickers, the [memory dashboard](../features/memory.md), and the MCP `list_repositories` tool. |
+| **Write** | GitLab Developer or above, GitHub write (or higher) collaborator | Starting an agent run or chat, and creating or running a [scheduled job](../features/scheduled-jobs.md), from the dashboard, the Jobs API or MCP. |
 
-A repository the user can't read never appears in a listing; one they can read but not write to appears but rejects run/chat/schedule attempts with a friendly "not accessible" message rather than a stack trace.
+A repository a user cannot read never appears in a listing. A repository they can read but not write to appears, and DAIV rejects their run, chat and schedule attempts with a "not accessible" message.
 
-**Access requires a verified platform identity.** DAIV only knows what a user can access on GitLab/GitHub once that user has signed in via OAuth at least once (see [Git platform login](#git-platform-login-oauth)) — the platform account is matched to the DAIV user by email. A user created by an admin who has only ever used email login-by-code has no repository access until they connect their GitLab/GitHub account by logging in with it once.
+DAIV learns what a user can access on the platform only after that user signs in with their Git platform account once, and matches the platform account to the DAIV user by email. A user an admin created, who has only ever signed in with an email code, has no repository access until they sign in with GitLab or GitHub once.
 
-**Admins bypass all repository checks** — the pre-existing "admin sees everything" behavior is unchanged.
+A periodic sync copies repository membership from the platform, so a permission change on the platform takes effect at the next sync, not immediately. [Git platform](../reference/env-variables.md#git-platform) gives the sync schedule and how long DAIV keeps trusting access data after a sync fails.
 
-Access data is refreshed by a periodic background sync (every 15 minutes by default, `CODEBASE_REPO_ACCESS_SYNC_CRON`), so a permission change on the Git platform (added, removed, or role-changed) takes effect on the next sync rather than immediately. Freshness is tracked **per repository**: if a repository's sync stops succeeding, its access data is served from the last known-good data for a grace period, and beyond `CODEBASE_REPO_ACCESS_HARD_TTL_HOURS` (24 hours by default) that repository's member access **fails closed** rather than trusting stale grants — repositories that keep syncing cleanly are unaffected. Admin access is never affected by sync health.
+## Sign in
 
-!!! note "Deactivation revokes access immediately"
-    Setting a user to inactive (see [Managing users](#managing-users-admin-only)) immediately blocks that user's API keys and MCP tokens, in addition to signing them out of the dashboard — outstanding credentials stop working right away rather than at the next sync.
+The login page is at `/accounts/login/`. A user signs in with any of these methods:
 
-## Signing in
+- **Email code.** Works without further setup, as long as DAIV can send email.
+- **Git platform account.** Works once an admin has turned on OAuth login.
+- **Passkey.** Works once the user has added one.
 
-The login page lives at `/accounts/login/`. Two sign-in methods are available, depending on how the deployment is configured.
+### Sign in with an email code
 
-### Git platform login (OAuth)
+DAIV emails a one-time code that signs a user in without a password. Admin-created users and the first admin use this method.
 
-When OAuth login is enabled, users can sign in with the same Git platform DAIV is connected to — **GitHub** or **GitLab** (including self-hosted GitLab). DAIV offers the provider that matches your configured platform; it does not offer both at once.
+1. On the login page, enter your email address and select **Continue with email**.
+2. Read the code in the email DAIV sends. The code expires after 5 minutes and accepts 3 attempts.
+3. Enter the code and select **Verify & sign in**.
 
-OAuth is configured by an admin in **Site Configuration** under the **Authentication** section, not in code. The relevant settings are:
+Without an SMTP server, set `EMAIL_BACKEND` to `django.core.mail.backends.console.EmailBackend` and read the code from the app's log with `docker compose logs app`. [Environment variables](../reference/env-variables.md#authentication) lists the email settings.
 
-| Setting | Purpose |
-|---------|---------|
-| **Enable OAuth login** (`auth_login_enabled`) | Master toggle. When off, no social provider is offered on the login page. |
-| **Open social signup** (`auth_signup_open`) | When on, anyone who authenticates via your Git platform gets an account. When off, only pre-registered emails can sign in. |
-| **OAuth client ID** / **OAuth client secret** | The OAuth application credentials for your platform. Set both, or neither. |
-| **GitLab URL** | Browser-facing URL of your GitLab instance (GitLab only). |
-| **GitLab server URL** | Optional server-to-server URL for GitLab API calls inside a Docker-internal network. Leave empty to reuse the GitLab URL. |
+### Sign in with GitHub or GitLab
 
-!!! tip
-    OAuth can be toggled on and off at any time from `/dashboard/configuration/` — you do not need to redeploy. The same credentials can also be seeded from the `ALLAUTH_CLIENT_ID`, `ALLAUTH_CLIENT_SECRET`, `ALLAUTH_GITLAB_URL`, and `ALLAUTH_GITLAB_SERVER_URL` environment variables. See [Authentication in the env-variables reference](../reference/env-variables.md#authentication) and [Deployment](deployment.md).
+DAIV offers the platform it is connected to, **GitHub** or **GitLab** including a self-managed GitLab, and never both at once. On the login page, select **Continue with GitHub** or **Continue with GitLab**.
 
-!!! info "Cross-project access changes what sign-in requests"
-    Once an admin turns on [cross-project access](../features/cross-project-access.md), signing in also
-    authorises DAIV to reach *other* projects as you, so a run you start can read what you can read.
-    People who signed in before it was turned on sign in again to grant it; until they do,
-    everything they could already do keeps working. Review or disconnect it under
-    **Account → Git authorisation**.
+With **Open social signup** off, create each permitted user under **Admin** → **Users** with the email address their Git platform account confirms. For GitLab, DAIV checks the profile's `confirmed_at` to verify that this primary email address is confirmed before it looks up an existing account. Matching ignores case and keeps the existing user's role. If GitLab sends no confirmation or an invalid one, DAIV does not link the account by email. An account already linked to a platform user ID stays linked when the platform email changes.
 
-### Email login-by-code
+DAIV checks again, before it saves a new account, that signup is open. A pending signup form cannot create a second user by replacing an email address that already exists.
 
-Users can also sign in **without a password** using a one-time code emailed to them:
+To turn on Git platform sign-in, [create the OAuth app](#create-the-oauth-app), then follow [Turn on OAuth login](../reference/site-configuration.md#turn-on-oauth-login).
 
-1. On the login page, request a login code for your email address.
-2. DAIV emails a short, single-use code.
-3. Enter the code to complete sign-in.
+!!! note
+    While an admin has [cross-project access](../features/cross-project-access.md) on, signing in also authorises DAIV to reach other projects as you, so a run you start can read what you can read. If you signed in before it was turned on, sign in again to grant it; until you do, everything you could do before keeps working. Review or disconnect it under **Git authorisation** in the account menu.
 
-This is the path used by admin-created users and by the bootstrapped first admin — it works even when OAuth is not configured, as long as DAIV can send email.
+### Sign in with a passkey
 
-!!! warning "No password signup"
-    Standard email-and-password registration is turned off (`AccountAdapter.is_open_for_signup` returns `False`). Visiting the signup URL simply redirects back to the login page. New accounts come only from OAuth (when open signup is on) or from an admin creating them.
+A passkey is Touch ID, Face ID, Windows Hello or a security key. After a user signs in, they add one under **Passkeys** in the account menu at the bottom of the sidebar. On the login page they then select **Sign in with a passkey**. Email sign-in stays available, so a lost passkey does not lock the user out.
+
+### Create the OAuth app
+
+Create an OAuth app on your Git platform to get the client ID and client secret that DAIV needs for OAuth login. You need an account that can create the app on that platform, and the URL DAIV is served from (`DAIV_EXTERNAL_URL`), for example `https://daiv.example.com`.
+
+To create the app on GitHub:
+
+1. Open [github.com/settings/developers](https://github.com/settings/developers).
+2. Select **OAuth Apps** → **New OAuth App**.
+3. In **Application name**, enter a name, for example `DAIV`.
+4. In **Homepage URL**, enter your DAIV URL, for example `https://daiv.example.com`.
+5. In **Authorization callback URL**, enter your DAIV URL followed by `/accounts/github/login/callback/`, for example `https://daiv.example.com/accounts/github/login/callback/`.
+6. Select **Register application**.
+7. Copy the **Client ID**.
+8. Select **Generate a new client secret**, and copy the secret.
+
+An OAuth app signs people in, but its tokens cannot back [cross-project access](../features/cross-project-access.md#github). To use cross-project access, enter the **Client ID** and a client secret of the GitHub App DAIV runs on instead, with the same callback URL.
+
+To create the app on GitLab:
+
+1. Open **Admin Area** → **Applications** or **User Settings** → **Applications**.
+2. Add a new application.
+3. In **Name**, enter a name, for example `DAIV`.
+4. In **Redirect URI**, enter your DAIV URL followed by `/accounts/gitlab/login/callback/`, for example `https://daiv.example.com/accounts/gitlab/login/callback/`.
+5. Under **Scopes**, select `read_user`.
+6. Select **Save application**.
+7. Copy the **Application ID** and the **Secret**.
+
+Before you turn on [cross-project access](../features/cross-project-access.md#gitlab), also select `api` under **Scopes**, or `read_api` for read-only access with `DAIV_GITLAB_OAUTH_SCOPE` set to match. GitLab rejects a sign-in that requests a scope the application does not grant.
+
+Enter the client ID and secret under **Configuration** → **Authentication**, where DAIV calls the secret **Auth Client Secret**: [Turn on OAuth login](../reference/site-configuration.md#turn-on-oauth-login) gives the steps, and [Authentication](../reference/env-variables.md#authentication) lists the variables that override the same fields and lock them.
 
 ## The first admin
 
-A fresh DAIV install has no users, so it has no admin. There are two ways to establish the first one.
+A new DAIV install has no users, so it has no admin. Two paths create the first one: the first Git platform sign-in, and a command in a shell.
 
-### First OAuth sign-in becomes admin
+### Make the first OAuth sign-in the admin
 
-On a fresh install with OAuth enabled, the **first user to sign in via a social provider is automatically promoted to admin**. The trigger is the *absence of any admin user* (not the absence of any user), so if two people happen to sign in at the same moment, the result is multiple admins (safe) rather than none.
+With OAuth login on and no user in DAIV, the first person who signs in with the Git platform account gets an account even when **Open social signup** is off, and DAIV makes them an admin. DAIV makes a new account an admin whenever the install has no admin, not whenever it has no user. If two people sign in at the same moment, both become admins rather than neither.
 
-### Bootstrap command (headless)
+### Create the first admin from a shell
 
-When OAuth is not yet configured, create the initial admin from a shell:
+Use this path when OAuth login is off. The [`bootstrap_admin`](../reference/management-commands.md#bootstrap_admin) command refuses to run if an admin already exists, or if a user with that email already exists: promote that user from **Users** instead.
 
-```bash
-docker exec -it daiv-app python manage.py bootstrap_admin admin@example.com
-```
+1. Run the command, replacing `admin@example.com` with the admin's email address:
 
-The `bootstrap_admin` command creates an admin user and prints how to sign in. It is a one-shot bootstrap: it refuses to run if an admin already exists, and refuses if a user with that email already exists (promote that user via the dashboard instead). The new admin signs in via login-by-code (the one-time email code).
+    ```bash
+    docker compose exec app django-admin bootstrap_admin admin@example.com
+    ```
 
-!!! info
-    For end-to-end first-run setup including OAuth credentials and email, see the first-admin notes in [Deployment](deployment.md).
+2. [Sign in with an email code](#sign-in-with-an-email-code) as that address.
 
-## Managing users (admin only)
+[Deployment](deployment.md) covers the first-run setup, including email.
 
-Admins manage accounts at `/accounts/users/`. The list supports searching by name, email, or username and filtering by role.
+## Manage users
 
-<div class="grid cards" markdown>
+Admins manage users under **Admin** → **Users**, at `/accounts/users/`. The list searches by name or email address and filters by role.
 
--   :octicons-person-add-16: **Create a user**
+### Create a user
 
-    ---
+1. Under **Admin** → **Users**, select **Create user**.
+2. In **Name**, **Email** and **Role**, enter the user's details.
+3. Select **Create user**.
 
-    At `/accounts/users/create/`, set the user's **name**, **email**, and **role**. DAIV emails a welcome message with a sign-in link. The new account has no password — the user signs in via OAuth or login-by-code.
+DAIV emails the user a welcome message with a sign-in link. The new account has no password: the user signs in with an email code, a passkey, or the Git platform account.
 
--   :octicons-pencil-16: **Edit a user**
+### Edit a user
 
-    ---
+1. Under **Admin** → **Users**, select the user.
+2. Change **Name**, **Email**, **Role** or **Active**. Change **Role** to promote a member to admin or demote an admin to member.
+3. Select **Save changes**.
 
-    At `/accounts/users/<id>/edit/`, change **name**, **email**, **role**, and **active** status. Use this to promote a member to admin or demote an admin to member.
+DAIV keeps at least one active admin. You cannot deactivate your own account, and you cannot demote or delete the last active admin: promote another user first.
 
--   :octicons-trash-16: **Delete a user**
+### Deactivate a user
 
-    ---
+Deactivate a user when you may want to restore their access later.
 
-    At `/accounts/users/<id>/delete/`, permanently remove an account after confirmation.
+1. Under **Admin** → **Users**, select the user.
+2. Clear **Active**.
+3. Select **Save changes**.
 
-</div>
+An inactive user cannot sign in, and their API keys and MCP tokens stop working at once, not at the next sync. DAIV keeps their history and the runs they own.
 
-DAIV enforces a few guardrails so a deployment can never be locked out of administration:
+### Delete a user
 
-- **You cannot delete your own account** from the user-management screen.
-- **The last active admin cannot be deleted, deactivated, or demoted.** Promote another user to admin first — the guard is `user.is_last_active_admin()`, applied on delete and on role/active changes.
+Delete a user only when you will never restore their access. Deactivating keeps their history and ownership of runs: see [Deactivate a user](#deactivate-a-user).
 
-!!! note "Deactivate vs. delete"
-    Setting a user to inactive blocks them from signing in while preserving their history and ownership of runs. Deleting removes the account outright. Prefer deactivation when you may want to restore access later.
+!!! warning "Deleting a user cannot be undone"
+    Deleting removes the user's account, their API keys and all data associated with them. You cannot delete your own account.
 
-## Per-user settings
+1. Under **Admin** → **Users**, select the user.
+2. Select **Delete user**.
+3. On the confirmation page, select **Delete user**.
 
-Every signed-in user — member or admin — has these self-service pages. All but the Dashboard open from the account menu at the bottom of the sidebar:
+## Account pages
+
+Every signed-in user, member or admin, has these pages. All but **Home** open from the account menu at the bottom of the sidebar.
 
 | Page | Route | What it does |
 |------|-------|--------------|
-| **Dashboard** | `/dashboard/` | Your activity summary and quick links. Admins also see system-wide velocity metrics and total user count. |
+| **Home** | `/dashboard/` | Your landing page after sign-in, with a link to **Team insights**. |
 | **API keys** | `/accounts/api-keys/` | Create and revoke personal API keys for programmatic access. |
-| **Notification channels** | `/accounts/channels/` | Choose how you're notified about your agent runs (in-app, email, and Rocket.Chat when enabled). |
-| **Git authorisation** | `/accounts/git-authorisation/` | See, renew or disconnect the git platform authorisation DAIV uses to reach other projects as you, when [cross-project access](../features/cross-project-access.md) is on. |
+| **Notification channels** | `/accounts/channels/` | Choose how DAIV notifies you about your agent runs. [Notifications](../features/notifications.md) lists the channels. |
+| **Git authorisation** | `/accounts/git-authorisation/` | See, renew or disconnect the authorisation DAIV uses to reach other projects as you, when [cross-project access](../features/cross-project-access.md) is on. |
+| **Passkeys** | `/accounts/mfa/` | Add and remove the passkeys you sign in with. |
 
-API keys authenticate calls to the [Jobs API](../features/jobs-api.md) and the [MCP endpoint](../features/mcp-endpoint.md). Members see only their own keys; admins see every user's keys in the list.
+API keys authenticate calls to the [Jobs API](../features/jobs-api.md) and the [MCP endpoint](../features/mcp-endpoint.md). A member sees only their own keys, and an admin sees every user's keys in the list.
 
 ## Related pages
 
@@ -155,17 +197,17 @@ API keys authenticate calls to the [Jobs API](../features/jobs-api.md) and the [
 
     ---
 
-    Install DAIV, configure email, and bring up the first admin.
+    Install DAIV, configure email, and create the first admin.
 
     [:octicons-arrow-right-24: Deployment](deployment.md)
 
--   **Platform Setup**
+-   **Platform setup**
 
     ---
 
-    Connect DAIV to GitLab or GitHub — the same platform used for OAuth login.
+    Connect DAIV to GitLab or GitHub, the same platform used for OAuth login.
 
-    [:octicons-arrow-right-24: Platform Setup](platform-setup.md)
+    [:octicons-arrow-right-24: Platform setup](platform-setup.md)
 
 -   **Jobs API**
 

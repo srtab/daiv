@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}DAIV and {{ comparison.name }} compared — DAIV{% endblock %}
+
+{% block meta_description %}<meta name="description" content="How DAIV and {{ comparison.name }} differ: where each runs, which Git platforms and models it supports, its license and its pricing, from each project's public docs.">{% endblock %}
+
+{% block og_title %}DAIV and {{ comparison.name }} compared{% endblock %}
+
+{% block og_description %}{{ comparison.summary }}{% endblock %}
+
+{% block head_extra %}{% include "dashboard/_landing_analytics.html" %}{% endblock %}
+
+{% block content %}
+{% include "dashboard/_landing_nav.html" %}
+
+<main>
+<section class="landing-page">
+    <div class="landing-container">
+        <p class="landing-eyebrow">
+            {% if user.is_authenticated %}Compare{% else %}<a href="{% url 'homepage' %}#compare" class="hover:text-text">Compare</a>{% endif %}
+        </p>
+        <h1 class="landing-heading">DAIV and {{ comparison.name }}</h1>
+        <p class="landing-lede">
+            {{ comparison.summary }}
+            <a href="{{ comparison.docs_url }}" rel="noopener noreferrer" class="landing-inline-link">Read its docs</a>
+        </p>
+
+        <div class="mt-12 grid gap-4 sm:grid-cols-2">
+            <div class="landing-card">
+                <h2 class="landing-item-title">When {{ comparison.short_name }} fits</h2>
+                <p class="landing-item-body">{{ comparison.choose_them }}</p>
+            </div>
+            <div class="landing-card">
+                <h2 class="landing-item-title">When DAIV fits</h2>
+                <p class="landing-item-body">{{ comparison.choose_daiv }}</p>
+            </div>
+        </div>
+
+        <h2 class="landing-subheading mt-16">Side by side</h2>
+        <dl class="landing-compare mt-6">
+            {% for row in comparison.rows %}
+            <div class="landing-compare__row">
+                <dt class="landing-compare__aspect">{{ row.aspect }}</dt>
+                <dd class="landing-compare__cell">
+                    <span class="landing-eyebrow landing-compare__who">DAIV</span>
+                    <p>{{ row.daiv.text }}</p>
+                    {% include "dashboard/_comparison_sources.html" with sources=row.daiv.sources %}
+                </dd>
+                <dd class="landing-compare__cell">
+                    <span class="landing-eyebrow landing-compare__who">{{ comparison.short_name }}</span>
+                    <p>{{ row.theirs.text }}</p>
+                    {% include "dashboard/_comparison_sources.html" with sources=row.theirs.sources %}
+                </dd>
+            </div>
+            {% endfor %}
+        </dl>
+
+        <p class="mt-6 text-[13px] text-text-faint">
+            What this page says about {{ comparison.name }} comes from its public documentation, as of {{ checked }}.
+            Something out of date? <a href="https://github.com/srtab/daiv/issues" rel="noopener noreferrer" class="landing-inline-link">Open an issue</a>.
+        </p>
+
+        <h2 class="landing-subheading mt-16">Other comparisons</h2>
+        <ul class="mt-4 flex flex-wrap gap-x-6 gap-y-2">
+            {% for other in others %}
+            <li><a href="{% url 'comparison' other.slug %}" class="landing-inline-link text-[14px]">DAIV and {{ other.name }}</a></li>
+            {% endfor %}
+        </ul>
+
+        <div class="mt-16 flex flex-col gap-3 sm:flex-row sm:gap-4">
+            {% include "dashboard/_landing_ctas.html" %}
+        </div>
+    </div>
+</section>
+</main>
+
+{% include "dashboard/_landing_footer.html" %}
+{% endblock content %}

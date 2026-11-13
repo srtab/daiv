@@ -1,7 +1,9 @@
+import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from sandbox_envs.models import SandboxEnvironment, Visibility
+from sessions.services import BatchSubmitResult
 
 
 @pytest.mark.django_db(transaction=True)
@@ -114,10 +116,10 @@ async def test_submit_job_resolves_environment_name():
     from mcp_api.server import submit_job
 
     fake_run = type("R", (), {"id": "00000000-0000-0000-0000-000000000001", "session_id": None, "status": "READY"})()
-    fake_result = type("R", (), {"batch_id": "b", "runs": [fake_run], "failed": []})()
+    fake_result = BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[fake_run])
     with (
         patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)),
-        patch("mcp_api.server.asubmit_batch_runs", new=AsyncMock(return_value=fake_result)) as submit,
+        patch("sessions.multi_repo.asubmit_batch_runs", new=AsyncMock(return_value=fake_result)) as submit,
     ):
         await submit_job(prompt="p", repos=[{"repo_id": "r/p", "ref": ""}], environment="dev")
     targets = submit.await_args.kwargs["repos"]
@@ -134,7 +136,7 @@ async def test_submit_job_unknown_environment_returns_error():
 
     with (
         patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)),
-        patch("mcp_api.server.asubmit_batch_runs", new=AsyncMock()) as submit,
+        patch("sessions.multi_repo.asubmit_batch_runs", new=AsyncMock()) as submit,
     ):
         result = await submit_job(prompt="p", repos=[{"repo_id": "r/p", "ref": ""}], environment="does-not-exist")
     import json
@@ -287,7 +289,7 @@ async def test_submit_job_cannot_resolve_other_users_env():
 
     with (
         patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)),
-        patch("mcp_api.server.asubmit_batch_runs", new=AsyncMock()) as submit,
+        patch("sessions.multi_repo.asubmit_batch_runs", new=AsyncMock()) as submit,
     ):
         result = await submit_job(prompt="p", repos=[{"repo_id": "r/p", "ref": ""}], environment="theirs")
     import json
@@ -306,7 +308,7 @@ async def test_submit_job_auth_failure_returns_error_without_running():
 
     with (
         patch("mcp_api.server.get_current_user", new=AsyncMock(side_effect=RuntimeError("token check failed"))),
-        patch("mcp_api.server.asubmit_batch_runs", new=AsyncMock()) as submit,
+        patch("sessions.multi_repo.asubmit_batch_runs", new=AsyncMock()) as submit,
     ):
         result = await submit_job(prompt="p", repos=[{"repo_id": "r/p", "ref": ""}])
     import json

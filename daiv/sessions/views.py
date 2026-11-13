@@ -5,14 +5,15 @@ import logging
 import time
 import uuid
 from functools import cached_property
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.contrib import messages as messages_module
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.core.exceptions import PermissionDenied, SuspiciousOperation, ValidationError
-from django.db.models import Prefetch
-from django.http import FileResponse, Http404, HttpResponse, HttpResponseBase
+from django.core.exceptions import PermissionDenied, SuspiciousOperation
+from django.http import Http404, HttpResponse, HttpResponseBase
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.decorators import method_decorator
@@ -31,22 +32,35 @@ from sandbox_envs.selection import resolve_repo_envs
 from sandbox_envs.services import env_picker_context
 
 from automation.picker.context import agent_picker_context
-from codebase.authorization import can_run
 from core.mixins import Breadcrumb, BreadcrumbMixin
+from core.responses import ThreadedFileResponse
 from core.sse import STREAM_MAX_DURATION_S, data_frame, sse_response
+from core.ui_events import redis_connections
 from core.utils import is_htmx
 from sessions.admission import RepoAccessError
-from sessions.artifacts import ArtifactKind, open_artifact_file
-from sessions.executor.lock import live_run_for, session_activity
-from sessions.filters import RANGE_CHOICES, ArtifactFilter, SessionFilter
+from sessions.artifacts import ArtifactKind, guess_content_type, open_artifact_file
+from sessions.conf import settings as sessions_settings
+from sessions.delegation import LegRun
+from sessions.filters import (
+    ARCHIVED_INCLUDED,
+    ARCHIVED_ONLY,
+    RANGE_CHOICES,
+    SCOPE_CHOICES,
+    SCOPE_MINE,
+    STATUS_CHOICES,
+    ArtifactFilter,
+    SessionFilter,
+    resolve_scope,
+)
 from sessions.forms import AgentRunCreateForm
-from sessions.hydration import ahydrate_thread
-from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
-from sessions.repo_state import aget_existing_mr_payload
+from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin, ToolResultMedia
+from sessions.multi_repo import MAX_REPOS_PER_SESSION
+from sessions.page_state import aload_session_state
 from sessions.services import RepoTarget, submit_batch_runs
 from sessions.spend import build_session_spend
-from sessions.transcript import annotate_transcript, artifact_turns
-from sessions.turns import build_turns
+from sessions.templatetags.session_tags import attach_merge_request_states
+from sessions.titling import MAX_TITLE_LENGTH
+from sessions.transcript_labels import transcript_icons, transcript_labels
 from slash_commands.composer import composer_command_rows
 
 logger = logging.getLogger("daiv.sessions")
@@ -87,7 +101,7 @@ class SessionStreamView(View):
         """
         terminal = RunStatus.terminal()
         # Authorize the requested ids once: run visibility is stable for the life of the
-        # stream, so re-running the (distinct-join) visibility filter every tick is wasted work.
+        # stream, so re-running the visibility filter every tick is wasted work.
         # Restricting ``tracking`` to visible ids also lets the loop finish cleanly instead
         # of spinning to the duration cap on ids the caller can't see. ``visible_to`` resolves the
         # caller's platform identity with a sync DB read, so build the queryset off-loop.
@@ -134,6 +148,18 @@ class SessionListView(LoginRequiredMixin, FilterView):
     # silently drop that filter, not blank the whole list.
     strict = False
 
+    @cached_property
+    def scope(self) -> str:
+        return resolve_scope(self.request.GET)
+
+    @cached_property
+    def archived(self) -> bool | None:
+        """Only archived sessions (``True``), archived ones with the rest (``None``), or none of them (``False``)."""
+        return {ARCHIVED_ONLY: True, ARCHIVED_INCLUDED: None}.get(self.request.GET.get("archived", ""), False)
+
+    def _listed(self, *, archived: bool | None) -> QuerySet[Session]:
+        return Session.objects.listed_for(self.request.user, mine=self.scope == SCOPE_MINE, archived=archived)
+
     def get_template_names(self) -> list[str]:
         # HTMX requests get just the results fragment so the filter bar and page
         # chrome stay put; a normal GET renders the full page (deep-link / no-JS safe).
@@ -145,43 +171,19 @@ class SessionListView(LoginRequiredMixin, FilterView):
         # ``latest_run_status`` (annotation) still drives the status FILTER. Row DISPLAY
         # (latest status/duration/MR/cost, run count) reads the prefetched runs, which also
         # gives the SSE dot the real ``Run.id`` to key live updates on.
-        return (
-            Session.objects
-            .visible_to(self.request.user)
-            .without_watch_placeholders()
-            .with_latest_status()
-            .select_related("user", "scheduled_job")
-            # Only the columns the row reads (status/duration/MR/cost/SSE id) — skips the fat
-            # prompt/result_summary/error_message/usage_by_model columns. Add a field here if
-            # the row template starts reading it, or it becomes a deferred-field N+1.
-            .prefetch_related(
-                Prefetch(
-                    "runs",
-                    queryset=Run.objects.only(
-                        "id",
-                        "session_id",
-                        "status",
-                        "started_at",
-                        "finished_at",
-                        "merge_request_iid",
-                        "merge_request_web_url",
-                        "cost_usd",
-                        "agent_model",
-                        "created_at",
-                    ).order_by("-created_at", "-id"),
-                )
-            )
-        )
+        return self._listed(archived=self.archived).with_row_runs()
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         form = context["filter"].form
         cleaned = form.cleaned_data if form.is_valid() else {}
+        context["current_scope"] = self.scope
         context["current_status"] = cleaned.get("status") or ""
         context["current_trigger"] = cleaned.get("trigger") or ""
         context["current_trigger_label"] = dict(SessionOrigin.choices).get(context["current_trigger"], "")
         context["current_repo"] = cleaned.get("repo") or ""
         context["current_mr"] = cleaned.get("mr") or ""
+        context["current_ran_on"] = self.request.GET.get("ran_on", "") if cleaned.get("ran_on") else ""
         context["current_schedule"] = cleaned.get("schedule") or ""
         context["current_batch"] = cleaned.get("batch") or ""
         context["current_batch_short"] = str(context["current_batch"])[:8] if context["current_batch"] else ""
@@ -192,27 +194,41 @@ class SessionListView(LoginRequiredMixin, FilterView):
         # HTML `<input type="date">` needs the original ISO string to round-trip.
         context["current_from"] = self.request.GET.get("date_from", "")
         context["current_to"] = self.request.GET.get("date_to", "")
+        context["current_archived"] = self.archived is True
+        context["current_archived_included"] = self.archived is None
         context["has_active_filters"] = any([
             context["current_q"],
             context["current_status"],
             context["current_trigger"],
             context["current_repo"],
             context["current_mr"],
+            context["current_ran_on"],
             context["current_schedule"],
             context["current_batch"],
             context["current_range"],
             context["current_from"],
             context["current_to"],
+            context["current_archived"],
+            context["current_archived_included"],
         ])
+        if context["has_active_filters"] and self.archived is False:
+            archived = SessionFilter(self.request.GET, queryset=self._listed(archived=True))
+            context["archived_matches"] = archived.qs.count()
         context["origins"] = SessionOrigin.choices
-        context["statuses"] = RunStatus.choices
+        context["statuses"] = STATUS_CHOICES
+        context["scopes"] = SCOPE_CHOICES
         context["ranges"] = RANGE_CHOICES
 
-        # The page rows are already scoped to this user and the schedule, so they name the chip.
         if context["current_schedule"]:
-            first = next(iter(context["sessions"]), None)
-            context["schedule_name"] = first.scheduled_job.name if first else ""
+            context["schedule_name"] = (
+                Session.objects
+                .visible_to(self.request.user)
+                .filter(scheduled_job_id=context["current_schedule"])
+                .values_list("scheduled_job__name", flat=True)
+                .first()
+            ) or ""
 
+        attach_merge_request_states(context["sessions"])
         # In-flight RUN ids across the page's sessions, for the SSE status stream.
         page_ids = [s.pk for s in context["sessions"]]
         in_flight = Run.objects.filter(session_id__in=page_ids).exclude(status__in=RunStatus.terminal())
@@ -241,15 +257,15 @@ class SessionMergeRequestRedirectView(LoginRequiredMixin, View):
         if len(iids) != 1 or not session.repo_id:
             return redirect(reverse("session_detail", kwargs={"thread_id": session.pk}))
 
-        query = urlencode({"repo": session.repo_id, "mr": iids.pop()})
+        query = urlencode({"repo": session.repo_id, "mr": iids.pop(), "archived": ARCHIVED_INCLUDED})
         return redirect(f"{reverse('session_list')}?{query}")
 
 
 class SessionNewView(LoginRequiredMixin, BreadcrumbMixin, TemplateView):
-    """Single front door: choose Chat ('work with the agent') or Run ('hand off a task').
+    """Choose Chat ('work with the agent') or Background run ('hand off a task').
 
-    The chat hero and the run form are unchanged; this page only routes to them and
-    carries the one-line rule of thumb so the choice is legible at the fork.
+    The shell's New split button links both destinations directly; this page is where the
+    Sessions list's New button and the empty states land, so the choice is explained there.
     """
 
     template_name = "sessions/session_new.html"
@@ -280,14 +296,14 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx = super().get_context_data(**kwargs)
         session = ctx.setdefault("session", None)
 
-        # Populate sandbox envs both for the empty hero state and a live session.
-        ctx["sandbox_envs"] = list(SandboxEnvironment.objects.visible_to(self.request.user))
-        ctx["selected_sandbox_env_id"] = (
-            str(session.sandbox_environment_id) if session is not None and session.sandbox_environment_id else ""
+        env_id = session.sandbox_environment_id if session is not None else None
+        ctx["selected_sandbox_env_id"] = str(env_id) if env_id else ""
+        ctx["selected_sandbox_env"] = (
+            SandboxEnvironment.objects.visible_to(self.request.user).filter(pk=env_id).first() if env_id else None
         )
-        ctx["selected_sandbox_env"] = next(
-            (e for e in ctx["sandbox_envs"] if str(e.id) == ctx["selected_sandbox_env_id"]), None
-        )
+        if session is None:
+            ctx["max_session_repos"] = MAX_REPOS_PER_SESSION
+            ctx["sandbox_envs"] = list(SandboxEnvironment.objects.visible_to(self.request.user))
 
         ctx.update(
             agent_picker_context(
@@ -299,6 +315,14 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
         ctx.update(composer_mcp_context(self.request.user, session.mcp_overrides if session is not None else {}))
 
         ctx["slash_command_rows"] = composer_command_rows()
+        show_raw = sessions_settings.SHOW_RAW_TOOL_DATA
+        ctx["transcript_labels_payload"] = {
+            "labels": transcript_labels(),
+            "icons": transcript_icons(),
+            "show_raw": settings.DEBUG if show_raw is None else show_raw,
+            "session_path": reverse("session_detail", args=["THREAD-ID"]).replace("THREAD-ID", "{thread_id}"),
+            "leg_states": LegRun.outcome_states(),
+        }
 
         if session is None:
             ctx.update({
@@ -317,47 +341,34 @@ class SessionDetailView(LoginRequiredMixin, DetailView):
                 "in_flight_ids": "",
                 "context_usage": None,
                 "session_spend": None,
+                "header": None,
             })
             return ctx
 
-        hydrated = async_to_sync(ahydrate_thread)(session.thread_id)
-        merge_request = hydrated.merge_request_payload
-        if merge_request is None and session.repo_id and session.ref:
-            merge_request = async_to_sync(aget_existing_mr_payload)(session.repo_id, session.ref)
-
-        # The pill is the working branch, mirroring the live stream's ref/MR coupling
-        # (``_applyRepoState``); ``Session.ref`` lags it on any run that never synced back.
-        ctx["thread_ref"] = (merge_request or {}).get("source_branch") or session.ref
-
-        runs = list(session.runs.order_by("created_at"))
-        non_terminal = [r for r in runs if r.status not in RunStatus.terminal()]
-        # A dead holder falls through to "not in flight", so the expired banner shows instead of a permanent
-        # "working" state.
-        activity = session_activity(session, runs)
-        is_in_flight = activity.in_flight
-
-        # A freshly submitted run has not checkpointed yet, so "no checkpoint or archive" only means
-        # the session is really over once nothing is (freshly) in flight; while in flight the
-        # "working" state and transcript poller render the same view a chat session gets.
-        no_state = hydrated.expired and not is_in_flight
-
-        turns = annotate_transcript(build_turns(hydrated.messages), runs, activity)
-        # Expired banner only when there is genuinely nothing to show: no checkpoint or archive
-        # AND no failed run whose prompt/marker annotate_transcript could recover.
-        ctx["expired"] = no_state and not turns
+        state = async_to_sync(aload_session_state)(session, self.request.user, always_look_up_merge_request=True)
+        runs, is_in_flight, live = state.runs, state.activity.in_flight, state.live_run
+        waiting_since = state.activity.waiting_since
+        ctx["session_revision"] = state.revision
+        ctx["session_polls"] = not redis_connections.configured
+        ctx["thread_ref"] = state.thread_ref
+        ctx["expired"] = state.expired_banner
         ctx["watch_only"] = ctx["expired"] and not runs and session.origin == SessionOrigin.PIPELINE_WEBHOOK
-        ctx["waiting_since"] = activity.waiting_since.isoformat() if activity.waiting_since else ""
-        ctx["turns"] = turns if hydrated.messages else turns + artifact_turns(runs)
+        ctx["waiting_since"] = waiting_since.isoformat() if waiting_since else ""
+        ctx["turns"] = state.turns
+        ctx["can_act"] = state.can_act
+        ctx["header"] = state.header
+        ctx["archived"] = session.archived_at is not None
+        ctx["max_title_length"] = MAX_TITLE_LENGTH
         ctx["active_run_id"] = session.active_run_id or ""
-        ctx["merge_request"] = merge_request
-        ctx["diff_stats"] = hydrated.diff_stats
-        ctx["context_usage"] = hydrated.context_usage
+        ctx["merge_request"] = state.merge_request
+        ctx["diff_stats"] = state.hydrated.diff_stats
+        ctx["context_usage"] = state.hydrated.context_usage
         ctx["session_spend"] = build_session_spend(runs)
         ctx["is_in_flight"] = is_in_flight
-        live = live_run_for(activity.live, session, self.request.user)
         ctx["live_run_id"] = live.id if live else ""
         ctx["live_run_started_at"] = live.started_at.isoformat() if live else ""
         ctx["live_run_stoppable"] = bool(live and live.stoppable)
+        non_terminal = [r for r in runs if r.status not in RunStatus.terminal()]
         ctx["in_flight_ids"] = ",".join(str(r.id) for r in non_terminal) if is_in_flight else ""
 
         # ``get_queryset`` authorised before the reads above; a fetch that restricted the session since must not render.
@@ -430,6 +441,8 @@ ARTIFACT_RAW_HEADERS = {
     "Referrer-Policy": "no-referrer",
     "Cache-Control": "private, no-store",
 }
+# Unlike an artifact, which a revision rewrites at the same URL, kept tool media never changes.
+TOOL_MEDIA_RAW_HEADERS = {**ARTIFACT_RAW_HEADERS, "Cache-Control": "private, max-age=86400, immutable"}
 ARTIFACT_INLINE_TEXT_MAX_BYTES = 1024 * 1024
 
 
@@ -491,12 +504,41 @@ class RunArtifactRawView(RunArtifactMixin, SingleObjectMixin, View):
         content_type = artifact.content_type
         if content_type.startswith("text/"):
             content_type = f"{content_type}; charset=utf-8"
-        return FileResponse(
+        return ThreadedFileResponse(
             fh,
             content_type=content_type,
             as_attachment=request.GET.get("download") == "1",
             filename=artifact.filename,
             headers=ARTIFACT_RAW_HEADERS,
+        )
+
+
+@method_decorator(xframe_options_sameorigin, name="dispatch")
+class ToolResultMediaRawView(LoginRequiredMixin, SingleObjectMixin, View):
+    """Stream an image or file a tool result carried, for the session transcript, under the artifact headers."""
+
+    def get_queryset(self) -> QuerySet[ToolResultMedia]:
+        return ToolResultMedia.objects.visible_to(self.request.user).filter(run__session_id=self.kwargs["thread_id"])
+
+    def get(self, request, *args, **kwargs):
+        media: ToolResultMedia = self.get_object()
+        try:
+            fh = media.file.open("rb")
+        except FileNotFoundError:
+            logger.error(
+                "Tool media %s: stored file %s is missing; is MEDIA_ROOT shared between the web and worker containers?",
+                media.pk,
+                media.file.name,
+            )
+            raise Http404("Tool media file is missing.") from None
+        content_type = guess_content_type(media.file.name)
+        # The sandbox CSP stops browsers' PDF and media viewers, so only images open inline.
+        return ThreadedFileResponse(
+            fh,
+            content_type=content_type,
+            as_attachment=not content_type.startswith("image/"),
+            filename=PurePosixPath(media.file.name).name,
+            headers=TOOL_MEDIA_RAW_HEADERS,
         )
 
 
@@ -544,45 +586,15 @@ class ArtifactListView(LoginRequiredMixin, FilterView):
 class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
     """Serve the "Start a run" page and submit new UI-initiated agent runs.
 
-    ``GET /runs/new/`` renders a blank form. ``GET /runs/new/?from=<pk>``
-    pre-fills the form from a retryable source Run. ``POST`` enqueues
-    ``run_job_task`` and creates a Run, redirecting to the session detail page.
+    ``GET /runs/new/`` renders a blank form. ``POST`` enqueues ``run_job_task`` and creates a Run, redirecting to the
+    session detail page.
     """
 
     template_name = "sessions/agent_run_form.html"
     form_class = AgentRunCreateForm
 
-    @cached_property
-    def source_run(self) -> Run | None:
-        # Cached per-request: ``get_initial`` and ``get_context_data`` both read this on retry GETs.
-        source_id = self.request.GET.get("from")
-        if not source_id:
-            return None
-        try:
-            source = Run.objects.visible_to(self.request.user).select_related("session").filter(pk=source_id).first()
-        except (ValueError, ValidationError) as err:
-            raise Http404("Invalid run id.") from err
-        # A visible run on a repo the caller can no longer run on must not prefill a
-        # retry form — submission would be rejected downstream anyway. Fall back to blank.
-        if source is not None and not can_run(self.request.user, source.repo_id):
-            return None
-        return source
-
-    def get_initial(self) -> dict:
-        initial: dict = {}
-        source = self.source_run
-        if source is not None:
-            initial.update({
-                "prompt": source.prompt,
-                "repos": [{"repo_id": source.repo_id, "ref": source.ref}],
-                "agent_model": source.agent_model,
-                "agent_thinking_level": source.agent_thinking_level,
-            })
-        return initial
-
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx["source_run"] = self.source_run
         ctx.update(env_picker_context(ctx["form"]))
         ctx.update(agent_picker_context(ctx["form"]))
         ctx.update(mcp_picker_context(ctx["form"]))
@@ -591,11 +603,6 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["user"] = self.request.user
-        # Hand the retry source's stored overrides to the form rather than resolving them here:
-        # the mixin already builds the pool this seeding has to be relative to.
-        source = self.source_run
-        if source is not None and source.session_id:
-            kwargs["mcp_overrides"] = source.session.mcp_overrides
         return kwargs
 
     def form_valid(self, form):

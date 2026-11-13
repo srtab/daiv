@@ -1,0 +1,32 @@
+{
+  "pr": {
+    "repo": "https://github.com/Marvell-Consulting/statswales-frontend",
+    "pr_number": 626,
+    "base": "c1707c79a5a947cf7c6912af3ad00848c42a28e0",
+    "head": "30ba27a5f20318f12fe74f26059d8b62d62874e9"
+  },
+  "agent": "daiv/anthropic:claude-haiku-5-5",
+  "findings": [
+    {
+      "file": "src/consumer/services/consumer-api.ts",
+      "start_line": 228,
+      "end_line": 228,
+      "message": "Download service methods take `language: string` and cast it to `Locale`\n\n`fetchParams.lang` is typed `Locale`, and `getCubeFileStream` in `publisher-api.ts` already takes `language: Locale` and passes it through without a cast. The three download methods instead take `language: string` and assert `as Locale` at the call site, so any string compiles and then becomes the `lang` query parameter and the `Accept-Language` header. Every caller (`src/consumer/controllers/consumer.ts:365`, `:368`, `src/publisher/controllers/publish.ts:778`) already passes a `Locale`. Change the parameter type to `Locale` and drop the casts. No caller changes are needed.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/publisher/services/publisher-api.ts",
+      "start_line": 932,
+      "end_line": 932,
+      "message": "Download service methods take `language: string` and cast it to `Locale`\n\n`fetchParams.lang` is typed `Locale`, and `getCubeFileStream` in `publisher-api.ts` already takes `language: Locale` and passes it through without a cast. The three download methods instead take `language: string` and assert `as Locale` at the call site, so any string compiles and then becomes the `lang` query parameter and the `Accept-Language` header. Every caller (`src/consumer/controllers/consumer.ts:365`, `:368`, `src/publisher/controllers/publish.ts:778`) already passes a `Locale`. Change the parameter type to `Locale` and drop the casts. No caller changes are needed.",
+      "producer": "daiv"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1393611,
+    "completion_tokens": 84484,
+    "total_tokens": 1478095,
+    "time_in_ms": 242798,
+    "cost_usd": 0.073987065
+  }
+}

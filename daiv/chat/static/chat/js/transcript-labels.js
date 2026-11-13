@@ -1,0 +1,254 @@
+(function () {
+  const DEFAULTS = {
+    sum_read: ["read {count} file", "read {count} files"],
+    sum_edit: ["edited {count} file", "edited {count} files"],
+    sum_create: ["created {count} file", "created {count} files"],
+    sum_run: ["ran {count} command", "ran {count} commands"],
+    sum_search: ["searched for {count} pattern", "searched for {count} patterns"],
+    sum_list: ["listed {count} folder", "listed {count} folders"],
+    sum_subagent: ["ran {count} subagent", "ran {count} subagents"],
+    sum_fetch: ["fetched {count} page", "fetched {count} pages"],
+    sum_web: "searched the web",
+    sum_skill: ["used a skill", "used {count} skills"],
+    sum_tools: "loaded tools",
+    sum_platform: ["called {name}", "called {name} {count} times"],
+    sum_mcp: "used {name}",
+    sum_artifact: ["opened {count} artifact", "opened {count} artifacts"],
+    sum_jobs: ["checked delegated jobs", "checked delegated jobs {count} times"],
+    sum_cancel_jobs: ["cancelled delegated jobs", "cancelled delegated jobs {count} times"],
+    sum_other: ["used {count} tool", "used {count} tools"],
+    live_sum_read: ["reading {count} file", "reading {count} files"],
+    live_sum_edit: ["editing {count} file", "editing {count} files"],
+    live_sum_create: ["creating {count} file", "creating {count} files"],
+    live_sum_run: ["running {count} command", "running {count} commands"],
+    live_sum_search: ["searching for {count} pattern", "searching for {count} patterns"],
+    live_sum_list: ["listing {count} folder", "listing {count} folders"],
+    live_sum_subagent: ["running {count} subagent", "running {count} subagents"],
+    live_sum_fetch: ["fetching {count} page", "fetching {count} pages"],
+    live_sum_web: "searching the web",
+    live_sum_skill: ["loading a skill", "loading {count} skills"],
+    live_sum_tools: "loading tools",
+    live_sum_platform: "calling {name}",
+    live_sum_mcp: "using {name}",
+    live_sum_artifact: ["opening {count} artifact", "opening {count} artifacts"],
+    live_sum_jobs: "checking delegated jobs",
+    live_sum_cancel_jobs: "cancelling delegated jobs",
+    live_sum_other: ["using {count} tool", "using {count} tools"],
+    sum_parts: "{first} · {second}",
+    failed: "({count} failed)",
+    worked_for: "Worked for {duration}",
+    steps: ["{count} step", "{count} steps"],
+    row_read: "Read {name}",
+    live_read: "Reading {name}",
+    row_edit: "Edited {name}",
+    live_edit: "Editing {name}",
+    row_create: "Created {name}",
+    live_create: "Creating {name}",
+    row_run: "Ran {command}",
+    live_run: "Running {command}",
+    row_grep: "Searched for \"{pattern}\"",
+    live_grep: "Searching for \"{pattern}\"",
+    row_glob: "Found files matching {pattern}",
+    live_glob: "Finding files matching {pattern}",
+    row_ls: "Listed {name}",
+    live_ls: "Listing {name}",
+    row_subagent: "Subagent · {name}",
+    row_skill: "Used skill",
+    live_skill: "Loading skill",
+    row_web: "Searched the web",
+    live_web: "Searching the web",
+    row_fetch: "Fetched",
+    live_fetch: "Fetching",
+    row_tools: "Loaded tools",
+    live_tools: "Loading tools",
+    row_artifact_open: "Opened artifact",
+    live_artifact_open: "Opening artifact",
+    row_published: "Published",
+    live_published: "Publishing",
+    row_delegate: "Delegated jobs",
+    live_delegate: "Delegating jobs",
+    row_check_jobs: "Checked delegated jobs",
+    live_check_jobs: "Checking delegated jobs",
+    delegated_count: ["Delegated {count} job", "Delegated {count} jobs"],
+    row_cancel_jobs: "Cancelled delegated jobs",
+    live_cancel_jobs: "Cancelling delegated jobs",
+    row_question: "Asked a question",
+    live_question: "Asking a question",
+    row_mcp: "{server} · {tool}",
+    thinking: "Thinking…",
+    thought_for: "Thought for {duration}",
+    thought: "Thought",
+    detail_passed: "passed",
+    detail_exit: "exit {code}",
+
+    body_wrong: "What went wrong",
+    body_changed: "Changed",
+    body_input: "Input",
+    body_context: "Loaded into context",
+    body_raw: "Raw",
+    body_args: "Arguments",
+    body_result: "Result",
+    body_media: "Attached",
+    media_image: "Image",
+    media_pdf: "PDF",
+    media_audio: "Audio",
+    media_video: "Video",
+    media_file: "File",
+    media_not_saved: "Not saved",
+    media_too_large: "Too large to keep",
+    media_run_limit: "Not kept: the run reached its limit",
+    media_unsupported_type: "Can't be shown",
+    media_failed: "Couldn't be kept",
+    size_lines: ["{count} line", "{count} lines"],
+    size_kb: "{size} KB",
+    offloaded: "Too large to load whole: the model saw only a preview. The full result is in {path}.",
+    unanswered: "No result: the run ended before this call returned.",
+    show_all: "Show all {count} lines",
+    and_more: "and {count} more",
+
+    skill_whole: "The whole skill, always: skills are never cut to a file.",
+    open_in_skills: "Open {name} in Skills ↗",
+    show_prompt: "Show the whole prompt",
+    subagent_hidden: "What the subagent did inside is not shown.",
+    web_page: "Page",
+    web_asked: "Asked",
+    web_summary: "a summary of the page",
+    redirected_to: "Redirected to",
+    jump_to_error: "Jump to first error",
+    log_earlier: ["{count} earlier line not shown", "{count} earlier lines not shown"],
+    open_link: "Open ↗",
+    saved_to_file: "Saved to {path} as asked: the model saw only a preview.",
+
+    read_only: "read-only tool",
+    can_change: "can change things",
+    size_tool_schemas: ["{count} tool schema", "{count} tool schemas"],
+    artifact_new: "new",
+    artifact_updated: "updated",
+    artifact_download: "Download",
+    jobs_goal: "Goal",
+    jobs_repository: "Repository",
+    jobs_branch: "Branch",
+    jobs_job: "Job",
+    jobs_status: "Status",
+    jobs_session: "Session",
+    jobs_open_session: "Session →",
+    jobs_default_branch: "default branch",
+    jobs_after_turn: "starts after this turn",
+    jobs_started: ["batch {id} · {count} started", "batch {id} · {count} started"],
+    jobs_none_started: "No job started.",
+    jobs_batch: "batch {id}",
+    jobs_mr: "merge request",
+    show_reply: "Show the whole reply",
+    delegated_jobs: "Delegated jobs",
+    delegated_failed: "Couldn't delegate: {error}",
+    delegated_unfinished: "The call didn't finish.",
+    leg_queued: "Queued",
+    leg_waits: "Starts after this turn",
+    leg_running: "Running",
+    leg_waiting_input: "Waiting for an answer",
+    leg_stopping: "Stopping",
+    leg_finished: "Finished",
+    leg_failed: "Failed",
+    leg_cancelled: "Cancelled",
+    leg_lost: "Lost",
+    leg_not_run_merged: "Not run: merge request merged",
+    leg_not_run_closed: "Not run: merge request closed",
+    leg_not_run_archived: "Not run: session archived",
+    leg_follow_up: "Leg follow-up",
+    details_merge_requests: ["{count} MR", "{count} MRs"],
+    suggested_answer: "Suggested answer",
+    publish_committing: "Committing changes",
+    publish_creating: "Creating merge request",
+    publish_files: ["{count} file", "{count} files"],
+    publish_error_conflicts: "Merge conflicts are left in the changed files",
+    publish_error_mr_pending: "The merge request isn't created yet",
+    publish_error_push_rejected: "The push was rejected",
+    publish_error_mr_failed: "The merge request couldn't be created",
+    publish_error_unknown: "Couldn't publish the changes",
+    inbox_chat_message: "Chat message",
+    inbox_mention: "Mention",
+    inbox_follow_up_job: "Follow-up job",
+    inbox_delegation_finished: "Delegated jobs finished",
+    inbox_ci_failed: "CI failed",
+    inbox_ci_passed: "CI passed",
+    inbox_ci_stopped: "CI stopped",
+    inbox_branch_pushed: "Branch pushed",
+    inbox_foreign_publish: "Published by another session",
+    inbox_mr_merged: "Merge request merged",
+    inbox_mr_closed: "Merge request closed",
+    inbox_comment: "Comment",
+    inbox_delegated_ci_outcome: "Delegated session CI",
+    inbox_notice: "Notice",
+    inbox_leg_follow_up: "Leg follow-up",
+    inbox_not_handled: "{kind} not handled",
+    up_next: "Up next",
+    up_next_info:
+      "What happens next, in order. Updates under the next run are passed to it; they don't start a run on their own.",
+    up_next_you: "you",
+    up_next_next: "Next run · as {who}",
+    up_next_next_anyone: "Next run",
+    up_next_then: "Then · as {who}",
+    up_next_then_anyone: "Then",
+    up_next_after_live: "starts when this one ends",
+    up_next_starting: "starting",
+    up_next_after_yours: "after your run",
+    up_next_after_theirs: "after {who}'s run",
+    up_next_told: "The next run will be told:",
+    up_next_told_branch: "The next run on {branch} will be told:",
+    bubble_chat: "Chat",
+    bubble_api_job: "API job",
+    bubble_mcp_job: "MCP job",
+    bubble_job: "Job",
+    received: "Received",
+    received_ci: "CI · !{iid}",
+    received_ci_plain: "CI",
+    show_request: "Show request",
+    hide_request: "Hide request",
+  };
+
+  const loadPayload = () => {
+    try {
+      const el = document.getElementById("chat-transcript-labels");
+      const parsed = el ? JSON.parse(el.textContent) : null;
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  };
+
+  const payload = loadPayload();
+  const overrides = payload.labels && typeof payload.labels === "object" ? payload.labels : {};
+  const icons = payload.icons && typeof payload.icons === "object" ? payload.icons : {};
+
+  const showRaw = payload.show_raw === true;
+  const sessionPath = typeof payload.session_path === "string" ? payload.session_path : "";
+  const legStates = payload.leg_states && typeof payload.leg_states === "object" ? payload.leg_states : {};
+
+  const fill = (template, values) =>
+    template.replace(/\{(\w+)\}/g, (match, key) => (key in values ? String(values[key]) : match));
+
+  const lookup = (key) => (key in overrides ? overrides[key] : DEFAULTS[key]);
+
+  const t = (key, vars) => {
+    const value = lookup(key);
+    if (typeof value !== "string") return key;
+    return fill(value, vars || {});
+  };
+
+  const tn = (key, count, vars) => {
+    const value = lookup(key);
+    if (!Array.isArray(value)) return typeof value === "string" ? fill(value, { count, ...vars }) : key;
+    return fill(count === 1 ? value[0] : value[1], { count, ...vars });
+  };
+
+  const iconHTML = (name) => (Object.hasOwn(icons, name) ? icons[name] : "");
+
+  const duration = (sec) => {
+    if (sec < 60) return `${sec}s`;
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `${min}m ${sec % 60}s`;
+    return `${Math.floor(min / 60)}h ${min % 60}m`;
+  };
+
+  window.TranscriptLabels = { defaults: DEFAULTS, fill, t, tn, iconHTML, duration, showRaw, sessionPath, legStates };
+})();

@@ -1,0 +1,61 @@
+{% extends "skills/skill_page.html" %}
+{% load i18n static %}
+
+{% block alpine_plugins %}
+<script defer src="{% static 'automation/js/agent-picker.js' %}"></script>
+{% endblock alpine_plugins %}
+
+{% block skill_tab %}
+<form method="post" autocomplete="off" class="rounded-2xl border border-border bg-surface-2">
+    {% csrf_token %}
+    <div class="flex flex-wrap items-baseline justify-between gap-2 px-6 pt-6 pb-4">
+        <h2 class="text-[15px] font-semibold tracking-tight text-text">{% translate "Models" %}</h2>
+        <p class="text-[13px] text-text-muted">
+            {% blocktranslate trimmed %}
+            Applies in every repository; a repository's <code class="rounded bg-surface-3 px-1.5 py-0.5 font-mono text-[12px] text-text">.daiv.yml</code> can override any entry.
+            {% endblocktranslate %}
+        </p>
+    </div>
+
+    <div class="border-t border-border">
+        {% if skill_row.field.field.disabled %}
+        <p class="flex items-center gap-1.5 px-6 pt-4 text-[13px] text-text-muted">
+            {% include "core/_env_lock_badge.html" %}
+            {% blocktranslate trimmed with var=skill_models_env_var %}Skill models are set by <code class="font-mono text-[12px] text-text">{{ var }}</code>. Unset it to edit them here.{% endblocktranslate %}
+        </p>
+        {% endif %}
+        {% include "configuration/_skill_model_row.html" with row=skill_row %}
+    </div>
+
+    {% if subagent_rows %}
+    <div class="border-t border-border px-6 pt-5 pb-1">
+        <h3 class="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text-faint">{% translate "Detectors" %}</h3>
+        <p class="mt-1 text-[13px] text-text-muted">
+            {% blocktranslate trimmed %}
+            Subagents shipped in this skill's <span class="font-mono text-[12px]">agents/</span> folder. Each runs on its own model, never on the skill's.
+            {% endblocktranslate %}
+        </p>
+        {% if subagent_rows.0.field.field.disabled %}
+        <p class="mt-1 flex items-center gap-1.5 text-[13px] text-text-muted">
+            {% include "core/_env_lock_badge.html" %}
+            {% blocktranslate trimmed with var=subagent_models_env_var %}Subagent models are set by <code class="font-mono text-[12px] text-text">{{ var }}</code>. Unset it to edit them here.{% endblocktranslate %}
+        </p>
+        {% endif %}
+    </div>
+    <div class="divide-y divide-border">
+        {% for row in subagent_rows %}
+        {% include "configuration/_skill_model_row.html" with row=row mono=True %}
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if form.is_editable %}
+    <div class="flex flex-wrap items-center justify-between gap-3 border-t border-border px-6 py-4">
+        <p class="text-[12px] text-text-faint">
+            {% if subagent_rows %}{% translate "Default: the model the skill or detector file declares, else the run's model." %}{% else %}{% translate "Default: the model the skill file declares, else the run's model." %}{% endif %}
+        </p>
+        <button type="submit" class="btn-accent">{% translate "Save models" %}</button>
+    </div>
+    {% endif %}
+</form>
+{% endblock skill_tab %}

@@ -31,6 +31,11 @@ class TestUserChannelsRocketChatRow:
         assert 'name="username"' in content
         assert "Connect" in content
 
+    def test_username_input_has_aria_label(self, member_client):
+        response = member_client.get(self.URL)
+        content = response.content.decode()
+        assert 'aria-label="Rocket Chat username"' in content
+
     def test_renders_disconnect_button_when_binding_exists(self, member_client, member_user):
         UserChannelBinding.objects.create(
             user=member_user,

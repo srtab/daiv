@@ -1,4 +1,8 @@
-# Cross-Project Access
+---
+description: Read, comment on and edit issues and merge requests in other projects as the person a run acts for.
+---
+
+# Cross-project access
 
 A DAIV run works on one repository. Sometimes the answer lives in another one: the API contract in a sibling service, the failing pipeline of an upstream library, the issue that explains why a change was made. Cross-project access lets the agent reach those projects **as the person the run acts for**, so the git platform's own permission check decides what comes back. It can read them, comment, file issues and edit the fields of existing issues and merge requests. Opening merge or pull requests, closing, locking, approving, driving CI and similar operations are refused. A conversation that fetched from another project then belongs to that person: only they and admins see it, and only they continue it, see [Conversations that reached another project](#conversations-that-reached-another-project).
 
@@ -91,7 +95,7 @@ DAIV_GITLAB_OAUTH_SCOPE="read_user read_api"
     The token is minted by the sign-in GitLab and spent against `CODEBASE_GITLAB_URL`. The host of `CODEBASE_GITLAB_URL` must be the host of `ALLAUTH_GITLAB_URL` or, when it is set, of `ALLAUTH_GITLAB_SERVER_URL`, the internal route to the same GitLab. Otherwise DAIV logs an error and does not store the credential, rather than send one instance's token to another.
 
 !!! note "Short-lived tokens, with rotation"
-    GitLab access tokens expire (2 hours by default) and GitLab **rotates the refresh token on every use**. DAIV renews at the point of use, within five minutes of expiry, and writes the new access token, refresh token and expiry in one transaction. Only GitLab refusing the grant itself (`invalid_grant`) marks the authorisation expired. A timeout, a 5xx or an unreadable answer leaves it in place and fails just that call, so a momentary outage does not cost the person a re-authorisation. Renewals of one person's authorisation run one at a time across workers, because the platform refuses the second of two parallel renewals as if the authorisation were dead.
+    GitLab access tokens expire (2 hours by default) and GitLab **rotates the refresh token on every use**. DAIV renews at the point of use, within five minutes of expiry, and writes the new access token, refresh token and expiry in one transaction. Only GitLab refusing the grant itself (`invalid_grant`) marks the authorisation expired. A timeout, a 5xx or an unreadable answer leaves it in place and fails only that call, so a momentary outage does not cost the person a re-authorisation. Renewals of one person's authorisation run one at a time across workers, because the platform refuses the second of two parallel renewals as if the authorisation were dead.
 
 ### GitHub
 
@@ -320,7 +324,7 @@ People manage their own at **Account → Git authorisation** (`/accounts/git-aut
 
 DAIV does **not** use allauth's own `SocialToken` table: it stores tokens in plaintext, has no revocation state, and is recreated on every login.
 
-!!! danger "Rotating `DAIV_ENCRYPTION_KEY` invalidates every stored authorisation"
+!!! warning "Rotating `DAIV_ENCRYPTION_KEY` invalidates every stored authorisation"
     The stored access and refresh tokens are encrypted with that key. Rotate it and no credential can be decrypted any more: the next cross-project call clears the unreadable grant and asks that person to re-authorise, so **every user must sign in again**, on top of re-entering the configuration secrets the key already protects (see [Site Configuration](../reference/site-configuration.md)). There is no migration path that preserves them.
 
 ---

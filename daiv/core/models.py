@@ -11,9 +11,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from django.core.cache import cache
-from django.core.validators import MinValueValidator
-from django.db import models, transaction
+from django.core.validators import MaxValueValidator, MinValueValidator
+from django.db import connections, models, transaction
 from django.utils.translation import gettext_lazy as _
+
+from core.validators import validate_searxng_url
 
 if TYPE_CHECKING:
     from pydantic import SecretStr
@@ -28,6 +30,14 @@ WEB_FETCH_AUTH_HEADERS_CACHE_TIMEOUT = 60 * 5  # 5 minutes
 
 PROVIDERS_CACHE_KEY = "providers"
 PROVIDERS_CACHE_TIMEOUT = 60 * 5  # 5 minutes
+
+
+def _close_old_connections_outside_transactions() -> None:
+    """``close_old_connections`` for the cache loaders, which may run inside a caller's transaction: closing that
+    connection hands it back to the pool mid-transaction, and the caller's next query fails."""
+    for conn in connections.all(initialized_only=True):
+        if not conn.in_atomic_block:
+            conn.close_if_unusable_or_obsolete()
 
 
 @dataclass(frozen=True)
@@ -71,6 +81,7 @@ THINKING_OFF = "off"
 class WebSearchEngineChoices(models.TextChoices):
     DUCKDUCKGO = "duckduckgo", _("DuckDuckGo")
     TAVILY = "tavily", _("Tavily")
+    SEARXNG = "searxng", _("SearXNG")
 
 
 class ProviderType(models.TextChoices):
@@ -103,7 +114,7 @@ class EncryptedFieldDescriptor:
     def __set_name__(self, owner: type, name: str):
         self.attr_name = name
 
-    def __get__(self, obj: SiteConfiguration | None, objtype: type | None = None) -> str | None:
+    def __get__(self, obj: models.Model | None, objtype: type | None = None) -> str | None:
         if obj is None:
             return self  # type: ignore[return-value]
         raw = getattr(obj, self.db_column, None)
@@ -126,7 +137,7 @@ class EncryptedFieldDescriptor:
                 "stored ciphertext is corrupt. Re-enter the secret or restore DAIV_ENCRYPTION_KEY."
             ) from err
 
-    def __set__(self, obj: SiteConfiguration, value: str | None):
+    def __set__(self, obj: models.Model, value: str | None):
         if value is None or value == "":
             setattr(obj, self.db_column, None)
             return
@@ -240,22 +251,37 @@ class SiteConfiguration(models.Model):
             "Thinking depth for daiv-max tasks. Choose Off to disable thinking; leave unset to use the default."
         ),
     )
-    agent_explore_model_name = models.CharField(
-        _("explore model"), max_length=255, blank=True, null=True, help_text=_("Fast model for the explore subagent.")
-    )
-    agent_explore_fallback_model_name = models.CharField(
-        _("explore fallback model"),
-        max_length=255,
-        blank=True,
-        null=True,
-        help_text=_("Fallback model when the explore model fails."),
-    )
     agent_recursion_limit = models.PositiveIntegerField(
         _("recursion limit"),
         blank=True,
         null=True,
         validators=[MinValueValidator(1)],
         help_text=_("Maximum recursion depth for agent loops."),
+    )
+    agent_skill_models = models.JSONField(
+        _("skill models"),
+        default=dict,
+        blank=True,
+        help_text=_("JSON object `{skill name: model spec}`: the model each skill runs on."),
+    )
+    agent_subagent_models = models.JSONField(
+        _("subagent models"),
+        default=dict,
+        blank=True,
+        help_text=_("JSON object `{subagent name: model spec}`: the model each subagent runs on."),
+    )
+    model_request_timeout_seconds = models.PositiveIntegerField(
+        _("model request timeout"),
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(1)],
+        help_text=_("Per-request timeout for LLM API calls, in seconds. Applies to every provider."),
+    )
+    model_max_retries = models.PositiveIntegerField(
+        _("model max retries"),
+        blank=True,
+        null=True,
+        help_text=_("Retries for a failed LLM API call before the error propagates. Applies to every provider."),
     )
     pipeline_watch_enabled = models.BooleanField(
         _("pipeline watch enabled"),
@@ -405,7 +431,25 @@ class SiteConfiguration(models.Model):
         blank=True,
         null=True,
         choices=WebSearchEngineChoices.choices,
-        help_text=_("Search engine to use. Tavily requires an API key."),
+        help_text=_("Search engine to use. Tavily requires an API key; SearXNG requires a search URL."),
+    )
+    web_search_searxng_url = models.CharField(
+        _("SearXNG search URL"),
+        max_length=2048,
+        blank=True,
+        null=True,
+        validators=[validate_searxng_url],
+        help_text=_(
+            "Complete SearXNG search endpoint, including /search and any path prefix. "
+            "Use http or https without credentials, query parameters or a fragment. JSON output must be enabled."
+        ),
+    )
+    web_search_searxng_timeout_seconds = models.PositiveIntegerField(
+        _("SearXNG request timeout"),
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(1), MaxValueValidator(120)],
+        help_text=_("Timeout for SearXNG requests in seconds (1–120; default 15)."),
     )
 
     # -- Web Fetch --
@@ -453,7 +497,12 @@ class SiteConfiguration(models.Model):
 
     # -- Sandbox --
     sandbox_timeout = models.FloatField(
-        _("sandbox timeout"), blank=True, null=True, help_text=_("Timeout for sandbox requests, in seconds.")
+        _("sandbox timeout"),
+        blank=True,
+        null=True,
+        help_text=_(
+            "Timeout for sandbox requests, in seconds. Also the longest timeout the agent can give a bash command."
+        ),
     )
 
     # -- Authentication --
@@ -570,8 +619,6 @@ class SiteConfiguration(models.Model):
         "agent_model_name",
         "agent_fallback_model_name",
         "agent_max_model_name",
-        "agent_explore_model_name",
-        "agent_explore_fallback_model_name",
         "diff_to_metadata_model_name",
         "diff_to_metadata_fallback_model_name",
         "titling_model_name",
@@ -600,7 +647,13 @@ class SiteConfiguration(models.Model):
         FieldGroup(
             key="agent",
             title=_("Agent"),
-            match=("agent_*", "suggest_context_file_enabled", "session_link_enabled"),
+            match=(
+                "agent_*",
+                "suggest_context_file_enabled",
+                "session_link_enabled",
+                "model_request_timeout_seconds",
+                "model_max_retries",
+            ),
             icon="agent",
             category="AI tasks",
         ),
@@ -740,20 +793,25 @@ class SiteConfiguration(models.Model):
         manage automatically).
         """
         cached = cache.get(SITE_CONFIGURATION_CACHE_KEY)
-        if cached is not None:
+        if cached is not None and not cached.get_deferred_fields():
+            # The cache backend pickles the instance, so a field added by a later
+            # migration (e.g. ``model_request_timeout_seconds``) is absent from the
+            # pickled ``__dict__`` and therefore deferred after unpickling. Accessing
+            # such a field from the event loop would trigger a blocking
+            # ``refresh_from_db`` (SynchronousOnlyOperation). Only a fully-loaded
+            # cached instance is safe to return; a stale one falls through to the DB
+            # path below, which re-caches a fresh instance.
             return cached
 
-        from django.db import close_old_connections
-
         try:
-            close_old_connections()
+            _close_old_connections_outside_transactions()
             instance = cls.objects.get_instance()
         except Exception:  # noqa: BLE001 — DB/cache may fail during startup or degraded state
             logger.exception("SiteConfiguration not available; falling back to defaults")
             return None
         finally:
             with contextlib.suppress(Exception):
-                close_old_connections()
+                _close_old_connections_outside_transactions()
 
         cache.set(SITE_CONFIGURATION_CACHE_KEY, instance, SITE_CONFIGURATION_CACHE_TIMEOUT)
         return instance
@@ -767,6 +825,13 @@ class SiteConfiguration(models.Model):
         from an async event loop, the entire lookup runs in a separate
         thread via a ``ThreadPoolExecutor`` to avoid
         ``SynchronousOnlyOperation``.
+
+        The returned instance is always fully loaded (no deferred fields), so
+        attribute access is safe from the event loop. ``_fetch_from_cache_or_db``
+        rejects a stale cached instance that carries deferred fields (left
+        behind when a migration adds a field after the instance was pickled)
+        and rebuilds it from the database; any fast path added here must
+        preserve that guarantee or route through ``_fetch_from_cache_or_db``.
 
         Returns ``None`` if the database is not yet available (e.g. during
         early startup or Django system checks).
@@ -926,17 +991,15 @@ class WebFetchAuthHeader(models.Model):
         rather than crash the tool. The exception is logged so operators can
         diagnose the underlying failure.
         """
-        from django.db import close_old_connections
-
         try:
-            close_old_connections()
+            _close_old_connections_outside_transactions()
             out = cls._build_from_db()
         except Exception:  # noqa: BLE001 — degrade gracefully on DB/migration/encryption errors
             logger.exception("WebFetchAuthHeader rows not available; falling back to empty dict")
             return {}
         finally:
             with contextlib.suppress(Exception):
-                close_old_connections()
+                _close_old_connections_outside_transactions()
 
         cache.set(WEB_FETCH_AUTH_HEADERS_CACHE_KEY, out, WEB_FETCH_AUTH_HEADERS_CACHE_TIMEOUT)
         return out
@@ -1116,17 +1179,15 @@ class Provider(models.Model):
 
     @classmethod
     def _load_and_cache(cls) -> list[Cached]:
-        from django.db import close_old_connections
-
         try:
-            close_old_connections()
+            _close_old_connections_outside_transactions()
             out = cls._build_from_db()
         except Exception:  # noqa: BLE001
             logger.exception("Provider rows not available; falling back to empty list")
             return []
         finally:
             with contextlib.suppress(Exception):
-                close_old_connections()
+                _close_old_connections_outside_transactions()
 
         cache.set(PROVIDERS_CACHE_KEY, out, PROVIDERS_CACHE_TIMEOUT)
         return out

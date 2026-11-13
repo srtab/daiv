@@ -1,0 +1,53 @@
+{
+  "pr": {
+    "repo": "https://github.com/k1LoW/gh-copilot-review",
+    "pr_number": 9,
+    "base": "5f3765a9ef25d9c5a57699418bed105d9ac54691",
+    "head": "f98281938e63acd1d2df9b89d6af98dcf58c9fa8"
+  },
+  "agent": "daiv/anthropic:claude-haiku-5-5",
+  "findings": [
+    {
+      "file": "internal/github/github.go",
+      "start_line": 91,
+      "end_line": 91,
+      "message": "Freshness uses timestamps, so an unreviewed head can be skipped\n\n`lastCommitDate` is the committer date, which is set when a commit is created, not when it is pushed. Example: commit C1 is made locally at 10:00. Copilot reviews C0 at 10:05. C1 is pushed at 10:20. At 10:21 the tool sees the review (10:05) as newer than C1's committer date (10:00), prints \"already up to date\", and C1 is never reviewed. Any commit created before a Copilot review and pushed after it can hit this path.\n\nFix: compare each Copilot review's `commit_id` with the PR head SHA (`repos/{owner}/{repo}/pulls/{n}` \u2192 `head.sha`), and drop the date comparison.\n\nConfidence: 70. The timing is inferred from git semantics, not observed.",
+      "producer": "daiv"
+    },
+    {
+      "file": "cmd/root.go",
+      "start_line": 73,
+      "end_line": 80,
+      "message": "Freshness uses timestamps, so an unreviewed head can be skipped\n\n`lastCommitDate` is the committer date, which is set when a commit is created, not when it is pushed. Example: commit C1 is made locally at 10:00. Copilot reviews C0 at 10:05. C1 is pushed at 10:20. At 10:21 the tool sees the review (10:05) as newer than C1's committer date (10:00), prints \"already up to date\", and C1 is never reviewed. Any commit created before a Copilot review and pushed after it can hit this path.\n\nFix: compare each Copilot review's `commit_id` with the PR head SHA (`repos/{owner}/{repo}/pulls/{n}` \u2192 `head.sha`), and drop the date comparison.\n\nConfidence: 70. The timing is inferred from git semantics, not observed.",
+      "producer": "daiv"
+    },
+    {
+      "file": "internal/github/github.go",
+      "start_line": 84,
+      "end_line": 84,
+      "message": "On PRs with more than 30 commits, the \"last commit\" is the 30th commit\n\nThe commits request has no `per_page` or `page`. GitHub returns 30 items per page, oldest first, so `commits[len(commits)-1]` is commit #30 on a 35-commit PR. A review submitted after #30 but before the real head is then treated as covering the head, and the request is skipped. The go-gh `RESTClient.Get` call does not follow pagination; I could not confirm this in the sandbox, but the repo has no pagination handling. The head-SHA fix in #1 removes this dependency.\n\nConfidence: 70.",
+      "producer": "daiv"
+    },
+    {
+      "file": "internal/github/github.go",
+      "start_line": 63,
+      "end_line": 63,
+      "message": "The diff adds REST calls on the request path, contrary to the PR's stated goal\n\n`repos/\u2026/pulls/{n}/reviews` is fetched once in `HasCopilotPendingReview` and again in `IsCopilotReviewFresh`, using near-identical decoders. The commits GET is also new. On a run that requests a review, REST GETs go from 2 to 4 (+100%), and the commits GET is wasted when the PR has no Copilot review. The PR says consolidation reduces rate-limit usage; this change does the opposite. Actual cost is not measured.\n\nFix: fetch reviews once, decoding `state`, `user.login`, `submitted_at` and `commit_id`, and reuse the slice for both checks. With the head SHA also fetched once, this leaves one extra call instead of two.\n\nConfidence: 75 for the call count.",
+      "producer": "daiv"
+    },
+    {
+      "file": "cmd/root.go",
+      "start_line": 64,
+      "end_line": 64,
+      "message": "The diff adds REST calls on the request path, contrary to the PR's stated goal\n\n`repos/\u2026/pulls/{n}/reviews` is fetched once in `HasCopilotPendingReview` and again in `IsCopilotReviewFresh`, using near-identical decoders. The commits GET is also new. On a run that requests a review, REST GETs go from 2 to 4 (+100%), and the commits GET is wasted when the PR has no Copilot review. The PR says consolidation reduces rate-limit usage; this change does the opposite. Actual cost is not measured.\n\nFix: fetch reviews once, decoding `state`, `user.login`, `submitted_at` and `commit_id`, and reuse the slice for both checks. With the head SHA also fetched once, this leaves one extra call instead of two.\n\nConfidence: 75 for the call count.",
+      "producer": "daiv"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 596276,
+    "completion_tokens": 106258,
+    "total_tokens": 702534,
+    "time_in_ms": 235416,
+    "cost_usd": 0.07333419
+  }
+}

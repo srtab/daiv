@@ -1,4 +1,5 @@
-from dataclasses import asdict
+import json
+import logging
 from unittest.mock import MagicMock, patch
 
 from django.db import models
@@ -23,6 +24,12 @@ class TestDefaults:
     def test_returns_default_for_boolean(self, ss):
         with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(web_search_enabled=None)):
             assert ss.web_search_enabled is True
+
+    def test_searxng_is_opt_in_with_a_bounded_default_timeout(self, ss):
+        with patch.object(SiteConfiguration, "get_cached", return_value=SiteConfiguration()):
+            assert ss.web_search_engine == "duckduckgo"
+            assert ss.web_search_searxng_url is None
+            assert ss.web_search_searxng_timeout_seconds == 15
 
     def test_returns_default_for_string(self, ss):
         with patch.object(SiteConfiguration, "get_cached", return_value=MagicMock(web_search_engine=None)):
@@ -267,6 +274,9 @@ class TestMemoryDefaults:
 def _value_from(source: str, name: str, default):
     """A value unlike ``name``'s default, as the database stores it or the environment spells it."""
     field = SiteConfiguration._meta.get_field(name)
+    if isinstance(field, models.JSONField):
+        value = {"code-review": f"{source}-{name}"}
+        return json.dumps(value) if source == "environment" else value
     if isinstance(field, models.BooleanField):
         value = not default
     elif isinstance(field, models.IntegerField):
@@ -281,6 +291,23 @@ def _value_from(source: str, name: str, default):
 
 
 class TestSnapshot:
+    def test_searxng_environment_overrides_database_in_snapshot(self, ss, monkeypatch):
+        monkeypatch.setenv("DAIV_WEB_SEARCH_ENGINE", "searxng")
+        monkeypatch.setenv("DAIV_WEB_SEARCH_SEARXNG_URL", "http://searxng:8080/prefix/search")
+        monkeypatch.setenv("DAIV_WEB_SEARCH_SEARXNG_TIMEOUT_SECONDS", "25")
+        config = SiteConfiguration(
+            web_search_engine="duckduckgo",
+            web_search_searxng_url="https://old.example.com/search",
+            web_search_searxng_timeout_seconds=10,
+        )
+        with patch.object(SiteConfiguration, "get_cached", return_value=config):
+            snapshot = ss.snapshot()
+        assert snapshot.web_search_engine == "searxng"
+        assert snapshot.web_search_searxng_url == "http://searxng:8080/prefix/search"
+        assert snapshot.web_search_searxng_timeout_seconds == 25
+        assert ss.is_env_locked("web_search_searxng_url")
+        assert ss.is_env_locked("web_search_searxng_timeout_seconds")
+
     @pytest.mark.parametrize("source", ["default", "database", "environment"])
     def test_agrees_with_attribute_access_from_one_configuration_read(self, ss, monkeypatch, source):
         db_values = {}
@@ -295,7 +322,7 @@ class TestSnapshot:
             assert get_cached.call_count == 1
             resolved = {name: getattr(ss, name) for name in ss.FIELD_DEFAULTS}
 
-        assert asdict(snapshot) == resolved
+        assert {name: getattr(snapshot, name) for name in ss.FIELD_DEFAULTS} == resolved
         if source != "default":
             assert all(resolved[name] != default for name, default in ss.FIELD_DEFAULTS.items())
 
@@ -327,3 +354,77 @@ class TestSnapshot:
 
         assert "web_fetch_timeout_seconds=_Unresolved(" in text
         assert f"agent_recursion_limit={ss.FIELD_DEFAULTS['agent_recursion_limit']!r}" in text
+
+
+@pytest.mark.parametrize("field", ["agent_skill_models", "agent_subagent_models"])
+class TestModelMaps:
+    def test_defaults_to_an_empty_map(self, ss, field):
+        with patch.object(SiteConfiguration, "get_cached", return_value=SiteConfiguration()):
+            assert getattr(ss, field) == {}
+
+    def test_a_json_object_in_the_environment_overrides_the_stored_map(self, ss, field, monkeypatch):
+        monkeypatch.setenv(ss.get_env_var_name(field), '{"code-review": "openrouter:env/model"}')
+        stored = SiteConfiguration(**{field: {"code-review": "openrouter:db/model", "plan": "openrouter:db/plan"}})
+        with patch.object(SiteConfiguration, "get_cached", return_value=stored):
+            assert getattr(ss, field) == {"code-review": "openrouter:env/model"}
+
+    def test_a_null_or_empty_spec_in_the_environment_is_unset(self, ss, field, monkeypatch):
+        monkeypatch.setenv(ss.get_env_var_name(field), '{"code-review": "openrouter:env/model", "plan": null, "x": ""}')
+        with patch.object(SiteConfiguration, "get_cached", return_value=SiteConfiguration()):
+            assert getattr(ss, field) == {"code-review": "openrouter:env/model"}
+
+    @pytest.mark.parametrize("raw", ["{not json", '["code-review"]', '{"code-review": 3}'])
+    def test_a_malformed_environment_value_is_logged_and_treated_as_empty(self, ss, field, monkeypatch, caplog, raw):
+        monkeypatch.setenv(ss.get_env_var_name(field), raw)
+        stored = SiteConfiguration(**{field: {"code-review": "openrouter:db/model"}})
+        with (
+            patch.object(SiteConfiguration, "get_cached", return_value=stored),
+            caplog.at_level(logging.ERROR, logger="daiv.core"),
+        ):
+            assert getattr(ss, field) == {}
+        assert ss.get_env_var_name(field) in caplog.text
+
+    def test_the_snapshot_map_is_read_only(self, ss, field):
+        stored = SiteConfiguration(**{field: {"code-review": "openrouter:db/model"}})
+        with patch.object(SiteConfiguration, "get_cached", return_value=stored):
+            snapshot = ss.snapshot()
+
+        with pytest.raises(TypeError):
+            getattr(snapshot, field)["plan"] = "openrouter:other/model"
+        assert getattr(stored, field) == {"code-review": "openrouter:db/model"}
+
+    def test_the_default_map_cannot_be_mutated_through_the_snapshot(self, ss, field):
+        with patch.object(SiteConfiguration, "get_cached", return_value=None):
+            snapshot = ss.snapshot()
+
+        with pytest.raises(TypeError):
+            getattr(snapshot, field)["plan"] = "openrouter:other/model"
+        assert ss.FIELD_DEFAULTS[field] == {}
+
+
+class TestLegacyExploreModel:
+    def test_the_old_explore_variable_is_read_as_the_explore_entry_and_logged_once(self, ss, monkeypatch, caplog):
+        monkeypatch.setenv("DAIV_AGENT_EXPLORE_MODEL_NAME", "openrouter:legacy/explore")
+        stored = SiteConfiguration(agent_subagent_models={"cr-tests": "openrouter:db/tests"})
+        with (
+            patch.object(SiteConfiguration, "get_cached", return_value=stored),
+            caplog.at_level(logging.ERROR, logger="daiv.core"),
+        ):
+            models = ss.agent_subagent_models
+            snapshot_models = ss.snapshot().agent_subagent_models
+
+        assert models == snapshot_models == {"cr-tests": "openrouter:db/tests", "explore": "openrouter:legacy/explore"}
+        assert [r.levelno for r in caplog.records if "DAIV_AGENT_EXPLORE_MODEL_NAME" in r.getMessage()] == [
+            logging.ERROR
+        ]
+
+    def test_an_explore_entry_beats_the_old_variable(self, ss, monkeypatch):
+        monkeypatch.setenv("DAIV_AGENT_EXPLORE_MODEL_NAME", "openrouter:legacy/explore")
+        monkeypatch.setenv("DAIV_AGENT_SUBAGENT_MODELS", '{"explore": "openrouter:env/explore"}')
+        with patch.object(SiteConfiguration, "get_cached", return_value=SiteConfiguration()):
+            assert ss.agent_subagent_models == {"explore": "openrouter:env/explore"}
+
+    def test_the_skill_map_ignores_the_old_variable(self, ss, monkeypatch):
+        monkeypatch.setenv("DAIV_AGENT_EXPLORE_MODEL_NAME", "openrouter:legacy/explore")
+        with patch.object(SiteConfiguration, "get_cached", return_value=SiteConfiguration()):
+            assert ss.agent_skill_models == {}

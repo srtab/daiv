@@ -1,9 +1,15 @@
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from django import template
 from django.contrib.humanize.templatetags.humanize import naturaltime
 from django.utils import formats, timezone
 from django.utils.translation import gettext
+
+from sessions.models import MergeRequestOwnership
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 register = template.Library()
 
@@ -83,6 +89,8 @@ _ORIGIN_ICONS = {
     "ui_job": "bolt",
     "issue_webhook": "exclamation-circle",
     "mr_webhook": "merge-request",
+    "delegated_job": "agent",
+    "delegation_resume": "arrow-path",
 }
 
 
@@ -130,16 +138,30 @@ def artifact_icon(kind) -> str:
     return _ARTIFACT_ICONS.get(kind, "paper-clip")
 
 
-@register.simple_tag
-def session_merge_request(session) -> dict | None:
+def linked_merge_request(session) -> dict | None:
     """The merge request a session row links: the one the session is scoped to, else the newest one recorded on its
-    runs. Expects ``runs`` prefetched newest first, as ``SessionListView`` does."""
+    runs. Expects ``runs`` prefetched newest first, as ``with_row_runs`` does."""
     runs = [r for r in session.runs.all() if r.merge_request_iid]
     iid = session.merge_request_iid or (runs[0].merge_request_iid if runs else None)
     if iid is None:
         return None
     url = next((r.merge_request_web_url for r in runs if r.merge_request_iid == iid and r.merge_request_web_url), "")
     return {"iid": iid, "url": url}
+
+
+def attach_merge_request_states(sessions: Iterable) -> None:
+    """Set each session row's ``merge_request_state``, the state of the merge request it links, in one query."""
+    linked = [(session, linked_merge_request(session)) for session in sessions]
+    states = MergeRequestOwnership.states_of((session.repo_id, mr["iid"]) for session, mr in linked if mr)
+    for session, mr in linked:
+        session.merge_request_state = mr and states[session.repo_id, mr["iid"]]
+
+
+@register.simple_tag
+def session_merge_request(session) -> dict | None:
+    """``linked_merge_request`` with its ``state``, from ``attach_merge_request_states``."""
+    merge_request = linked_merge_request(session)
+    return merge_request and {**merge_request, "state": session.merge_request_state}
 
 
 @register.simple_tag

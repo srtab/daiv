@@ -1,0 +1,102 @@
+{
+  "pr": {
+    "repo": "https://github.com/sdsykes/fastimage",
+    "pr_number": 165,
+    "base": "7a0dcf780e6d8cd7686520a3a1f57e7cd85b0b46",
+    "head": "8fc7cd32904240c2c841e70aef2ba5c3bb659ffd"
+  },
+  "agent": "daiv/anthropic:claude-haiku-5-5",
+  "findings": [
+    {
+      "file": "lib/fastimage/fastimage_parsing/exif.rb",
+      "start_line": 109,
+      "end_line": 110,
+      "message": "Resolution type depends on the metadata source, and the sweep test cannot detect it\n\nJFIF-sourced values are Integer (`test.jpg` gives `[72, 72]`). EXIF-sourced values are Float, for JPEG as well as TIFF. `test2.jpg` has no JFIF segment and its EXIF tag is 72/1, so it returns `[72.0, 72.0]`. The PR note says only TIFF is Float, which is wrong for JPEG EXIF. The sweep compares with `assert_equal` ([`test/test.rb:128-131`](https://github.com/sdsykes/fastimage/blob/8fc7cd32904240c2c841e70aef2ba5c3bb659ffd/test/test.rb#L128-L131)), and `72 == 72.0`, so a type change in either direction still passes. Settle the contract first, either by converting whole-number EXIF values or by documenting that EXIF-derived values are Float. Then compare types in the test, for example `assert_equal info[2].inspect, res.inspect`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "lib/fastimage/fastimage_parsing/jpeg.rb",
+      "start_line": 57,
+      "end_line": 57,
+      "message": "Resolution type depends on the metadata source, and the sweep test cannot detect it\n\nJFIF-sourced values are Integer (`test.jpg` gives `[72, 72]`). EXIF-sourced values are Float, for JPEG as well as TIFF. `test2.jpg` has no JFIF segment and its EXIF tag is 72/1, so it returns `[72.0, 72.0]`. The PR note says only TIFF is Float, which is wrong for JPEG EXIF. The sweep compares with `assert_equal` ([`test/test.rb:128-131`](https://github.com/sdsykes/fastimage/blob/8fc7cd32904240c2c841e70aef2ba5c3bb659ffd/test/test.rb#L128-L131)), and `72 == 72.0`, so a type change in either direction still passes. Settle the contract first, either by converting whole-number EXIF values or by documenting that EXIF-derived values are Float. Then compare types in the test, for example `assert_equal info[2].inspect, res.inspect`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "lib/fastimage/fastimage.rb",
+      "start_line": 258,
+      "end_line": 266,
+      "message": "`resolution_units` refetches the image whenever there is no resolution\n\n`@resolution` is set only on success. On a miss, `parse_packets` raises `CannotParseImage`, `fetch` swallows it, and `defined?(@resolution)` stays false. So `fi.resolution` followed by `fi.resolution_units` on a GIF, WebP, SVG, or a PNG without pHYs issues a second full HTTP GET. `size` and `animated` already memoize only on success, but `resolution_units` is new and makes the repeat fetch the normal path. Fix: record the miss, for example `@resolution ||= nil` after the `fetch` line in `#resolution`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "lib/fastimage/fastimage_parsing/jpeg.rb",
+      "start_line": 31,
+      "end_line": 35,
+      "message": "Short JPEG segment lengths raise an uncaught NoMethodError from `FastImage.resolution`\n\n`read_int - 2` is negative for length fields 0 or 1. `FiberStream#read` with a negative count returns nil ([`fiber_stream.rb:30`](https://github.com/sdsykes/fastimage/blob/8fc7cd32904240c2c841e70aef2ba5c3bb659ffd/lib/fastimage/fastimage_parsing/fiber_stream.rb#L30)), so `data[0, 5]` or `data[7].ord` raises NoMethodError. A JFIF body shorter than 9 bytes fails at `data[8, 4]`. `fetch` rescues only fetch errors and `CannotParseImage` ([`fastimage.rb:292-298`](https://github.com/sdsykes/fastimage/blob/8fc7cd32904240c2c841e70aef2ba5c3bb659ffd/lib/fastimage/fastimage.rb#L292-L298)), so the error escapes even without `raise_on_failure`. That contradicts the README's \"returns nil if it encounters an error.\" The existing `dimensions` APP1 branch ([`jpeg.rb:89-91`](https://github.com/sdsykes/fastimage/blob/8fc7cd32904240c2c841e70aef2ba5c3bb659ffd/lib/fastimage/fastimage_parsing/jpeg.rb#L89-L91)) has the same unguarded read, so `size` is exposed too, but that predates this change. Fix: raise `CannotParseImage` when `length < 0`, and check the body length before indexing.",
+      "producer": "daiv"
+    },
+    {
+      "file": "lib/fastimage/fastimage_parsing/exif.rb",
+      "start_line": 95,
+      "end_line": 96,
+      "message": "TIFF/EXIF rationals located before the IFD are silently dropped\n\n`parse_exif` skips to the IFD, and the stream cannot rewind. A rational whose offset is behind the current position hits `next if skip_amount < 0`, so that tag is lost. If X or Y is lost, `tiff.rb:18` returns nil. Two tags sharing one offset produce the same result for the second tag. TIFF 6.0 allows value offsets anywhere in the file. No fixture exercises this layout; all shipped TIFF and EXIF fixtures put the rationals after the IFD. I did not establish how common this layout is in real writers. Fix: buffer a bounded header-to-IFD window when `parse_resolution` is set, or document the limitation.",
+      "producer": "daiv"
+    },
+    {
+      "file": "test/test.rb",
+      "start_line": 14,
+      "end_line": 67,
+      "message": "Untested branches: `:centimeters` and the BMP zero-PPM nil return\n\nEvery EXIF fixture uses unit 2 (inches), and the JFIF fixtures use units 0 and 1, so no test reaches a centimeters mapping. Changing `:centimeters` to `:inches` would still pass. `test_coreheader.bmp` is the only expected nil, and it returns at the header-size check (`bmp.rb:20`), so the zero-PPM return has no fixture. Add small synthetic IO inputs: a JFIF APP0 with units=2, and a 54-byte BMP with zero PPM.",
+      "producer": "daiv"
+    },
+    {
+      "file": "lib/fastimage/fastimage_parsing/bmp.rb",
+      "start_line": 23,
+      "end_line": 23,
+      "message": "Untested branches: `:centimeters` and the BMP zero-PPM nil return\n\nEvery EXIF fixture uses unit 2 (inches), and the JFIF fixtures use units 0 and 1, so no test reaches a centimeters mapping. Changing `:centimeters` to `:inches` would still pass. `test_coreheader.bmp` is the only expected nil, and it returns at the header-size check (`bmp.rb:20`), so the zero-PPM return has no fixture. Add small synthetic IO inputs: a JFIF APP0 with units=2, and a 54-byte BMP with zero PPM.",
+      "producer": "daiv"
+    },
+    {
+      "file": "lib/fastimage/fastimage_parsing/jpeg.rb",
+      "start_line": 19,
+      "end_line": 19,
+      "message": "The JPEG `resolution` method duplicates the `dimensions` marker walk\n\nThe two state machines share a skeleton and an APP1-to-Exif unwrap, and they already differ in policy: `dimensions` keeps only the first APP1, while `resolution` continues until one carries resolution. Marker-handling fixes will have to land twice. Extract the APP1 step into a helper and document the intended difference.",
+      "producer": "daiv"
+    },
+    {
+      "file": "lib/fastimage/fastimage_parsing/exif.rb",
+      "start_line": 74,
+      "end_line": 74,
+      "message": "EXIF unit mapping and tag dispatch are split across three places with different defaults\n\n`TAG_RESOLUTION_UNIT` is read only in the SHORT branch, so a LONG-typed unit is ignored and falls back to inches. The EXIF unit switch is written twice, in jpeg.rb and tiff.rb. Unknown codes map to `:no_units` for JFIF but to `:inches` for EXIF. One helper with one explicit default would remove the drift.",
+      "producer": "daiv"
+    },
+    {
+      "file": "lib/fastimage/fastimage_parsing/jpeg.rb",
+      "start_line": 36,
+      "end_line": 41,
+      "message": "EXIF unit mapping and tag dispatch are split across three places with different defaults\n\n`TAG_RESOLUTION_UNIT` is read only in the SHORT branch, so a LONG-typed unit is ignored and falls back to inches. The EXIF unit switch is written twice, in jpeg.rb and tiff.rb. Unknown codes map to `:no_units` for JFIF but to `:inches` for EXIF. One helper with one explicit default would remove the drift.",
+      "producer": "daiv"
+    },
+    {
+      "file": "lib/fastimage/fastimage_parsing/tiff.rb",
+      "start_line": 20,
+      "end_line": 24,
+      "message": "EXIF unit mapping and tag dispatch are split across three places with different defaults\n\n`TAG_RESOLUTION_UNIT` is read only in the SHORT branch, so a LONG-typed unit is ignored and falls back to inches. The EXIF unit switch is written twice, in jpeg.rb and tiff.rb. Unknown codes map to `:no_units` for JFIF but to `:inches` for EXIF. One helper with one explicit default would remove the drift.",
+      "producer": "daiv"
+    },
+    {
+      "file": ".gitignore",
+      "start_line": 4,
+      "end_line": 4,
+      "message": "Unrelated `.gitignore` entry\n\n`.idea` is per-developer IDE state and is not part of resolution support. Drop it from this PR or move it to a global excludes file.",
+      "producer": "daiv"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 2162348,
+    "completion_tokens": 324413,
+    "total_tokens": 2486761,
+    "time_in_ms": 633834,
+    "cost_usd": 0.27723129
+  }
+}

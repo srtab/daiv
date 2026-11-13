@@ -15,32 +15,40 @@ from asgiref.sync import sync_to_async
 from redis.exceptions import RedisError
 from redisvl.exceptions import RedisSearchError
 
+from automation.agent.git_state import checkpointed_repo_publishes
 from automation.agent.session_links import SessionLinks
 from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
 from core.utils import build_absolute_url
 from sessions.archive import aarchive_thread, arestore_thread
 from sessions.artifacts import RunArtifactStore, bind_active_run
+from sessions.delegation import SessionJobDelegator
 from sessions.executor.lock import SessionLockLostError, hold_session_lock, still_held
 from sessions.executor.recovery import recover_draft
 from sessions.executor.spec import RunHooks, RunOutcome
-from sessions.models import Run, Session
-from sessions.pipeline_watch.service import PipelineWatch
-from sessions.services import apersist_session_ref, areset_session_ref
+from sessions.inbox.ownership import Ownerships
+from sessions.models import PublishStatus, Run, Session, publish_field_updates
+from sessions.multi_repo import aload_extra_repos, apersist_extra_repo_state
+from sessions.services import aget_session_ref, apersist_session_ref, areset_session_ref
+from sessions.tool_media import RunToolMediaStore
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Awaitable, Callable
+    from collections.abc import AsyncGenerator, Awaitable, Callable, Coroutine, Sequence
     from contextlib import AbstractAsyncContextManager
 
-    from langchain.agents import CompiledAgent
     from langchain_core.runnables import RunnableConfig
     from langgraph.checkpoint.base import BaseCheckpointSaver
+    from langgraph.graph.state import CompiledStateGraph
     from langgraph.types import StateSnapshot
 
     from automation.agent.agent_settings import AgentSettings
     from automation.agent.context import RuntimeCtx
+    from automation.agent.events import PublishResultRecorder
+    from automation.agent.git_state import RepoPublish
+    from automation.agent.publishers import PublishOutcome
     from automation.agent.session_links import SessionLinksResolver
     from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler
     from automation.agent.workspace.base import Workspace
+    from automation.agent.workspace.git_manager import FastForward
     from automation.agent.workspace.session import SandboxSession
     from sessions.executor.spec import RunSpec
     from sessions.live.relay import RunRelay
@@ -48,6 +56,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.sessions")
 
 STREAM_HEARTBEAT_INTERVAL_S = 5.0
+STOP_POLL_INTERVAL_S = 10.0
 ARCHIVE_TIMEOUT_S = 30.0
 
 
@@ -68,26 +77,32 @@ class AgentRun:
     ``thread_id`` is the graph's thread: the session's, or a fresh one for a one-shot run. ``workspace`` is where the
     agent works; draft recovery publishes through it, and the executor releases its sandbox session. ``settings`` is
     what the run resolved once, and ``session_links`` what builds the links they allow; draft recovery publishes with
-    both."""
+    both. ``publish`` holds the last publish result the run dispatched. ``fast_forward`` is what bringing a warm
+    sandbox's checkout up to the remote branch did before the agent started; ``None`` when nothing was tried (a fresh
+    checkout, or a one-shot run)."""
 
     ctx: RuntimeCtx
-    agent: CompiledAgent
+    agent: CompiledStateGraph[Any, RuntimeCtx]
     config: RunnableConfig
     usage: CostAwareUsageMetadataCallbackHandler
     thread_id: str
     workspace: Workspace
     settings: AgentSettings
     session_links: SessionLinksResolver | None
+    publish: PublishResultRecorder | None = None
+    fast_forward: FastForward | None = None
 
 
-async def execute_run(spec: RunSpec, hooks: RunHooks | None = None) -> RunOutcome:
+async def execute_run(
+    spec: RunSpec, hooks: RunHooks | None = None, *, should_stop: Callable[[], Awaitable[bool]] | None = None
+) -> RunOutcome:
     """Run the agent once for ``spec``; the package docstring lists the order of the steps."""
     hooks = hooks or RunHooks()
     entered = False
     try:
         async with _hold_slot(spec) as holder_id:
             entered = True
-            return await _run_in_slot(spec, hooks, holder_id)
+            return await _run_in_slot(spec, hooks, holder_id, should_stop)
     except Exception as exc:
         if not entered:
             await _notify_failure(hooks, exc)
@@ -116,7 +131,7 @@ async def stream_run(
             entered = True
             recovery = _Recovery()
             try:
-                async with _agent_run(spec, hooks) as run:
+                async with _agent_run(spec, hooks, recovery) as run:
                     try:
                         async with contextlib.aclosing(
                             _supervised(stream(run), run.thread_id, holder_id, should_stop)
@@ -182,17 +197,45 @@ async def _supervised(
             logger.exception("executor: failed to close the stream for thread_id=%s", thread_id)
 
 
-async def _run_in_slot(spec: RunSpec, hooks: RunHooks, holder_id: str | None) -> RunOutcome:
+async def _run_in_slot(
+    spec: RunSpec, hooks: RunHooks, holder_id: str | None, should_stop: Callable[[], Awaitable[bool]] | None
+) -> RunOutcome:
     recovery = _Recovery()
     async with _live_relay(spec, holder_id) as run_relay:
         try:
-            outcome = await _invoke(spec, hooks, recovery, run_relay)
+            invoke = partial(_invoke, spec, hooks, recovery, run_relay)
+            outcome = await (invoke() if should_stop is None else _until_stopped(invoke, spec.thread_id, should_stop))
         except Exception as exc:
             await _notify_failure(hooks, exc, draft_published=recovery.draft_published, snapshot=recovery.snapshot)
             raise
         if hooks.on_success is not None:
             await hooks.on_success(outcome)
     return outcome
+
+
+async def _until_stopped(
+    invoke: Callable[[], Coroutine[Any, Any, RunOutcome]],
+    thread_id: str | None,
+    should_stop: Callable[[], Awaitable[bool]],
+) -> RunOutcome:
+    """Run ``invoke`` unless ``should_stop`` asks to stop first, asking again every ``STOP_POLL_INTERVAL_S``.
+
+    A stop request raises ``RunStoppedError``, after cancelling the invocation and waiting for it to close the run's
+    context if it had started; an invocation that ends while ``should_stop`` is asked keeps its outcome.
+    """
+    if await should_stop():
+        raise RunStoppedError(f"run for thread_id={thread_id} was asked to stop before it started")
+    task = asyncio.ensure_future(invoke())
+    try:
+        while not task.done():
+            await asyncio.wait({task}, timeout=STOP_POLL_INTERVAL_S)
+            if not task.done() and await should_stop() and not task.done():
+                raise RunStoppedError(f"run for thread_id={thread_id} was asked to stop")
+        return task.result()
+    finally:
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
 
 @asynccontextmanager
@@ -230,14 +273,18 @@ async def _live_relay(spec: RunSpec, holder_id: str | None) -> AsyncGenerator[Ru
 class _Recovery:
     """What draft recovery leaves for ``on_failure``: filled inside the run's context, read after it closes."""
 
-    draft_published: bool = False
+    draft: PublishOutcome | None = None
     snapshot: StateSnapshot | None = None
+
+    @property
+    def draft_published(self) -> bool:
+        return self.draft is not None
 
 
 async def _invoke(spec: RunSpec, hooks: RunHooks, recovery: _Recovery, run_relay: RunRelay | None) -> RunOutcome:
-    from automation.agent.utils import extract_text_content
+    from automation.agent.utils import closing_reply_text
 
-    async with _agent_run(spec, hooks) as run:
+    async with _agent_run(spec, hooks, recovery) as run:
         try:
             result = await _ainvoke(run, spec, run_relay)
         except Exception:
@@ -246,14 +293,15 @@ async def _invoke(spec: RunSpec, hooks: RunHooks, recovery: _Recovery, run_relay
         messages = result.get("messages")
         if not messages:
             raise ValueError(f"Agent returned no messages for repo_id={spec.repo_id}")
-        return await _after_run(spec, run, response_text=extract_text_content(messages[-1].content))
+        return await _after_run(spec, run, response_text=closing_reply_text(messages))
 
 
 async def _ainvoke(run: AgentRun, spec: RunSpec, run_relay: RunRelay | None) -> dict[str, Any]:
     """Invoke the agent, streaming its events to ``run_relay`` when the run has one."""
     from sessions.live.publisher import ainvoke_live
 
-    graph_input = {"messages": list(spec.input_messages)}
+    messages = await spec.input_factory(run.fast_forward) if spec.input_factory is not None else spec.input_messages
+    graph_input = {"messages": list(messages)}
     if run_relay is None:
         return await run.agent.ainvoke(graph_input, config=run.config, context=run.ctx)
     return await ainvoke_live(
@@ -271,7 +319,7 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
     the checkpoint for ``on_failure``. Runs while the clone and the sandbox are still open."""
     if not spec.recover_draft:
         return
-    recovery.draft_published = await recover_draft(
+    recovery.draft = await recover_draft(
         run.ctx,
         run.agent,
         run.config,
@@ -279,19 +327,59 @@ async def _recover(spec: RunSpec, run: AgentRun, recovery: _Recovery) -> None:
         workspace=run.workspace,
         settings=run.settings,
         session_links=run.session_links,
+        on_publish=run.publish.record if run.publish is not None else None,
     )
     recovery.snapshot = await _read_snapshot_after_recovery(run)
+    if recovery.snapshot is not None:
+        await _persist_sibling_state(spec, run, checkpointed_repo_publishes(recovery.snapshot.values))
+
+
+async def _record_publish_result(
+    run_id: str | None,
+    publish: dict[str, Any] | None,
+    draft: PublishOutcome | None,
+    *,
+    siblings: list[dict[str, Any]] | None = None,
+) -> None:
+    """Write the run's publish result onto its ``Run`` once, however the run ended: the last one it dispatched, never
+    the checkpoint's, which can still hold the previous run's. A draft merge request recovery opened replaces it,
+    unless the publish failed: the failure then stays, with the draft's merge request beside it. ``siblings`` are the
+    extra repositories' results, kept with the commits they pushed (``Run.sibling_pushed_shas``) so those are known as
+    DAIV's. Best-effort: logged, never raised."""
+    opened_draft = draft is not None and draft.created_merge_request
+    if opened_draft:
+        from automation.agent.events import published_outcome_payload
+
+        opened = published_outcome_payload(draft)
+        if publish is not None and publish.get("status") == PublishStatus.FAILED:
+            publish = {**opened, "status": publish["status"], "error_kind": publish["error_kind"]}
+        else:
+            publish = opened
+    fields = publish_field_updates(publish)
+    if opened_draft:
+        fields["code_changes"] = True
+    if siblings:
+        fields["repo_publishes"] = siblings
+        if pushed_shas := [sibling["pushed_sha"] for sibling in siblings if sibling.get("pushed_sha")]:
+            fields["sibling_pushed_shas"] = pushed_shas
+    if not run_id or not fields:
+        return
+    try:
+        await Run.objects.filter(pk=run_id).aupdate(**fields)
+    except Exception:
+        logger.exception("executor: failed to record the publish result on run_id=%s", run_id)
 
 
 @asynccontextmanager
-async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]:
+async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> AsyncGenerator[AgentRun]:
     # Deferred so importing this module never loads the agent stack.
     from langgraph.checkpoint.memory import InMemorySaver
     from mcp_connectors.services import build_runtime_servers
     from sandbox_envs.services import build_sandbox_spec
 
     from automation.agent.agent_settings import resolve_agent_settings
-    from automation.agent.context import set_runtime_ctx
+    from automation.agent.context import ExtraRepo, set_runtime_ctx
+    from automation.agent.events import record_publish_result
     from automation.agent.graph import create_daiv_agent
     from automation.agent.middlewares.slash_commands import resets_thread, skips_sandbox
     from automation.agent.usage_tracking import track_usage_metadata
@@ -312,14 +400,19 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
         thread_id, checkpoints = str(uuid.uuid4()), nullcontext(InMemorySaver())
     else:
         thread_id, checkpoints = spec.thread_id, open_checkpointer()
+    extra_rows = await aload_extra_repos(spec.thread_id) if spec.thread_id is not None else []
+    main_ref = spec.ref
+    if extra_rows and not main_ref:
+        main_ref = await aget_session_ref(thread_id=thread_id) or None
     async with (
         set_runtime_ctx(
             repo_id=spec.repo_id,
             scope=spec.scope,
-            ref=spec.ref,
+            ref=main_ref,
             issue=spec.issue,
             merge_request=spec.merge_request,
             fallback_ref_on_missing=spec.fallback_ref_on_missing,
+            extra_repos=[ExtraRepo(row.repo_id, row.ref) for row in extra_rows],
             sandbox_spec=sandbox_spec,
             acting_user_id=spec.acting_user_id,
             acting_platform_uid=spec.acting_platform_uid,
@@ -332,21 +425,23 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
         workspace = _build_workspace(ctx)
         logger.info("executor: %s for thread_id=%s", type(workspace).__name__, thread_id)
         handed_over = False
-        run_id = spec.run_id
         try:
-            if spec.fallback_ref_on_missing and spec.ref and ctx.repo.ref != spec.ref:
+            if spec.fallback_ref_on_missing and main_ref and ctx.repo.ref != main_ref:
                 await _repin_fallback_ref(thread_id, ctx.repo.ref)
             if hooks.on_context_ready is not None:
-                started_run_id = await hooks.on_context_ready(ctx.repo.ref)
-                run_id = run_id or started_run_id
+                await hooks.on_context_ready(ctx.repo.ref)
             settings = resolve_agent_settings(site=site_settings.snapshot(), repo=ctx.config, run=spec.overrides())
             model = settings.agent.names[0]
-            await _persist_resolved_agent(
-                spec, run_id=run_id, model=model, thinking_level=settings.agent.thinking_level or ""
-            )
+            await _persist_resolved_agent(spec, model=model, thinking_level=settings.agent.thinking_level or "")
             session_links = _session_links(spec, settings)
             if workspace.session is not None and not skips_sandbox(spec.input_messages, ctx, settings):
                 await acquire_sandbox(workspace.session, ctx, await _checkpointed_values(checkpointer, thread_id))
+            fast_forward = await _fast_forward(spec, ctx, workspace)
+            delegator = (
+                await SessionJobDelegator.afor(spec.thread_id)
+                if spec.thread_id is not None and settings.features.orchestration
+                else None
+            )
             agent = await create_daiv_agent(
                 settings=settings,
                 ctx=ctx,
@@ -354,8 +449,10 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                 ask_user_enabled=spec.ask_user_enabled and spec.thread_id is not None,
                 workspace=workspace,
                 artifact_store=RunArtifactStore(),
+                tool_media_store=RunToolMediaStore(),
                 mcp_servers=await sync_to_async(build_runtime_servers)(spec.acting_user_id, spec.mcp_overrides),
                 session_links=session_links,
+                delegator=delegator,
                 **spec.agent_options,
             )
             config = build_langsmith_config(
@@ -371,7 +468,7 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
             reset = resets_thread(spec.input_messages, ctx, settings)
             if archiving and not reset:
                 await arestore_thread(agent, checkpointer, config)
-            with track_usage_metadata() as usage, bind_active_run(run_id):
+            with track_usage_metadata() as usage, record_publish_result() as publish, bind_active_run(spec.run_id):
                 run = AgentRun(
                     ctx=ctx,
                     agent=agent,
@@ -381,6 +478,8 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                     workspace=workspace,
                     settings=settings,
                     session_links=session_links,
+                    publish=publish,
+                    fast_forward=fast_forward,
                 )
                 try:
                     yield run
@@ -389,6 +488,9 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                     handed_over = await _handed_over(run)
                     raise
                 finally:
+                    await _record_publish_result(
+                        spec.run_id, publish.payload, recovery.draft, siblings=list(publish.siblings.values())
+                    )
                     if archiving:
                         await _archive_thread(checkpointer, thread_id, reset=reset)
         finally:
@@ -396,7 +498,24 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks) -> AsyncGenerator[AgentRun]
                 if workspace.session is not None and not handed_over:
                     await _release_sandbox(workspace.session, resumable=spec.thread_id is not None, thread_id=thread_id)
             finally:
-                await _record_measurements(run_id, ctx, workspace)
+                await _record_measurements(spec.run_id, ctx, workspace)
+
+
+async def _fast_forward(spec: RunSpec, ctx: RuntimeCtx, workspace: Workspace) -> FastForward | None:
+    """Bring a warm sandbox's checkout up to the remote branch, which someone may have pushed to since the session's
+    last run; a fresh checkout is already there. Best-effort: logged, and the run works from what it has."""
+    from automation.agent.workspace.session import SandboxAcquisition
+
+    session = workspace.session
+    if spec.thread_id is None or session is None or session.acquisition is not SandboxAcquisition.WARM:
+        return None
+    if ctx.repo.head_detached or not ctx.repo.ref:
+        return None
+    try:
+        return await workspace.fast_forward(ctx.repo.ref)
+    except Exception:
+        logger.exception("executor: could not fast-forward the checkout for thread_id=%s", spec.thread_id)
+        return None
 
 
 async def _refuse_cross_project_session(spec: RunSpec) -> None:
@@ -525,20 +644,21 @@ async def _repin_fallback_ref(thread_id: str, new_ref: str) -> None:
 
 
 async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None = None) -> RunOutcome:
-    """``response_text`` is ``None`` for a stream, which has no invoke result: the checkpoint's last message
+    """``response_text`` is ``None`` for a stream, which has no invoke result: the checkpoint's closing reply
     stands in."""
     from automation.agent.questions import pending_question
     from automation.agent.usage_tracking import build_usage_summary
-    from automation.agent.utils import extract_text_content
+    from automation.agent.utils import closing_reply_text
     from sessions.executor.result import build_agent_result
 
     snapshot = await _read_snapshot(run)
     values = snapshot.values if snapshot is not None else {}
     messages = values.get("messages") or []
     if response_text is None:
-        response_text = extract_text_content(messages[-1].content) if messages else ""
+        response_text = closing_reply_text(messages)
     merge_request = values.get("merge_request")
     published = bool(values.get("published"))
+    sibling_publishes = checkpointed_repo_publishes(values)
     # An unread checkpoint must not pass for one that published nothing: that would pin a blank ref to the clone's.
     if spec.persist_ref and snapshot is not None:
         try:
@@ -550,25 +670,56 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
             )
         except Exception:
             logger.exception("executor: failed to persist session ref for thread_id=%s", run.thread_id)
-    if spec.arm_watch:
-        try:
-            await PipelineWatch(spec.repo_id).aarm_after_run(
-                run_id=spec.run_id,
-                merge_request=merge_request,
-                published=published,
-                user_id=spec.acting_user_id,
-                sandbox_environment_id=spec.sandbox_env_id,
-            )
-        except Exception:
-            logger.exception("executor: failed to arm pipeline watch for thread_id=%s", run.thread_id)
+    if spec.arm_watch and published and spec.run_id is not None:
+        pushed_sha = (run.publish.payload or {}).get("pushed_sha") if run.publish is not None else None
+        await _claim_merge_request(run, spec.run_id, merge_request, pushed_sha=pushed_sha or "")
+    await _persist_sibling_state(spec, run, sibling_publishes)
+    if spec.arm_watch and spec.run_id is not None:
+        for publish in sibling_publishes:
+            if publish.published:
+                await _claim_merge_request(
+                    run, spec.run_id, publish.merge_request, pushed_sha=publish.pushed_sha, repo_id=publish.repo_id
+                )
 
     agent_result = build_agent_result(
         response=response_text,
         usage=build_usage_summary(run.usage).to_dict(),
         snapshot=snapshot,
         question=pending_question(messages),
+        main_repo_id=spec.repo_id,
     )
     return RunOutcome(agent_result=agent_result, response_text=response_text, snapshot=snapshot)
+
+
+async def _persist_sibling_state(spec: RunSpec, run: AgentRun, publishes: Sequence[RepoPublish]) -> None:
+    """Keep each extra repository's branch and merge request on its row, so the next turn continues there."""
+    if publishes and spec.persist_ref:
+        try:
+            await apersist_extra_repo_state(run.thread_id, publishes)
+        except Exception:
+            logger.exception("executor: failed to persist extra repository state for thread_id=%s", run.thread_id)
+
+
+async def _claim_merge_request(
+    run: AgentRun, run_id: str, merge_request: Any, *, pushed_sha: str, repo_id: str | None = None
+) -> None:
+    """Claim the merge request the run published for its session, in ``repo_id`` when it is not the run's own, then
+    judge the branch's CI at once: the push happened during publish, so its pipeline event can arrive before the claim
+    exists. Best-effort: logged, never raised over a run that already published."""
+    from sessions.tasks import evaluate_pipeline_watch_task
+
+    try:
+        ownership = await Ownerships.aclaim(
+            run_id=run_id, merge_request=merge_request, pushed_sha=pushed_sha, repo_id=repo_id
+        )
+        if ownership is not None:
+            await evaluate_pipeline_watch_task.aenqueue(repo_id=ownership.repo_id, ref=ownership.source_branch)
+    except Exception:
+        logger.exception(
+            "executor: failed to claim the merge request of %s for thread_id=%s",
+            repo_id or "the main repository",
+            run.thread_id,
+        )
 
 
 async def _read_snapshot(run: AgentRun) -> StateSnapshot | None:
@@ -580,7 +731,7 @@ async def _read_snapshot(run: AgentRun) -> StateSnapshot | None:
     except RedisError, RedisSearchError, OSError, json.JSONDecodeError:
         logger.exception(
             "executor: failed to read the finished run's checkpoint for thread_id=%s; its merge request is lost to "
-            "the result, the ref sync and the CI watch",
+            "the result, the ref sync and the merge request claim",
             run.thread_id,
         )
         return None
@@ -598,16 +749,16 @@ async def _read_snapshot_after_recovery(run: AgentRun) -> StateSnapshot | None:
         return None
 
 
-async def _persist_resolved_agent(spec: RunSpec, *, run_id: str | None, model: str, thinking_level: str) -> None:
+async def _persist_resolved_agent(spec: RunSpec, *, model: str, thinking_level: str) -> None:
     """Overwrite the requested ``agent_model`` on the Run with the resolved one, so the detail view shows what ran
     instead of the "Auto" pill. Never the Session: chat and CI fix runs read ``Session.agent_model`` as the thread's
     pinned override, so writing the resolved model there would pin a model nobody chose.
     Best-effort: a DB error is logged, never raised.
     """
-    if not run_id:
+    if not spec.run_id:
         return
     try:
-        await Run.objects.filter(pk=run_id).aupdate(agent_model=model, agent_thinking_level=thinking_level)
+        await Run.objects.filter(pk=spec.run_id).aupdate(agent_model=model, agent_thinking_level=thinking_level)
     except Exception:
         logger.exception("executor: failed to persist resolved agent model for thread_id=%s", spec.thread_id)
 

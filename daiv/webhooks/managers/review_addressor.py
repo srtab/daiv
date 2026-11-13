@@ -13,6 +13,7 @@ from sessions.executor.spec import RunHooks, RunSpec
 from automation.agent.utils import repo_relative_text
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, MergeRequest, Scope
+from codebase.clients.base import CommentThread
 from codebase.exceptions import CloneRefNotFoundError
 from core.constants import BOT_NAME
 
@@ -51,6 +52,7 @@ class CommentsAddressorManager(BaseManager):
         sandbox_env_id: str | None = None,
         acting_platform_uid: str | None = None,
         run_id: str | None = None,
+        acting_user_id: int | None = None,
     ) -> AgentResult:
         """
         Process comments left directly on the merge request (not in the diff or thread) that mention DAIV.
@@ -65,6 +67,7 @@ class CommentsAddressorManager(BaseManager):
             sandbox_env_id: The sandbox environment the callback selected.
             acting_platform_uid: The platform user id that triggered this run.
             run_id: The ``Run`` row this turn executes, or ``None`` when the callback created none.
+            acting_user_id: The DAIV user the run acts as, its ``Run``'s user; ``None`` for none.
 
         Returns:
             An :class:`AgentResult` dict with the agent response and code_changes flag. A vanished source branch
@@ -80,14 +83,18 @@ class CommentsAddressorManager(BaseManager):
         )
 
         try:
-            return await manager._address_comments(sandbox_env_id=sandbox_env_id, run_id=run_id, use_max=use_max)
+            return await manager._address_comments(
+                sandbox_env_id=sandbox_env_id, run_id=run_id, use_max=use_max, acting_user_id=acting_user_id
+            )
         except CloneRefNotFoundError:
             raise
         except Exception:
             manager._add_unable_to_address_review_note()
             raise
 
-    async def _address_comments(self, *, sandbox_env_id: str | None, run_id: str | None, use_max: bool) -> AgentResult:
+    async def _address_comments(
+        self, *, sandbox_env_id: str | None, run_id: str | None, use_max: bool, acting_user_id: int | None = None
+    ) -> AgentResult:
         note = self.client.get_merge_request_note(
             self.repo_id, self.merge_request.merge_request_id, self._require_mention_note_id()
         )
@@ -104,6 +111,7 @@ class CommentsAddressorManager(BaseManager):
                 use_max=use_max,
                 sandbox_env_id=sandbox_env_id,
                 acting_platform_uid=self.acting_platform_uid,
+                acting_user_id=acting_user_id,
                 run_id=run_id,
                 recover_draft=True,
                 extra_metadata={
@@ -197,7 +205,7 @@ class CommentsAddressorManager(BaseManager):
         if not self._claim_unable_note():
             return
         body = render_to_string(
-            "webhooks/unable_address_review.txt",
+            "core/unable_address_review.txt",
             {
                 "bot_name": BOT_NAME,
                 "bot_username": self.client.current_user.username,
@@ -216,5 +224,8 @@ class CommentsAddressorManager(BaseManager):
             reply_to_id: The ID of the comment to reply to.
         """
         return self.client.create_merge_request_comment(
-            self.repo_id, self.merge_request.merge_request_id, repo_relative_text(body), reply_to_id=reply_to_id
+            self.repo_id,
+            self.merge_request.merge_request_id,
+            repo_relative_text(body),
+            reply_to=CommentThread(reply_to_id) if reply_to_id else None,
         )

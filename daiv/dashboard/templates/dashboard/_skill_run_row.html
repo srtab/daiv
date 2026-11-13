@@ -1,0 +1,38 @@
+{% load humanize i18n icon_tags session_tags %}
+{% comment %}
+A run that invoked the skill, on the Usage tab; the row opens the run in its session. Context: `skill_run`, a
+`dashboard.skill_usage.SkillRun`.
+{% endcomment %}
+{% with run=skill_run.run %}
+<div class="session-row group px-6{% if run.status == 'FAILED' %} session-row--failed{% endif %}">
+    {% if skill_run.url %}
+    <a href="{{ skill_run.url }}" class="absolute inset-0" aria-label="{% translate 'Open run' %}"></a>
+    {% endif %}
+
+    {% if run %}
+    <span class="status-dot status-dot-{{ run.status|status_variant }}"></span>
+    <span class="sr-only">{{ run.get_status_display }}</span>
+    <span class="shrink-0 text-text-faint" title="{{ run.get_trigger_type_display }}">{% icon run.trigger_type|origin_icon "h-4 w-4" %}</span>
+    {% else %}
+    <span class="status-dot status-dot-pending"></span>
+    {% endif %}
+
+    <div class="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden sm:flex-row sm:items-center sm:gap-2.5">
+        <span class="truncate text-[14px] font-medium text-text-strong">
+            {% if skill_run.title %}{{ skill_run.title }}{% elif skill_run.session %}<em class="text-text-faint">{% translate "generating title…" %}</em>{% else %}<em class="text-text-faint">{% translate "Session no longer available" %}</em>{% endif %}
+        </span>
+        <span class="session-repo shrink-0" title="{{ skill_run.repo_slug }}">
+            {% icon "repo" "h-3 w-3 shrink-0" %}<span class="max-w-[120px] truncate sm:max-w-[220px]">{{ skill_run.repo_slug }}</span>
+        </span>
+    </div>
+
+    <div class="flex shrink-0 items-center gap-3">
+        {% if run.agent_model %}<span class="meta-pill hidden lg:inline-flex">{{ run.agent_model }}</span>{% endif %}
+        <time datetime="{{ skill_run.invocation.created|date:'c' }}" title="{{ skill_run.invocation.created|date:'DATETIME_FORMAT' }}"
+              class="min-w-[76px] whitespace-nowrap text-right font-mono text-[12px] tabular-nums text-text-faint">{{ skill_run.invocation.created|naturaltime }}</time>
+        {% if skill_run.url %}
+        {% icon "chevron-right" "h-3.5 w-3.5 text-text-faint transition-colors group-hover:text-text" %}
+        {% endif %}
+    </div>
+</div>
+{% endwith %}

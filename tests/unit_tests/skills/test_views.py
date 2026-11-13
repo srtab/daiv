@@ -9,6 +9,7 @@ from django.contrib.messages import get_messages
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.timesince import timesince
 
 import pytest
 from skills.models import GlobalSkill, SkillInvocation
@@ -115,6 +116,26 @@ def test_upload_with_force_overwrites(client, admin_user, storage, build_skill_z
 
 
 @pytest.mark.django_db
+def test_replaced_skill_shows_last_upload_date(client, admin_user, storage, build_skill_zip):
+    data = build_skill_zip(skill_name="demo")
+    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+    first_upload = timezone.now() - timedelta(days=400)
+    GlobalSkill.objects.filter(name="demo").update(created=first_upload, modified=first_upload)
+    skill = storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
+    last_upload = timezone.localtime(skill.modified).strftime("%Y-%m-%d %H:%M")
+    client.force_login(admin_user)
+
+    listing = client.get(reverse("skills:list")).content.decode()
+    detail = client.get(reverse("skills:detail", args=["demo"])).content.decode()
+    uploaded = SimpleUploadedFile("demo.zip", data, content_type="application/zip")
+    conflict = client.post(reverse("skills:upload"), data={"zip": uploaded}).content.decode()
+
+    assert f"Uploaded {timesince(skill.modified)} ago" in listing
+    assert last_upload in detail
+    assert f"on {last_upload}." in conflict
+
+
+@pytest.mark.django_db
 def test_delete_get_renders_full_page(client, admin_user, storage, build_skill_zip):
     data = build_skill_zip(skill_name="demo")
     storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
@@ -205,7 +226,11 @@ def test_detail_shows_skill_body_and_tree(client, admin_user, storage, build_ski
     assert b"demo" in resp.content
     assert b"A demo skill" in resp.content
     assert b"Hello body" in resp.content
-    assert b"scripts/foo.py" in resp.content
+
+    files = client.get(reverse("skills:files", args=["demo"]))
+    assert files.status_code == 200
+    assert b"scripts/foo.py" in files.content
+    assert b"Hello body" not in files.content
 
 
 @pytest.mark.django_db
@@ -391,8 +416,7 @@ def test_detail_view_renders_builtin_without_global_skill_row(admin_client, tmp_
     (builtin / "plan" / "SKILL.md").write_text("---\nname: plan\ndescription: plan stuff\n---\n# plan\n")
     monkeypatch.setattr("skills.services.BUILTIN_SKILL_NAMES", frozenset({"plan"}))
     monkeypatch.setattr("skills.services.BUILTIN_SKILLS_PATH", builtin)
-    monkeypatch.setattr("skills.views.BUILTIN_SKILL_NAMES", frozenset({"plan"}))
-    monkeypatch.setattr("skills.views.BUILTIN_SKILLS_PATH", builtin)
+    monkeypatch.setattr("skills.pages.BUILTIN_SKILL_DIRS", {"plan": builtin / "plan"})
     # list_builtins is lru_cached: clear before populating it against tmp_path,
     # and register a teardown so the next test doesn't see entries pointing at
     # a now-deleted tmp dir.
@@ -403,54 +427,11 @@ def test_detail_view_renders_builtin_without_global_skill_row(admin_client, tmp_
 
     response = admin_client.get(reverse("skills:detail", args=["plan"]))
     assert response.status_code == 200
-    assert response.context["source"] == "builtin"
-    assert response.context["skill"]["name"] == "plan"
-    assert "plan stuff" in response.context["skill"]["description"]
+    assert response.context["skill"].source == SkillInvocation.Source.BUILTIN
+    assert response.context["skill"].name == "plan"
+    assert "plan stuff" in response.context["skill"].description
     # No GlobalSkill row exists; the view must not raise 404.
     assert not GlobalSkill.objects.filter(name="plan").exists()
-
-
-@pytest.mark.django_db
-def test_detail_view_renders_global_skill_with_usage_block(admin_client, admin_user, storage, build_skill_zip):
-    data = build_skill_zip(skill_name="custom-one", description="x")
-    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
-    now = timezone.now()
-    for offset in (0, 1, 1, 5, 31):  # 31 is older than the 30-day window
-        inv = SkillInvocation.objects.create(
-            name="custom-one", source=SkillInvocation.Source.GLOBAL, repo_slug="org/repo", thread_id=uuid.uuid4()
-        )
-        SkillInvocation.objects.filter(pk=inv.pk).update(created=now - timedelta(days=offset))
-
-    response = admin_client.get(reverse("skills:detail", args=["custom-one"]))
-    assert response.status_code == 200
-    assert response.context["source"] == "global"
-
-    usage = response.context["usage"]
-    assert usage["total"] == 5
-    # Daily series always has exactly 30 entries, oldest first.
-    assert len(usage["daily_series"]) == 30
-    assert usage["daily_series"][-1]["day"] == timezone.localdate()
-    # Today has 1, yesterday has 2 (offset 1 twice), 5 days ago has 1, 31 days ago is dropped.
-    counts = {entry["day"]: entry["count"] for entry in usage["daily_series"]}
-    today = timezone.localdate()
-    assert counts[today] == 1
-    assert counts[today - timedelta(days=1)] == 2
-    assert counts[today - timedelta(days=5)] == 1
-    # Recent is capped at 20, newest first.
-    assert len(usage["recent"]) == 5
-    assert usage["recent"][0].created >= usage["recent"][-1].created
-
-
-@pytest.mark.django_db
-def test_detail_view_empty_usage(admin_client, admin_user, storage, build_skill_zip):
-    data = build_skill_zip(skill_name="quiet", description="x")
-    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
-    response = admin_client.get(reverse("skills:detail", args=["quiet"]))
-    usage = response.context["usage"]
-    assert usage["total"] == 0
-    assert usage["last_30_total"] == 0
-    assert all(entry["count"] == 0 for entry in usage["daily_series"])
-    assert usage["recent"] == []
 
 
 @pytest.mark.django_db
@@ -464,8 +445,7 @@ def test_detail_view_builtin_missing_skill_md_logs_and_404s(admin_client, tmp_pa
     (builtin / "broken").mkdir(parents=True)  # directory exists but no SKILL.md
     monkeypatch.setattr("skills.services.BUILTIN_SKILL_NAMES", frozenset({"broken"}))
     monkeypatch.setattr("skills.services.BUILTIN_SKILLS_PATH", builtin)
-    monkeypatch.setattr("skills.views.BUILTIN_SKILL_NAMES", frozenset({"broken"}))
-    monkeypatch.setattr("skills.views.BUILTIN_SKILLS_PATH", builtin)
+    monkeypatch.setattr("skills.pages.BUILTIN_SKILL_DIRS", {"broken": builtin / "broken"})
     from skills.services import list_builtins
 
     list_builtins.cache_clear()
@@ -484,13 +464,12 @@ def test_detail_view_prefers_global_override_over_builtin(
     """When a custom global skill shadows a built-in, the detail page must render the
     custom one — that's the skill the agent actually runs."""
     monkeypatch.setattr("skills.services.BUILTIN_SKILL_NAMES", frozenset({"plan"}))
-    monkeypatch.setattr("skills.views.BUILTIN_SKILL_NAMES", frozenset({"plan"}))
     data = build_skill_zip(skill_name="plan", description="my override")
     storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
 
     response = admin_client.get(reverse("skills:detail", args=["plan"]))
     assert response.status_code == 200
-    assert response.context["source"] == "global"
+    assert response.context["skill"].source == SkillInvocation.Source.GLOBAL
     assert response.context["skill"].description == "my override"
 
 
@@ -520,20 +499,47 @@ def test_list_hides_shadowed_builtin_and_marks_override(
 
 
 @pytest.mark.django_db
-def test_detail_view_only_old_invocations_shows_empty_state(admin_client, admin_user, storage, build_skill_zip):
-    """All invocations older than 30 days: lifetime total > 0, but last-30 is 0
-    so the empty-state placeholder renders instead of an all-zero chart."""
-    data = build_skill_zip(skill_name="stale", description="x")
-    storage.replace(SkillPackage.inspect(io.BytesIO(data)), uploaded_by=admin_user)
-    now = timezone.now()
-    for offset in (45, 60, 100):
-        inv = SkillInvocation.objects.create(
-            name="stale", source=SkillInvocation.Source.GLOBAL, repo_slug="org/repo", thread_id=uuid.uuid4()
-        )
-        SkillInvocation.objects.filter(pk=inv.pk).update(created=now - timedelta(days=offset))
+def test_every_tab_links_the_others_and_marks_the_current_one(admin_client, admin_user, storage, build_skill_zip):
+    storage.replace(SkillPackage.inspect(io.BytesIO(build_skill_zip(skill_name="demo"))), uploaded_by=admin_user)
 
-    response = admin_client.get(reverse("skills:detail", args=["stale"]))
-    usage = response.context["usage"]
-    assert usage["total"] == 3
-    assert usage["last_30_total"] == 0
-    assert all(entry["count"] == 0 for entry in usage["daily_series"])
+    response = admin_client.get(reverse("skills:files", args=["demo"]))
+
+    tabs = response.context["skill_tabs"]
+    assert [tab["url"] for tab in tabs] == [
+        reverse(f"skills:{name}", args=["demo"]) for name in ("detail", "files", "models", "usage")
+    ]
+    assert [tab["current"] for tab in tabs] == [False, True, False, False]
+    assert 'aria-current="page"' in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_the_models_tab_counts_the_skill_s_entries(admin_client, admin_user, storage, build_skill_zip):
+    from core.models import SiteConfiguration
+
+    storage.replace(SkillPackage.inspect(io.BytesIO(build_skill_zip(skill_name="demo"))), uploaded_by=admin_user)
+    config = SiteConfiguration.objects.get_instance()
+    config.agent_skill_models = {"demo": "openai:gpt-5.4"}
+    config.save()
+
+    response = admin_client.get(reverse("skills:detail", args=["demo"]))
+
+    models_tab = next(tab for tab in response.context["skill_tabs"] if tab["url"].endswith("/models/"))
+    assert models_tab["count"] == 1
+
+
+@pytest.mark.django_db
+def test_the_list_shows_a_skill_s_model_entry(admin_client, admin_user, storage, build_skill_zip):
+    from core.models import SiteConfiguration
+
+    storage.replace(SkillPackage.inspect(io.BytesIO(build_skill_zip(skill_name="demo"))), uploaded_by=admin_user)
+    config = SiteConfiguration.objects.get_instance()
+    config.agent_skill_models = {"demo": "openrouter:anthropic/claude-opus-5-5"}
+    config.agent_subagent_models = {"cr-security": "openai:gpt-5.4"}
+    config.save()
+
+    response = admin_client.get(reverse("skills:list"))
+
+    demo = next(skill for skill in response.context["custom_skills"] if skill.name == "demo")
+    assert (demo.model, demo.subagent_models) == ("claude-opus-5-5", 0)
+    code_review = next(skill for skill in response.context["builtin_skills"] if skill["name"] == "code-review")
+    assert (code_review["model"], code_review["subagent_models"]) == ("", 1)

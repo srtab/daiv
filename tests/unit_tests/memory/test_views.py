@@ -32,6 +32,14 @@ def test_list_allows_member(client, member_user):
 
 
 @pytest.mark.django_db
+def test_list_search_input_has_aria_label(client, member_user):
+    client.force_login(member_user)
+    resp = client.get(reverse("memory:list"))
+    assert resp.status_code == 200
+    assert 'aria-label="Search by repository"' in resp.content.decode()
+
+
+@pytest.mark.django_db
 def test_list_unions_repos_from_both_tables(client, member_user):
     # Repo A: only observations, never consolidated.
     MemoryObservation.objects.create(repo_id="group/only-obs", category=ObservationCategory.PITFALL, content="x" * 20)

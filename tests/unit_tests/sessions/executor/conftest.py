@@ -12,13 +12,14 @@ from langchain_core.messages import HumanMessage
 from sessions.executor.lock import NoLock
 from sessions.executor.result import parse_agent_result
 from sessions.executor.spec import RunSpec
+from sessions.inbox.ownership import Ownerships
 
 from automation.agent.agent_settings import RunOverrides
 from automation.agent.workspace.session import SessionSeed
 from codebase.base import Scope
 from core.site_settings import site_settings
 from tests.unit_tests.conftest import agent_settings, site_snapshot, stub_sandbox_spec
-from tests.unit_tests.sessions.conftest import watch_recorder
+from tests.unit_tests.sessions.conftest import claim_recorder
 
 if TYPE_CHECKING:
     from automation.agent.agent_settings import AgentSettings
@@ -59,6 +60,30 @@ SITE_URL = "https://daiv.test"
 
 
 @contextmanager
+def _stub_live_relay(stack: SimpleNamespace):
+    """Stub the run relay ``execute_run`` streams to, recording each live invocation in ``stack.live_calls``."""
+
+    async def _ainvoke_live(agent, graph_input, *, config, context, recursion_limit, run_relay):
+        stack.live_calls.append(
+            SimpleNamespace(run_relay=run_relay, recursion_limit=recursion_limit, graph_input=graph_input)
+        )
+        return await agent.ainvoke(graph_input, config=config, context=context)
+
+    async def _end_stream(run_relay):
+        stack.events.append("stream ended")
+
+    with (
+        patch("sessions.live.publisher.ainvoke_live", _ainvoke_live),
+        patch("sessions.live.publisher.end_stream", _end_stream),
+        patch("core.redis.RedisConnections.configured", new_callable=PropertyMock, return_value=True) as configured,
+        patch(
+            "core.redis.redis_connections.build_async_client", return_value=MagicMock(aclose=AsyncMock())
+        ) as build_client,
+    ):
+        yield configured, build_client
+
+
+@contextmanager
 def agent_stack(
     agent,
     *,
@@ -79,6 +104,9 @@ def agent_stack(
     to the clone. ``build_servers`` stubs ``build_runtime_servers``; the servers it returns are the ones handed to the
     agent. ``build_absolute_url`` stubs the session links' URL builder, resolving against ``SITE_URL``.
     ``session_guard`` keeps the real cross-project session check, which reads the ``Session`` row.
+    ``delegator_for`` stubs ``SessionJobDelegator.afor``; the delegator it returns is the one a run that may delegate
+    hands over.
+    ``fast_forward`` stubs bringing a warm checkout up to the remote branch; it reports nothing tried.
     """
     last_checkpoint = None if checkpointed is None else SimpleNamespace(checkpoint={"channel_values": checkpointed})
     stack = SimpleNamespace(
@@ -88,7 +116,7 @@ def agent_stack(
         if ctx is not None
         else disk_ctx(repo=SimpleNamespace(ref="main", head_detached=False, clone_seconds=1.5)),
         checkpointer=SimpleNamespace(aget_tuple=AsyncMock(return_value=last_checkpoint)),
-        armed=[],
+        claimed=[],
         live_calls=[],
         resolve=resolve or MagicMock(return_value=resolved_to("claude-4-7-opus", "fallback", thinking_level="medium")),
         site=site or site_snapshot(),
@@ -114,32 +142,23 @@ def agent_stack(
         stack.events.append("result built")
         return parse_agent_result(kwargs)
 
-    class _Watch(watch_recorder(stack.armed)):
-        async def aarm_after_run(self, **kwargs):
-            stack.events.append("watch armed")
-            await super().aarm_after_run(**kwargs)
+    record_claim = claim_recorder(stack.claimed)
 
-    async def _ainvoke_live(agent, graph_input, *, config, context, recursion_limit, run_relay):
-        stack.live_calls.append(
-            SimpleNamespace(run_relay=run_relay, recursion_limit=recursion_limit, graph_input=graph_input)
-        )
-        return await agent.ainvoke(graph_input, config=config, context=context)
+    async def _claim(**kwargs):
+        stack.events.append("merge request claimed")
+        await record_claim(**kwargs)
 
-    async def _end_stream(run_relay):
-        stack.events.append("stream ended")
+    persist = AsyncMock(side_effect=_persist_ref)
+    persist_extra = AsyncMock()
+    reset = AsyncMock()
+    load_extra_repos = AsyncMock(return_value=[])
+    session_ref = AsyncMock(return_value="")
 
-    run_patches = {"PipelineWatch": _Watch}
-    if not session_guard:
-        run_patches["_refuse_cross_project_session"] = AsyncMock()
+    run_patches = {} if session_guard else {"_refuse_cross_project_session": AsyncMock()}
 
     with (
         stub_sandbox_spec() as build_spec,
-        patch("sessions.live.publisher.ainvoke_live", _ainvoke_live),
-        patch("sessions.live.publisher.end_stream", _end_stream),
-        patch("core.redis.RedisConnections.configured", new_callable=PropertyMock, return_value=True) as configured,
-        patch(
-            "core.redis.redis_connections.build_async_client", return_value=MagicMock(aclose=AsyncMock())
-        ) as build_client,
+        _stub_live_relay(stack) as (configured, build_client),
         patch("automation.agent.context.set_runtime_ctx", context or _set_runtime_ctx),
         patch("core.checkpointer.open_checkpointer", _open_checkpointer),
         patch.object(site_settings, "snapshot", return_value=stack.site) as snapshot,
@@ -149,10 +168,20 @@ def agent_stack(
         patch("automation.agent.utils.build_langsmith_config", return_value={"configurable": {}}) as langsmith,
         patch("sessions.executor.result.build_agent_result", side_effect=_build_result) as build_result,
         patch("automation.agent.usage_tracking.build_usage_summary", return_value=MagicMock(to_dict=dict)),
-        patch("automation.agent.usage_tracking.track_usage_metadata"),
-        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock(side_effect=_persist_ref)) as persist,
-        patch("sessions.executor.run.areset_session_ref", new=AsyncMock()) as reset,
-        patch.multiple("sessions.executor.run", **run_patches),
+        patch.multiple(
+            "sessions.executor.run",
+            apersist_session_ref=persist,
+            apersist_extra_repo_state=persist_extra,
+            areset_session_ref=reset,
+            aload_extra_repos=load_extra_repos,
+            aget_session_ref=session_ref,
+            **run_patches,
+        ),
+        patch.object(Ownerships, "aclaim", _claim),
+        patch("sessions.executor.run._fast_forward", new=AsyncMock(return_value=None)) as fast_forward,
+        patch(
+            "sessions.executor.run.SessionJobDelegator.afor", new=AsyncMock(return_value=MagicMock())
+        ) as delegator_for,
         patch(
             "sessions.executor.run.build_absolute_url", side_effect=lambda path: f"{SITE_URL}{path}"
         ) as build_absolute_url,
@@ -170,9 +199,14 @@ def agent_stack(
         stack.langsmith = langsmith
         stack.build_result = build_result
         stack.persist = persist
+        stack.persist_extra = persist_extra
         stack.reset = reset
+        stack.load_extra_repos = load_extra_repos
+        stack.session_ref = session_ref
         stack.build_absolute_url = build_absolute_url
         stack.guard = run_patches.get("_refuse_cross_project_session")
+        stack.delegator_for = delegator_for
+        stack.fast_forward = fast_forward
         yield stack
 
 
@@ -187,6 +221,8 @@ def publisher_through_workspace(created: list, *, publishes: MergeRequest):
         async def publish(self, *, merge_request: MergeRequest | None, as_draft: bool):
             self.target = (merge_request, as_draft)
             await self.workspace.bash.run_commands(["git push origin HEAD"], fail_fast=True)
-            return SimpleNamespace(merge_request=publishes, protected_branch_fallback_source=None)
+            return SimpleNamespace(
+                merge_request=publishes, protected_branch_fallback_source=None, created_merge_request=False
+            )
 
     return _Publisher

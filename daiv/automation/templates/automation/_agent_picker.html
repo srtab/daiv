@@ -81,6 +81,9 @@ Parameters:
                                        level word shown after the locked model name, for callers whose
                                        scope tracks a just-committed selection. Falls back to the
                                        server-rendered ``initial_thinking_level``.
+- default_hint (default False)       — settings only: while nothing is picked, a "default" word beside
+                                       the pill and a muted name, so the placeholder reads as what
+                                       serves instead rather than as a picked model.
 
 The caller is responsible for loading ``automation/js/agent-picker.js`` (deferred).
 {% endcomment %}
@@ -106,7 +109,7 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
       title="{% if stale %}{% translate 'This model is no longer available — start a new thread to pick another.' %}{% elif locked_title %}{{ locked_title }}{% else %}{% translate 'Locked for this conversation' %}{% endif %}"
       aria-disabled="true">
     {% if not stale %}{% icon "cpu-chip" "agent-pill__icon" %}{% endif %}
-    <span class="agent-pill__name"{% if dynamic_label_expr %} x-text="{{ dynamic_label_expr }}"{% endif %}>{% if initial_model_display %}{{ initial_model_display }}{% elif initial_agent_model %}{{ initial_agent_model }}{% else %}{% translate "Pick a model" %}{% endif %}</span>
+    <span class="agent-pill__name{% if default_hint and not initial_agent_model %} agent-pill__name--default{% endif %}"{% if dynamic_label_expr %} x-text="{{ dynamic_label_expr }}"{% endif %}>{% if initial_model_display %}{{ initial_model_display }}{% elif initial_agent_model %}{{ initial_agent_model }}{% elif placeholder_label %}{{ placeholder_label }}{% else %}{% translate "Pick a model" %}{% endif %}</span>
     {% if initial_effort_dots %}
         {# The ``"12345"`` literal is the standard Django idiom for a fixed-count loop whose value isn't read. #}
         <span class="agent-pill__effort">
@@ -134,8 +137,11 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
         seedDefault: {% if seed_default|default_if_none:True %}true{% else %}false{% endif %},
         required: {% if required|default_if_none:True %}true{% else %}false{% endif %}
      })'
-     class="relative inline-flex">
+     class="relative inline-flex{% if default_hint %} items-center gap-2{% endif %}">
 
+    {% if default_hint %}
+    <span class="agent-picker__default-hint" x-show="!agentModelValue">{% translate "default" %}</span>
+    {% endif %}
     {# One trigger; ``variant`` selects only its chrome, so the toggle wiring, aria contract and stale tooltip cannot drift. #}
     <button type="button"
             @click.stop="toggle()"
@@ -148,7 +154,7 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
         {% if stale %}<span class="agent-pill__stale-marker" aria-hidden="true">!</span>{% endif %}
         {% else %}
         {% if not stale %}{% icon "cpu-chip" "agent-pill__icon" %}{% endif %}
-        <span class="agent-pill__name" x-text="pillLabel.name"></span>
+        <span class="agent-pill__name" x-text="pillLabel.name"{% if default_hint %} :class="{ 'agent-pill__name--default': !agentModelValue }"{% endif %}></span>
         {% if stale %}<span class="agent-pill__stale-marker" aria-hidden="true">!</span>{% endif %}
         <span class="agent-pill__effort" x-show="pillLabel.effortDots > 0" x-cloak>
             {% icon "bolt" "agent-pill__effort-icon" %}
@@ -165,6 +171,7 @@ The caller is responsible for loading ``automation/js/agent-picker.js`` (deferre
     <div x-show="open" x-cloak
          @click.outside="close()"
          @keydown.escape.window="close()"
+         data-surface
          class="picker-popover">
 
         {% include "core/_sheet_head.html" with title=_("Model") close_expr="close()" %}

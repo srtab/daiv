@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 from functools import partial
 from typing import TYPE_CHECKING
@@ -229,7 +230,7 @@ async def run_github_subcommand(
             runtime=runtime, provider=GitPlatform.GITHUB, display_name=GITHUB_CLI.display_name, decision=decision
         )
     else:
-        token, state_update = _get_cached_github_cli_token(runtime)
+        token, state_update = await asyncio.to_thread(_get_cached_github_cli_token, runtime)
         token_env = {"GH_TOKEN": token}
         outcomes = None
 

@@ -13,6 +13,7 @@ from automation.agent.deferred.inline import inline_block_builder, with_inline_d
 from automation.agent.deferred.prompt import build_deferred_tools_block
 from automation.agent.deferred.search_tool import TOOL_SEARCH_NAME, make_tool_search
 from automation.agent.deferred.state import DeferredToolsState
+from automation.agent.usage_tracking import chat_model_name
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable, Sequence
@@ -33,8 +34,7 @@ def _model_name(model: object) -> str:
     misconfiguration or an upstream shape change that silently forfeits the cache benefit, so it is
     logged rather than swallowed.
     """
-    name = getattr(model, "model_name", None) or getattr(model, "model", None)
-    if isinstance(name, str):
+    if name := chat_model_name(model):
         return name
     if model is not None:
         logger.warning(

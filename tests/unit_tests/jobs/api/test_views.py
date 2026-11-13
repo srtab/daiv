@@ -1,12 +1,17 @@
 import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
+
+from django.utils import timezone
 
 import pytest
 from asgiref.sync import async_to_sync, sync_to_async
 from django_tasks_db.models import DBTaskResult
+from mcp_connectors.models import MCPServer
 from ninja.testing import TestAsyncClient
 from sessions.executor.tasks import run_job_task
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import EventKind, InboxEvent, Run, RunStatus, Session, SessionOrigin
+from sessions.services import BatchSubmitResult
 
 from accounts.models import APIKey, User
 from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
@@ -14,6 +19,7 @@ from core.models import Provider, ProviderType
 from core.site_settings import site_settings
 from daiv.api import api
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD
+from tests.unit_tests.mcp_connectors.helpers import only_servers
 from tests.unit_tests.sessions.conftest import FakeRun, fake_acreate_run, make_artifact, make_task_result
 
 
@@ -239,7 +245,7 @@ def _fake_submit_factory(captured: dict):
     async def _fake_submit(**kwargs):
         captured.update(kwargs)
         run = FakeRun(task_result_id=None)
-        return BatchSubmitResult(batch_id=uuid.uuid4(), runs=[run], failed=[])
+        return BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[run])
 
     return _fake_submit
 
@@ -248,10 +254,63 @@ def _fake_submit_factory(captured: dict):
 async def test_submit_job_accepts_muted_and_forwards_it(authenticated_client: TestAsyncClient):
     """POST /jobs with muted=True threads ``muted=True`` into ``asubmit_batch_runs``."""
     captured: dict = {}
-    with patch("jobs.api.views.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)):
+    with patch("sessions.multi_repo.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)):
         response = await authenticated_client.post("/jobs", json=_single_repo_body(muted=True))
     assert response.status_code == 202
     assert captured.get("muted") is True
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_gives_a_repository_its_own_prompt(authenticated_client: TestAsyncClient):
+    from sessions.services import RepoTarget
+
+    captured: dict = {}
+    body = _single_repo_body(repos=[{"repo_id": "group/project", "prompt": "only here"}], prompt="batch")
+    with patch("sessions.multi_repo.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)):
+        response = await authenticated_client.post("/jobs", json=body)
+
+    assert response.status_code == 202
+    assert captured["prompt"] == "batch"
+    assert captured["repos"] == [RepoTarget(repo_id="group/project", prompt="only here")]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_forwards_resolved_mcp_overrides(authenticated_client: TestAsyncClient):
+    await sync_to_async(only_servers)(("grafana", MCPServer.Status.ON_DEMAND))
+    captured: dict = {}
+    with patch("sessions.multi_repo.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)):
+        response = await authenticated_client.post("/jobs", json=_single_repo_body(mcp_overrides={"grafana": True}))
+
+    assert response.status_code == 202
+    assert captured["mcp_overrides"] == {"grafana": "on"}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_refuses_a_blank_per_repository_prompt(authenticated_client: TestAsyncClient):
+    body = _single_repo_body(repos=[{"repo_id": "group/project", "prompt": "  "}])
+
+    response = await authenticated_client.post("/jobs", json=body)
+
+    assert response.status_code == 422
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_reports_each_entry_of_a_repository_listed_twice(authenticated_client: TestAsyncClient):
+    from sessions.services import BatchSubmitFailure, BatchSubmitResult
+
+    run = FakeRun(task_result_id=None)
+    result = BatchSubmitResult(
+        batch_id=uuid.uuid4(), outcomes=[BatchSubmitFailure(repo_id="group/project", ref="", error="boom"), run]
+    )
+    body = _single_repo_body(
+        repos=[{"repo_id": "group/project", "prompt": "first"}, {"repo_id": "group/project", "prompt": "second"}]
+    )
+    with patch("sessions.multi_repo.asubmit_batch_runs", new=AsyncMock(return_value=result)):
+        response = await authenticated_client.post("/jobs", json=body)
+
+    assert response.status_code == 202
+    assert [job["job_id"] for job in response.json()["jobs"]] == [str(run.id)]
+    assert [failure["error"] for failure in response.json()["failed"]] == ["boom"]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -265,7 +324,7 @@ async def test_submit_job_notify_on_rejected(authenticated_client: TestAsyncClie
 async def test_submit_job_muted_defaults_to_false(authenticated_client: TestAsyncClient):
     """Omitting ``muted`` defaults to False."""
     captured: dict = {}
-    with patch("jobs.api.views.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)):
+    with patch("sessions.multi_repo.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)):
         response = await authenticated_client.post("/jobs", json=_single_repo_body())
     assert response.status_code == 202
     assert captured.get("muted") is False
@@ -273,7 +332,7 @@ async def test_submit_job_muted_defaults_to_false(authenticated_client: TestAsyn
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_refuses_with_400_when_no_model_can_be_resolved(authenticated_client: TestAsyncClient):
-    with patch.multiple(site_settings, agent_model_name=""), patch("jobs.api.views.asubmit_batch_runs") as submit:
+    with patch.multiple(site_settings, agent_model_name=""), patch("sessions.multi_repo.asubmit_batch_runs") as submit:
         response = await authenticated_client.post("/jobs", json=_single_repo_body())
 
     assert response.status_code == 400
@@ -287,7 +346,7 @@ async def test_submit_job_accepts_an_explicit_model_when_the_site_has_none(authe
     with (
         patch.multiple(site_settings, agent_model_name=""),
         patch("automation.agent.validators.validate_agent_override", return_value=("openrouter:z-ai/glm-5.2", "")),
-        patch("jobs.api.views.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)),
+        patch("sessions.multi_repo.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)),
     ):
         response = await authenticated_client.post(
             "/jobs", json=_single_repo_body(agent_model="openrouter:z-ai/glm-5.2")
@@ -295,6 +354,164 @@ async def test_submit_job_accepts_an_explicit_model_when_the_site_has_none(authe
 
     assert response.status_code == 202
     assert captured["agent_model"] == "openrouter:z-ai/glm-5.2"
+
+
+_SHARED_BODY = {"repos": [{"repo_id": "g/app"}, {"repo_id": "g/mod"}], "prompt": "x"}
+
+
+def _shared_submit(captured: dict):
+    from sessions.services import BatchSubmitResult
+
+    async def _fake(**kwargs):
+        captured.update(kwargs)
+        return BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[FakeRun(task_result_id=None)], shared=True)
+
+    return _fake
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_shared_session_returns_one_job_on_the_main_repo(authenticated_client: TestAsyncClient):
+    captured: dict = {}
+    with patch("sessions.multi_repo._asubmit_shared_session_run", side_effect=_shared_submit(captured)):
+        response = await authenticated_client.post("/jobs", json={**_SHARED_BODY, "shared_session": True})
+
+    assert response.status_code == 202
+    assert [job["repo_id"] for job in response.json()["jobs"]] == ["g/app"]
+    assert [t.repo_id for t in captured["repos"]] == ["g/app", "g/mod"]
+    assert captured["thread_id"] is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_shared_session_errors_are_400(authenticated_client: TestAsyncClient):
+    from sessions.multi_repo import SharedSessionError
+
+    with patch("sessions.multi_repo._asubmit_shared_session_run", side_effect=SharedSessionError("too many")):
+        response = await authenticated_client.post("/jobs", json={**_SHARED_BODY, "shared_session": True})
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "too many"}
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    "repos",
+    [
+        [{"repo_id": f"g/r{i}"} for i in range(6)],
+        [{"repo_id": "g/app"}, {"repo_id": "g/app"}],
+        [{"repo_id": "g/app"}, {"repo_id": "g/mod", "prompt": "other"}],
+    ],
+    ids=["too-many", "duplicate", "per-repo-prompt"],
+)
+async def test_a_bad_shared_session_list_is_refused_before_admission(authenticated_client: TestAsyncClient, repos):
+    with patch("sessions.multi_repo.aadmit") as admit:
+        response = await authenticated_client.post(
+            "/jobs", json={"repos": repos, "prompt": "x", "shared_session": True}
+        )
+
+    assert response.status_code == 400
+    admit.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_shared_continuation_with_a_ref_is_refused_before_admission(authenticated_client: TestAsyncClient):
+    user = await User.objects.aget(username="testuser")
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, user=user, repo_id="g/app"
+    )
+
+    with (
+        patch("sessions.multi_repo.ais_multi_repo", new=AsyncMock(return_value=True)),
+        patch("sessions.multi_repo.aadmit") as admit,
+    ):
+        response = await authenticated_client.post(
+            "/jobs", json={"repos": [{"repo_id": "g/app", "ref": "dev"}], "prompt": "x", "thread_id": session.thread_id}
+        )
+
+    assert response.status_code == 400
+    assert "cannot set a ref" in response.json()["detail"]
+    admit.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_continuing_a_multi_repo_thread_needs_no_flag(authenticated_client: TestAsyncClient):
+    user = await User.objects.aget(username="testuser")
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, user=user, repo_id="g/app"
+    )
+    captured: dict = {}
+    with (
+        patch("sessions.multi_repo.ais_multi_repo", new=AsyncMock(return_value=True)),
+        patch("sessions.multi_repo._asubmit_shared_session_run", side_effect=_shared_submit(captured)),
+        patch("sessions.multi_repo.asubmit_batch_runs") as batch,
+    ):
+        response = await authenticated_client.post(
+            "/jobs", json={"repos": [{"repo_id": "g/app"}], "prompt": "x", "thread_id": session.thread_id}
+        )
+
+    assert response.status_code == 202
+    assert captured["thread_id"] == session.thread_id
+    batch.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_multi_repo_thread_still_requires_ownership(authenticated_client: TestAsyncClient):
+    with patch("sessions.multi_repo.ais_multi_repo", new=AsyncMock(return_value=True)):
+        response = await authenticated_client.post(
+            "/jobs", json={"repos": [{"repo_id": "g/app"}], "prompt": "x", "thread_id": str(uuid.uuid4())}
+        )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "thread_id not found"}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_failed_continuation_of_a_multi_repo_thread_is_reported_as_failed(
+    authenticated_client: TestAsyncClient,
+):
+    from sessions.models import SessionRepository
+
+    user = await User.objects.aget(username="testuser")
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, user=user, repo_id="g/app", ref="daiv/fix-1"
+    )
+    await SessionRepository.objects.acreate(session=session, position=1, repo_id="g/mod")
+
+    with patch("sessions.queue.run_job_task") as task:
+        task.aenqueue = AsyncMock(side_effect=RuntimeError("down"))
+        response = await authenticated_client.post(
+            "/jobs", json={"repos": [{"repo_id": "g/app"}], "prompt": "x", "thread_id": session.thread_id}
+        )
+
+    assert response.status_code == 202
+    data = response.json()
+    assert data["jobs"] == []
+    assert [(f["repo_id"], f["ref"]) for f in data["failed"]] == [("g/app", "")]
+    assert data["failed"][0]["error"] == "FollowUpNotStarted: not_started"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_batch_path_unchanged_without_flag(authenticated_client: TestAsyncClient):
+    captured: dict = {}
+    with (
+        patch("sessions.multi_repo.asubmit_batch_runs", side_effect=_fake_batch_two(captured)),
+        patch("sessions.multi_repo._asubmit_shared_session_run") as shared,
+    ):
+        response = await authenticated_client.post("/jobs", json=_SHARED_BODY)
+
+    assert response.status_code == 202
+    assert len(response.json()["jobs"]) == 2
+    shared.assert_not_called()
+
+
+def _fake_batch_two(captured: dict):
+    from sessions.services import BatchSubmitResult
+
+    async def _fake(**kwargs):
+        captured.update(kwargs)
+        runs = [FakeRun(task_result_id=None), FakeRun(task_result_id=None)]
+        return BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=runs)
+
+    return _fake
 
 
 @pytest.mark.django_db(transaction=True)
@@ -346,6 +563,38 @@ async def test_get_job_status_successful(authenticated_client: TestAsyncClient):
     assert data["status"] == "SUCCESSFUL"
     assert data["result"] == "Here are the files..."
     assert data["error"] is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_job_status_lists_every_mr_and_error(authenticated_client: TestAsyncClient):
+    user = await User.objects.aget(username="testuser")
+    run = await _create_run_row(user, merge_request_web_url="https://git/g/main/-/merge_requests/1")
+    run.merge_requests = [
+        {"repo_id": "group/project", "merge_request_id": 1, "web_url": "https://git/g/main/-/merge_requests/1"},
+        {"repo_id": "g/mod", "merge_request_id": 7, "web_url": "https://git/g/mod/-/merge_requests/7"},
+    ]
+    run.publish_errors = [{"repo_id": "g/lib", "error": "Publishing to g/lib failed (X)"}]
+    await run.asave()
+
+    data = (await authenticated_client.get(f"/jobs/{run.id}")).json()
+
+    assert data["merge_request_url"] == "https://git/g/main/-/merge_requests/1"
+    assert data["merge_requests"] == [
+        {"repo_id": "group/project", "url": "https://git/g/main/-/merge_requests/1"},
+        {"repo_id": "g/mod", "url": "https://git/g/mod/-/merge_requests/7"},
+    ]
+    assert data["publish_errors"] == [{"repo_id": "g/lib", "error": "Publishing to g/lib failed (X)"}]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_job_status_legacy_run_lists_its_single_mr(authenticated_client: TestAsyncClient):
+    user = await User.objects.aget(username="testuser")
+    run = await _create_run_row(user, merge_request_web_url="https://git/g/p/-/merge_requests/3")
+
+    data = (await authenticated_client.get(f"/jobs/{run.id}")).json()
+
+    assert data["merge_requests"] == [{"repo_id": "group/project", "url": "https://git/g/p/-/merge_requests/3"}]
+    assert data["publish_errors"] == []
 
 
 @pytest.mark.django_db(transaction=True)
@@ -456,7 +705,7 @@ async def test_a_thread_holding_another_persons_cross_project_results_cannot_be_
     run = await _create_run_row(user, status="SUCCESSFUL")
     await Session.objects.filter(pk=run.session_id).aupdate(cross_project_user_ids=[user.pk + 1])
 
-    with patch("jobs.api.views.asubmit_batch_runs") as submit:
+    with patch("sessions.multi_repo.asubmit_batch_runs") as submit:
         response = await authenticated_client.post("/jobs", json=_single_repo_body(thread_id=str(run.session_id)))
 
     assert response.status_code == 400
@@ -479,11 +728,38 @@ class TestThreadContinuationAPI:
         assert body["jobs"][0]["thread_id"]
         assert body["jobs"][0]["status"] == "READY"
 
+    async def test_a_follow_up_whose_run_already_started_is_reported_accepted(self, authenticated_client):
+        """The inbox may start a follow-up's run before the submit returns; it is still the job the caller asked for."""
+        run = SimpleNamespace(id=uuid.uuid4(), session_id=uuid.uuid4(), status=RunStatus.RUNNING)
+        result = BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[run])
+        with patch("sessions.multi_repo.asubmit_batch_runs", new=AsyncMock(return_value=result)):
+            response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="x"))
+
+        assert response.status_code == 202
+        assert response.json()["jobs"][0] == {
+            "job_id": str(run.id),
+            "repo_id": "group/project",
+            "ref": None,
+            "thread_id": str(run.session_id),
+            "status": "READY",
+        }
+
     async def test_continuation_with_unknown_thread_id_rejects(self, authenticated_client):
         body = _single_repo_body(prompt="x", thread_id=str(uuid.uuid4()))
         response = await authenticated_client.post("/jobs", json=body)
         assert response.status_code == 400
         assert "thread_id not found" in response.json()["detail"]
+
+    async def test_continuation_of_an_archived_session_rejects(self, authenticated_client, db):
+        user = await User.objects.aget(username="testuser")
+        thread = str(uuid.uuid4())
+        await Session.objects.acreate(
+            thread_id=thread, origin=SessionOrigin.API_JOB, repo_id="a/b", user=user, archived_at=timezone.now()
+        )
+        body = _single_repo_body(prompt="x", thread_id=thread)
+        response = await authenticated_client.post("/jobs", json=body)
+        assert response.status_code == 400
+        assert response.json()["detail"] == "thread_id is archived; unarchive the session to continue it"
 
     async def test_continuation_with_other_user_thread_id_rejects(self, authenticated_client, db):
         other = await User.objects.acreate_user(username="other", email="o@t.com", password="x")  # noqa: S106
@@ -541,28 +817,80 @@ class TestThreadContinuationAPI:
         response = await authenticated_client.post("/jobs", json=body)
         assert response.status_code == 422
 
-    async def test_continuation_creates_queued_when_sibling_running(self, authenticated_client):
-        """When an active sibling exists on the session, the second submission lands in QUEUED."""
+
+@pytest.mark.django_db(transaction=True)
+class TestFollowUpThroughTheInbox:
+    async def _session(self, **fields) -> Session:
         user = await User.objects.aget(username="testuser")
-        thread = str(uuid.uuid4())
-        session = await Session.objects.acreate(
-            thread_id=thread, origin=SessionOrigin.API_JOB, repo_id="group/project", user=user
-        )
-        await Run.objects.acreate(
-            session=session,
-            trigger_type=SessionOrigin.API_JOB,
-            repo_id="group/project",
-            status=RunStatus.RUNNING,
-            user=user,
-        )
+        return await Session.objects.acreate(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="group/project", ref="main", user=user,
+            **fields,
+        )  # fmt: skip
+
+    async def _busy(self) -> Session:
+        return await self._session(active_run_id="chat-run", last_active_at=timezone.now())
+
+    async def _submit(self, client, session: Session, **repo) -> dict:
+        body = {"repos": [{"repo_id": "group/project", "ref": None, **repo}], "prompt": "Bump it"}
+        response = await client.post("/jobs", json=body | {"thread_id": session.thread_id})
+        assert response.status_code == 202
+        return response.json()
+
+    async def test_on_an_idle_session_it_returns_the_run_the_inbox_started(self, authenticated_client):
+        session = await self._session()
+
         with patch("sessions.queue.run_job_task") as mock_task:
             mock_task.aenqueue = AsyncMock(return_value=await _make_task_row())
-            mock_task.module_path = run_job_task.module_path
-            response = await authenticated_client.post("/jobs", json=_single_repo_body(prompt="x", thread_id=thread))
-        assert response.status_code == 202
-        body = response.json()
-        assert body["jobs"][0]["status"] == "QUEUED"
+            body = await self._submit(authenticated_client, session)
+
+        [job] = body["jobs"]
+        run = await Run.objects.aget(session=session)
+        assert (job["job_id"], job["status"], job["thread_id"]) == (str(run.pk), "READY", session.thread_id)
+        assert (run.trigger_type, run.prompt) == (SessionOrigin.API_JOB, "Bump it")
+        event = await InboxEvent.objects.aget(session=session)
+        assert (event.kind, event.run_id) == (EventKind.FOLLOW_UP_JOB, run.pk)
+        assert mock_task.aenqueue.call_args.kwargs["inbox"] is True
+
+    async def test_jobs_on_one_branch_of_a_busy_session_share_its_next_run(self, authenticated_client):
+        session = await self._busy()
+
+        with patch("sessions.queue.run_job_task") as mock_task:
+            first = await self._submit(authenticated_client, session)
+            second = await self._submit(authenticated_client, session)
+
+        assert first["jobs"][0]["job_id"] == second["jobs"][0]["job_id"]
+        assert first["jobs"][0]["status"] == "QUEUED"
+        assert await Run.objects.filter(session=session).acount() == 1
         mock_task.aenqueue.assert_not_called()
+
+    async def test_jobs_on_different_branches_get_different_next_runs(self, authenticated_client):
+        session = await self._busy()
+
+        with patch("sessions.queue.run_job_task"):
+            here = await self._submit(authenticated_client, session)
+            there = await self._submit(authenticated_client, session, ref="feat/other")
+
+        assert here["jobs"][0]["job_id"] != there["jobs"][0]["job_id"]
+        event = await InboxEvent.objects.aget(session=session, ref="feat/other")
+        assert event.payload["ref"] == "feat/other"
+        assert await Run.objects.filter(pk=there["jobs"][0]["job_id"], ref="feat/other").aexists()
+
+    async def test_its_references_join_the_session_once_a_run_takes_it(self, authenticated_client):
+        session = await self._session()
+
+        with patch("sessions.queue.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock(return_value=await _make_task_row())
+            response = await authenticated_client.post(
+                "/jobs",
+                json=_single_repo_body(
+                    thread_id=session.thread_id,
+                    references=[{"key": "PROJ-9", "provider": "jira", "url": "https://jira.example.com/browse/PROJ-9"}],
+                ),
+            )
+
+        assert response.status_code == 202
+        await session.arefresh_from_db()
+        assert [ref["key"] for ref in session.external_refs] == ["PROJ-9"]
 
 
 @pytest.mark.django_db(transaction=True)

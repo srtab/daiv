@@ -13,6 +13,7 @@ from codebase.authorization import (
     can_run,
     can_view,
     get_access_level,
+    runnable_repo_ids,
     search_viewable_repositories,
     viewable_repo_ids,
     viewable_repo_ids_subquery,
@@ -212,6 +213,21 @@ class TestViewableFilters:
         # No linked platform identity (uid=None) -> empty viewable set, regardless of any rows.
         _grant("101", "a/b", RepoAccessLevel.READ)
         assert viewable_repo_ids(member_user, ["a/b"]) == set()
+
+
+class TestRunnableRepoIds:
+    def test_only_fresh_write_rows(self, linked_member, fresh_sync):
+        _grant("101", "w/rite", RepoAccessLevel.WRITE)
+        _grant("101", "r/ead", RepoAccessLevel.READ)
+        _grant("101", "s/tale", RepoAccessLevel.WRITE, synced_at=timezone.now() - timedelta(hours=30))
+        assert runnable_repo_ids(linked_member, ["w/rite", "r/ead", "s/tale", "x/y"]) == {"w/rite"}
+
+    def test_admin_runs_on_every_repo(self, admin_user):
+        assert runnable_repo_ids(admin_user, ["a/b", "c/d"]) == {"a/b", "c/d"}
+
+    def test_no_social_account_returns_empty(self, member_user, fresh_sync):
+        _grant("101", "a/b", RepoAccessLevel.WRITE)
+        assert runnable_repo_ids(member_user, ["a/b"]) == set()
 
 
 class TestSearchViewableRepositories:

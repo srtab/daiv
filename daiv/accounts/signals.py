@@ -1,8 +1,12 @@
 import logging
+from typing import TYPE_CHECKING, cast
 
 from django.dispatch import receiver
 
 from allauth.account.signals import user_logged_in
+
+if TYPE_CHECKING:
+    from accounts.adapter import SocialAccountAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +26,7 @@ def capture_platform_credential(sender, request, user, sociallogin=None, **kwarg
     session = getattr(request, "session", None)
     requested_by = session.pop(REAUTHORISE_SESSION_KEY, None) if session is not None else None
     try:
-        get_adapter().capture_platform_credential(
+        cast("SocialAccountAdapter", get_adapter()).capture_platform_credential(
             sociallogin, reauthorise=requested_by is not None and requested_by == getattr(user, "pk", None)
         )
     except Exception as exc:

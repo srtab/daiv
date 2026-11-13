@@ -8,19 +8,22 @@ from typing import TYPE_CHECKING
 
 from django.db import IntegrityError, transaction
 from django.db.models import Q
+from django.utils import timezone
 
 from asgiref.sync import async_to_sync, sync_to_async
 
+from automation.agent import validators
 from automation.agent.references import MAX_REFS_PER_SUBMISSION, merge_stored_refs
 from sessions.admission import aassert_repo_access
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.live.notify import asession_changed
+from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
 from sessions.queue import aenqueue_run, amark_failed_and_advance
 from sessions.repo_state import mr_to_payload
 from sessions.tasks import generate_batch_title_task
 from sessions.validators import MAX_REPOS_PER_BATCH
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Awaitable, Callable, Sequence
     from datetime import datetime
 
     from accounts.models import User
@@ -33,23 +36,48 @@ logger = logging.getLogger("daiv.sessions")
 
 @dataclass(frozen=True)
 class RepoTarget:
+    """``references`` add to the batch's for this repository; ``waits_for_run_id`` holds its run QUEUED until that
+    run has finished."""
+
     repo_id: str
     ref: str = ""
     sandbox_environment_id: str | None = None
+    prompt: str = ""
+    references: tuple[RefIn, ...] = ()
+    waits_for_run_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)
 class BatchSubmitFailure:
+    """``task_enqueued``: the run's task reached the queue but could not be linked to its row, so it runs untracked."""
+
     repo_id: str
     ref: str
     error: str
+    task_enqueued: bool = False
 
 
 @dataclass(frozen=True)
 class BatchSubmitResult:
+    """``outcomes`` holds one entry per submitted target, in order: its ``Run``, or why it could not start. A ``shared``
+    session's single outcome is its main repository's, the first target."""
+
     batch_id: uuid.UUID
-    runs: list[Run] = field(default_factory=list)
-    failed: list[BatchSubmitFailure] = field(default_factory=list)
+    outcomes: list[Run | BatchSubmitFailure] = field(default_factory=list)
+    shared: bool = False
+
+    @property
+    def runs(self) -> list[Run]:
+        return [outcome for outcome in self.outcomes if not isinstance(outcome, BatchSubmitFailure)]
+
+    @property
+    def failed(self) -> list[BatchSubmitFailure]:
+        return [outcome for outcome in self.outcomes if isinstance(outcome, BatchSubmitFailure)]
+
+    def started[T](self, targets: Sequence[T]) -> list[tuple[T, Run]]:
+        """Each started ``Run`` with the target it was submitted for, ``targets`` being the submitted ones in order."""
+        paired = zip(targets[:1] if self.shared else targets, self.outcomes, strict=True)
+        return [(target, outcome) for target, outcome in paired if not isinstance(outcome, BatchSubmitFailure)]
 
 
 def _validate(repos: list[RepoTarget]) -> None:
@@ -67,6 +95,8 @@ def get_or_create_session(
     ref: str = "",
     user=None,
     external_username: str = "",
+    external_provider: str = "",
+    external_uid: str = "",
     title: str = "",
     agent_model: str = "",
     agent_thinking_level: str = "",
@@ -74,11 +104,14 @@ def get_or_create_session(
     scheduled_job=None,
     merge_request_iid: int | None = None,
     mcp_overrides: dict | None = None,
+    parent: Session | None = None,
 ) -> Session:
     """Idempotent session bootstrap keyed on thread_id. First caller sets origin
     and context; later callers just bump last_active_at (a webhook session later
     continued via API keeps origin=issue_webhook). External refs never land here —
     :func:`_amerge_session_refs` writes them only after a run row exists.
+
+    ``parent`` is the coordinator session that delegated this one.
     """
     session, created = Session.objects.get_or_create(
         thread_id=thread_id,
@@ -88,6 +121,8 @@ def get_or_create_session(
             "ref": ref,
             "user": user,
             "external_username": external_username,
+            "external_provider": external_provider,
+            "external_uid": external_uid,
             "title": title[: Session._meta.get_field("title").max_length],
             "agent_model": agent_model,
             "agent_thinking_level": agent_thinking_level,
@@ -95,6 +130,7 @@ def get_or_create_session(
             "scheduled_job": scheduled_job,
             "merge_request_iid": merge_request_iid,
             "mcp_overrides": mcp_overrides or {},
+            "parent": parent,
         },
     )
     if not created:
@@ -123,6 +159,36 @@ async def _amerge_session_refs(session: Session, external_refs: list[dict]) -> N
     session.external_refs = await sync_to_async(_merge_locked)()
 
 
+class SessionBusyError(Exception):
+    """A continuation tried to change its session's MCP overrides while another of its runs is unfinished."""
+
+
+async def _aset_session_mcp_overrides(session: Session, mcp_overrides: dict, *, run: Run | None = None) -> None:
+    """Replace a continued session's MCP overrides under a row lock, before its follow-up is posted or once ``run``'s
+    row exists.
+
+    Raises :class:`SessionBusyError` while another run on the session is unfinished: ``run_job_task`` reads the
+    overrides when a run starts, so that run would start with these instead of its own.
+    """
+
+    def _set_locked() -> None:
+        with transaction.atomic():
+            current = Session.objects.select_for_update().only("mcp_overrides").get(pk=session.pk).mcp_overrides
+            if current == mcp_overrides:
+                return
+            others = Run.objects.filter(session_id=session.pk).exclude(status__in=RunStatus.terminal())
+            if run is not None:
+                others = others.exclude(pk=run.pk)
+            if others.exists():
+                raise SessionBusyError(
+                    "mcp_overrides can't change while another run on this thread is unfinished; resubmit once it is"
+                )
+            Session.objects.filter(pk=session.pk).update(mcp_overrides=mcp_overrides)
+
+    await sync_to_async(_set_locked)()
+    session.mcp_overrides = mcp_overrides
+
+
 async def apersist_session_ref(
     *, thread_id: str, current_ref: str, merge_request: MergeRequest | dict | None, published: bool
 ) -> None:
@@ -138,10 +204,13 @@ async def apersist_session_ref(
     request opens, so either leaves it alone.
     """
     branch = (mr_to_payload(merge_request) or {}).get("source_branch")
+    updated = 0
     if isinstance(branch, str) and branch and branch != current_ref:
-        await Session.objects.filter(thread_id=thread_id).aupdate(ref=branch)
+        updated = await Session.objects.filter(thread_id=thread_id).exclude(ref=branch).aupdate(ref=branch)
     elif current_ref and (branch == current_ref or (merge_request is None and not published)):
-        await Session.objects.filter(thread_id=thread_id, ref="").aupdate(ref=current_ref)
+        updated = await Session.objects.filter(thread_id=thread_id, ref="").aupdate(ref=current_ref)
+    if updated:
+        await asession_changed(thread_id)
 
 
 async def aget_session_ref(*, thread_id: str) -> str:
@@ -153,17 +222,26 @@ async def aget_session_ref(*, thread_id: str) -> str:
     return await Session.objects.filter(thread_id=thread_id).values_list("ref", flat=True).afirst() or ""
 
 
-async def aget_task_run_id(task_result_id: uuid.UUID | str) -> str | None:
-    """The id of the ``Run`` linked to a task result, or ``None`` when none is.
+@dataclass(frozen=True)
+class TaskRun:
+    """The ``Run`` linked to a task result and the DAIV user it acts as, read when the task starts, so a user who
+    linked their platform account meanwhile is the one it acts as."""
+
+    run_id: str | None = None
+    user_id: int | None = None
+
+
+async def aget_task_run(task_result_id: uuid.UUID | str) -> TaskRun:
+    """The ``Run`` linked to a task result; an empty :class:`TaskRun` when none is.
 
     A webhook callback commits the Run with its task (see ``webhooks.dispatch``), so a worker that sees the task
     sees its Run too.
     """
-    run_id = await Run.objects.filter(task_result_id=task_result_id).values_list("pk", flat=True).afirst()
-    if run_id is None:
+    row = await Run.objects.filter(task_result_id=task_result_id).values_list("pk", "user_id").afirst()
+    if row is None:
         logger.warning("No run is linked to task result %s; running without one", task_result_id)
-        return None
-    return str(run_id)
+        return TaskRun()
+    return TaskRun(run_id=str(row[0]), user_id=row[1])
 
 
 async def areset_session_ref(*, thread_id: str, new_ref: str) -> None:
@@ -172,7 +250,23 @@ async def areset_session_ref(*, thread_id: str, new_ref: str) -> None:
     Unlike :func:`apersist_session_ref` (success-only, driven by the run's outcome), this
     fires the moment the clone falls back, so the session self-heals even if the turn fails.
     """
-    await Session.objects.filter(thread_id=thread_id).aupdate(ref=new_ref)
+    if await Session.objects.filter(thread_id=thread_id).exclude(ref=new_ref).aupdate(ref=new_ref):
+        await asession_changed(thread_id)
+
+
+def pinned_agent_override(session: Session) -> tuple[str, str]:
+    """The model and thinking level ``session`` pins, for a follow-up run on it; empty when it pins none or its model
+    can no longer be used, so the run takes the default."""
+    try:
+        return validators.validate_agent_override(session.agent_model, session.agent_thinking_level)
+    except validators.AgentOverrideError as err:
+        logger.warning(
+            "thread_id=%s pins model %r, which cannot be used (%s); the follow-up run uses the default",
+            session.thread_id,
+            session.agent_model,
+            err,
+        )
+        return "", ""
 
 
 def create_run(
@@ -188,6 +282,8 @@ def create_run(
     scheduled_job: ScheduledJob | None = None,
     user: User | None = None,
     external_username: str = "",
+    external_provider: str = "",
+    external_uid: str = "",
     muted: bool | None = None,
     batch_id: uuid.UUID | None = None,
     thread_id: str | None = None,
@@ -195,6 +291,8 @@ def create_run(
     sandbox_environment_id: str | None = None,
     status: str = RunStatus.READY,
     mcp_overrides: dict | None = None,
+    parent: Session | None = None,
+    waits_for_id: uuid.UUID | None = None,
 ) -> Run:
     """Create a Session (idempotent) then a Run linked to it."""
     session = get_or_create_session(
@@ -204,6 +302,8 @@ def create_run(
         ref=ref,
         user=user,
         external_username=external_username,
+        external_provider=external_provider,
+        external_uid=external_uid,
         title=title,
         agent_model=agent_model,
         agent_thinking_level=agent_thinking_level,
@@ -211,6 +311,7 @@ def create_run(
         scheduled_job=scheduled_job,
         merge_request_iid=merge_request_iid,
         mcp_overrides=mcp_overrides,
+        parent=parent,
     )
     return Run.objects.create(
         session=session,
@@ -219,6 +320,8 @@ def create_run(
         task_result_id=task_result_id,
         user=user,
         external_username=external_username,
+        external_provider=external_provider,
+        external_uid=external_uid,
         repo_id=repo_id,
         ref=ref,
         prompt=prompt,
@@ -229,10 +332,92 @@ def create_run(
         title=title[: Run._meta.get_field("title").max_length],
         sandbox_environment_id=sandbox_environment_id,
         merge_request_iid=merge_request_iid,
+        waits_for_id=waits_for_id,
     )
 
 
 acreate_run = sync_to_async(create_run)
+
+
+async def _aclaim_run(
+    create: Callable[[str], Awaitable[Run]],
+    *,
+    target: RepoTarget,
+    initial_status: str,
+    stored_refs: list[dict],
+    log_context: str,
+    mcp_overrides: dict | None = None,
+) -> Run | BatchSubmitFailure:
+    """Create the run in ``initial_status``, then apply ``mcp_overrides`` and merge ``stored_refs`` into its session,
+    for :func:`_astart_run`."""
+    # Claim the session atomically by trying to create a READY row. The partial
+    # unique constraint ``run_one_active_per_session`` raises IntegrityError
+    # when a sibling (READY/RUNNING) is already active on this session — in that
+    # case we fall back to QUEUED, no task enqueue.
+    try:
+        run = await create(initial_status)
+    except IntegrityError:
+        try:
+            run = await create(RunStatus.QUEUED)
+        except Exception as inner_err:
+            logger.exception("%s: queued run creation failed for repo_id=%s", log_context, target.repo_id)
+            return BatchSubmitFailure(
+                repo_id=target.repo_id,
+                ref=target.ref,
+                error=f"RunCreationFailed: {type(inner_err).__name__}: {inner_err}",
+            )
+    except Exception as err:
+        logger.exception("%s: run creation failed for repo_id=%s", log_context, target.repo_id)
+        return BatchSubmitFailure(
+            repo_id=target.repo_id, ref=target.ref, error=f"RunCreationFailed: {type(err).__name__}: {err}"
+        )
+
+    if mcp_overrides is not None and run.session.mcp_overrides != mcp_overrides:
+        try:
+            await _aset_session_mcp_overrides(run.session, mcp_overrides, run=run)
+        except Exception as err:  # noqa: BLE001
+            if not isinstance(err, SessionBusyError):
+                logger.exception("%s: session MCP override update failed for repo_id=%s", log_context, target.repo_id)
+            await amark_failed_and_advance(run, prefix="mcp_overrides_update_failed", err=err, log_context=log_context)
+            return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=run.error_message)
+    if stored_refs:
+        try:
+            await _amerge_session_refs(run.session, stored_refs)
+        except Exception as err:  # noqa: BLE001
+            # A READY row left behind would hold the one-active-per-session claim forever
+            # (never enqueued → run_finished never fires → siblings stay QUEUED).
+            logger.exception("%s: session ref merge failed for repo_id=%s", log_context, target.repo_id)
+            await amark_failed_and_advance(run, prefix="refs_merge_failed", err=err, log_context=log_context)
+            return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=run.error_message)
+    return run
+
+
+async def _astart_run(claimed: Run | BatchSubmitFailure, *, log_context: str) -> Run | BatchSubmitFailure:
+    """Queue the task of a run :func:`_aclaim_run` created READY; a QUEUED one is left for the queue to start."""
+    if isinstance(claimed, BatchSubmitFailure) or claimed.status == RunStatus.QUEUED:
+        return claimed
+    if (failure := await aenqueue_run(claimed, log_context=log_context)) is not None:
+        return BatchSubmitFailure(
+            repo_id=claimed.repo_id, ref=claimed.ref, error=claimed.error_message, task_enqueued=failure.task_enqueued
+        )
+    return claimed
+
+
+async def _aenqueue_batch_title(
+    *, batch_id: uuid.UUID, prompt: str, user: User | None, trigger_type: str, runs: list[Run]
+) -> None:
+    if not (runs and trigger_type in SessionOrigin.prompt_driven() and prompt):
+        return
+    try:
+        await generate_batch_title_task.aenqueue(batch_id=str(batch_id), prompt=prompt)
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "Failed to enqueue batch title task for batch_id=%s user=%s trigger=%s runs=%d",
+            batch_id,
+            user.pk if user is not None else None,
+            trigger_type,
+            len(runs),
+        )
 
 
 async def asubmit_batch_runs(
@@ -249,14 +434,23 @@ async def asubmit_batch_runs(
     thread_id: str | None = None,
     mcp_overrides: dict | None = None,
     references: Sequence[RefIn] | None = None,
+    parent: Session | None = None,
+    batch_id: uuid.UUID | None = None,
 ) -> BatchSubmitResult:
     """Enqueue N ``run_job_task`` instances sharing a ``batch_id``; record N ``Run`` rows.
 
     Each ``RepoTarget`` carries its own ``sandbox_environment_id`` (resolved upstream by
-    :func:`sandbox_envs.selection.aresolve_repo_envs` or its sync wrapper), so the batch can mix per-repo envs.
+    :func:`sandbox_envs.selection.aresolve_repo_envs` or its sync wrapper), so the batch can mix per-repo envs,
+    and may carry its own ``prompt``, which replaces ``prompt`` for that repository; ``prompt`` still titles the batch.
+    A target's ``references`` add to ``references`` for its run, and one with ``waits_for_run_id`` is created QUEUED
+    and left for the queue to start once that run finishes.
+    ``parent`` is the coordinator session a delegated batch's new sessions hang under, and ``batch_id`` the batch the
+    caller minted for them when other runs join it (a coordinator's leg follow-ups); a fresh one without. A
+    ``thread_id`` naming an existing session posts a ``follow_up_job`` to its inbox instead
+    (:func:`_asubmit_follow_up`).
 
     Best-effort: a per-repo failure (run creation, refs merge, enqueue or link) lands in
-    ``result.failed`` while siblings continue.
+    ``result.failed`` while siblings continue. Every row is created before any task is queued.
     """
     _validate(repos)
     if user is not None:
@@ -273,15 +467,30 @@ async def asubmit_batch_runs(
         if len(repos) != 1:
             raise ValueError("thread_id continuation requires exactly one repo")
     stored_refs = [ref.to_stored() for ref in references or []]
-    if len(stored_refs) > MAX_REFS_PER_SUBMISSION:
+    if any(len(stored_refs) + len(target.references) > MAX_REFS_PER_SUBMISSION for target in repos):
         raise ValueError(f"references exceeds the maximum of {MAX_REFS_PER_SUBMISSION}")
-    batch_id = uuid.uuid4()
+    batch_id = batch_id or uuid.uuid4()
+
+    if thread_id is not None and (session := await Session.objects.filter(pk=thread_id).afirst()) is not None:
+        follow_up = await _asubmit_follow_up(
+            session,
+            repos[0],
+            user=user,
+            prompt=prompt,
+            trigger_type=trigger_type,
+            agent_model=agent_model,
+            agent_thinking_level=agent_thinking_level,
+            muted=muted,
+            references=[*stored_refs, *(ref.to_stored() for ref in repos[0].references)],
+            mcp_overrides=mcp_overrides,
+        )
+        return BatchSubmitResult(batch_id=batch_id, outcomes=[follow_up])
 
     schedule_run_base = 0
     if trigger_type == SessionOrigin.SCHEDULE and scheduled_job is not None:
         schedule_run_base = await Run.objects.filter(session__scheduled_job=scheduled_job).acount()
 
-    async def _submit_one(idx: int, target: RepoTarget) -> Run | BatchSubmitFailure:
+    async def _create_one(idx: int, target: RepoTarget) -> Run | BatchSubmitFailure:
         effective_thread_id = thread_id or str(uuid.uuid4())
 
         run_title = ""
@@ -292,7 +501,7 @@ async def asubmit_batch_runs(
             "trigger_type": trigger_type,
             "repo_id": target.repo_id,
             "ref": target.ref,
-            "prompt": prompt,
+            "prompt": target.prompt or prompt,
             "agent_model": agent_model,
             "agent_thinking_level": agent_thinking_level,
             "scheduled_job": scheduled_job,
@@ -304,79 +513,127 @@ async def asubmit_batch_runs(
             "title": run_title,
             "sandbox_environment_id": target.sandbox_environment_id,
             "mcp_overrides": mcp_overrides,
+            "parent": parent,
+            "waits_for_id": target.waits_for_run_id,
         }
+        initial_status = RunStatus.QUEUED if target.waits_for_run_id is not None else RunStatus.READY
 
-        # Claim the session atomically by trying to create a READY row. The partial
-        # unique constraint ``run_one_active_per_session`` raises IntegrityError
-        # when a sibling (READY/RUNNING) is already active on this session — in that
-        # case we fall back to QUEUED, no task enqueue.
-        try:
-            run = await acreate_run(**common_kwargs, task_result_id=None, status=RunStatus.READY)
-        except IntegrityError:
-            try:
-                run = await acreate_run(**common_kwargs, task_result_id=None, status=RunStatus.QUEUED)
-            except Exception as inner_err:
-                logger.exception("submit_batch_runs: queued run creation failed for repo_id=%s", target.repo_id)
-                return BatchSubmitFailure(
-                    repo_id=target.repo_id,
-                    ref=target.ref,
-                    error=f"RunCreationFailed: {type(inner_err).__name__}: {inner_err}",
-                )
-        except Exception as err:
-            logger.exception("submit_batch_runs: run creation failed for repo_id=%s", target.repo_id)
-            return BatchSubmitFailure(
-                repo_id=target.repo_id, ref=target.ref, error=f"RunCreationFailed: {type(err).__name__}: {err}"
-            )
+        return await _aclaim_run(
+            lambda status: acreate_run(**common_kwargs, task_result_id=None, status=status),
+            target=target,
+            initial_status=initial_status,
+            stored_refs=[*stored_refs, *(ref.to_stored() for ref in target.references)],
+            mcp_overrides=mcp_overrides,
+            log_context="submit_batch_runs",
+        )
 
-        if stored_refs:
-            try:
-                await _amerge_session_refs(run.session, stored_refs)
-            except Exception as err:  # noqa: BLE001
-                # A READY row left behind would hold the one-active-per-session claim forever
-                # (never enqueued → run_finished never fires → siblings stay QUEUED).
-                logger.exception("submit_batch_runs: session ref merge failed for repo_id=%s", target.repo_id)
-                await amark_failed_and_advance(
-                    run, prefix="refs_merge_failed", err=err, log_context="submit_batch_runs"
-                )
-                return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=run.error_message)
-
-        if run.status == RunStatus.QUEUED:
-            return run
-
-        if await aenqueue_run(run, log_context="submit_batch_runs") is not None:
-            return BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=run.error_message)
-        return run
+    async def _start_one(created: Run | BatchSubmitFailure | BaseException) -> Run | BatchSubmitFailure | BaseException:
+        if isinstance(created, BaseException):
+            return created
+        return await _astart_run(created, log_context="submit_batch_runs")
 
     # return_exceptions=True guards against BaseException (CancelledError, etc.) aborting the
-    # whole batch; _submit_one already catches Exception itself.
-    outcomes = await asyncio.gather(*[_submit_one(i, t) for i, t in enumerate(repos)], return_exceptions=True)
+    # whole batch; _create_one and _start_one already catch Exception themselves.
+    created = await asyncio.gather(*[_create_one(i, t) for i, t in enumerate(repos)], return_exceptions=True)
+    # A delegated leg that finishes at once must find all its siblings' rows (DelegatedBatch.resume_after).
+    started = await asyncio.gather(*[_start_one(c) for c in created], return_exceptions=True)
 
-    runs: list[Run] = []
-    failed: list[BatchSubmitFailure] = []
-    for target, outcome in zip(repos, outcomes, strict=True):
+    outcomes: list[Run | BatchSubmitFailure] = []
+    for target, outcome in zip(repos, started, strict=True):
         if isinstance(outcome, BaseException):
             logger.error("submit_batch_runs: unexpected exception for repo_id=%s", target.repo_id, exc_info=outcome)
-            failed.append(
+            outcomes.append(
                 BatchSubmitFailure(repo_id=target.repo_id, ref=target.ref, error=f"{type(outcome).__name__}: {outcome}")
             )
-        elif isinstance(outcome, BatchSubmitFailure):
-            failed.append(outcome)
         else:
-            runs.append(outcome)
+            outcomes.append(outcome)
+    result = BatchSubmitResult(batch_id=batch_id, outcomes=outcomes)
+    await _aenqueue_batch_title(
+        batch_id=batch_id, prompt=prompt, user=user, trigger_type=trigger_type, runs=result.runs
+    )
+    return result
 
-    if runs and trigger_type in SessionOrigin.prompt_driven() and prompt:
+
+async def _asubmit_follow_up(
+    session: Session,
+    target: RepoTarget,
+    *,
+    user: User | None,
+    prompt: str,
+    trigger_type: str,
+    agent_model: str,
+    agent_thinking_level: str,
+    muted: bool | None,
+    references: list[dict],
+    mcp_overrides: dict | None,
+) -> Run | BatchSubmitFailure:
+    """Hand a job for an existing session to its inbox: the run the drain started for it when the session was idle,
+    or the session's next run for its branch, which other jobs on that branch may share, also when the slot was claimed
+    between the post and its drain. Its references join the session when a run takes it; ``mcp_overrides`` replace the
+    session's before it is posted, and only while no run on the session is unfinished."""
+    from sessions.inbox import kinds
+    from sessions.inbox.post import Inbox
+
+    if target.repo_id != session.repo_id:
+        return BatchSubmitFailure(
+            repo_id=target.repo_id, ref=target.ref, error=f"thread_id belongs to the repository {session.repo_id}"
+        )
+    payload: dict = {"prompt": target.prompt or prompt, "trigger_type": trigger_type, "ref": target.ref}
+    if agent_model:
+        payload |= {"agent_model": agent_model, "agent_thinking_level": agent_thinking_level}
+    if references:
+        payload["references"] = references
+    if muted is not None:
+        payload["muted"] = muted
+    if target.sandbox_environment_id:
+        payload["sandbox_environment_id"] = str(target.sandbox_environment_id)
+    if mcp_overrides is not None and session.mcp_overrides != mcp_overrides:
         try:
-            await generate_batch_title_task.aenqueue(batch_id=str(batch_id), prompt=prompt)
-        except Exception:  # noqa: BLE001
-            logger.exception(
-                "Failed to enqueue batch title task for batch_id=%s user=%s trigger=%s runs=%d",
-                batch_id,
-                user.pk if user is not None else None,
-                trigger_type,
-                len(runs),
+            await _aset_session_mcp_overrides(session, mcp_overrides)
+        except Exception as err:
+            if not isinstance(err, SessionBusyError):
+                logger.exception("submit_batch_runs: session MCP override update failed for thread_id=%s", session.pk)
+            return BatchSubmitFailure(
+                repo_id=target.repo_id,
+                ref=target.ref,
+                error=f"mcp_overrides_update_failed: {type(err).__name__}: {err}",
             )
-
-    return BatchSubmitResult(batch_id=batch_id, runs=runs, failed=failed)
+    try:
+        result = await Inbox(session.thread_id).apost(
+            kind=EventKind.FOLLOW_UP_JOB,
+            source_key=kinds.SourceKey.job(uuid.uuid4()),
+            payload=payload,
+            wake=True,
+            ref=target.ref,
+            author=user,
+        )
+    except Exception as err:
+        logger.exception("submit_batch_runs: follow-up failed for thread_id=%s", session.thread_id)
+        return BatchSubmitFailure(
+            repo_id=target.repo_id, ref=target.ref, error=f"FollowUpFailed: {type(err).__name__}: {err}"
+        )
+    if result.run_id is not None:
+        return await Run.objects.aget(pk=result.run_id)
+    if (run := await Inbox(session.thread_id).aattach_next_run(result.event)) is not None:
+        return run
+    # The caller is told the job failed, so a later drain must not start it after all.
+    if await InboxEvent.objects.filter(pk=result.event.pk, state=EventState.PENDING).aupdate(
+        state=EventState.DISMISSED, updated_at=timezone.now()
+    ):
+        await asession_changed(session.thread_id)
+    event = await InboxEvent.objects.aget(pk=result.event.pk)
+    if event.run_id is not None:
+        return await Run.objects.aget(pk=event.run_id)
+    logger.warning(
+        "submit_batch_runs: follow-up event=%s on thread_id=%s did not start (state=%s, failure=%s)",
+        event.pk,
+        session.thread_id,
+        event.state,
+        event.failure,
+    )
+    return BatchSubmitFailure(
+        repo_id=target.repo_id, ref=target.ref, error=f"FollowUpNotStarted: {event.failure or 'not_started'}"
+    )
 
 
 def submit_batch_runs(**kwargs) -> BatchSubmitResult:

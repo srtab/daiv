@@ -1,10 +1,12 @@
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import transaction
+
 import pytest
 from asgiref.sync import sync_to_async
 from sandbox_envs.models import SandboxEnvironment, Visibility
-from sessions.models import Run, RunStatus, SessionOrigin
+from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.queue import (
     LINK_FAILED_PREFIX,
     MAX_CONSECUTIVE_DISPATCH_FAILURES,
@@ -13,9 +15,11 @@ from sessions.queue import (
     amark_failed_and_advance,
     dispatch_next_queued,
     release_orphan_queued_runs,
+    release_runs_waiting_for,
 )
 
 from tests.unit_tests.sessions.conftest import make_run
+from tests.unit_tests.sessions.inbox.conftest import make_event, make_leg_session, post_leg_follow_up
 
 
 def _emits(spy: MagicMock) -> list[tuple[str, bool, bool]]:
@@ -29,15 +33,16 @@ def _emits(spy: MagicMock) -> list[tuple[str, bool, bool]]:
 @pytest.mark.django_db(transaction=True)
 class TestAenqueueRun:
     @pytest.mark.parametrize(
-        ("trigger_type", "ask_user_enabled", "authenticated"),
+        ("trigger_type", "ask_user_enabled", "fork_branch", "authenticated"),
         [
-            (SessionOrigin.API_JOB, True, True),
-            (SessionOrigin.SCHEDULE, False, True),
-            (SessionOrigin.PIPELINE_WEBHOOK, False, False),
+            (SessionOrigin.API_JOB, True, False, True),
+            (SessionOrigin.SCHEDULE, False, False, True),
+            (SessionOrigin.PIPELINE_WEBHOOK, False, False, False),
+            (SessionOrigin.DELEGATED_JOB, False, True, False),
         ],
     )
     async def test_the_task_kwargs_come_from_the_row(
-        self, create_db_task_result, member_user, trigger_type, ask_user_enabled, authenticated
+        self, create_db_task_result, member_user, trigger_type, ask_user_enabled, fork_branch, authenticated
     ):
         env = await SandboxEnvironment.objects.acreate(scope=Visibility.GLOBAL, name="ci", base_image="python:3.14")
         run = await sync_to_async(make_run)(
@@ -68,21 +73,40 @@ class TestAenqueueRun:
             "user_id": member_user.pk,
             "acting_user_authenticated": authenticated,
             "ask_user_enabled": ask_user_enabled,
+            "fork_branch": fork_branch,
+            "inbox": False,
         }
         await run.arefresh_from_db()
         assert run.task_result_id == task.id
 
-    async def test_the_caller_can_vouch_for_the_acting_user(self, create_db_task_result):
+    async def test_an_inbox_run_says_so_to_the_task(self, create_db_task_result):
+        run = await sync_to_async(make_run)(session_id=str(uuid.uuid4()), status=RunStatus.READY)
+        task = await sync_to_async(create_db_task_result)(status="READY")
+
+        with patch("sessions.queue.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task.id))
+            assert await aenqueue_run(run, log_context="test", inbox=True) is None
+
+        assert mock_task.aenqueue.call_args.kwargs["inbox"] is True
+
+    @pytest.mark.parametrize(
+        ("origin", "authenticated"), [(SessionOrigin.CHAT, True), (SessionOrigin.MR_WEBHOOK, False)]
+    )
+    async def test_a_ci_fix_run_is_authenticated_only_where_its_session_s_origin_is(
+        self, create_db_task_result, member_user, origin, authenticated
+    ):
+        session_id = str(uuid.uuid4())
+        await Session.objects.acreate(thread_id=session_id, origin=origin, repo_id="acme/api", user=member_user)
         run = await sync_to_async(make_run)(
-            session_id=str(uuid.uuid4()), status=RunStatus.READY, trigger_type=SessionOrigin.PIPELINE_WEBHOOK
+            session_id=session_id, status=RunStatus.READY, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, user=member_user
         )
         task = await sync_to_async(create_db_task_result)(status="READY")
 
         with patch("sessions.queue.run_job_task") as mock_task:
             mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task.id))
-            await aenqueue_run(run, log_context="test", acting_user_authenticated=True)
+            await aenqueue_run(run, log_context="test")
 
-        assert mock_task.aenqueue.call_args.kwargs["acting_user_authenticated"] is True
+        assert mock_task.aenqueue.call_args.kwargs["acting_user_authenticated"] is authenticated
 
     async def test_blank_row_fields_reach_the_task_as_none(self, create_db_task_result):
         run = await sync_to_async(make_run)(session_id=str(uuid.uuid4()), status=RunStatus.READY)
@@ -157,8 +181,8 @@ class TestAmarkFailedAndAdvance:
 class TestDispatchNextQueued:
     def test_releases_the_oldest_queued_sibling(self, create_db_task_result):
         session_id = str(uuid.uuid4())
-        oldest = make_run(session_id=session_id, status=RunStatus.QUEUED)
-        newer = make_run(session_id=session_id, status=RunStatus.QUEUED)
+        oldest = make_run(session_id=session_id, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB)
+        newer = make_run(session_id=session_id, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB)
 
         fake_task = MagicMock(id=create_db_task_result().id)
         with patch("sessions.queue.run_job_task") as mock_task:
@@ -170,6 +194,22 @@ class TestDispatchNextQueued:
         assert (oldest.status, oldest.task_result_id) == (RunStatus.READY, fake_task.id)
         assert newer.status == RunStatus.QUEUED
 
+    def test_an_inbox_next_run_is_left_for_the_drain(self, create_db_task_result):
+        session_id = str(uuid.uuid4())
+        next_run = make_run(session_id=session_id, status=RunStatus.QUEUED, trigger_type=SessionOrigin.PIPELINE_WEBHOOK)
+        make_event(next_run.session, run=next_run)
+        legacy = make_run(session_id=session_id, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB)
+
+        fake_task = MagicMock(id=create_db_task_result().id)
+        with patch("sessions.queue.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock(return_value=fake_task)
+            dispatch_next_queued(session_id)
+
+        next_run.refresh_from_db()
+        legacy.refresh_from_db()
+        assert next_run.status == RunStatus.QUEUED
+        assert legacy.status == RunStatus.READY
+
     def test_no_op_when_no_queued_sibling(self):
         session_id = str(uuid.uuid4())
         make_run(session_id=session_id, status=RunStatus.SUCCESSFUL)
@@ -180,8 +220,8 @@ class TestDispatchNextQueued:
 
     def test_a_failed_enqueue_fails_the_row_and_moves_to_the_next(self, create_db_task_result, run_finished_spy):
         session_id = str(uuid.uuid4())
-        bad = make_run(session_id=session_id, status=RunStatus.QUEUED)
-        next_q = make_run(session_id=session_id, status=RunStatus.QUEUED)
+        bad = make_run(session_id=session_id, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB)
+        next_q = make_run(session_id=session_id, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB)
 
         fake_task = MagicMock(id=create_db_task_result().id)
         with patch("sessions.queue.run_job_task") as mock_task:
@@ -198,8 +238,8 @@ class TestDispatchNextQueued:
 
     def test_a_failed_link_fails_the_row_and_moves_to_the_next(self, create_db_task_result, run_finished_spy):
         session_id = str(uuid.uuid4())
-        unlinked = make_run(session_id=session_id, status=RunStatus.QUEUED)
-        next_q = make_run(session_id=session_id, status=RunStatus.QUEUED)
+        unlinked = make_run(session_id=session_id, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB)
+        next_q = make_run(session_id=session_id, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB)
 
         fake_task = MagicMock(id=create_db_task_result().id)
         with patch("sessions.queue.run_job_task") as mock_task:
@@ -217,7 +257,7 @@ class TestDispatchNextQueued:
         """A persistent broker outage must not mass-fail every QUEUED row on the session."""
         session_id = str(uuid.uuid4())
         queued_rows = [
-            make_run(session_id=session_id, status=RunStatus.QUEUED)
+            make_run(session_id=session_id, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB)
             for _ in range(MAX_CONSECUTIVE_DISPATCH_FAILURES + 2)
         ]
         with patch("sessions.queue.run_job_task") as mock_task:
@@ -244,13 +284,88 @@ class TestDispatchNextQueued:
         queued.refresh_from_db()
         assert queued.status == RunStatus.QUEUED
 
+    def test_backing_off_inside_a_transaction_leaves_it_usable(self):
+        session_id = str(uuid.uuid4())
+        make_run(session_id=session_id, status=RunStatus.RUNNING)
+        queued = make_run(session_id=session_id, status=RunStatus.QUEUED)
+
+        with transaction.atomic(), patch("sessions.queue.run_job_task"):
+            dispatch_next_queued(session_id)
+            assert Run.objects.get(pk=queued.pk).status == RunStatus.QUEUED
+
+
+@pytest.mark.django_db(transaction=True)
+class TestRunsThatWaitForAnother:
+    @pytest.fixture
+    def waiting(self):
+        """A QUEUED run on its own session waiting for a RUNNING run on another."""
+        awaited = make_run(session_id=str(uuid.uuid4()), status=RunStatus.RUNNING)
+        return awaited, make_run(session_id=str(uuid.uuid4()), status=RunStatus.QUEUED, waits_for=awaited)
+
+    @pytest.mark.parametrize("release", ["dispatch", "orphan-sweep"])
+    def test_no_release_path_starts_it_while_the_awaited_run_is_unfinished(self, waiting, release):
+        _, queued = waiting
+
+        with patch("sessions.queue.run_job_task") as mock_task:
+            if release == "dispatch":
+                dispatch_next_queued(queued.session_id)
+            else:
+                release_orphan_queued_runs()
+
+        mock_task.aenqueue.assert_not_called()
+        queued.refresh_from_db()
+        assert queued.status == RunStatus.QUEUED
+
+    def test_a_later_run_of_its_session_stays_behind_it(self, waiting):
+        _, queued = waiting
+        later = make_run(session_id=queued.session_id, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB)
+
+        with patch("sessions.queue.run_job_task") as mock_task:
+            dispatch_next_queued(queued.session_id)
+
+        mock_task.aenqueue.assert_not_called()
+        later.refresh_from_db()
+        assert later.status == RunStatus.QUEUED
+
+    def test_it_starts_once_the_awaited_run_has_finished(self, waiting, create_db_task_result):
+        awaited, queued = waiting
+        Run.objects.filter(pk=awaited.pk).update(status=RunStatus.SUCCESSFUL)
+        task = create_db_task_result(status="READY")
+
+        with patch("sessions.queue.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task.id))
+            release_runs_waiting_for(awaited)
+
+        queued.refresh_from_db()
+        assert (queued.status, queued.task_result_id) == (RunStatus.READY, task.id)
+
+    @pytest.mark.parametrize("release", ["dispatch", "orphan-sweep"])
+    def test_it_starts_from_the_branch_the_awaited_run_left_its_session_on(
+        self, waiting, create_db_task_result, release
+    ):
+        awaited, queued = waiting
+        Run.objects.filter(pk=awaited.pk).update(status=RunStatus.SUCCESSFUL)
+        Session.objects.filter(pk=awaited.session_id).update(ref="daiv/published")
+        task = create_db_task_result(status="READY")
+
+        with patch("sessions.queue.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task.id))
+            if release == "dispatch":
+                release_runs_waiting_for(awaited)
+            else:
+                release_orphan_queued_runs()
+
+        queued.refresh_from_db()
+        assert (queued.ref, Session.objects.get(pk=queued.session_id).ref) == ("daiv/published", "daiv/published")
+        assert mock_task.aenqueue.call_args.kwargs["ref"] == "daiv/published"
+
 
 @pytest.mark.django_db(transaction=True)
 class TestReleaseOrphanQueuedRuns:
     def test_releases_the_oldest_queued_run_per_idle_session(self, create_db_task_result):
         session_id = str(uuid.uuid4())
-        oldest = make_run(session_id=session_id, status=RunStatus.QUEUED)
-        make_run(session_id=session_id, status=RunStatus.QUEUED)
+        oldest = make_run(session_id=session_id, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB)
+        make_run(session_id=session_id, status=RunStatus.QUEUED, trigger_type=SessionOrigin.UI_JOB)
 
         fake_task = MagicMock(id=create_db_task_result().id)
         with patch("sessions.queue.run_job_task") as mock_task:
@@ -260,6 +375,30 @@ class TestReleaseOrphanQueuedRuns:
         assert (result.released, result.skipped, result.errored) == (1, 1, 0)
         oldest.refresh_from_db()
         assert (oldest.status, oldest.task_result_id) == (RunStatus.READY, fake_task.id)
+
+    def test_an_inbox_next_run_is_left_for_the_drain(self):
+        next_run = make_run(session_id=str(uuid.uuid4()), status=RunStatus.QUEUED, trigger_type=SessionOrigin.CHAT)
+        make_event(next_run.session, run=next_run)
+
+        with patch("sessions.queue.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock()
+            result = release_orphan_queued_runs()
+
+        assert result.released == 0
+        mock_task.aenqueue.assert_not_called()
+
+    def test_session_ids_narrow_the_sweep_to_those_sessions(self, create_db_task_result):
+        wanted = make_run(session_id=str(uuid.uuid4()), status=RunStatus.QUEUED)
+        other = make_run(session_id=str(uuid.uuid4()), status=RunStatus.QUEUED)
+
+        with patch("sessions.queue.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=create_db_task_result().id))
+            result = release_orphan_queued_runs(session_ids=Run.objects.filter(pk=wanted.pk).values("session_id"))
+
+        assert result.released == 1
+        wanted.refresh_from_db()
+        other.refresh_from_db()
+        assert (wanted.status, other.status) == (RunStatus.READY, RunStatus.QUEUED)
 
     def test_a_failed_link_counts_as_errored(self):
         orphan = make_run(session_id=str(uuid.uuid4()), status=RunStatus.QUEUED)
@@ -272,3 +411,41 @@ class TestReleaseOrphanQueuedRuns:
         orphan.refresh_from_db()
         assert orphan.status == RunStatus.FAILED
         assert orphan.error_message.startswith(LINK_FAILED_PREFIX)
+
+
+@pytest.mark.django_db(transaction=True)
+class TestForkBranch:
+    async def _fork_branch(self, run: Run) -> tuple[bool, bool]:
+        """``fork_branch`` and ``ask_user_enabled`` as ``run``'s task gets them."""
+        with patch("sessions.queue.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=uuid.uuid4()))
+            with patch.object(Run, "asave", AsyncMock()):
+                await aenqueue_run(run, log_context="test")
+        kwargs = mock_task.aenqueue.call_args.kwargs
+        return kwargs["fork_branch"], kwargs["ask_user_enabled"]
+
+    async def test_a_legs_first_run_forks(self, admin_user):
+        session = await sync_to_async(make_leg_session)(admin_user, ref="main", status=RunStatus.READY)
+        first = await Run.objects.aget(session=session)
+
+        assert await self._fork_branch(first) == (True, False)
+
+    async def test_a_follow_up_on_a_leg_without_a_branch_of_its_own_forks(self, admin_user):
+        session = await sync_to_async(make_leg_session)(admin_user, ref="main")
+        follow_up = await sync_to_async(post_leg_follow_up)(session, admin_user)
+
+        assert await self._fork_branch(follow_up) == (True, False)
+
+    async def test_a_follow_up_on_a_leg_with_a_branch_of_its_own_pushes_to_it(self, admin_user):
+        session = await sync_to_async(make_leg_session)(admin_user, ref="daiv/leg-branch")
+        follow_up = await sync_to_async(post_leg_follow_up)(session, admin_user)
+
+        assert await self._fork_branch(follow_up) == (False, False)
+
+    @pytest.mark.parametrize("trigger_type", [SessionOrigin.API_JOB, SessionOrigin.PIPELINE_WEBHOOK])
+    async def test_other_runs_never_fork(self, trigger_type):
+        run = await sync_to_async(make_run)(
+            session_id=str(uuid.uuid4()), status=RunStatus.READY, trigger_type=trigger_type
+        )
+
+        assert (await self._fork_branch(run))[0] is False

@@ -1,4 +1,5 @@
 import uuid
+from types import SimpleNamespace
 
 from django.contrib.auth.models import AnonymousUser
 from django.db import Error as DatabaseError
@@ -6,7 +7,8 @@ from django.test import RequestFactory
 from django.urls import reverse
 
 import pytest
-from dashboard.context_processors import _resolve_active_section, nav, running_jobs_count
+from dashboard.context_processors import _resolve_active_section, nav, running_jobs_count, sidebar_state
+from dashboard.sidebar import SidebarLists
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
@@ -60,6 +62,7 @@ class TestNavContextProcessor:
         )
 
         assert _nav_for(member_user)["nav_running_jobs"] == 1
+        assert _nav_for(member_user)["nav_own_running_jobs"] == 1
 
     def test_resolves_active_section_from_url_name(self, member_client):
         response = member_client.get(reverse("dashboard"))
@@ -68,7 +71,7 @@ class TestNavContextProcessor:
     def test_running_jobs_falls_back_to_zero_on_database_error(self, member_user, mocker):
         # A transient DB failure should log-and-degrade the badge rather than crash rendering.
         failing_qs = mocker.MagicMock()
-        failing_qs.filter.return_value.values.return_value.count.side_effect = DatabaseError("connection lost")
+        failing_qs.filter.return_value.aggregate.side_effect = DatabaseError("connection lost")
         mocker.patch("sessions.models.RunManager.visible_to", return_value=failing_qs)
         request = RequestFactory().get("/dashboard/")
         request.user = member_user
@@ -113,7 +116,9 @@ class TestNavContextProcessor:
             repo_id="daiv/api",
         )
 
-        assert _nav_for(member_user)["nav_running_jobs"] == 1  # bob's running job, on a repo the member can read
+        nav_context = _nav_for(member_user)
+        assert nav_context["nav_running_jobs"] == 1  # bob's running job, on a repo the member can read
+        assert nav_context["nav_own_running_jobs"] == 0
 
 
 class TestResolveActiveSection:
@@ -160,3 +165,61 @@ class TestResolveActiveSection:
         request = RequestFactory().get("/")
         request.resolver_match = type("Match", (), {"view_name": view_name})()
         assert _resolve_active_section(request) == "artifacts"
+
+
+def _request_at(user, view_name: str = "", **kwargs):
+    request = RequestFactory().get("/")
+    request.user = user
+    request.resolver_match = SimpleNamespace(view_name=view_name, kwargs=kwargs)
+    return request
+
+
+@pytest.mark.django_db
+class TestNavSidebar:
+    @pytest.mark.parametrize(
+        ("view_name", "settings_mode"),
+        [
+            ("sandbox_envs:list", True),
+            ("mcp_connectors:global_list", True),
+            ("schedule_template_list", True),
+            ("schedule_list", False),
+            ("insights", False),
+            ("session_list", False),
+            ("user_channels", False),
+        ],
+    )
+    def test_settings_mode_is_on_for_settings_sections(self, member_user, view_name, settings_mode):
+        assert nav(_request_at(member_user, view_name))["nav_settings_mode"] is settings_mode
+
+    def test_sidebar_state_is_computed_once_per_request(self, member_user, django_assert_num_queries):
+        Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="a/b", user=member_user)
+        request = _request_at(member_user, "dashboard")
+        context = nav(request)
+        assert len(context["nav_sidebar"].sessions) == 1
+
+        with django_assert_num_queries(0):
+            assert len(context["nav_sidebar"].sessions) == 1
+            assert len(nav(request)["nav_sidebar"].sessions) == 1
+
+    def test_sidebar_is_not_queried_when_unread(self, member_user, django_assert_num_queries):
+        with django_assert_num_queries(0):
+            nav(_request_at(member_user, "dashboard"))
+
+    def test_sidebar_is_flagged_failed_on_database_error(self, member_user, mocker):
+        sidebar = mocker.patch("dashboard.context_processors.Sidebar")
+        sidebar.return_value.lists.side_effect = DatabaseError("connection lost")
+
+        assert sidebar_state(_request_at(member_user, "dashboard"), member_user) == SidebarLists(failed=True)
+
+    @pytest.mark.parametrize(
+        ("view_name", "viewing"), [("session_detail", "thread-1"), ("session_artifact_detail", ""), ("dashboard", "")]
+    )
+    def test_viewing_comes_from_the_session_detail_url(self, member_user, mocker, view_name, viewing):
+        spy = mocker.patch("dashboard.context_processors.Sidebar")
+        spy.return_value.lists.return_value = SidebarLists()
+        request = _request_at(member_user, view_name, thread_id="thread-1")
+
+        sidebar_state(request, member_user)
+
+        spy.assert_called_once_with(member_user, viewing=viewing)
+        assert nav(request)["nav_session_thread_id"] == viewing

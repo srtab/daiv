@@ -1194,3 +1194,54 @@ class TestGitLabClient:
         """A budget shorter than GitLab's post-receive tail silently reverts to creating the pipeline
         on the previous commit — the exact bug this poll exists for."""
         assert sum(MERGE_REQUEST_HEAD_REF_SYNC_RETRY_BACKOFF_SECONDS) >= 60
+
+    @staticmethod
+    def _listed_pipeline(pipeline_id: int, source: str) -> Mock:
+        pipeline = Mock(
+            id=pipeline_id, iid=pipeline_id, sha="abc", status="failed", source=source,
+            web_url=f"https://gitlab.com/group/repo/-/pipelines/{pipeline_id}",
+        )  # fmt: skip
+        pipeline.jobs.list.return_value = []
+        return pipeline
+
+    def test_the_latest_pipeline_of_a_branch_skips_child_pipelines(self, gitlab_client):
+        """A child pipeline runs on its parent's ref and commit with a higher id; the merge request's result is the
+        parent's."""
+        project = gitlab_client.client.projects.get.return_value
+        project.pipelines.list.return_value = [
+            self._listed_pipeline(12, "parent_pipeline"),
+            self._listed_pipeline(11, "merge_request_event"),
+        ]
+
+        pipeline = gitlab_client.get_latest_pipeline_for_ref("group/repo", "daiv/branch")
+
+        assert pipeline.id == 11
+        newest_first = {"ref": "daiv/branch", "order_by": "id", "sort": "desc"}
+        assert project.pipelines.list.call_args.kwargs.items() >= newest_first.items()
+
+    def test_a_branch_with_only_child_pipelines_has_no_latest_pipeline(self, gitlab_client):
+        project = gitlab_client.client.projects.get.return_value
+        project.pipelines.list.return_value = [self._listed_pipeline(12, "parent_pipeline")]
+
+        assert gitlab_client.get_latest_pipeline_for_ref("group/repo", "daiv/branch") is None
+
+    def test_the_latest_pipelines_of_a_branch_are_its_latest_pipeline(self, gitlab_client):
+        """A GitLab pipeline covers the whole commit, so a branch has one CI subject. The listing reads no jobs: the
+        watch reads a pipeline's jobs only to judge it."""
+        project = gitlab_client.client.projects.get.return_value
+        listed = [
+            self._listed_pipeline(12, "parent_pipeline"),
+            self._listed_pipeline(11, "push"),
+            self._listed_pipeline(10, "push"),
+        ]
+        project.pipelines.list.return_value = listed
+
+        pipelines = gitlab_client.get_latest_pipelines_for_ref("group/repo", "daiv/branch")
+
+        assert [(p.id, p.jobs) for p in pipelines] == [(11, [])]
+        listed[1].jobs.list.assert_not_called()
+
+    def test_a_branch_without_pipelines_has_no_latest_pipelines(self, gitlab_client):
+        gitlab_client.client.projects.get.return_value.pipelines.list.return_value = []
+
+        assert gitlab_client.get_latest_pipelines_for_ref("group/repo", "daiv/branch") == []

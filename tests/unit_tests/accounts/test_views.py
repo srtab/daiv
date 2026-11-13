@@ -169,6 +169,13 @@ class TestUserListView:
         response = member_client.get(reverse("user_list"))
         assert response.status_code == 403
 
+    def test_search_input_has_aria_label_and_translated_placeholder(self, admin_client):
+        response = admin_client.get(reverse("user_list"))
+        assert response.status_code == 200
+        html = response.content.decode()
+        assert 'aria-label="Search by name or email..."' in html
+        assert 'placeholder="Search by name or email..."' in html
+
     def test_anonymous_redirected_to_login(self):
         response = Client().get(reverse("user_list"))
         assert response.status_code == 302

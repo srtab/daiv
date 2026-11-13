@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import timedelta
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, call, patch
 
 from django.utils import timezone
 
@@ -12,11 +12,18 @@ import pytest
 from asgiref.sync import sync_to_async
 from ninja.testing import TestAsyncClient
 from sessions.hydration import HydratedThread
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.inbox.drain import Drain
+from sessions.models import MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import APIKey, User
 from daiv.api import api
-from tests.unit_tests.sessions.conftest import grant_read_access, make_artifact
+from tests.unit_tests.sessions.conftest import (
+    delegate_messages,
+    grant_read_access,
+    make_artifact,
+    make_coordinator,
+    make_leg,
+)
 
 
 @pytest.fixture
@@ -104,7 +111,7 @@ async def test_session_turns_returns_built_turns(client, authed):
     fake_messages = [HumanMessage(content="hello", id="m-1"), AIMessage(content="world", id="m-2")]
 
     with patch(
-        "sessions.api.views.ahydrate_thread",
+        "sessions.page_state.ahydrate_thread",
         AsyncMock(return_value=HydratedThread(fake_messages, False, None, None, None)),
     ):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
@@ -147,7 +154,7 @@ async def test_session_turns_includes_run_status_marker_for_failed_run(client, a
     fake_messages = [HumanMessage(content="hello", id="m-1"), AIMessage(content="world", id="m-2")]
 
     with patch(
-        "sessions.api.views.ahydrate_thread",
+        "sessions.page_state.ahydrate_thread",
         AsyncMock(return_value=HydratedThread(fake_messages, False, None, None, None)),
     ):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
@@ -174,7 +181,7 @@ async def test_session_turns_expired(client, authed):
     )
 
     with patch(
-        "sessions.api.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], True, None, None, None))
+        "sessions.page_state.ahydrate_thread", AsyncMock(return_value=HydratedThread([], True, None, None, None))
     ):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
@@ -197,7 +204,7 @@ async def test_session_turns_expired_still_returns_the_sessions_artifacts(client
     artifact = await sync_to_async(make_artifact)(run)
 
     with patch(
-        "sessions.api.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], True, None, None, None))
+        "sessions.page_state.ahydrate_thread", AsyncMock(return_value=HydratedThread([], True, None, None, None))
     ):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
@@ -222,7 +229,7 @@ async def test_session_turns_with_a_checkpoint_adds_no_artifact_turns(client, au
     await sync_to_async(make_artifact)(run)
     hydrated = HydratedThread([HumanMessage(content="hi", id="h1")], False, None, None, None)
 
-    with patch("sessions.api.views.ahydrate_thread", AsyncMock(return_value=hydrated)):
+    with patch("sessions.page_state.ahydrate_thread", AsyncMock(return_value=hydrated)):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
     assert resp.status_code == 200
@@ -244,7 +251,7 @@ async def test_session_turns_404_for_other_users_session(client, authed):
     )
 
     hydrate = AsyncMock(return_value=HydratedThread([], False, None, None, None))
-    with patch("sessions.api.views.ahydrate_thread", hydrate):
+    with patch("sessions.page_state.ahydrate_thread", hydrate):
         resp = await client.get(f"/sessions/{session_other.thread_id}/turns", headers=_auth_headers(raw))
 
     assert resp.status_code == 404
@@ -262,7 +269,7 @@ async def test_session_turns_serves_a_reader_of_the_sessions_repository(client, 
     )
 
     with patch(
-        "sessions.api.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, None, None, None))
+        "sessions.page_state.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, None, None, None))
     ):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
@@ -286,7 +293,7 @@ async def test_session_turns_expired_keeps_a_failed_runs_turns(client, authed):
     )
 
     with patch(
-        "sessions.api.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], True, None, None, None))
+        "sessions.page_state.ahydrate_thread", AsyncMock(return_value=HydratedThread([], True, None, None, None))
     ):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
@@ -314,7 +321,7 @@ async def test_session_turns_active_needs_a_fresh_heartbeat(client, authed, hear
     )
 
     with patch(
-        "sessions.api.views.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, None, None, None))
+        "sessions.page_state.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, None, None, None))
     ):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
@@ -336,7 +343,7 @@ async def test_session_turns_names_the_live_run(client, authed):
     )
     hydrated = AsyncMock(return_value=HydratedThread([], False, None, None, None))
 
-    with patch("sessions.api.views.ahydrate_thread", hydrated):
+    with patch("sessions.page_state.ahydrate_thread", hydrated):
         idle = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
         await Session.objects.filter(pk=session.pk).aupdate(active_run_id="42", last_active_at=timezone.now())
         live = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
@@ -360,7 +367,7 @@ async def test_session_turns_waits_until_the_run_runs(client, authed):
     )
     hydrated = AsyncMock(return_value=HydratedThread([], False, None, None, None))
 
-    with patch("sessions.api.views.ahydrate_thread", hydrated):
+    with patch("sessions.page_state.ahydrate_thread", hydrated):
         ready = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
         await Run.objects.filter(pk=run.pk).aupdate(status=RunStatus.RUNNING)
         unclaimed = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
@@ -395,7 +402,7 @@ async def test_session_turns_offers_stop_only_to_the_sessions_owner(client, auth
     )
     hydrated = AsyncMock(return_value=HydratedThread([], False, None, None, None))
 
-    with patch("sessions.api.views.ahydrate_thread", hydrated):
+    with patch("sessions.page_state.ahydrate_thread", hydrated):
         as_reader = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(reader_raw))
         as_owner = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
@@ -417,7 +424,7 @@ async def test_session_turns_404_for_a_participant_when_the_session_holds_anothe
     )
 
     hydrate = AsyncMock(return_value=HydratedThread([], False, None, None, None))
-    with patch("sessions.api.views.ahydrate_thread", hydrate):
+    with patch("sessions.page_state.ahydrate_thread", hydrate):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
     assert resp.status_code == 404
@@ -441,8 +448,598 @@ async def test_session_turns_rechecks_a_cross_project_restriction_that_lands_whi
         await Session.objects.filter(pk=thread_id).aupdate(cross_project_user_ids=[fetcher_id])
         return HydratedThread([AIMessage(content="their secrets", id="m-1")], False, None, None, None)
 
-    with patch("sessions.api.views.ahydrate_thread", hydrate_as_a_fetch_lands):
+    with patch("sessions.page_state.ahydrate_thread", hydrate_as_a_fetch_lands):
         resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
 
     assert resp.status_code == status
     assert ("their secrets" in resp.content.decode()) is fetched_by_caller
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("trigger_type", "background"), [(SessionOrigin.DELEGATION_RESUME, True), (SessionOrigin.CHAT, False)]
+)
+async def test_session_turns_says_whether_background_work_is_in_flight(client, authed, trigger_type, background):
+    """The detail page arms its transcript poller from this flag when a run starts after it rendered."""
+    _key_obj, raw, user = authed
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()),
+        origin=SessionOrigin.CHAT,
+        repo_id="group/project",
+        ref="main",
+        user=user,
+        active_run_id="holder-1",
+        last_active_at=timezone.now(),
+    )
+    await Run.objects.acreate(
+        session=session, trigger_type=trigger_type, repo_id="group/project", status=RunStatus.RUNNING
+    )
+
+    with patch(
+        "sessions.page_state.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, None, None, None))
+    ):
+        resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+
+    assert resp.json()["background"] is background
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_report_the_latest_run_for_the_page_header(client, authed):
+    _key_obj, raw, user = authed
+    session = await Session.objects.acreate(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="group/project", ref="main", user=user
+    )
+    await Run.objects.acreate(session=session, trigger_type=SessionOrigin.UI_JOB, repo_id="group/project")
+    latest = await Run.objects.acreate(
+        session=session,
+        trigger_type=SessionOrigin.UI_JOB,
+        repo_id="group/project",
+        status=RunStatus.FAILED,
+        prompt="fix it",
+    )
+    hydrated = HydratedThread([], False, None, None, None)
+
+    with (
+        patch("sessions.page_state.ahydrate_thread", AsyncMock(return_value=hydrated)),
+        patch("sessions.page_state.runnable_repo_ids", side_effect=lambda user, ids: set(ids)),
+    ):
+        resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+
+    assert resp.json()["latest_run"] == {
+        "marker_id": f"run-status-{latest.id}",
+        "label": "Failed",
+        "variant": "failed",
+        "finished_at": "",
+        "retry": "fix it",
+    }
+    assert (resp.json()["ci"], resp.json()["watch"]) == ([], None)
+    assert resp.json()["run_count"] == 2
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_show_delegated_jobs_current_state(client, authed):
+    _key_obj, raw, user = authed
+    coordinator = await sync_to_async(make_coordinator)(user)
+    batch = uuid.uuid4()
+    await sync_to_async(make_leg)(coordinator, batch, status=RunStatus.FAILED)
+    messages = delegate_messages(batch)
+
+    with patch(
+        "sessions.page_state.ahydrate_thread", AsyncMock(return_value=HydratedThread(messages, False, None, None, None))
+    ):
+        resp = await client.get(f"/sessions/{coordinator.thread_id}/turns", headers=_auth_headers(raw))
+
+    segment = next(s for t in resp.json()["turns"] for s in t["segments"] if s.get("name") == "delegate_jobs")
+    assert [leg["state"] for leg in segment["legs"]] == ["failed"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_carry_delegations_and_leave_the_parent_to_the_page(client, authed):
+    _key_obj, raw, user = authed
+    coordinator = await sync_to_async(make_coordinator)(user, title="Parent work")
+    leg = await sync_to_async(make_leg)(coordinator, uuid.uuid4(), status=RunStatus.FAILED)
+
+    with patch(
+        "sessions.page_state.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, None, None, None))
+    ):
+        parent = (await client.get(f"/sessions/{coordinator.thread_id}/turns", headers=_auth_headers(raw))).json()
+        child = (await client.get(f"/sessions/{leg.session_id}/turns", headers=_auth_headers(raw))).json()
+
+    assert parent["delegations"]["total"] == 1
+    assert child["delegations"] is None
+    assert "parent" not in child
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_carries_what_the_page_needs_to_settle_in_place(client, authed):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user, title="Fix the login redirect")
+    merge_request = {"id": 5, "url": "", "title": "Fix", "draft": False, "source_branch": "daiv/fix"}
+    diff_stats = {"files_changed": 2, "lines_added": 10, "lines_removed": 3}
+    context_usage = {"used": 1200, "window": 200000}
+    hydrated = HydratedThread([], False, merge_request, diff_stats, context_usage)
+
+    with (
+        patch("sessions.page_state.ahydrate_thread", AsyncMock(return_value=hydrated)),
+        patch("sessions.page_state.aread_session_revision", AsyncMock(return_value=4)),
+    ):
+        data = (await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))).json()
+
+    assert {
+        key: data[key] for key in ("revision", "merge_request", "diff_stats", "context_usage", "thread_ref", "title")
+    } == {
+        "revision": 4,
+        "merge_request": merge_request,
+        "diff_stats": diff_stats,
+        "context_usage": context_usage,
+        "thread_ref": "daiv/fix",
+        "title": "Fix the login redirect",
+    }
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_keeps_the_keys_older_pages_read(client, authed):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+
+    with patch(
+        "sessions.page_state.ahydrate_thread", AsyncMock(return_value=HydratedThread([], False, None, None, None))
+    ):
+        data = (await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))).json()
+
+    assert {
+        "turns",
+        "active",
+        "background",
+        "waiting_since",
+        "expired",
+        "latest_run",
+        "run_count",
+        "delegations",
+        "live_run",
+        "ci",
+        "watch",
+        "up_next",
+    } <= data.keys()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_leaves_out_a_merge_request_it_did_not_look_up(client, authed):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user, ref="daiv/fix")
+    run = await _create_run_async(session, trigger_type=SessionOrigin.UI_JOB, status=RunStatus.RUNNING)
+    await Session.objects.filter(pk=session.pk).aupdate(active_run_id=str(run.pk), last_active_at=timezone.now())
+    lookup = AsyncMock(return_value=None)
+    hydrated = AsyncMock(return_value=HydratedThread([], False, None, None, None))
+
+    with (
+        patch("sessions.page_state.ahydrate_thread", hydrated),
+        patch("sessions.page_state.aget_existing_mr_payload", lookup),
+    ):
+        in_flight = (await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))).json()
+        await Run.objects.filter(pk=run.pk).aupdate(status=RunStatus.SUCCESSFUL)
+        settled = (await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))).json()
+
+    assert in_flight["active"] is True
+    assert "merge_request" not in in_flight
+    assert settled["active"] is False
+    assert settled["merge_request"] is None
+    lookup.assert_awaited_once_with("group/project", "daiv/fix")
+
+
+# ---------------------------------------------------------------------------
+# session actions: rename, CI watch, archive
+# ---------------------------------------------------------------------------
+
+
+TURN_ON = {"on": True, "merge_request_iid": 7}
+TURN_OFF = {"on": False, "merge_request_iid": 7}
+
+
+@pytest.fixture
+def no_hydration():
+    """The toggle names its merge request, so reading the thread for one would be wasted work."""
+    with patch("sessions.page_state.ahydrate_thread", AsyncMock(side_effect=AssertionError("hydrated"))):
+        yield
+
+
+@pytest.fixture
+def watch_world(monkeypatch):
+    """The CI watch's outside world: the repository's switch and the queued evaluations."""
+    from types import SimpleNamespace
+
+    from sessions.pipeline_watch.service import PipelineWatch
+
+    world = SimpleNamespace(enabled=True, evaluations=[])
+
+    def policy(*_args):
+        return SimpleNamespace(enabled=world.enabled, max_attempts=3)
+
+    class FakeTask:
+        async def aenqueue(self, **kwargs):
+            world.evaluations.append(kwargs)
+
+    monkeypatch.setattr("sessions.api.views.PipelineWatch", lambda repo_id: PipelineWatch(repo_id, policy=policy()))
+    monkeypatch.setattr("sessions.header.WatchPolicy", policy)
+    monkeypatch.setattr("sessions.header.RepositoryConfig.get_config", lambda repo_id: None)
+    monkeypatch.setattr("sessions.tasks.evaluate_pipeline_watch_task", FakeTask())
+    return world
+
+
+async def _own(session: Session, iid: int = 7, **fields) -> MergeRequestOwnership:
+    return await MergeRequestOwnership.objects.acreate(
+        repo_id=session.repo_id, merge_request_iid=iid, session=session, source_branch=f"daiv/b{iid}", **fields
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("method", "path", "body"),
+    [("patch", "", {"title": "New"}), ("post", "/ci-watch", TURN_ON), ("post", "/archive", {"archived": True})],
+)
+def test_session_actions_reject_anonymous_callers(method, path, body):
+    from django.test import Client
+
+    resp = getattr(Client(), method)(f"/api/sessions/{uuid.uuid4()}{path}", data=body, content_type="application/json")
+    assert resp.status_code == 401
+
+
+@pytest.mark.django_db
+def test_session_actions_need_the_csrf_token_from_a_browser(member_user):
+    """The page posts with the cookie session, so the token the page sends is what stops a cross-site write."""
+    from django.middleware.csrf import CSRF_SESSION_KEY, _get_new_csrf_string
+    from django.test import Client
+
+    session = _create_session(user=member_user, title="Old")
+    browser = Client(enforce_csrf_checks=True)
+    browser.force_login(member_user)
+    url = f"/api/sessions/{session.thread_id}"
+
+    refused = browser.patch(url, data={"title": "New"}, content_type="application/json")
+    token = _get_new_csrf_string()
+    store = browser.session
+    store[CSRF_SESSION_KEY] = token
+    store.save()
+    accepted = browser.patch(url, data={"title": "New"}, content_type="application/json", HTTP_X_CSRFTOKEN=token)
+
+    assert (refused.status_code, accepted.status_code) == (403, 200)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("path", "body"), [("", {"title": "New"}), ("/ci-watch", TURN_ON), ("/archive", {"archived": True})]
+)
+async def test_session_actions_404_on_a_session_the_caller_cannot_see(client, authed, watch_world, path, body):
+    _key_obj, raw, _user = authed
+    other = await User.objects.acreate_user(username="other-act", email="other-act@example.com", password="x")  # noqa: S106
+    session = await sync_to_async(_create_session)(user=other, title="Theirs")
+    method = client.patch if path == "" else client.post
+
+    resp = await method(f"/sessions/{session.thread_id}{path}", json=body, headers=_auth_headers(raw))
+
+    assert resp.status_code == 404
+    await session.arefresh_from_db()
+    assert (session.title, session.archived_at) == ("Theirs", None)
+    assert watch_world.evaluations == []
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("path", "body"), [("", {"title": "New"}), ("/ci-watch", TURN_ON), ("/archive", {"archived": True})]
+)
+async def test_session_actions_403_for_a_reader_who_cannot_run_on_the_repo(client, authed, watch_world, path, body):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user, title="Mine")
+    method = client.patch if path == "" else client.post
+
+    with patch("sessions.api.views.can_run", return_value=False):
+        resp = await method(f"/sessions/{session.thread_id}{path}", json=body, headers=_auth_headers(raw))
+
+    assert resp.status_code == 403
+    await session.arefresh_from_db()
+    assert (session.title, session.archived_at) == ("Mine", None)
+    assert watch_world.evaluations == []
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_rename_trims_caps_and_saves_only_the_title(client, authed):
+    from sessions.titling import MAX_TITLE_LENGTH
+
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user, title="Old", ref="main")
+    await Session.objects.filter(pk=session.pk).aupdate(ref="feature")
+
+    resp = await client.patch(
+        f"/sessions/{session.thread_id}", json={"title": "  " + "x" * 200 + "  "}, headers=_auth_headers(raw)
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"title": "x" * MAX_TITLE_LENGTH}
+    await session.arefresh_from_db()
+    assert (session.title, session.ref) == ("x" * MAX_TITLE_LENGTH, "feature")
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("title", ["", "   \n\t"])
+async def test_session_rename_refuses_a_blank_title(client, authed, title):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user, title="Old")
+
+    resp = await client.patch(f"/sessions/{session.thread_id}", json={"title": title}, headers=_auth_headers(raw))
+
+    assert resp.status_code == 422
+    await session.arefresh_from_db()
+    assert session.title == "Old"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_archive_archives_and_unarchives_it_for_everyone_poking_its_page_on_a_change(client, authed):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user, archive_pending=True)
+    url = f"/sessions/{session.thread_id}/archive"
+
+    with (
+        patch("sessions.api.views.asession_changed", new=AsyncMock()) as poke,
+        patch.object(Drain, "start_logged", autospec=True) as drain,
+    ):
+        archived = await client.post(url, json={"archived": True}, headers=_auth_headers(raw))
+        again = await client.post(url, json={"archived": True}, headers=_auth_headers(raw))
+        await session.arefresh_from_db()
+        marked = (session.archived_at is not None, session.archive_pending)
+        restored = await client.post(url, json={"archived": False}, headers=_auth_headers(raw))
+
+    assert [r.json()["archived"] for r in (archived, again, restored)] == [True, True, False]
+    assert marked == (True, False)
+    await session.arefresh_from_db()
+    assert session.archived_at is None
+    assert poke.await_args_list == [call(session.pk), call(session.pk)]
+    assert [c.args[0].thread_id for c in drain.call_args_list] == [session.pk, session.pk]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_ci_watch_off_stops_waking_the_session_for_that_merge_request(
+    client, authed, watch_world, no_hydration
+):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+    ownership = await _own(session, attempts=2)
+
+    resp = await client.post(f"/sessions/{session.thread_id}/ci-watch", json=TURN_OFF, headers=_auth_headers(raw))
+
+    assert resp.status_code == 200
+    assert [item["watch_enabled"] for item in resp.json()["ci"]] == [False]
+    assert resp.json()["watch"]["open"] is False
+    await ownership.arefresh_from_db()
+    assert (ownership.watch_enabled, ownership.attempts) == (False, 2)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_ci_watch_on_gives_the_attempts_back_and_asks_for_an_evaluation(
+    client, authed, watch_world, no_hydration
+):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+    ownership = await _own(session, watch_enabled=False, attempts=3)
+
+    resp = await client.post(f"/sessions/{session.thread_id}/ci-watch", json=TURN_ON, headers=_auth_headers(raw))
+
+    assert resp.status_code == 200
+    assert resp.json()["watch"]["open"] is True
+    await ownership.arefresh_from_db()
+    assert (ownership.watch_enabled, ownership.attempts) == (True, 0)
+    assert watch_world.evaluations == [{"repo_id": "group/project", "ref": "daiv/b7"}]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_ci_watch_on_is_refused_when_the_repository_has_the_watch_off(client, authed, watch_world):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+    ownership = await _own(session, watch_enabled=False)
+    watch_world.enabled = False
+
+    resp = await client.post(f"/sessions/{session.thread_id}/ci-watch", json=TURN_ON, headers=_auth_headers(raw))
+
+    assert resp.status_code == 409
+    assert (resp.json()["reason"], resp.json()["detail"]) == ("disabled", "CI fixes are turned off for this repository")
+    await ownership.arefresh_from_db()
+    assert ownership.watch_enabled is False
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_ci_watch_is_refused_for_a_merge_request_the_session_does_not_own(client, authed, watch_world):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+    other = await sync_to_async(_create_session)(user=user)
+    await _own(other)
+
+    resp = await client.post(f"/sessions/{session.thread_id}/ci-watch", json=TURN_OFF, headers=_auth_headers(raw))
+
+    assert resp.status_code == 409
+    assert resp.json()["reason"] == "not_owned"
+    assert (resp.json()["ci"], resp.json()["watch"]) == ([], None)
+    assert await MergeRequestOwnership.objects.filter(watch_enabled=True).acount() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_ci_watch_defaults_to_the_only_merge_request_the_session_owns(client, authed, watch_world):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+    ownership = await _own(session)
+
+    resp = await client.post(f"/sessions/{session.thread_id}/ci-watch", json={"on": False}, headers=_auth_headers(raw))
+
+    assert resp.status_code == 200
+    await ownership.arefresh_from_db()
+    assert ownership.watch_enabled is False
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_ci_watch_needs_the_merge_request_when_the_session_owns_several(client, authed, watch_world):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+    await _own(session, 7)
+    await _own(session, 8)
+
+    resp = await client.post(f"/sessions/{session.thread_id}/ci-watch", json={"on": False}, headers=_auth_headers(raw))
+
+    assert resp.status_code == 409
+    assert resp.json()["reason"] == "not_owned"
+    assert await MergeRequestOwnership.objects.filter(watch_enabled=True).acount() == 2
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(("repo_id", "turned_off"), [("", "group/project"), ("group/lib", "group/lib")])
+async def test_session_ci_watch_names_the_repository_of_a_merge_request_sharing_its_iid(
+    client, authed, watch_world, repo_id, turned_off
+):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+    await _own(session)
+    await MergeRequestOwnership.objects.acreate(
+        repo_id="group/lib", merge_request_iid=7, session=session, source_branch="daiv/lib"
+    )
+
+    resp = await client.post(
+        f"/sessions/{session.thread_id}/ci-watch", json=TURN_OFF | {"repo_id": repo_id}, headers=_auth_headers(raw)
+    )
+
+    assert resp.status_code == 200
+    off = [o.repo_id async for o in MergeRequestOwnership.objects.filter(watch_enabled=False)]
+    assert off == [turned_off]
+    assert sorted((item["repo_id"], item["watch_enabled"]) for item in resp.json()["ci"]) == sorted([
+        ("group/project", turned_off != "group/project"),
+        ("group/lib", turned_off != "group/lib"),
+    ])
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_ci_watch_403_for_a_caller_who_cannot_run_on_the_merge_requests_repository(
+    client, authed, watch_world
+):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+    await MergeRequestOwnership.objects.acreate(
+        repo_id="group/lib", merge_request_iid=7, session=session, source_branch="daiv/lib", watch_enabled=False
+    )
+
+    with patch("sessions.api.views.can_run", side_effect=lambda _user, repo_id: repo_id == session.repo_id):
+        resp = await client.post(
+            f"/sessions/{session.thread_id}/ci-watch",
+            json=TURN_ON | {"repo_id": "group/lib"},
+            headers=_auth_headers(raw),
+        )
+
+    assert resp.status_code == 403
+    assert not await MergeRequestOwnership.objects.filter(watch_enabled=True).aexists()
+    assert watch_world.evaluations == []
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("body", [{"merge_request_iid": 7}, {"on": True, "merge_request_iid": 0}])
+async def test_session_ci_watch_validates_its_body(client, authed, watch_world, body):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+
+    resp = await client.post(f"/sessions/{session.thread_id}/ci-watch", json=body, headers=_auth_headers(raw))
+
+    assert resp.status_code == 422
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_report_ci_on_the_merge_requests_the_session_owns(client, authed, watch_world):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+    await _own(session, attempts=1)
+
+    hydrated = HydratedThread([], False, None, None, None)
+    with (
+        patch("sessions.page_state.ahydrate_thread", AsyncMock(return_value=hydrated)),
+        patch("sessions.page_state.aget_existing_mr_payload", AsyncMock(return_value=None)),
+    ):
+        resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+
+    assert resp.json()["ci"] == [
+        {
+            "repo_id": session.repo_id,
+            "merge_request_iid": 7,
+            "status": "running",
+            "label": "Waiting for CI",
+            "tone": "attn",
+            "failed_jobs": [],
+            "attempts": 1,
+            "max_attempts": 3,
+            "watch_enabled": True,
+            "explanation_run_id": None,
+        }
+    ]
+    assert resp.json()["watch"] == {"state": "running", "label": "Waiting for CI", "tone": "attn", "open": True}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_report_up_next(client, authed, member_user):
+    from sessions.models import EventKind
+
+    from tests.unit_tests.sessions.inbox.conftest import amake_event
+
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user, active_run_id="chat-run")
+    mine = await _create_run_async(session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.CHAT, user=user)
+    theirs = await _create_run_async(
+        session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.MR_WEBHOOK, user=member_user
+    )
+    chat = await amake_event(session, EventKind.CHAT_MESSAGE, run=mine, author=user)
+    mention = await amake_event(session, EventKind.MENTION, run=theirs, author=member_user)
+
+    hydrated = HydratedThread([], False, None, None, None)
+    with patch("sessions.page_state.ahydrate_thread", AsyncMock(return_value=hydrated)):
+        resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+
+    groups = resp.json()["up_next"]["groups"]
+    assert [(g["run_id"], [b["id"] for b in g["bubbles"]]) for g in groups] == [
+        (str(mine.pk), [f"inbox-{chat.pk}"]),
+        (str(theirs.pk), [f"inbox-{mention.pk}"]),
+    ]
+    assert "queued" not in resp.json()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_session_turns_report_no_up_next(client, authed):
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+
+    hydrated = HydratedThread([], False, None, None, None)
+    with patch("sessions.page_state.ahydrate_thread", AsyncMock(return_value=hydrated)):
+        resp = await client.get(f"/sessions/{session.thread_id}/turns", headers=_auth_headers(raw))
+
+    assert resp.json()["up_next"] is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_up_next_endpoint_returns_the_payload(client, authed):
+    from sessions.models import EventKind
+
+    from tests.unit_tests.sessions.inbox.conftest import amake_event
+
+    _key_obj, raw, user = authed
+    session = await sync_to_async(_create_session)(user=user)
+    comment = await amake_event(session, EventKind.COMMENT)
+
+    resp = await client.get(f"/sessions/{session.thread_id}/up-next", headers=_auth_headers(raw))
+
+    assert resp.status_code == 200
+    assert [line["id"] for line in resp.json()["up_next"]["told"][0]["lines"]] == [f"inbox-{comment.pk}"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_up_next_endpoint_404s_for_an_invisible_session(client, authed):
+    _key_obj, raw, _user = authed
+    other = await User.objects.acreate_user(username="other-up", email="other-up@example.com", password="x")  # noqa: S106
+    session = await sync_to_async(_create_session)(user=other)
+
+    resp = await client.get(f"/sessions/{session.thread_id}/up-next", headers=_auth_headers(raw))
+
+    assert resp.status_code == 404
+
+
+async def _create_run_async(session, **kwargs):
+    return await Run.objects.acreate(session=session, repo_id=session.repo_id, **kwargs)

@@ -1,14 +1,20 @@
 import asyncio
 import uuid
+from contextlib import nullcontext
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.utils import timezone
 
 import pytest
 from ninja.testing import TestAsyncClient
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.inbox.chat_claim import ChatClaim
+from sessions.models import EventKind, InboxEvent, Run, RunStatus, Session, SessionOrigin
+from sessions.multi_repo import ais_multi_repo, aload_extra_repos
 
 from accounts.models import APIKey, User
 from daiv.api import api
 from tests.unit_tests.sessions.conftest import active_holder
+from tests.unit_tests.sessions.inbox.conftest import amake_event
 
 
 @pytest.fixture
@@ -103,13 +109,23 @@ async def test_missing_repo_id_header_returns_404(client: TestAsyncClient, authe
     await user.adelete()
 
 
-@pytest.mark.django_db
-async def test_missing_ref_header_returns_404(client: TestAsyncClient, authed):
+@pytest.mark.django_db(transaction=True)
+async def test_blank_ref_follows_up_a_session_started_without_one(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    """A job submitted without a ref leaves ``Session.ref`` blank until a run syncs it back, so the page sends
+    ``X-Ref: ""``; the follow-up runs on the default branch instead of 404ing."""
     _, raw, user = authed
+    await Session.objects.acreate(origin=SessionOrigin.API_JOB, thread_id="t-no-ref", user=user, repo_id="a/b", ref="")
+
     response = await client.post(
-        "/chat/completions", json=_run_agent_input(), headers=_auth_headers(raw, **{"X-Repo-ID": "owner/repo"})
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-no-ref"),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": ""}),
     )
-    assert response.status_code == 404
+    assert response.status_code == 200
+    await asyncio.gather(*captured_runs)
+    assert patched_streamer.call_args.kwargs["ref"] == ""
     await user.adelete()
 
 
@@ -270,6 +286,77 @@ async def test_existing_thread_keeps_original_env_even_when_resolution_would_pic
     await user.adelete()
 
 
+async def _multi_repo_session(user):
+    from sessions.models import SessionRepository
+
+    session = await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-multi", user=user, repo_id="a/b", ref="main"
+    )
+    await SessionRepository.objects.acreate(session=session, position=1, repo_id="a/extra")
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_chat_turn_cannot_switch_a_multi_repo_sessions_repo(client: TestAsyncClient, authed):
+    _, raw, user = authed
+    await _multi_repo_session(user)
+
+    with patch("chat.api.views.aassert_repo_access", new=AsyncMock()):
+        response = await client.post(
+            "/chat/completions",
+            json=_run_agent_input(threadId="t-multi"),
+            headers=_auth_headers(raw, **{"X-Repo-ID": "g/other", "X-Ref": "main"}),
+        )
+
+    assert response.status_code == 400
+    assert "can't be changed" in response.json()["detail"]
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_chat_turn_on_multi_repo_session_keeps_its_repos(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    _, raw, user = authed
+    await _multi_repo_session(user)
+
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-multi"),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+
+    assert response.status_code == 200
+    await asyncio.gather(*captured_runs)
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_chat_turn_on_multi_repo_session_needs_access_to_every_repo(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    from codebase.authorization import RepositoryAccessDenied
+
+    _, raw, user = authed
+    await _multi_repo_session(user)
+
+    def _deny_the_extra_repo(_user, repo_ids):
+        if "a/extra" in repo_ids:
+            raise RepositoryAccessDenied(["a/extra"])
+
+    with patch("sessions.admission.assert_can_run", side_effect=_deny_the_extra_repo) as check:
+        response = await client.post(
+            "/chat/completions",
+            json=_run_agent_input(threadId="t-multi"),
+            headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+        )
+
+    assert response.status_code == 404
+    assert [list(c.args[1]) for c in check.call_args_list] == [["a/b"], ["a/b", "a/extra"]]
+    assert captured_runs == []
+    assert (await Session.objects.aget(thread_id="t-multi")).active_run_id is None
+    await user.adelete()
+
+
 @pytest.mark.django_db(transaction=True)
 async def test_auto_resolved_env_passed_to_streamer_on_first_turn(
     client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
@@ -415,7 +502,7 @@ async def test_exception_in_stream_clears_active_run_id_and_emits_run_error(
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_concurrent_run_returns_409(client: TestAsyncClient, authed):
+async def test_a_message_sent_while_a_run_holds_the_slot_joins_the_next_run(client: TestAsyncClient, authed):
     _, raw, user = authed
     await Session.objects.acreate(
         origin=SessionOrigin.CHAT, thread_id="t-busy", user=user, repo_id="a/b", ref="main", active_run_id="r-existing"
@@ -425,24 +512,171 @@ async def test_concurrent_run_returns_409(client: TestAsyncClient, authed):
         json=_run_agent_input(threadId="t-busy"),
         headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
     )
-    assert response.status_code == 409
+
+    assert response.status_code == 200
+    event = await InboxEvent.objects.aget(session_id="t-busy")
+    assert (event.kind, event.source_key, event.wake, event.author_id) == ("chat_message", "chat:m-1", True, user.pk)
+    assert event.payload == {"text": "hello", "agui_message_id": "m-1"}
+    next_run = await Run.objects.aget(pk=event.run_id)
+    assert (next_run.status, next_run.trigger_type) == (RunStatus.QUEUED, SessionOrigin.CHAT)
+    assert response.json() == {
+        "run_id": "r-1",
+        "thread_id": "t-busy",
+        "queued": {"event_id": str(event.pk), "run_id": str(next_run.pk), "position": "next"},
+    }
+    assert await active_holder("t-busy") == "r-existing"
     await user.adelete()
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_a_turn_sent_while_a_run_waits_to_start_returns_409(client: TestAsyncClient, authed):
+async def test_a_queued_message_answers_a_stream_caller_with_a_well_formed_ag_ui_stream(client, authed):
+    import json
+
+    _, raw, user = authed
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-busy", user=user, repo_id="a/b", ref="main", active_run_id="r-existing"
+    )
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-busy"),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main", "Accept": "text/event-stream"}),
+    )
+
+    body = response.content.decode()
+    frames = [json.loads(line.removeprefix("data:").strip()) for line in body.splitlines() if line.startswith("data:")]
+    event = await InboxEvent.objects.aget(session_id="t-busy")
+    assert [frame.get("type") for frame in frames] == ["RUN_STARTED", "CUSTOM", "RUN_FINISHED", None]
+    assert frames[1] == {
+        "type": "CUSTOM",
+        "name": "daiv.queued",
+        "value": {"event_id": str(event.pk), "run_id": str(event.run_id), "position": "next"},
+    }
+    assert frames[3] == {"reason": "finished"}
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_resent_message_is_queued_once(client: TestAsyncClient, authed):
+    _, raw, user = authed
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-busy", user=user, repo_id="a/b", ref="main", active_run_id="r-existing"
+    )
+    for run_id in ("r-1", "r-2"):
+        await client.post(
+            "/chat/completions",
+            json=_run_agent_input(threadId="t-busy", runId=run_id),
+            headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+        )
+
+    assert await InboxEvent.objects.filter(session_id="t-busy").acount() == 1
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_an_idle_turn_takes_the_pending_remembered_events(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    _, raw, user = authed
+    session = await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-idle", user=user, repo_id="a/b", ref="main"
+    )
+    remembered = await amake_event(session, EventKind.MR_MERGED, merge_request_iid=3)
+
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-idle"),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+    await asyncio.gather(*captured_runs)
+
+    assert response.json() == {"run_id": "r-1", "thread_id": "t-idle"}
+    remembered = await InboxEvent.objects.aget(pk=remembered.pk)
+    assert (remembered.state, remembered.claim_token) == ("taken", "r-1")
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_turn_on_an_archived_session_returns_400(client: TestAsyncClient, authed):
+    _, raw, user = authed
+    await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-auto", user=user, repo_id="a/b", ref="main", archived_at=timezone.now()
+    )
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-auto"),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "This session is archived. Unarchive it to send follow-ups."
+    assert await active_holder("t-auto") is None
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_turn_sent_while_a_run_waits_to_start_is_queued_behind_it(client: TestAsyncClient, authed, chat_inbox):
     _, raw, user = authed
     session = await Session.objects.acreate(
         origin=SessionOrigin.UI_JOB, thread_id="t-waiting", user=user, repo_id="a/b", ref="main"
     )
     await Run.objects.acreate(session=session, trigger_type=SessionOrigin.UI_JOB, repo_id="a/b", status=RunStatus.READY)
+
     response = await client.post(
         "/chat/completions",
         json=_run_agent_input(threadId="t-waiting"),
         headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
     )
-    assert response.status_code == 409
+
+    assert response.status_code == 200
+    assert response.json()["queued"]["event_id"]
+    assert [call.args[0].thread_id for call in chat_inbox.drain.call_args_list] == ["t-waiting"]
     assert await active_holder("t-waiting") is None
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_turn_sent_while_a_next_run_is_queued_joins_it(client: TestAsyncClient, authed):
+    _, raw, user = authed
+    session = await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-next", user=user, repo_id="a/b", ref="main"
+    )
+    next_run = await Run.objects.acreate(
+        session=session,
+        trigger_type=SessionOrigin.PIPELINE_WEBHOOK,
+        repo_id="a/b",
+        ref="main",
+        status=RunStatus.QUEUED,
+        user=user,
+    )
+    await amake_event(session, run=next_run)
+
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-next"),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+
+    assert response.json()["queued"]["run_id"] == str(next_run.pk)
+    assert await active_holder("t-next") is None
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_message_sent_from_a_busy_page_is_queued_even_when_the_run_just_ended(
+    client: TestAsyncClient, authed, chat_inbox
+):
+    _, raw, user = authed
+    await Session.objects.acreate(origin=SessionOrigin.CHAT, thread_id="t-ended", user=user, repo_id="a/b", ref="main")
+
+    response = await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId="t-ended", forwardedProps={"queue": True}),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+
+    event = await InboxEvent.objects.aget(session_id="t-ended")
+    assert response.json()["queued"]["event_id"] == str(event.pk)
+    assert [call.args[0].thread_id for call in chat_inbox.drain.call_args_list] == ["t-ended"]
+    assert await active_holder("t-ended") is None
     await user.adelete()
 
 
@@ -633,6 +867,161 @@ async def test_completion_denied_repo_returns_404_and_no_thread(client: TestAsyn
 
     assert response.status_code == 404
     assert not await Session.objects.filter(thread_id=thread_id).aexists()
+    await user.adelete()
+
+
+REPOS = [
+    {"repo_id": "a/b", "ref": "main"},
+    {"repo_id": "a/theme", "ref": "develop"},
+    {"repo_id": "a/common", "ref": ""},
+]
+
+
+async def _post_first_turn(client, raw, repos, *, thread_id="t-new"):
+    return await client.post(
+        "/chat/completions",
+        json=_run_agent_input(threadId=thread_id, forwardedProps={"repos": repos}),
+        headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+    )
+
+
+async def _assert_nothing_created(thread_id="t-new"):
+    assert not await Session.objects.filter(thread_id=thread_id).aexists()
+    assert not await ais_multi_repo(thread_id)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_first_turn_over_several_repos_opens_a_multi_repo_session(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    _, raw, user = authed
+
+    response = await _post_first_turn(client, raw, REPOS)
+
+    assert response.status_code == 200
+    await asyncio.gather(*captured_runs)
+    rows = [(r.position, r.repo_id, r.ref) for r in await aload_extra_repos("t-new")]
+    assert rows == [(1, "a/theme", "develop"), (2, "a/common", "")]
+    await user.adelete()
+
+
+@pytest.mark.parametrize(
+    ("repos", "detail"),
+    [
+        pytest.param("a/b", "a list of", id="not-a-list"),
+        pytest.param([], "a list of", id="empty-list"),
+        pytest.param(["a/b"], "a list of", id="entry-not-an-object"),
+        pytest.param([{"repo_id": 7, "ref": "main"}], "a list of", id="non-str-repo-id"),
+        pytest.param([{"repo_id": "a/b", "ref": 3}], "a list of", id="non-str-ref"),
+        pytest.param([{"repo_id": "  ", "ref": "main"}], "a list of", id="blank-repo-id"),
+        pytest.param([REPOS[1], REPOS[0]], "must start with", id="not-the-header-repository-first"),
+        pytest.param(
+            [REPOS[0], *({"repo_id": f"a/r{i}", "ref": ""} for i in range(5))], "at most 5", id="more-than-five"
+        ),
+        pytest.param(
+            [REPOS[0], {"repo_id": "a/theme", "ref": ""}, {"repo_id": "a/theme", "ref": "other"}],
+            "a/theme",
+            id="same-repository-twice",
+        ),
+    ],
+)
+@pytest.mark.django_db(transaction=True)
+async def test_malformed_repos_are_refused(client: TestAsyncClient, authed, repos, detail):
+    _, raw, user = authed
+
+    response = await _post_first_turn(client, raw, repos)
+
+    assert response.status_code == 400
+    assert detail in response.json()["detail"]
+    await _assert_nothing_created()
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_first_turn_needs_access_to_every_listed_repo(client: TestAsyncClient, authed):
+    from codebase.authorization import RepositoryAccessDenied
+
+    _, raw, user = authed
+
+    def _deny_the_theme_repo(_user, repo_ids):
+        if "a/theme" in repo_ids:
+            raise RepositoryAccessDenied(["a/theme"])
+
+    with patch("sessions.admission.assert_can_run", side_effect=_deny_the_theme_repo):
+        response = await _post_first_turn(client, raw, REPOS)
+
+    assert response.status_code == 404
+    await _assert_nothing_created()
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_single_entry_list_opens_a_single_repo_session(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    _, raw, user = authed
+
+    response = await _post_first_turn(client, raw, [REPOS[0]])
+
+    assert response.status_code == 200
+    await asyncio.gather(*captured_runs)
+    assert await Session.objects.filter(thread_id="t-new").aexists()
+    assert not await ais_multi_repo("t-new")
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_repos_on_a_continuation_are_ignored(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    _, raw, user = authed
+    await Session.objects.acreate(origin=SessionOrigin.CHAT, thread_id="t-1", user=user, repo_id="a/b", ref="main")
+
+    response = await _post_first_turn(client, raw, REPOS, thread_id="t-1")
+
+    assert response.status_code == 200
+    await asyncio.gather(*captured_runs)
+    assert not await ais_multi_repo("t-1")
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_auto_resolves_each_extra_repos_own_environment(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    from sandbox_envs.models import SandboxEnvironment, Visibility
+
+    _, raw, user = authed
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
+    main_env = await SandboxEnvironment.objects.acreate(
+        scope=Visibility.USER, user=user, name="main", base_image="python:3.14", repo_ids=["a/b"]
+    )
+    theme_env = await SandboxEnvironment.objects.acreate(
+        scope=Visibility.USER, user=user, name="theme", base_image="node:24", repo_ids=["a/theme"]
+    )
+
+    response = await _post_first_turn(client, raw, REPOS)
+
+    assert response.status_code == 200
+    await asyncio.gather(*captured_runs)
+    session = await Session.objects.aget(thread_id="t-new")
+    rows = [(r.repo_id, r.sandbox_environment_id) for r in await aload_extra_repos("t-new")]
+    assert session.sandbox_environment_id == main_env.id
+    assert rows == [("a/theme", theme_env.id), ("a/common", None)]
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_extra_repo_ids_are_stripped(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    _, raw, user = authed
+
+    response = await _post_first_turn(client, raw, [REPOS[0], {"repo_id": " a/theme ", "ref": "develop"}])
+
+    assert response.status_code == 200
+    await asyncio.gather(*captured_runs)
+    assert [r.repo_id for r in await aload_extra_repos("t-new")] == ["a/theme"]
     await user.adelete()
 
 
@@ -846,8 +1235,8 @@ async def test_chat_rejects_out_of_bounds_mcp_servers_payload(client: TestAsyncC
 async def test_a_rejected_duplicate_run_does_not_rewrite_the_selection(
     client: TestAsyncClient, authed, fake_redis, patched_streamer, ondemand_global_mcp
 ):
-    """The stored selection is a memory of what the last turn ran with, so a turn that never
-    ran must not leave one behind — hence the write lands after ``SessionLock.try_claim``."""
+    """The stored selection is a memory of what the last turn ran with, so a queued turn that has not run must not
+    leave one behind — hence the write lands after ``SessionLock.try_claim``."""
     from django.core.cache import cache
 
     _, raw, user = authed
@@ -867,7 +1256,7 @@ async def test_a_rejected_duplicate_run_does_not_rewrite_the_selection(
         json=_run_agent_input(threadId="t-mcp-locked", forwardedProps={"mcp_servers": []}),
         headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
     )
-    assert response.status_code == 409
+    assert response.json()["queued"]
 
     session = await Session.objects.aget(thread_id="t-mcp-locked")
     assert session.mcp_overrides == {"b": "on"}
@@ -1242,6 +1631,32 @@ async def test_completions_returns_run_handle_json_by_default(
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_an_accepted_turn_is_recorded_before_the_view_answers(client: TestAsyncClient, authed, fake_redis):
+    """The session page renders a turn from its ``Run``, so the page the browser loads next already shows it."""
+    from django.core.cache import cache
+
+    _, raw, user = authed
+    await cache.aclear()
+    with patch("chat.api.runner.supervisor.spawn"):
+        response = await client.post(
+            "/chat/completions",
+            json=_run_agent_input(threadId="t-accepted"),
+            headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+        )
+
+    assert response.status_code == 200
+    run = await Run.objects.aget(session_id="t-accepted")
+    assert (run.status, run.trigger_type, run.prompt, run.message_id, run.ref) == (
+        RunStatus.RUNNING,
+        SessionOrigin.CHAT,
+        "hello",
+        "m-1",
+        "main",
+    )
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_completions_streams_inline_for_event_stream_accept(
     client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
 ):
@@ -1338,6 +1753,35 @@ async def test_cancel_sets_flag_and_reports_local_miss(client: TestAsyncClient, 
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_cancel_stops_a_background_run_of_a_session_the_caller_owns(client: TestAsyncClient, authed, fake_redis):
+    from asgiref.sync import sync_to_async
+    from sessions.live.relay import RunRelay
+
+    from tests.unit_tests.sessions.conftest import make_task_result
+
+    _, raw, user = authed
+    session = await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-bg", user=user, repo_id="a/b", ref="main"
+    )
+    task = await sync_to_async(make_task_result)(status="RUNNING")
+    run = await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id="a/b", status=RunStatus.RUNNING,
+        task_result=task,
+    )  # fmt: skip
+    await Session.objects.filter(pk="t-bg").aupdate(active_run_id=str(run.pk))
+
+    response = await client.post(
+        "/chat/cancel", json={"thread_id": "t-bg", "run_id": str(run.pk)}, headers=_auth_headers(raw)
+    )
+
+    assert response.json() == {"cancelled": True, "local": False}
+    await run.arefresh_from_db()
+    assert run.cancel_requested_at is not None
+    assert await RunRelay("t-bg", str(run.pk)).cancel_requested() is False
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_cancel_rejects_run_not_in_flight(client: TestAsyncClient, authed, fake_redis):
     _, raw, user = authed
     await Session.objects.acreate(
@@ -1390,9 +1834,96 @@ async def test_completion_releases_slot_when_spawn_rejects_run_id(
 
     assert response.status_code == 409
     # The slot claimed by try_claim must be released, not left dangling.
-    session = await Session.objects.filter(thread_id="t-spawnfail").afirst()
-    assert session is not None
-    assert session.active_run_id is None
+    assert await active_holder("t-spawnfail") is None
+    assert not await Run.objects.filter(session_id="t-spawnfail").aexists()
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_turn_that_could_not_start_frees_the_slot_when_putting_back_its_events_fails(
+    client: TestAsyncClient, authed, fake_redis, patched_streamer, real_chat_inbox, caplog
+):
+    from django.core.cache import cache
+
+    _, raw, user = authed
+    await cache.aclear()
+    with (
+        patch("chat.api.runner.supervisor.spawn", side_effect=RuntimeError("already live for run_id=r-1")),
+        patch.object(ChatClaim, "arelease", side_effect=RuntimeError("db down")),
+        caplog.at_level("ERROR", logger="daiv.chat"),
+    ):
+        response = await client.post(
+            "/chat/completions",
+            json=_run_agent_input(threadId="t-spawnfail"),
+            headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+        )
+
+    assert response.status_code == 409
+    assert await active_holder("t-spawnfail") is None
+    assert caplog.records[-1].exc_info is not None
+    await user.adelete()
+
+
+async def _remembered_event(user, thread_id: str) -> InboxEvent:
+    session = await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id=thread_id, user=user, repo_id="a/b", ref="main"
+    )
+    return await amake_event(session, EventKind.MR_MERGED, merge_request_iid=3)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("withdraw_fails", [False, True], ids=["withdrawn", "withdraw-failed"])
+async def test_a_turn_that_could_not_start_puts_back_the_events_it_took(
+    client: TestAsyncClient, authed, fake_redis, patched_streamer, real_chat_inbox, withdraw_fails
+):
+    from django.core.cache import cache
+
+    _, raw, user = authed
+    await cache.aclear()
+    remembered = await _remembered_event(user, "t-spawnfail")
+
+    with (
+        patch("chat.api.runner.supervisor.spawn", side_effect=RuntimeError("already live for run_id=r-1")),
+        patch("chat.api.views.RunEnd.awithdraw", side_effect=RuntimeError("db down"))
+        if withdraw_fails
+        else nullcontext(),
+    ):
+        response = await client.post(
+            "/chat/completions",
+            json=_run_agent_input(threadId="t-spawnfail"),
+            headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+        )
+
+    assert response.status_code == 409
+    assert await active_holder("t-spawnfail") is None
+    remembered = await InboxEvent.objects.aget(pk=remembered.pk)
+    assert (remembered.state, remembered.claim_token) == ("pending", "")
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_turn_whose_run_cannot_be_recorded_frees_the_slot_and_puts_back_its_events(
+    client: TestAsyncClient, authed, fake_redis, real_chat_inbox
+):
+    from django.core.cache import cache
+
+    _, raw, user = authed
+    await cache.aclear()
+    remembered = await _remembered_event(user, "t-norecord")
+
+    with (
+        patch("chat.api.views.start_chat_run", side_effect=RuntimeError("db down")),
+        pytest.raises(RuntimeError, match="db down"),
+    ):
+        await client.post(
+            "/chat/completions",
+            json=_run_agent_input(threadId="t-norecord"),
+            headers=_auth_headers(raw, **{"X-Repo-ID": "a/b", "X-Ref": "main"}),
+        )
+
+    assert await active_holder("t-norecord") is None
+    remembered = await InboxEvent.objects.aget(pk=remembered.pk)
+    assert (remembered.state, remembered.claim_token) == ("pending", "")
     await user.adelete()
 
 

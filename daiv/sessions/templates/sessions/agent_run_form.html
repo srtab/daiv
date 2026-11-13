@@ -1,7 +1,7 @@
 {% extends "base_app.html" %}
 {% load i18n static %}
 
-{% block title %}{% if source_run %}Retry run{% else %}Start a run{% endif %} — DAIV{% endblock %}
+{% block title %}Start a run — DAIV{% endblock %}
 
 {% block container_width %}max-w-3xl{% endblock %}
 
@@ -18,17 +18,10 @@
 {% block app_content %}
 <div class="animate-fade-up">
     <h1 class="text-2xl font-bold tracking-tight">
-        {% if source_run %}Retry run{% else %}Start a run{% endif %}
+        Start a run
     </h1>
     <p class="mt-1.5 text-[15px] font-light text-gray-400">
-        {% if source_run %}
-        Retried from
-        <a href="{% url 'session_detail' thread_id=source_run.session_id %}#run-{{ source_run.pk }}" class="underline hover:text-gray-200">
-            {{ source_run.repo_id }} &middot; {{ source_run.created_at|date:"Y-m-d H:i" }}
-        </a>
-        {% else %}
         Launch a new agent run on a repository.
-        {% endif %}
     </p>
 </div>
 
@@ -52,7 +45,7 @@
 
     <div class="mt-8 flex items-center gap-3">
         <button type="submit" class="btn-primary">
-            {% if source_run %}Retry{% else %}Start run{% endif %}
+            Start run
         </button>
         <a href="{% url 'session_list' %}" class="btn-secondary">
             Cancel

@@ -339,12 +339,12 @@ class SandboxEnvironment(TimeStampedModel):
         except (PydanticValidationError, TypeError, ValueError) as err:
             raise ValidationError({"egress_policy": _("Invalid egress configuration: %s") % err}) from err
 
-        # Reserved: with_platform_credential overwrites this secret at runtime, so a stored one would
+        # Reserved: with_platform_credentials overwrites these secrets at runtime, so a stored one would
         # be silently displaced by DAIV's git-platform credential.
-        from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME
+        from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, is_platform_secret_name
 
-        if PLATFORM_EGRESS_SECRET_NAME in request.secrets or any(
-            rule.inject == PLATFORM_EGRESS_SECRET_NAME for rule in request.policy.rules
+        if any(is_platform_secret_name(name) for name in request.secrets) or any(
+            rule.inject is not None and is_platform_secret_name(rule.inject) for rule in request.policy.rules
         ):
             raise ValidationError({
                 "egress_secrets": _("The egress secret name '%s' is reserved for DAIV's git-platform credential.")

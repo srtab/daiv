@@ -10,14 +10,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from asgiref.sync import sync_to_async
 from django_tasks_db.models import DBTaskResult, get_date_max
-from sessions.models import Run, RunStatus, Session, SessionOrigin
-from sessions.queue import LINK_FAILED_PREFIX
+from sessions.inbox.drain import Drain
+from sessions.models import EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
 from sessions.services import (
     BatchSubmitFailure,
     RepoTarget,
+    TaskRun,
     acreate_run,
     aget_session_ref,
-    aget_task_run_id,
+    aget_task_run,
     apersist_session_ref,
     areset_session_ref,
     asubmit_batch_runs,
@@ -147,6 +148,26 @@ async def test_submit_batch_creates_session_and_ready_run():
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("given", [True, False], ids=["given", "minted"])
+async def test_submit_batch_stamps_the_batch_id_the_caller_gives_or_a_fresh_one(given):
+    batch_id = uuid.uuid4() if given else None
+    with patch("sessions.queue.run_job_task") as mock_task:
+        mock_task.aenqueue = AsyncMock(side_effect=[await _atask_result_row(uuid.uuid4()) for _ in range(2)])
+        result = await asubmit_batch_runs(
+            user=None,
+            prompt="do it",
+            repos=[RepoTarget(repo_id="g/r"), RepoTarget(repo_id="g/s")],
+            trigger_type=SessionOrigin.API_JOB,
+            batch_id=batch_id,
+        )
+
+    assert result.batch_id is not None
+    if given:
+        assert result.batch_id == batch_id
+    assert {run.batch_id for run in result.runs} == {result.batch_id}
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_submit_continuation_queues_when_thread_busy():
     tid = str(uuid.uuid4())
     task_id = uuid.uuid4()
@@ -160,7 +181,7 @@ async def test_submit_continuation_queues_when_thread_busy():
         second = await asubmit_batch_runs(
             user=None, prompt="p2", repos=[RepoTarget(repo_id="g/r")], trigger_type=SessionOrigin.API_JOB, thread_id=tid
         )
-    assert second.runs[0].status == RunStatus.QUEUED  # constraint fallback preserved
+    assert second.runs[0].status == RunStatus.QUEUED
     assert await Run.objects.filter(session_id=tid).acount() == 2
 
 
@@ -353,6 +374,112 @@ class TestAsubmitBatchRuns:
 
         assert len(result.runs) == 1
         assert result.runs[0].batch_id == result.batch_id
+
+    async def test_a_targets_own_prompt_replaces_the_batch_prompt_for_that_repository(self, member_user):
+        patcher, mock_task = _patch_run_job_task(side_effect=[await _make_db_task_result() for _ in range(2)])
+        with patcher:
+            result = await asubmit_batch_runs(
+                user=member_user,
+                prompt="batch",
+                repos=[RepoTarget(repo_id="a/b"), RepoTarget(repo_id="a/c", prompt="own")],
+                trigger_type=SessionOrigin.API_JOB,
+            )
+
+        assert sorted((run.repo_id, run.prompt) for run in result.runs) == [("a/b", "batch"), ("a/c", "own")]
+        assert sorted(call.kwargs["prompt"] for call in mock_task.aenqueue.call_args_list) == ["batch", "own"]
+
+    async def test_every_row_of_the_batch_exists_before_any_task_is_queued(self, member_user):
+        tasks = [await _make_db_task_result() for _ in range(3)]
+        siblings_at_enqueue: list[int] = []
+
+        async def enqueue(**kwargs):
+            run = await Run.objects.aget(pk=kwargs["run_id"])
+            siblings_at_enqueue.append(await Run.objects.filter(batch_id=run.batch_id).acount())
+            return tasks[len(siblings_at_enqueue) - 1]
+
+        patcher, _ = _patch_run_job_task(side_effect=enqueue)
+        with patcher:
+            result = await asubmit_batch_runs(
+                user=member_user,
+                prompt="p",
+                repos=[RepoTarget(repo_id=f"a/r{i}") for i in range(3)],
+                trigger_type=SessionOrigin.API_JOB,
+            )
+
+        assert len(result.runs) == 3
+        assert siblings_at_enqueue == [3, 3, 3]
+
+    async def test_the_outcomes_follow_the_targets_order(self, member_user):
+        patcher, _ = _patch_run_job_task(side_effect=[RuntimeError("broker down"), await _make_db_task_result()])
+        with patcher:
+            result = await asubmit_batch_runs(
+                user=member_user,
+                prompt="p",
+                repos=[RepoTarget(repo_id="a/b", prompt="first"), RepoTarget(repo_id="a/b", prompt="second")],
+                trigger_type=SessionOrigin.API_JOB,
+            )
+
+        assert [type(outcome).__name__ for outcome in result.outcomes] == ["BatchSubmitFailure", "Run"]
+        assert result.outcomes[1].prompt == "second"
+
+    async def test_a_delegated_batch_opens_its_sessions_under_the_coordinators(self, member_user):
+        coordinator = await Session.objects.acreate(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="acme/coord"
+        )
+        patcher, mock_task = _patch_run_job_task()
+        mock_task.aenqueue.return_value = await _make_db_task_result()
+        with patcher:
+            result = await asubmit_batch_runs(
+                user=member_user,
+                prompt="goal",
+                repos=[RepoTarget(repo_id="a/b", prompt="do it")],
+                trigger_type=SessionOrigin.DELEGATED_JOB,
+                parent=coordinator,
+            )
+
+        assert await Session.objects.filter(pk=result.runs[0].session_id, parent=coordinator).aexists()
+
+    async def test_a_targets_references_add_to_the_batchs_for_its_run_only(self, member_user):
+        patcher, mock_task = _patch_run_job_task(side_effect=[await _make_db_task_result() for _ in range(2)])
+        with patcher:
+            result = await asubmit_batch_runs(
+                user=member_user,
+                prompt="p",
+                repos=[
+                    RepoTarget(repo_id="a/b", references=(RefIn(key="DAIV-1V", provider="sentry"),)),
+                    RepoTarget(repo_id="a/c"),
+                ],
+                trigger_type=SessionOrigin.API_JOB,
+                references=[RefIn(key="PROJ-1", provider="jira")],
+            )
+
+        keys = {}
+        for run in result.runs:
+            session = await Session.objects.aget(pk=run.session_id)
+            keys[run.repo_id] = sorted(ref.key for ref in session.external_references())
+        assert keys == {"a/b": ["DAIV-1V", "PROJ-1"], "a/c": ["PROJ-1"]}
+
+    async def test_a_waiting_target_is_created_queued_and_left_for_the_queue(self, member_user):
+        awaited = await Run.objects.acreate(
+            session=await Session.objects.acreate(
+                thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="acme/coord"
+            ),
+            trigger_type=SessionOrigin.API_JOB,
+            repo_id="acme/coord",
+            status=RunStatus.RUNNING,
+        )
+        patcher, mock_task = _patch_run_job_task()
+        with patcher:
+            result = await asubmit_batch_runs(
+                user=member_user,
+                prompt="p",
+                repos=[RepoTarget(repo_id="acme/coord", ref="feat/x", waits_for_run_id=awaited.pk)],
+                trigger_type=SessionOrigin.DELEGATED_JOB,
+            )
+
+        mock_task.aenqueue.assert_not_called()
+        [run] = result.runs
+        assert (run.status, run.waits_for_id) == (RunStatus.QUEUED, awaited.pk)
 
 
 # ---------------------------------------------------------------------------
@@ -580,21 +707,12 @@ class TestSessionContinuation:
 
         assert mock_task.aenqueue.call_args.kwargs["ask_user_enabled"] is expected
 
-    async def test_enqueue_failure_marks_failed_with_audit_and_releases_queued_sibling(self, member_user):
-        """When enqueue raises, run transitions to FAILED and queued sibling is released."""
+    @pytest.mark.parametrize("failure", ["enqueue", "link"])
+    async def test_a_follow_up_that_could_not_start_is_reported_and_never_starts_later(self, member_user, failure):
         thread = str(uuid.uuid4())
-        # A prior QUEUED sibling waiting for the active slot to open up.
-        session = await Session.objects.acreate(thread_id=thread, origin=SessionOrigin.API_JOB, repo_id="acme/api")
-        queued = await Run.objects.acreate(
-            session=session,
-            trigger_type=SessionOrigin.API_JOB,
-            repo_id="acme/api",
-            status=RunStatus.QUEUED,
-            user=member_user,
-            prompt="p",
-        )
-        good_task = await _make_db_task_result()
-        patcher, mock_task = _patch_run_job_task(side_effect=[RuntimeError("broker down"), good_task])
+        await Session.objects.acreate(thread_id=thread, origin=SessionOrigin.API_JOB, repo_id="acme/api")
+        side_effect = [RuntimeError("broker down")] if failure == "enqueue" else [MagicMock(id=uuid.uuid4())]
+        patcher, _mock_task = _patch_run_job_task(side_effect=side_effect)
         with patcher:
             result = await asubmit_batch_runs(
                 user=member_user,
@@ -604,33 +722,21 @@ class TestSessionContinuation:
                 thread_id=thread,
             )
 
-        assert result.runs == [] and len(result.failed) == 1
-        assert mock_task.aenqueue.await_count == 2
+        assert result.runs == []
+        assert [failure.error for failure in result.failed] == ["FollowUpNotStarted: not_started"]
+        event = await InboxEvent.objects.aget(session_id=thread)
+        assert (event.state, event.run_id) == (EventState.DISMISSED, None)
+        assert not await Run.objects.filter(session_id=thread).exclude(status=RunStatus.FAILED).aexists()
+        assert (await Session.objects.aget(pk=thread)).active_run_id is None
 
-        failed_row = await Run.objects.aget(session_id=thread, status=RunStatus.FAILED)
-        assert failed_row.error_message == "enqueue_failed: RuntimeError: broker down"
-        assert result.failed[0].error == failed_row.error_message
-        assert failed_row.finished_at is not None
-
-        await queued.arefresh_from_db()
-        assert queued.status == RunStatus.READY
-        assert queued.task_result_id == good_task.id
-
-    async def test_link_failure_reports_the_row_error_and_releases_queued_sibling(self, member_user):
+    async def test_a_follow_up_whose_drain_lost_the_slot_joins_the_next_run(self, member_user):
         thread = str(uuid.uuid4())
-        session = await Session.objects.acreate(thread_id=thread, origin=SessionOrigin.API_JOB, repo_id="acme/api")
-        queued = await Run.objects.acreate(
-            session=session,
-            trigger_type=SessionOrigin.API_JOB,
-            repo_id="acme/api",
-            status=RunStatus.QUEUED,
-            user=member_user,
-            prompt="p",
-        )
-        good_task = await _make_db_task_result()
-        unlinkable_task = MagicMock(id=uuid.uuid4())  # no task result row to link to
-        patcher, _mock_task = _patch_run_job_task(side_effect=[unlinkable_task, good_task])
-        with patcher:
+        await Session.objects.acreate(thread_id=thread, origin=SessionOrigin.API_JOB, repo_id="acme/api")
+
+        def claimed_before_the_drain(drain):
+            Session.objects.filter(pk=drain.thread_id).update(active_run_id="chat-run")
+
+        with patch.object(Drain, "start_logged", autospec=True, side_effect=claimed_before_the_drain):
             result = await asubmit_batch_runs(
                 user=member_user,
                 prompt="follow-up",
@@ -639,11 +745,25 @@ class TestSessionContinuation:
                 thread_id=thread,
             )
 
-        failed_row = await Run.objects.aget(session_id=thread, status=RunStatus.FAILED)
-        assert failed_row.error_message.startswith(LINK_FAILED_PREFIX)
-        assert [failure.error for failure in result.failed] == [failed_row.error_message]
-        await queued.arefresh_from_db()
-        assert (queued.status, queued.task_result_id) == (RunStatus.READY, good_task.id)
+        [run] = result.runs
+        assert run.status == RunStatus.QUEUED
+        event = await InboxEvent.objects.aget(session_id=thread)
+        assert (event.state, event.run_id) == (EventState.PENDING, run.pk)
+
+    async def test_a_follow_up_on_another_repository_is_refused(self, member_user):
+        thread = str(uuid.uuid4())
+        await Session.objects.acreate(thread_id=thread, origin=SessionOrigin.API_JOB, repo_id="acme/api")
+
+        result = await asubmit_batch_runs(
+            user=member_user,
+            prompt="follow-up",
+            repos=[RepoTarget(repo_id="acme/web", ref="")],
+            trigger_type=SessionOrigin.API_JOB,
+            thread_id=thread,
+        )
+
+        assert [failure.error for failure in result.failed] == ["thread_id belongs to the repository acme/api"]
+        assert not await InboxEvent.objects.aexists()
 
 
 # ---------------------------------------------------------------------------
@@ -662,7 +782,7 @@ async def test_get_or_create_session_stamps_mcp_overrides():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_continuation_submit_does_not_clobber_stored_overrides():
+async def test_get_or_create_session_keeps_an_existing_sessions_mcp_overrides():
     from sessions.models import SessionOrigin
 
     await sync_to_async(get_or_create_session)(
@@ -796,18 +916,19 @@ async def test_get_session_ref_is_empty_when_there_is_no_working_branch(thread_i
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_task_run_id_is_the_run_linked_to_the_task_result():
+async def test_task_run_is_the_run_linked_to_the_task_result_and_its_current_user(admin_user):
     task_result = await _make_db_task_result()
     run = await acreate_run(trigger_type=SessionOrigin.ISSUE_WEBHOOK, task_result_id=task_result.id, repo_id="a/b")
+    await Run.objects.filter(pk=run.pk).aupdate(user=admin_user)
 
-    assert await aget_task_run_id(task_result.id) == str(run.pk)
+    assert await aget_task_run(task_result.id) == TaskRun(run_id=str(run.pk), user_id=admin_user.pk)
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_task_run_id_is_none_when_no_run_is_linked(caplog):
+async def test_task_run_is_empty_when_no_run_is_linked(caplog):
     task_result = await _make_db_task_result()
 
-    assert await aget_task_run_id(task_result.id) is None
+    assert await aget_task_run(task_result.id) == TaskRun()
     assert f"No run is linked to task result {task_result.id}" in caplog.text
 
 
@@ -816,7 +937,7 @@ async def test_task_run_id_is_none_when_no_run_is_linked(caplog):
 # ---------------------------------------------------------------------------
 
 
-async def _submit_turn(thread_id, references=None, prompt="p"):
+async def _submit_turn(thread_id, references=None, prompt="p", mcp_overrides=None):
     fake_task = await _make_db_task_result()
     patcher, mock_task = _patch_run_job_task()
     mock_task.aenqueue.return_value = fake_task
@@ -828,6 +949,7 @@ async def _submit_turn(thread_id, references=None, prompt="p"):
             trigger_type=SessionOrigin.MCP_JOB,
             thread_id=thread_id,
             references=references,
+            mcp_overrides=mcp_overrides,
         )
 
 
@@ -843,11 +965,10 @@ async def test_the_first_submission_stores_deduped_refs_on_the_session():
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_continuation_merges_and_dedupes_refs():
-    """The second turn lands as a QUEUED fallback (the first run is still READY) — the merge
-    must land on that path too."""
+async def test_continuation_merges_and_dedupes_refs_once_a_run_takes_it():
     thread_id = str(uuid.uuid4())
-    await _submit_turn(thread_id, references=[RefIn(key="PROJ-1", provider="jira", url="https://a")])
+    [first] = (await _submit_turn(thread_id, references=[RefIn(key="PROJ-1", provider="jira", url="https://a")])).runs
+    await Run.objects.filter(pk=first.pk).aupdate(status=RunStatus.SUCCESSFUL)
     await _submit_turn(
         thread_id,
         references=[
@@ -858,6 +979,17 @@ async def test_continuation_merges_and_dedupes_refs():
     session = await Session.objects.aget(thread_id=thread_id)
     assert [ref["key"] for ref in session.external_refs] == ["PROJ-1", "DAIV-1V"]
     assert session.external_refs[0]["url"] == "https://a"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_follow_up_queued_behind_a_busy_session_adds_its_refs_only_when_taken():
+    thread_id = str(uuid.uuid4())
+    await _submit_turn(thread_id, references=[RefIn(key="PROJ-1", provider="jira")])
+    [queued] = (await _submit_turn(thread_id, references=[RefIn(key="DAIV-1V", provider="sentry")])).runs
+
+    assert queued.status == RunStatus.QUEUED
+    session = await Session.objects.aget(thread_id=thread_id)
+    assert [ref["key"] for ref in session.external_refs] == ["PROJ-1"]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -917,3 +1049,74 @@ async def test_continuation_without_refs_leaves_stored_refs_alone():
     await _submit_turn(thread_id)
     session = await Session.objects.aget(thread_id=thread_id)
     assert session.external_refs == [{"key": "PROJ-1", "provider": "jira", "url": "", "relation": "relates"}]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_continuation_replaces_the_threads_mcp_overrides():
+    thread_id = str(uuid.uuid4())
+    await _submit_turn(thread_id, mcp_overrides={"sentry": "off"})
+    await Run.objects.filter(session__thread_id=thread_id).aupdate(status=RunStatus.SUCCESSFUL)
+    await _submit_turn(thread_id, mcp_overrides={"grafana": "on"})
+    session = await Session.objects.aget(thread_id=thread_id)
+    assert session.mcp_overrides == {"grafana": "on"}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_continuation_cannot_change_mcp_overrides_while_another_run_is_unfinished():
+    """``run_job_task`` reads the overrides when a run starts, so the unfinished run would pick them up too."""
+    thread_id = str(uuid.uuid4())
+    await _submit_turn(thread_id, mcp_overrides={"sentry": "off"})
+    result = await _submit_turn(thread_id, mcp_overrides={"grafana": "on"})
+    assert result.failed[0].error.startswith("mcp_overrides_update_failed: SessionBusyError:")
+    session = await Session.objects.aget(thread_id=thread_id)
+    assert session.mcp_overrides == {"sentry": "off"}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_continuation_may_queue_when_it_keeps_the_threads_mcp_overrides():
+    thread_id = str(uuid.uuid4())
+    await _submit_turn(thread_id, mcp_overrides={"sentry": "off"})
+    result = await _submit_turn(thread_id, mcp_overrides={"sentry": "off"})
+    assert [run.status for run in result.runs] == [RunStatus.QUEUED]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_continuation_without_mcp_overrides_keeps_the_threads():
+    thread_id = str(uuid.uuid4())
+    await _submit_turn(thread_id, mcp_overrides={"sentry": "off"})
+    await _submit_turn(thread_id)
+    session = await Session.objects.aget(thread_id=thread_id)
+    assert session.mcp_overrides == {"sentry": "off"}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_failed_run_creation_leaves_the_threads_mcp_overrides_alone():
+    thread_id = str(uuid.uuid4())
+    await _submit_turn(thread_id, mcp_overrides={"sentry": "off"})
+    with patch("sessions.services.Run.objects.create", side_effect=RuntimeError("boom")):
+        result = await _submit_turn(thread_id, mcp_overrides={"grafana": "on"})
+    assert len(result.failed) == 1
+    session = await Session.objects.aget(thread_id=thread_id)
+    assert session.mcp_overrides == {"sentry": "off"}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_failed_mcp_overrides_update_fails_the_follow_up_before_it_is_posted():
+    thread_id = str(uuid.uuid4())
+    await _submit_turn(thread_id)
+    boom = AsyncMock(side_effect=RuntimeError("db down"))
+    with patch("sessions.services._aset_session_mcp_overrides", boom):
+        result = await _submit_turn(thread_id, mcp_overrides={"grafana": "on"})
+    assert result.runs == []
+    assert result.failed[0].error == "mcp_overrides_update_failed: RuntimeError: db down"
+    assert not await InboxEvent.objects.filter(session_id=thread_id).aexists()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_failed_mcp_overrides_update_leaves_the_threads_refs_alone():
+    thread_id = str(uuid.uuid4())
+    await _submit_turn(thread_id)
+    with patch("sessions.services._aset_session_mcp_overrides", AsyncMock(side_effect=RuntimeError("db down"))):
+        await _submit_turn(thread_id, references=[RefIn(key="PROJ-9", provider="jira")], mcp_overrides={"a": "on"})
+    session = await Session.objects.aget(thread_id=thread_id)
+    assert session.external_refs == []

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import logging
+import mimetypes
 import uuid
 from decimal import Decimal
+from functools import reduce
+from operator import or_
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any
 
@@ -18,12 +21,27 @@ from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
 from core.models import ThinkingLevelChoices
 from sessions.artifacts import ArtifactKind, artifact_kind
 from sessions.executor.result import parse_agent_result
-from sessions.managers import RunArtifactManager, RunManager, SessionManager
+from sessions.managers import (
+    MergeRequestOwnershipManager,
+    RunArtifactManager,
+    RunManager,
+    SessionManager,
+    ToolResultMediaManager,
+)
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from sessions.executor.result import AgentResult
 
 logger = logging.getLogger("daiv.sessions")
+
+CHAT_PROMPT_MAX_LENGTH = 2000
+RESULT_SUMMARY_MAX_CHARS = 2000
+# The agent may still push a commit or open an MR while the row shows FAILED.
+LINK_FAILED_PREFIX = "link_failed (agent task will run but its result cannot be captured)"
+
+_INBOX_TRIGGER_LITERALS = ["chat", "mr_webhook", "api_job", "mcp_job", "delegation_resume", "pipeline_webhook"]
 
 
 class RunStatus(models.TextChoices):
@@ -37,6 +55,23 @@ class RunStatus(models.TextChoices):
     @classmethod
     def terminal(cls) -> frozenset[str]:
         return frozenset({cls.SUCCESSFUL, cls.WAITING_INPUT, cls.FAILED})
+
+
+class PublishStatus(models.TextChoices):
+    OPENED = "opened", _("Opened")
+    PUSHED = "pushed", _("Pushed")
+    NOT_PUBLISHED = "not_published", _("Not published")
+    FAILED = "failed", _("Failed")
+
+
+class PublishErrorKind(models.TextChoices):
+    """What kept a run's publish from completing; the labels are the only text shown, never exception text."""
+
+    CONFLICTS = "conflicts", _("Merge conflicts are left in the changed files")
+    MR_PENDING = "mr_pending", _("The merge request isn't created yet")
+    PUSH_REJECTED = "push_rejected", _("The push was rejected")
+    MR_FAILED = "mr_failed", _("The merge request couldn't be created")
+    UNKNOWN = "unknown", _("Couldn't publish the changes")
 
 
 class SessionOrigin(models.TextChoices):
@@ -56,6 +91,8 @@ class SessionOrigin(models.TextChoices):
     ISSUE_WEBHOOK = "issue_webhook", _("Issue Webhook")
     MR_WEBHOOK = "mr_webhook", _("MR/PR Webhook")
     PIPELINE_WEBHOOK = "pipeline_webhook", _("Pipeline Webhook")
+    DELEGATED_JOB = "delegated_job", _("Delegated Run")
+    DELEGATION_RESUME = "delegation_resume", _("Delegation Resume")
 
     @classmethod
     def webhooks(cls) -> frozenset[str]:
@@ -69,18 +106,36 @@ class SessionOrigin(models.TextChoices):
 
     @classmethod
     def prompt_driven(cls) -> frozenset[str]:
-        """Job triggers created from an explicit user prompt (API / MCP / UI batch submits)."""
-        return frozenset({cls.API_JOB, cls.MCP_JOB, cls.UI_JOB})
+        """Job triggers created from an explicit prompt (API / MCP / UI batch submits and an agent's delegation)."""
+        return frozenset({cls.API_JOB, cls.MCP_JOB, cls.UI_JOB, cls.DELEGATED_JOB})
+
+    @classmethod
+    def retryable(cls) -> frozenset[str]:
+        """Triggers whose failed run a follow-up chat turn in the same session retries: chat, and the jobs and
+        schedules a person started. A webhook run reports back through its own flow and a delegated run to its
+        coordinator, which a chat turn does neither of."""
+        return frozenset({cls.CHAT, cls.API_JOB, cls.MCP_JOB, cls.UI_JOB, cls.SCHEDULE})
+
+    @classmethod
+    def daiv_authored(cls) -> frozenset[str]:
+        """Triggers whose run prompt DAIV writes rather than a person: a CI fix and a delegation resume."""
+        return frozenset({cls.PIPELINE_WEBHOOK, cls.DELEGATION_RESUME})
 
     @classmethod
     def classified(cls) -> frozenset[str]:
-        """Non-chat origins that receive a RunEnvelope (SCHEDULE + webhooks + prompt-driven)."""
-        return frozenset({cls.SCHEDULE}) | cls.webhooks() | cls.prompt_driven()
+        """Non-chat origins that receive a RunEnvelope: SCHEDULE, the webhooks, the prompt-driven triggers and the runs
+        DAIV writes the prompt of (a CI fix, a delegation resume)."""
+        return frozenset({cls.SCHEDULE}) | cls.webhooks() | cls.prompt_driven() | cls.daiv_authored()
 
     @classmethod
     def unattended(cls) -> frozenset[str]:
         """Job triggers nobody is around to answer a question for."""
-        return frozenset({cls.SCHEDULE, cls.PIPELINE_WEBHOOK})
+        return frozenset({cls.SCHEDULE, cls.PIPELINE_WEBHOOK, cls.DELEGATED_JOB})
+
+    @classmethod
+    def one_active(cls) -> frozenset[str]:
+        """Triggers of which a session has at most one READY or RUNNING run (``run_one_active_per_session``)."""
+        return frozenset({cls.API_JOB, cls.MCP_JOB, cls.DELEGATED_JOB, cls.DELEGATION_RESUME})
 
 
 class WatchState(models.TextChoices):
@@ -113,6 +168,8 @@ class Session(models.Model):
         verbose_name=_("user"),
     )
     external_username = models.CharField(_("external username"), max_length=255, blank=True, default="")
+    external_provider = models.CharField(_("external provider"), max_length=32, blank=True, default="")
+    external_uid = models.CharField(_("external account ID"), max_length=191, blank=True, default="")
     repo_id = models.CharField(_("repository"), max_length=255)
     ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
     title = models.CharField(_("title"), max_length=120, blank=True, default="")
@@ -143,6 +200,18 @@ class Session(models.Model):
     watch_attempts = models.PositiveSmallIntegerField(_("watch attempts"), default=0)
     watch_pipeline_id = models.BigIntegerField(_("last watched pipeline"), null=True, blank=True)
     watch_armed_at = models.DateTimeField(_("watch armed at"), null=True, blank=True)
+    archived_at = models.DateTimeField(_("archived at"), null=True, blank=True)
+    archive_pending = models.BooleanField(_("archive pending"), default=False)
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="delegated_sessions",
+        db_index=False,
+        verbose_name=_("delegated by"),
+        help_text=_("The session whose agent delegated this one with delegate_jobs."),
+    )
     # The DAIV users whose grant fetched another project's content into this thread; ``None`` is an unattributed fetch.
     cross_project_user_ids = models.JSONField(_("cross-project users"), default=list, blank=True, editable=False)
 
@@ -173,6 +242,12 @@ class Session(models.Model):
                 name="session_watch_sweep_idx",
                 condition=models.Q(watch_state__in=sorted(WatchState.open())),
             ),
+            models.Index(fields=["parent"], name="session_parent_idx", condition=models.Q(parent__isnull=False)),
+            models.Index(
+                fields=["scheduled_job", "-created_at"],
+                name="session_schedule_created_idx",
+                condition=models.Q(scheduled_job__isnull=False),
+            ),
         ]
         constraints = [
             models.CheckConstraint(
@@ -199,7 +274,7 @@ class Session(models.Model):
     def merge_request_iids(self, *, limit: int = 2) -> set[int]:
         """Distinct merge requests this session reached, from its own column and its runs.
 
-        The inverse of :meth:`SessionQuerySet.for_merge_request`; ``limit`` caps the run-side
+        A subset of what :meth:`SessionQuerySet.on_merge_request` matches on; ``limit`` caps the run-side
         read for callers that only need to tell "exactly one" from "several".
         """
         run_iids = (
@@ -209,6 +284,13 @@ class Session(models.Model):
             .distinct()[:limit]
         )
         return {self.merge_request_iid, *run_iids} - {None}
+
+    def repo_ids(self) -> list[str]:
+        """Every repository of the session, the main one first."""
+        return [self.repo_id, *self.extra_repositories.values_list("repo_id", flat=True)]
+
+    async def arepo_ids(self) -> list[str]:
+        return [self.repo_id, *[repo_id async for repo_id in self.extra_repositories.values_list("repo_id", flat=True)]]
 
     def touch(self) -> None:
         """Bump ``last_active_at`` (a queryset update, so no other column is written)."""
@@ -266,8 +348,61 @@ def agent_result_field_updates(result: AgentResult) -> dict[str, Any]:
         "code_changes": result["code_changes"],
         "merge_request_iid": result["merge_request_id"],
         "merge_request_web_url": result["merge_request_web_url"],
+        "merge_requests": result["merge_requests"],
+        "publish_errors": result["publish_errors"],
     }
     return {field: value for field, value in updates.items() if value}
+
+
+def publish_field_updates(publish: dict[str, Any] | None) -> dict[str, Any]:
+    """Map a ``publish_result`` payload to the ``Run`` fields it fills, leaving out the ones it has no value for."""
+    publish = publish or {}
+    updates = {
+        "merge_request_iid": publish.get("merge_request_iid"),
+        "merge_request_web_url": publish.get("merge_request_web_url"),
+        "merge_request_title": publish.get("merge_request_title"),
+        "publish_status": publish.get("status"),
+        "publish_error": publish.get("error_kind"),
+        "files_changed": publish.get("files_changed"),
+        "lines_added": publish.get("lines_added"),
+        "lines_removed": publish.get("lines_removed"),
+        "pushed_sha": publish.get("pushed_sha"),
+    }
+    return {field: value for field, value in updates.items() if value}
+
+
+class SessionRepository(models.Model):
+    """An extra repository of a multi-repository session; the main one stays on ``Session``."""
+
+    session = models.ForeignKey(
+        Session, on_delete=models.CASCADE, related_name="extra_repositories", verbose_name=_("session")
+    )
+    position = models.PositiveSmallIntegerField(_("position"))
+    repo_id = models.CharField(_("repository"), max_length=255)
+    ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
+    merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
+    merge_request_web_url = models.URLField(_("merge request URL"), max_length=500, blank=True, default="")
+    merge_request_title = models.TextField(_("merge request title"), blank=True, default="")
+    merge_request_draft = models.BooleanField(_("merge request is a draft"), default=False)
+    diff_stats = models.JSONField(_("change size"), null=True, blank=True)
+    sandbox_environment = models.ForeignKey(
+        "sandbox_envs.SandboxEnvironment",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name=_("sandbox environment"),
+    )
+
+    class Meta:
+        ordering = ["position"]
+        constraints = [
+            models.UniqueConstraint(fields=["session", "repo_id"], name="session_repo_unique"),
+            models.UniqueConstraint(fields=["session", "position"], name="session_repo_position_unique"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.repo_id} ({self.session_id})"
 
 
 class Run(models.Model):
@@ -294,8 +429,26 @@ class Run(models.Model):
         verbose_name=_("user"),
     )
     external_username = models.CharField(_("external username"), max_length=255, blank=True, default="")
+    external_provider = models.CharField(_("external provider"), max_length=32, blank=True, default="")
+    external_uid = models.CharField(_("external account ID"), max_length=191, blank=True, default="")
     title = models.CharField(_("title"), max_length=120, blank=True, default="")
     batch_id = models.UUIDField(_("batch ID"), null=True, blank=True, db_index=True)
+    continuation_of_batch_id = models.UUIDField(
+        _("continues delegated batch"),
+        null=True,
+        blank=True,
+        help_text=_("The delegated batch whose finish queued this run on the coordinator's session."),
+    )
+    waits_for = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="waiting_runs",
+        db_index=False,
+        verbose_name=_("waits for"),
+        help_text=_("While this run is QUEUED, it starts only once that run has finished."),
+    )
     repo_id = models.CharField(_("repository"), max_length=255)
     ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
     prompt = models.TextField(_("prompt"), blank=True, default="")
@@ -310,6 +463,7 @@ class Run(models.Model):
     muted = models.BooleanField(_("muted"), null=True, blank=True, default=None)  # null = inherit
     merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
     merge_request_web_url = models.URLField(_("merge request URL"), max_length=500, blank=True, default="")
+    merge_request_title = models.TextField(_("merge request title"), blank=True, default="")
     sandbox_environment = models.ForeignKey(
         "sandbox_envs.SandboxEnvironment",
         on_delete=models.SET_NULL,
@@ -318,11 +472,32 @@ class Run(models.Model):
         related_name="agent_runs",
         verbose_name=_("sandbox environment"),
     )
+    merge_requests = models.JSONField(_("merge requests"), default=list, blank=True)
+    publish_errors = models.JSONField(_("publish errors"), default=list, blank=True)
+    repo_publishes = models.JSONField(_("repository publishes"), default=list, blank=True)
+    sibling_pushed_shas = models.JSONField(
+        _("sibling pushed commits"),
+        default=list,
+        blank=True,
+        help_text=_(
+            "The commits the run pushed to its session's other repositories, without which repository each went to."
+        ),
+    )
 
     # Denormalized result / error / usage — copied verbatim from Activity.
     result_summary = models.TextField(_("result summary"), blank=True, default="")
     error_message = models.TextField(_("error message"), blank=True, default="")
     code_changes = models.BooleanField(_("code changes"), default=False)
+    publish_status = models.CharField(
+        _("publish status"), max_length=16, choices=PublishStatus.choices, blank=True, default=""
+    )
+    publish_error = models.CharField(
+        _("publish error"), max_length=16, choices=PublishErrorKind.choices, blank=True, default=""
+    )
+    lines_added = models.PositiveIntegerField(_("lines added"), null=True, blank=True)
+    lines_removed = models.PositiveIntegerField(_("lines removed"), null=True, blank=True)
+    files_changed = models.PositiveIntegerField(_("files changed"), null=True, blank=True)
+    pushed_sha = models.CharField(_("pushed commit"), max_length=64, blank=True, default="")
     question = models.JSONField(_("question"), null=True, blank=True)
     input_tokens = models.PositiveIntegerField(_("input tokens"), null=True, blank=True)
     output_tokens = models.PositiveIntegerField(_("output tokens"), null=True, blank=True)
@@ -335,6 +510,12 @@ class Run(models.Model):
     created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
     started_at = models.DateTimeField(_("started at"), null=True, blank=True)
     finished_at = models.DateTimeField(_("finished at"), null=True, blank=True)
+    cancel_requested_at = models.DateTimeField(
+        _("cancel requested at"),
+        null=True,
+        blank=True,
+        help_text=_("When the run was asked to stop; it ends FAILED unless it finished first."),
+    )
     # False only on pre-feature rows backfilled at deploy, so the classifier never retro-runs the
     # backlog; every new run is eligible. Chat is excluded by origin (SessionOrigin.classified), not this.
     classify_eligible = models.BooleanField(_("classify eligible"), default=True)
@@ -350,20 +531,54 @@ class Run(models.Model):
             models.Index(fields=["trigger_type", "-created_at"], name="run_trigger_created_idx"),
             models.Index(fields=["status", "-created_at"], name="run_status_created_idx"),
             models.Index(fields=["user", "-created_at"], name="run_user_created_idx"),
+            # Partial: almost every run leaves these NULL.
+            models.Index(
+                fields=["continuation_of_batch_id"],
+                name="run_continuation_batch_idx",
+                condition=models.Q(continuation_of_batch_id__isnull=False),
+            ),
+            models.Index(fields=["waits_for"], name="run_waits_for_idx", condition=models.Q(waits_for__isnull=False)),
+            models.Index(
+                fields=["merge_request_iid", "repo_id"],
+                name="run_merge_request_idx",
+                condition=models.Q(merge_request_iid__isnull=False),
+            ),
         ]
         constraints = [
-            # At most one active (READY or RUNNING) API/MCP run per session. QUEUED is
+            # At most one active (READY or RUNNING) API/MCP/delegation run per session. QUEUED is
             # intentionally outside the constraint so FIFO siblings can stack; webhook
             # triggers share deterministic sessions and are intentionally excluded.
             # Exact port of activity_one_active_per_thread. The status/trigger_type
             # literals here must equal {RunStatus.READY, RunStatus.RUNNING} and
-            # {SessionOrigin.API_JOB, SessionOrigin.MCP_JOB} — Django serializes
-            # constraints with literals, so a drift is caught by
+            # {SessionOrigin.API_JOB, SessionOrigin.MCP_JOB, SessionOrigin.DELEGATED_JOB,
+            # SessionOrigin.DELEGATION_RESUME} — Django serializes constraints with literals, so a drift is caught by
             # ``test_active_constraint_literals_match_enums``.
             models.UniqueConstraint(
                 fields=["session"],
-                condition=models.Q(status__in=["READY", "RUNNING"], trigger_type__in=["api_job", "mcp_job"]),
+                condition=models.Q(
+                    status__in=["READY", "RUNNING"],
+                    trigger_type__in=["api_job", "mcp_job", "delegated_job", "delegation_resume"],
+                ),
                 name="run_one_active_per_session",
+            ),
+            # One next run per branch and requester (``sessions.inbox``): a DAIV user, else a platform account no one
+            # linked. The literals must equal ``inbox.kinds.INBOX_TRIGGERS``.
+            models.UniqueConstraint(
+                fields=["session", "ref", "user"],
+                condition=models.Q(status="QUEUED", trigger_type__in=_INBOX_TRIGGER_LITERALS, user__isnull=False),
+                name="run_one_next_run_per_user",
+            ),
+            models.UniqueConstraint(
+                fields=["session", "ref", "external_provider", "external_uid"],
+                condition=models.Q(status="QUEUED", trigger_type__in=_INBOX_TRIGGER_LITERALS, user__isnull=True),
+                name="run_one_next_run_per_account",
+            ),
+            # The insert of a batch's continuation is the election when several legs finish at once; a FAILED one
+            # leaves room for ``DelegatedBatch.resume_stalled`` to retry one that never reached the queue.
+            models.UniqueConstraint(
+                fields=["continuation_of_batch_id"],
+                condition=models.Q(continuation_of_batch_id__isnull=False) & ~models.Q(status="FAILED"),
+                name="run_one_continuation_per_batch",
             ),
             # DB-level enum enforcement (``choices=`` alone is not enforced, and
             # ``.aupdate()``/raw writes bypass field validation).
@@ -382,6 +597,19 @@ class Run(models.Model):
     def __str__(self) -> str:
         return f"{self.get_trigger_type_display()} on {self.repo_id} ({self.status})"
 
+    def primary_merge_request_url(self) -> str | None:
+        """The main repository's merge request URL, else the first one the run opened in another repository."""
+        return self.merge_request_web_url or next((link["url"] for link in self.merge_request_links()), None)
+
+    def merge_request_links(self) -> list[dict[str, str]]:
+        """``[{"repo_id", "url"}]`` for every MR the run opened, falling back to the legacy single MR URL."""
+        links = [
+            {"repo_id": item["repo_id"], "url": item["web_url"]} for item in self.merge_requests if item.get("web_url")
+        ]
+        if not links and self.merge_request_web_url:
+            links = [{"repo_id": self.repo_id, "url": self.merge_request_web_url}]
+        return links
+
     @property
     def effective_muted(self) -> bool:
         if self.muted is not None:
@@ -390,6 +618,11 @@ class Run(models.Model):
         if schedule is not None:
             return schedule.muted
         return False  # non-scheduled runs notify unless the run itself is muted
+
+    @property
+    def is_cancelled(self) -> bool:
+        """Whether the run failed after ``RunManager.cancel`` asked it to stop."""
+        return self.status == RunStatus.FAILED and self.cancel_requested_at is not None
 
     @property
     def duration(self) -> float | None:
@@ -410,11 +643,21 @@ class Run(models.Model):
     @property
     def response_text(self) -> str:
         """Return the response text from the task result, or the truncated denormalized summary if unavailable."""
+        return self._task_response() or self.result_summary
+
+    def _task_response(self) -> str:
         if self.task_result and self.task_result.return_value:
-            parsed = parse_agent_result(self.task_result.return_value)
-            if parsed["response"]:
-                return parsed["response"]
-        return self.result_summary
+            return parse_agent_result(self.task_result.return_value)["response"] or ""
+        return ""
+
+    def response_text_within(self, chars: int) -> tuple[str, bool]:
+        """:attr:`response_text`, stripped and cut at ``chars`` characters, and whether anything was cut. The stored
+        summary serves when it holds them, so the task result is read only for more; a summary at its own cap, as once
+        the task result is pruned, counts as cut."""
+        if chars >= RESULT_SUMMARY_MAX_CHARS and (full := self._task_response().strip()):
+            return full[:chars], len(full) > chars
+        summary = self.result_summary.strip()
+        return summary[:chars], len(summary) > chars or len(self.result_summary) >= RESULT_SUMMARY_MAX_CHARS
 
     def sync_and_save(self) -> bool:
         """Sync from the linked DBTaskResult and persist changed fields.
@@ -456,7 +699,7 @@ class Run(models.Model):
 
         if parsed is not None:
             if parsed["response"] and not self.result_summary:
-                self.result_summary = parsed["response"][:2000]
+                self.result_summary = parsed["response"][:RESULT_SUMMARY_MAX_CHARS]
                 changed.append("result_summary")
             for field, value in agent_result_field_updates(parsed).items():
                 if not getattr(self, field):
@@ -534,6 +777,41 @@ class RunArtifact(models.Model):
         return artifact_kind(self.content_type)
 
 
+def tool_media_upload_to(instance: ToolResultMedia, filename: str) -> str:
+    """Storage name ``tool-media/<media_id><ext>``, the extension derived from the stored content type."""
+    ext = mimetypes.guess_extension(instance.content_type) or ""
+    return f"tool-media/{instance.id}{ext}"
+
+
+class ToolResultMedia(models.Model):
+    """An image or file a tool result carried (an MCP screenshot, a ``read_file`` image), kept so the transcript can
+    show it.
+
+    The bytes live in the default file storage (``MEDIA_ROOT``). The tool message in the checkpoint names the row by
+    id (``automation.agent.tool_media.DAIV_MEDIA_KEY``). Deleting the run cascades to the row, and
+    ``sessions.signals.delete_tool_media_file`` removes the bytes.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    run = models.ForeignKey(Run, on_delete=models.CASCADE, related_name="tool_media", verbose_name=_("run"))
+    tool_call_id = models.CharField(_("tool call id"), max_length=255)
+    ordinal = models.PositiveSmallIntegerField(_("ordinal"))
+    content_type = models.CharField(_("content type"), max_length=100)
+    size = models.PositiveBigIntegerField(_("size"))
+    file = models.FileField(_("file"), upload_to=tool_media_upload_to, max_length=500)
+    created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
+
+    objects = ToolResultMediaManager()
+
+    class Meta:
+        verbose_name = _("Tool Result Media")
+        verbose_name_plural = _("Tool Result Media")
+        ordering = ["created_at", "id"]
+
+    def __str__(self) -> str:
+        return f"{self.content_type} #{self.ordinal} of tool call {self.tool_call_id} for run {self.run_id}"
+
+
 class SessionArchive(models.Model):
     """One context of a session's agent state, as of the last run archived into it.
 
@@ -564,3 +842,255 @@ class SessionArchive(models.Model):
 
     def __str__(self) -> str:
         return f"Context {self.epoch} of session {self.session_id}"
+
+
+class MergeRequestState(models.TextChoices):
+    """What an MR pill shows for a merge request: ``MergeRequestOwnership.state``, ``open`` for one DAIV doesn't own."""
+
+    OPEN = "open", _("Open")
+    MERGED = "merged", _("Merged")
+    CLOSED = "closed", _("Closed")
+
+
+class MergeRequestOwnership(models.Model):
+    """Which session owns a merge request DAIV published, and that merge request's CI watch.
+
+    ``sessions.inbox.ownership.Ownerships`` applies the claim rules when a run publishes; the CI watch
+    (``sessions.pipeline_watch``) reads and writes the watch columns.
+    """
+
+    repo_id = models.CharField(_("repository"), max_length=255)
+    merge_request_iid = models.PositiveIntegerField(_("merge request IID"))
+    session = models.ForeignKey(
+        Session,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="owned_merge_requests",
+        verbose_name=_("session"),
+    )
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name=_("owner"),
+    )
+    source_branch = models.CharField(_("source branch"), max_length=255)
+    watch_enabled = models.BooleanField(_("CI watch on"), default=True)
+    attempts = models.PositiveSmallIntegerField(_("CI attempts"), default=0)
+    last_daiv_sha = models.CharField(_("last commit DAIV pushed"), max_length=64, blank=True, default="")
+    last_examined_sha = models.CharField(_("last commit examined"), max_length=64, blank=True, default="")
+    last_pipeline_id = models.BigIntegerField(_("last pipeline judged"), null=True, blank=True)
+    last_pipeline_status = models.CharField(_("last pipeline status judged"), max_length=32, blank=True, default="")
+    last_reconciled_at = models.DateTimeField(_("CI last re-read"), null=True, blank=True)
+    merged = models.BooleanField(_("merged"), default=False)
+    closed_at = models.DateTimeField(_("closed at"), null=True, blank=True)
+    created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(_("updated at"), auto_now=True)
+
+    objects = MergeRequestOwnershipManager()
+
+    class Meta:
+        verbose_name = _("Merge request ownership")
+        verbose_name_plural = _("Merge request ownerships")
+        indexes = [
+            models.Index(
+                fields=["repo_id", "source_branch"],
+                name="mr_ownership_open_branch_idx",
+                condition=models.Q(closed_at__isnull=True),
+            )
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["repo_id", "merge_request_iid"], name="mr_ownership_unique_merge_request")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.repo_id}!{self.merge_request_iid} owned by session {self.session_id}"
+
+    @property
+    def state(self) -> MergeRequestState:
+        if self.closed_at is None:
+            return MergeRequestState.OPEN
+        return MergeRequestState.MERGED if self.merged else MergeRequestState.CLOSED
+
+    @classmethod
+    def states_of(cls, merge_requests: Iterable[tuple[str, int]]) -> dict[tuple[str, int], MergeRequestState]:
+        """The state of each ``(repo_id, iid)`` in ``merge_requests``, in one query."""
+        keys = set(merge_requests)
+        if not keys:
+            return {}
+        owned = {
+            (row.repo_id, row.merge_request_iid): row.state
+            for row in cls.objects.filter(
+                reduce(or_, (models.Q(repo_id=repo_id, merge_request_iid=iid) for repo_id, iid in keys))
+            ).only("repo_id", "merge_request_iid", "merged", "closed_at")
+        }
+        return {key: owned.get(key, MergeRequestState.OPEN) for key in keys}
+
+
+class ArchivedMerge(models.Model):
+    """A merge request whose merge archived its sessions (``sessions.auto_archive``): a redelivered merge finds it and
+    archives nothing, not even a session someone has unarchived since."""
+
+    repo_id = models.CharField(_("repository"), max_length=255)
+    merge_request_iid = models.PositiveIntegerField(_("merge request IID"))
+    created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
+
+    class Meta:
+        verbose_name = _("Archived merge")
+        verbose_name_plural = _("Archived merges")
+        constraints = [
+            models.UniqueConstraint(fields=["repo_id", "merge_request_iid"], name="archived_merge_unique_merge_request")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.repo_id}!{self.merge_request_iid}"
+
+
+class EventKind(models.TextChoices):
+    """What an ``InboxEvent`` reports; ``sessions.inbox.kinds`` holds each kind's payload and precedence."""
+
+    CHAT_MESSAGE = "chat_message", _("Chat message")
+    MENTION = "mention", _("Mention")
+    FOLLOW_UP_JOB = "follow_up_job", _("Follow-up job")
+    DELEGATION_FINISHED = "delegation_finished", _("Delegated jobs finished")
+    CI_FAILED = "ci_failed", _("CI failed")
+    CI_PASSED = "ci_passed", _("CI passed")
+    CI_STOPPED = "ci_stopped", _("CI stopped")
+    BRANCH_PUSHED = "branch_pushed", _("Branch pushed")
+    FOREIGN_PUBLISH = "foreign_publish", _("Published by another session")
+    MR_MERGED = "mr_merged", _("Merge request merged")
+    MR_CLOSED = "mr_closed", _("Merge request closed")
+    COMMENT = "comment", _("Comment")
+    DELEGATED_CI_OUTCOME = "delegated_ci_outcome", _("Delegated session CI")
+    NOTICE = "notice", _("Notice")
+    LEG_FOLLOW_UP = "leg_follow_up", _("Leg follow-up")
+
+
+class EventState(models.TextChoices):
+    PENDING = "pending", _("Pending")
+    TAKEN = "taken", _("Taken")
+    HANDLED = "handled", _("Handled")
+    DISMISSED = "dismissed", _("Dismissed")
+    SUPERSEDED = "superseded", _("Superseded")
+    FAILED = "failed", _("Failed")
+
+
+class QuietReason(models.TextChoices):
+    """Why an event that could have woken the agent was only remembered."""
+
+    NOT_DAIV_COMMIT = "not_daiv_commit", _("The commit is not one DAIV pushed")
+    ALREADY_EXAMINED = "already_examined", _("DAIV already examined this commit")
+    BUDGET_SPENT = "budget_spent", _("The CI attempts are spent")
+    WATCH_OFF = "watch_off", _("The CI watch is off")
+    RUN_LIMIT = "run_limit", _("Too many runs in a row without a person")
+
+
+class EventFailure(models.TextChoices):
+    """Why an event was never handled; the labels are the only text shown, never exception text."""
+
+    ACCESS_DENIED = "access_denied", _("The person it would run as can no longer run on this repository")
+    RETRIES_EXHAUSTED = "retries_exhausted", _("The runs that took it kept failing")
+    SESSION_GONE = "session_gone", _("The session no longer exists")
+    RUN_FAILED = "run_failed", _("The run that took it failed")
+    MR_MERGED = "mr_merged", _("Its merge request was merged")
+    MR_CLOSED = "mr_closed", _("Its merge request was closed")
+    SESSION_ARCHIVED = "session_archived", _("Its session was archived")
+
+
+class InboxEvent(models.Model):
+    """Something that happened which concerns one session; :mod:`sessions.inbox` holds the rules."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session = models.ForeignKey(
+        Session, on_delete=models.CASCADE, related_name="inbox_events", verbose_name=_("session"), db_index=False
+    )
+    kind = models.CharField(_("kind"), max_length=32, choices=EventKind.choices)
+    source_key = models.CharField(_("source key"), max_length=255)
+    subject = models.CharField(_("subject"), max_length=255, blank=True, default="")
+    repo_id = models.CharField(
+        _("repository"),
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=_("The repository the event concerns when it is not the session's own; blank when it is."),
+    )
+    ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
+    merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
+    wake = models.BooleanField(_("wakes the agent"))
+    reason = models.CharField(_("reason"), max_length=32, choices=QuietReason.choices, blank=True, default="")
+    payload = models.JSONField(_("payload"), default=dict)
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name=_("author"),
+    )
+    author_username = models.CharField(_("author username"), max_length=255, blank=True, default="")
+    author_provider = models.CharField(_("author's git platform"), max_length=32, blank=True, default="")
+    author_uid = models.CharField(_("author's account ID"), max_length=191, blank=True, default="")
+    state = models.CharField(_("state"), max_length=16, choices=EventState.choices, default=EventState.PENDING)
+    run = models.ForeignKey(
+        Run,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="inbox_events",
+        db_index=False,
+        verbose_name=_("run"),
+    )
+    claim_token = models.CharField(_("claim token"), max_length=64, blank=True, default="")
+    attempts = models.PositiveSmallIntegerField(_("attempts"), default=0)
+    failure = models.CharField(_("failure"), max_length=32, choices=EventFailure.choices, blank=True, default="")
+    created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
+    updated_at = models.DateTimeField(_("updated at"), auto_now=True)
+
+    class Meta:
+        verbose_name = _("Inbox event")
+        verbose_name_plural = _("Inbox events")
+        ordering = ["created_at", "id"]
+        indexes = [
+            models.Index(fields=["session", "state", "created_at"], name="inbox_session_state_idx"),
+            models.Index(
+                fields=["session"], name="inbox_pending_wake_idx", condition=models.Q(state="pending", wake=True)
+            ),
+            models.Index(fields=["run"], name="inbox_run_idx", condition=models.Q(run__isnull=False)),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["session", "source_key"], name="inbox_event_unique_source"),
+            models.CheckConstraint(condition=models.Q(kind__in=EventKind.values), name="inbox_event_kind_valid"),
+            models.CheckConstraint(condition=models.Q(state__in=EventState.values), name="inbox_event_state_valid"),
+            models.CheckConstraint(
+                condition=models.Q(reason="") | models.Q(reason__in=QuietReason.values), name="inbox_event_reason_valid"
+            ),
+            models.CheckConstraint(
+                condition=models.Q(failure="") | models.Q(failure__in=EventFailure.values),
+                name="inbox_event_failure_valid",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.get_kind_display()} on session {self.session_id} ({self.state})"
+
+    @property
+    def subject_key(self) -> tuple[str, str]:
+        """What a newer event shares with this one to replace it: its ``subject``, about the same repository."""
+        return self.repo_id, self.subject
+
+    def effective_repo_id(self, own_repo_id: str) -> str:
+        """The repository the event is about: ``repo_id``, or ``own_repo_id``, its session's, when blank."""
+        return self.repo_id or own_repo_id
+
+    @staticmethod
+    def about_repo(repo_id: Any, *, prefix: str = "") -> models.Q:
+        """The events about the repository ``repo_id`` (a value or an ``OuterRef``): those naming it, and those naming
+        none in a session whose own repository it is. ``prefix`` is the lookup path to the event, as ``inbox_events__``.
+        """
+        return models.Q(**{f"{prefix}repo_id": repo_id}) | models.Q(**{
+            f"{prefix}repo_id": "",
+            f"{prefix}session__repo_id": repo_id,
+        })

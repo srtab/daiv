@@ -1,15 +1,17 @@
+from datetime import datetime
+
 from allauth.core import context
 from allauth.socialaccount.adapter import get_adapter
 from allauth.socialaccount.providers.github.views import GitHubOAuth2Adapter
 from allauth.socialaccount.providers.gitlab.views import GitLabOAuth2Adapter
-from allauth.socialaccount.providers.oauth2.views import OAuth2CallbackView, OAuth2LoginView
+from allauth.socialaccount.providers.oauth2.views import OAuth2Adapter, OAuth2CallbackView, OAuth2LoginView
 
 from codebase.conf import settings as codebase_settings
 
 TOKEN_RESPONSE_ATTR = "_daiv_token_response"  # noqa: S105
 
 
-class TokenResponseCaptureMixin:
+class TokenResponseCaptureMixin(OAuth2Adapter):
     """Keep the raw token response reachable from the parsed ``SocialToken``.
 
     allauth's ``parse_token`` keeps only the access token, the refresh token and the expiry. The
@@ -49,6 +51,28 @@ class GitLabServerAwareAdapter(TokenResponseCaptureMixin, GitLabOAuth2Adapter):
     def profile_url(self):
         return self._build_server_url(f"/api/{self.provider_api_version}/user")
 
+    def complete_login(self, request, app, token, **kwargs):
+        """Carry GitLab's confirmed primary email into allauth's email lookup.
+
+        The stock GitLab provider extracts the email but drops `confirmed_at`.
+        Only a valid confirmation timestamp from the authenticated profile may
+        verify that exact primary address. Missing/unconfirmed profile data does
+        not authorize automatic account linking.
+        """
+        login = super().complete_login(request, app, token, **kwargs)
+        data = login.account.extra_data
+        email = data.get("email")
+        try:
+            confirmed = datetime.fromisoformat(data.get("confirmed_at"))
+        except TypeError, ValueError:
+            return login
+        if not isinstance(email, str) or confirmed.tzinfo is None:
+            return login
+        for address in login.email_addresses:
+            if address.primary and address.email.lower() == email.lower():
+                address.verified = True
+        return login
+
 
 class GitHubAppOAuth2Adapter(TokenResponseCaptureMixin, GitHubOAuth2Adapter):
     """GitHub App user-to-server flow, reusing the App this deployment already runs on.
@@ -84,7 +108,7 @@ class GitHubAppOAuth2Adapter(TokenResponseCaptureMixin, GitHubOAuth2Adapter):
         return f"{cls._web_url()}/login/oauth/access_token"
 
     @property
-    def access_token_url(self):
+    def access_token_url(self):  # ty: ignore[invalid-property-type-override]
         return self.access_token_endpoint()
 
     @property

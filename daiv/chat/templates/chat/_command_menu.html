@@ -4,7 +4,7 @@
 token. See AGENTS.md ("Chat composer anatomy") for why this is neither a `.picker-popover`
 nor a bottom sheet, and for the pairing between its trigger regex and the backend parser.
 {% endcomment %}
-<div class="composer-autocomplete"
+<div data-surface class="composer-autocomplete"
      x-show="slashMenuOpen"
      x-cloak
      @click.outside="slashDismissed = true">

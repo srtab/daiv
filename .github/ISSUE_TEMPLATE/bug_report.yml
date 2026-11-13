@@ -1,0 +1,69 @@
+name: Bug report
+description: DAIV did something wrong or failed.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what DAIV did, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Label an issue with `daiv`
+        2. Reply `@daiv proceed`
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: DAIV version
+      description: The release or image tag, e.g. `v2.0.0`, `main` or `sha-1a2b3c4`.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Git platform
+      options:
+        - GitLab self-managed
+        - GitLab.com
+        - GitHub
+        - GitHub Enterprise Server
+        - Not platform-related
+    validations:
+      required: true
+  - type: input
+    id: platform-version
+    attributes:
+      label: Platform version
+      description: For self-managed GitLab or GitHub Enterprise Server.
+  - type: dropdown
+    id: entry-point
+    attributes:
+      label: Where it happened
+      multiple: true
+      options:
+        - Issue addressing
+        - Merge/pull request (review comments, CI fixes)
+        - Slash command or skill
+        - Dashboard (chat, sessions, schedules)
+        - MCP endpoint
+        - Jobs API
+        - Deployment or setup
+  - type: input
+    id: model
+    attributes:
+      label: LLM provider and model
+      description: e.g. `openrouter:anthropic/claude-sonnet-5.5`, or a self-hosted vLLM model.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant `app` and `worker` container logs. Remove tokens, keys and private code first.
+      render: text
