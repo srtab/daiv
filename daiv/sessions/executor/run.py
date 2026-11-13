@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     from automation.agent.publishers import PublishOutcome
     from automation.agent.session_links import SessionLinksResolver
     from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler
+    from automation.agent.verification.outcome import VerificationOutcome
     from automation.agent.workspace.base import Workspace
     from automation.agent.workspace.git_manager import FastForward
     from automation.agent.workspace.session import SandboxSession
@@ -626,6 +627,8 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
         response_text = closing_reply_text(messages)
     merge_request = values.get("merge_request")
     published = bool(values.get("published"))
+    if (verification := values.get("verification")) is not None:
+        _log_verification(spec, run, verification)
     sibling_publishes = checkpointed_repo_publishes(values)
     # An unread checkpoint must not pass for one that published nothing: that would pin a blank ref to the clone's.
     if spec.persist_ref and snapshot is not None:
@@ -666,6 +669,22 @@ async def _persist_sibling_state(spec: RunSpec, run: AgentRun, publishes: Sequen
             await apersist_extra_repo_state(run.thread_id, publishes)
         except Exception:
             logger.exception("executor: failed to persist extra repository state for thread_id=%s", run.thread_id)
+
+
+def _log_verification(spec: RunSpec, run: AgentRun, verification: VerificationOutcome) -> None:
+    failed_commands = sum(
+        1 for command in verification["commands"] if command["exit_code"] and not command["already_failing"]
+    )
+    pushed_sha = (run.publish.payload or {}).get("pushed_sha") if run.publish is not None else None
+    logger.info(
+        "executor: verification status=%s rounds=%d failed_commands=%d thread_id=%s run_id=%s pushed_sha=%s",
+        verification["status"],
+        verification["rounds"],
+        failed_commands,
+        run.thread_id,
+        spec.run_id,
+        pushed_sha or "",
+    )
 
 
 async def _claim_merge_request(
