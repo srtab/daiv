@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import fcntl
 import hashlib
 import io
@@ -259,13 +260,19 @@ def declared_skill_choice(root: Path) -> ModelChoice:
     return parse_model_choice(metadata, source=f"{root.name} SKILL.md", log_level=logging.WARNING)
 
 
+def _declared_choice_of(name: str) -> ModelChoice:
+    try:
+        root = global_skill_dirs().dirs.get(name)
+        return declared_skill_choice(root) if root is not None else EMPTY_CHOICE
+    except Exception:
+        logger.warning("Could not read the declared model of skill '%s'", name, exc_info=True)
+        return EMPTY_CHOICE
+
+
 async def adeclared_skill_choice(name: str) -> ModelChoice:
-    """The choice the skill ``name``'s SKILL.md declares: the global skill's, else the built-in's; empty when none."""
-    if await GlobalSkill.objects.filter(name=name).aexists():
-        return declared_skill_choice(SkillStorage().root / name)
-    if (root := BUILTIN_SKILL_DIRS.get(name)) is not None:
-        return declared_skill_choice(root)
-    return EMPTY_CHOICE
+    """The choice the skill ``name``'s SKILL.md declares: the custom global skill's, else the built-in's; empty when
+    none or unreadable. The file reads run off the event loop."""
+    return await asyncio.to_thread(_declared_choice_of, name)
 
 
 def site_model_entries(name: str, site: SiteSettings | SiteSnapshot = site_settings) -> tuple[ModelChoice, int]:

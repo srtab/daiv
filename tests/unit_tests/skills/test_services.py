@@ -342,8 +342,7 @@ def _write_skill_md(root, level):
     )
 
 
-@pytest.mark.django_db(transaction=True)
-async def test_adeclared_skill_choice_reads_a_global_skill_before_the_builtin(skill_roots, monkeypatch):
+async def test_adeclared_skill_choice_reads_a_global_skill_before_the_builtin(skill_roots):
     from skills.services import adeclared_skill_choice
 
     from core.model_choice import ModelChoice
@@ -351,29 +350,58 @@ async def test_adeclared_skill_choice_reads_a_global_skill_before_the_builtin(sk
     builtin, custom = skill_roots
     _write_skill_md(builtin, "low")
     _write_skill_md(custom, "high")
-    monkeypatch.setattr("skills.services.BUILTIN_SKILL_DIRS", {"code-review": builtin / "code-review"})
-    await GlobalSkill.objects.acreate(name="code-review", description="x", size_bytes=1, file_count=1, checksum="c")
 
     assert await adeclared_skill_choice("code-review") == ModelChoice(thinking_level="high")
 
 
-@pytest.mark.django_db(transaction=True)
-async def test_adeclared_skill_choice_reads_the_builtin_without_a_global_skill(skill_roots, monkeypatch):
+async def test_adeclared_skill_choice_reads_the_builtin_without_a_global_skill(skill_roots):
     from skills.services import adeclared_skill_choice
 
     from core.model_choice import ModelChoice
 
     builtin, _ = skill_roots
     _write_skill_md(builtin, "low")
-    monkeypatch.setattr("skills.services.BUILTIN_SKILL_DIRS", {"code-review": builtin / "code-review"})
 
     assert await adeclared_skill_choice("code-review") == ModelChoice(thinking_level="low")
 
 
-@pytest.mark.django_db(transaction=True)
 async def test_adeclared_skill_choice_is_empty_for_an_unknown_skill(skill_roots):
     from skills.services import adeclared_skill_choice
 
     from core.model_choice import EMPTY_CHOICE
 
     assert await adeclared_skill_choice("nosuch") == EMPTY_CHOICE
+
+
+async def test_adeclared_skill_choice_needs_no_custom_skills_path(skill_roots, monkeypatch):
+    from skills.services import adeclared_skill_choice
+
+    from core.model_choice import ModelChoice
+
+    builtin, _ = skill_roots
+    _write_skill_md(builtin, "low")
+    monkeypatch.setattr("skills.services.settings.CUSTOM_SKILLS_PATH", None)
+
+    assert await adeclared_skill_choice("code-review") == ModelChoice(thinking_level="low")
+
+
+async def test_adeclared_skill_choice_tolerates_a_missing_custom_root(skill_roots, monkeypatch, tmp_path):
+    from skills.services import adeclared_skill_choice
+
+    from core.model_choice import ModelChoice
+
+    builtin, _ = skill_roots
+    _write_skill_md(builtin, "low")
+    monkeypatch.setattr("skills.services.settings.CUSTOM_SKILLS_PATH", tmp_path / "absent")
+
+    assert await adeclared_skill_choice("code-review") == ModelChoice(thinking_level="low")
+
+
+async def test_adeclared_skill_choice_is_empty_when_the_scan_fails(skill_roots, caplog):
+    from skills.services import adeclared_skill_choice
+
+    from core.model_choice import EMPTY_CHOICE
+
+    with patch("skills.services.global_skill_dirs", side_effect=OSError("boom")):
+        assert await adeclared_skill_choice("code-review") == EMPTY_CHOICE
+    assert any("code-review" in r.message and r.levelno == logging.WARNING for r in caplog.records)
