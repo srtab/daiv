@@ -21,7 +21,7 @@ from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from codebase.repo_config import RepositoryConfig
-from core.model_choice import ModelChoice
+from core.model_choice import EMPTY_CHOICE, ModelChoice
 from tests.unit_tests.conftest import FakeWorkspace, agent_settings, site_snapshot
 
 # Matches a ``TodoListMiddleware(`` constructor call, rejecting any prefixed subclass. Catches both
@@ -191,6 +191,7 @@ async def _construct(
     fork_branch: bool = False,
     configured_get_model: object | None = None,
     build_error: Exception | None = None,
+    declared_skill_choice: ModelChoice = EMPTY_CHOICE,
 ):
     """Build the agent through ``create_daiv_agent`` with its collaborators stubbed, and return what it was built with.
 
@@ -213,6 +214,7 @@ async def _construct(
         "GitPlatformMiddleware": {},
         "AnthropicPromptCachingMiddleware": {},
         "ToolCallLoggingMiddleware": {},
+        "adeclared_skill_choice": {"new": AsyncMock(return_value=declared_skill_choice)},
     }
     with ExitStack() as stack:
         mocks = {
@@ -320,6 +322,28 @@ async def test_the_general_purpose_subagent_runs_on_its_configured_model():
 
     assert built.general_purpose.call_args.args[0] is built.configured.return_value
     assert built.configured.call_args_list.count(call(model="fake:gp", thinking_level="medium")) == 1
+
+
+async def test_general_purpose_takes_the_run_model_without_an_entry():
+    built = await _construct()
+
+    assert built.general_purpose.call_args.args[0] is built.run_model
+
+
+async def test_the_detectors_get_the_code_review_skills_choice():
+    built = await _construct(
+        site={"agent_skill_models": {"code-review": ModelChoice(thinking_level="low")}}, run={"model_names": ("run-a",)}
+    )
+
+    detector_calls = [c for c in built.configured.call_args_list if c.kwargs["model"] != EXPLORE_MODEL_NAME]
+    assert detector_calls
+    assert {c.kwargs["thinking_level"] for c in detector_calls} == {"low"}
+
+
+async def test_the_code_review_skills_declared_level_reaches_the_detectors():
+    built = await _construct(declared_skill_choice=ModelChoice(thinking_level="high"))
+
+    assert {c.kwargs["thinking_level"] for c in built.configured.call_args_list} >= {"high"}
 
 
 async def test_the_general_purpose_subagent_falls_back_to_the_runs_model():

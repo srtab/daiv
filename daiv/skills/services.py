@@ -259,6 +259,15 @@ def declared_skill_choice(root: Path) -> ModelChoice:
     return parse_model_choice(metadata, source=f"{root.name} SKILL.md", log_level=logging.WARNING)
 
 
+async def adeclared_skill_choice(name: str) -> ModelChoice:
+    """The choice the skill ``name``'s SKILL.md declares: the global skill's, else the built-in's; empty when none."""
+    if await GlobalSkill.objects.filter(name=name).aexists():
+        return declared_skill_choice(SkillStorage().root / name)
+    if (root := BUILTIN_SKILL_DIRS.get(name)) is not None:
+        return declared_skill_choice(root)
+    return EMPTY_CHOICE
+
+
 def site_model_entries(name: str, site: SiteSettings | SiteSnapshot = site_settings) -> tuple[ModelChoice, int]:
     """Skill ``name``'s site model entry (empty when unset), and how many of the subagents it ships have one; a caller
     that asks for several skills passes one ``site_settings.snapshot()``."""
