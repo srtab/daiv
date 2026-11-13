@@ -27,6 +27,7 @@ from automation.agent.middlewares.summarization import COMPACTION_WINDOW_FRACTIO
 from automation.agent.synthetic import is_person_message
 from automation.agent.usage_tracking import chat_model_name, resolve_context_window
 from automation.agent.utils import extract_body_from_frontmatter
+from core.model_choice import ModelChoice
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
@@ -100,7 +101,7 @@ class SkillModelMiddleware(AgentMiddleware):
             raise
         except Exception as error:
             # Safe to continue: the run's model serves this call and the rest of the run, as with no skill model.
-            self._models.call_failed(spec, error)
+            self._models.call_failed(spec, "", error)
         return await handler(request)
 
     def _skill_model(self, request: ModelRequest) -> tuple[str, BaseChatModel] | None:
@@ -189,7 +190,7 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
     An invoked skill sets ``active_skill_model``, the model spec (``slug:model``) its calls run on until the user's next
     follow-up: its ``configured_models`` entry, else the ``metadata.model`` of a built-in or global skill (see
-    ``ConfiguredModels.skill_spec``); ``None`` when neither can be built. A repository's skill files come from the
+    ``ConfiguredModels.skill_choice``); ``None`` when neither can be built. A repository's skill files come from the
     branch the run works on, which anyone who opens a merge request controls, so their ``metadata.model`` is ignored.
     ``SkillModelMiddleware`` serves the calls on it.
     """
@@ -443,7 +444,9 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             )
 
             skill_mode = loaded_skill.get("metadata", {}).get("mode")
-            skill_model = self._models.skill_spec(skill, self._file_model(loaded_skill))
+            skill_model = (
+                self._models.skill_choice(skill, ModelChoice(model=self._file_model(loaded_skill) or "")).model or None
+            )
             update: dict = {
                 "messages": [ToolMessage(content=body, tool_call_id=runtime.tool_call_id)],
                 "active_skill_model": skill_model,

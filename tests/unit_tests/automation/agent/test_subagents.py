@@ -1499,7 +1499,7 @@ class TestBuiltinCodeReviewDetectors:
                 mock_model, mock_backend, working_directory="/workspace/repo/", agents_dir=agents_dir
             )
 
-        get_model.assert_called_once_with(model="some:override")
+        get_model.assert_called_once_with(model="some:override", thinking_level=None)
         assert mock_create.call_args.kwargs["model"] is override_model
 
 

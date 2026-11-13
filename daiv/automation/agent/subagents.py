@@ -42,6 +42,7 @@ from automation.agent.middlewares.sandbox import BASH_TOOL_NAME, SandboxMiddlewa
 from automation.agent.middlewares.summarization import build_summarization_middleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
+from core.model_choice import ModelChoice
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -242,7 +243,9 @@ def load_builtin_code_review_detectors(
 
         frontmatter_model = str(frontmatter.get("model", "")).strip()
         try:
-            detector_model = configured_models.for_subagent(frontmatter["name"], frontmatter_model, model)
+            detector_model = configured_models.for_subagent(
+                frontmatter["name"], ModelChoice(model=frontmatter_model), model
+            )
         except ValueError:
             # Unknown/empty model spec — a charter config typo. Skip just this detector.
             logger.warning("Skipping detector %s: invalid model '%s'", md_file, frontmatter_model)
@@ -604,7 +607,9 @@ async def load_custom_subagents(
 
             frontmatter_model = str(frontmatter.get("model", "")).strip()
             try:
-                subagent_model = configured_models.for_subagent(frontmatter["name"], frontmatter_model, model)
+                subagent_model = configured_models.for_subagent(
+                    frontmatter["name"], ModelChoice(model=frontmatter_model), model
+                )
             except Exception:
                 logger.warning("Skipping %s: invalid model '%s'", file_path, frontmatter_model)
                 continue

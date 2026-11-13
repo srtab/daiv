@@ -69,6 +69,7 @@ from automation.agent.subagents import (
 )
 from codebase.base import GitPlatform
 from core.constants import BOT_NAME
+from core.model_choice import EMPTY_CHOICE, ModelChoice
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -252,8 +253,10 @@ async def create_daiv_agent(
 
     subagent_models = ConfiguredModels("subagent", settings.subagent_models, chain=chain)
     skill_models = ConfiguredModels("skill", settings.skill_models, chain=chain)
-    general_purpose_model = subagent_models.for_subagent(GENERAL_PURPOSE_NAME, "", model)
-    explore_model = subagent_models.for_subagent(EXPLORE_NAME, EXPLORE_MODEL_NAME, model, never_skip=True)
+    general_purpose_model = subagent_models.for_subagent(GENERAL_PURPOSE_NAME, EMPTY_CHOICE, model)
+    explore_model = subagent_models.for_subagent(
+        EXPLORE_NAME, ModelChoice(model=EXPLORE_MODEL_NAME), model, never_skip=True
+    )
     subagents = [
         create_general_purpose_subagent(
             general_purpose_model,

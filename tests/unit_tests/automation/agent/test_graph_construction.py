@@ -285,11 +285,11 @@ async def test_fallback_models_take_the_sites_fallback_thinking_level_whatever_t
     assert built.models == expected
 
 
-async def test_the_explore_subagent_runs_on_its_default_model_without_thinking_whatever_the_run_chooses():
+async def test_the_explore_subagent_runs_on_its_default_model_at_the_runs_thinking_level():
     built = await _construct(run={"model_names": ("run-a", "run-b"), "agent_thinking_level": "high"})
 
     assert built.explore_model is built.configured.return_value
-    built.configured.assert_called_once_with(model=EXPLORE_MODEL_NAME)
+    built.configured.assert_called_once_with(model=EXPLORE_MODEL_NAME, thinking_level="high")
 
 
 async def test_the_explore_subagent_runs_on_its_configured_model_at_the_runs_thinking_level():
