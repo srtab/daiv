@@ -297,11 +297,10 @@ class TestCreateMergeRequestDescription:
             "status": "failed",
             "commands": [
                 {
-                    "command": "make test",
+                    "command": 'pytest /workspace/repo/tests/test_a.py -k "x"',
                     "exit_code": 1,
                     "timed_out": False,
                     "already_failing": False,
-                    "output_tail": 'E   assert name == "daiv" in /workspace/repo/tests/test_a.py',
                 }
             ],
             "rounds": 2,
@@ -320,9 +319,7 @@ class TestCreateMergeRequestDescription:
         assert description.startswith(
             "Fixes &lt;b&gt;bold&lt;/b&gt;\n\n<!-- daiv:verification -->\n\n### Verification\n"
         )
-        assert "\n\n<details><summary>Output of make test</summary>\n" in description
-        assert 'E   assert name == "daiv" in tests/test_a.py' in description
-        assert "&lt;details&gt;" not in description
+        assert '- `pytest tests/test_a.py -k "x"` failed (exit 1)' in description
         assert "&quot;" not in description
         assert "after 2 fix attempts.\n\n<!-- /daiv:verification -->\n\n---\n" in description
 

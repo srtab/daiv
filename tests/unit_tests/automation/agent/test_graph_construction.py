@@ -445,25 +445,6 @@ async def test_verification_middleware_absent_when_the_repo_declares_no_commands
     assert _verification(built.middleware) == []
 
 
-async def test_check_output_masks_the_sandbox_env_values():
-    sandbox = SandboxSpec(
-        base_image="python:3.14", memory_bytes=None, cpus=None, env_vars={"TOKEN": "abcd1234efgh", "DEBUG": "1"}
-    )
-
-    built = await _construct(bash=True, auto_commit_changes=True, sandbox=sandbox)
-
-    [verification] = _verification(built.middleware)
-    assert verification._checks._mask("TOKEN=abcd1234efgh DEBUG=1") == "TOKEN=****** DEBUG=1"
-
-
-@pytest.mark.parametrize("publish_output", [False, True])
-async def test_verification_keeps_check_output_only_when_the_site_publishes_it(publish_output):
-    built = await _construct(site={"verification_publish_output": publish_output}, bash=True, auto_commit_changes=True)
-
-    [verification] = _verification(built.middleware)
-    assert verification._publish_output is publish_output
-
-
 @pytest.mark.parametrize(("before_publish", "expected"), [(None, ("make lint",)), (("make test",), ("make test",))])
 async def test_verification_runs_the_sandbox_default_unless_the_repo_declares_its_own(before_publish, expected):
     sandbox = SandboxSpec(

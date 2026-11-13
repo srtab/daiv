@@ -1,5 +1,3 @@
-import re
-
 import pytest
 
 from automation.agent.verification.checks import CheckResult
@@ -19,11 +17,8 @@ def render_report(outcome: VerificationOutcome, *, new_merge_request: bool = Tru
     return VerificationReport(outcome, new_merge_request=new_merge_request).markdown()
 
 
-def _command(command="make test", exit_code=0, *, timed_out=False, already_failing=False, output_tail=None):
-    outcome = CommandOutcome(command=command, exit_code=exit_code, timed_out=timed_out, already_failing=already_failing)
-    if output_tail is not None:
-        outcome["output_tail"] = output_tail
-    return outcome
+def _command(command="make test", exit_code=0, *, timed_out=False, already_failing=False):
+    return CommandOutcome(command=command, exit_code=exit_code, timed_out=timed_out, already_failing=already_failing)
 
 
 def _outcome(status, commands=(), *, rounds=0, suspicious=(), reason=None):
@@ -35,38 +30,18 @@ def _outcome(status, commands=(), *, rounds=0, suspicious=(), reason=None):
     return outcome
 
 
-def test_command_outcomes_records_tail_only_for_non_passing_commands():
+def test_command_outcomes_marks_already_failing_commands():
     results = [
         CheckResult("make lint", 0, "all good"),
         CheckResult("make test", 1, "boom"),
-        CheckResult("make slow", 124, "partial", timed_out=True),
         CheckResult("make old", 2, "legacy"),
     ]
 
-    lint, test, slow, old = command_outcomes(results, frozenset({"make old", "make lint"}), with_output=True)
+    lint, test, old = command_outcomes(results, frozenset({"make old", "make lint"}))
 
-    assert "output_tail" not in lint
     assert lint["already_failing"] is False
-    assert test == {
-        "command": "make test",
-        "exit_code": 1,
-        "timed_out": False,
-        "already_failing": False,
-        "output_tail": "boom",
-    }
-    assert slow["timed_out"] is True
-    assert slow["output_tail"] == "partial"
+    assert test["already_failing"] is False
     assert old["already_failing"] is True
-    assert old["output_tail"] == "legacy"
-
-
-def test_command_outcomes_without_output_keeps_no_tail():
-    results = [CheckResult("make test", 1, "boom"), CheckResult("make old", 2, "legacy")]
-
-    outcomes = command_outcomes(results, frozenset({"make old"}), with_output=False)
-
-    assert [outcome.get("output_tail") for outcome in outcomes] == [None, None]
-    assert [outcome["exit_code"] for outcome in outcomes] == [1, 2]
 
 
 def test_render_report_passed():
@@ -103,39 +78,6 @@ def test_render_report_already_failing():
     report = render_report(_outcome("passed", [_command(exit_code=1, already_failing=True)]))
 
     assert "`make test` was already failing before this change" in report
-
-
-def test_render_report_shows_failing_output_in_collapsible_block():
-    report = render_report(_outcome("failed", [_command(exit_code=1, output_tail="E assert 1 == 2")], rounds=2))
-
-    assert (
-        "- `make test` failed (exit 1)\n\n"
-        "<details><summary>Output of make test</summary>\n\n```\nE assert 1 == 2\n```\n\n</details>"
-    ) in report
-
-
-def test_render_report_names_the_command_in_the_summary_as_escaped_plain_text():
-    report = render_report(_outcome("failed", [_command("grep -c '<x>' a.py", exit_code=1, output_tail="0")]))
-
-    assert "<summary>Output of grep -c '&lt;x&gt;' a.py</summary>" in report
-
-
-def test_render_report_starts_a_new_block_after_each_output_block():
-    lint = _command("make lint", exit_code=1, output_tail="lint")
-    test = _command("make test", exit_code=2, output_tail="t")
-
-    report = render_report(_outcome("failed", [lint, test]))
-
-    assert "</details>\n\n- `make test` failed (exit 2)\n\n<details>" in report
-
-
-def test_render_report_fences_output_longer_than_any_backtick_run_in_it():
-    report = render_report(_outcome("failed", [_command(exit_code=1, output_tail="a ``` b\n</details>")]))
-
-    fences = re.findall(r"^(`{3,})$", report, flags=re.MULTILINE)
-    assert len(fences) == 2
-    assert len(fences[0]) == 4
-    assert fences[0] == fences[1]
 
 
 def test_render_report_not_verified_gives_reason():
@@ -214,21 +156,3 @@ def test_replace_report_section_swaps_the_previous_report():
 
 def test_replace_report_section_leaves_a_description_without_one_alone():
     assert replace_report_section("Written by a person", "### Verification") == "Written by a person"
-
-
-def test_replace_report_section_swaps_a_report_whose_output_holds_the_end_marker():
-    old = render_report(_outcome("failed", [_command(exit_code=1, output_tail="<!-- /daiv:verification -->\nE boom")]))
-    description = f"Summary\n\n{report_section(old)}\n\n---\nfooter"
-
-    updated = replace_report_section(description, "### Verification\n\n- `make test` passed")
-
-    assert updated == f"Summary\n\n{report_section('### Verification\n\n- `make test` passed')}\n\n---\nfooter"
-
-
-def test_render_report_caps_the_output_it_embeds():
-    commands = [_command(f"make check-{n}", exit_code=1, output_tail="z" * 4_000) for n in range(20)]
-
-    report = render_report(_outcome("failed", commands))
-
-    assert report.count("z") == 24_000
-    assert all(f"`make check-{n}` failed" in report for n in range(20))

@@ -121,38 +121,6 @@ async def test_run_checks_keeps_declared_command_and_output_tail(fake_bash):
     assert result.command == "make test" and len(result.output_tail) == 4_000 and not result.passed
 
 
-async def test_run_checks_masks_the_values_before_taking_the_tail(fake_bash):
-    output = "token=hunter2-secret-0042 " + "y" * 3_990
-    fake_bash.results = [RunCommandResult(command="cd /workspace/repo && make test", output=output, exit_code=1)]
-
-    [result] = await CheckRunner(fake_bash, FakeGit(), redact=("hunter2-secret-0042",)).run(["make test"])
-
-    assert result.output_tail.startswith("en=******")
-    assert "0042" not in result.output_tail
-
-
-def test_redacted_values_keeps_values_of_eight_characters_or_more_with_their_base64_form():
-    assert CheckRunner.redacted_values({"SHORT": "abc1234", "TOKEN": "abcd1234", "EMPTY": ""}) == (
-        "abcd1234",
-        "YWJjZDEyMzQ",
-    )
-
-
-async def test_run_checks_masks_a_value_printed_url_encoded(fake_bash):
-    value = "p@ss/word#1"
-    fake_bash.results = [
-        RunCommandResult(
-            command="cd /workspace/repo && make test", output="postgresql://u:p%40ss%2Fword%231@db", exit_code=1
-        )
-    ]
-
-    [result] = await CheckRunner(fake_bash, FakeGit(), redact=CheckRunner.redacted_values({"PW": value})).run([
-        "make test"
-    ])
-
-    assert result.output_tail == "postgresql://u:******@db"
-
-
 @pytest.mark.parametrize(
     ("result", "timed_out"),
     [

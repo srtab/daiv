@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import base64
 import hashlib
 import shlex
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
-from urllib.parse import quote
 
 import httpx
 
@@ -15,7 +13,7 @@ from automation.agent.middlewares.sandbox import is_bare_timeout_notice
 from automation.agent.workspace.git_manager import GIT_ERRORS
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
+    from collections.abc import Callable, Sequence
 
     from automation.agent.workspace.git_manager import GitManager
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
@@ -28,13 +26,9 @@ _KILL_AFTER_SECONDS = 10
 # Past ``timeout``'s own limit, so ``timeout`` stops a check, and what it started, before the sandbox gives up on it.
 _SANDBOX_TIMEOUT_SECONDS = CHECK_TIMEOUT_SECONDS + _KILL_AFTER_SECONDS + 20
 _STOPPED_BY_TIMEOUT = frozenset({124, 137})
-_OUTPUT_WINDOW_CHARS = 200_000
 UNREADABLE = "the repository could not be read to run the checks"
 OUT_OF_TIME = f"the checks used up their {VERIFICATION_BUDGET_SECONDS // 60} minutes for this run"
 _STASH_MESSAGE = "daiv: pre-publish verification"
-_REDACTED = "******"
-# Shorter values (``true``, ``8000``, ``python``) would mask ordinary words all over the output.
-_MIN_REDACTED_LENGTH = 8
 
 
 @dataclass(frozen=True)
@@ -73,44 +67,22 @@ class CheckRunner:
     Every check a run starts shares ``VERIFICATION_BUDGET_SECONDS``, counted from the first: once it is spent, no
     further check starts and ``ChecksUnavailableError`` says so, so a run waits at most the budget and one check.
 
-    Only the last ``_OUTPUT_WINDOW_CHARS`` of a check's output are masked, so a check that prints without
-    end costs no more than that.
-
     Args:
         bash: The sandbox shell the checks run in.
         git: The run's git, which reads the tree and sets it aside to run the checks on the starting code.
-        redact: Values masked in the checks' output before anyone sees it.
         clock: Monotonic seconds, which the budget is measured in.
     """
 
     def __init__(
-        self,
-        bash: SandboxFileBackend,
-        git: GitManager,
-        *,
-        redact: Sequence[str] = (),
-        clock: Callable[[], float] = time.monotonic,
+        self, bash: SandboxFileBackend, git: GitManager, *, clock: Callable[[], float] = time.monotonic
     ) -> None:
         self._bash = bash
         self._git = git
-        self._redact = sorted(redact, key=len, reverse=True)
         self._clock = clock
         self._deadline: float | None = None
 
-    @staticmethod
-    def redacted_values(env_vars: Mapping[str, str]) -> tuple[str, ...]:
-        """The values of the sandbox's env vars, which may be secrets, and their URL- and base64-encoded forms, that
-        check output must not show."""
-        values = [value for value in env_vars.values() if len(value) >= _MIN_REDACTED_LENGTH]
-        encoded = [
-            form
-            for value in values
-            for form in (quote(value, safe=""), base64.b64encode(value.encode()).decode().rstrip("="))
-        ]
-        return tuple(dict.fromkeys([*values, *encoded]))
-
     async def run(self, commands: Sequence[str]) -> list[CheckResult]:
-        """One result per command, every ``redact`` value in its output masked."""
+        """One result per command."""
         return [await self._run_one(command) for command in commands]
 
     async def run_on_tree(self, commands: Sequence[str]) -> CheckRun:
@@ -157,11 +129,10 @@ class CheckRunner:
             raise ChecksUnavailableError("the sandbox returned no result for a check")
         result = response.results[0]
         stopped = result.exit_code in _STOPPED_BY_TIMEOUT and self._clock() - started >= CHECK_TIMEOUT_SECONDS
-        output = self._masked_window(result.output)
         return CheckResult(
             command=command,
             exit_code=result.exit_code,
-            output_tail=output[-OUTPUT_TAIL_CHARS:],
+            output_tail=result.output[-OUTPUT_TAIL_CHARS:],
             timed_out=stopped or result.timed_out or is_bare_timeout_notice(result, _SANDBOX_TIMEOUT_SECONDS),
         )
 
@@ -183,21 +154,6 @@ class CheckRunner:
             self._deadline = now + VERIFICATION_BUDGET_SECONDS
         elif now >= self._deadline:
             raise ChecksUnavailableError(OUT_OF_TIME)
-
-    def _masked_window(self, output: str) -> str:
-        """The masked end of ``output``. The window is cut a longest value wider and trimmed by as much after masking,
-        so a value the cut splits is dropped rather than shown in part."""
-        margin = len(self._redact[0]) if self._redact else 0
-        window = output[-(_OUTPUT_WINDOW_CHARS + margin) :]
-        masked = self._mask(window)
-        if len(window) < len(output):
-            masked = masked[margin:]
-        return masked[-_OUTPUT_WINDOW_CHARS:]
-
-    def _mask(self, text: str) -> str:
-        for value in self._redact:
-            text = text.replace(value, _REDACTED)
-        return text
 
 
 def diff_fingerprint(diff: str) -> str:

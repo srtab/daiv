@@ -163,7 +163,6 @@ def _build_field_defaults() -> dict[str, Any]:
         "pipeline_watch_max_attempts": 3,
         # Verification
         "verification_enabled": True,
-        "verification_publish_output": False,
         # Authentication
         "auth_login_enabled": False,
         "auth_signup_open": False,
@@ -242,7 +241,6 @@ class SiteSnapshot:
     pipeline_watch_enabled: bool
     pipeline_watch_max_attempts: int
     verification_enabled: bool
-    verification_publish_output: bool
     auth_login_enabled: bool
     auth_signup_open: bool
     auth_client_id: str | None

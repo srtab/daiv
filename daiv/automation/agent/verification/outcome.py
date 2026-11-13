@@ -22,7 +22,6 @@ class CommandOutcome(TypedDict):
     exit_code: int
     timed_out: bool
     already_failing: bool
-    output_tail: NotRequired[str]
 
 
 class VerificationOutcome(TypedDict):
@@ -33,22 +32,16 @@ class VerificationOutcome(TypedDict):
     reason: NotRequired[str]
 
 
-def command_outcomes(
-    results: Sequence[CheckResult], already_failing: Container[str], *, with_output: bool
-) -> list[CommandOutcome]:
-    """One outcome per result. ``with_output`` keeps the end of each failing command's output, for publishing."""
-    outcomes: list[CommandOutcome] = []
-    for result in results:
-        outcome = CommandOutcome(
+def command_outcomes(results: Sequence[CheckResult], already_failing: Container[str]) -> list[CommandOutcome]:
+    return [
+        CommandOutcome(
             command=result.command,
             exit_code=result.exit_code,
             timed_out=result.timed_out,
             already_failing=not result.passed and result.command in already_failing,
         )
-        if with_output and not result.passed:
-            outcome["output_tail"] = result.output_tail
-        outcomes.append(outcome)
-    return outcomes
+        for result in results
+    ]
 
 
 def _longest_backtick_run(text: str) -> int:
@@ -72,10 +65,7 @@ class VerificationReport:
 
     START = "<!-- daiv:verification -->"
     END = "<!-- /daiv:verification -->"
-    # Greedy: a check's output inside the section can itself hold the end marker.
     _SECTION = re.compile(f"{re.escape(START)}.*{re.escape(END)}", re.DOTALL)
-    # Keeps a report with many failing commands well under GitHub's 65,536-character PR body limit.
-    _OUTPUT_CHARS = 24_000
 
     def __init__(self, outcome: VerificationOutcome, *, new_merge_request: bool) -> None:
         self._outcome = outcome
@@ -87,18 +77,7 @@ class VerificationReport:
         if outcome["status"] == "not_configured":
             return None
 
-        lines = ["### Verification", ""]
-        after_block = False
-        with_output = sum(1 for command in outcome["commands"] if command.get("output_tail"))
-        max_chars = self._OUTPUT_CHARS // max(with_output, 1)
-        for command in outcome["commands"]:
-            if after_block:
-                lines.append("")
-            lines.append(self._bullet(command))
-            block = self._output_block(command, max_chars)
-            if block is not None:
-                lines += ["", block]
-            after_block = block is not None
+        lines = ["### Verification", "", *map(self._bullet, outcome["commands"])]
         if outcome["status"] == "failed":
             lines += ["", self._failed_line()]
         elif outcome["status"] == "not_verified":
@@ -127,15 +106,6 @@ class VerificationReport:
         if command["timed_out"]:
             return f"- {span} {_TIMED_OUT}"
         return f"- {span} failed (exit {command['exit_code']})"
-
-    @staticmethod
-    def _output_block(command: CommandOutcome, max_chars: int) -> str | None:
-        tail = command.get("output_tail", "")[-max_chars:]
-        if not tail:
-            return None
-        fence = "`" * max(3, _longest_backtick_run(tail) + 1)
-        summary = escape(f"Output of {command['command']}", quote=False)
-        return f"<details><summary>{summary}</summary>\n\n{fence}\n{tail}\n{fence}\n\n</details>"
 
     def _failed_line(self) -> str:
         rounds = self._outcome["rounds"]

@@ -23,7 +23,7 @@ attempt cap count as unset), else the site's. Every chain drops blank model name
 12. Orchestration (``delegate_jobs``): repo only, on unless ``.daiv.yml`` turns it off.
 13. Skill and subagent models: repo ``models.skills`` / ``models.subagents`` entries over the site's
     ``agent_skill_models`` / ``agent_subagent_models``, by name, every branch; an empty repo entry is unset.
-14. Verification: site AND repo (an empty ``hooks.before_publish`` turns it off) · publishing check output: site only.
+14. Verification: site AND repo (an empty ``hooks.before_publish`` turns it off).
 
 A non-empty site or run thinking level that is not a ``ThinkingLevel`` becomes ``None`` (no thinking) and is logged as
 an error; ``.daiv.yml`` levels are validated when the file loads.
@@ -78,7 +78,6 @@ class Features:
     session_link: bool
     slash_commands: bool
     verification: bool
-    verification_output: bool
     orchestration: bool
 
 
@@ -122,7 +121,6 @@ def resolve_features(*, site: SiteSnapshot, repo: RepositoryConfig) -> Features:
         session_link=repo.session_link and site.session_link_enabled,
         slash_commands=repo.slash_commands.enabled,
         verification=site.verification_enabled and repo.hooks.before_publish != (),
-        verification_output=site.verification_publish_output,
         orchestration=repo.orchestration.enabled,
     )
 

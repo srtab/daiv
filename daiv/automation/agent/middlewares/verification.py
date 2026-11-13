@@ -120,8 +120,7 @@ class VerificationMiddleware(AgentMiddleware):
     sent once the step budget is finalizing, ``LoopBreakerMiddleware`` has ended the run or the run ends on a question
     ``AskUserQuestionMiddleware`` delivered, which therefore sits inside this one: the outcome is still recorded.
 
-    The outcome is recorded in the ``verification`` state key for the publish and the run executor. It holds the
-    checks' output only with ``publish_output``, since everything in it reaches the merge request and the reply. Like
+    The outcome is recorded in the ``verification`` state key for the publish and the run executor. Like
     ``LoopBreakerMiddleware`` this lives in ``awrap_model_call``, so it adds no graph node per turn; each reminder is
     saved into the thread ahead of the reply it produced (see ``reminders``).
 
@@ -134,8 +133,6 @@ class VerificationMiddleware(AgentMiddleware):
         commands: The ``before_publish`` commands; empty when neither the repository nor its sandbox declares any.
         step_budget: The run's step budget, asked whether a fix round still fits.
         loop_breaker: The run's loop breaker, whose terminal stop must not be reopened.
-        redact: Values masked in the checks' output before the agent or the outcome sees it.
-        publish_output: Whether the outcome keeps the end of each failing check's output, to publish it.
     """
 
     state_schema = VerificationState
@@ -147,18 +144,15 @@ class VerificationMiddleware(AgentMiddleware):
         commands: tuple[str, ...],
         step_budget: StepBudgetMiddleware,
         loop_breaker: LoopBreakerMiddleware,
-        redact: Sequence[str] = (),
-        publish_output: bool = False,
     ) -> None:
         super().__init__()
         if workspace.bash is None:
             raise ValueError("VerificationMiddleware needs a workspace with a shell")
         self._workspace = workspace
-        self._checks = CheckRunner(workspace.bash, workspace.git, redact=redact)
+        self._checks = CheckRunner(workspace.bash, workspace.git)
         self._commands = commands
         self._step_budget = step_budget
         self._loop_breaker = loop_breaker
-        self._publish_output = publish_output
         self._rounds = 0
         self._starting: dict[str, bool] = {}
         self._last_run: CheckRun | None = None
@@ -265,7 +259,7 @@ class VerificationMiddleware(AgentMiddleware):
 
         outcome = _outcome(
             "failed" if failures else "passed",
-            commands=command_outcomes(run.results, baseline, with_output=self._publish_output),
+            commands=command_outcomes(run.results, baseline),
             changed=changed,
             rounds=self._rounds + 1 if remind else self._rounds,
         )

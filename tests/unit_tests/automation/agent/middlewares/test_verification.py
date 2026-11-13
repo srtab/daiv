@@ -144,13 +144,7 @@ def _scripted(*replies: AIMessage):
 
 
 def _middleware(
-    repo: FakeRepo,
-    commands: tuple[str, ...] = ("make test",),
-    *,
-    finalizing: bool = False,
-    terminated: bool = False,
-    redact: tuple[str, ...] = (),
-    publish_output: bool = False,
+    repo: FakeRepo, commands: tuple[str, ...] = ("make test",), *, finalizing: bool = False, terminated: bool = False
 ) -> VerificationMiddleware:
     step_budget = Mock(spec=StepBudgetMiddleware)
     step_budget.is_finalizing.return_value = finalizing
@@ -161,8 +155,6 @@ def _middleware(
         commands=commands,
         step_budget=step_budget,
         loop_breaker=loop_breaker,
-        redact=redact,
-        publish_output=publish_output,
     )
 
 
@@ -252,31 +244,6 @@ async def test_failures_stop_after_two_fix_rounds():
     assert outcome["rounds"] == 2
     assert repo.check_runs == 3
     assert len(seen) == 1
-
-
-async def test_check_output_is_masked_in_the_reminder_and_the_outcome():
-    repo = FakeRepo(failing={"make test"})
-    handler, seen = _scripted(_final(), _final())
-
-    middleware = _middleware(repo, redact=("make test output",), publish_output=True)
-    result = await middleware.awrap_model_call(_request(), handler)
-
-    reminder = seen[1].messages[-1].content
-    assert "******" in reminder
-    assert "make test output" not in reminder
-    assert _outcome(result)["commands"][0]["output_tail"] == "******"
-
-
-async def test_outcome_keeps_no_check_output_unless_it_is_published():
-    repo = FakeRepo(failing={"make test"})
-    handler, seen = _scripted(_final(), _final())
-
-    result = await _middleware(repo).awrap_model_call(_request(), handler)
-
-    assert "make test output" in seen[1].messages[-1].content
-    [command] = _outcome(result)["commands"]
-    assert command["exit_code"] == 1
-    assert "output_tail" not in command
 
 
 async def test_failure_already_present_on_starting_code_is_not_sent_back():

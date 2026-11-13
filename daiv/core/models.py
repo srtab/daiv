@@ -305,16 +305,6 @@ class SiteConfiguration(models.Model):
             "are declared."
         ),
     )
-    verification_publish_output = models.BooleanField(
-        _("publish check output"),
-        blank=True,
-        null=True,
-        help_text=_(
-            "Include the end of each failing before_publish check's output in the merge request and DAIV's reply. "
-            "Only exact copies of the sandbox's environment variable values are masked, and published output stays in "
-            "the platform's edit history."
-        ),
-    )
 
     # -- Commit & PR Writer --
     diff_to_metadata_model_name = models.CharField(
