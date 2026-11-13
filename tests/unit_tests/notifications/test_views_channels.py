@@ -51,6 +51,17 @@ class TestUserChannelsRocketChatRow:
 
 
 @pytest.mark.django_db
+@pytest.mark.usefixtures("discord_channel_enabled")
+class TestUserChannelsDiscordRow:
+    def test_renders_user_id_connect_form(self, member_client):
+        response = member_client.get("/accounts/channels/")
+        content = response.content.decode()
+        assert "Discord" in content
+        assert 'name="username"' in content
+        assert "User ID (123456789012345678)" in content
+
+
+@pytest.mark.django_db
 class TestUserChannelsRocketChatDisabled:
     URL = "/accounts/channels/"
 

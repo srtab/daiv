@@ -3,10 +3,12 @@ from django.urls import path
 from notifications.choices import ChannelType
 from notifications.views import (
     ChannelDisconnectView,
+    ConfirmDiscordBindingView,
     ConnectTelegramView,
     MarkAllReadView,
     MarkNotificationReadView,
     NotificationListView,
+    UpdateDiscordBindingView,
     UpdateRocketChatBindingView,
 )
 
@@ -21,6 +23,13 @@ urlpatterns = [
         "channels/rocketchat/delete/",
         ChannelDisconnectView.as_view(channel_type=ChannelType.ROCKETCHAT),
         name="rocketchat_disconnect",
+    ),
+    path("channels/discord/", UpdateDiscordBindingView.as_view(), name="discord_connect"),
+    path("channels/discord/confirm/<str:token>/", ConfirmDiscordBindingView.as_view(), name="discord_confirm"),
+    path(
+        "channels/discord/delete/",
+        ChannelDisconnectView.as_view(channel_type=ChannelType.DISCORD),
+        name="discord_disconnect",
     ),
     path("channels/telegram/", ConnectTelegramView.as_view(), name="telegram_connect"),
     path(

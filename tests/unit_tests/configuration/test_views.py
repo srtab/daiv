@@ -770,6 +770,7 @@ class TestPerGroupContent:
             "Sandbox",
             "Jobs",
             "Rocket Chat",
+            "Discord",
             "Authentication",
         ):
             assert title in content, f"Rail missing {title!r}"

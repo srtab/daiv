@@ -54,7 +54,7 @@ DAIV (pronounced "dive", from *dev* + *AI*) integrates directly with **GitLab** 
 - **[Scheduled jobs](https://docs.daivagent.com/dev/features/scheduled-jobs/)** — run agents on any cron schedule: dependency audits, code-quality scans, stale-branch cleanup, and more.
 - **[Sandbox environments](https://docs.daivagent.com/dev/features/sandbox-environments/)** — define a reusable runtime once: base image, CPU/memory, **network egress policy**, and encrypted secrets, scoped to the repositories you choose.
 - **Per-run model & effort** — pick the LLM and thinking effort for each run.
-- **[Notifications](https://docs.daivagent.com/dev/features/notifications/)** — know the moment work finishes, via the in-app bell, email, Rocket Chat or Telegram.
+- **[Notifications](https://docs.daivagent.com/dev/features/notifications/)** — know the moment work finishes, via the in-app bell, email, Rocket Chat, Discord or Telegram.
 - **[Merge metrics](https://docs.daivagent.com/dev/features/merge-metrics/)** — track code velocity with commit-level DAIV-vs-human attribution.
 
 ## Quick example
@@ -137,7 +137,7 @@ docker compose up --build  # db, redis, app, worker, worker-interactive, schedul
 - [ ] Chrome extension — interact with DAIV directly from the git platform without leaving the browser.
 - [x] Custom MCP servers — user-defined MCP servers managed from the dashboard, as global or personal servers.
 - [x] Scheduled maintenance tasks — run DAIV on a cron schedule for tasks like dependency updates, security scans, or documentation drift detection.
-- [x] Notifications — in-app, email, Rocket Chat and Telegram delivery shipped; Slack, Discord, and Microsoft Teams planned.
+- [x] Notifications — in-app, email, Rocket Chat, Discord and Telegram delivery shipped; Slack and Microsoft Teams planned.
 - [x] Self-hosted LLM support — register any OpenAI-compatible server, such as vLLM, llama.cpp, or LiteLLM, as a provider for air-gapped or cost-sensitive environments.
 
 

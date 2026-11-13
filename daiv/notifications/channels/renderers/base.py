@@ -33,6 +33,21 @@ class Row:
     wide: bool = False
 
 
+def list_lines(items: list[dict] | None, overflow: int, *, mono: bool = True) -> str | None:
+    """Format shared finding/batch rows; backtick refs only when they are file paths."""
+    if not items:
+        return None
+    lines = []
+    for item in items:
+        prefix = f"[{item['kind']}] " if item.get("kind") else ""
+        ref = item.get("ref")
+        tail = (f" — `{ref}`" if mono else f" — {ref}") if ref else ""
+        lines.append(f"• {prefix}{item.get('label', '')}{tail}")
+    if overflow > 0:
+        lines.append(f"… and {overflow} more")
+    return "\n".join(lines)
+
+
 def compose_plain_text(notification: Notification) -> str:
     """The unstyled subject/body/link form every channel falls back to without a renderer."""
     parts = [notification.subject, "", notification.body]

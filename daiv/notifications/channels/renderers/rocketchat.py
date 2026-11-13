@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from notifications.channels.renderers.base import TONE_EMOJI, link_of, summary_of, tone_of
+from notifications.channels.renderers.base import TONE_EMOJI, link_of, list_lines, summary_of, tone_of
 from notifications.channels.renderers.events import event_rows
 
 if TYPE_CHECKING:
@@ -29,17 +29,9 @@ def _list_field(title: str, items: list[dict] | None, overflow: int, *, mono: bo
 
     ``mono`` backticks ``ref`` — right for a file path, wrong for the prose a batch row carries.
     """
-    if not items:
+    if (value := list_lines(items, overflow, mono=mono)) is None:
         return None
-    lines = []
-    for item in items:
-        prefix = f"[{item['kind']}] " if item.get("kind") else ""
-        ref = item.get("ref")
-        tail = (f" — `{ref}`" if mono else f" — {ref}") if ref else ""
-        lines.append(f"• {prefix}{item.get('label', '')}{tail}")
-    if overflow > 0:
-        lines.append(f"… and {overflow} more")
-    return {"title": title, "value": "\n".join(lines), "short": False}
+    return {"title": title, "value": value, "short": False}
 
 
 def render(notification: Notification) -> tuple[str, list[dict]] | None:
