@@ -164,6 +164,15 @@ Two more variables exist, but leave them unset: each pins a value that DAIV othe
 | `DAIV_TELEGRAM_BOT_USERNAME` | Pins the bot username. A value that disagrees with the token breaks the connect link, and nothing corrects it. | *(derived)* | `daiv_bot` |
 | `DAIV_TELEGRAM_WEBHOOK_SECRET` :material-lock: | Pins the webhook secret. It must not be empty: a blank value makes the webhook reject every update. | *(generated)* | |
 
+### Slack
+
+When enabled, Slack becomes available as a notification channel that users can opt into. The Slack app needs the `chat:write` and `users:read` bot scopes.
+
+| Variable                | Description                        | Default        | Example         |
+|-------------------------|------------------------------------|:--------------:|-----------------|
+| `DAIV_SLACK_ENABLED` | Offer Slack as a notification channel for users | `false` | `true` |
+| `DAIV_SLACK_BOT_TOKEN` :material-lock: | Bot User OAuth Token from your Slack app | *(none)* | `xoxb-...` |
+
 ### External URL and encryption key
 
 | Variable                | Description                        | Default        | Example         |

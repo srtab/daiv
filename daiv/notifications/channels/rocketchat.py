@@ -12,8 +12,8 @@ from core.site_settings import site_settings
 from core.utils import build_uri
 from notifications.channels.base import NotificationChannel
 from notifications.channels.registry import register_channel
+from notifications.channels.renderers.attachments import render
 from notifications.channels.renderers.base import compose_plain_text
-from notifications.channels.renderers.rocketchat import render
 from notifications.choices import ChannelType
 from notifications.exceptions import UnrecoverableDeliveryError
 

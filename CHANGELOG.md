@@ -93,6 +93,7 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 - Add a public homepage and comparison pages for signed-out visitors, with optional cookieless Umami analytics (`DAIV_UMAMI_WEBSITE_ID`) ([#994](https://github.com/srtab/daiv/pull/994), [#1826](https://github.com/srtab/daiv/pull/1826))
 - Add `DJANGO_SESSION_COOKIE_NAME` so several instances on one host keep separate sign-ins ([#1733](https://github.com/srtab/daiv/pull/1733))
 - Add a Quickstart guide that runs DAIV on one machine with Docker Compose ([#1791](https://github.com/srtab/daiv/pull/1791))
+- Add Slack as a notification channel: when an administrator enables it, you can bind your Slack member ID and receive DAIV notifications as direct messages from the DAIV bot; verification looks the member ID up via `users.info` (sent as a query parameter, which is the form Slack reads) and rejects deactivated, bot and Slack Connect accounts, and delivery honours Slack's `Retry-After` on rate limits instead of retrying on the fixed ladder ([#1824](https://github.com/srtab/daiv/pull/1824))
 
 ### Removed
 

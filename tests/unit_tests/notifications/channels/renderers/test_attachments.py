@@ -5,8 +5,8 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
+from notifications.channels.renderers.attachments import COLOR_FAILURE, COLOR_PARTIAL, COLOR_SUCCESS, render
 from notifications.channels.renderers.base import TONE_EMOJI
-from notifications.channels.renderers.rocketchat import COLOR_FAILURE, COLOR_PARTIAL, COLOR_SUCCESS, render
 from notifications.choices import EventType
 
 

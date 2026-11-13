@@ -583,6 +583,11 @@ class SiteConfiguration(models.Model):
         help_text=_("Derived from the bot token via getMe; not editable here."),
     )
 
+    # -- Slack --
+    slack_enabled = models.BooleanField(
+        _("enable Slack"), null=True, help_text=_("Offer Slack as a notification channel for users.")
+    )
+
     # -- API Keys / Secrets (encrypted at rest) --
     _web_search_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
     _sandbox_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
@@ -590,6 +595,7 @@ class SiteConfiguration(models.Model):
     _rocketchat_auth_token_encrypted = models.TextField(blank=True, null=True, editable=False)
     _telegram_bot_token_encrypted = models.TextField(blank=True, null=True, editable=False)
     _telegram_webhook_secret_encrypted = models.TextField(blank=True, null=True, editable=False)
+    _slack_bot_token_encrypted = models.TextField(blank=True, null=True, editable=False)
 
     # Descriptors for transparent encrypt/decrypt
     web_search_api_key = EncryptedFieldDescriptor("web_search_api_key")
@@ -598,6 +604,7 @@ class SiteConfiguration(models.Model):
     rocketchat_auth_token = EncryptedFieldDescriptor("rocketchat_auth_token")
     telegram_bot_token = EncryptedFieldDescriptor("telegram_bot_token")
     telegram_webhook_secret = EncryptedFieldDescriptor("telegram_webhook_secret")
+    slack_bot_token = EncryptedFieldDescriptor("slack_bot_token")
 
     MODEL_NAME_FIELDS: ClassVar[tuple[str, ...]] = (
         "agent_model_name",
@@ -622,6 +629,7 @@ class SiteConfiguration(models.Model):
         "rocketchat_auth_token",
         "telegram_bot_token",
         "telegram_webhook_secret",
+        "slack_bot_token",
     )
 
     THINKING_OFF_FIELDS: ClassVar[frozenset[str]] = frozenset({"agent_thinking_level", "agent_max_thinking_level"})
@@ -704,6 +712,14 @@ class SiteConfiguration(models.Model):
             match=("telegram_*",),
             icon="telegram",
             toggle_field="telegram_enabled",
+            category="Integrations",
+        ),
+        FieldGroup(
+            key="slack",
+            title=_("Slack"),
+            match=("slack_*",),
+            icon="slack",
+            toggle_field="slack_enabled",
             category="Integrations",
         ),
         FieldGroup(

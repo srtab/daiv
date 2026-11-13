@@ -181,6 +181,9 @@ def _build_field_defaults() -> dict[str, Any]:
         # admits them through ``ENCRYPTED_FIELDS`` instead.
         "telegram_enabled": False,
         "telegram_bot_username": None,
+        # Slack — the encrypted bot token gets no default entry; ``__getattr__``
+        # admits it through ``ENCRYPTED_FIELDS`` instead.
+        "slack_enabled": False,
     }
 
 
@@ -254,6 +257,7 @@ class SiteSnapshot:
     rocketchat_user_id: str | None
     telegram_enabled: bool
     telegram_bot_username: str | None
+    slack_enabled: bool
 
     def __getattribute__(self, name: str) -> Any:
         value = super().__getattribute__(name)

@@ -1,4 +1,11 @@
-"""Rocket Chat's formatter: one ``chat.postMessage`` attachment per notification."""
+"""Shared attachment formatter for Slack and Rocket Chat.
+
+Both channels accept the same ``attachments`` shape (``color``, ``title``,
+``title_link``, ``fields``, ``footer``, ``ts``), so one formatter serves both:
+the next change to the attachment layout lands once, and the pinned payloads
+are asserted once. The channel-neutral content comes from ``event_rows()``
+and the helpers in ``renderers/base.py``.
+"""
 
 from __future__ import annotations
 
@@ -45,7 +52,7 @@ def _list_field(title: str, items: list[dict] | None, overflow: int, *, mono: bo
 def render(notification: Notification) -> tuple[str, list[dict]] | None:
     """``(text, attachments)`` for ``chat.postMessage``, or ``None`` when the event has no rows.
 
-    The findings and batch lists are Rocket Chat's own extension, appended after the event's rows.
+    The findings and batch lists are appended after the event's rows.
     """
     rows = event_rows(notification)
     if rows is None:
