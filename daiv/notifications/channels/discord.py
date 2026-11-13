@@ -162,7 +162,7 @@ def _build_payload(notification: Notification) -> dict:
 @register_channel
 class DiscordChannel(NotificationChannel):
     channel_type = ChannelType.DISCORD
-    display_name = cast(str, _("Discord"))
+    display_name = cast("str", _("Discord"))
 
     @classmethod
     def is_enabled(cls) -> bool:
