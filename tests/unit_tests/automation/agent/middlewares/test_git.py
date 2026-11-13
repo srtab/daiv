@@ -444,6 +444,20 @@ class TestGitMiddleware:
         assert kwargs["verification"] is None
         assert "verification" not in result
 
+    async def test_after_agent_reply_says_when_an_unconfigured_run_ran_no_check(self):
+        verification = {
+            "status": "not_configured",
+            "commands": [],
+            "rounds": 0,
+            "suspicious_paths": [],
+            "agent_check": None,
+        }
+
+        _, result = await self._publish_with(verification)
+
+        [message] = result["messages"]
+        assert "The agent ran no test, linter or build after its final edit." in message.content
+
     async def test_after_agent_replies_with_the_report_after_pushing_to_an_existing_merge_request(self):
         _, result = await self._publish_with(self._verification("failed"))
 

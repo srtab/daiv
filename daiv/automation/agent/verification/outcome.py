@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from html import escape
 from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict
@@ -24,12 +25,20 @@ class CommandOutcome(TypedDict):
     already_failing: bool
 
 
+class AgentCheckOutcome(TypedDict):
+    command: str
+    exit_code: int
+
+
 class VerificationOutcome(TypedDict):
     status: VerificationStatus
     commands: list[CommandOutcome]
     rounds: int
     suspicious_paths: list[str]
     reason: NotRequired[str]
+    agent_check: NotRequired[AgentCheckOutcome | None]
+    """Only on ``not_configured``: the last check the agent ran on the published tree, ``None`` for none; missing when
+    the tree could not be read."""
 
 
 def command_outcomes(results: Sequence[CheckResult], already_failing: Container[str]) -> list[CommandOutcome]:
@@ -72,12 +81,16 @@ class VerificationReport:
         self._new_merge_request = new_merge_request
 
     def markdown(self) -> str | None:
-        """The report, or ``None`` when no checks are configured."""
+        """The report, or ``None`` when there is nothing to say: no checks are configured and either the tree could not
+        be read or, in a reply, the agent's last check passed."""
         outcome = self._outcome
         if outcome["status"] == "not_configured":
-            return None
-
-        lines = ["### Verification", "", *map(self._bullet, outcome["commands"])]
+            body = self._unconfigured_lines()
+            if body is None:
+                return None
+            lines = ["### Verification", "", *body]
+        else:
+            lines = ["### Verification", "", *map(self._bullet, outcome["commands"])]
         if outcome["status"] == "failed":
             lines += ["", self._failed_line()]
         elif outcome["status"] == "not_verified":
@@ -106,6 +119,33 @@ class VerificationReport:
         if command["timed_out"]:
             return f"- {span} {_TIMED_OUT}"
         return f"- {span} failed (exit {command['exit_code']})"
+
+    def _unconfigured_lines(self) -> list[str] | None:
+        if "agent_check" not in self._outcome:
+            return None
+        check = self._outcome["agent_check"]
+        passed = check is not None and check["exit_code"] == 0
+        if passed and not self._new_merge_request:
+            return None
+        lines = ["No `before_publish` checks are configured for this repository.", ""]
+        if check is None:
+            return [*lines, "The agent ran no test, linter or build after its final edit."]
+        result = "passed" if passed else f"failed (exit {check['exit_code']})"
+        lines.append(f"The agent's last check after its final edit, {code_span(check['command'])}, {result}.")
+        if passed:
+            entry = json.dumps(check["command"])
+            fence = "`" * max(3, _longest_backtick_run(entry) + 1)
+            lines += [
+                "",
+                "To have DAIV run it before publishing, add it to `.daiv.yml`:",
+                "",
+                f"{fence}yaml",
+                "hooks:",
+                "  before_publish:",
+                f"    - {entry}",
+                fence,
+            ]
+        return lines
 
     def _failed_line(self) -> str:
         rounds = self._outcome["rounds"]

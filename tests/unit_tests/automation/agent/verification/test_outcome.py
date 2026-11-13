@@ -1,4 +1,5 @@
 import pytest
+import yaml
 
 from automation.agent.verification.checks import CheckResult
 from automation.agent.verification.outcome import (
@@ -94,8 +95,52 @@ def test_render_report_lists_suspicious_paths():
     )
 
 
-def test_render_report_none_when_not_configured():
-    assert render_report(_outcome("not_configured")) is None
+def _not_configured(**extra):
+    return VerificationOutcome(status="not_configured", commands=[], rounds=0, suspicious_paths=[], **extra)
+
+
+def test_report_for_an_unconfigured_repository_names_the_agents_passing_check_and_offers_the_snippet():
+    outcome = _not_configured(agent_check={"command": 'pytest -k "a: b"', "exit_code": 0})
+
+    report = VerificationReport(outcome, new_merge_request=True).markdown()
+
+    assert "No `before_publish` checks are configured for this repository." in report
+    assert 'The agent\'s last check after its final edit, `pytest -k "a: b"`, passed.' in report
+    assert '    - "pytest -k \\"a: b\\""' in report
+    snippet = report.split("```yaml\n", 1)[1].split("\n```", 1)[0]
+    assert yaml.safe_load(snippet) == {"hooks": {"before_publish": ['pytest -k "a: b"']}}
+
+
+def test_report_for_an_unconfigured_repository_offers_no_snippet_for_a_failed_check():
+    outcome = _not_configured(agent_check={"command": "make test", "exit_code": 2})
+
+    report = VerificationReport(outcome, new_merge_request=True).markdown()
+
+    assert "`make test`, failed (exit 2)." in report
+    assert "before_publish:" not in report
+
+
+def test_report_for_an_unconfigured_repository_says_when_the_agent_ran_no_check():
+    report = VerificationReport(_not_configured(agent_check=None), new_merge_request=True).markdown()
+
+    assert "The agent ran no test, linter or build after its final edit." in report
+
+
+def test_a_reply_reports_an_unconfigured_repository_only_without_a_passing_check():
+    passed = _not_configured(agent_check={"command": "make test", "exit_code": 0})
+
+    assert VerificationReport(passed, new_merge_request=False).markdown() is None
+    assert VerificationReport(_not_configured(agent_check=None), new_merge_request=False).markdown() is not None
+
+
+def test_no_report_when_an_unconfigured_repository_could_not_be_read():
+    assert VerificationReport(_not_configured(), new_merge_request=True).markdown() is None
+
+
+def test_report_for_an_unconfigured_repository_lists_suspicious_paths():
+    outcome = _not_configured(agent_check=None) | {"suspicious_paths": ["tests/test_a.py"]}
+
+    assert "`tests/test_a.py`" in VerificationReport(outcome, new_merge_request=True).markdown()
 
 
 def test_failure_reminder_escapes_closing_tag():

@@ -19,7 +19,13 @@ from automation.agent.verification.checks import (
     diff_fingerprint,
 )
 from automation.agent.verification.fallback import fallback_reminder, last_check
-from automation.agent.verification.outcome import VerificationOutcome, code_span, command_outcomes, failure_reminder
+from automation.agent.verification.outcome import (
+    AgentCheckOutcome,
+    VerificationOutcome,
+    code_span,
+    command_outcomes,
+    failure_reminder,
+)
 from automation.agent.verification.suspicious import suspicious_paths
 from automation.agent.workspace.git_manager import GIT_ERRORS
 
@@ -190,12 +196,7 @@ class VerificationMiddleware(AgentMiddleware):
     ) -> ToolMessage | Command:
         # Inside the filesystem middleware, so a bash result too large for the thread is still read whole here.
         result = await handler(request)
-        if (
-            not self._commands
-            and not self._fallback_sent
-            and request.tool_call["name"] == BASH_TOOL_NAME
-            and isinstance(result, ToolMessage)
-        ):
+        if not self._commands and request.tool_call["name"] == BASH_TOOL_NAME and isinstance(result, ToolMessage):
             await self._note_agent_check(result)
         return result
 
@@ -278,10 +279,15 @@ class VerificationMiddleware(AgentMiddleware):
         return frozenset(result.command for result in failing if self._starting[result.command])
 
     def _fallback(self, changed: list[str], tree: str, *, may_remind: bool) -> _Verdict:
-        """The ``not_configured`` outcome, and the run's one reminder when no passing check ran on this tree."""
+        """The ``not_configured`` outcome with the last check the agent ran on this tree, and the run's one reminder
+        when no passing check ran on it."""
         agent_check = self._agent_check
         check = agent_check.check if agent_check is not None and agent_check.tree == tree else None
         reminder = None
         if (check is None or check.exit_code != 0) and not self._fallback_sent and may_remind:
             reminder = fallback_reminder(check, changed)
-        return _Verdict(_outcome("not_configured", commands=[], changed=changed, rounds=0), reminder)
+        outcome = _outcome("not_configured", commands=[], changed=changed, rounds=0)
+        outcome["agent_check"] = (
+            None if check is None else AgentCheckOutcome(command=check.command, exit_code=check.exit_code)
+        )
+        return _Verdict(outcome, reminder)

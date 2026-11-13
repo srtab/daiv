@@ -393,6 +393,7 @@ async def test_without_commands_an_unreadable_tree_records_not_configured_withou
     result = await _middleware(repo, ()).awrap_model_call(_request(), handler)
 
     assert _outcome(result)["status"] == "not_configured"
+    assert "agent_check" not in _outcome(result)
     assert result.model_response.result == [reply]
     assert len(seen) == 1
 
@@ -457,7 +458,14 @@ async def test_without_commands_reminds_once_when_no_check_ran():
     assert is_synthetic(reminder)
     assert "did not run any test" in reminder.content
     assert len(seen) == 2
-    assert _outcome(result) == {"status": "not_configured", "commands": [], "rounds": 0, "suspicious_paths": []}
+    assert _outcome(result) == {
+        "status": "not_configured",
+        "commands": [],
+        "rounds": 0,
+        "suspicious_paths": [],
+        "agent_check": None,
+    }
+    assert _outcome(result)["agent_check"] is None
 
 
 async def test_without_commands_no_reminder_after_loop_breaker_ended_the_run():
@@ -541,16 +549,17 @@ async def test_with_commands_the_agents_checks_are_not_tracked():
     assert repo.diff_reads == 0
 
 
-async def test_without_commands_the_agents_checks_are_not_tracked_after_the_reminder():
-    repo = FakeRepo()
-    middleware = _middleware(repo, ())
-    handler, _ = _scripted(_final(), _final())
+async def test_without_commands_a_check_run_after_the_reminder_is_reported():
+    middleware = _middleware(FakeRepo(), ())
+    handler, _ = _scripted(_final(), _tool_call())
     await middleware.awrap_model_call(_request(), handler)
-    reads = repo.diff_reads
+    await _agent_runs(middleware, _bash_message("uv run pytest", 0))
+    handler, seen = _scripted(_final())
 
-    await _agent_runs(middleware, _bash_message("pytest", 0))
+    outcome = _outcome(await middleware.awrap_model_call(_request(), handler))
 
-    assert repo.diff_reads == reads
+    assert outcome["agent_check"] == {"command": "uv run pytest", "exit_code": 0}
+    assert len(seen) == 1
 
 
 async def test_a_command_result_from_a_tool_is_passed_through():
