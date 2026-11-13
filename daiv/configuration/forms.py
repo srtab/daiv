@@ -715,9 +715,9 @@ class ModelEntriesForm(forms.Form):
         for name in self.changed_data:
             entry = self.entries[name]
             entries = dict(getattr(config, entry.site_field))
-            kept = parse_model_choice(entries.get(entry.name), source=f"site {entry.site_field}")
-            if choice := ModelChoice(self.cleaned_data[name], kept.thinking_level):
-                entries[entry.name] = choice.stored()
+            if spec := self.cleaned_data[name]:
+                kept = parse_model_choice(entries.get(entry.name), source=f"site {entry.site_field}")
+                entries[entry.name] = ModelChoice(spec, kept.thinking_level).stored()
             else:
                 entries.pop(entry.name, None)
             setattr(config, entry.site_field, entries)

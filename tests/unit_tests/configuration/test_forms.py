@@ -489,6 +489,14 @@ class TestModelEntriesForm:
         changed.apply_to(config)
         assert config.agent_skill_models == {"code-review": {"model": "openai:gpt-5.4-mini", "thinking_level": "low"}}
 
+    def test_clearing_the_model_removes_an_entry_that_has_a_level(self, usable_openai):
+        config = _stored(agent_subagent_models={"cr-security": {"model": "openai:gpt-5.4", "thinking_level": "low"}})
+        form = ModelEntriesForm(ENTRIES, {SKILL_FIELD: "", DETECTOR_FIELD: ""}, stored=config)
+
+        assert form.is_valid(), form.errors
+        form.apply_to(config)
+        assert "cr-security" not in config.agent_subagent_models
+
     @pytest.mark.parametrize(
         ("change", "model", "expected"),
         [

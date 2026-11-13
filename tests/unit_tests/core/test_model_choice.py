@@ -80,3 +80,7 @@ def test_merge_model_choices_merges_per_field():
         {"x": ModelChoice(model="a:b")}, {"x": ModelChoice(thinking_level="low"), "y": ModelChoice(model="c:d")}
     )
     assert merged == {"x": ModelChoice("a:b", "low"), "y": ModelChoice(model="c:d")}
+
+
+def test_a_boolean_false_level_is_off_because_yaml_reads_an_unquoted_off_that_way():
+    assert parse_model_choice({"thinking_level": False}, source="test") == ModelChoice(thinking_level="off")

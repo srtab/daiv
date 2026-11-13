@@ -171,3 +171,15 @@ def test_a_malformed_models_map_does_not_drop_the_rest_of_the_file(mock_repo_cli
         RepositoryConfig.invalidate_cache(repo_id)
 
     assert (config.suggest_context_file, config.models.skills) == (False, skills)
+
+
+def test_an_unquoted_off_level_in_yaml_is_the_off_level():
+    from io import StringIO
+
+    import yaml
+
+    from codebase.repo_config import RepositoryConfig
+
+    loaded = yaml.safe_load(StringIO("models:\n  skills:\n    code-review:\n      thinking_level: off\n"))
+
+    assert RepositoryConfig(**loaded).models.skills == {"code-review": ModelChoice(thinking_level="off")}
