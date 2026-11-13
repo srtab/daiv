@@ -160,22 +160,18 @@ A command passes when it exits 0. When the agent finishes, DAIV runs the command
 
 In a run that works on several repositories, only the main repository's commands run. Changes in the other repositories are published without verification.
 
-When a command fails, DAIV sends the output back to the agent and the agent fixes the code, for up to 2 rounds. DAIV checks again after each round. A command that also fails on the code from before the change is reported as already failing and not sent back for fixing. If its output now has lines it didn't have before, for example a test that newly fails, DAIV shows the agent both outputs to fix what its change broke, and the report says the command's output changed. Such a command doesn't count as failed, because output also changes when, say, the agent adds passing tests.
+When a command fails, DAIV sends the output back to the agent and the agent fixes the code, for up to 2 rounds. DAIV checks again after each round. A command that also fails on the code from before the change is reported as already failing and not sent back for fixing.
 
-Before a run is published as failed, DAIV runs each command that failed only on the agent's code once more. One that passes then is reported as possibly flaky and doesn't count as failed.
-
-!!! warning
-    A check that changes files counts as failed, because it would leave the published code different from what was verified. DAIV puts those files back as the agent left them, so nothing the checks write is published. Run formatters in check mode (`ruff format --check .`, not `ruff format .`), and add files the checks generate, such as coverage reports, to `.gitignore`.
+!!! note
+    Files a command changes stay in the tree and are published with the agent's changes, so you can list a formatter (`ruff format .`). Add files the checks generate, such as coverage reports, to `.gitignore`.
 
 ### What happens when checks still fail
 
-DAIV publishes the run with a **Verification** section that lists each command's result. The checks' output isn't published unless an administrator turns on [**Publish check output**](#site-switch). The section also lists files the checks themselves changed, and suspicious edits: test files, lint and test configuration, task runners such as a `Makefile`, CI files and `.daiv.yml`. Suspicious edits are flagged for review, not blocked.
+DAIV publishes the merge request as usual, with a **Verification** section that lists each command and its result. The checks' output isn't published. The section also lists suspicious edits: test files, lint and test configuration, task runners such as a `Makefile`, CI files and `.daiv.yml`. Suspicious edits are flagged for review, not blocked.
 
-- A new merge request opens as a draft.
-- On an existing merge request, the merge request's draft status is not changed, and the section goes in DAIV's reply: the chat reply, the comment it posts on the issue or merge request, or the result of a job, MCP call or scheduled job. When DAIV opened the merge request, the section in its description is replaced with the new one, so it always shows the latest checks.
-- The [pipeline watch](../features/pipeline-watch.md) counts the commit DAIV published as already examined, so CI failing on it doesn't wake the session for a fix after the checks gave up. The session still shows the pipeline's result, and the next commit DAIV pushes is watched as usual.
+On an existing merge request, the section goes in DAIV's reply: the chat reply, the comment it posts on the issue or merge request, or the result of a job, MCP call or scheduled job. When DAIV opened the merge request, the section in its description is replaced with the new one, so it always shows the latest checks. The [CI fix loop](../features/pipeline-watch.md) works as usual.
 
-If the agent gets stuck in a loop and DAIV stops it, the checks still run and are reported, but no fix round is spent. If the checks can't run at all, for example when the sandbox fails, DAIV publishes normally and says in the report that the run was not verified, and why. The CI fix loop works as usual in that case.
+If the agent gets stuck in a loop and DAIV stops it, the checks still run and are reported, but no fix round is spent. If the checks can't run at all, for example when the sandbox fails, DAIV publishes normally and says in the report that the run was not verified, and why.
 
 ### Default commands
 
@@ -183,16 +179,11 @@ A [sandbox environment](../features/sandbox-environments.md#before-publish-comma
 
 ### Without commands
 
-When no commands are declared, DAIV sends the agent one reminder if the files changed after the last test, linter or build the agent ran, or that check failed. The run is published as usual.
+When no commands are declared, DAIV sends the agent one reminder if the files changed after the last test, linter or build the agent ran, or that check failed. The run is published as usual. A new merge request's description says which check the agent last ran after its final edit and how it ended, or that it ran none. When that check passed, the description also has a `hooks.before_publish` snippet to add it to `.daiv.yml`. On an existing merge request, DAIV's reply says so only when no passing check ran.
 
 ### Site switch
 
 Administrators can turn verification off for all repositories with **Verification enabled** in the **Agent** group of [Site configuration](../reference/site-configuration.md). It is on by default. When it is off, DAIV runs no `before_publish` commands and sends no reminder.
-
-**Publish check output**, in the same section, adds the end of each failing command's output to the **Verification** section, in a collapsible block. It is off by default. The values of the sandbox's environment variables are masked as `******`, as typed or URL- or base64-encoded, but values shorter than 8 characters are not.
-
-!!! warning
-    Masking only catches exact copies of a value. A check that prints a secret in another form, such as reversed, hex-encoded or split across lines, publishes it to everyone who can read the merge request. Removing the section later doesn't help: GitLab and GitHub keep earlier versions of a description and comment in their edit history. Turn this on only where everyone who can read the repository's merge requests may see the sandbox's secrets.
 
 ## Model overrides
 

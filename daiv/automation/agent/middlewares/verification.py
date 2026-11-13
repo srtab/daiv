@@ -118,12 +118,15 @@ class VerificationMiddleware(AgentMiddleware):
     Check the agent's work when it stops calling tools, before ``GitMiddleware`` publishes it.
 
     With ``before_publish`` commands, the system prompt lists them, and each time the agent stops with something to
-    publish DAIV runs them in the sandbox, once per tree, and leaves whatever they change in it. A command that fails
-    is re-run once on the starting code; one that failed there too is reported, not sent back. The other failures
-    go back to the agent as a reminder, for at most ``MAX_FIX_ROUNDS`` rounds; a stop
-    on the tree a reminder was sent for records the failure without another round. Without commands, the agent gets
-    one reminder when the tree changed after the last check it ran through bash, or that check failed. No reminder is
-    sent once the step budget is finalizing, ``LoopBreakerMiddleware`` has ended the run or the run ends on a question
+    publish DAIV runs them in the sandbox, once per tree, and leaves whatever they change in it; a stop on the tree
+    they left is not checked again. A command that fails is run once on the starting code, and one that exits non-zero
+    there too is reported as already failing, not sent back. The other failures go back to the agent as a reminder, for
+    at most ``MAX_FIX_ROUNDS`` rounds; a stop on the tree a reminder was sent for records the failure without another
+    round. A failed outcome is advisory: the run is published as usual.
+
+    Without commands, the agent gets one reminder when the tree changed after the last check it ran through bash, or
+    that check failed, and the ``not_configured`` outcome carries that check for the report. No reminder is sent once
+    the step budget is finalizing, ``LoopBreakerMiddleware`` has ended the run or the run ends on a question
     ``AskUserQuestionMiddleware`` delivered, which therefore sits inside this one: the outcome is still recorded.
 
     The outcome is recorded in the ``verification`` state key for the publish and the run executor. Like

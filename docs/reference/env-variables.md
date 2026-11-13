@@ -445,7 +445,6 @@ Runs a repository's `before_publish` commands before DAIV publishes its changes;
 | Variable | Description | Default |
 |----------------------------------------|----------------------------------------------------------|------------------------|
 | `DAIV_VERIFICATION_ENABLED` | Run the `before_publish` commands, and remind the agent to test when a repository has none | `true` |
-| `DAIV_VERIFICATION_PUBLISH_OUTPUT` | Add the end of each failing command's output to the published **Verification** section, with the sandbox's environment variable values masked | `false` |
 
 ---
 
