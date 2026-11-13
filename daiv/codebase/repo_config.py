@@ -7,10 +7,11 @@ from typing import TYPE_CHECKING, Annotated, Any
 from django.core.cache import cache
 
 import yaml
-from pydantic import AliasChoices, BaseModel, BeforeValidator, Field, ValidationError
+from pydantic import AliasChoices, BaseModel, BeforeValidator, Field, SkipValidation, ValidationError
 from yaml.parser import ParserError
 
 from core.constants import ModelName  # noqa: TC001
+from core.model_choice import ModelChoice, parse_model_choices  # noqa: TC001
 from core.models import ThinkingLevelChoices as ThinkingLevel  # noqa: TC001
 
 if TYPE_CHECKING:
@@ -131,20 +132,11 @@ class DiffToMetadataModelConfig(BaseModel):
     )
 
 
-def _model_spec_entries(value: Any) -> dict[str, str]:
-    """``value``'s ``{name: model spec}`` entries; a null or empty spec is unset, and anything else that is not a string
-    is logged and dropped, so it cannot invalidate the rest of ``.daiv.yml``."""
-    if not isinstance(value, dict):
-        if value is not None:
-            logger.error("Ignoring a models map in %s that is not a mapping: %r", CONFIGURATION_FILE_NAME, value)
-        return {}
-    entries = {name: spec for name, spec in value.items() if isinstance(name, str) and isinstance(spec, str) and spec}
-    if dropped := [name for name, spec in value.items() if spec and name not in entries]:
-        logger.error("Ignoring models entries in %s without a model spec string: %s", CONFIGURATION_FILE_NAME, dropped)
-    return entries
+def _model_choice_entries(value: Any) -> dict[str, ModelChoice]:
+    return parse_model_choices(value, source=CONFIGURATION_FILE_NAME)
 
 
-ModelSpecMap = Annotated[dict[str, str], BeforeValidator(_model_spec_entries)]
+ModelChoiceMap = Annotated[dict[str, SkipValidation[ModelChoice]], BeforeValidator(_model_choice_entries)]
 
 
 class Models(BaseModel):
@@ -156,17 +148,17 @@ class Models(BaseModel):
     diff_to_metadata: DiffToMetadataModelConfig = Field(
         default_factory=DiffToMetadataModelConfig, description="Configuration for the diff to metadata agent."
     )
-    skills: ModelSpecMap = Field(
+    skills: ModelChoiceMap = Field(
         default_factory=dict,
         description=(
-            "Model spec per skill name, overriding the site configuration's entry for that name. "
+            "Model spec, or {model, thinking_level}, per skill name, overriding the site configuration's entry. "
             "A null or empty value leaves the site's entry in place. Checked when a run uses it, not on load."
         ),
     )
-    subagents: ModelSpecMap = Field(
+    subagents: ModelChoiceMap = Field(
         default_factory=dict,
         description=(
-            "Model spec per subagent name, overriding the site configuration's entry for that name. "
+            "Model spec, or {model, thinking_level}, per subagent name, overriding the site configuration's entry. "
             "A null or empty value leaves the site's entry in place. Checked when a run uses it, not on load."
         ),
     )

@@ -27,6 +27,7 @@ from automation.agent.synthetic import synthetic_message
 from automation.agent.utils import extract_text_content
 from codebase.base import Scope
 from codebase.repo_config import RepositoryConfig, SlashCommands
+from core.model_choice import ModelChoice
 from tests.unit_tests.automation.agent.configured_model_fakes import FakeModels
 from tests.unit_tests.conftest import write_skill
 
@@ -1065,7 +1066,9 @@ def _skills_agent(
     backend.adownload_files = AsyncMock(side_effect=download)
     run_model = _ToolModel(messages=iter(replies), profile=run_profile)
     skill_models = ConfiguredModels(
-        "skill", configured or {}, chain=ModelChain(names=("fake:run",), thinking_level=thinking_level)
+        "skill",
+        {name: ModelChoice(model=spec) for name, spec in (configured or {}).items()},
+        chain=ModelChain(names=("fake:run",), thinking_level=thinking_level),
     )
     middleware = [
         *([ModelFallbackMiddleware(_ToolModel(messages=iter(fallback_replies)))] if fallback_replies else []),

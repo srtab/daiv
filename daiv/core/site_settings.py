@@ -15,6 +15,7 @@ from core.constants import ModelName
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
+    from core.model_choice import ModelChoice
     from core.models import SiteConfiguration
 
 logger = logging.getLogger("daiv.core")
@@ -64,19 +65,20 @@ MODEL_MAP_FIELDS = frozenset({"agent_skill_models", "agent_subagent_models"})
 LEGACY_EXPLORE_MODEL_ENV = "DAIV_AGENT_EXPLORE_MODEL_NAME"
 
 
-def _parse_model_map_json(raw: str, env_var: str) -> dict[str, str]:
-    """Parse a ``{name: model spec}`` env value; a null or empty spec is unset, and malformed input is logged and
-    treated as ``{}``."""
-    from pydantic import TypeAdapter, ValidationError
+def _parse_model_map_json(raw: str, env_var: str) -> dict[str, ModelChoice]:
+    """Parse a ``{name: model spec or {model, thinking_level}}`` env value; an unset entry is dropped, and malformed
+    JSON is logged and treated as ``{}``."""
+    from core.model_choice import parse_model_choices
 
     try:
-        return {name: spec for name, spec in TypeAdapter(dict[str, str | None]).validate_json(raw).items() if spec}
-    except ValidationError:
-        logger.exception("%s could not be parsed as a JSON object of model specs; ignoring.", env_var)
+        decoded = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.exception("%s could not be parsed as a JSON object of model choices; ignoring.", env_var)
         return {}
+    return parse_model_choices(decoded, source=env_var)
 
 
-def _with_legacy_explore_model(subagent_models: dict[str, str]) -> dict[str, str]:
+def _with_legacy_explore_model(subagent_models: dict[str, ModelChoice]) -> dict[str, ModelChoice]:
     """``subagent_models`` with ``DAIV_AGENT_EXPLORE_MODEL_NAME`` as its ``explore`` entry when it has none, so an
     upgrade does not silently move explore off the model the operator chose; logged at ERROR the first time it is read
     until the operator moves it."""
@@ -91,12 +93,15 @@ def _with_legacy_explore_model(subagent_models: dict[str, str]) -> dict[str, str
             "Move it there.",
             LEGACY_EXPLORE_MODEL_ENV,
         )
-    return {**subagent_models, "explore": legacy}
+    from core.model_choice import ModelChoice
+
+    return {**subagent_models, "explore": ModelChoice(model=legacy)}
 
 
 def legacy_explore_model() -> str:
     """The model ``DAIV_AGENT_EXPLORE_MODEL_NAME`` gives explore while no entry names one; empty when unset."""
-    return _with_legacy_explore_model({}).get("explore", "")
+    choice = _with_legacy_explore_model({}).get("explore")
+    return choice.model if choice else ""
 
 
 def _build_field_defaults() -> dict[str, Any]:
@@ -203,8 +208,8 @@ class SiteSnapshot:
     agent_max_model_name: str
     agent_max_thinking_level: str
     agent_recursion_limit: int
-    agent_skill_models: Mapping[str, str]
-    agent_subagent_models: Mapping[str, str]
+    agent_skill_models: Mapping[str, ModelChoice]
+    agent_subagent_models: Mapping[str, ModelChoice]
     model_request_timeout_seconds: int
     model_max_retries: int
     suggest_context_file_enabled: bool
@@ -330,6 +335,7 @@ class SiteSettings:
         return MappingProxyType(dict(value)) if isinstance(value, dict) else value
 
     def _resolve_value(self, name: str, get_config: Callable[[], SiteConfiguration | None]) -> Any:
+        from core.model_choice import parse_model_choices
         from core.models import THINKING_OFF, SiteConfiguration
 
         # 1. Docker secret / environment variable wins
@@ -352,6 +358,8 @@ class SiteSettings:
             if db_value is not None and (db_value != "" or name in SiteConfiguration.THINKING_OFF_FIELDS):
                 if name in SiteConfiguration.ENCRYPTED_FIELDS:
                     return SecretStr(db_value)
+                if name in MODEL_MAP_FIELDS:
+                    return parse_model_choices(db_value, source=f"site {name}")
                 return db_value
 
         # 3. Hardcoded default

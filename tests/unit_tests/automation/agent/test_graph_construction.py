@@ -21,6 +21,7 @@ from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from codebase.repo_config import RepositoryConfig
+from core.model_choice import ModelChoice
 from tests.unit_tests.conftest import FakeWorkspace, agent_settings, site_snapshot
 
 # Matches a ``TodoListMiddleware(`` constructor call, rejecting any prefixed subclass. Catches both
@@ -293,7 +294,7 @@ async def test_the_explore_subagent_runs_on_its_default_model_without_thinking_w
 
 async def test_the_explore_subagent_runs_on_its_configured_model_at_the_runs_thinking_level():
     built = await _construct(
-        site={"agent_subagent_models": {"explore": "fake:explore"}},
+        site={"agent_subagent_models": {"explore": ModelChoice(model="fake:explore")}},
         run={"model_names": ("run-a",), "agent_thinking_level": "high"},
     )
 
@@ -302,12 +303,12 @@ async def test_the_explore_subagent_runs_on_its_configured_model_at_the_runs_thi
 
 
 async def test_skills_run_on_the_runs_skill_map():
-    built = await _construct(site={"agent_skill_models": {"code-review": "fake:review"}})
+    built = await _construct(site={"agent_skill_models": {"code-review": ModelChoice(model="fake:review")}})
 
     models = built.skills_middleware.call_args.kwargs["configured_models"]
     assert (models.target, models.entries, models.chain) == (
         "skill",
-        {"code-review": "fake:review"},
+        {"code-review": ModelChoice(model="fake:review")},
         built.settings.agent,
     )
     [skill_model_middleware] = [m for m in built.middleware if isinstance(m, SkillModelMiddleware)]
@@ -315,7 +316,7 @@ async def test_skills_run_on_the_runs_skill_map():
 
 
 async def test_the_general_purpose_subagent_runs_on_its_configured_model():
-    built = await _construct(site={"agent_subagent_models": {"general-purpose": "fake:gp"}})
+    built = await _construct(site={"agent_subagent_models": {"general-purpose": ModelChoice(model="fake:gp")}})
 
     assert built.general_purpose.call_args.args[0] is built.configured.return_value
     assert built.configured.call_args_list.count(call(model="fake:gp", thinking_level="medium")) == 1
@@ -323,7 +324,7 @@ async def test_the_general_purpose_subagent_runs_on_its_configured_model():
 
 async def test_the_general_purpose_subagent_falls_back_to_the_runs_model():
     built = await _construct(
-        site={"agent_subagent_models": {"general-purpose": "nosuch:model"}},
+        site={"agent_subagent_models": {"general-purpose": ModelChoice(model="nosuch:model")}},
         configured_get_model=MagicMock(side_effect=ValueError("Unknown provider prefix")),
     )
 

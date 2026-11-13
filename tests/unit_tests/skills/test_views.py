@@ -543,3 +543,22 @@ def test_the_list_shows_a_skill_s_model_entry(admin_client, admin_user, storage,
     assert (demo.model, demo.subagent_models) == ("claude-opus-5-5", 0)
     code_review = next(skill for skill in response.context["builtin_skills"] if skill["name"] == "code-review")
     assert (code_review["model"], code_review["subagent_models"]) == ("", 1)
+
+
+@pytest.mark.django_db
+def test_the_list_pill_names_the_model_and_the_level(admin_client, admin_user, storage, build_skill_zip):
+    from core.models import SiteConfiguration
+
+    storage.replace(SkillPackage.inspect(io.BytesIO(build_skill_zip(skill_name="demo"))), uploaded_by=admin_user)
+    storage.replace(SkillPackage.inspect(io.BytesIO(build_skill_zip(skill_name="lone"))), uploaded_by=admin_user)
+    config = SiteConfiguration.objects.get_instance()
+    config.agent_skill_models = {
+        "demo": {"model": "openrouter:anthropic/claude-opus-5-5", "thinking_level": "high"},
+        "lone": {"thinking_level": "xhigh"},
+    }
+    config.save()
+
+    response = admin_client.get(reverse("skills:list"))
+
+    labels = {skill.name: skill.model for skill in response.context["custom_skills"]}
+    assert labels == {"demo": "claude-opus-5-5 · High", "lone": "Extra high"}

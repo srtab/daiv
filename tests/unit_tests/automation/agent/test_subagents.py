@@ -36,6 +36,7 @@ from automation.agent.subagents import (
     load_custom_subagents,
 )
 from automation.agent.workspace.backends import WORKSPACE_FENCE_PERMISSIONS
+from core.model_choice import ModelChoice
 from tests.unit_tests.automation.agent.configured_model_fakes import FakeModels
 from tests.unit_tests.conftest import OPENROUTER_CACHE_SETTINGS, FakeWorkspace, model_attempts_with_failing_primary
 
@@ -1506,7 +1507,11 @@ RUN_MODEL = Mock(name="run-model")
 
 
 def _configured(configured: dict) -> ConfiguredModels:
-    return ConfiguredModels("subagent", configured, chain=ModelChain(names=("fake:run",), thinking_level="high"))
+    return ConfiguredModels(
+        "subagent",
+        {name: ModelChoice(model=spec) for name, spec in configured.items()},
+        chain=ModelChain(names=("fake:run",), thinking_level="high"),
+    )
 
 
 def _served_by(create_agent: Mock) -> dict:

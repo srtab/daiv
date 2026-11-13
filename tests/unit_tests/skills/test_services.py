@@ -310,3 +310,26 @@ async def test_record_invocation_swallows_none_config(caplog):
         await record_invocation(name="anything", skill_path="/workspace/skills/anything/SKILL.md", runtime=rt)
     assert await SkillInvocation.objects.acount() == 0
     assert any("Failed to record skill invocation" in rec.message for rec in caplog.records)
+
+
+def test_site_model_entries_counts_a_level_only_detector_entry():
+    from skills.services import site_model_entries
+
+    from core.model_choice import EMPTY_CHOICE, ModelChoice
+
+    snapshot = MagicMock(agent_skill_models={}, agent_subagent_models={"cr-tests": ModelChoice(thinking_level="low")})
+
+    assert site_model_entries("code-review", snapshot) == (EMPTY_CHOICE, 1)
+
+
+def test_declared_skill_choice_reads_the_metadata_model_and_level(tmp_path):
+    from skills.services import declared_skill_choice
+
+    from core.model_choice import ModelChoice
+
+    (tmp_path / "demo").mkdir()
+    (tmp_path / "demo" / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: d\nmetadata:\n  model: a:b\n  thinking_level: High\n---\n\n# demo\n"
+    )
+
+    assert declared_skill_choice(tmp_path / "demo") == ModelChoice("a:b", "high")

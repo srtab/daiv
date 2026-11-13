@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 import pytest
 
+from core.model_choice import ModelChoice
 from core.site_settings import site_settings
 
 
@@ -91,8 +92,40 @@ def test_skill_and_subagent_models_load_as_name_to_spec_maps_without_unset_entri
         }
     )
 
-    assert config.models.skills == {"code-review": "openrouter:anthropic/claude-sonnet-5.5"}
-    assert config.models.subagents == {"cr-security": "openrouter:anthropic/claude-opus-5.5"}
+    assert config.models.skills == {"code-review": ModelChoice(model="openrouter:anthropic/claude-sonnet-5.5")}
+    assert config.models.subagents == {"cr-security": ModelChoice(model="openrouter:anthropic/claude-opus-5.5")}
+
+
+def test_model_entries_accept_a_string_or_a_model_and_level():
+    from codebase.repo_config import RepositoryConfig
+
+    config = RepositoryConfig.model_validate({
+        "models": {
+            "subagents": {
+                "cr-security": {"thinking_level": "HIGH"},
+                "cr-tests": "openrouter:z-ai/glm-5.2",
+                "cr-correctness": {"model": "openrouter:anthropic/claude-opus-5.5", "thinking_level": "xhigh"},
+            }
+        }
+    })
+
+    assert config.models.subagents == {
+        "cr-security": ModelChoice(thinking_level="high"),
+        "cr-tests": ModelChoice(model="openrouter:z-ai/glm-5.2"),
+        "cr-correctness": ModelChoice("openrouter:anthropic/claude-opus-5.5", "xhigh"),
+    }
+
+
+def test_an_unknown_level_drops_only_that_field_and_keeps_the_file():
+    from codebase.repo_config import RepositoryConfig
+
+    config = RepositoryConfig.model_validate({
+        "models": {"skills": {"code-review": {"model": "x:y", "thinking_level": "extreme"}}},
+        "memory": {"enabled": False},
+    })
+
+    assert config.models.skills == {"code-review": ModelChoice(model="x:y")}
+    assert config.memory.enabled is False
 
 
 def test_an_unusable_model_spec_does_not_drop_the_rest_of_the_file(mock_repo_client):
@@ -114,15 +147,15 @@ def test_an_unusable_model_spec_does_not_drop_the_rest_of_the_file(mock_repo_cli
         RepositoryConfig.invalidate_cache(repo_id)
 
     assert (config.default_branch, config.suggest_context_file) == ("develop", False)
-    assert config.models.skills == {"code-review": "nosuchprovider:model"}
-    assert config.models.subagents == {"cr-tests": "nosuchprovider:model"}
+    assert config.models.skills == {"code-review": ModelChoice(model="nosuchprovider:model")}
+    assert config.models.subagents == {"cr-tests": ModelChoice(model="nosuchprovider:model")}
 
 
 @pytest.mark.parametrize(
     ("models_yaml", "skills"),
     [
         ("  skills:\n    # code-review: fake:review\n", {}),
-        ("  skills:\n    code-review: 5\n    plan: fake:plan\n", {"plan": "fake:plan"}),
+        ("  skills:\n    code-review: 5\n    plan: fake:plan\n", {"plan": ModelChoice(model="fake:plan")}),
         ("  skills: [code-review]\n", {}),
     ],
     ids=["no-entries", "a-non-string-spec", "not-a-mapping"],

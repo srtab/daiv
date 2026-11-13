@@ -15,6 +15,7 @@ from django.forms.models import BaseModelFormSet, modelformset_factory
 from django.utils.translation import gettext_lazy as _
 
 from automation.agent.model_spec import HTTPX_CLIENT_PROVIDER_TYPES, canonical_model_spec, parse_model_spec
+from core.model_choice import EMPTY_CHOICE, ModelChoice, parse_model_choice, parse_model_choices
 from core.models import (
     THINKING_OFF,
     Provider,
@@ -667,13 +668,16 @@ class ModelEntriesForm(forms.Form):
         self._stored = stored
         locks = {site_field: site_settings.is_env_locked(site_field) for site_field in MODEL_MAP_FIELDS}
         maps = {
-            site_field: getattr(site_settings if locked else stored, site_field) for site_field, locked in locks.items()
+            site_field: parse_model_choices(
+                getattr(site_settings if locked else stored, site_field), source=f"site {site_field}"
+            )
+            for site_field, locked in locks.items()
         }
         spec_error = cache(model_spec_error)
         for field_name, entry in self.entries.items():
             locked = locks[entry.site_field]
             # Canonical, as the picker posts it back: a bare stored name would read as changed, and be cleared.
-            value = canonical_model_spec(maps[entry.site_field].get(entry.name, ""))
+            value = canonical_model_spec(maps[entry.site_field].get(entry.name, EMPTY_CHOICE).model)
             widget = _AgentPickerWidget()
             widget.placeholder = str(entry.default_label)
             if value and (reason := spec_error(value)):
@@ -711,8 +715,9 @@ class ModelEntriesForm(forms.Form):
         for name in self.changed_data:
             entry = self.entries[name]
             entries = dict(getattr(config, entry.site_field))
-            if spec := self.cleaned_data[name]:
-                entries[entry.name] = spec
+            kept = parse_model_choice(entries.get(entry.name), source=f"site {entry.site_field}")
+            if choice := ModelChoice(self.cleaned_data[name], kept.thinking_level):
+                entries[entry.name] = choice.stored()
             else:
                 entries.pop(entry.name, None)
             setattr(config, entry.site_field, entries)

@@ -20,10 +20,12 @@ from django.utils.translation import gettext_lazy as _
 from core.mixins import BreadcrumbMixin
 from skills.constants import FRONTMATTER_RE, MAX_FILES
 from skills.models import GlobalSkill, SkillInvocation
-from skills.services import BUILTIN_SKILL_DIRS, SkillStorage, _skill_metadata, list_builtins, site_model_entries
+from skills.services import BUILTIN_SKILL_DIRS, SkillStorage, declared_skill_choice, list_builtins, site_model_entries
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from core.model_choice import ModelChoice
 
 logger = logging.getLogger("daiv.skills")
 
@@ -51,10 +53,9 @@ class SkillPage:
         return FRONTMATTER_RE.sub("", self.skill_md, count=1).lstrip()
 
     @property
-    def declared_model(self) -> str:
-        """The model SKILL.md declares under ``metadata.model``, as the agent reads it; empty when it declares none."""
-        metadata = _skill_metadata(self.root) or {}
-        return str(metadata.get("metadata", {}).get("model") or "").strip()
+    def declared_choice(self) -> ModelChoice:
+        """The model and thinking level SKILL.md declares under ``metadata``, as the agent reads them."""
+        return declared_skill_choice(self.root)
 
     @cached_property
     def files(self) -> list[dict[str, object]]:
@@ -78,8 +79,8 @@ class SkillPage:
 
     def model_entry_count(self) -> int:
         """How many of the skill's model entries are set: its own, and those of the subagents it ships."""
-        spec, subagents = site_model_entries(self.name)
-        return bool(spec) + subagents
+        choice, subagents = site_model_entries(self.name)
+        return bool(choice) + subagents
 
 
 def get_skill_page(name: str) -> SkillPage:

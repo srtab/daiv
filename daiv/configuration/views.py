@@ -284,7 +284,7 @@ def _mono(text: str) -> str:
 
 def skill_model_entries(page: SkillPage) -> list[ModelEntry]:
     """The model entries of ``page``'s skill: its own, then one per subagent it ships."""
-    declared = page.declared_model
+    declared = page.declared_choice.model
     skill_help = format_html(
         gettext("Serves the run from the moment {} is invoked until the next message."), _mono(page.name)
     )
@@ -300,7 +300,7 @@ def skill_model_entries(page: SkillPage) -> list[ModelEntry]:
                 subagent.name,
                 subagent.name,
                 subagent.summary,
-                short_model_name(subagent.model) or RUN_MODEL_LABEL,
+                short_model_name(subagent.choice.model) or RUN_MODEL_LABEL,
             )
             for subagent in skill_subagents(page.name)
         ),

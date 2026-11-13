@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
 from automation.agent.base import get_model
+from core.model_choice import EMPTY_CHOICE
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -14,6 +15,7 @@ if TYPE_CHECKING:
     from langchain.chat_models import BaseChatModel
 
     from automation.agent.agent_settings import ModelChain
+    from core.model_choice import ModelChoice
 
 logger = logging.getLogger("daiv.agent")
 
@@ -37,7 +39,7 @@ class ConfiguredModels:
     """
 
     target: Literal["skill", "subagent"]
-    entries: Mapping[str, str] = field(default_factory=dict)
+    entries: Mapping[str, ModelChoice] = field(default_factory=dict)
     chain: ModelChain | None = None
     _builds: dict[str, BaseChatModel | None] = field(default_factory=dict, init=False)
 
@@ -61,7 +63,7 @@ class ConfiguredModels:
 
     def skill_spec(self, name: str, file_spec: str | None) -> str | None:
         """The spec skill ``name`` runs on: its entry, else ``file_spec``; ``None`` keeps the run's model."""
-        for spec in (self.entries.get(name), file_spec):
+        for spec in (self.entries.get(name, EMPTY_CHOICE).model, file_spec):
             if spec and self.build(spec, name) is not None:
                 return spec
         return None
@@ -74,7 +76,7 @@ class ConfiguredModels:
         With no entry, building ``file_spec`` raises as is, so the caller skips the subagent, unless ``never_skip``.
         An entry that cannot be built never leaves the subagent out: ``file_spec``, else ``run_model``, serves.
         """
-        configured = self.entries.get(name)
+        configured = self.entries.get(name, EMPTY_CHOICE).model
         if configured and (built := self.build(configured, name)) is not None:
             return built
         if not file_spec:

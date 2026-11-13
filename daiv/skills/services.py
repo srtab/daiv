@@ -8,6 +8,7 @@ import shutil
 import tempfile
 import time
 import zipfile
+from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
@@ -20,6 +21,7 @@ from django.db.utils import Error as DjangoDBError
 
 import yaml
 
+from core.model_choice import EMPTY_CHOICE, parse_model_choice
 from core.site_settings import site_settings
 from skills.conf import settings
 from skills.constants import (
@@ -50,6 +52,7 @@ if TYPE_CHECKING:
     from deepagents.middleware.skills import SkillMetadata, SkillsState
     from langchain.tools import ToolRuntime
 
+    from core.model_choice import ModelChoice
     from core.site_settings import SiteSettings, SiteSnapshot
 
 logger = logging.getLogger("daiv.skills")
@@ -218,11 +221,11 @@ def list_global_skills() -> dict[str, str]:
 
 class BundledSubagent(NamedTuple):
     """A subagent shipped in a skill's folder: its charter's ``name``, the first sentence of its ``description``, and
-    the ``model`` it declares (empty when it declares none)."""
+    the model and thinking level it declares (empty when it declares none)."""
 
     name: str
     summary: str
-    model: str
+    choice: ModelChoice
 
 
 @lru_cache(maxsize=1)
@@ -238,7 +241,8 @@ def _code_review_detectors() -> tuple[BundledSubagent, ...]:
             logger.warning("Detector charter %s has no name in its frontmatter", charter)
             continue
         summary = str(frontmatter.get("description") or "").split(". ", 1)[0].rstrip(".")
-        detectors.append(BundledSubagent(name, summary, str(frontmatter.get("model") or "").strip()))
+        choice = parse_model_choice(frontmatter, source=f"detector charter {charter.name}", log_level=logging.WARNING)
+        detectors.append(BundledSubagent(name, summary, choice))
     return tuple(detectors)
 
 
@@ -247,13 +251,21 @@ def skill_subagents(name: str) -> tuple[BundledSubagent, ...]:
     return _code_review_detectors() if name == CODE_REVIEW_SKILL else ()
 
 
-def site_model_entries(name: str, site: SiteSettings | SiteSnapshot = site_settings) -> tuple[str, int]:
+def declared_skill_choice(root: Path) -> ModelChoice:
+    """The model and thinking level the SKILL.md in ``root`` declares under ``metadata``; empty when none."""
+    metadata = (_skill_metadata(root) or {}).get("metadata")
+    if not isinstance(metadata, Mapping):
+        return EMPTY_CHOICE
+    return parse_model_choice(metadata, source=f"{root.name} SKILL.md", log_level=logging.WARNING)
+
+
+def site_model_entries(name: str, site: SiteSettings | SiteSnapshot = site_settings) -> tuple[ModelChoice, int]:
     """Skill ``name``'s site model entry (empty when unset), and how many of the subagents it ships have one; a caller
     that asks for several skills passes one ``site_settings.snapshot()``."""
     subagents = skill_subagents(name)
     subagent_models = site.agent_subagent_models if subagents else {}
     return (
-        site.agent_skill_models.get(name, ""),
+        site.agent_skill_models.get(name, EMPTY_CHOICE),
         sum(1 for subagent in subagents if subagent_models.get(subagent.name)),
     )
 

@@ -5,20 +5,25 @@ import pytest
 
 from automation.agent.agent_settings import ModelChain
 from automation.agent.configured_models import ConfiguredModels
+from core.model_choice import ModelChoice
 from tests.unit_tests.automation.agent.configured_model_fakes import FakeModels
 
 RUN_MODEL = Mock(name="run-model")
 CHAIN = ModelChain(names=("fake:run",), thinking_level="high")
 
 
+def _choices(specs: dict[str, str]) -> dict[str, ModelChoice]:
+    return {name: ModelChoice(model=spec) for name, spec in specs.items()}
+
+
 def _for_subagent(models: FakeModels, *, configured: dict, file_spec: str = "", never_skip: bool = False):
-    configured_models = ConfiguredModels("subagent", configured, chain=CHAIN)
+    configured_models = ConfiguredModels("subagent", _choices(configured), chain=CHAIN)
     with patch("automation.agent.configured_models.get_model", models):
         return configured_models.for_subagent("cr-tests", file_spec, RUN_MODEL, never_skip=never_skip)
 
 
 def _skill_spec(models: FakeModels, *, configured: dict, file_spec: str | None = None):
-    configured_models = ConfiguredModels("skill", configured, chain=CHAIN)
+    configured_models = ConfiguredModels("skill", _choices(configured), chain=CHAIN)
     with patch("automation.agent.configured_models.get_model", models):
         return configured_models.skill_spec("code-review", file_spec)
 
@@ -77,7 +82,7 @@ class TestForSubagent:
     def test_an_entry_shared_by_several_subagents_is_built_once(self):
         models = FakeModels("fake:configured")
         configured_models = ConfiguredModels(
-            "subagent", {"cr-tests": "fake:configured", "cr-security": "fake:configured"}
+            "subagent", _choices({"cr-tests": "fake:configured", "cr-security": "fake:configured"})
         )
 
         with patch("automation.agent.configured_models.get_model", models):
@@ -112,7 +117,7 @@ class TestSkillSpec:
 
     def test_an_unusable_spec_is_built_and_logged_once_per_run(self, caplog):
         models = FakeModels()
-        configured_models = ConfiguredModels("skill", {"code-review": "nosuch:model"}, chain=CHAIN)
+        configured_models = ConfiguredModels("skill", _choices({"code-review": "nosuch:model"}), chain=CHAIN)
 
         with (
             caplog.at_level(logging.ERROR, logger="daiv.agent"),

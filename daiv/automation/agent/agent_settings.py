@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
     from codebase.repo_config import AgentModelConfig, RepositoryConfig
+    from core.model_choice import ModelChoice
     from core.site_settings import SiteSnapshot
 
     from .validators import AgentConfigurationError
@@ -87,8 +88,8 @@ class AgentSettings:
     web_search_enabled: bool
     web_fetch_enabled: bool
     features: Features
-    skill_models: Mapping[str, str]
-    subagent_models: Mapping[str, str]
+    skill_models: Mapping[str, ModelChoice]
+    subagent_models: Mapping[str, ModelChoice]
 
 
 def resolve_agent_settings(*, site: SiteSnapshot, repo: RepositoryConfig, run: RunOverrides) -> AgentSettings:

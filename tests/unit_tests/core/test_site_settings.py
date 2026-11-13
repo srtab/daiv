@@ -7,6 +7,7 @@ from django.db import models
 import pytest
 from pydantic import SecretStr
 
+from core.model_choice import ModelChoice
 from core.models import SiteConfiguration
 from core.site_settings import SiteSettings
 
@@ -360,12 +361,28 @@ class TestModelMaps:
         monkeypatch.setenv(ss.get_env_var_name(field), '{"code-review": "openrouter:env/model"}')
         stored = SiteConfiguration(**{field: {"code-review": "openrouter:db/model", "plan": "openrouter:db/plan"}})
         with patch.object(SiteConfiguration, "get_cached", return_value=stored):
-            assert getattr(ss, field) == {"code-review": "openrouter:env/model"}
+            assert getattr(ss, field) == {"code-review": ModelChoice(model="openrouter:env/model")}
 
     def test_a_null_or_empty_spec_in_the_environment_is_unset(self, ss, field, monkeypatch):
         monkeypatch.setenv(ss.get_env_var_name(field), '{"code-review": "openrouter:env/model", "plan": null, "x": ""}')
         with patch.object(SiteConfiguration, "get_cached", return_value=SiteConfiguration()):
-            assert getattr(ss, field) == {"code-review": "openrouter:env/model"}
+            assert getattr(ss, field) == {"code-review": ModelChoice(model="openrouter:env/model")}
+
+    def test_the_environment_takes_strings_and_objects(self, ss, field, monkeypatch):
+        monkeypatch.setenv(ss.get_env_var_name(field), '{"explore": "a:b", "cr-tests": {"thinking_level": "low"}}')
+        with patch.object(SiteConfiguration, "get_cached", return_value=SiteConfiguration()):
+            assert dict(getattr(ss, field)) == {
+                "explore": ModelChoice(model="a:b"),
+                "cr-tests": ModelChoice(thinking_level="low"),
+            }
+
+    def test_a_stored_object_entry_resolves_to_a_choice(self, ss, field):
+        stored = SiteConfiguration(**{field: {"code-review": {"thinking_level": "medium"}, "plan": "x:y"}})
+        with patch.object(SiteConfiguration, "get_cached", return_value=stored):
+            assert dict(getattr(ss, field)) == {
+                "code-review": ModelChoice(thinking_level="medium"),
+                "plan": ModelChoice(model="x:y"),
+            }
 
     @pytest.mark.parametrize("raw", ["{not json", '["code-review"]', '{"code-review": 3}'])
     def test_a_malformed_environment_value_is_logged_and_treated_as_empty(self, ss, field, monkeypatch, caplog, raw):
@@ -384,7 +401,7 @@ class TestModelMaps:
             snapshot = ss.snapshot()
 
         with pytest.raises(TypeError):
-            getattr(snapshot, field)["plan"] = "openrouter:other/model"
+            getattr(snapshot, field)["plan"] = ModelChoice(model="openrouter:other/model")
         assert getattr(stored, field) == {"code-review": "openrouter:db/model"}
 
     def test_the_default_map_cannot_be_mutated_through_the_snapshot(self, ss, field):
@@ -392,7 +409,7 @@ class TestModelMaps:
             snapshot = ss.snapshot()
 
         with pytest.raises(TypeError):
-            getattr(snapshot, field)["plan"] = "openrouter:other/model"
+            getattr(snapshot, field)["plan"] = ModelChoice(model="openrouter:other/model")
         assert ss.FIELD_DEFAULTS[field] == {}
 
 
@@ -407,7 +424,14 @@ class TestLegacyExploreModel:
             models = ss.agent_subagent_models
             snapshot_models = ss.snapshot().agent_subagent_models
 
-        assert models == snapshot_models == {"cr-tests": "openrouter:db/tests", "explore": "openrouter:legacy/explore"}
+        assert (
+            models
+            == snapshot_models
+            == {
+                "cr-tests": ModelChoice(model="openrouter:db/tests"),
+                "explore": ModelChoice(model="openrouter:legacy/explore"),
+            }
+        )
         assert [r.levelno for r in caplog.records if "DAIV_AGENT_EXPLORE_MODEL_NAME" in r.getMessage()] == [
             logging.ERROR
         ]
@@ -416,7 +440,7 @@ class TestLegacyExploreModel:
         monkeypatch.setenv("DAIV_AGENT_EXPLORE_MODEL_NAME", "openrouter:legacy/explore")
         monkeypatch.setenv("DAIV_AGENT_SUBAGENT_MODELS", '{"explore": "openrouter:env/explore"}')
         with patch.object(SiteConfiguration, "get_cached", return_value=SiteConfiguration()):
-            assert ss.agent_subagent_models == {"explore": "openrouter:env/explore"}
+            assert ss.agent_subagent_models == {"explore": ModelChoice(model="openrouter:env/explore")}
 
     def test_the_skill_map_ignores_the_old_variable(self, ss, monkeypatch):
         monkeypatch.setenv("DAIV_AGENT_EXPLORE_MODEL_NAME", "openrouter:legacy/explore")

@@ -479,6 +479,16 @@ class TestModelEntriesForm:
         form.apply_to(config)
         assert config.agent_skill_models == {"plan": "openai:gpt-5.4"}
 
+    def test_an_object_entry_shows_its_model_and_keeps_its_level_when_the_model_changes(self, usable_openai):
+        config = _stored(agent_skill_models={"code-review": {"model": "openai:gpt-5.4", "thinking_level": "low"}})
+        unchanged = ModelEntriesForm(ENTRIES, {SKILL_FIELD: "openai:gpt-5.4", DETECTOR_FIELD: ""}, stored=config)
+        changed = ModelEntriesForm(ENTRIES, {SKILL_FIELD: "openai:gpt-5.4-mini", DETECTOR_FIELD: ""}, stored=config)
+
+        assert unchanged.is_valid() and unchanged.changed_data == []
+        assert changed.is_valid(), changed.errors
+        changed.apply_to(config)
+        assert config.agent_skill_models == {"code-review": {"model": "openai:gpt-5.4-mini", "thinking_level": "low"}}
+
     @pytest.mark.parametrize(
         ("change", "model", "expected"),
         [

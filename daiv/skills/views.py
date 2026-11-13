@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from django.contrib import messages
 from django.db.models import Count
@@ -12,6 +13,7 @@ from django.views import View
 from django.views.generic import TemplateView
 
 from core.mixins import AdminRequiredMixin
+from core.models import THINKING_OFF, ThinkingLevelChoices
 from core.site_settings import site_settings
 from core.utils import short_model_name
 from skills.constants import ZIPS_DIR
@@ -20,7 +22,17 @@ from skills.models import GlobalSkill, SkillInvocation
 from skills.pages import SkillPageMixin
 from skills.services import BUILTIN_SKILL_NAMES, SkillStorage, SkillStorageError, list_builtins, site_model_entries
 
+if TYPE_CHECKING:
+    from core.model_choice import ModelChoice
+
 logger = logging.getLogger("daiv.skills")
+
+
+def _choice_label(choice: ModelChoice) -> str:
+    """``"Sonnet 5.5 · High"``, or the model or level alone; empty when ``choice`` is unset."""
+    level = choice.thinking_level
+    level_label = _("Off") if level == THINKING_OFF else dict(ThinkingLevelChoices.choices).get(level, level)
+    return " · ".join(str(part) for part in (short_model_name(choice.model), level_label) if part)
 
 
 class SkillListView(AdminRequiredMixin, TemplateView):
@@ -44,15 +56,15 @@ class SkillListView(AdminRequiredMixin, TemplateView):
         for skill in custom_skills:
             skill.invocations_count = counts.get((skill.name, SkillInvocation.Source.GLOBAL), 0)
             skill.overrides_builtin = skill.name in BUILTIN_SKILL_NAMES
-            spec, skill.subagent_models = site_model_entries(skill.name, snapshot)
-            skill.model = short_model_name(spec)
+            choice, skill.subagent_models = site_model_entries(skill.name, snapshot)
+            skill.model = _choice_label(choice)
         # A custom upload shadows the built-in of the same name; drop the
         # shadowed entry so the list shows only the active skill.
         builtin_skills = [entry for entry in builtin_skills if entry["name"] not in custom_names]
         for entry in builtin_skills:
             entry["invocations_count"] = counts.get((entry["name"], SkillInvocation.Source.BUILTIN), 0)
-            spec, entry["subagent_models"] = site_model_entries(entry["name"], snapshot)
-            entry["model"] = short_model_name(spec)
+            choice, entry["subagent_models"] = site_model_entries(entry["name"], snapshot)
+            entry["model"] = _choice_label(choice)
 
         ctx["custom_skills"] = custom_skills
         ctx["builtin_skills"] = builtin_skills
