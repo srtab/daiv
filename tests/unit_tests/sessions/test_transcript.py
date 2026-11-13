@@ -32,6 +32,7 @@ from skills.models import GlobalSkill, SkillInvocation
 from core.constants import (
     CANCELLED_BY_COORDINATOR_MESSAGE,
     CANCELLED_BY_USER_MESSAGE,
+    CROSS_PROJECT_SESSION_REFUSED_MESSAGE,
     INTERRUPTED_MESSAGE,
     RUN_FAILED_MESSAGE,
 )
@@ -60,6 +61,10 @@ STARTED_AT = datetime(2026, 7, 31, 12, 0, 2, tzinfo=UTC)
 FINISHED_AT = datetime(2026, 7, 31, 12, 5, 0, tzinfo=UTC)
 
 
+class _StubRun(SimpleNamespace):
+    public_error = Run.public_error
+
+
 def _run(
     rid,
     *,
@@ -84,7 +89,7 @@ def _run(
     merge_request_title="",
     repo_publishes=(),
 ):
-    return SimpleNamespace(
+    return _StubRun(
         id=rid,
         status=status,
         message_id=message_id,
@@ -306,6 +311,20 @@ def test_chat_failed_run_with_empty_error_message_falls_back_to_generic():
     assert marker["role"] == "run_status"
     assert marker["status"] == "failed"
     assert marker["message"] == RUN_FAILED_MESSAGE
+
+
+def test_a_background_run_refused_for_a_shared_session_shows_why():
+    runs = [
+        _run(
+            "r1",
+            message_id="missing-id",
+            trigger_type=SessionOrigin.ISSUE_WEBHOOK,
+            status=RunStatus.FAILED,
+            error_message=CROSS_PROJECT_SESSION_REFUSED_MESSAGE,
+        )
+    ]
+    [marker] = annotate_transcript([], runs)
+    assert (marker["status"], marker["message"]) == ("failed", CROSS_PROJECT_SESSION_REFUSED_MESSAGE)
 
 
 def test_synthetic_turns_marker_only_when_no_prompt():

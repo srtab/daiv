@@ -128,3 +128,9 @@ msgstr "%(count)d h"
 #, python-format
 msgid "%(count)dd"
 msgstr "%(count)d d"
+
+msgid "Git authorisation"
+msgstr "Autorização Git"
+
+msgid "Cross-project access"
+msgstr "Acesso entre projetos"

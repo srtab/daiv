@@ -85,7 +85,14 @@ def _stub_live_relay(stack: SimpleNamespace):
 
 @contextmanager
 def agent_stack(
-    agent, *, ctx=None, context=None, resolve=None, site: SiteSnapshot | None = None, checkpointed: dict | None = None
+    agent,
+    *,
+    ctx=None,
+    context=None,
+    resolve=None,
+    site: SiteSnapshot | None = None,
+    session_guard: bool = False,
+    checkpointed: dict | None = None,
 ):
     """Stub everything ``execute_run`` builds around ``agent``; the yielded namespace records what it saw.
 
@@ -96,6 +103,7 @@ def agent_stack(
     is seeded with an empty archive. ``build_spec`` stubs ``build_sandbox_spec``; the spec it returns is the one handed
     to the clone. ``build_servers`` stubs ``build_runtime_servers``; the servers it returns are the ones handed to the
     agent. ``build_absolute_url`` stubs the session links' URL builder, resolving against ``SITE_URL``.
+    ``session_guard`` keeps the real cross-project session check, which reads the ``Session`` row.
     ``delegator_for`` stubs ``SessionJobDelegator.afor``; the delegator it returns is the one a run that may delegate
     hands over.
     ``fast_forward`` stubs bringing a warm checkout up to the remote branch; it reports nothing tried.
@@ -146,6 +154,8 @@ def agent_stack(
     load_extra_repos = AsyncMock(return_value=[])
     session_ref = AsyncMock(return_value="")
 
+    run_patches = {} if session_guard else {"_refuse_cross_project_session": AsyncMock()}
+
     with (
         stub_sandbox_spec() as build_spec,
         _stub_live_relay(stack) as (configured, build_client),
@@ -165,6 +175,7 @@ def agent_stack(
             areset_session_ref=reset,
             aload_extra_repos=load_extra_repos,
             aget_session_ref=session_ref,
+            **run_patches,
         ),
         patch.object(Ownerships, "aclaim", _claim),
         patch("sessions.executor.run._fast_forward", new=AsyncMock(return_value=None)) as fast_forward,
@@ -193,6 +204,7 @@ def agent_stack(
         stack.load_extra_repos = load_extra_repos
         stack.session_ref = session_ref
         stack.build_absolute_url = build_absolute_url
+        stack.guard = run_patches.get("_refuse_cross_project_session")
         stack.delegator_for = delegator_for
         stack.fast_forward = fast_forward
         yield stack

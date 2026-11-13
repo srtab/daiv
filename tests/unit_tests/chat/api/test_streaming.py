@@ -25,6 +25,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from sessions import artifacts
 from sessions.executor.result import parse_agent_result
+from sessions.executor.run import CrossProjectSessionRefusedError
 from sessions.inbox.complete import RunEnd
 from sessions.inbox.ownership import Ownerships
 from sessions.live.relay import RunRelay
@@ -918,9 +919,11 @@ async def test_events_hands_the_turns_settings_to_the_executor(_executor_stack):
             pass
 
     _executor_stack.build_spec.assert_awaited_once_with("env-1")
-    assert {key: captured[key] for key in ("sandbox_spec", "acting_user_id", "references")} == {
+    keys = ("sandbox_spec", "acting_user_id", "acting_user_authenticated", "references")
+    assert {key: captured[key] for key in keys} == {
         "sandbox_spec": _executor_stack.build_spec.return_value,
         "acting_user_id": 7,
+        "acting_user_authenticated": True,
         "references": refs,
     }
     _executor_stack.build_servers.assert_called_once_with(7, {"sentry": "off"})
@@ -1148,6 +1151,18 @@ class TestChatAfterRunMatrix:
             (EventType.RUN_ERROR, None),
         ]
         assert calls == [("finalize", False, RUN_FAILED_MESSAGE), _RELEASE]
+
+    async def test_a_refused_shared_session_tells_the_person_and_records_the_refusal(self, _executor_stack):
+        from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
+
+        _executor_stack.guard.side_effect = CrossProjectSessionRefusedError(CROSS_PROJECT_SESSION_REFUSED_MESSAGE)
+
+        with _recorded_turn(_mock_agent([])) as calls:
+            events = [event async for event in _streamer().events()]
+
+        errors = [(event.code, event.message) for event in events if event.type == EventType.RUN_ERROR]
+        assert errors == [("cross_project_session", CROSS_PROJECT_SESSION_REFUSED_MESSAGE)]
+        assert calls == [("finalize", False, CROSS_PROJECT_SESSION_REFUSED_MESSAGE), _RELEASE]
 
     async def test_a_lost_lock_stops_the_turn_and_skips_ref_and_watch(self):
         with _recorded_turn(_mock_agent([_snapshot(), _snapshot()]), heartbeat=False) as calls:

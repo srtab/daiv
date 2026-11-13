@@ -117,6 +117,8 @@ def _build_general_purpose_middleware(
     web_fetch_enabled: bool,
     fallback_models: list[BaseChatModel] | None = None,
     mcp_tools: list[BaseTool] | None = None,
+    *,
+    cross_project_enabled: bool = False,
 ) -> list:
     """
     Build the middleware stack for a general-purpose subagent.
@@ -139,7 +141,9 @@ def _build_general_purpose_middleware(
             tools=WORKSPACE_FS_TOOLS,
             _permissions=workspace.fs_permissions,
         ),
-        GitPlatformMiddleware(git_platform=runtime.git_platform, backend=workspace.backend),
+        GitPlatformMiddleware(
+            git_platform=runtime.git_platform, backend=workspace.backend, cross_project_enabled=cross_project_enabled
+        ),
         *_shared_subagent_middleware(model, workspace.backend, fallback_models),
     ]
 
@@ -299,6 +303,8 @@ def create_general_purpose_subagent(
     web_fetch_enabled: bool = True,
     fallback_models: list[BaseChatModel] | None = None,
     mcp_tools: list[BaseTool] | None = None,
+    *,
+    cross_project_enabled: bool = False,
 ) -> CompiledSubAgent:
     """
     Create the general purpose subagent for the DAIV agent.
@@ -308,7 +314,14 @@ def create_general_purpose_subagent(
         tools=direct_mcp_tools(mcp_tools),
         system_prompt=_general_purpose_system_prompt(working_directory),
         middleware=_build_general_purpose_middleware(
-            model, workspace, runtime, web_search_enabled, web_fetch_enabled, fallback_models, mcp_tools=mcp_tools
+            model,
+            workspace,
+            runtime,
+            web_search_enabled,
+            web_fetch_enabled,
+            fallback_models,
+            mcp_tools=mcp_tools,
+            cross_project_enabled=cross_project_enabled,
         ),
         name=GENERAL_PURPOSE_NAME,
     )
@@ -528,6 +541,7 @@ async def load_custom_subagents(
     mcp_tools: list[BaseTool] | None = None,
     *,
     configured_models: ConfiguredModels | None = None,
+    cross_project_enabled: bool = False,
 ) -> list[CompiledSubAgent]:
     """
     Load custom subagents from markdown files in the given source paths.
@@ -549,6 +563,7 @@ async def load_custom_subagents(
             tool_search when deferral is on, bound directly when off) so a delegated MCP call works.
         configured_models: The run's subagent models; an entry beats the file's ``model:`` (see
             ``ConfiguredModels.for_subagent``).
+        cross_project_enabled: The run's cross-project switch, the parent's own, so they agree for the whole run.
 
     Returns:
         List of CompiledSubAgent dicts for the loaded custom subagents; none from a workspace that is not ready (a turn
@@ -617,6 +632,7 @@ async def load_custom_subagents(
                 web_fetch_enabled,
                 fallback_models,
                 mcp_tools=mcp_tools,
+                cross_project_enabled=cross_project_enabled,
             )
             subagents.append(
                 _compile_subagent(

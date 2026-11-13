@@ -121,7 +121,7 @@ async def extract_observations_task(run_id: str) -> None:
     log + return — never an error confused with a run failure. See ``memory.extraction`` for the
     pipeline's own failure contract.
     """
-    from sessions.models import Run
+    from sessions.models import Run, Session
     from sessions.multi_repo import ais_multi_repo
 
     from memory.extraction import extract_observations
@@ -140,6 +140,10 @@ async def extract_observations_task(run_id: str) -> None:
             "extract_observations_task: run %s has no session_id (violates thread_id contract), skipping", run_id
         )
         return
+    restricted = Session.objects.filter(pk=run.session_id).holding_cross_project()
+    if await restricted.aexists():
+        logger.info("extract_observations_task: run %s's session holds cross-project results, skipping", run_id)
+        return
     # The transcript also holds the other repositories' code, which the main repository's readers may not see.
     if await ais_multi_repo(run.session_id):
         logger.info("extract_observations_task: run %s belongs to a multi-repository session, skipping", run_id)
@@ -151,6 +155,10 @@ async def extract_observations_task(run_id: str) -> None:
         return
 
     if not (observations := await extract_observations(run)):
+        return
+    # A fetch is restricted before it reaches the checkpoint, so this catches one the transcript read picked up.
+    if await restricted.aexists():
+        logger.info("extract_observations_task: run %s's session gained cross-project results, dropping", run_id)
         return
 
     await MemoryObservation.objects.abulk_create([

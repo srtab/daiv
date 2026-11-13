@@ -13,7 +13,7 @@ from codebase.clients.base import Emoji
 from codebase.clients.gitlab.utils import CHILD_PIPELINE_SOURCE
 from codebase.repo_config import RepositoryConfig
 from codebase.utils import note_mentions_daiv
-from core.constants import has_bot_label, has_max_label
+from core.constants import CROSS_PROJECT_CONTENT_MARKER, has_bot_label, has_max_label
 from webhooks.callbacks import BaseCallback
 from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment, dispatch_mr_comment_run
 
@@ -73,6 +73,7 @@ class IssueCallback(GitLabCallback):
             and self.object_attributes.type == "Issue"
             and self.object_attributes.state == "opened"
             and self.object_attributes.action in [IssueAction.OPEN, IssueAction.UPDATE]
+            and CROSS_PROJECT_CONTENT_MARKER not in (self.object_attributes.description or "")
         ):
             return False
 
@@ -149,6 +150,7 @@ class NoteCallback(GitLabCallback):
             self.object_attributes.noteable_type not in [NoteableType.ISSUE, NoteableType.MERGE_REQUEST]
             or self.object_attributes.system
             or self.user.id == self._client.current_user.id
+            or CROSS_PROJECT_CONTENT_MARKER in self.object_attributes.note
         ):
             return False
 

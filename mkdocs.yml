@@ -102,6 +102,7 @@ plugins:
         - features/subagents.md
         - features/sandbox.md
         - features/sandbox-environments.md
+        - features/cross-project-access.md
         Integrations:
         - integrations/rt/index.md
         Customization:
@@ -176,6 +177,7 @@ nav:
     - Subagents: features/subagents.md
     - Sandbox: features/sandbox.md
     - Sandbox environments: features/sandbox-environments.md
+    - Cross-project access: features/cross-project-access.md
   - Integrations:
     - Request Tracker triage: integrations/rt/index.md
   - Customization:

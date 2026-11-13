@@ -6,9 +6,24 @@ import pytest
 from langgraph.types import Command
 
 from automation.agent.middlewares.git_platform.cli import _is_allowed_cli_command
-from automation.agent.middlewares.git_platform.github import GITHUB_CLI_ALLOW_COMMANDS, run_github_subcommand
-from tests.unit_tests.automation.agent.middlewares.git_platform.conftest import cli_process, github_runtime
+from automation.agent.middlewares.git_platform.github import (
+    GITHUB_CLI_ALLOW_COMMANDS,
+    REFUSAL_SEARCH_SCOPE,
+    run_github_subcommand,
+)
+from codebase.base import GitPlatform
+from tests.unit_tests.automation.agent.middlewares.git_platform.conftest import (
+    OTHER,
+    cli_process,
+    cross_project_runtime,
+    github_runtime,
+    installation_runtime,
+    patched_cross_project,
+    run_gh,
+)
 from tests.unit_tests.conftest import recording_backend
+
+GITHUB = "automation.agent.middlewares.git_platform.github"
 
 CACHED_TOKEN = {"github_token": "tok", "github_token_expires_at": 9999999999.0}
 
@@ -205,3 +220,89 @@ async def test_github_failure_keeps_the_command_output():
 
     assert result.startswith("error: GitHub command failed (exit code 1).")
     assert "tests\tfail\t3m2s\thttps://github.com/owner/repo/actions/runs/1/job/2" in result
+
+
+class TestIdentitySelection:
+    """The installation token for the attached repository, the person's for any other."""
+
+    async def test_an_empty_project_uses_the_installation_token(self):
+        with patched_cross_project() as mocks:
+            await run_gh("issue list", installation_runtime(), project="", cross_project_enabled=True)
+        assert mocks.create_proc.call_args.kwargs["env"]["GH_TOKEN"] == "install-token"  # noqa: S105
+        mocks.resolve.assert_not_called()
+
+    async def test_another_project_uses_the_persons_token(self):
+        runtime = installation_runtime()
+        with patched_cross_project() as mocks:
+            result = await run_gh("issue list", runtime, project=OTHER, cross_project_enabled=True)
+        args = mocks.create_proc.call_args.args
+        assert mocks.create_proc.call_args.kwargs["env"]["GH_TOKEN"] == "person-token"  # noqa: S105
+        assert args[-2:] == ("--repo", OTHER)
+        # The person's token must never reach agent state or a checkpoint.
+        assert not isinstance(result, Command)
+
+
+class TestGitHubEnterpriseHost:
+    """gh reads ``--repo owner/name`` as github.com unless ``GH_HOST`` names another host, and sends ``GH_TOKEN`` only
+    to github.com: an enterprise grant has to travel as ``GH_ENTERPRISE_TOKEN`` to its own host."""
+
+    @staticmethod
+    async def _cross_project_env(host: str) -> dict[str, str]:
+        runtime = cross_project_runtime(GitPlatform.GITHUB)
+        with patched_cross_project() as mocks, patch(f"{GITHUB}.platform_host", return_value=host):
+            await run_gh("issue list", runtime, project=OTHER, cross_project_enabled=True)
+        return mocks.create_proc.call_args.kwargs["env"]
+
+    async def test_github_com_keeps_gh_token_and_names_the_host(self):
+        env = await self._cross_project_env("github.com")
+
+        token_sent = env.get("GH_TOKEN") == "person-token"  # noqa: S105
+        assert token_sent
+        assert env["GH_HOST"] == "github.com"
+        assert "GH_ENTERPRISE_TOKEN" not in env
+
+    async def test_an_enterprise_host_gets_the_enterprise_token_and_no_gh_token(self):
+        env = await self._cross_project_env("ghe.example.com")
+
+        token_sent = env.get("GH_ENTERPRISE_TOKEN") == "person-token"  # noqa: S105
+        assert token_sent
+        assert env["GH_HOST"] == "ghe.example.com"
+        assert "GH_TOKEN" not in env
+
+    async def test_the_attached_path_env_is_unchanged(self):
+        with patched_cross_project() as mocks, patch(f"{GITHUB}.platform_host", return_value="ghe.example.com"):
+            await run_gh("issue list", installation_runtime(), project="", cross_project_enabled=True)
+
+        env = mocks.create_proc.call_args.kwargs["env"]
+        assert set(env) == {"PATH", "HOME", "GIT_TERMINAL_PROMPT", "NO_COLOR", "GH_TOKEN", "GH_PAGER"}
+
+
+@patch("automation.agent.middlewares.git_platform.github.cache.lock", new=MagicMock())
+class TestASearchCannotWidenBeyondItsRepository:
+    """GitHub ORs a search's scope qualifiers with the ``--repo`` the tool appends."""
+
+    @pytest.mark.parametrize(
+        ("subcommand", "qualifier"),
+        [
+            ('search issues "repo:acme/private secret"', "repo:acme/private secret"),
+            ("search code token org:acme", "org:acme"),
+            ("search prs --owner acme fix", "--owner"),
+            ('issue list --search "bug USER:someone"', "bug USER:someone"),
+            ("pr list -S=repo:acme/x", "repo:acme/x"),
+        ],
+    )
+    async def test_a_scope_qualifier_is_refused_before_the_cli_runs(self, subcommand, qualifier):
+        runtime = github_runtime(thread_id="search", state=dict(CACHED_TOKEN))
+        with cli_process(stdout=b"[]\n") as create_proc:
+            result = await _run_gh(subcommand, runtime)
+
+        assert result == REFUSAL_SEARCH_SCOPE.format(qualifier=qualifier)
+        create_proc.assert_not_called()
+
+    @pytest.mark.parametrize("subcommand", ['search issues "label:bug crash"', 'issue list --search "is:open bug"'])
+    async def test_a_search_within_the_repository_runs(self, subcommand):
+        runtime = github_runtime(thread_id="search", state=dict(CACHED_TOKEN))
+        with cli_process(stdout=b"[]\n") as create_proc:
+            await _run_gh(subcommand, runtime)
+
+        create_proc.assert_called_once()

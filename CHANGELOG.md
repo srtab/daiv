@@ -65,6 +65,7 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 - Let the agent stop and ask you a question, in chat, as an issue or merge request comment, or as a job in `WAITING_INPUT` ([#1582](https://github.com/srtab/daiv/pull/1582))
 - Add pipeline watch: after DAIV publishes a merge request it watches CI and tries to fix a failing pipeline, up to `DAIV_PIPELINE_WATCH_MAX_ATTEMPTS` runs; it is on by default, and turned off with `DAIV_PIPELINE_WATCH_ENABLED` or `pipeline_watch.enabled` in `.daiv.yml` ([#1529](https://github.com/srtab/daiv/pull/1529))
 - Add orchestration: the agent delegates tailored jobs to other repositories or new sessions with `delegate_jobs`, and resumes with their results; turn it off with `orchestration.enabled` in `.daiv.yml` ([#1677](https://github.com/srtab/daiv/pull/1677), [#1781](https://github.com/srtab/daiv/pull/1781))
+- Add cross-project access, off by default: the agent reads, comments on and edits issues and merge requests in other projects as the person a run acts for, and a session holding such results is visible only to that person and admins ([#1616](https://github.com/srtab/daiv/pull/1616))
 - Add multi-repository sessions that work across up to 5 repositories and open one linked merge request per changed repository ([#1700](https://github.com/srtab/daiv/pull/1700))
 - Add runs without a repository ([#1192](https://github.com/srtab/daiv/pull/1192))
 - Add a session inbox: mentions on a merge request a session owns, its CI failures and messages sent while it is busy go to that session's next run ([#1744](https://github.com/srtab/daiv/pull/1744))
@@ -105,6 +106,7 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 ### Fixed
 
 - Refuse agent file-tool writes under `.git`, and run DAIV's host-side git without hooks, fsmonitor or external diff, closing a prompt-injection path to the worker ([#1676](https://github.com/srtab/daiv/pull/1676))
+- Fix the `gh` tool reaching another repository under DAIV's GitHub App token through an issue or pull request URL; such a URL, or an `owner/repo#N` reference, is now refused ([#1616](https://github.com/srtab/daiv/pull/1616))
 - Fix `web_fetch` following unlimited same-host redirects without checking SSRF protection again; it now follows at most 5 and checks each one ([#971](https://github.com/srtab/daiv/pull/971))
 - Fix the sandbox command policy skipping commands inside `if`, `case`, `!`, `time` or `coproc`, or after a variable assignment, so a blocked command such as `git push` could run ([#1581](https://github.com/srtab/daiv/pull/1581))
 - Reject API keys that belong to deactivated users ([#1365](https://github.com/srtab/daiv/pull/1365))

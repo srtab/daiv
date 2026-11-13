@@ -74,6 +74,9 @@ DAIV checks again, before it saves a new account, that signup is open. A pending
 
 To turn on Git platform sign-in, [create the OAuth app](#create-the-oauth-app), then follow [Turn on OAuth login](../reference/site-configuration.md#turn-on-oauth-login).
 
+!!! note
+    While an admin has [cross-project access](../features/cross-project-access.md) on, signing in also authorises DAIV to reach other projects as you, so a run you start can read what you can read. If you signed in before it was turned on, sign in again to grant it; until you do, everything you could do before keeps working. Review or disconnect it under **Git authorisation** in the account menu.
+
 ### Sign in with a passkey
 
 A passkey is Touch ID, Face ID, Windows Hello or a security key. After a user signs in, they add one under **Passkeys** in the account menu at the bottom of the sidebar. On the login page they then select **Sign in with a passkey**. Email sign-in stays available, so a lost passkey does not lock the user out.
@@ -93,6 +96,8 @@ To create the app on GitHub:
 7. Copy the **Client ID**.
 8. Select **Generate a new client secret**, and copy the secret.
 
+An OAuth app signs people in, but its tokens cannot back [cross-project access](../features/cross-project-access.md#github). To use cross-project access, enter the **Client ID** and a client secret of the GitHub App DAIV runs on instead, with the same callback URL.
+
 To create the app on GitLab:
 
 1. Open **Admin Area** → **Applications** or **User Settings** → **Applications**.
@@ -102,6 +107,8 @@ To create the app on GitLab:
 5. Under **Scopes**, select `read_user`.
 6. Select **Save application**.
 7. Copy the **Application ID** and the **Secret**.
+
+Before you turn on [cross-project access](../features/cross-project-access.md#gitlab), also select `api` under **Scopes**, or `read_api` for read-only access with `DAIV_GITLAB_OAUTH_SCOPE` set to match. GitLab rejects a sign-in that requests a scope the application does not grant.
 
 Enter the client ID and secret under **Configuration** → **Authentication**, where DAIV calls the secret **Auth Client Secret**: [Turn on OAuth login](../reference/site-configuration.md#turn-on-oauth-login) gives the steps, and [Authentication](../reference/env-variables.md#authentication) lists the variables that override the same fields and lock them.
 
@@ -177,6 +184,7 @@ Every signed-in user, member or admin, has these pages. All but **Home** open fr
 | **Home** | `/dashboard/` | Your landing page after sign-in, with a link to **Team insights**. |
 | **API keys** | `/accounts/api-keys/` | Create and revoke personal API keys for programmatic access. |
 | **Notification channels** | `/accounts/channels/` | Choose how DAIV notifies you about your agent runs. [Notifications](../features/notifications.md) lists the channels. |
+| **Git authorisation** | `/accounts/git-authorisation/` | See, renew or disconnect the authorisation DAIV uses to reach other projects as you, when [cross-project access](../features/cross-project-access.md) is on. |
 | **Passkeys** | `/accounts/mfa/` | Add and remove the passkeys you sign in with. |
 
 API keys authenticate calls to the [Jobs API](../features/jobs-api.md) and the [MCP endpoint](../features/mcp-endpoint.md). A member sees only their own keys, and an admin sees every user's keys in the list.

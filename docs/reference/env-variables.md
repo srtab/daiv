@@ -137,6 +137,8 @@ OAuth login needs all three of the `DAIV_AUTH_LOGIN_ENABLED` toggle, a client ID
 
 With `EMAIL_BACKEND` set to `django.core.mail.backends.console.EmailBackend`, DAIV writes login-code emails to the app's output instead of sending them, which is enough to sign in without an SMTP server.
 
+With [cross-project access](../features/cross-project-access.md) on, DAIV mints each person's GitLab token against the sign-in GitLab (`ALLAUTH_GITLAB_SERVER_URL` when set, otherwise `ALLAUTH_GITLAB_URL`) and spends it against `CODEBASE_GITLAB_URL`. When they name different hosts, DAIV refuses to store the token and logs an error rather than send one instance's token to another.
+
 ### Rocket.Chat
 
 Enabling the **Rocket Chat** group offers Rocket.Chat as a notification channel that users can opt into.
@@ -170,13 +172,14 @@ Two more variables exist, but leave them unset: each pins a value that DAIV othe
 |-------------------------|------------------------------------|:--------------:|-----------------|
 | `DAIV_EXTERNAL_URL`     | External URL of the application.   | `https://127.0.0.1:8000` | `https://daiv.example.com` |
 | `DAIV_ENCRYPTION_KEY` :material-lock: | Fernet encryption key for secrets stored in the database. If not set, a key is derived from `DJANGO_SECRET_KEY` via HKDF. | *(derived)* | |
+| `DAIV_GITLAB_OAUTH_SCOPE` | Space-separated OAuth scopes requested at GitLab sign-in while [cross-project access](../features/cross-project-access.md) is on; sign-in requests `read_user` alone while it is off. Narrow to `read_user read_api` for read-only access. Inert for GitHub, whose App ignores the scope parameter. | `read_user api` | `read_user read_api` |
 
 DAIV uses `DAIV_EXTERNAL_URL` to define webhooks on the Git platform and as the site domain in authentication emails, so the Git platform must be able to reach it.
 
-`DAIV_ENCRYPTION_KEY` protects the secrets DAIV stores in its database: provider API keys, the Tavily web search API key, the OAuth client secret, the sandbox API key, the Rocket.Chat token, the Telegram bot token and webhook secret, web fetch header values, MCP server headers, and sandbox environment variables and egress secrets. DAIV uses a raw Fernet key directly. Any other value is a passphrase, from which DAIV derives a key with HKDF-SHA256. When the variable is unset, DAIV derives the key from `DJANGO_SECRET_KEY`.
+`DAIV_ENCRYPTION_KEY` protects the secrets DAIV stores in its database: provider API keys, the Tavily web search API key, the OAuth client secret, the sandbox API key, the Rocket.Chat token, the Telegram bot token and webhook secret, web fetch header values, MCP server headers, sandbox environment variables and egress secrets, and the Git platform authorisations behind [cross-project access](../features/cross-project-access.md#where-the-credential-lives). DAIV uses a raw Fernet key directly. Any other value is a passphrase, from which DAIV derives a key with HKDF-SHA256. When the variable is unset, DAIV derives the key from `DJANGO_SECRET_KEY`.
 
 !!! warning
-    Back up `DAIV_ENCRYPTION_KEY`, or `DJANGO_SECRET_KEY` when you leave it unset. If the key is lost or changed, DAIV cannot decrypt the stored secrets, and you must enter them again.
+    Back up `DAIV_ENCRYPTION_KEY`, or `DJANGO_SECRET_KEY` when you leave it unset. If the key is lost or changed, DAIV cannot decrypt the stored secrets, and you must enter them again; each person who uses cross-project access must also sign in again.
 
 ### Analytics
 
@@ -199,6 +202,7 @@ Analytics is off unless you set `DAIV_UMAMI_WEBSITE_ID`, so DAIV sends no visito
 | `CODEBASE_WEBHOOK_SETUP_CRON` | Cron expression for periodic webhook setup (GitLab only) | `*/5 * * * *` | `*/10 * * * *` |
 | `CODEBASE_REPO_ACCESS_SYNC_CRON` | Cron expression for the periodic repository access sync | `*/15 * * * *` | `*/10 * * * *` |
 | `CODEBASE_REPO_ACCESS_HARD_TTL_HOURS` | Hours a repository's synced access data stays trusted before it is denied (fails closed); tracked per repository | `24` | `12` |
+| `CODEBASE_CROSS_PROJECT_RECORD_RETENTION_DAYS` | Days a [cross-project access](../features/cross-project-access.md#audit-log) record is kept before the repository access sync prunes it; `0` keeps them forever | `90` | `30` |
 
 Set `CODEBASE_CLIENT` to `gitlab` or `github`. Only one platform is active at a time.
 
@@ -306,6 +310,15 @@ The native `web_fetch` tool fetches a URL, converts HTML to markdown, and has a 
 | `AUTOMATION_WEB_FETCH_PROXY_URL` | Optional proxy URL for web fetch HTTP requests (env-only)      | *(none)*       | `http://proxy:8080` |
 | `DAIV_WEB_FETCH_MAX_CONTENT_CHARS` | Max page content size (characters) to analyze in one pass | `50000` | `80000` |
 | `DAIV_WEB_FETCH_AUTH_HEADERS` | Domain-to-headers mapping for authenticated fetches (JSON). When set, it replaces the **Per-domain auth headers** rows of the **Web Fetch** group, which then show a lock badge | `{}` | `{"example.com": {"X-API-Key": "sk-abc"}}` |
+
+### Cross-project access
+
+Let the `gitlab` and `gh` agent tools reach projects other than the one a run is attached to, as the person the run acts for. See [Cross-project access](../features/cross-project-access.md).
+
+| Variable | Description | Default | Example |
+|----------|-------------|:-------:|---------|
+| `DAIV_CROSS_PROJECT_ACCESS_ENABLED` | Turn cross-project access on or off | `false` | `true` |
+| `DAIV_CROSS_PROJECT_WEBHOOK_RUNS_ENABLED` | Also allow it for runs started by an issue label or a mention. Issue text can steer what the agent reads and posts there | `false` | `true` |
 
 ### Artifacts
 

@@ -11,7 +11,7 @@ from django.utils import timezone
 from django_tasks_db.models import DBTaskResult
 
 from core import ui_events
-from core.constants import CANCELLED_BY_COORDINATOR_MESSAGE
+from core.constants import CANCELLED_BY_COORDINATOR_MESSAGE, CROSS_PROJECT_SESSION_REFUSED_MESSAGE
 from sessions.artifacts import delete_stored_file
 from sessions.live.notify import publish_session_changed, session_changed
 from sessions.signal_defs import run_ended, run_finished
@@ -55,6 +55,12 @@ def _session_runs_newest_first(session: models.OuterRef) -> models.QuerySet[Run]
     return Run.objects.filter(session=session).order_by(*_NEWEST_FIRST)
 
 
+def _cross_project_q(user: User, path: str = "") -> models.Q:
+    """Sessions holding no other project's results, or only results ``user``'s own grant fetched."""
+    field = f"{path}cross_project_user_ids"
+    return models.Q(**{field: []}) | models.Q(**{f"{field}__contains": [user.pk]})
+
+
 class SessionQuerySet(models.QuerySet["Session"]):
     def _owner_q(self, user: User) -> models.Q:
         """Ownership predicate shared by ``by_owner``/``visible_to``.
@@ -80,8 +86,10 @@ class SessionQuerySet(models.QuerySet["Session"]):
 
         Unlike :meth:`by_owner` this is a view filter, not a visibility boundary, so an admin's
         "Mine" is their own sessions rather than everything they may see.
+        For a non-admin it leaves out the same cross-project sessions as :meth:`by_owner`.
         """
-        return self.filter(self._owner_q(user))
+        owned = self.filter(self._owner_q(user))
+        return owned if user.is_admin else owned.filter(_cross_project_q(user))
 
     def by_owner(self, user: User) -> models.QuerySet[Session]:
         """Sessions the user owns (ownership only).
@@ -101,10 +109,24 @@ class SessionQuerySet(models.QuerySet["Session"]):
         Adds sessions that ran on a repo with a fresh ``RepositoryAccess`` row to the
         ownership set. SYNC ONLY — resolving the caller's platform identity does a DB read
         at query-build time, so wrap in ``sync_to_async`` when used from an async view.
+        Both this and :meth:`by_owner` leave out a session holding another project's results
+        that ``user``'s own grant did not fetch.
         """
         if user.is_admin:
             return self.all()
-        return self.filter(self._owner_q(user) | _readable_repos_q(user, "pk"))
+        readable = self._owner_q(user) | _readable_repos_q(user, "pk")
+        return self.filter(readable & _cross_project_q(user))
+
+    def holding_cross_project(self) -> models.QuerySet[Session]:
+        """Sessions holding another project's results, which stay with the people whose grants fetched them."""
+        return self.exclude(cross_project_user_ids=[])
+
+    def cross_project_visible_to(self, user: User) -> models.QuerySet[Session]:
+        """The cross-project condition of :meth:`by_owner` and :meth:`visible_to` alone, to re-check an authorised
+        session after reading it: a fetch can restrict the session between the authorisation and the read."""
+        if user.is_admin:
+            return self.all()
+        return self.filter(_cross_project_q(user))
 
     def on_merge_request(self, iid: int, *, repo_id: str | None = None) -> models.QuerySet[Session]:
         """Sessions that worked on merge request ``iid`` of ``repo_id``, or of any repository when ``None``: carry its
@@ -296,7 +318,21 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
         """
         if user.is_admin:
             return self.all()
-        return self.filter(self._owner_q(user) | _readable_repos_q(user, "session_id"))
+        readable = self._owner_q(user) | _readable_repos_q(user, "session_id")
+        return self.filter(readable & _cross_project_q(user, "session__"))
+
+    def results_for(self, user: User) -> models.QuerySet[Run]:
+        """``user``'s own runs that the job APIs may hand back to them.
+
+        A session holding another person's cross-project results keeps its runs from everyone but admins and those
+        people, except a run refused at start, which holds nothing but the refusal.
+        """
+        runs = self.filter(user=user)
+        if user.is_admin:
+            return runs
+        return runs.filter(
+            _cross_project_q(user, "session__") | models.Q(error_message=CROSS_PROJECT_SESSION_REFUSED_MESSAGE)
+        )
 
     def by_batch(self, batch_id) -> models.QuerySet[Run]:
         return self.filter(batch_id=batch_id)

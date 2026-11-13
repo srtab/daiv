@@ -34,6 +34,7 @@ async def run_job_task(
     ask_user_enabled: bool = True,
     fork_branch: bool = False,
     inbox: bool = False,
+    acting_user_authenticated: bool = False,
 ) -> AgentResult:
     """Run the DAIV agent for a submitted job and return a standardized result.
 
@@ -46,6 +47,7 @@ async def run_job_task(
     ``user_id``: DAIV user id that triggered the run; forwarded as ``acting_user_id``
     to select the user's personal MCP servers.
     ``ask_user_enabled``: whether someone can answer a question the agent asks mid-run.
+    ``acting_user_authenticated``: whether ``user_id`` is a DAIV sign-in rather than a webhook match.
     ``fork_branch``: publish to a new branch and merge request even when ``ref`` has an open one (a delegated leg).
 
     ``inbox``: the run was started by ``sessions.inbox.drain``. It runs on the slot the drain claimed for it
@@ -59,7 +61,7 @@ async def run_job_task(
     # this module.
     from langchain_core.messages import HumanMessage
 
-    from sessions.executor.run import RunStoppedError, execute_run
+    from sessions.executor.run import CrossProjectSessionRefusedError, RunStoppedError, execute_run
     from sessions.inbox.render import RunInput
     from sessions.multi_repo import acontinues_multi_repo_session
 
@@ -94,6 +96,9 @@ async def run_job_task(
         lock, acting_user_id = wait_for_slot(run_id or f"job-{thread_id[:8]}"), user_id
 
     async def _log_failure(exc: Exception, *, draft_published: bool, snapshot: StateSnapshot | None) -> None:
+        if isinstance(exc, CrossProjectSessionRefusedError):
+            logger.warning("Job refused for thread_id=%s: %s", thread_id, exc)
+            return
         if isinstance(exc, RunStoppedError):
             logger.info("Job cancelled for repo_id=%s, thread_id=%s", repo_id, thread_id)
             return
@@ -118,6 +123,7 @@ async def run_job_task(
             agent_thinking_level=agent_thinking_level,
             sandbox_env_id=sandbox_environment_id,
             acting_user_id=acting_user_id,
+            acting_user_authenticated=acting_user_authenticated,
             mcp_overrides=session_row.mcp_overrides,
             references=session_row.external_references(),
             run_id=run_id,

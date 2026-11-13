@@ -13,7 +13,7 @@ from ag_ui.core.events import BaseEvent, CustomEvent, EventType, RunErrorEvent
 from asgiref.sync import sync_to_async
 from langchain_core.messages import HumanMessage, RemoveMessage
 from sessions.executor.lock import Held, SessionLock, SessionLockLostError
-from sessions.executor.run import RunStoppedError, stream_run
+from sessions.executor.run import CrossProjectSessionRefusedError, RunStoppedError, stream_run
 from sessions.executor.spec import RunHooks, RunSpec
 from sessions.inbox.chat_claim import ChatClaim
 from sessions.inbox.complete import RunEnd
@@ -34,7 +34,12 @@ from sessions.models import (
 
 from automation.agent.usage_tracking import build_usage_summary
 from codebase.base import Scope
-from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
+from core.constants import (
+    CANCELLED_BY_USER_MESSAGE,
+    CROSS_PROJECT_SESSION_REFUSED_MESSAGE,
+    INTERRUPTED_MESSAGE,
+    RUN_FAILED_MESSAGE,
+)
 
 from .threads import _last_user_message
 
@@ -250,6 +255,11 @@ class ChatRunStreamer:
             turn.error = CANCELLED_BY_USER_MESSAGE
             code = "run_withdrawn" if await self._withdraw(turn) else "run_cancelled"
             yield RunErrorEvent(type=EventType.RUN_ERROR, message=CANCELLED_BY_USER_MESSAGE, code=code)
+        except CrossProjectSessionRefusedError:
+            turn.error = CROSS_PROJECT_SESSION_REFUSED_MESSAGE
+            yield RunErrorEvent(
+                type=EventType.RUN_ERROR, message=CROSS_PROJECT_SESSION_REFUSED_MESSAGE, code="cross_project_session"
+            )
         except asyncio.CancelledError, GeneratorExit:
             # A local Stop, a shutdown, or a reader that goes away: only a user Stop sets the cancel
             # flag, so it decides the recorded reason.
@@ -282,6 +292,7 @@ class ChatRunStreamer:
             agent_thinking_level=self.agent_thinking_level,
             sandbox_env_id=self.sandbox_environment_id,
             acting_user_id=self.user_id,
+            acting_user_authenticated=True,
             mcp_overrides=self.mcp_overrides,
             references=self.external_refs,
             persist_ref=True,

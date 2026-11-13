@@ -73,6 +73,7 @@ async def aenqueue_run(
             sandbox_environment_id=str(run.sandbox_environment_id) if run.sandbox_environment_id else None,
             run_id=str(run.pk),
             user_id=run.user_id,
+            acting_user_authenticated=await _aacting_user_authenticated(run),
             ask_user_enabled=await _acan_ask_user(run),
             fork_branch=await _afork_branch(run),
             inbox=inbox,
@@ -105,6 +106,17 @@ async def _afork_branch(run: Run) -> bool:
         return False
     session = await Session.objects.filter(pk=run.session_id).afirst()
     return session is None or not await Leg(session).ahas_own_branch()
+
+
+async def _aacting_user_authenticated(run: Run) -> bool:
+    """Whether ``run``'s user is a DAIV sign-in rather than a webhook match. A run DAIV writes the prompt of (a CI fix,
+    a delegation resume) acts for its session's owner, who is one only where the session's origin is."""
+    if run.trigger_type not in SessionOrigin.daiv_authored():
+        return run.trigger_type in SessionOrigin.daiv_authenticated()
+    if run.user_id is None:
+        return False
+    owned = Session.objects.filter(pk=run.session_id, user_id=run.user_id)
+    return await owned.filter(origin__in=SessionOrigin.daiv_authenticated()).aexists()
 
 
 async def _acan_ask_user(run: Run) -> bool:

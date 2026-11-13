@@ -43,6 +43,9 @@ _MAIN_SECTION_URL_NAMES: dict[str, set[str]] = {
         "api_keys",
         "api_key_create",
         "api_key_revoke",
+        "platform_credential",
+        "platform_credential_revoke",
+        "platform_credential_reconnect",
         "mfa_index",
         "mfa_list_webauthn",
         "mfa_add_webauthn",
@@ -61,6 +64,7 @@ _SETTINGS_SECTION_URL_NAMES: dict[str, set[str]] = {
     },
     "users": {"user_list", "user_create", "user_update", "user_delete"},
     "configuration": {"site_configuration", "site_configuration_index"},
+    "cross_project_access": {"codebase:cross-project-access"},
     "skills": {
         "skills:list",
         "skills:upload",

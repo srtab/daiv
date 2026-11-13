@@ -127,7 +127,11 @@ async def session_turns(request: HttpRequest, thread_id: str):
     nav stream announces a change."""
     user = request.auth  # ty: ignore[unresolved-attribute]
     session = await _get_visible_session(user, thread_id)
-    return turns_payload(await aload_session_state(session, user, always_look_up_merge_request=False), session)
+    payload = turns_payload(await aload_session_state(session, user, always_look_up_merge_request=False), session)
+    # Authorised before the reads above; a fetch that restricted the session since must not be returned.
+    if not await Session.objects.cross_project_visible_to(user).filter(pk=thread_id).aexists():
+        raise HttpError(404, "Session not found")
+    return payload
 
 
 @sessions_router.get("/{thread_id}/up-next", response=dict, url_name="session_up_next")

@@ -23,6 +23,7 @@ attempt cap count as unset), else the site's. Every chain drops blank model name
 12. Orchestration (``delegate_jobs``): repo only, on unless ``.daiv.yml`` turns it off.
 13. Skill and subagent models: repo ``models.skills`` / ``models.subagents`` entries over the site's
     ``agent_skill_models`` / ``agent_subagent_models``, by name, every branch; an empty repo entry is unset.
+14. Cross-project access: site AND run; a one-shot run, which has no session to restrict, never gets it.
 
 A non-empty site or run thinking level that is not a ``ThinkingLevel`` becomes ``None`` (no thinking) and is logged as
 an error; ``.daiv.yml`` levels are validated when the file loads.
@@ -58,6 +59,7 @@ class RunOverrides:
     model_names: tuple[str, ...] = ()
     web_search_enabled: bool | None = None
     web_fetch_enabled: bool | None = None
+    cross_project_allowed: bool = False
 
 
 @dataclass(frozen=True)
@@ -89,6 +91,7 @@ class AgentSettings:
     features: Features
     skill_models: Mapping[str, str]
     subagent_models: Mapping[str, str]
+    cross_project_enabled: bool
 
 
 def resolve_agent_settings(*, site: SiteSnapshot, repo: RepositoryConfig, run: RunOverrides) -> AgentSettings:
@@ -108,6 +111,7 @@ def resolve_agent_settings(*, site: SiteSnapshot, repo: RepositoryConfig, run: R
         features=resolve_features(site=site, repo=repo),
         skill_models=MappingProxyType({**site.agent_skill_models, **repo.models.skills}),
         subagent_models=MappingProxyType({**site.agent_subagent_models, **repo.models.subagents}),
+        cross_project_enabled=run.cross_project_allowed and bool(site.cross_project_access_enabled),
     )
 
 

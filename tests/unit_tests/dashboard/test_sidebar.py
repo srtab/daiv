@@ -31,6 +31,7 @@ class TestSidebarSmoke:
             "sandbox_envs:list",
             "user_channels",
             "api_keys",
+            "platform_credential",
             "mfa_list_webauthn",
             "notifications:list",
         ],
@@ -78,10 +79,10 @@ def _account_menu(content: str) -> str:
 class TestAccountMenu:
     def test_holds_personal_settings_and_sign_out(self, member_client):
         menu = _account_menu(member_client.get(reverse("dashboard")).content.decode())
-        for url_name in ("user_channels", "api_keys", "mfa_list_webauthn", "account_logout"):
+        for url_name in ("user_channels", "api_keys", "platform_credential", "mfa_list_webauthn", "account_logout"):
             assert reverse(url_name) in menu
 
-    @pytest.mark.parametrize("url_name", ["user_channels", "api_keys", "mfa_list_webauthn"])
+    @pytest.mark.parametrize("url_name", ["user_channels", "api_keys", "platform_credential", "mfa_list_webauthn"])
     def test_chip_is_active_on_the_pages_it_holds(self, member_client, url_name):
         """Those pages have no nav item of their own, so the chip is the only element that can mark them active."""
         chip = _account_menu(member_client.get(reverse(url_name)).content.decode()).split("</button>", 1)[0]
@@ -160,6 +161,7 @@ class TestNavActiveState:
             ("sandbox_envs:list", "sandbox_envs"),
             ("user_channels", "account"),
             ("api_keys", "account"),
+            ("platform_credential", "account"),
             ("mfa_list_webauthn", "account"),
             ("artifact_list", "artifacts"),
             ("notifications:list", "notifications"),
@@ -514,6 +516,7 @@ MEMBER_SETTINGS = ["sandbox_envs:list", "mcp_connectors:list", "memory:list"]
 ADMIN_SETTINGS = [
     "user_list",
     "site_configuration_index",
+    "codebase:cross-project-access",
     "schedule_template_list",
     "skills:list",
     "mcp_connectors:global_list",
@@ -573,7 +576,7 @@ class TestSidebarSettingsMode:
     def test_member_does_not_see_admin_group(self, member_client):
         assert not _sidebar(member_client, "sandbox_envs:list").select('[data-testid="nav-admin-group"]')
 
-    def test_admin_group_lists_its_five_pages(self, admin_client):
+    def test_admin_group_lists_its_six_pages(self, admin_client):
         group = _sidebar(admin_client, "sandbox_envs:list").select_one('[data-testid="nav-admin-group"]')
 
         assert [link["href"] for link in group.select("a.sidebar__nav-item")] == [
@@ -588,6 +591,7 @@ class TestSidebarSettingsMode:
             ("memory:list", "Memory"),
             ("user_list", "Users"),
             ("site_configuration_index", "Configuration"),
+            ("codebase:cross-project-access", "Cross-project access"),
             ("schedule_template_list", "Schedule templates"),
             ("skills:list", "Skills"),
             ("mcp_connectors:global_list", "Global MCP servers"),

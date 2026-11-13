@@ -8,7 +8,10 @@ step sits where it does:
    executor only heartbeats it. Any error here — a ``Wait`` that gives up (``lock.SessionLockTimeoutError``) or
    another failure inside the claim — reaches ``hooks.on_failure`` without the slot, which was never claimed, so the
    trigger can tell its user. A one-shot run (``thread_id=None``, evals) has no session and holds no slot.
-2. The sandbox spec is built from ``spec.sandbox_env_id`` (``None``: the GLOBAL default alone); an id that names
+2. A session holding another project's results is checked first: unless the run's acting person is a DAIV sign-in
+   whose own grant fetched them (``Session.cross_project_user_ids``), the run is refused with
+   ``run.CrossProjectSessionRefusedError`` before anything is built, and the refusal is written on its ``Run``.
+   The sandbox spec is built from ``spec.sandbox_env_id`` (``None``: the GLOBAL default alone); an id that names
    no environment fails the run here, as a setup error. ``set_runtime_ctx`` clones the repository at ``spec.ref``
    and opens the sandbox client; a multi-repository run with no ``spec.ref`` clones its main repository at
    ``Session.ref`` instead, read now that the slot is held, like its extra repositories at their rows' branches. The

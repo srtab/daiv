@@ -262,6 +262,7 @@ async def create_daiv_agent(
             working_directory,
             web_search_enabled=settings.web_search_enabled,
             web_fetch_enabled=settings.web_fetch_enabled,
+            cross_project_enabled=settings.cross_project_enabled,
             fallback_models=fallback_models,
             mcp_tools=mcp_tools,
         ),
@@ -279,6 +280,7 @@ async def create_daiv_agent(
         working_directory=working_directory,
         web_search_enabled=settings.web_search_enabled,
         web_fetch_enabled=settings.web_fetch_enabled,
+        cross_project_enabled=settings.cross_project_enabled,
         fallback_models=fallback_models,
         mcp_tools=mcp_tools,
         configured_models=subagent_models,
@@ -344,7 +346,9 @@ async def create_daiv_agent(
             session_links=session_links,
             fork_branch=fork_branch,
         ),
-        GitPlatformMiddleware(git_platform=ctx.git_platform, backend=backend),
+        GitPlatformMiddleware(
+            git_platform=ctx.git_platform, backend=backend, cross_project_enabled=settings.cross_project_enabled
+        ),
         dynamic_daiv_system_prompt,
         RepositoryMemoryMiddleware(enabled=settings.features.memory),
         *(middleware or []),

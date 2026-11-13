@@ -435,6 +435,13 @@ class TestTelegramForm:
         assert set(form.fields) == {"telegram_enabled", "telegram_bot_token"}
 
 
+def test_cross_project_group_fields_are_bound_to_the_form():
+    group = next(g for g in SiteConfiguration.get_field_groups() if g.key == "cross_project")
+    assert group.toggle_field == "cross_project_access_enabled"
+    assert set(group.fields) == {"cross_project_access_enabled", "cross_project_webhook_runs_enabled"}
+    assert set(group.fields) <= set(SiteConfigurationForm.Meta.fields)
+
+
 @pytest.fixture
 def usable_openai(db):
     provider = Provider.objects.get(slug="openai")

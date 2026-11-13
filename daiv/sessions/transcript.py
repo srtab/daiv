@@ -92,7 +92,7 @@ def _marker(run: Run) -> dict[str, Any] | None:
         delegated = run.trigger_type == SessionOrigin.DELEGATED_JOB
         message, aborted = (CANCELLED_BY_COORDINATOR_MESSAGE if delegated else CANCELLED_BY_USER_MESSAGE), True
     else:
-        message = RUN_FAILED_MESSAGE
+        message = run.public_error(RUN_FAILED_MESSAGE)
         aborted = False
     status: RunStatusValue = "aborted" if aborted else "failed"
     marker = {"id": marker_id(run), "role": "run_status", "status": status, "message": message}

@@ -9,11 +9,12 @@ from django.db import DatabaseError
 import pytest
 from asgiref.sync import sync_to_async
 from sessions.executor.lock import Claimed, SessionLock, Wait
-from sessions.executor.run import RunStoppedError
+from sessions.executor.run import CrossProjectSessionRefusedError, RunStoppedError
 from sessions.executor.tasks import run_job_task
 from sessions.inbox.ownership import Ownerships
 from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
 
+from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
 from tests.unit_tests.conftest import stub_sandbox_spec
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session, claim_recorder, make_task_result
 from tests.unit_tests.sessions.executor.conftest import disk_ctx, resolved_to
@@ -494,6 +495,18 @@ async def test_run_job_task_forwards_ref_and_acting_user():
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_run_job_task_forwards_the_authenticated_flag():
+    captured = await _runtime_ctx_kwargs(await amake_job_session(), user_id=42, acting_user_authenticated=True)
+    assert captured.get("acting_user_authenticated") is True
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_run_job_task_is_unauthenticated_by_default():
+    captured = await _runtime_ctx_kwargs(await amake_job_session(), user_id=42)
+    assert captured.get("acting_user_authenticated") is False
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_a_multi_repo_continuation_joins_the_next_run_and_clones_main_where_the_session_moved(member_user):
     from sessions.inbox.pending import PendingEvents
     from sessions.multi_repo import _asubmit_shared_session_run
@@ -710,6 +723,32 @@ class TestRunJobTaskAfterRunMatrix:
 
         [record] = [r for r in caplog.records if r.getMessage().startswith("Job failed")]
         assert record.exc_info[1] is agent.ainvoke.side_effect
+
+    async def test_a_refused_shared_session_is_a_warning_written_on_the_run(self, caplog):
+        thread_id = await amake_job_session(cross_project_user_ids=[7])
+        run = await Run.objects.acreate(
+            session_id=thread_id, trigger_type=SessionOrigin.API_JOB, status=RunStatus.RUNNING, repo_id="owner/repo"
+        )
+
+        with (
+            _job_scaffolding(_agent_with_mr(None), real_lock=True) as set_ctx,
+            caplog.at_level("WARNING", logger="daiv.sessions"),
+            pytest.raises(CrossProjectSessionRefusedError),
+        ):
+            await run_job_task.func(
+                repo_id="owner/repo",
+                prompt="hi",
+                thread_id=thread_id,
+                run_id=str(run.pk),
+                user_id=8,
+                acting_user_authenticated=True,
+            )
+
+        set_ctx.assert_not_called()
+        assert not [r for r in caplog.records if r.levelname == "ERROR"]
+        await run.arefresh_from_db()
+        assert run.error_message == CROSS_PROJECT_SESSION_REFUSED_MESSAGE
+        assert await active_holder(thread_id) is None
 
     async def test_a_run_cancelled_mid_way_stops_and_is_logged_as_cancelled(self, caplog):
         thread_id = await amake_job_session()

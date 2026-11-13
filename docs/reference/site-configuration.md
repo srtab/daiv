@@ -31,6 +31,7 @@ The configuration has the following groups, organized by category.
 | **Providers** | Models | LLM provider records (slug, wire protocol, base URL, API key, extra headers and more) that every model field draws from. See [Providers](#providers). |
 | **Web Search** | Agent tools | Turn the web search tool on or off, pick DuckDuckGo, Tavily or SearXNG, set the maximum results, store the Tavily API key, and set the SearXNG search URL and timeout. See [Set up SearXNG](#set-up-searxng). |
 | **Web Fetch** | Agent tools | Turn the web fetch tool on or off, choose the model that processes fetched pages, set the cache TTL, timeout and maximum content size, and define per-domain auth headers. |
+| **Cross-project access** | Agent tools | Turn [cross-project access](../features/cross-project-access.md) on or off: the git platform tools may then target a project other than the one a run is attached to, acting as the person the run acts for. A second switch, **Allow for webhook-triggered runs**, extends it to runs started by an issue label or a mention. Both are off by default. |
 | **Sandbox** | Runtime | Sandbox request timeout and the sandbox API key. |
 | **Jobs** | Runtime | Per-user rate limit for [Jobs API](../features/jobs-api.md) submissions (e.g. `20/hour`). |
 | **Pipeline Watch** | Runtime | Watch CI on merge requests DAIV publishes and try to fix failures, and how many fix attempts (at least 1) to spend on one merge request before handing back. |

@@ -14,6 +14,7 @@ from sessions.models import EventKind, InboxEvent, Run, RunStatus, Session, Sess
 from sessions.services import BatchSubmitResult
 
 from accounts.models import APIKey, User
+from core.constants import CROSS_PROJECT_SESSION_REFUSED_MESSAGE
 from core.models import Provider, ProviderType
 from core.site_settings import site_settings
 from daiv.api import api
@@ -669,6 +670,46 @@ async def test_get_job_status_other_user_run_returns_404(authenticated_client: T
     run = await _create_run_row(other, status="SUCCESSFUL", result_summary="secret")
     response = await authenticated_client.get(f"/jobs/{run.id}")
     assert response.status_code == 404
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_status_refused_for_a_shared_session_says_why(authenticated_client: TestAsyncClient):
+    user = await User.objects.aget(username="testuser")
+    run = await _create_run_row(user, status="FAILED", error_message=CROSS_PROJECT_SESSION_REFUSED_MESSAGE)
+    await Session.objects.filter(pk=run.session_id).aupdate(cross_project_user_ids=[user.pk + 1])
+
+    response = await authenticated_client.get(f"/jobs/{run.id}")
+
+    assert response.status_code == 200
+    assert (response.json()["status"], response.json()["error"]) == ("FAILED", CROSS_PROJECT_SESSION_REFUSED_MESSAGE)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_status_hides_a_run_whose_session_holds_another_persons_cross_project_results(
+    authenticated_client: TestAsyncClient,
+):
+    user = await User.objects.aget(username="testuser")
+    run = await _create_run_row(user, status="SUCCESSFUL", result_summary="their project's secrets")
+    await Session.objects.filter(pk=run.session_id).aupdate(cross_project_user_ids=[user.pk + 1])
+
+    response = await authenticated_client.get(f"/jobs/{run.id}")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_thread_holding_another_persons_cross_project_results_cannot_be_continued(
+    authenticated_client: TestAsyncClient,
+):
+    user = await User.objects.aget(username="testuser")
+    run = await _create_run_row(user, status="SUCCESSFUL")
+    await Session.objects.filter(pk=run.session_id).aupdate(cross_project_user_ids=[user.pk + 1])
+
+    with patch("sessions.multi_repo.asubmit_batch_runs") as submit:
+        response = await authenticated_client.post("/jobs", json=_single_repo_body(thread_id=str(run.session_id)))
+
+    assert response.status_code == 400
+    submit.assert_not_called()
 
 
 # --- Thread continuation tests ---

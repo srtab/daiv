@@ -1082,6 +1082,7 @@
         stale: "The run stopped responding — refresh to check its final state.",
         connection_lost: "Lost connection to the server — refresh to continue.",
         error: "The live stream failed — refresh to check the run's state.",
+        restricted: "This session now holds another person's cross-project results and is no longer visible to you.",
       };
       if (REASON_ERRORS[reason] && !hasMarker) {
         this._pushRunStatus("failed", REASON_ERRORS[reason]);

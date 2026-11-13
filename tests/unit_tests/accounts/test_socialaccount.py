@@ -19,7 +19,7 @@ from pydantic import SecretStr
 from accounts.adapter import SocialAccountAdapter
 from accounts.forms import UserCreateForm
 from accounts.models import Role, User
-from accounts.socialaccount import GitLabServerAwareAdapter
+from accounts.socialaccount import GitHubAppOAuth2Adapter, GitLabServerAwareAdapter
 from codebase.base import GitPlatform
 
 urlpatterns = [
@@ -61,6 +61,7 @@ def gitlab_oauth(settings):
         auth_client_secret=SecretStr("fixture-secret"),
         auth_gitlab_url="https://gitlab.example.test",
         auth_gitlab_server_url="",
+        cross_project_access_enabled=False,
     )
     profile = {
         "id": 42,
@@ -256,3 +257,8 @@ def test_gitlab_confirmation_applies_only_to_its_matching_primary_address():
     assert primary.verified
     assert not other.verified
     assert not secondary.verified
+
+
+def test_github_enterprise_never_posts_the_secret_to_github_com(settings, monkeypatch):
+    monkeypatch.setattr("accounts.socialaccount.codebase_settings.GITHUB_URL", "https://ghe.example.com")
+    assert GitHubAppOAuth2Adapter.access_token_endpoint() == "https://ghe.example.com/login/oauth/access_token"

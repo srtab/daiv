@@ -13,6 +13,7 @@ from allauth.socialaccount.models import SocialAccount
 from django_tasks_db.backend import TaskResult as DatabaseTaskResult
 
 from core import ui_events
+from core.constants import CrossProjectOutcome
 from sessions.auto_archive import MergeArchive
 from sessions.delegation import DelegatedBatch
 from sessions.inbox.complete import RunEnd
@@ -97,6 +98,43 @@ def publish_nav_runs_changed(sender: type, instance: Any, created: bool, **kwarg
 def poke_session_on_run_delete(sender: type, instance: Any, **kwargs: Any) -> None:
     """Poke the page of the session a deleted run left: a withdrawn turn or a dropped next run no longer shows."""
     session_changed(instance.session_id)
+
+
+@receiver(
+    post_save, sender="codebase.CrossProjectAccessRecord", dispatch_uid="sessions.restrict_session_to_cross_project"
+)
+def restrict_session_to_cross_project_fetchers(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
+    """Add the person whose grant fetched another project's content to the session's ``cross_project_user_ids``.
+
+    Errors propagate on purpose, so whoever writes the record learns the session could not be restricted. A
+    thread with no session row raises too: a session created over it later would start unrestricted. So does a
+    record with no thread at all, since nothing could be restricted. One-shot runs, the only sessionless threads,
+    get no cross-project access (``sessions.executor.run._agent_run``).
+    """
+    if not created or instance.outcome != CrossProjectOutcome.ALLOWED:
+        return
+    if not instance.thread_id:
+        logger.error("Cross-project fetch pk=%s names no thread, so no session can be restricted.", instance.pk)
+        raise ValueError("An allowed cross-project access record must name its thread.")
+    user_id = instance.acting_user_id
+    if user_id is None:
+        logger.error(
+            "Cross-project fetch in thread_id=%s names no acting user; only admins will see the session.",
+            instance.thread_id,
+        )
+    if Session.objects.filter(pk=instance.thread_id, cross_project_user_ids__contains=[user_id]).exists():
+        return
+    with transaction.atomic():
+        session = (
+            Session.objects.select_for_update().only("cross_project_user_ids").filter(pk=instance.thread_id).first()
+        )
+        if session is None:
+            logger.error("Cross-project fetch in thread_id=%s has no session row to restrict.", instance.thread_id)
+            raise Session.DoesNotExist(f"No session row for thread_id={instance.thread_id}")
+        if user_id in session.cross_project_user_ids:
+            return
+        session.cross_project_user_ids = [*session.cross_project_user_ids, user_id]
+        session.save(update_fields=["cross_project_user_ids"])
 
 
 def _sync_run_for_task(task_result_id: Any) -> None:

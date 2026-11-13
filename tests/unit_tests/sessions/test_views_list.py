@@ -109,6 +109,16 @@ class TestSessionListView:
         assert mine.pk in session_pks
         assert theirs.pk not in session_pks
 
+    def test_leaves_out_a_session_holding_another_persons_cross_project_results(self, logged_in_client, user):
+        mine = _create_session(user=user)
+        shared = _create_session(user=user, cross_project_user_ids=[user.pk + 1])
+
+        response = logged_in_client.get(reverse("session_list"))
+
+        session_pks = {s.pk for s in response.context["sessions"]}
+        assert mine.pk in session_pks
+        assert shared.pk not in session_pks
+
     def test_a_plain_visit_shows_only_the_users_own_sessions(self, admin_client, admin_user):
         client = admin_client
         mine = _create_session(user=admin_user)
