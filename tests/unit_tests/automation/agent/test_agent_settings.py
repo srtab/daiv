@@ -216,6 +216,21 @@ def test_a_repo_entry_overrides_only_the_site_entry_of_the_same_name():
     }
 
 
+def test_a_repo_entry_merges_with_the_site_entry_per_field():
+    site = site_snapshot(
+        agent_skill_models={"code-review": ModelChoice(model="openrouter:site/review", thinking_level="high")},
+        agent_subagent_models={"cr-tests": ModelChoice(thinking_level="low")},
+    )
+    repo = RepositoryConfig(
+        models={"skills": {"code-review": {"thinking_level": "off"}}, "subagents": {"cr-tests": "openrouter:a/b"}}
+    )
+
+    settings = agent_settings(site=site, repo=repo)
+
+    assert settings.skill_models["code-review"] == ModelChoice("openrouter:site/review", "off")
+    assert settings.subagent_models["cr-tests"] == ModelChoice("openrouter:a/b", "low")
+
+
 @pytest.mark.parametrize("empty", [None, ""], ids=["null", "blank"])
 def test_an_empty_repo_entry_leaves_the_site_entry_in_place(empty):
     site = site_snapshot(agent_skill_models=SITE_SKILL_MODELS)
