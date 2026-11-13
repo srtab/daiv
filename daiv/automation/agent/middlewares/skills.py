@@ -84,9 +84,10 @@ class SkillModelMiddleware(AgentMiddleware):
 
     Registered right inside ``ModelFallbackMiddleware``, so the middlewares inside it (deferred tools, the context
     meter, prompt caching) see the model that serves the call. A fallback model's call passes through, and
-    ``run_model`` serves a call the skill model fails and every call after it in the run, so the chain is skill model,
-    run model, fallbacks. The run's model also keeps any call whose request would not fit the skill model's window,
-    since compaction is tuned to it.
+    ``run_model`` serves a call the skill model fails and the rest of that skill invocation, at the run's level, so the
+    chain is skill model, run model, fallbacks. A later invocation of the skill skips the failed model and level and
+    runs the next model in line at the skill's level. The run's model also keeps any call whose request would not
+    fit the skill model's window, since compaction is tuned to it.
     """
 
     def __init__(self, configured_models: ConfiguredModels, *, run_model: BaseChatModel) -> None:
@@ -105,7 +106,7 @@ class SkillModelMiddleware(AgentMiddleware):
         except GraphBubbleUp:
             raise
         except Exception as error:
-            # Safe to continue: the run's model serves this call and the rest of the run, as with no skill model.
+            # Safe to continue: the run's model serves this call and the rest of this skill invocation.
             self._models.call_failed(spec, level, error)
         return await handler(request)
 

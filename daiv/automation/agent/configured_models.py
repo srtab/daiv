@@ -35,9 +35,10 @@ def _log_unusable(target: str, spec: str, name: str) -> None:
 class ConfiguredModels:
     """The ``target``'s ``entries`` by name, each spec built once per run and thinking level.
 
-    An entry's level, then the declared one, wins over ``chain``'s; ``"off"`` turns thinking off and ``""`` keeps the
-    run's. A spec that cannot be built is logged at ERROR and never fails the run: the next model in line serves. So
-    does a skill's spec once one of its calls failed (``call_failed``).
+    An entry's level, then the declared one, then the inherited one, wins over ``chain``'s; ``"off"`` turns thinking
+    off and ``""`` keeps the run's. A spec that cannot be built is logged at ERROR and never fails the run: the next
+    model in line serves. So does a skill's spec once one of its calls failed (``call_failed``). The exception: a
+    subagent's declared model is built uncached and may raise (see ``for_subagent``).
     """
 
     target: Literal["skill", "subagent"]
