@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("core", "0024_explore_model_to_subagent_models")]
+    dependencies = [("core", "0025_alter_siteconfiguration_agent_skill_models_and_more")]
 
     operations = [
         migrations.AddField(

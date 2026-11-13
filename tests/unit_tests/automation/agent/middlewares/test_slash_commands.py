@@ -78,6 +78,7 @@ async def test_resets_thread_prepends_remove_all(emit_custom_event):
     # fresh thread (history is wiped, so SkillsMiddleware's clear-on-followup can never fire).
     assert result["active_skill_mode"] is None
     assert result["active_skill_model"] is None
+    assert result["active_skill_thinking_level"] is None
 
 
 async def test_command_failure_jumps_to_end_with_error_message(emit_custom_event):

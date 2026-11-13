@@ -30,6 +30,7 @@ from automation.agent.workspace.disk import DiskWorkspace
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import GitPlatform
+from core.model_choice import EMPTY_CHOICE
 from tests.unit_tests.conftest import (
     FakeArtifactStore,
     FakeSandboxClient,
@@ -53,6 +54,7 @@ def _patches() -> dict[str, tuple[str, dict]]:
         "prompt_caching_middleware": ("AnthropicPromptCachingMiddleware", {}),
         "tool_call_logging_middleware": ("ToolCallLoggingMiddleware", {}),
         "summarization": ("build_summarization_middleware", {}),
+        "declared_skill_choice": ("adeclared_skill_choice", {"new": AsyncMock(return_value=EMPTY_CHOICE)}),
     }
 
 

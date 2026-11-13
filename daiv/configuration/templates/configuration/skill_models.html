@@ -32,7 +32,7 @@
         <h3 class="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text-faint">{% translate "Detectors" %}</h3>
         <p class="mt-1 text-[13px] text-text-muted">
             {% blocktranslate trimmed %}
-            Subagents shipped in this skill's <span class="font-mono text-[12px]">agents/</span> folder. Each runs on its own model, never on the skill's.
+            Subagents shipped in this skill's <span class="font-mono text-[12px]">agents/</span> folder. Each runs on its own model and thinking level when set, else the skill's, else the run's.
             {% endblocktranslate %}
         </p>
         {% if subagent_rows.0.field.field.disabled %}
@@ -52,7 +52,7 @@
     {% if form.is_editable %}
     <div class="flex flex-wrap items-center justify-between gap-3 border-t border-border px-6 py-4">
         <p class="text-[12px] text-text-faint">
-            {% if subagent_rows %}{% translate "Default: the model the skill or detector file declares, else the run's model." %}{% else %}{% translate "Default: the model the skill file declares, else the run's model." %}{% endif %}
+            {% if subagent_rows %}{% translate "Default: what the skill or detector file declares, else the skill's for a detector, else the run's." %}{% else %}{% translate "Default: what the skill file declares, else the run's." %}{% endif %}
         </p>
         <button type="submit" class="btn-accent">{% translate "Save models" %}</button>
     </div>

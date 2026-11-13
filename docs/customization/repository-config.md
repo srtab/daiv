@@ -221,30 +221,55 @@ The diff to metadata agent generates pull request titles, descriptions and commi
 
 ### Skill and subagent models
 
-Run a skill or a subagent on a chosen model in this repository, by name. An entry overrides the site's entry for the same name only; every other site entry still applies. Site entries are set in the dashboard: a skill's on the **Models** tab of its page, which also holds the code-review detectors', and the general-purpose and explore subagents' under **Configuration** → **Agent**.
+Run a skill or a subagent on a chosen model, at a chosen thinking level, in this repository, by name. An entry overrides the site's entry for the same name field by field: an entry that sets only a model keeps the site entry's level, and the other way round. Every other site entry still applies. Site entries are set in the dashboard: a skill's on the **Models** tab of its page, which also holds the code-review detectors', and the general-purpose and explore subagents' under **Configuration** → **Agent** → **Subagent models**. Each of those rows has a model picker and effort dots, including **Off**, and an empty row shows what it inherits.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `models.skills.<name>` | `str \| null` | site entry | Model for the skill's model calls, from its invocation until your next message. |
-| `models.subagents.<name>` | `str \| null` | site entry | Model for every call the subagent makes. |
+| `models.skills.<name>` | `str \| {model, thinking_level} \| null` | site entry | Model and thinking level for the skill's model calls, from its invocation until your next message. |
+| `models.subagents.<name>` | `str \| {model, thinking_level} \| null` | site entry | Model and thinking level for every call the subagent makes. |
+
+An entry is a string, which sets the model only, or a mapping with either or both of `model` and `thinking_level`. `thinking_level` is one of `minimal`, `low`, `medium`, `high`, `xhigh` or `off`, in any letter case. `off` turns thinking off and stops the level from being inherited from a later step; an unset level inherits.
 
 ```yaml
 models:
   skills:
-    code-review: "openrouter:anthropic/claude-sonnet-5.5"
+    code-review: {thinking_level: medium}
     plan: null   # unset: the site entry, if any, applies
   subagents:
-    cr-security: "openrouter:anthropic/claude-opus-5.5"
-    my-repo-subagent: "openrouter:z-ai/glm-5.2"
+    cr-security: {thinking_level: xhigh}
+    cr-correctness: {model: "openrouter:anthropic/claude-opus-5.5", thinking_level: high}
+    cr-tests: {thinking_level: off}
+    my-repo-subagent: "openrouter:z-ai/glm-5.2"   # a string sets the model only
 ```
 
-Replace `<name>` with the name of a skill or subagent. For a given name, the model resolves in this order, first match wins:
+Replace `<name>` with the name of a skill or subagent. For a given name, the model and the thinking level each resolve in this order, first step that sets the field wins, and a model from one step combines with a level from another:
 
-1. this repository's entry;
-2. the site's entry (a skill page's **Models** tab, or **Configuration** → **Agent** → **Subagent models**);
-3. the model the subagent file, or a built-in or global skill file, declares (a repository skill's `metadata.model` is ignored);
-4. the run's model.
+- **A skill:**
+    1. this repository's entry;
+    2. the site's entry (the skill page's **Models** tab);
+    3. `metadata.model` and `metadata.thinking_level` in a built-in or global skill file (a repository skill's metadata is ignored);
+    4. the run's model and thinking level.
+- **A code-review detector** (`cr-*`):
+    1. this repository's entry;
+    2. the site's entry;
+    3. `model` and `thinking_level` in the detector's charter;
+    4. the `code-review` skill's model and thinking level, resolved as above;
+    5. the run's model and thinking level.
+- **The explore subagent:**
+    1. this repository's entry;
+    2. the site's entry;
+    3. its built-in model, `openrouter:anthropic/claude-haiku-5.5` (a model only);
+    4. the run's thinking level, and the run's model when Haiku cannot be built.
+- **The general-purpose subagent:**
+    1. this repository's entry;
+    2. the site's entry;
+    3. the run's model and thinking level.
+- **A custom subagent:**
+    1. this repository's entry;
+    2. the site's entry;
+    3. `model` and `thinking_level` in its file;
+    4. the run's model and thinking level.
 
-A model picked for the run, `daiv-max`, or an exact model passed to the jobs API does not override these entries. Configured models run with the run's thinking level.
+A model picked for the run, `daiv-max`, or an exact model passed to the jobs API does not override a configured model. A thinking level set at any step beats the run's level, `daiv-max`'s included. The fallback models keep the site's fallback thinking level.
 
-DAIV checks the values when a run uses them, not when the file loads, so a typo never drops the rest of `.daiv.yml`. An entry that can't be used falls back to the model the file declares, else the run's model, not to the site entry, and DAIV logs the failure as an error. Names that match no skill or subagent are ignored. See [Agent skills](agent-skills.md#run-a-skill-on-another-model) and [Subagents](../features/subagents.md#subagent-model-precedence).
+DAIV checks the values when a run uses them, not when the file loads, so a typo never drops the rest of `.daiv.yml`. An unknown `thinking_level` is dropped and logged as an error, and the rest of the entry still applies; so is a key other than `model` and `thinking_level`, such as a misspelled `thinking`. A model that can't be used falls back to the model the file declares (for a detector, then the `code-review` skill's model), else the run's model, not to the site entry, and DAIV logs the failure as an error. Names that match no skill or subagent are ignored. See [Agent skills](agent-skills.md#run-a-skill-on-another-model) and [Subagents](../features/subagents.md#subagent-model-precedence).
