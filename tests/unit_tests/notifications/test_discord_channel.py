@@ -26,6 +26,13 @@ def test_channel_is_registered():
     assert get_channel(ChannelType.DISCORD).channel_type == ChannelType.DISCORD
 
 
+@pytest.mark.django_db
+def test_connect_is_blocked_without_a_bot_token(site_settings_override):
+    site_settings_override(discord_bot_token=None)
+    assert DiscordChannel.connect_ready() is False
+    assert "administrator" in DiscordChannel.connect_blocked_reason()
+
+
 class TestVerifyUserId:
     def test_success_returns_user_id_and_sends_bot_authorization(self, httpx_mock, discord_configured):
         httpx_mock.add_response(
@@ -109,6 +116,7 @@ class TestClientCall:
         with pytest.raises(DiscordTransientError) as exc:
             self.CLIENT.call("POST", "/users/@me/channels", {"recipient_id": USER_ID})
         assert exc.value.__cause__ is None
+        assert exc.value.__suppress_context__ is True
 
 
 @pytest.mark.parametrize(

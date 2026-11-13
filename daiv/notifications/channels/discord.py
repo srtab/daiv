@@ -176,6 +176,15 @@ class DiscordChannel(NotificationChannel):
     def is_enabled(cls) -> bool:
         return bool(site_settings.discord_enabled)
 
+    @classmethod
+    def connect_ready(cls) -> bool:
+        """The ownership challenge cannot be delivered without a bot token."""
+        return bool(site_settings.discord_bot_token)
+
+    @classmethod
+    def connect_blocked_reason(cls) -> str:
+        return str(_("Not ready — ask an administrator to finish the Discord setup."))
+
     def send(self, notification: Notification, delivery: NotificationDelivery) -> None:
         if not self.is_enabled():
             raise UnrecoverableDeliveryError("Discord is disabled")

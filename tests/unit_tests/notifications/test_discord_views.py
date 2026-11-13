@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 from django.utils import timezone
 
 import pytest
+from notifications.channels.discord import DiscordPermanentError, DiscordTransientError
 from notifications.choices import ChannelType
 from notifications.models import UserChannelBinding
 
@@ -20,6 +21,7 @@ def _request_challenge(member_client):
         response = member_client.post(TestDiscordConnect.URL, {"username": USER_ID}, follow=False)
     assert response.status_code == 302
     send.assert_called_once()
+    assert send.call_args.args[0] == USER_ID
     content = send.call_args.args[-1]["content"]
     return content.rsplit(": ", 1)[-1]
 
@@ -64,14 +66,13 @@ class TestDiscordConnect:
         assert error in [str(message) for message in response.context["messages"]]
         assert not UserChannelBinding.objects.filter(user=member_user, channel_type=ChannelType.DISCORD).exists()
 
-    def test_challenge_delivery_failure_saves_nothing(self, member_client, member_user):
-        from notifications.channels.discord import DiscordPermanentError
-
+    @pytest.mark.parametrize("exception_type", [DiscordPermanentError, DiscordTransientError])
+    def test_challenge_delivery_failure_saves_nothing(self, member_client, member_user, exception_type):
         with (
             patch("notifications.forms.verify_user_id", return_value=(USER_ID, None)),
             patch(
                 "notifications.views._DiscordClient.send_direct_message",
-                side_effect=DiscordPermanentError("Cannot send messages"),
+                side_effect=exception_type("Cannot send messages"),
             ),
         ):
             response = member_client.post(self.URL, {"username": USER_ID}, follow=True)
@@ -121,6 +122,20 @@ class TestDiscordConfirm:
         assert "This Discord confirmation link is invalid, expired, or already used." in [
             str(message) for message in response.context["messages"]
         ]
+
+    def test_incorrect_token_does_not_verify_or_consume_challenge(self, member_client, member_user):
+        _request_challenge(member_client)
+        binding = UserChannelBinding.objects.get(user=member_user, channel_type=ChannelType.DISCORD)
+        original_config = binding.extra_config.copy()
+        response = member_client.get(
+            "/dashboard/notifications/channels/discord/confirm/not-the-challenge/", follow=True
+        )
+        assert "This Discord confirmation link is invalid, expired, or already used." in [
+            str(message) for message in response.context["messages"]
+        ]
+        binding.refresh_from_db()
+        assert binding.is_verified is False
+        assert binding.extra_config == original_config
 
     def test_expired_challenge_does_not_verify(self, member_client, member_user):
         confirmation_url = _request_challenge(member_client)
