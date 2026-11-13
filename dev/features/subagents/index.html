@@ -1848,9 +1848,9 @@
 <p>The main agent delegates to it when a task needs several rounds of searching and reasoning, for example investigating a bug across several files or researching how an external library works before making changes.</p>
 <h3 id="explore">Explore</h3>
 <p>The explore subagent is a fast, read-only agent for navigating a codebase. Its tools list directories, read files, find files by glob pattern (for example <code>src/components/**/*.tsx</code>), and search code for keywords and regular expressions. It cannot modify files, run commands, or reach external resources, which keeps it fast and safe for quick lookups.</p>
-<p>The main agent delegates to it to locate files, understand code structure, or gather context before deciding. The main agent gives it a thoroughness level: <code>quick</code>, <code>medium</code> or <code>very thorough</code>. Explore runs on <code>openrouter:anthropic/claude-haiku-5.5</code> unless a <a href="#subagent-model-precedence">configured model</a> replaces it.</p>
+<p>The main agent delegates to it to locate files, understand code structure, or gather context before deciding. The main agent gives it a thoroughness level: <code>quick</code>, <code>medium</code> or <code>very thorough</code>. Explore runs on <code>openrouter:anthropic/claude-haiku-5.5</code> at the run's thinking level, unless a <a href="#subagent-model-precedence">configured model or level</a> replaces them.</p>
 <h3 id="code-review-detectors">Code-review detectors</h3>
-<p>The <code>/code-review</code> skill delegates to read-only detector subagents: <code>cr-correctness</code>, <code>cr-security</code>, <code>cr-performance</code>, <code>cr-structure</code>, <code>cr-tests</code> and <code>cr-custom-rules</code>. See <a href="#subagent-model-precedence">Subagent model precedence</a> for the model they run on.</p>
+<p>The <code>/code-review</code> skill delegates to read-only detector subagents: <code>cr-correctness</code>, <code>cr-security</code>, <code>cr-performance</code>, <code>cr-structure</code>, <code>cr-tests</code> and <code>cr-custom-rules</code>. See <a href="#subagent-model-precedence">Subagent model precedence</a> for the model and thinking level they run on.</p>
 <h2 id="how-delegation-works">How delegation works</h2>
 <p>The main agent chooses a subagent from the task:</p>
 <ul>
@@ -1937,6 +1937,11 @@
 <td>The model to run on, as <code>provider:model-name</code>, for example <code>openrouter:anthropic/claude-haiku-5.5</code>. Without it, the subagent runs on the main agent's model. A <a href="#subagent-model-precedence">configured model</a> takes precedence. If DAIV cannot build the model and none is configured, it skips the subagent.</td>
 </tr>
 <tr>
+<td><code>thinking_level</code></td>
+<td>No</td>
+<td>The thinking level to run at: <code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code> or <code>off</code>. Without it, the subagent runs at the main agent's level. A <a href="#subagent-model-precedence">configured level</a> takes precedence. DAIV drops an unknown value, logs a warning, and keeps the rest of the file.</td>
+</tr>
+<tr>
 <td>Body</td>
 <td>Yes</td>
 <td>The Markdown after the frontmatter becomes the subagent's system prompt. An empty body makes DAIV skip the file.</td>
@@ -1963,16 +1968,17 @@
 <a id="__codelineno-2-8" name="__codelineno-2-8"></a><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Helps with API stuff.</span>
 </code></pre></div></td></tr></table></div>
 <h2 id="subagent-model-precedence">Subagent model precedence</h2>
-<p>Operators can run any subagent on a chosen model by name, without editing its file: the general-purpose and explore subagents, each code-review detector, and custom subagents. A custom subagent's file lives in the repository, so the dashboard does not list it. Set its model in <code>.daiv.yml</code>, or for every repository in <code>DAIV_AGENT_SUBAGENT_MODELS</code>.</p>
-<p>A subagent's model is the first of these that is set:</p>
+<p>Operators can run any subagent on a chosen model and at a chosen thinking level by name, without editing its file: the general-purpose and explore subagents, each code-review detector, and custom subagents. A custom subagent's file lives in the repository, so the dashboard does not list it. Set its entry in <code>.daiv.yml</code>, or for every repository in <code>DAIV_AGENT_SUBAGENT_MODELS</code>.</p>
+<p>A subagent's model and its thinking level each come from the first of these that sets the field, so the two can come from different steps:</p>
 <ol>
-<li>Its entry under <code>models.subagents</code> in the repository's <code>.daiv.yml</code> (see <a href="../../customization/repository-config/#skill-and-subagent-models">Model overrides</a>).</li>
-<li>Its entry in the dashboard or in <code>DAIV_AGENT_SUBAGENT_MODELS</code>. For the general-purpose and explore subagents, it is under <strong>Configuration</strong> → <strong>Agent</strong> → <strong>Subagent models</strong>. For the detectors, it is on the <strong>Models</strong> tab of the <code>code-review</code> skill's page.</li>
-<li>The <code>model</code> that its file or detector charter declares (<code>openrouter:anthropic/claude-haiku-5.5</code> for explore).</li>
-<li>The main agent's model.</li>
+<li>Its entry under <code>models.subagents</code> in the repository's <code>.daiv.yml</code> (see <a href="../../customization/repository-config/#skill-and-subagent-models">Skill and subagent models</a>).</li>
+<li>Its entry in the dashboard or in <code>DAIV_AGENT_SUBAGENT_MODELS</code>. For the general-purpose and explore subagents, it is under <strong>Configuration</strong> → <strong>Agent</strong> → <strong>Subagent models</strong>. For the detectors, it is on the <strong>Models</strong> tab of the <code>code-review</code> skill's page. Each row there has a model picker and effort dots, including <strong>Off</strong>.</li>
+<li>The <code>model</code> and <code>thinking_level</code> that its file or detector charter declares. Explore declares <code>openrouter:anthropic/claude-haiku-5.5</code> and no level.</li>
+<li>For a code-review detector only, the model and thinking level of the <code>code-review</code> skill.</li>
+<li>The main agent's model and thinking level.</li>
 </ol>
-<p>A configured model runs with the run's thinking level and falls back to the main agent's fallback models. A model that the user picks for the run does not override an entry, and a skill's model never carries over to a subagent it delegates to.</p>
-<p>When an entry names a provider that is unknown, disabled or missing its API key, the subagent runs on its file's <code>model</code>, else on the main agent's model, so it is never left out of the run. DAIV logs the failure at ERROR. When a call on the configured model fails, for example because the provider does not know the model name, the main agent's fallback models serve it, as for any other model.</p>
+<p>The detectors inherit the <code>code-review</code> skill's model and level, so setting them on the skill moves every detector. No other subagent inherits a skill's model or level. A thinking level set at any step beats the run's, <code>daiv-max</code>'s included, and a model that the user picks for the run does not override an entry. A configured model falls back to the main agent's fallback models, which keep the site's fallback thinking level.</p>
+<p>When an entry names a provider that is unknown, disabled or missing its API key, the subagent runs on its file's <code>model</code> (for a detector, then the <code>code-review</code> skill's model), else on the main agent's model, so it is never left out of the run. DAIV logs the failure at ERROR. When a call on the configured model fails, for example because the provider does not know the model name, the main agent's fallback models serve it, as for any other model.</p>
 <h2 id="related-pages">Related pages</h2>
 <ul>
 <li><a href="../../reference/agent-architecture/">Agent tools</a>: the tools the main agent has, and when each is on</li>
@@ -2001,7 +2007,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 12, 2026 15:27:46 UTC">November 12, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 13, 2026 20:23:11 UTC">November 13, 2026</span>
   </span>
 
     

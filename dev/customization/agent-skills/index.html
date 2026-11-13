@@ -2436,7 +2436,7 @@
 <ul>
 <li><strong>SKILL.md</strong>: the skill's instructions.</li>
 <li><strong>Files</strong>: the files in the skill.</li>
-<li><strong>Models</strong>: the model the skill runs on (see <a href="#run-a-skill-on-another-model">Run a skill on another model</a>).</li>
+<li><strong>Models</strong>: the model and thinking level the skill runs on (see <a href="#run-a-skill-on-another-model">Run a skill on another model</a>).</li>
 <li><strong>Usage</strong>: the invocations over the last 30 days, and the latest runs that invoked the skill, each linking to its run in its session.</li>
 </ul>
 <p>To download a custom skill's original ZIP archive, select <strong>Download zip</strong> on its card menu or its page.</p>
@@ -2452,24 +2452,26 @@
 <li>Select <strong>Delete skill</strong>.</li>
 </ol>
 <h2 id="run-a-skill-on-another-model">Run a skill on another model</h2>
-<p>Once the agent invokes a skill, its model calls run on the skill's model until your next message. The model comes from the skill's <code>models.skills</code> entry in the repository's <code>.daiv.yml</code>, else its entry on the <strong>Models</strong> tab or in <code>DAIV_AGENT_SKILL_MODELS</code>, else the skill file's <code>metadata.model</code>, else the run's model. <a href="../repository-config/#skill-and-subagent-models">Skill and subagent models</a> gives the order and the entry format.</p>
-<p>The <strong>Models</strong> tab changes a skill's model for every repository, built-in skills included, without copying or editing the skill file. On <code>/code-review</code> it also sets the model of each detector the skill ships (see <a href="../../features/subagents/#subagent-model-precedence">Subagent model precedence</a>). A skill that exists only in repositories, or that you only mounted, has no page: give it a model with <code>DAIV_AGENT_SKILL_MODELS</code>, or with a <code>models.skills</code> entry in each repository's <code>.daiv.yml</code>.</p>
-<p>A built-in or global skill file can name its own model in <code>metadata.model</code>, as a model spec (<code>provider-slug:model</code>, as in <a href="../../features/subagents/">subagents</a>):</p>
+<p>Once the agent invokes a skill, its model calls run on the skill's model and thinking level until your next message. The model and the level each come from the first of these that sets the field: the skill's <code>models.skills</code> entry in the repository's <code>.daiv.yml</code>, its entry on the <strong>Models</strong> tab or in <code>DAIV_AGENT_SKILL_MODELS</code>, the skill file's <code>metadata.model</code> and <code>metadata.thinking_level</code>, then the run's. A skill with only a level runs the run's model at that level. <a href="../repository-config/#skill-and-subagent-models">Skill and subagent models</a> gives the order and the entry format.</p>
+<p>The <strong>Models</strong> tab changes a skill's model and thinking level for every repository, built-in skills included, without copying or editing the skill file. On <code>/code-review</code> it also sets the model and level of each detector the skill ships, and a detector without its own setting inherits the skill's (see <a href="../../features/subagents/#subagent-model-precedence">Subagent model precedence</a>). A skill that exists only in repositories, or that you only mounted, has no page: give it a model or thinking level with <code>DAIV_AGENT_SKILL_MODELS</code>, or with a <code>models.skills</code> entry in each repository's <code>.daiv.yml</code>.</p>
+<p>A built-in or global skill file can name its own model in <code>metadata.model</code>, as a model spec (<code>provider-slug:model</code>, as in <a href="../../features/subagents/">subagents</a>), and its thinking level in <code>metadata.thinking_level</code>: one of <code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code> or <code>off</code>. <code>off</code> turns thinking off.</p>
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-10-1">1</a></span>
 <span class="normal"><a href="#__codelineno-10-2">2</a></span>
 <span class="normal"><a href="#__codelineno-10-3">3</a></span>
 <span class="normal"><a href="#__codelineno-10-4">4</a></span>
 <span class="normal"><a href="#__codelineno-10-5">5</a></span>
-<span class="normal"><a href="#__codelineno-10-6">6</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1"></a><span class="nn">---</span>
+<span class="normal"><a href="#__codelineno-10-6">6</a></span>
+<span class="normal"><a href="#__codelineno-10-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1"></a><span class="nn">---</span>
 <a id="__codelineno-10-2" name="__codelineno-10-2"></a><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">changelog</span>
 <a id="__codelineno-10-3" name="__codelineno-10-3"></a><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Update CHANGELOG.md for the current changes.</span>
 <a id="__codelineno-10-4" name="__codelineno-10-4"></a><span class="nt">metadata</span><span class="p">:</span>
 <a id="__codelineno-10-5" name="__codelineno-10-5"></a><span class="w">  </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">openrouter:anthropic/claude-haiku-5.5</span>
-<a id="__codelineno-10-6" name="__codelineno-10-6"></a><span class="nn">---</span>
+<a id="__codelineno-10-6" name="__codelineno-10-6"></a><span class="w">  </span><span class="nt">thinking_level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">low</span>
+<a id="__codelineno-10-7" name="__codelineno-10-7"></a><span class="nn">---</span>
 </code></pre></div></td></tr></table></div>
-<p>DAIV ignores a repository skill's <code>metadata.model</code>, because the file comes from the branch the run works on, which the author of a merge request controls.</p>
-<p>The run's thinking level carries over. The run's model serves any model call whose conversation no longer fits the skill model's context window. Once the skill model fails a call, the run's model serves that call and every later one in the run, before the run's fallback models. Switching models starts a fresh prompt cache on each side, so a cheaper skill model pays off only for skills that do substantial work.</p>
-<p>When a configured entry names a provider that is unknown, disabled or missing its API key, the skill runs on its <code>metadata.model</code>, else the run's model, and DAIV logs the failure at ERROR. A <code>metadata.model</code> that DAIV can't use keeps the run's model, logged the same way.</p>
+<p>DAIV ignores a repository skill's <code>metadata.model</code> and <code>metadata.thinking_level</code>, because the file comes from the branch the run works on, which the author of a merge request controls.</p>
+<p>A thinking level set at any step beats the run's, <code>daiv-max</code>'s included. The run's model serves any model call whose conversation no longer fits the skill model's context window. When the skill's model fails a call, the run's model serves that call and the rest of the skill's invocation, at the run's thinking level, before the run's fallback models. If the agent invokes the skill again later in the run, DAIV skips the model that failed and runs the next model in line at the skill's thinking level. Switching models starts a fresh prompt cache on each side, so a cheaper skill model pays off only for skills that do substantial work.</p>
+<p>When a configured entry names a provider that is unknown, disabled or missing its API key, the skill runs on its <code>metadata.model</code>, else the run's model, and DAIV logs the failure at ERROR. A <code>metadata.model</code> that DAIV can't use keeps the run's model, logged the same way. DAIV drops an unknown thinking level and logs it as an error, and the rest of the entry still applies.</p>
 
 
 
@@ -2492,7 +2494,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 12, 2026 14:46:55 UTC">November 12, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 13, 2026 20:23:11 UTC">November 13, 2026</span>
   </span>
 
     

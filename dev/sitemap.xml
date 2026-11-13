@@ -2,130 +2,130 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://docs.daivagent.com/dev/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/community/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/customization/agent-skills/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/customization/mcp-tools/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/customization/repository-config/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/features/issue-addressing/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/features/jobs-api/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/features/mcp-endpoint/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/features/memory/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/features/merge-metrics/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/features/notifications/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/features/orchestration/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/features/pipeline-watch/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/features/pull-request-assistant/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/features/sandbox-environments/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/features/sandbox/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/features/scheduled-jobs/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/features/sessions/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/features/slash-commands/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/features/subagents/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/getting-started/accounts/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/getting-started/deployment/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/getting-started/llm-providers/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/getting-started/platform-setup/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/getting-started/quickstart/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/integrations/rt/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/reference/agent-architecture/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/reference/benchmarks/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/reference/env-variables/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/reference/management-commands/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/reference/monitoring/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
     <url>
          <loc>https://docs.daivagent.com/dev/reference/site-configuration/</loc>
-         <lastmod>2026-11-12</lastmod>
+         <lastmod>2026-11-13</lastmod>
     </url>
 </urlset>
