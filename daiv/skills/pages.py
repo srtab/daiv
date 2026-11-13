@@ -52,7 +52,7 @@ class SkillPage:
     def body(self) -> str:
         return FRONTMATTER_RE.sub("", self.skill_md, count=1).lstrip()
 
-    @property
+    @cached_property
     def declared_choice(self) -> ModelChoice:
         """The model and thinking level SKILL.md declares under ``metadata``, as the agent reads them."""
         return declared_skill_choice(self.root)

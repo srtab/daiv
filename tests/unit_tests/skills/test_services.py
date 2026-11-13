@@ -342,6 +342,19 @@ def _write_skill_md(root, level):
     )
 
 
+def test_declared_skill_choice_reads_an_unquoted_off_level(tmp_path):
+    from skills.services import declared_skill_choice
+
+    from core.model_choice import ModelChoice
+
+    (tmp_path / "demo").mkdir()
+    (tmp_path / "demo" / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: Demo skill.\nmetadata:\n  thinking_level: off\n---\nBody\n"
+    )
+
+    assert declared_skill_choice(tmp_path / "demo") == ModelChoice(thinking_level="off")
+
+
 async def test_adeclared_skill_choice_reads_a_global_skill_before_the_builtin(skill_roots):
     from skills.services import adeclared_skill_choice
 

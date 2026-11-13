@@ -79,10 +79,10 @@ def _parse_model_map_json(raw: str, env_var: str) -> dict[str, ModelChoice]:
 
 
 def _with_legacy_explore_model(subagent_models: dict[str, ModelChoice]) -> dict[str, ModelChoice]:
-    """``subagent_models`` with ``DAIV_AGENT_EXPLORE_MODEL_NAME`` as its ``explore`` entry when it has none, so an
-    upgrade does not silently move explore off the model the operator chose; logged at ERROR the first time it is read
-    until the operator moves it."""
-    if "explore" in subagent_models:
+    """``subagent_models`` with ``DAIV_AGENT_EXPLORE_MODEL_NAME`` as its ``explore`` entry's model when it has none, so
+    an upgrade does not silently move explore off the model the operator chose; logged at ERROR the first time it is
+    read until the operator moves it."""
+    if (existing := subagent_models.get("explore")) and existing.model:
         return subagent_models
     first_read = LEGACY_EXPLORE_MODEL_ENV not in _docker_secret_cache
     if not (legacy := _get_docker_secret_cached(LEGACY_EXPLORE_MODEL_ENV)):
@@ -93,9 +93,9 @@ def _with_legacy_explore_model(subagent_models: dict[str, ModelChoice]) -> dict[
             "Move it there.",
             LEGACY_EXPLORE_MODEL_ENV,
         )
-    from core.model_choice import ModelChoice
+    from core.model_choice import EMPTY_CHOICE, ModelChoice
 
-    return {**subagent_models, "explore": ModelChoice(model=legacy)}
+    return {**subagent_models, "explore": subagent_models.get("explore", EMPTY_CHOICE).over(ModelChoice(model=legacy))}
 
 
 def legacy_explore_model() -> str:

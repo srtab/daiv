@@ -84,3 +84,8 @@ def test_merge_model_choices_merges_per_field():
 
 def test_a_boolean_false_level_is_off_because_yaml_reads_an_unquoted_off_that_way():
     assert parse_model_choice({"thinking_level": False}, source="test") == ModelChoice(thinking_level="off")
+
+
+@pytest.mark.parametrize("level", ["False", "false", " FALSE "])
+def test_a_stringified_false_level_is_off_because_deepagents_stringifies_metadata(level):
+    assert parse_model_choice({"thinking_level": level}, source="test") == ModelChoice(thinking_level="off")

@@ -66,9 +66,9 @@ def parse_model_choice(value: object, *, source: str, log_level: int = logging.E
         model = ""
 
     level = value.get("thinking_level")
-    if level is False:
-        level = THINKING_OFF
     level = "" if level is None else str(level).strip().lower()
+    if level == "false":
+        level = THINKING_OFF
     if level and level not in VALID_LEVELS:
         logger.log(
             log_level,

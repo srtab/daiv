@@ -442,6 +442,14 @@ class TestLegacyExploreModel:
         with patch.object(SiteConfiguration, "get_cached", return_value=SiteConfiguration()):
             assert ss.agent_subagent_models == {"explore": ModelChoice(model="openrouter:env/explore")}
 
+    def test_a_level_only_explore_entry_still_gets_the_old_variables_model(self, ss, monkeypatch):
+        monkeypatch.setenv("DAIV_AGENT_EXPLORE_MODEL_NAME", "openrouter:legacy/explore")
+        monkeypatch.setenv("DAIV_AGENT_SUBAGENT_MODELS", '{"explore": {"thinking_level": "low"}}')
+        with patch.object(SiteConfiguration, "get_cached", return_value=SiteConfiguration()):
+            assert ss.agent_subagent_models == {
+                "explore": ModelChoice(model="openrouter:legacy/explore", thinking_level="low")
+            }
+
     def test_the_skill_map_ignores_the_old_variable(self, ss, monkeypatch):
         monkeypatch.setenv("DAIV_AGENT_EXPLORE_MODEL_NAME", "openrouter:legacy/explore")
         with patch.object(SiteConfiguration, "get_cached", return_value=SiteConfiguration()):
