@@ -40,6 +40,7 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 - Make `setup_webhooks` create missing webhooks only; pass `--update` to update existing ones ([#943](https://github.com/srtab/daiv/pull/943))
 - Deprecate `DAIV_AGENT_EXPLORE_MODEL_NAME` in favour of an `explore` entry in `DAIV_AGENT_SUBAGENT_MODELS`; `django-admin check` warns with `core.W001` while it is set ([#1727](https://github.com/srtab/daiv/pull/1727))
 - Move the documentation to [docs.daivagent.com](https://docs.daivagent.com/) ([#1826](https://github.com/srtab/daiv/pull/1826))
+- Run the explore subagent at the run's thinking level instead of without thinking ([#PR](https://github.com/srtab/daiv/pull/PR))
 
 ### Added
 
@@ -59,7 +60,7 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 - Add the `bootstrap_admin` command to create the first admin of a fresh install ([#1093](https://github.com/srtab/daiv/pull/1093))
 - Add custom global skills, uploaded in the dashboard as zip packages or mounted at `DAIV_AGENT_CUSTOM_SKILLS_PATH`, with per-skill usage; a custom skill shadows a built-in of the same name ([#1250](https://github.com/srtab/daiv/pull/1250), [#1253](https://github.com/srtab/daiv/pull/1253))
 - Add custom subagents per repository, from Markdown files in `.agents/subagents/` ([#972](https://github.com/srtab/daiv/pull/972))
-- Add skill and subagent models by name, set in the dashboard, `DAIV_AGENT_SKILL_MODELS` / `DAIV_AGENT_SUBAGENT_MODELS`, or `models.skills` / `models.subagents` in `.daiv.yml` ([#1727](https://github.com/srtab/daiv/pull/1727))
+- Add skill and subagent models and thinking levels by name, set in the dashboard, `DAIV_AGENT_SKILL_MODELS` / `DAIV_AGENT_SUBAGENT_MODELS`, or `models.skills` / `models.subagents` in `.daiv.yml`; the code-review detectors inherit the skill's ([#1727](https://github.com/srtab/daiv/pull/1727), [#PR](https://github.com/srtab/daiv/pull/PR))
 - Add repository memory: the agent records what it learns in runs, consolidates it per repository and recalls it later; it is on by default, and turned off with `DAIV_MEMORY_ENABLED` or `memory.enabled` in `.daiv.yml` ([#1308](https://github.com/srtab/daiv/pull/1308), [#1461](https://github.com/srtab/daiv/pull/1461))
 - Add run artifacts: the agent publishes and revises files it generates, such as reports and charts, shown in its session and on an **Artifacts** page ([#1573](https://github.com/srtab/daiv/pull/1573), [#1628](https://github.com/srtab/daiv/pull/1628))
 - Let the agent stop and ask you a question, in chat, as an issue or merge request comment, or as a job in `WAITING_INPUT` ([#1582](https://github.com/srtab/daiv/pull/1582))

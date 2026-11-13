@@ -27,11 +27,11 @@ The main agent delegates to it when a task needs several rounds of searching and
 
 The explore subagent is a fast, read-only agent for navigating a codebase. Its tools list directories, read files, find files by glob pattern (for example `src/components/**/*.tsx`), and search code for keywords and regular expressions. It cannot modify files, run commands, or reach external resources, which keeps it fast and safe for quick lookups.
 
-The main agent delegates to it to locate files, understand code structure, or gather context before deciding. The main agent gives it a thoroughness level: `quick`, `medium` or `very thorough`. Explore runs on `openrouter:anthropic/claude-haiku-5.5` unless a [configured model](#subagent-model-precedence) replaces it.
+The main agent delegates to it to locate files, understand code structure, or gather context before deciding. The main agent gives it a thoroughness level: `quick`, `medium` or `very thorough`. Explore runs on `openrouter:anthropic/claude-haiku-5.5` at the run's thinking level, unless a [configured model or level](#subagent-model-precedence) replaces them.
 
 ### Code-review detectors
 
-The `/code-review` skill delegates to read-only detector subagents: `cr-correctness`, `cr-security`, `cr-performance`, `cr-structure`, `cr-tests` and `cr-custom-rules`. See [Subagent model precedence](#subagent-model-precedence) for the model they run on.
+The `/code-review` skill delegates to read-only detector subagents: `cr-correctness`, `cr-security`, `cr-performance`, `cr-structure`, `cr-tests` and `cr-custom-rules`. See [Subagent model precedence](#subagent-model-precedence) for the model and thinking level they run on.
 
 ## How delegation works
 
@@ -93,6 +93,7 @@ DAIV reads the `.md` files directly inside `.agents/subagents/`, not those in su
 | `name` | Yes | The subagent's unique name, which the main agent uses to delegate. It cannot be `general-purpose`, `explore`, or a code-review detector's name such as `cr-security`: DAIV skips a file that uses one. |
 | `description` | Yes | What the subagent does. The main agent reads it to decide when to delegate, so make it specific and include trigger phrases. |
 | `model` | No | The model to run on, as `provider:model-name`, for example `openrouter:anthropic/claude-haiku-5.5`. Without it, the subagent runs on the main agent's model. A [configured model](#subagent-model-precedence) takes precedence. If DAIV cannot build the model and none is configured, it skips the subagent. |
+| `thinking_level` | No | The thinking level to run at: `minimal`, `low`, `medium`, `high`, `xhigh` or `off`. Without it, the subagent runs at the main agent's level. A [configured level](#subagent-model-precedence) takes precedence. DAIV drops an unknown value, logs a warning, and keeps the rest of the file. |
 | Body | Yes | The Markdown after the frontmatter becomes the subagent's system prompt. An empty body makes DAIV skip the file. |
 
 DAIV ignores any other frontmatter key.
@@ -114,16 +115,17 @@ description: Helps with API stuff.
 
 ## Subagent model precedence
 
-Operators can run any subagent on a chosen model by name, without editing its file: the general-purpose and explore subagents, each code-review detector, and custom subagents. A custom subagent's file lives in the repository, so the dashboard does not list it. Set its model in `.daiv.yml`, or for every repository in `DAIV_AGENT_SUBAGENT_MODELS`.
+Operators can run any subagent on a chosen model and at a chosen thinking level by name, without editing its file: the general-purpose and explore subagents, each code-review detector, and custom subagents. A custom subagent's file lives in the repository, so the dashboard does not list it. Set its entry in `.daiv.yml`, or for every repository in `DAIV_AGENT_SUBAGENT_MODELS`.
 
-A subagent's model is the first of these that is set:
+A subagent's model and its thinking level each come from the first of these that sets the field, so the two can come from different steps:
 
-1. Its entry under `models.subagents` in the repository's `.daiv.yml` (see [Model overrides](../customization/repository-config.md#skill-and-subagent-models)).
-2. Its entry in the dashboard or in `DAIV_AGENT_SUBAGENT_MODELS`. For the general-purpose and explore subagents, it is under **Configuration** → **Agent** → **Subagent models**. For the detectors, it is on the **Models** tab of the `code-review` skill's page.
-3. The `model` that its file or detector charter declares (`openrouter:anthropic/claude-haiku-5.5` for explore).
-4. The main agent's model.
+1. Its entry under `models.subagents` in the repository's `.daiv.yml` (see [Skill and subagent models](../customization/repository-config.md#skill-and-subagent-models)).
+2. Its entry in the dashboard or in `DAIV_AGENT_SUBAGENT_MODELS`. For the general-purpose and explore subagents, it is under **Configuration** → **Agent** → **Subagent models**. For the detectors, it is on the **Models** tab of the `code-review` skill's page. Each row there has a model picker and effort dots, including **Off**.
+3. The `model` and `thinking_level` that its file or detector charter declares. Explore declares `openrouter:anthropic/claude-haiku-5.5` and no level.
+4. For a code-review detector only, the model and thinking level of the `code-review` skill.
+5. The main agent's model and thinking level.
 
-A configured model runs with the run's thinking level and falls back to the main agent's fallback models. A model that the user picks for the run does not override an entry, and a skill's model never carries over to a subagent it delegates to.
+The detectors inherit the `code-review` skill's model and level, so setting them on the skill moves every detector. No other subagent inherits a skill's model or level. A thinking level set at any step beats the run's, `daiv-max`'s included, and a model that the user picks for the run does not override an entry. A configured model falls back to the main agent's fallback models, which keep the site's fallback thinking level.
 
 When an entry names a provider that is unknown, disabled or missing its API key, the subagent runs on its file's `model`, else on the main agent's model, so it is never left out of the run. DAIV logs the failure at ERROR. When a call on the configured model fails, for example because the provider does not know the model name, the main agent's fallback models serve it, as for any other model.
 
