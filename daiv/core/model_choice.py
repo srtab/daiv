@@ -53,7 +53,7 @@ def parse_model_choice(value: object, *, source: str, log_level: int = logging.E
     if isinstance(value, str):
         return ModelChoice(model=value.strip())
     if not isinstance(value, Mapping):
-        logger.log(log_level, "Ignoring model choice from %s: expected a string or mapping, got %r", source, value)
+        logger.log(log_level, "Ignoring a model choice from %s: expected a string or mapping", source)
         return EMPTY_CHOICE
 
     model = value.get("model")
@@ -62,7 +62,7 @@ def parse_model_choice(value: object, *, source: str, log_level: int = logging.E
     elif isinstance(model, str):
         model = model.strip()
     else:
-        logger.log(log_level, "Ignoring model from %s: expected a string, got %r", source, model)
+        logger.log(log_level, "Ignoring a model from %s: expected a string", source)
         model = ""
 
     level = value.get("thinking_level")
@@ -72,8 +72,7 @@ def parse_model_choice(value: object, *, source: str, log_level: int = logging.E
     if level and level not in VALID_LEVELS:
         logger.log(
             log_level,
-            "Ignoring thinking_level %r from %s: expected one of %s",
-            level,
+            "Ignoring an unknown thinking_level from %s: expected one of %s",
             source,
             ", ".join(sorted(VALID_LEVELS)),
         )
@@ -85,14 +84,15 @@ def parse_model_choices(value: object, *, source: str) -> dict[str, ModelChoice]
     if value is None:
         return {}
     if not isinstance(value, Mapping):
-        logger.error("Ignoring model choices from %s: expected a mapping, got %r", source, value)
+        logger.error("Ignoring model choices from %s: expected a mapping", source)
         return {}
     choices = {}
     for name, raw in value.items():
         if not isinstance(name, str):
-            logger.error("Ignoring model choice from %s: name %r is not a string", source, name)
+            logger.error("Ignoring a model choice from %s whose name is not a string", source)
             continue
-        if choice := parse_model_choice(raw, source=f"{source} ({name})"):
+        # Logs name the source only: a map read from a Docker secret must not reach the log.
+        if choice := parse_model_choice(raw, source=source):
             choices[name] = choice
     return choices
 

@@ -21,12 +21,19 @@ def test_parse_model_choice(value, expected):
     assert parse_model_choice(value, source="test") == expected
 
 
-def test_an_unknown_level_is_dropped_and_logged_keeping_the_model(caplog):
+def test_an_unknown_level_is_dropped_and_logged_by_source_keeping_the_model(caplog):
     with caplog.at_level(logging.ERROR):
         choice = parse_model_choice({"model": "x:y", "thinking_level": "extreme"}, source=".daiv.yml")
     assert choice == ModelChoice(model="x:y")
-    assert "extreme" in caplog.text
     assert ".daiv.yml" in caplog.text
+    assert "extreme" not in caplog.text
+
+
+def test_parse_model_choices_never_logs_entry_names_or_values(caplog):
+    with caplog.at_level(logging.ERROR):
+        parse_model_choices({"secret-name": {"model": 42, "thinking_level": "s3cr3t"}, 7: "x:y"}, source="ENV_VAR")
+    assert "ENV_VAR" in caplog.text
+    assert not {"secret-name", "42", "s3cr3t", "7"} & set(caplog.text.replace(":", " ").split())
 
 
 def test_log_level_sets_the_level_of_the_drop_log(caplog):
