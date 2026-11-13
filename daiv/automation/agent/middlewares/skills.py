@@ -27,7 +27,7 @@ from automation.agent.middlewares.summarization import COMPACTION_WINDOW_FRACTIO
 from automation.agent.synthetic import is_person_message
 from automation.agent.usage_tracking import chat_model_name, resolve_context_window
 from automation.agent.utils import extract_body_from_frontmatter
-from core.model_choice import ModelChoice
+from core.model_choice import EMPTY_CHOICE, parse_model_choice
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
@@ -37,6 +37,8 @@ if TYPE_CHECKING:
     from langchain.chat_models import BaseChatModel
     from langchain_core.runnables import RunnableConfig
     from langchain_core.tools import BaseTool
+
+    from core.model_choice import ModelChoice
 
 
 logger = logging.getLogger("daiv.tools")
@@ -51,7 +53,8 @@ def _keep_read_only(old: str | None, new: str | None) -> str | None:
 
 
 def _last_write_wins(old: str | None, new: str | None) -> str | None:
-    """Parallel skill calls each write the model in one step; without a reducer LangGraph rejects the second write."""
+    """Parallel skill calls each write the model and level in one step; without a reducer LangGraph rejects the
+    second write."""
     return new
 
 
@@ -68,14 +71,16 @@ def _estimated_request_tokens(request: ModelRequest) -> int:
 
 
 class DAIVSkillsState(SkillsState):
-    """Extended skills state that tracks the active skill's mode and model."""
+    """Extended skills state that tracks the active skill's mode, model and thinking level."""
 
     active_skill_mode: NotRequired[Annotated[str | None, PrivateStateAttr, _keep_read_only]]
     active_skill_model: NotRequired[Annotated[str | None, PrivateStateAttr, _last_write_wins]]
+    active_skill_thinking_level: NotRequired[Annotated[str | None, PrivateStateAttr, _last_write_wins]]
 
 
 class SkillModelMiddleware(AgentMiddleware):
-    """Serves a call on ``run_model`` on the active skill's model (``active_skill_model``, see ``SkillsMiddleware``).
+    """Serves a call on ``run_model`` on the active skill's model and thinking level (``active_skill_model`` and
+    ``active_skill_thinking_level``, see ``SkillsMiddleware``); a level alone runs the run's model at that level.
 
     Registered right inside ``ModelFallbackMiddleware``, so the middlewares inside it (deferred tools, the context
     meter, prompt caching) see the model that serves the call. A fallback model's call passes through, and
@@ -94,24 +99,28 @@ class SkillModelMiddleware(AgentMiddleware):
     ) -> ModelCallResult:
         if (skill := self._skill_model(request)) is None:
             return await handler(request)
-        spec, skill_model = skill
+        spec, level, skill_model = skill
         try:
             return await handler(request.override(model=skill_model))
         except GraphBubbleUp:
             raise
         except Exception as error:
             # Safe to continue: the run's model serves this call and the rest of the run, as with no skill model.
-            self._models.call_failed(spec, "", error)
+            self._models.call_failed(spec, level, error)
         return await handler(request)
 
-    def _skill_model(self, request: ModelRequest) -> tuple[str, BaseChatModel] | None:
-        """The active skill's spec and model for ``request``, or ``None`` to keep ``request.model``: a fallback model's
-        call, no skill model, one that cannot be built or failed a call, or a request that does not fit its window."""
+    def _skill_model(self, request: ModelRequest) -> tuple[str, str, BaseChatModel] | None:
+        """The active skill's spec, level and model for ``request``, or ``None`` to keep ``request.model``: a fallback
+        model's call, no skill model or level, one that cannot be built or failed a call, or a request that does not
+        fit its window."""
         if request.model is not self._run_model:
             return None
-        if not (spec := request.state.get("active_skill_model")) or (model := self._models.build(spec)) is None:
+        level = request.state.get("active_skill_thinking_level") or ""
+        if not (spec := request.state.get("active_skill_model") or (level and self._models.run_spec)):
             return None
-        return (spec, model) if self._fits_context_window(request, model, spec) else None
+        if (model := self._models.build(spec, level)) is None:
+            return None
+        return (spec, level, model) if self._fits_context_window(request, model, spec) else None
 
     def _fits_context_window(self, request: ModelRequest, model: BaseChatModel, spec: str) -> bool:
         window = resolve_context_window(model, chat_model_name(model))
@@ -188,11 +197,12 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
     A sandbox's seed provisions them itself, so its workspace turns the copy off and hands over what the seed left out
     as ``provisioning_errors``, reported like the copy's own.
 
-    An invoked skill sets ``active_skill_model``, the model spec (``slug:model``) its calls run on until the user's next
-    follow-up: its ``configured_models`` entry, else the ``metadata.model`` of a built-in or global skill (see
-    ``ConfiguredModels.skill_choice``); ``None`` when neither can be built. A repository's skill files come from the
-    branch the run works on, which anyone who opens a merge request controls, so their ``metadata.model`` is ignored.
-    ``SkillModelMiddleware`` serves the calls on it.
+    An invoked skill sets ``active_skill_model``, the model spec (``slug:model``), and ``active_skill_thinking_level``
+    its calls run at until the user's next follow-up: each its ``configured_models`` entry's, else the
+    ``metadata.model`` / ``metadata.thinking_level`` of a built-in or global skill (see
+    ``ConfiguredModels.skill_choice``); ``None`` when unset or, for the model, when it cannot be built. A repository's
+    skill files come from the branch the run works on, which anyone who opens a merge request controls, so their
+    ``metadata.model`` and ``metadata.thinking_level`` are ignored. ``SkillModelMiddleware`` serves the calls on them.
     """
 
     state_schema = DAIVSkillsState
@@ -227,14 +237,18 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
         and are never cleared mid-session, so a misconfig fixed mid-session keeps surfacing in
         ``<skill_load_warnings>`` until restart.
         """
-        skill_active = state.get("active_skill_mode") is not None or state.get("active_skill_model") is not None
+        skill_active = any(
+            state.get(key) is not None
+            for key in ("active_skill_mode", "active_skill_model", "active_skill_thinking_level")
+        )
         clear_skill_state = skill_active and self._has_user_followup(state["messages"])
         if clear_skill_state:
             logger.info(
-                "[%s] Clearing active skill mode '%s' and model '%s' on user follow-up",
+                "[%s] Clearing active skill mode '%s', model '%s' and thinking level '%s' on user follow-up",
                 self.name,
                 state.get("active_skill_mode"),
                 state.get("active_skill_model"),
+                state.get("active_skill_thinking_level"),
             )
 
         # Every turn, not only when ``skills_metadata`` is unset: the ``SKILLS_PATH`` cache is per-container but
@@ -259,7 +273,12 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
                 skills_update = {**(skills_update or {}), "skills_load_errors": merged}
 
         if clear_skill_state:
-            return {**(skills_update or {}), "active_skill_mode": None, "active_skill_model": None}
+            return {
+                **(skills_update or {}),
+                "active_skill_mode": None,
+                "active_skill_model": None,
+                "active_skill_thinking_level": None,
+            }
 
         return skills_update
 
@@ -381,13 +400,18 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
 
         return False
 
-    def _file_model(self, loaded_skill: SkillMetadata) -> str | None:
-        """The ``metadata.model`` of a built-in or global skill, which live under ``SKILLS_PATH``."""
-        model = loaded_skill.get("metadata", {}).get("model")
-        if model and not loaded_skill["path"].startswith(f"{SKILLS_PATH}/"):
-            logger.info("[%s] Ignoring metadata.model of repository skill '%s'", self.name, loaded_skill["name"])
-            return None
-        return model
+    def _file_choice(self, loaded_skill: SkillMetadata) -> ModelChoice:
+        """The ``metadata`` model and thinking level of a built-in or global skill, which live under ``SKILLS_PATH``."""
+        metadata = loaded_skill.get("metadata", {})
+        choice = parse_model_choice(
+            {key: metadata[key] for key in ("model", "thinking_level") if key in metadata},
+            source=f"skill '{loaded_skill['name']}' metadata",
+            log_level=logging.WARNING,
+        )
+        if choice != EMPTY_CHOICE and not loaded_skill["path"].startswith(f"{SKILLS_PATH}/"):
+            logger.info("[%s] Ignoring model metadata of repository skill '%s'", self.name, loaded_skill["name"])
+            return EMPTY_CHOICE
+        return choice
 
     def _skill_tool_generator(self) -> BaseTool:
         """Generate a skill tool."""
@@ -444,12 +468,11 @@ class SkillsMiddleware(DeepAgentsSkillsMiddleware):
             )
 
             skill_mode = loaded_skill.get("metadata", {}).get("mode")
-            skill_model = (
-                self._models.skill_choice(skill, ModelChoice(model=self._file_model(loaded_skill) or "")).model or None
-            )
+            choice = self._models.skill_choice(skill, self._file_choice(loaded_skill))
             update: dict = {
                 "messages": [ToolMessage(content=body, tool_call_id=runtime.tool_call_id)],
-                "active_skill_model": skill_model,
+                "active_skill_model": choice.model or None,
+                "active_skill_thinking_level": choice.thinking_level or None,
             }
             if skill_mode:
                 update["active_skill_mode"] = skill_mode
