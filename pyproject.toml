@@ -92,7 +92,7 @@ dev = [
   "ruff==0.17.4",
   "ty==0.0.99",
   "types-pyyaml==6.0.12.20261103",
-  "watchdog==6.0.0",
+  "watchdog==7.1.0",
 ]
 docs = [
   "mike==2.2.0",
