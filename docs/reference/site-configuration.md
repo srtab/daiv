@@ -35,6 +35,7 @@ The configuration has the following groups, organized by category.
 | **Jobs** | Runtime | Per-user rate limit for [Jobs API](../features/jobs-api.md) submissions (e.g. `20/hour`). |
 | **Pipeline Watch** | Runtime | Watch CI on merge requests DAIV publishes and try to fix failures, and how many fix attempts (at least 1) to spend on one merge request before handing back. |
 | **Rocket Chat** | Integrations | Offer Rocket.Chat as a notification channel, with the instance URL, bot user ID and auth token. |
+| **Discord** | Integrations | Offer Discord as a notification channel, with the bot token from the Discord Developer Portal. See [Set up Discord](#set-up-discord). |
 | **Telegram** | Integrations | Offer Telegram as a notification channel, with the bot token from @BotFather. See [Set up Telegram](#set-up-telegram). |
 | **Authentication** | Integrations | OAuth login with your Git platform: the login toggle, open signup, the OAuth client ID and secret and, for GitLab, the instance URLs. See [Turn on OAuth login](#turn-on-oauth-login). |
 
@@ -61,7 +62,7 @@ The environment variable for a field is `DAIV_<FIELD_NAME>`; for example, `agent
 
 ## Secrets
 
-DAIV stores the secret fields on this page encrypted in the database: the **Web Search API key**, **Sandbox API key**, **Auth Client Secret**, **Rocketchat Auth Token**, **Telegram Bot Token**, each provider's **API key** and the per-domain web fetch header values. [External URL and encryption key](env-variables.md#external-url-and-encryption-key) lists everything DAIV encrypts. The page never shows a stored secret again: it shows a masked hint. Leave a secret field blank to keep the stored value, or select **Clear** to remove it. The key comes from `DAIV_ENCRYPTION_KEY`.
+DAIV stores the secret fields on this page encrypted in the database: the **Web Search API key**, **Sandbox API key**, **Auth Client Secret**, **Rocketchat Auth Token**, **Discord Bot Token**, **Telegram Bot Token**, each provider's **API key** and the per-domain web fetch header values. [External URL and encryption key](env-variables.md#external-url-and-encryption-key) lists everything DAIV encrypts. The page never shows a stored secret again: it shows a masked hint. Leave a secret field blank to keep the stored value, or select **Clear** to remove it. The key comes from `DAIV_ENCRYPTION_KEY`.
 
 ## Providers
 
@@ -143,6 +144,17 @@ OAuth login lets users sign in with their Git platform account. You need an OAut
 6. Select **Save configuration**.
 
 The `CODEBASE_CLIENT` setting decides which fields the group shows and which provider DAIV offers. DAIV creates no accounts through standard email signup, which is off.
+
+## Set up Discord
+
+You need a Discord application and bot in the [Discord Developer Portal](https://discord.com/developers/applications). The bot must share a server with each user who connects it: Discord does not let a bot open a direct message with a user who shares no server with it.
+
+1. In the Discord Developer Portal, open your application and select **Bot**.
+2. Copy the bot token, then in **Configuration** → **Discord**, turn on the toggle next to the group title. It is the **Enable Discord** setting.
+3. Enter the token in **Discord Bot Token**.
+4. Select **Save configuration**.
+
+DAIV stores the token encrypted. Users connect their Discord user ID from the notification channels page; see [Connect Discord](../features/notifications.md#connect-discord). Add the bot to a server that those users belong to before they connect, or direct-message delivery fails.
 
 ## Set up Telegram
 

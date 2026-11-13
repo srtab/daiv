@@ -435,6 +435,14 @@ class TestTelegramForm:
         assert set(form.fields) == {"telegram_enabled", "telegram_bot_token"}
 
 
+@pytest.mark.django_db
+class TestDiscordForm:
+    def test_group_form_offers_only_the_toggle_and_the_token(self):
+        group = SiteConfiguration.get_group_by_key("discord")
+        form = SiteConfigurationForm(instance=SiteConfiguration.objects.get_instance(), group=group)
+        assert set(form.fields) == {"discord_enabled", "discord_bot_token"}
+
+
 @pytest.fixture
 def usable_openai(db):
     provider = Provider.objects.get(slug="openai")

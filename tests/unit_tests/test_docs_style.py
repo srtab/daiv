@@ -27,6 +27,7 @@ HEADING_TERMS = (
     "LangSmith",
     "Sentry",
     "Telegram",
+    "Discord",
     "Rocket.Chat",
     "SearXNG",
     "Tavily",

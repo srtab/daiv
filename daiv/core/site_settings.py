@@ -171,6 +171,8 @@ def _build_field_defaults() -> dict[str, Any]:
         "rocketchat_enabled": False,
         "rocketchat_url": None,
         "rocketchat_user_id": None,
+        # Discord
+        "discord_enabled": False,
         # Telegram — the two encrypted fields get no default entry; ``__getattr__``
         # admits them through ``ENCRYPTED_FIELDS`` instead.
         "telegram_enabled": False,
@@ -246,6 +248,7 @@ class SiteSnapshot:
     rocketchat_enabled: bool
     rocketchat_url: str | None
     rocketchat_user_id: str | None
+    discord_enabled: bool
     telegram_enabled: bool
     telegram_bot_username: str | None
 

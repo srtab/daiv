@@ -571,6 +571,11 @@ class SiteConfiguration(models.Model):
         help_text=_("The bot user's _id, sent as the X-User-Id header."),
     )
 
+    # -- Discord --
+    discord_enabled = models.BooleanField(
+        _("enable Discord"), null=True, help_text=_("Offer Discord as a notification channel for users.")
+    )
+
     # -- Telegram --
     telegram_enabled = models.BooleanField(
         _("enable Telegram"), null=True, help_text=_("Offer Telegram as a notification channel for users.")
@@ -588,6 +593,7 @@ class SiteConfiguration(models.Model):
     _sandbox_api_key_encrypted = models.TextField(blank=True, null=True, editable=False)
     _auth_client_secret_encrypted = models.TextField(blank=True, null=True, editable=False)
     _rocketchat_auth_token_encrypted = models.TextField(blank=True, null=True, editable=False)
+    _discord_bot_token_encrypted = models.TextField(blank=True, null=True, editable=False)
     _telegram_bot_token_encrypted = models.TextField(blank=True, null=True, editable=False)
     _telegram_webhook_secret_encrypted = models.TextField(blank=True, null=True, editable=False)
 
@@ -596,6 +602,7 @@ class SiteConfiguration(models.Model):
     sandbox_api_key = EncryptedFieldDescriptor("sandbox_api_key")
     auth_client_secret = EncryptedFieldDescriptor("auth_client_secret")
     rocketchat_auth_token = EncryptedFieldDescriptor("rocketchat_auth_token")
+    discord_bot_token = EncryptedFieldDescriptor("discord_bot_token")
     telegram_bot_token = EncryptedFieldDescriptor("telegram_bot_token")
     telegram_webhook_secret = EncryptedFieldDescriptor("telegram_webhook_secret")
 
@@ -620,6 +627,7 @@ class SiteConfiguration(models.Model):
         "sandbox_api_key",
         "auth_client_secret",
         "rocketchat_auth_token",
+        "discord_bot_token",
         "telegram_bot_token",
         "telegram_webhook_secret",
     )
@@ -696,6 +704,14 @@ class SiteConfiguration(models.Model):
             match=("rocketchat_*",),
             icon="rocketchat",
             toggle_field="rocketchat_enabled",
+            category="Integrations",
+        ),
+        FieldGroup(
+            key="discord",
+            title=_("Discord"),
+            match=("discord_*",),
+            icon="discord",
+            toggle_field="discord_enabled",
             category="Integrations",
         ),
         FieldGroup(

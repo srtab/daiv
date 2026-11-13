@@ -148,6 +148,15 @@ Enabling the **Rocket Chat** group offers Rocket.Chat as a notification channel 
 | `DAIV_ROCKETCHAT_USER_ID` | The bot user's `_id`, sent as the `X-User-Id` header | *(none)* | `abc123userid` |
 | `DAIV_ROCKETCHAT_AUTH_TOKEN` :material-lock: | The bot user's auth token, sent as the `X-Auth-Token` header | *(none)* | |
 
+### Discord
+
+Enabling Discord offers it as a notification channel that users can opt into. Users connect their Discord user ID, and DAIV sends notifications as direct messages from the bot.
+
+| Variable                | Description                        | Default        | Example         |
+|-------------------------|------------------------------------|:--------------:|-----------------|
+| `DAIV_DISCORD_ENABLED` | Offer Discord as a notification channel for users | `false` | `true` |
+| `DAIV_DISCORD_BOT_TOKEN` :material-lock: | Bot token from the Discord Developer Portal, sent as `Authorization: Bot <token>` | *(none)* | |
+
 ### Telegram
 
 Enabling Telegram offers it as a notification channel that users can opt into. DAIV derives the bot username and generates the webhook secret itself; see [Telegram derived values](site-configuration.md#telegram-derived-values).
@@ -173,7 +182,7 @@ Two more variables exist, but leave them unset: each pins a value that DAIV othe
 
 DAIV uses `DAIV_EXTERNAL_URL` to define webhooks on the Git platform and as the site domain in authentication emails, so the Git platform must be able to reach it.
 
-`DAIV_ENCRYPTION_KEY` protects the secrets DAIV stores in its database: provider API keys, the Tavily web search API key, the OAuth client secret, the sandbox API key, the Rocket.Chat token, the Telegram bot token and webhook secret, web fetch header values, MCP server headers, and sandbox environment variables and egress secrets. DAIV uses a raw Fernet key directly. Any other value is a passphrase, from which DAIV derives a key with HKDF-SHA256. When the variable is unset, DAIV derives the key from `DJANGO_SECRET_KEY`.
+`DAIV_ENCRYPTION_KEY` protects the secrets DAIV stores in its database: provider API keys, the Tavily web search API key, the OAuth client secret, the sandbox API key, the Rocket.Chat token, the Discord and Telegram bot tokens, the Telegram webhook secret, web fetch header values, MCP server headers, and sandbox environment variables and egress secrets. DAIV uses a raw Fernet key directly. Any other value is a passphrase, from which DAIV derives a key with HKDF-SHA256. When the variable is unset, DAIV derives the key from `DJANGO_SECRET_KEY`.
 
 !!! warning
     Back up `DAIV_ENCRYPTION_KEY`, or `DJANGO_SECRET_KEY` when you leave it unset. If the key is lost or changed, DAIV cannot decrypt the stored secrets, and you must enter them again.

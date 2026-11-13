@@ -7,6 +7,7 @@ from notifications.views import (
     MarkAllReadView,
     MarkNotificationReadView,
     NotificationListView,
+    UpdateDiscordBindingView,
     UpdateRocketChatBindingView,
 )
 
@@ -21,6 +22,12 @@ urlpatterns = [
         "channels/rocketchat/delete/",
         ChannelDisconnectView.as_view(channel_type=ChannelType.ROCKETCHAT),
         name="rocketchat_disconnect",
+    ),
+    path("channels/discord/", UpdateDiscordBindingView.as_view(), name="discord_connect"),
+    path(
+        "channels/discord/delete/",
+        ChannelDisconnectView.as_view(channel_type=ChannelType.DISCORD),
+        name="discord_disconnect",
     ),
     path("channels/telegram/", ConnectTelegramView.as_view(), name="telegram_connect"),
     path(

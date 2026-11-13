@@ -16,11 +16,12 @@ from django.views.decorators.http import require_POST
 from django.views.generic import ListView, TemplateView
 
 from core.site_settings import site_settings
+from notifications.channels.discord import DiscordChannel
 from notifications.channels.registry import enabled_channels
 from notifications.channels.rocketchat import RocketChatChannel
 from notifications.channels.telegram import TelegramChannel
 from notifications.choices import ChannelType
-from notifications.forms import RocketChatBindingForm
+from notifications.forms import DiscordBindingForm, RocketChatBindingForm
 from notifications.models import Notification, UserChannelBinding
 from notifications.outcomes import attach_outcomes
 from notifications.telegram.tokens import mint_token
@@ -44,6 +45,9 @@ class ChannelConnect(NamedTuple):
 _CHANNEL_CONNECT = {
     ChannelType.ROCKETCHAT: ChannelConnect(
         "notifications:rocketchat_connect", "notifications:rocketchat_disconnect", "@username"
+    ),
+    ChannelType.DISCORD: ChannelConnect(
+        "notifications:discord_connect", "notifications:discord_disconnect", "User ID (123456789012345678)"
     ),
     ChannelType.TELEGRAM: ChannelConnect(
         "notifications:telegram_connect", "notifications:telegram_disconnect", style="link"
@@ -127,6 +131,27 @@ class UpdateRocketChatBindingView(LoginRequiredMixin, View):
         UserChannelBinding.objects.update_or_create(
             user=request.user,
             channel_type=ChannelType.ROCKETCHAT,
+            defaults={"address": form.cleaned_data["username"], "is_verified": True, "verified_at": timezone.now()},
+        )
+        return HttpResponseRedirect(redirect_url)
+
+
+@method_decorator(require_POST, name="dispatch")
+class UpdateDiscordBindingView(LoginRequiredMixin, View):
+    def post(self, request):
+        if not DiscordChannel.is_enabled():
+            raise Http404
+        redirect_url = reverse("user_channels")
+        form = DiscordBindingForm(request.POST)
+        if not form.is_valid():
+            for errors in form.errors.values():
+                for msg in errors:
+                    messages.error(request, msg)
+            return HttpResponseRedirect(redirect_url)
+
+        UserChannelBinding.objects.update_or_create(
+            user=request.user,
+            channel_type=ChannelType.DISCORD,
             defaults={"address": form.cleaned_data["username"], "is_verified": True, "verified_at": timezone.now()},
         )
         return HttpResponseRedirect(redirect_url)

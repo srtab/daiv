@@ -279,6 +279,7 @@ class SiteConfigurationForm(forms.ModelForm):
             "rocketchat_enabled",
             "rocketchat_url",
             "rocketchat_user_id",
+            "discord_enabled",
             "telegram_enabled",
             "pipeline_watch_enabled",
             "pipeline_watch_max_attempts",
@@ -629,6 +630,7 @@ class SiteConfigurationForm(forms.ModelForm):
             "sandbox_api_key": _("API key for the sandbox service."),
             "auth_client_secret": _("OAuth application client secret for the configured Git platform."),
             "rocketchat_auth_token": _("Bot user personal access token (X-Auth-Token)."),
+            "discord_bot_token": _("Bot token from the Discord Developer Portal."),
             "telegram_bot_token": _("Bot token issued by @BotFather, in the form 123456:ABC-DEF."),
         }
         return labels.get(name, "")
