@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import logging
+import secrets
 from typing import NamedTuple
 from urllib.parse import quote
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db import transaction
 from django.http import Http404, HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
@@ -16,7 +21,8 @@ from django.views.decorators.http import require_POST
 from django.views.generic import ListView, TemplateView
 
 from core.site_settings import site_settings
-from notifications.channels.discord import DiscordChannel
+from core.utils import build_absolute_url
+from notifications.channels.discord import DiscordChannel, DiscordPermanentError, DiscordTransientError, _DiscordClient
 from notifications.channels.registry import enabled_channels
 from notifications.channels.rocketchat import RocketChatChannel
 from notifications.channels.telegram import TelegramChannel
@@ -26,6 +32,9 @@ from notifications.models import Notification, UserChannelBinding
 from notifications.outcomes import attach_outcomes
 from notifications.telegram.tokens import mint_token
 from notifications.telegram_bindings import binding_state_for_pk
+
+logger = logging.getLogger("daiv.notifications")
+_DISCORD_CHALLENGE_TTL_SECONDS = 600
 
 
 class ChannelConnect(NamedTuple):
@@ -116,44 +125,121 @@ class MarkAllReadView(LoginRequiredMixin, View):
 
 
 @method_decorator(require_POST, name="dispatch")
-class UpdateRocketChatBindingView(LoginRequiredMixin, View):
+class UpdateChannelBindingView(LoginRequiredMixin, View):
+    channel_class = None
+    channel_type = None
+    form_class = None
+
+    def get_form(self, request):
+        return self.form_class(request.POST)
+
+    def perform_binding(self, request, form) -> None:
+        UserChannelBinding.objects.update_or_create(
+            user=request.user,
+            channel_type=self.channel_type,
+            defaults={"address": form.cleaned_data["username"], "is_verified": True, "verified_at": timezone.now()},
+        )
+
     def post(self, request):
-        if not RocketChatChannel.is_enabled():
+        if not self.channel_class.is_enabled():
             raise Http404
         redirect_url = reverse("user_channels")
-        form = RocketChatBindingForm(request.POST)
+        form = self.get_form(request)
         if not form.is_valid():
             for errors in form.errors.values():
                 for msg in errors:
                     messages.error(request, msg)
             return HttpResponseRedirect(redirect_url)
-
-        UserChannelBinding.objects.update_or_create(
-            user=request.user,
-            channel_type=ChannelType.ROCKETCHAT,
-            defaults={"address": form.cleaned_data["username"], "is_verified": True, "verified_at": timezone.now()},
-        )
+        self.perform_binding(request, form)
         return HttpResponseRedirect(redirect_url)
 
 
-@method_decorator(require_POST, name="dispatch")
-class UpdateDiscordBindingView(LoginRequiredMixin, View):
-    def post(self, request):
-        if not DiscordChannel.is_enabled():
-            raise Http404
-        redirect_url = reverse("user_channels")
-        form = DiscordBindingForm(request.POST)
-        if not form.is_valid():
-            for errors in form.errors.values():
-                for msg in errors:
-                    messages.error(request, msg)
-            return HttpResponseRedirect(redirect_url)
+class UpdateRocketChatBindingView(UpdateChannelBindingView):
+    channel_class = RocketChatChannel
+    channel_type = ChannelType.ROCKETCHAT
+    form_class = RocketChatBindingForm
 
+
+class UpdateDiscordBindingView(UpdateChannelBindingView):
+    channel_class = DiscordChannel
+    channel_type = ChannelType.DISCORD
+    form_class = DiscordBindingForm
+
+    def get_form(self, request):
+        return self.form_class(request.POST, user=request.user)
+
+    def perform_binding(self, request, form) -> None:
+        client = _DiscordClient.from_site_settings()
+        if client is None:
+            messages.error(request, _("Discord is not configured."))
+            return
+        user_id = form.cleaned_data["username"]
+        token = secrets.token_urlsafe(32)
+        confirmation_url = build_absolute_url(reverse("notifications:discord_confirm", args=[token]))
+        try:
+            client.send_direct_message(
+                user_id,
+                {
+                    "content": _("Confirm this Discord account for DAIV notifications within 10 minutes: %(url)s")
+                    % {"url": confirmation_url}
+                },
+            )
+        except (DiscordPermanentError, DiscordTransientError) as exc:
+            logger.warning("Discord ownership challenge for user %s could not be delivered: %s", request.user.pk, exc)
+            messages.error(
+                request, _("Discord could not send the confirmation message. Check the shared server and try again.")
+            )
+            return
         UserChannelBinding.objects.update_or_create(
             user=request.user,
             channel_type=ChannelType.DISCORD,
-            defaults={"address": form.cleaned_data["username"], "is_verified": True, "verified_at": timezone.now()},
+            defaults={
+                "address": user_id,
+                "is_verified": False,
+                "verified_at": None,
+                "extra_config": {
+                    "challenge_hash": _discord_challenge_hash(token),
+                    "challenge_expires_at": timezone.now().timestamp() + _DISCORD_CHALLENGE_TTL_SECONDS,
+                },
+            },
         )
+        messages.success(request, _("Check your Discord direct messages for a confirmation link."))
+
+
+def _discord_challenge_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+class ConfirmDiscordBindingView(LoginRequiredMixin, View):
+    def get(self, request, token):
+        if not DiscordChannel.is_enabled():
+            raise Http404
+        redirect_url = reverse("user_channels")
+        challenge_hash = _discord_challenge_hash(token)
+        with transaction.atomic():
+            binding = (
+                UserChannelBinding.objects
+                .select_for_update()
+                .filter(user=request.user, channel_type=ChannelType.DISCORD, is_verified=False)
+                .first()
+            )
+            config = binding.extra_config if binding is not None else {}
+            expires_at = config.get("challenge_expires_at")
+            valid = (
+                binding is not None
+                and isinstance(expires_at, int | float)
+                and not isinstance(expires_at, bool)
+                and expires_at > timezone.now().timestamp()
+                and hmac.compare_digest(str(config.get("challenge_hash", "")), challenge_hash)
+            )
+            if not valid:
+                messages.error(request, _("This Discord confirmation link is invalid, expired, or already used."))
+                return HttpResponseRedirect(redirect_url)
+            binding.is_verified = True
+            binding.verified_at = timezone.now()
+            binding.extra_config = {}
+            binding.save(update_fields=["is_verified", "verified_at", "extra_config", "modified"])
+        messages.success(request, _("Discord connected. Your account is verified."))
         return HttpResponseRedirect(redirect_url)
 
 

@@ -82,8 +82,9 @@ Discord bots can only direct-message users who share a server with them. Make su
 3. On the **Notification channels** page, find the **Discord** row.
 4. Paste your user ID into the field.
 5. Select **Connect**.
+6. Open the direct message from the DAIV bot and follow its confirmation link within 10 minutes.
 
-DAIV checks the user ID with Discord before saving it. On success, the row shows a **Verified** badge and your user ID. If the ID is not numeric or unknown, or Discord is unreachable, DAIV shows an error and saves nothing.
+DAIV checks the user ID with Discord and sends a single-use confirmation link to that account. Only opening the link while signed in to the same DAIV account proves ownership and marks the binding **Verified**. If the ID is not numeric or unknown, Discord is unreachable, or the bot cannot message you, DAIV shows an error and does not enable delivery. Confirmation requests are limited to one per minute; request a new link if yours expires or has already been used.
 
 To stop Discord delivery, select **Disconnect** in the same row. If you leave every server you share with the bot, Discord refuses direct messages and DAIV marks those deliveries **failed**.
 

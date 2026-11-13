@@ -154,7 +154,7 @@ You need a Discord application and bot in the [Discord Developer Portal](https:/
 3. Enter the token in **Discord Bot Token**.
 4. Select **Save configuration**.
 
-DAIV stores the token encrypted. Users connect their Discord user ID from the notification channels page; see [Connect Discord](../features/notifications.md#connect-discord). Add the bot to a server that those users belong to before they connect, or direct-message delivery fails.
+DAIV stores the token encrypted. Users connect their Discord user ID from the notification channels page and prove ownership by opening a single-use confirmation link that the bot sends them; see [Connect Discord](../features/notifications.md#connect-discord). Add the bot to a server that those users belong to before they connect, or the confirmation message and notification delivery fail.
 
 ## Set up Telegram
 

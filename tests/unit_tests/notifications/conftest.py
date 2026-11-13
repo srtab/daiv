@@ -129,6 +129,15 @@ def enabled_with_env_token(monkeypatch):
         SiteConfiguration._invalidate_cache()
 
 
+@pytest.fixture(autouse=True)
+def _clear_notification_throttles():
+    from django.core.cache import cache
+
+    cache.clear()
+    yield
+    cache.clear()
+
+
 @pytest.fixture
 def configured_site(db):
     """Write fields onto the ``SiteConfiguration`` singleton and evict the cache afterwards.

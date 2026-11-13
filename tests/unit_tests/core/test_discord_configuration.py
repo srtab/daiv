@@ -41,6 +41,13 @@ class TestDiscordSiteSettings:
             SiteConfiguration._invalidate_cache()
 
     def test_env_var_overrides_the_db(self, monkeypatch):
+        config = SiteConfiguration.objects.get_instance()
+        config.discord_bot_token = "database-token"  # noqa: S105
+        config.save()
+        SiteConfiguration._invalidate_cache()
         monkeypatch.setenv("DAIV_DISCORD_BOT_TOKEN", "env-token")
-        assert site_settings.discord_bot_token.get_secret_value() == "env-token"
-        assert site_settings.is_env_locked("discord_bot_token") is True
+        try:
+            assert site_settings.discord_bot_token.get_secret_value() == "env-token"
+            assert site_settings.is_env_locked("discord_bot_token") is True
+        finally:
+            SiteConfiguration._invalidate_cache()

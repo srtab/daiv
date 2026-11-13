@@ -143,9 +143,19 @@ class TestSend:
         DiscordChannel().send(notification, delivery)
 
         message = json.loads(httpx_mock.get_requests()[1].content)
+        assert len(message["embeds"]) == 1
         assert message["embeds"][0]["title"] == "Subject"
         assert message["embeds"][0]["color"]
         assert "Body line" not in json.dumps(message)
+
+    def test_missing_dm_channel_id_is_transient_and_sends_no_message(
+        self, httpx_mock, notification_with_delivery, discord_configured
+    ):
+        notification, delivery = notification_with_delivery
+        httpx_mock.add_response(method="POST", url=DM_URL, json={})
+        with pytest.raises(DiscordTransientError, match="channel ID"):
+            DiscordChannel().send(notification, delivery)
+        assert len(httpx_mock.get_requests()) == 1
 
     def test_unknown_event_falls_back_to_plain_text(self, httpx_mock, notification_with_delivery, discord_configured):
         notification, delivery = notification_with_delivery

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from functools import cache
 from typing import TYPE_CHECKING, cast
 
 from django.utils.translation import gettext_lazy as _
@@ -24,6 +25,12 @@ logger = logging.getLogger("daiv.notifications")
 _DISCORD_API_BASE = "https://discord.com/api/v10"
 _DISCORD_TIMEOUT_SECONDS = 5.0
 _CANNOT_MESSAGE_USER = 50007
+
+
+@cache
+def _http() -> httpx.Client:
+    """One pooled client per process; the bot token stays on each request, never on the client."""
+    return httpx.Client(base_url=_DISCORD_API_BASE, timeout=_DISCORD_TIMEOUT_SECONDS)
 
 
 class DiscordPermanentError(Exception):
@@ -53,13 +60,7 @@ class _DiscordClient:
 
     def request(self, method: str, path: str, payload: dict | None = None) -> httpx.Response:
         try:
-            return httpx.request(
-                method,
-                f"{_DISCORD_API_BASE}{path}",
-                headers={"Authorization": f"Bot {self.token}"},
-                json=payload,
-                timeout=_DISCORD_TIMEOUT_SECONDS,
-            )
+            return _http().request(method, path, headers={"Authorization": f"Bot {self.token}"}, json=payload)
         except httpx.HTTPError as exc:
             # httpx frames hold the Authorization header in their locals; do not chain them into logs or Sentry.
             raise DiscordTransientError(f"Discord {method} {path} transport failure: {type(exc).__name__}") from None
@@ -88,6 +89,13 @@ class _DiscordClient:
             logger.warning("Discord %s %s returned a non-object JSON body with HTTP %s", method, path, status)
             raise DiscordTransientError(f"Discord returned an invalid response with HTTP {status}")
         return body
+
+    def send_direct_message(self, user_id: str, payload: dict) -> None:
+        dm = self.call("POST", "/users/@me/channels", {"recipient_id": user_id})
+        channel_id = dm.get("id")
+        if not isinstance(channel_id, str) or not channel_id:
+            raise DiscordTransientError("Discord create-DM response did not include a channel ID")
+        self.call("POST", f"/channels/{channel_id}/messages", payload)
 
 
 def _json_object(response: httpx.Response) -> dict | None:
@@ -176,11 +184,7 @@ class DiscordChannel(NotificationChannel):
             raise UnrecoverableDeliveryError("Discord not configured")
 
         try:
-            dm = client.call("POST", "/users/@me/channels", {"recipient_id": delivery.address})
-            channel_id = dm.get("id")
-            if not isinstance(channel_id, str) or not channel_id:
-                raise DiscordTransientError("Discord create-DM response did not include a channel ID")
-            client.call("POST", f"/channels/{channel_id}/messages", _build_payload(notification))
+            client.send_direct_message(delivery.address, _build_payload(notification))
         except DiscordPermanentError as exc:
             logger.error("Discord delivery %s permanently failed: %s", delivery.id, exc)
             raise UnrecoverableDeliveryError(str(exc)) from exc

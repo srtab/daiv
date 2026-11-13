@@ -10,6 +10,7 @@ from notifications.channels.renderers.discord import (
     COLOR_PARTIAL,
     COLOR_SUCCESS,
     DISCORD_MAX_DESCRIPTION_CHARS,
+    DISCORD_MAX_EMBED_CHARS,
     DISCORD_MAX_FIELD_NAME_CHARS,
     DISCORD_MAX_FIELD_VALUE_CHARS,
     DISCORD_MAX_FIELDS,
@@ -93,6 +94,18 @@ def test_blank_summary_omits_description(summary):
     assert "description" not in embed
 
 
+def test_embed_field_count_is_capped(monkeypatch):
+    rows = [Row(f"Field {index}", "Value") for index in range(30)]
+    monkeypatch.setattr("notifications.channels.renderers.discord.event_rows", lambda notification: rows)
+    embed = _render(EventType.JOB_FINISHED, _notification())
+    assert len(embed["fields"]) == DISCORD_MAX_FIELDS
+
+
+def test_no_link_omits_the_embed_url():
+    embed = _render(EventType.JOB_FINISHED, _notification(link_url=""))
+    assert "url" not in embed
+
+
 def test_embed_limits_are_enforced(monkeypatch):
     rows = [Row("n" * 300, "v" * 1100, wide=index % 2 == 0) for index in range(30)]
     monkeypatch.setattr("notifications.channels.renderers.discord.event_rows", lambda notification: rows)
@@ -102,10 +115,35 @@ def test_embed_limits_are_enforced(monkeypatch):
     )
     assert len(embed["title"]) == DISCORD_MAX_TITLE_CHARS
     assert len(embed["description"]) == DISCORD_MAX_DESCRIPTION_CHARS
-    assert len(embed["fields"]) == DISCORD_MAX_FIELDS
+    assert len(embed["fields"]) == 2
     assert len(embed["fields"][0]["name"]) == DISCORD_MAX_FIELD_NAME_CHARS
     assert len(embed["fields"][0]["value"]) == DISCORD_MAX_FIELD_VALUE_CHARS
     assert embed["fields"][0]["name"].endswith("…")
     assert embed["fields"][0]["value"].endswith("…")
     assert embed["fields"][0]["inline"] is False
     assert embed["fields"][1]["inline"] is True
+    aggregate = (
+        len(embed["title"])
+        + len(embed["description"])
+        + len(embed["footer"]["text"])
+        + sum(len(field["name"]) + len(field["value"]) for field in embed["fields"])
+    )
+    assert aggregate == DISCORD_MAX_EMBED_CHARS
+
+
+def test_aggregate_budget_drops_fields_that_do_not_fit(monkeypatch):
+    rows = [Row("Reason", "x" * DISCORD_MAX_FIELD_VALUE_CHARS) for _ in range(3)]
+    monkeypatch.setattr("notifications.channels.renderers.discord.event_rows", lambda notification: rows)
+    embed = _render(
+        EventType.JOB_FINISHED,
+        _notification(subject="s" * 300, context={"summary": "d" * DISCORD_MAX_DESCRIPTION_CHARS}),
+    )
+    aggregate = (
+        len(embed["title"])
+        + len(embed["description"])
+        + len(embed["footer"]["text"])
+        + sum(len(field["name"]) + len(field["value"]) for field in embed["fields"])
+    )
+    assert aggregate <= DISCORD_MAX_EMBED_CHARS
+    assert len(embed["fields"]) == 2
+    assert len(embed["fields"][-1]["value"]) < DISCORD_MAX_FIELD_VALUE_CHARS
