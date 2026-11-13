@@ -1032,7 +1032,7 @@ async def test_head_sha_refuses_output_that_is_not_a_sha() -> None:
 
 
 # ---------------------------------------------------------------------------
-# stash_all / save_tree / restore_stash / drop_stash
+# stash_all / restore_stash / drop_stash
 # ---------------------------------------------------------------------------
 
 SAVED = StashedTree(stash="5" * 40, head="a" * 40, branch="main")
@@ -1052,27 +1052,9 @@ def _local_repo_with_changes(tmp_path: Path) -> tuple[Repo, Path, GitManager]:
     return repo, work, GitManager(LocalGitRunner(repo))
 
 
-async def test_save_tree_keeps_the_changes_and_records_where_head_was(tmp_path: Path) -> None:
-    repo, work, gm = _local_repo_with_changes(tmp_path)
-
-    saved = await gm.save_tree("m")
-
-    assert saved is not None
-    assert (saved.head, saved.branch) == (repo.head.commit.hexsha, "main")
-    assert repo.git.stash("list", "--format=%H").split() == [saved.stash]
-    assert (work / "README.md").read_text() == "agent edit\n"
-    assert (work / "new.py").exists()
-
-
-async def test_save_tree_returns_none_on_a_clean_tree(tmp_path: Path) -> None:
-    repo, _ = _init_repo_with_origin(tmp_path)
-
-    assert await GitManager(LocalGitRunner(repo)).save_tree("m") is None
-
-
 async def test_restore_stash_undoes_a_check_that_committed_and_left_a_stash_entry_of_its_own(tmp_path: Path) -> None:
     repo, work, gm = _local_repo_with_changes(tmp_path)
-    saved = await gm.save_tree("m")
+    saved = await gm.stash_all("m")
     (work / "README.md").write_text("written by the check\n")
     repo.git.add("-A")
     repo.index.commit("committed by the check")
@@ -1090,7 +1072,7 @@ async def test_restore_stash_undoes_a_check_that_committed_and_left_a_stash_entr
 
 async def test_restore_stash_puts_head_back_on_its_branch_after_a_check_switched_branches(tmp_path: Path) -> None:
     repo, work, gm = _local_repo_with_changes(tmp_path)
-    saved = await gm.save_tree("m")
+    saved = await gm.stash_all("m")
     repo.git.checkout("-f", "-b", "other")
 
     await gm.restore_stash(saved)
@@ -1101,7 +1083,7 @@ async def test_restore_stash_puts_head_back_on_its_branch_after_a_check_switched
 
 async def test_drop_stash_drops_its_own_entry_even_below_a_newer_one(tmp_path: Path) -> None:
     repo, work, gm = _local_repo_with_changes(tmp_path)
-    saved = await gm.save_tree("m")
+    saved = await gm.stash_all("m")
     (work / "extra.txt").write_text("x\n")
     repo.git.stash("push", "--include-untracked", "-m", "newer")
 
@@ -1187,16 +1169,6 @@ async def test_restore_stash_raises_and_keeps_the_entry_when_the_apply_fails() -
 
     assert isinstance(raised.value.__cause__, GitCommandError)
     assert not client.ran("stash drop")
-
-
-async def test_save_tree_raises_when_the_changes_cannot_be_put_back(fixed_label) -> None:
-    gm, _ = _sandbox_manager({
-        "stash push": (0, "Saved working directory and index state On main: m"),
-        "stash list": (0, f"{'5' * 40} On main: {fixed_label}\n"),
-        "stash apply": (1, "error"),
-    })
-    with pytest.raises(StashRestoreError):
-        await gm.save_tree("m")
 
 
 class _BusyRunner:

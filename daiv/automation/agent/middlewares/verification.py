@@ -80,15 +80,12 @@ def _outcome(
     changed: Sequence[str],
     rounds: int,
     reason: str | None = None,
-    changed_by_checks: Sequence[str] = (),
 ) -> VerificationOutcome:
     outcome = VerificationOutcome(
         status=status, commands=commands, rounds=rounds, suspicious_paths=suspicious_paths(changed)
     )
     if reason is not None:
         outcome["reason"] = reason
-    if changed_by_checks:
-        outcome["changed_by_checks"] = list(changed_by_checks)
     return outcome
 
 
@@ -115,9 +112,9 @@ class VerificationMiddleware(AgentMiddleware):
     Check the agent's work when it stops calling tools, before ``GitMiddleware`` publishes it.
 
     With ``before_publish`` commands, the system prompt lists them, and each time the agent stops with something to
-    publish DAIV runs them in the sandbox, once per tree, and then puts back any file they changed. A command that fails
-    is re-run once on the starting code; one that failed there too is reported, not sent back. The other failures,
-    and any file the checks changed, go back to the agent as a reminder, for at most ``MAX_FIX_ROUNDS`` rounds; a stop
+    publish DAIV runs them in the sandbox, once per tree, and leaves whatever they change in it. A command that fails
+    is re-run once on the starting code; one that failed there too is reported, not sent back. The other failures
+    go back to the agent as a reminder, for at most ``MAX_FIX_ROUNDS`` rounds; a stop
     on the tree a reminder was sent for records the failure without another round. Without commands, the agent gets
     one reminder when the tree changed after the last check it ran through bash, or that check failed. No reminder is
     sent once the step budget is finalizing, ``LoopBreakerMiddleware`` has ended the run or the run ends on a question
@@ -164,7 +161,7 @@ class VerificationMiddleware(AgentMiddleware):
         self._publish_output = publish_output
         self._rounds = 0
         self._starting: dict[str, bool] = {}
-        self._runs: dict[str, CheckRun] = {}
+        self._last_run: CheckRun | None = None
         self._reminded_tree: str | None = None
         self._agent_check: _AgentCheck | None = None
         self._fallback_sent = False
@@ -256,33 +253,26 @@ class VerificationMiddleware(AgentMiddleware):
     async def _verify(self, changed: Sequence[str], before: str, *, merging: bool, may_remind: bool) -> _Verdict:
         tree = diff_fingerprint(before)
         try:
-            run = self._runs.get(tree)
-            if run is None:
-                run = self._runs[tree] = await self._checks.run_in_place(self._commands, before=before, merging=merging)
+            run = self._last_run
+            if run is None or run.fingerprint != tree:
+                run = self._last_run = await self._checks.run_on_tree(self._commands)
             baseline = await self._baseline([result for result in run.results if not result.passed], merging=merging)
             failures = [result for result in run.results if not result.passed and result.command not in baseline]
-            remind = (
-                may_remind
-                and bool(failures or run.changed_by_checks)
-                and tree != self._reminded_tree
-                and self._rounds < MAX_FIX_ROUNDS
-            )
+            remind = may_remind and bool(failures) and tree != self._reminded_tree and self._rounds < MAX_FIX_ROUNDS
         except ChecksUnavailableError as exc:
             logger.exception("Could not run the before_publish checks; publishing as not verified: %s", exc)
             return self._not_verified(changed, str(exc))
 
-        failed = bool(failures or run.changed_by_checks)
         outcome = _outcome(
-            "failed" if failed else "passed",
+            "failed" if failures else "passed",
             commands=command_outcomes(run.results, baseline, with_output=self._publish_output),
             changed=changed,
             rounds=self._rounds + 1 if remind else self._rounds,
-            changed_by_checks=run.changed_by_checks,
         )
         if not remind:
             return _Verdict(outcome)
-        reminder = failure_reminder(failures, run.changed_by_checks, MAX_FIX_ROUNDS - self._rounds)
-        return _Verdict(outcome, reminder, tree)
+        reminder = failure_reminder(failures, MAX_FIX_ROUNDS - self._rounds)
+        return _Verdict(outcome, reminder, run.fingerprint)
 
     async def _baseline(self, failing: Sequence[CheckResult], *, merging: bool) -> frozenset[str]:
         """The ``failing`` commands that also fail on the starting code, re-checking each command at most once per

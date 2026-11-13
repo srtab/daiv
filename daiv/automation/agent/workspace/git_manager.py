@@ -399,21 +399,6 @@ class GitManager:
             return exc.response.status_code == _SANDBOX_BUSY
         return isinstance(exc, httpx.ConnectError | httpx.ConnectTimeout)
 
-    async def save_tree(self, message: str) -> StashedTree | None:
-        """Copy the tracked and untracked changes into a stash entry and leave them in the tree, for ``restore_stash``
-        or ``drop_stash`` to end. ``None`` when there was nothing to save.
-
-        Raises ``StashRestoreError`` when the changes were stashed but could not be put back in the tree.
-        """
-        saved = await self.stash_all(message)
-        if saved is None:
-            return None
-        try:
-            await self._git_unless_busy("stash", "apply", "--index", saved.stash)
-        except GIT_ERRORS as exc:
-            raise StashRestoreError from exc
-        return saved
-
     async def drop_stash(self, saved: StashedTree) -> None:
         """Drop ``saved``'s stash entry, wherever it now sits in the stash; nothing when it is gone."""
         result = await self._git_unless_busy("stash", "list", "--format=%H")

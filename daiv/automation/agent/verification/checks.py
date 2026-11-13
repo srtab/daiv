@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import logging
-import re
 import shlex
 import time
 from dataclasses import dataclass
@@ -22,8 +20,6 @@ if TYPE_CHECKING:
     from automation.agent.workspace.git_manager import GitManager
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 
-logger = logging.getLogger("daiv.agent")
-
 MAX_FIX_ROUNDS = 2
 CHECK_TIMEOUT_SECONDS = 600
 VERIFICATION_BUDGET_SECONDS = 1_800
@@ -39,8 +35,6 @@ _STASH_MESSAGE = "daiv: pre-publish verification"
 _REDACTED = "******"
 # Shorter values (``true``, ``8000``, ``python``) would mask ordinary words all over the output.
 _MIN_REDACTED_LENGTH = 8
-
-_DIFF_HEADER = re.compile(r"^diff --git ", re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -58,10 +52,9 @@ class CheckResult:
 
 @dataclass(frozen=True)
 class CheckRun:
-    """One run of the checks on a tree: its results, the files it changed, and the fingerprint of the tree it left."""
+    """One run of the checks on a tree: its results and the fingerprint of the tree it left."""
 
     results: list[CheckResult]
-    changed_by_checks: list[str]
     fingerprint: str
 
 
@@ -73,19 +66,19 @@ class ChecksUnavailableError(Exception):
 class CheckRunner:
     """
     Runs a repository's ``before_publish`` checks in the sandbox, each from the repo root in a request of its own so one
-    that fails or times out never stops the others, and puts back whatever they change in the tree.
+    that fails or times out never stops the others. Whatever they change stays in the tree.
 
     A check runs under ``timeout`` where the sandbox has it, which stops the check and every process it started in its
     process group after ``CHECK_TIMEOUT_SECONDS``, so nothing it left running writes to the tree after the checks.
     Every check a run starts shares ``VERIFICATION_BUDGET_SECONDS``, counted from the first: once it is spent, no
     further check starts and ``ChecksUnavailableError`` says so, so a run waits at most the budget and one check.
 
-    Only the last ``_OUTPUT_WINDOW_CHARS`` of a check's output are masked and compared, so a check that prints without
+    Only the last ``_OUTPUT_WINDOW_CHARS`` of a check's output are masked, so a check that prints without
     end costs no more than that.
 
     Args:
         bash: The sandbox shell the checks run in.
-        git: The run's git, which sets the tree aside and puts it back.
+        git: The run's git, which reads the tree and sets it aside to run the checks on the starting code.
         redact: Values masked in the checks' output before anyone sees it.
         clock: Monotonic seconds, which the budget is measured in.
     """
@@ -120,38 +113,15 @@ class CheckRunner:
         """One result per command, every ``redact`` value in its output masked."""
         return [await self._run_one(command) for command in commands]
 
-    async def run_in_place(self, commands: Sequence[str], *, before: str, merging: bool) -> CheckRun:
-        """Run the checks on the tree whose diff is ``before``, then put back the files they changed so none of it is
-        published.
-
-        The tree is saved in the stash first, which a merge in progress (``merging``) would not survive, so during a
-        merge what the checks changed stays. Failing to save the tree or to read it afterwards raises
-        ``ChecksUnavailableError``; failing to put it back raises ``StashRestoreError``.
-        """
+    async def run_on_tree(self, commands: Sequence[str]) -> CheckRun:
+        """Run the checks on the tree as it is, leaving whatever they change in it, and fingerprint the tree they left.
+        Failing to read it afterwards raises ``ChecksUnavailableError``."""
+        results = await self.run(commands)
         try:
-            saved = None if merging else await self._git.save_tree(_STASH_MESSAGE)
+            after = await self._git.get_diff()
         except GIT_ERRORS as exc:
-            raise ChecksUnavailableError("could not set the changes aside to run the checks") from exc
-        try:
-            results = await self.run(commands)
-            try:
-                after = await self._git.get_diff()
-            except GIT_ERRORS as exc:
-                raise ChecksUnavailableError(UNREADABLE) from exc
-        except Exception:
-            if saved is not None:
-                await self._git.restore_stash(saved)
-            raise
-        changed = changed_between(before, after)
-        if saved is not None and changed:
-            await self._git.restore_stash(saved)
-            after = before
-        elif saved is not None:
-            try:
-                await self._git.drop_stash(saved)
-            except GIT_ERRORS:
-                logger.warning("Could not drop the stash entry saved before the checks", exc_info=True)
-        return CheckRun(results, changed, diff_fingerprint(after))
+            raise ChecksUnavailableError(UNREADABLE) from exc
+        return CheckRun(results, diff_fingerprint(after))
 
     async def failing_before_change(self, failing: Sequence[CheckResult], *, merging: bool) -> frozenset[str]:
         """The ``failing`` commands that already fail on the starting code, found by stashing the agent's changes and
@@ -232,19 +202,3 @@ class CheckRunner:
 
 def diff_fingerprint(diff: str) -> str:
     return hashlib.sha256(diff.encode()).hexdigest()
-
-
-def _section_path(header: str) -> str:
-    """The path in a ``a/<path> b/<path>`` header; a rename's header, which names two paths, is kept whole."""
-    path = header[2 : 2 + (len(header) - 5) // 2]
-    return path if header == f"a/{path} b/{path}" else header
-
-
-def _diff_sections(diff: str) -> dict[str, str]:
-    sections = _DIFF_HEADER.split(diff)[1:]
-    return {_section_path(section.partition("\n")[0]): section for section in sections}
-
-
-def changed_between(before: str, after: str) -> list[str]:
-    old, new = _diff_sections(before), _diff_sections(after)
-    return [path for path in dict.fromkeys([*old, *new]) if old.get(path) != new.get(path)]

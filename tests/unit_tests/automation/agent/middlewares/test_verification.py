@@ -41,26 +41,23 @@ class FakeRepo:
     """The run's sandbox as both ``workspace.git`` and ``workspace.bash``: ``diff`` is the working tree, ``failing``
     the commands that fail on it, ``failing_on_start`` those that fail on the starting code (while stashed), ``outputs``
     and ``start_outputs`` what a command prints on each, ``checks_leave`` the tree a check run leaves behind,
-    ``unreadable_after_checks`` whether the tree can't be read once they ran, ``save_error``, ``stash_error`` and
-    ``restore_error`` what saving the tree, stashing and popping raise, and ``read_errors`` what each read of the tree
+    ``unreadable_after_checks`` whether the tree can't be read once they ran, ``stash_error`` and ``restore_error``
+    what stashing and popping raise, and ``read_errors`` what each read of the tree
     raises."""
 
     changed: list[str] = field(default_factory=lambda: ["a.py"])
     diff: str = AGENT_DIFF
     failing: set[str] = field(default_factory=set)
     failing_on_start: set[str] = field(default_factory=set)
-    fail_once: set[str] = field(default_factory=set)
     outputs: dict[str, str] = field(default_factory=dict)
     start_outputs: dict[str, str] = field(default_factory=dict)
     checks_leave: str | None = None
     unreadable_after_checks: bool = False
     error: Exception | None = None
     restore_error: Exception | None = None
-    save_error: Exception | None = None
     stash_error: Exception | None = None
     read_errors: dict[str, Exception] = field(default_factory=dict)
     stashed: bool = False
-    saved: str | None = None
     stashes: int = 0
     check_runs: int = 0
     diff_reads: int = 0
@@ -93,31 +90,16 @@ class FakeRepo:
         self.stashed = True
         return SAVED
 
-    async def save_tree(self, message: str) -> StashedTree:
-        if self.save_error is not None:
-            raise self.save_error
-        self.saved = self.diff
-        return SAVED
-
-    async def drop_stash(self, saved: StashedTree) -> None:
-        self.saved = None
-
     async def restore_stash(self, saved: StashedTree) -> None:
         if self.restore_error is not None:
             raise self.restore_error
-        if self.stashed:
-            self.stashed = False
-        elif self.saved is not None:
-            self.diff, self.saved = self.saved, None
+        self.stashed = False
 
     async def run_commands(self, commands, *, fail_fast, timeout=None) -> RunCommandsResponse:
         if self.error is not None:
             raise self.error
         declared = [_declared(command) for command in commands]
         failing, outputs = (self.failing_on_start, self.start_outputs) if self.stashed else (self.failing, self.outputs)
-        if not self.stashed and self.fail_once & set(declared):
-            failing = failing | (self.fail_once & set(declared))
-            self.fail_once -= set(declared)
         if not self.stashed:
             self.check_runs += 1
             if self.checks_leave is not None:
@@ -324,32 +306,6 @@ async def test_baseline_runs_once_per_command_per_run():
     assert repo.stashes == 1
 
 
-async def test_check_that_changes_files_counts_as_failed_and_the_files_are_put_back():
-    repo = FakeRepo(checks_leave=AGENT_DIFF + LOCK_DIFF)
-    handler, _ = _scripted(_final())
-
-    result = await _middleware(repo, finalizing=True).awrap_model_call(_request(), handler)
-
-    outcome = _outcome(result)
-    assert outcome["status"] == "failed"
-    assert outcome["changed_by_checks"] == ["uv.lock"]
-    assert [command["exit_code"] for command in outcome["commands"]] == [0]
-    assert repo.diff == AGENT_DIFF
-
-
-async def test_files_the_checks_changed_are_sent_back_once():
-    repo = FakeRepo(checks_leave=AGENT_DIFF + LOCK_DIFF)
-    handler, seen = _scripted(_final(), _final())
-
-    result = await _middleware(repo).awrap_model_call(_request(), handler)
-
-    assert "DAIV put them back as you left them: uv.lock." in seen[1].messages[-1].content
-    outcome = _outcome(result)
-    assert outcome["status"] == "failed"
-    assert outcome["rounds"] == 1
-    assert repo.check_runs == 1
-
-
 async def test_unchanged_tree_after_reminder_is_not_rechecked():
     repo = FakeRepo(failing={"make test"})
     handler, seen = _scripted(_final(), _final())
@@ -459,19 +415,7 @@ async def test_tree_unreadable_after_the_checks_records_not_verified():
     assert outcome["status"] == "not_verified"
     assert outcome["reason"] == "the repository could not be read to run the checks"
     assert repo.check_runs == 1
-    assert repo.saved is None
     assert len(seen) == 1
-
-
-async def test_tree_that_cannot_be_saved_records_not_verified():
-    repo = FakeRepo(save_error=GitCommandError(["git", "stash", "push"], 1, "cannot lock ref"))
-    handler, _ = _scripted(_final())
-
-    outcome = _outcome(await _middleware(repo).awrap_model_call(_request(), handler))
-
-    assert outcome["status"] == "not_verified"
-    assert outcome["reason"] == "could not set the changes aside to run the checks"
-    assert repo.check_runs == 0
 
 
 async def test_without_commands_an_unreadable_tree_records_not_configured_without_a_reminder():
@@ -661,3 +605,17 @@ async def test_a_delivered_question_records_the_outcome_without_a_reminder(comma
 
     assert _outcome(result)["status"] == status
     assert len(seen) == 1
+
+
+async def test_a_tree_the_checks_rewrote_is_not_checked_again_on_the_next_stop():
+    repo = FakeRepo(checks_leave=AGENT_DIFF + LOCK_DIFF)
+    middleware = _middleware(repo)
+    handler, _ = _scripted(_final())
+    await middleware.awrap_model_call(_request(), handler)
+
+    handler, _ = _scripted(_final())
+    outcome = _outcome(await middleware.awrap_model_call(_request(), handler))
+
+    assert repo.check_runs == 1
+    assert outcome["status"] == "passed"
+    assert "changed_by_checks" not in outcome
