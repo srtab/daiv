@@ -113,6 +113,7 @@ def test_an_unknown_level_is_rejected(admin_client):
 
     assert response.status_code == 200
     assert response.context["form"].errors
+    assert "Unknown thinking level: extreme." in response.content.decode()
     assert SiteConfiguration.objects.get_instance().agent_subagent_models == {}
 
 

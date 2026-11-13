@@ -338,7 +338,7 @@ class SkillModelsView(AdminRequiredMixin, SkillPageMixin, TemplateView):
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         form: ModelEntriesForm = context["form"]
-        rows = [{"field": form[name], "stale": form.stale_reasons.get(name, "")} for name in form.entries]
+        rows = form.rows
         return {
             **context,
             "skill_row": rows[0],

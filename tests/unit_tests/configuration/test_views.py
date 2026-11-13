@@ -1503,6 +1503,15 @@ class TestAgentGroupSubagentModels:
             "explore": "openai:gpt-5.4-mini",
         }
 
+    def test_an_unknown_level_is_shown_and_saves_nothing(self, admin_client):
+        response = admin_client.post(
+            AGENT_GROUP_URL, {EXPLORE_FIELD: "", GENERAL_PURPOSE_FIELD: "", f"{EXPLORE_FIELD}__thinking": "extreme"}
+        )
+
+        assert response.status_code == 200
+        assert "Unknown thinking level: extreme." in response.content.decode()
+        assert SiteConfiguration.objects.get_instance().agent_subagent_models == {}
+
     def test_an_entry_its_provider_cannot_serve_saves_nothing(self, admin_client):
         response = admin_client.post(AGENT_GROUP_URL, {EXPLORE_FIELD: "nosuch:model", GENERAL_PURPOSE_FIELD: ""})
 

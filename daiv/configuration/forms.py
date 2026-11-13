@@ -718,6 +718,18 @@ class ModelEntriesForm(forms.Form):
             self.fields[entry.thinking_field_name] = thinking_field
 
     @property
+    def rows(self) -> list[dict[str, Any]]:
+        """One row per entry for the templates: its model field, its thinking-level field and why its model is stale."""
+        return [
+            {
+                "field": self[name],
+                "thinking": self[entry.thinking_field_name],
+                "stale": self.stale_reasons.get(name, ""),
+            }
+            for name, entry in self.entries.items()
+        ]
+
+    @property
     def is_editable(self) -> bool:
         return any(not field.disabled for field in self.fields.values())
 
