@@ -25,6 +25,7 @@ from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxSession, acquire_sandbox
 from codebase.base import Scope
 from core.site_settings import site_settings
+from evals.tool_trace import capture_tool_trace
 
 from .code_review_grading import (
     Finding,
@@ -156,12 +157,16 @@ async def test_code_review_recall(model_name, case, eval_request):
             checkpointer=InMemorySaver(),
             ask_user_enabled=False,
         )
-        with measure(eval_request) as metrics:
+        with (
+            measure(eval_request) as metrics,
+            capture_tool_trace(nodeid=eval_request.node.nodeid, model=model_name) as recorder,
+        ):
             metrics.extra["kind"] = case["kind"]
+            config = {"configurable": {"thread_id": "1"}}
+            if recorder is not None:
+                config["callbacks"] = [recorder]
             result = await agent.ainvoke(
-                {"messages": [{"role": "user", "content": REVIEW_REQUEST}]},
-                context=ctx,
-                config={"configurable": {"thread_id": "1"}},
+                {"messages": [{"role": "user", "content": REVIEW_REQUEST}]}, context=ctx, config=config
             )
     metrics.messages = result["messages"]
     report = final_text(result["messages"])
