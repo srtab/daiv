@@ -16,6 +16,7 @@ The Agent group's models of the subagents every run can delegate to. Context: `s
     </p>
     <div class="mt-4 space-y-4">
         {% for field in subagent_models_form %}
+        {% if not field.field.is_rendered_inline %}
         <div class="model-entry">
             <div class="model-entry__text">
                 <div class="font-mono text-sm text-gray-200">{{ field.label }}</div>
@@ -24,6 +25,7 @@ The Agent group's models of the subagents every run can delegate to. Context: `s
             </div>
             {{ field }}
         </div>
+        {% endif %}
         {% endfor %}
     </div>
     <p class="mt-5 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 text-xs text-gray-400">

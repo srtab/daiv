@@ -27,6 +27,7 @@ from configuration.forms import (
     model_spec_error,
 )
 from core.mixins import AdminRequiredMixin
+from core.model_choice import EMPTY_CHOICE
 from core.models import FieldGroup, Provider, SiteConfiguration, WebFetchAuthHeader
 from core.site_settings import legacy_explore_model, site_settings
 from core.utils import short_model_name
@@ -285,6 +286,7 @@ def _mono(text: str) -> str:
 def skill_model_entries(page: SkillPage) -> list[ModelEntry]:
     """The model entries of ``page``'s skill: its own, then one per subagent it ships."""
     declared = page.declared_choice.model
+    skill_site_choice = site_settings.agent_skill_models.get(page.name, EMPTY_CHOICE)
     skill_help = format_html(
         gettext("Serves the run from the moment {} is invoked until the next message."), _mono(page.name)
     )
@@ -292,17 +294,22 @@ def skill_model_entries(page: SkillPage) -> list[ModelEntry]:
         declares = format_html(gettext("Its SKILL.md declares {}."), _mono(declared))
         skill_help = format_html("{} {}", skill_help, declares)
     skill_default = short_model_name(declared) or RUN_MODEL_LABEL
+    detector_fallback = skill_site_choice.over(page.declared_choice)
     return [
-        ModelEntry("agent_skill_models", page.name, _("Skill"), skill_help, skill_default),
+        ModelEntry(
+            "agent_skill_models", page.name, _("Skill"), skill_help, skill_default, page.declared_choice.thinking_level
+        ),
         *(
             ModelEntry(
                 "agent_subagent_models",
                 subagent.name,
                 subagent.name,
                 subagent.summary,
-                short_model_name(subagent.choice.model) or RUN_MODEL_LABEL,
+                short_model_name(default.model) or RUN_MODEL_LABEL,
+                default.thinking_level,
             )
             for subagent in skill_subagents(page.name)
+            for default in [subagent.choice.over(detector_fallback)]
         ),
     ]
 
@@ -331,7 +338,7 @@ class SkillModelsView(AdminRequiredMixin, SkillPageMixin, TemplateView):
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         form: ModelEntriesForm = context["form"]
-        rows = [{"field": form[name], "stale": form.stale_reasons.get(name, "")} for name in form.fields]
+        rows = [{"field": form[name], "stale": form.stale_reasons.get(name, "")} for name in form.entries]
         return {
             **context,
             "skill_row": rows[0],

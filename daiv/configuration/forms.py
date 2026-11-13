@@ -15,7 +15,7 @@ from django.forms.models import BaseModelFormSet, modelformset_factory
 from django.utils.translation import gettext_lazy as _
 
 from automation.agent.model_spec import HTTPX_CLIENT_PROVIDER_TYPES, canonical_model_spec, parse_model_spec
-from core.model_choice import EMPTY_CHOICE, ModelChoice, parse_model_choice, parse_model_choices
+from core.model_choice import EMPTY_CHOICE, VALID_LEVELS, ModelChoice, parse_model_choices
 from core.models import (
     THINKING_OFF,
     Provider,
@@ -113,9 +113,13 @@ class _AgentPickerWidget(forms.Widget):
 
     template_name = "configuration/fields/agent_picker_widget.html"
 
-    def __init__(self, *, paired_thinking_field: str | None = None, attrs: dict | None = None):
+    def __init__(
+        self, *, paired_thinking_field: str | None = None, allow_off: bool | None = None, attrs: dict | None = None
+    ):
         super().__init__(attrs)
         self.paired_thinking_field = paired_thinking_field
+        # ``None`` defers to ``SiteConfiguration.THINKING_OFF_FIELDS``.
+        self.allow_off = allow_off
         # Set by ``SiteConfigurationForm._apply_defaults`` so the placeholder
         # pill can render "Default (env-value)". Empty when no default is
         # configured for this field.
@@ -174,7 +178,11 @@ class _AgentPickerWidget(forms.Widget):
             "default_thinking": self.default_thinking,
             "placeholder_label": placeholder,
             "with_effort": with_effort,
-            "allow_off": self.paired_thinking_field in SiteConfiguration.THINKING_OFF_FIELDS,
+            "allow_off": (
+                self.allow_off
+                if self.allow_off is not None
+                else self.paired_thinking_field in SiteConfiguration.THINKING_OFF_FIELDS
+            ),
             "disabled": is_disabled,
             # ``_apply_env_locks`` is the only path that sets ``title`` in the
             # settings flow, so we surface its value as the locked-pill tooltip
@@ -640,22 +648,28 @@ RUN_MODEL_LABEL = _("Run's model")
 
 @dataclass(frozen=True)
 class ModelEntry:
-    """One ``{name: model spec}`` entry of ``agent_skill_models`` or ``agent_subagent_models``, as its row shows it:
-    ``default_label`` names what serves while the entry is unset."""
+    """One ``{name: model and/or thinking level}`` entry of ``agent_skill_models`` or ``agent_subagent_models``, as its
+    row shows it: ``default_label`` and ``default_thinking`` name what serves while the entry is unset."""
 
     site_field: str
     name: str
     label: StrOrPromise
     help_text: StrOrPromise
     default_label: StrOrPromise = RUN_MODEL_LABEL
+    default_thinking: str = ""
 
     @property
     def field_name(self) -> str:
         return f"{self.site_field}__{self.name}"
 
+    @property
+    def thinking_field_name(self) -> str:
+        return f"{self.field_name}__thinking"
+
 
 class ModelEntriesForm(forms.Form):
-    """A model picker per ``ModelEntry``, saved into the site's model maps without touching their other entries.
+    """A model picker with effort dots per ``ModelEntry``, saved into the site's model maps without touching their
+    other entries.
 
     A map set by its environment variable shows its value locked. Only a changed entry must name a usable model, so an
     entry whose provider went away is kept, flagged ``stale``, until someone picks another.
@@ -677,9 +691,15 @@ class ModelEntriesForm(forms.Form):
         for field_name, entry in self.entries.items():
             locked = locks[entry.site_field]
             # Canonical, as the picker posts it back: a bare stored name would read as changed, and be cleared.
-            value = canonical_model_spec(maps[entry.site_field].get(entry.name, EMPTY_CHOICE).model)
-            widget = _AgentPickerWidget()
+            choice = maps[entry.site_field].get(entry.name, EMPTY_CHOICE)
+            value = canonical_model_spec(choice.model)
+            thinking_name = self.add_prefix(entry.thinking_field_name)
+            widget = _AgentPickerWidget(paired_thinking_field=thinking_name, allow_off=True)
             widget.placeholder = str(entry.default_label)
+            widget.default_thinking = entry.default_thinking
+            widget.initial_thinking = (
+                str(self.data.get(thinking_name, "") or "") if self.is_bound else choice.thinking_level
+            )
             if value and (reason := spec_error(value)):
                 widget.stale = True
                 self.stale_reasons[field_name] = reason
@@ -693,6 +713,9 @@ class ModelEntriesForm(forms.Form):
                 disabled=locked,
                 widget=widget,
             )
+            thinking_field = forms.CharField(required=False, initial=choice.thinking_level, disabled=locked)
+            thinking_field.is_rendered_inline = True  # type: ignore[attr-defined]
+            self.fields[entry.thinking_field_name] = thinking_field
 
     @property
     def is_editable(self) -> bool:
@@ -705,19 +728,23 @@ class ModelEntriesForm(forms.Form):
     def clean(self) -> dict[str, Any]:
         cleaned = super().clean() or {}
         for name in self.changed_data:
-            if (spec := cleaned.get(name)) and (error := model_spec_error(spec)):
-                self.add_error(name, error)
+            if name in self.entries:
+                if (spec := cleaned.get(name)) and (error := model_spec_error(spec)):
+                    self.add_error(name, error)
+            elif (level := cleaned.get(name, "").lower()) and level not in VALID_LEVELS:
+                self.add_error(name, _("Unknown thinking level: %(l)s.") % {"l": level})
         return cleaned
 
     def apply_to(self, config: SiteConfiguration) -> list[str]:
         """Write the changed entries into ``config``; returns the fields it changed, for ``save(update_fields=...)``."""
         changed: list[str] = []
-        for name in self.changed_data:
-            entry = self.entries[name]
+        for name, entry in self.entries.items():
+            if name not in self.changed_data and entry.thinking_field_name not in self.changed_data:
+                continue
             entries = dict(getattr(config, entry.site_field))
-            if spec := self.cleaned_data[name]:
-                kept = parse_model_choice(entries.get(entry.name), source=f"site {entry.site_field}")
-                entries[entry.name] = ModelChoice(spec, kept.thinking_level).stored()
+            choice = ModelChoice(self.cleaned_data[name], self.cleaned_data[entry.thinking_field_name].lower())
+            if choice:
+                entries[entry.name] = choice.stored()
             else:
                 entries.pop(entry.name, None)
             setattr(config, entry.site_field, entries)
