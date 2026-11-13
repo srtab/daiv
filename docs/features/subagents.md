@@ -127,7 +127,7 @@ A subagent's model and its thinking level each come from the first of these that
 
 The detectors inherit the `code-review` skill's model and level, so setting them on the skill moves every detector. No other subagent inherits a skill's model or level. A thinking level set at any step beats the run's, `daiv-max`'s included, and a model that the user picks for the run does not override an entry. A configured model falls back to the main agent's fallback models, which keep the site's fallback thinking level.
 
-When an entry names a provider that is unknown, disabled or missing its API key, the subagent runs on its file's `model`, else on the main agent's model, so it is never left out of the run. DAIV logs the failure at ERROR. When a call on the configured model fails, for example because the provider does not know the model name, the main agent's fallback models serve it, as for any other model.
+When an entry names a provider that is unknown, disabled or missing its API key, the subagent runs on its file's `model` (for a detector, then the `code-review` skill's model), else on the main agent's model, so it is never left out of the run. DAIV logs the failure at ERROR. When a call on the configured model fails, for example because the provider does not know the model name, the main agent's fallback models serve it, as for any other model.
 
 ## Related pages
 

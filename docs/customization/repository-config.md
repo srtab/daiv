@@ -209,7 +209,7 @@ Replace `<name>` with the name of a skill or subagent. For a given name, the mod
     1. this repository's entry;
     2. the site's entry;
     3. its built-in model, `openrouter:anthropic/claude-haiku-5.5` (a model only);
-    4. the run's thinking level.
+    4. the run's thinking level, and the run's model when Haiku cannot be built.
 - **The general-purpose subagent:**
     1. this repository's entry;
     2. the site's entry;
@@ -222,4 +222,4 @@ Replace `<name>` with the name of a skill or subagent. For a given name, the mod
 
 A model picked for the run, `daiv-max`, or an exact model passed to the jobs API does not override a configured model. A thinking level set at any step beats the run's level, `daiv-max`'s included. The fallback models keep the site's fallback thinking level.
 
-DAIV checks the values when a run uses them, not when the file loads, so a typo never drops the rest of `.daiv.yml`. An unknown `thinking_level` is dropped and logged as an error, and the rest of the entry still applies. A model that can't be used falls back to the model the file declares, else the run's model, not to the site entry, and DAIV logs the failure as an error. Names that match no skill or subagent are ignored. See [Agent skills](agent-skills.md#run-a-skill-on-another-model) and [Subagents](../features/subagents.md#subagent-model-precedence).
+DAIV checks the values when a run uses them, not when the file loads, so a typo never drops the rest of `.daiv.yml`. An unknown `thinking_level` is dropped and logged as an error, and the rest of the entry still applies. A model that can't be used falls back to the model the file declares (for a detector, then the `code-review` skill's model), else the run's model, not to the site entry, and DAIV logs the failure as an error. Names that match no skill or subagent are ignored. See [Agent skills](agent-skills.md#run-a-skill-on-another-model) and [Subagents](../features/subagents.md#subagent-model-precedence).
