@@ -8,7 +8,6 @@ from deepagents.backends.composite import CompositeBackend
 
 from automation.agent.constants import REPO_PATH, WORKSPACE_PATH
 from automation.agent.context import extra_repo_path
-from automation.agent.workspace.browser import SandboxBrowser
 from automation.agent.workspace.git_manager import FastForward, GitManager
 from automation.agent.workspace.git_runners import SandboxGitRunner
 from automation.agent.workspace.repo_view import RepoWorkspace
@@ -20,6 +19,7 @@ if TYPE_CHECKING:
 
     from automation.agent.context import RepoHandle
     from automation.agent.workspace.base import PublishWorkspace
+    from automation.agent.workspace.browser import SandboxBrowser
     from automation.agent.workspace.session import SandboxSession
     from core.site_settings import SiteSnapshot
 
@@ -54,11 +54,20 @@ class SandboxWorkspace:
         return self.session.is_acquired
 
     async def aresolve_browser(self, site: SiteSnapshot) -> None:
-        """The capability is asked last, so a service that lacks it is logged only where the browser was wanted."""
+        """The capability is asked last, so a service that lacks it is logged only where the browser was wanted. A
+        failure to ask leaves the run without a browser rather than failing it."""
         if not (site.sandbox_browser_enabled and self.session.spec.browser and self.is_ready):
             return
-        if not (await SandboxCapabilityProbe().aget(self.session.client)).browser:
+        try:
+            capabilities = await SandboxCapabilityProbe().aget(self.session.client)
+        except Exception:
+            logger.exception("Could not check the sandbox service for the browser, so this run gets no browser tools")
             return
+        if capabilities is None or not capabilities.browser:
+            return
+        # Imported here so Stagehand loads only in processes that run a browser.
+        from automation.agent.workspace.browser import SandboxBrowser
+
         self.browser = SandboxBrowser(
             self.session,
             self.session.client,

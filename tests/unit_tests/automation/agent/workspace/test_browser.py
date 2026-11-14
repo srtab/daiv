@@ -6,6 +6,8 @@ import pathlib
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.core.cache import cache
+
 import httpx
 import pytest
 from stagehand import get_extension_archive
@@ -44,6 +46,7 @@ class FakeTunnel:
 def stagehand_stubs():
     """Stub the tunnel, Stagehand's connect and create, and the facade; record what each got."""
     FakeTunnel.instances = []
+    cache.delete(browser_module.extension_cache_key("sess-1"))
     stubs = SimpleNamespace(created=[], facades=[], connects=[])
 
     async def connect(**kwargs):
@@ -105,6 +108,43 @@ async def test_the_first_call_starts_the_browser_once_with_the_extension(stageha
     assert archive == get_extension_archive()
     assert request.extension_sha256 == hashlib.sha256(archive).hexdigest()
     assert (request.memory_bytes, request.cpus) == (2**30, 1.0)
+
+
+async def test_a_later_run_on_the_same_session_leaves_the_extension_out(stagehand_stubs):
+    client = FakeSandboxClient.opened()
+    await _started_browser(client)
+    await _started_browser(client)
+
+    [(_, _, first), (_, _, second)] = client.calls_to("start_browser")
+    assert first == get_extension_archive()
+    assert second is None
+
+
+async def test_a_container_that_lost_the_extension_gets_it_again(stagehand_stubs):
+    client = FakeSandboxClient.opened()
+    await _started_browser(client)
+    start = client.start_browser
+
+    async def missing_without_archive(session_id, request, extension_archive):
+        if extension_archive is None:
+            client.calls.append(("start_browser", (session_id, request, None)))
+            raise client._status_error("start_browser", 409, "extension missing")
+        return await start(session_id, request, extension_archive)
+
+    client.start_browser = missing_without_archive
+    await _browser(client).aensure()
+
+    assert [archive for *_, archive in client.calls_to("start_browser")] == [
+        get_extension_archive(),
+        None,
+        get_extension_archive(),
+    ]
+
+
+async def _started_browser(client: FakeSandboxClient) -> None:
+    browser = _browser(client)
+    await browser.aensure()
+    await browser.arelease(stop=False)
 
 
 async def test_stagehand_connects_through_the_tunnel_with_no_model(stagehand_stubs):
@@ -464,7 +504,30 @@ async def test_a_late_failure_on_the_old_connection_leaves_the_restarted_browser
     assert browser.facade is not old_facade
     release_late_call.set()
 
-    with pytest.raises(BrowserError):
+    with pytest.raises(BrowserError) as raised:
         await late_call
+    assert str(raised.value) == (
+        "error: The browser stopped (the connection was lost) and restarted from this session's last saved profile; "
+        "pages and state since then were lost."
+    )
     assert browser.state == "ready"
     assert browser.client.calls_to("stop_browser") == [("sess-1", False)]
+
+
+async def test_a_stop_that_hangs_after_a_loss_is_cut_short(stagehand_stubs, monkeypatch):
+    monkeypatch.setattr(browser_module, "RELEASE_BUDGET_SECONDS", 0.01)
+    client = FakeSandboxClient.opened()
+    browser = _browser(client)
+    await browser.aensure()
+
+    async def hang(*_args, **_kwargs):
+        await asyncio.sleep(10)
+
+    async def drop(_facade):
+        raise CDPConnectionClosedError
+
+    client.stop_browser = hang
+
+    with pytest.raises(BrowserError, match="connection was lost"):
+        await asyncio.wait_for(browser.acall(drop), timeout=2)
+    assert browser.state == "lost"

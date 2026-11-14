@@ -9,8 +9,8 @@ from langchain.agents.middleware import AgentMiddleware
 from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.messages import ToolMessage
 
+from automation.agent.constants import BROWSER_SNAPSHOT_NAME, BROWSER_TOOL_NAMES
 from automation.agent.events import TOOL_MEDIA_EVENT
-from automation.agent.middlewares.browser import BROWSER_SNAPSHOT_NAME, BROWSER_TOOL_NAMES
 from automation.agent.synthetic import SYNTHETIC_KWARG, TOOL_MEDIA_KIND
 from automation.agent.tool_media import (
     DAIV_MEDIA_KEY,

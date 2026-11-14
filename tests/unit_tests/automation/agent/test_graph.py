@@ -14,10 +14,11 @@ from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
 
 from automation.agent.artifacts import FETCH_ARTIFACT_TOOL_NAME, PUBLISH_ARTIFACT_TOOL_NAME
+from automation.agent.constants import BROWSER_TOOL_NAMES
 from automation.agent.graph import ALWAYS_LOADED_TOOLS, create_daiv_agent, dynamic_daiv_system_prompt
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
-from automation.agent.middlewares.browser import BROWSER_TOOL_NAMES, BrowserMiddleware
+from automation.agent.middlewares.browser import BrowserMiddleware
 from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
 from automation.agent.middlewares.file_system import DAIVFilesystemMiddleware

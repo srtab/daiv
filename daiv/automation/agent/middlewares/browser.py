@@ -24,6 +24,7 @@ from pydantic import Field
 from stagehand_middleware.facade import StagehandFacadeExecutionError, StagehandFacadeInputError
 from stagehand_middleware.facade.tools import sanitize_error_message
 
+from automation.agent.constants import BROWSER_RUN_NAME, BROWSER_SCREENSHOT_NAME, BROWSER_SNAPSHOT_NAME
 from automation.agent.workspace.browser import BrowserError
 
 if TYPE_CHECKING:
@@ -34,11 +35,6 @@ if TYPE_CHECKING:
     from automation.agent.workspace.browser import SandboxBrowser
 
 logger = logging.getLogger("daiv.tools")
-
-BROWSER_RUN_NAME = "browser_run"
-BROWSER_SNAPSHOT_NAME = "browser_snapshot"
-BROWSER_SCREENSHOT_NAME = "browser_screenshot"
-BROWSER_TOOL_NAMES = frozenset({BROWSER_RUN_NAME, BROWSER_SNAPSHOT_NAME, BROWSER_SCREENSHOT_NAME})
 
 # Anthropic's limits for one image: 5 MB of base64, and 8000 px on a side.
 MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024
@@ -194,7 +190,8 @@ class BrowserMiddleware(AgentMiddleware):
         image, note = await self._call_with_note(
             lambda facade: facade.screenshot(full_page=full_page, type=image_type, quality=quality)
         )
-        if len(image["data"]) > MAX_SCREENSHOT_BYTES:
+        retake_shrinks = image_type == "png" or quality is None or quality > RETAKE_JPEG_QUALITY
+        if len(image["data"]) > MAX_SCREENSHOT_BYTES and retake_shrinks:
             image, retake_note = await self._call_with_note(
                 lambda facade: facade.screenshot(full_page=full_page, type="jpeg", quality=RETAKE_JPEG_QUALITY)
             )

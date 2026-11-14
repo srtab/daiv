@@ -30,7 +30,7 @@ from configuration.forms import (
 from core.mixins import AdminRequiredMixin
 from core.model_choice import EMPTY_CHOICE
 from core.models import FieldGroup, Provider, SiteConfiguration, WebFetchAuthHeader
-from core.sandbox.capabilities import SandboxCapabilityProbe
+from core.sandbox.capabilities import NO_BROWSER_MESSAGE, SandboxCapabilityProbe
 from core.site_settings import legacy_explore_model, site_settings
 from core.utils import short_model_name
 
@@ -69,12 +69,6 @@ class SiteConfigurationIndexView(AdminRequiredMixin, View):
     def get(self, request):
         first_group = SiteConfiguration.get_field_groups()[0]
         return redirect("site_configuration", group_key=first_group.key)
-
-
-BROWSER_UNSUPPORTED_WARNING = _(
-    "The sandbox service does not support the browser, so runs get no browser tools. "
-    "Upgrade daiv-sandbox to 0.6.0 or later."
-)
 
 
 class SiteConfigurationGroupView(AdminRequiredMixin, View):
@@ -230,9 +224,10 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
         """Standing warnings about the group's current settings, shown on every view and not only after a save."""
         if self.group.key != "sandbox" or not site_settings.sandbox_browser_enabled:
             return []
-        if async_to_sync(SandboxCapabilityProbe().aget)().browser:
+        capabilities = async_to_sync(SandboxCapabilityProbe().aget)()
+        if capabilities is None or capabilities.browser:
             return []
-        return [str(BROWSER_UNSUPPORTED_WARNING)]
+        return [gettext(NO_BROWSER_MESSAGE)]
 
     @staticmethod
     def _split_provider_forms(formset) -> tuple[list, list]:

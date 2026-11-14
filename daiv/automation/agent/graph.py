@@ -29,7 +29,6 @@ from automation.agent.delegation import DELEGATE_JOBS_TOOL_NAME
 from automation.agent.mcp.toolkits import load_mcp_tools
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
-from automation.agent.middlewares.browser import BrowserMiddleware
 from automation.agent.middlewares.context_usage import ContextUsageMiddleware
 from automation.agent.middlewares.deferred_tools import (
     deferred_tools_middleware,
@@ -86,6 +85,7 @@ if TYPE_CHECKING:
     from automation.agent.session_links import SessionLinksResolver
     from automation.agent.tool_media import ToolMediaStore
     from automation.agent.workspace.base import Workspace
+    from automation.agent.workspace.browser import SandboxBrowser
 
 
 logger = logging.getLogger("daiv.agent")
@@ -175,6 +175,13 @@ def dynamic_write_todos_system_prompt(bash_tool_enabled: bool) -> str:
     Dynamic prompt for the write todos system.
     """
     return cast("str", WRITE_TODOS_SYSTEM_PROMPT.format(bash_tool_enabled=bash_tool_enabled).content)
+
+
+def _browser_middleware(browser: SandboxBrowser) -> AgentMiddleware:
+    # Imported here so Stagehand loads only in processes that run a browser.
+    from automation.agent.middlewares.browser import BrowserMiddleware
+
+    return BrowserMiddleware(browser=browser)
 
 
 async def create_daiv_agent(
@@ -329,7 +336,7 @@ async def create_daiv_agent(
         *([WebFetchMiddleware()] if settings.web_fetch_enabled else []),
         *([ArtifactsMiddleware(workspace=workspace, store=artifact_store)] if artifact_store is not None else []),
         *([ToolMediaMiddleware(store=tool_media_store)] if tool_media_store is not None else []),
-        *([BrowserMiddleware(browser=workspace.browser)] if workspace.browser is not None else []),
+        *([_browser_middleware(workspace.browser)] if workspace.browser is not None else []),
         # Takes the slot of deepagents' UnsupportedContentMiddleware, innermost, by name.
         ToolImageNoticeMiddleware(),
         *([DelegateJobsMiddleware(delegator=delegator)] if delegator is not None else []),

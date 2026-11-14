@@ -204,6 +204,26 @@ async def test_a_run_that_skipped_the_sandbox_gets_no_browser():
     assert workspace.browser is None
 
 
+async def test_a_service_that_cannot_be_asked_gives_no_browser():
+    workspace = _browser_workspace()
+    workspace.session.client.fail("get_capabilities", status=None)
+
+    await workspace.aresolve_browser(site_snapshot(sandbox_browser_enabled=True))
+
+    assert workspace.browser is None
+
+
+async def test_a_cache_failure_while_asking_gives_no_browser_and_the_run_goes_on(caplog, monkeypatch):
+    workspace = _browser_workspace()
+    monkeypatch.setattr("core.sandbox.capabilities.cache.aget", AsyncMock(side_effect=ConnectionError("redis down")))
+
+    with caplog.at_level(logging.ERROR, logger="daiv.tools"):
+        await workspace.aresolve_browser(site_snapshot(sandbox_browser_enabled=True))
+
+    assert workspace.browser is None
+    assert any("no browser tools" in r.getMessage() for r in caplog.records)
+
+
 async def test_a_service_without_the_capability_gives_no_browser_and_logs_why(caplog):
     workspace = _browser_workspace(capability=False)
 

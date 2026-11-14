@@ -92,7 +92,8 @@ class TestGeneralPurposeMiddleware:
 
     def test_a_run_with_a_browser_gives_its_subagent_no_browser_tools(self, mock_model, mock_backend, mock_runtime_ctx):
         """Stagehand allows one client per browser, so only the main agent drives it."""
-        from automation.agent.middlewares.browser import BROWSER_TOOL_NAMES, BrowserMiddleware
+        from automation.agent.constants import BROWSER_TOOL_NAMES
+        from automation.agent.middlewares.browser import BrowserMiddleware
 
         workspace = _workspace(mock_backend, sandbox=True)
         workspace.browser = Mock()

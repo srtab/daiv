@@ -163,6 +163,16 @@ async def test_a_screenshot_over_five_mib_is_retaken_once_as_jpeg(tools, browser
     assert browser.facade.screenshot.await_args_list[1].kwargs == {"full_page": True, "type": "jpeg", "quality": 60}
 
 
+@pytest.mark.parametrize("quality", [60, 30])
+async def test_a_jpeg_already_at_or_below_the_retake_quality_is_not_retaken(tools, browser, quality):
+    browser.facade.screenshot.return_value = _image(6 * 2**20, "image/jpeg")
+
+    message = await _call(tools["browser_screenshot"], fullPage=True, type="jpeg", quality=quality)
+
+    assert message.status == "error"
+    browser.facade.screenshot.assert_awaited_once_with(full_page=True, type="jpeg", quality=quality)
+
+
 async def test_a_screenshot_still_over_five_mib_says_to_capture_the_viewport(tools, browser):
     browser.facade.screenshot.side_effect = [_image(7 * 2**20), _image(6 * 2**20, "image/jpeg")]
 

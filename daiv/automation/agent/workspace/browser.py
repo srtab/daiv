@@ -20,6 +20,9 @@ import shutil
 import tempfile
 from typing import TYPE_CHECKING, Literal
 
+from django.core.cache import cache
+
+import httpx
 from stagehand import Stagehand, get_extension_archive, local_browser
 from stagehand.cdp_client import CDPConnectionClosedError
 from stagehand_middleware.facade import StagehandFacadeTools
@@ -45,6 +48,7 @@ RELEASE_BUDGET_SECONDS = 60
 DISCONNECT_BUDGET_SECONDS = 10
 MAX_START_FAILURES = 2
 NAVIGATION_HISTORY_BUDGET_SECONDS = 5
+EXTENSION_CACHE_TTL = 24 * 60 * 60
 CHROME_ERROR_URL_PREFIX = "chrome-error://"
 
 START_FAILED_TEXT = "error: The browser could not start. Try again; if it fails again, continue without it."
@@ -65,6 +69,11 @@ def restarted_note(reason: str) -> str:
         f"The browser stopped ({reason}) and restarted from this session's last saved profile; "
         "pages and state since then were lost."
     )
+
+
+def extension_cache_key(session_id: str) -> str:
+    """Where the digest of the extension a session's browser container holds is kept."""
+    return f"sandbox:browser-extension:{session_id}"
 
 
 def profile_note(response: BrowserStartResponse) -> str | None:
@@ -150,7 +159,7 @@ class SandboxBrowser:
         except Exception as error:
             if not self._connection_lost(error, stagehand):
                 raise
-            raise BrowserError(lost_text(await self._on_lost(stagehand))) from None
+            raise BrowserError(await self._on_lost(stagehand)) from None
 
     async def aensure(self) -> StagehandFacadeTools:
         async with self._lock:
@@ -233,7 +242,7 @@ class SandboxBrowser:
         self._session_id = session_id
         archive, digest = _extension()
         memory_bytes, cpus = self.limits
-        response = await self.client.start_browser(
+        response = await self._start_container(
             session_id, BrowserStartRequest(memory_bytes=memory_bytes, cpus=cpus, extension_sha256=digest), archive
         )
         self.tunnel = await BrowserTunnel(self.client, session_id).aopen()
@@ -246,6 +255,22 @@ class SandboxBrowser:
             self.artifact_dir = tempfile.mkdtemp(prefix="daiv-browser-")
         self.facade = facade = self._new_facade(stagehand)
         return response, facade
+
+    async def _start_container(
+        self, session_id: str, request: BrowserStartRequest, archive: bytes
+    ) -> BrowserStartResponse:
+        """Leaves the extension archive out when the session's container already holds it, and sends it on the 409 a
+        container that lost it answers."""
+        key = extension_cache_key(session_id)
+        if await cache.aget(key) == request.extension_sha256:
+            try:
+                return await self.client.start_browser(session_id, request, None)
+            except httpx.HTTPStatusError as error:
+                if error.response.status_code != httpx.codes.CONFLICT:
+                    raise
+        response = await self.client.start_browser(session_id, request, archive)
+        await cache.aset(key, request.extension_sha256, EXTENSION_CACHE_TTL)
+        return response
 
     def _new_facade(self, stagehand: Stagehand) -> StagehandFacadeTools:
         return StagehandFacadeTools(stagehand, artifact_root=self.artifact_dir, on_close_requested=self._reopen_facade)
@@ -262,10 +287,13 @@ class SandboxBrowser:
         return stagehand is not None and not stagehand.browser.connected
 
     async def _on_lost(self, stagehand: Stagehand | None) -> str:
-        """Stop the browser whose connection ``stagehand`` held, unless it was already stopped or replaced."""
+        """Stop the browser whose connection ``stagehand`` held, unless it was already stopped or replaced, and say
+        what the agent is told."""
         async with self._lock:
+            if self.state == "ready" and self.stagehand is not stagehand:
+                return f"error: {restarted_note(self._lost_reason)}"
             if self.state == "lost" or self.stagehand is not stagehand:
-                return self._lost_reason
+                return lost_text(self._lost_reason)
             self.state = "lost"
             await self._discard_connection()
             stopped = await self._stop_after_loss()
@@ -278,13 +306,14 @@ class SandboxBrowser:
                 reason,
             )
             self.pending_note = restarted_note(reason)
-            return reason
+            return lost_text(reason)
 
     async def _stop_after_loss(self) -> BrowserStopResponse | None:
         if self._session_id is None:
             return None
         try:
-            return await self.client.stop_browser(self._session_id)
+            async with asyncio.timeout(RELEASE_BUDGET_SECONDS):
+                return await self.client.stop_browser(self._session_id)
         except Exception:
             logger.exception("Could not stop the lost browser of sandbox session %s", self.session.session_id)
             return None

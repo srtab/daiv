@@ -1606,12 +1606,10 @@ class TestSandboxBrowserWarning:
         "Upgrade daiv-sandbox to 0.6.0 or later."
     )
 
-    def _get(self, client, admin_user, group_url, *, browser: bool):
+    def _get(self, client, admin_user, group_url, *, browser: bool | None):
         client.force_login(admin_user)
-        with patch(
-            "configuration.views.SandboxCapabilityProbe.aget",
-            AsyncMock(return_value=SandboxCapabilities(browser=browser)),
-        ) as probe:
+        capabilities = None if browser is None else SandboxCapabilities(browser=browser)
+        with patch("configuration.views.SandboxCapabilityProbe.aget", AsyncMock(return_value=capabilities)) as probe:
             response = client.get(group_url("sandbox"))
         return response.content.decode(), probe
 
@@ -1631,6 +1629,14 @@ class TestSandboxBrowserWarning:
         content, _ = self._get(client, admin_user, group_url, browser=True)
 
         assert self.WARNING not in content
+
+    def test_no_upgrade_warning_when_the_service_could_not_be_asked(self, client, admin_user, group_url, monkeypatch):
+        monkeypatch.setenv("DAIV_SANDBOX_BROWSER_ENABLED", "true")
+
+        content, probe = self._get(client, admin_user, group_url, browser=None)
+
+        assert self.WARNING not in content
+        probe.assert_awaited_once()
 
     def test_no_warning_and_no_probe_while_the_switch_is_off(self, client, admin_user, group_url):
         content, probe = self._get(client, admin_user, group_url, browser=False)

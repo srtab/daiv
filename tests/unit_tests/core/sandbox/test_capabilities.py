@@ -36,14 +36,17 @@ async def test_aget_reports_no_browser_on_an_old_service_and_logs_once_per_refre
     assert [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR] == [NO_BROWSER_MESSAGE]
 
 
-async def test_aget_reports_no_browser_on_a_transport_error(caplog):
+async def test_aget_answers_none_on_a_transport_error_and_asks_again_next_time(caplog):
     client = _client(error=httpx.ConnectError("refused"))
 
     with caplog.at_level(logging.ERROR, logger="daiv.sandbox"):
-        capabilities = await SandboxCapabilityProbe().aget(client)
+        assert await SandboxCapabilityProbe().aget(client) is None
+        client.get_capabilities.side_effect = None
+        client.get_capabilities.return_value = SandboxCapabilities(browser=True)
+        assert (await SandboxCapabilityProbe().aget(client)).browser is True
 
-    assert capabilities.browser is False
     assert len([r for r in caplog.records if r.levelno == logging.ERROR]) == 1
+    assert client.get_capabilities.await_count == 2
 
 
 async def test_aget_opens_its_own_client_when_none_is_given(monkeypatch):
@@ -65,5 +68,5 @@ async def test_aget_opens_its_own_client_when_none_is_given(monkeypatch):
 @pytest.mark.parametrize(
     "error", [ValueError("Expecting value"), ValidationError.from_exception_data("SandboxCapabilities", [])]
 )
-async def test_aget_reports_no_browser_on_a_malformed_answer(error):
-    assert (await SandboxCapabilityProbe().aget(_client(error=error))).browser is False
+async def test_aget_answers_none_on_a_malformed_answer(error):
+    assert await SandboxCapabilityProbe().aget(_client(error=error)) is None
