@@ -42,6 +42,10 @@ class TestFingerprint:
     def test_it_changes_with_what_the_container_is_built_from(self, change):
         assert _spec(**change).fingerprint != _spec().fingerprint
 
+    def test_the_browser_field_does_not_change_it(self):
+        """Turning the browser on or off must never replace a sandbox."""
+        assert _spec(browser=True).fingerprint == _spec(browser=False).fingerprint
+
     def test_an_egress_secret_value_does_not_change_it(self):
         """A warm session gets current secret values through ``update_egress``, so a rotation is no rebuild."""
         assert _spec(egress=_egress(secret="sk-2")).fingerprint == _spec().fingerprint  # noqa: S106
@@ -112,3 +116,22 @@ class TestMergeSandboxSpec:
         egress = _egress("global.example")
         spec = merge_sandbox_spec(per_run=None, global_default=_ov(egress=egress))
         assert spec.egress is egress
+
+
+class TestMergeBrowser:
+    def test_the_per_run_env_decides_the_browser(self):
+        merged = merge_sandbox_spec(per_run=_ov(browser=True), global_default=_ov(browser=False))
+        assert merged.browser is True
+
+    def test_a_per_run_env_with_the_browser_off_does_not_inherit_the_default_on(self):
+        merged = merge_sandbox_spec(per_run=_ov(browser=False), global_default=_ov(browser=True))
+        assert merged.browser is False
+
+    def test_without_a_per_run_env_the_global_default_decides(self):
+        assert merge_sandbox_spec(per_run=None, global_default=_ov(browser=True)).browser is True
+
+    @pytest.mark.parametrize(
+        ("per_run", "global_default"), [(None, None), (_ov(), None), (None, _ov())], ids=["none", "per-run", "global"]
+    )
+    def test_an_unset_browser_reads_as_off(self, per_run, global_default):
+        assert merge_sandbox_spec(per_run=per_run, global_default=global_default).browser is False

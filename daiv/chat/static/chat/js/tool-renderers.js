@@ -212,6 +212,9 @@
     return name ? `${name}${skillArgs ? " " + truncate(String(skillArgs), 60) : ""}` : "";
   };
 
+  const SINGLE_GOTO_RE = /^\s*(?:await\s+)?page\.goto\(\s*(["'`])([^"'`]+)\1\s*(?:,[^()]*)?\)\s*;?\s*$/;
+  const singleGotoUrl = (code) => (typeof code === "string" ? (SINGLE_GOTO_RE.exec(code)?.[2] ?? "") : "");
+
   // `new URL` throws on partial streaming values; fall back to the raw string.
   const summarizeUrl = (url) => {
     if (!url) return "";
@@ -536,6 +539,24 @@
       badges: REDIRECT_TAG_RE.test(String(result ?? "")) ? [badge("redirect", "warn")] : [],
       category: { key: "fetch" },
     }),
+    browser_run: ({ args }) => {
+      const actions = pickKey(args, ["actions"]);
+      if (Array.isArray(actions)) {
+        const count = actions.length;
+        return {
+          icon: "browser",
+          key: count === 1 ? "browser_action" : "browser_actions",
+          vars: { count },
+          category: { key: "browser" },
+        };
+      }
+      const url = singleGotoUrl(pickKey(args, ["code"]));
+      return url
+        ? { icon: "browser", key: "browser_open", vars: { url: truncate(url, 80) }, category: { key: "browser" } }
+        : { icon: "browser", key: "browser_script", category: { key: "browser" } };
+    },
+    browser_snapshot: () => ({ icon: "browser", key: "browser_snapshot", category: { key: "browser" } }),
+    browser_screenshot: () => ({ icon: "browser", key: "browser_screenshot", category: { key: "browser" } }),
     gitlab: platformRow("GitLab", "gitlab"),
     gh: platformRow("GitHub", "github"),
     tool_search: ({ args }) => {

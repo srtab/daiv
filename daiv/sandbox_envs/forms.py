@@ -9,6 +9,7 @@ from django import forms
 from django.core.exceptions import NON_FIELD_ERRORS
 from django.utils.translation import gettext_lazy as _
 
+from core.site_settings import site_settings
 from sandbox_envs.models import _ENV_VAR_NAME_RE, _REPO_ID_RE, ENV_VARS_MAX_ENTRIES, SandboxEnvironment, Visibility
 
 logger = logging.getLogger("daiv.sandbox_envs")
@@ -49,6 +50,15 @@ class SandboxEnvironmentForm(forms.ModelForm):
     memory_value = forms.IntegerField(required=False, min_value=1)
     memory_unit = forms.ChoiceField(required=False, choices=[("MiB", "MiB"), ("GiB", "GiB")], initial="MiB")
     network_choice = forms.ChoiceField(required=False, choices=[("on", _("On")), ("off", _("Off"))], initial="off")
+    browser_choice = forms.ChoiceField(
+        required=False,
+        choices=[("off", _("Off")), ("on", _("On"))],
+        initial="off",
+        help_text=_(
+            "Lets the agent open pages in a headless browser beside the sandbox, when the site's Browser setting is "
+            "on. It reaches services the agent starts in the sandbox, and only the hosts Network allows."
+        ),
+    )
     memory_mode = forms.ChoiceField(
         required=False, choices=[("default", "default"), ("custom", "custom")], initial="default"
     )
@@ -75,9 +85,11 @@ class SandboxEnvironmentForm(forms.ModelForm):
             # silently coerced to the initial value.
             self.fields["scope"].choices = [(Visibility.USER.value, Visibility.USER.label)]
             self.fields["scope"].initial = Visibility.USER
+        self.site_browser_enabled = site_settings.sandbox_browser_enabled
         instance = self.instance
         if instance.pk is not None:
             self.initial.setdefault("network_choice", "on" if instance.is_networked else "off")
+            self.initial.setdefault("browser_choice", "on" if instance.browser_enabled else "off")
             if instance.memory_bytes:
                 if instance.memory_bytes % GIB == 0:
                     self.initial.setdefault("memory_value", instance.memory_bytes // GIB)
@@ -334,6 +346,7 @@ class SandboxEnvironmentForm(forms.ModelForm):
             egress_secrets = self._preserve_unchanged_egress_secrets(instance, egress_secrets)
         instance.egress_policy = self.cleaned_data.get("egress_policy")
         instance.egress_secrets = egress_secrets
+        instance.browser_enabled = self.cleaned_data.get("browser_choice") == "on"
         if commit:
             instance.full_clean()
             instance.save()

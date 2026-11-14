@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import base64
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
+from deepagents.middleware.unsupported_content import UnsupportedContentMiddleware
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.messages import ToolMessage
 
 from automation.agent.events import TOOL_MEDIA_EVENT
+from automation.agent.middlewares.browser import BROWSER_SNAPSHOT_NAME, BROWSER_TOOL_NAMES
 from automation.agent.synthetic import SYNTHETIC_KWARG, TOOL_MEDIA_KIND
 from automation.agent.tool_media import (
     DAIV_MEDIA_KEY,
@@ -23,10 +25,16 @@ from automation.agent.tool_media import (
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from langchain_core.messages import AnyMessage
+    from langchain_core.messages.content import ContentBlock
     from langgraph.prebuilt.tool_node import ToolCallRequest
     from langgraph.types import Command
 
 logger = logging.getLogger("daiv.tools")
+
+CANNOT_VIEW_IMAGES = "A screenshot was kept in the transcript, but this model cannot view images."
+BROWSER_IMAGE_NOTE = f"[{CANNOT_VIEW_IMAGES} Use {BROWSER_SNAPSHOT_NAME} to read the page.]"
+TOOL_IMAGE_NOTE = f"[{CANNOT_VIEW_IMAGES}]"
 
 
 class ToolMediaMiddleware(AgentMiddleware):
@@ -135,3 +143,25 @@ class ToolMediaMiddleware(AgentMiddleware):
             await adispatch_custom_event(TOOL_MEDIA_EVENT, payload)
         except Exception:
             logger.exception("Could not dispatch tool media; the live transcript will not show it")
+
+
+class ToolImageNoticeMiddleware(UnsupportedContentMiddleware):
+    """deepagents' swap of the content a model cannot accept, with a note fit for a screenshot.
+
+    It takes deepagents' own slot by name, the innermost one, so it checks the model serving the call: a fallback or a
+    skill's model, not only the run's. A ``read_file`` result keeps deepagents' note, which names the file.
+    """
+
+    @property
+    def name(self) -> str:
+        return UnsupportedContentMiddleware.__name__
+
+    def _replace(self, block: ContentBlock, message: AnyMessage) -> ContentBlock:
+        if (
+            not isinstance(message, ToolMessage)
+            or block.get("type") != "image"
+            or "read_file_path" in (message.additional_kwargs)
+        ):
+            return super()._replace(block, message)
+        note = BROWSER_IMAGE_NOTE if message.name in BROWSER_TOOL_NAMES else TOOL_IMAGE_NOTE
+        return cast("ContentBlock", {"type": "text", "text": note})

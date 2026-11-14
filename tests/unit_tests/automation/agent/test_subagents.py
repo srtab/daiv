@@ -90,6 +90,20 @@ class TestGeneralPurposeMiddleware:
         sandbox_middlewares = [m for m in middleware if isinstance(m, SandboxMiddleware)]
         assert len(sandbox_middlewares) == 1
 
+    def test_a_run_with_a_browser_gives_its_subagent_no_browser_tools(self, mock_model, mock_backend, mock_runtime_ctx):
+        """Stagehand allows one client per browser, so only the main agent drives it."""
+        from automation.agent.middlewares.browser import BROWSER_TOOL_NAMES, BrowserMiddleware
+
+        workspace = _workspace(mock_backend, sandbox=True)
+        workspace.browser = Mock()
+        middleware = _build_general_purpose_middleware(
+            mock_model, workspace, mock_runtime_ctx, web_search_enabled=True, web_fetch_enabled=True
+        )
+
+        assert not any(isinstance(m, BrowserMiddleware) for m in middleware)
+        tool_names = {t.name for m in middleware for t in getattr(m, "tools", None) or []}
+        assert not tool_names & BROWSER_TOOL_NAMES
+
     def test_threads_the_workspace_into_sandbox_middleware(self, mock_model, mock_backend, mock_runtime_ctx):
         """The parent's workspace must reach the subagent's SandboxMiddleware: the subagent's bash tool runs through its
         shell, in the parent's session."""

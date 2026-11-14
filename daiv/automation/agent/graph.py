@@ -29,6 +29,7 @@ from automation.agent.delegation import DELEGATE_JOBS_TOOL_NAME
 from automation.agent.mcp.toolkits import load_mcp_tools
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
+from automation.agent.middlewares.browser import BrowserMiddleware
 from automation.agent.middlewares.context_usage import ContextUsageMiddleware
 from automation.agent.middlewares.deferred_tools import (
     deferred_tools_middleware,
@@ -54,7 +55,7 @@ from automation.agent.middlewares.skills import SkillModelMiddleware, SkillsMidd
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.middlewares.summarization import build_summarization_middleware
-from automation.agent.middlewares.tool_media import ToolMediaMiddleware
+from automation.agent.middlewares.tool_media import ToolImageNoticeMiddleware, ToolMediaMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.profile import register as _register_harness_profile
@@ -328,6 +329,9 @@ async def create_daiv_agent(
         *([WebFetchMiddleware()] if settings.web_fetch_enabled else []),
         *([ArtifactsMiddleware(workspace=workspace, store=artifact_store)] if artifact_store is not None else []),
         *([ToolMediaMiddleware(store=tool_media_store)] if tool_media_store is not None else []),
+        *([BrowserMiddleware(browser=workspace.browser)] if workspace.browser is not None else []),
+        # Takes the slot of deepagents' UnsupportedContentMiddleware, innermost, by name.
+        ToolImageNoticeMiddleware(),
         *([DelegateJobsMiddleware(delegator=delegator)] if delegator is not None else []),
         *([ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:])] if fallback_models else []),
         # Inside the fallback and outside the deferred tools and context meter, which act on the model serving the call.

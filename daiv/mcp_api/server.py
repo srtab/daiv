@@ -818,6 +818,7 @@ async def get_environment(
     return {
         **_serialize_environment_summary(env),
         "network_enabled": env.is_networked,
+        "browser_enabled": env.browser_enabled,
         "memory_bytes": env.memory_bytes,
         "cpus": float(env.cpus) if env.cpus is not None else None,
         "env_vars": [

@@ -169,6 +169,7 @@ SUBAGENTS_MODELS = _models_from_env("DAIV_EVAL_SUBAGENTS_MODELS", [EVAL_MODEL])
 CODE_REVIEW_MODELS = _models_from_env("DAIV_EVAL_CODE_REVIEW_MODELS", [EVAL_MODEL])
 INBOX_MODELS = _models_from_env("DAIV_EVAL_INBOX_MODELS", [EVAL_MODEL])
 DELEGATION_MODELS = _models_from_env("DAIV_EVAL_DELEGATION_MODELS", [EVAL_MODEL])
+BROWSER_MODELS = _models_from_env("DAIV_EVAL_BROWSER_MODELS", [EVAL_MODEL])
 
 
 def _is_frozen_tools_model(model_spec: str) -> bool:

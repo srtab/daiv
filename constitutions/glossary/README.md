@@ -14,6 +14,8 @@ as far as the next reader is concerned.
 | Sandbox environment | A reusable runtime: base image, CPU and memory, egress policy and encrypted secrets, scoped to repositories (`SandboxEnvironment`) | sandbox config |
 | Sandbox session | One running sandbox a run acquires and releases | container |
 | Egress policy | A sandbox environment's allow-list of outbound network access; without one the sandbox is network-isolated | network flag |
+| Browser | The headless browser DAIV starts for a run, beside its sandbox session, and drives with the browser tools (`SandboxBrowser`) | Browserbase, the user's browser |
+| Browser profile | What a session's browser keeps from one run to the next: its cookies, site storage and open tab addresses | browser state, session cookies |
 | Provider | A configured LLM provider (`Provider` row) that model specs resolve against | vendor, backend |
 | Model spec | A `provider:model` string naming one model on one provider | — |
 | Skill | A packaged set of instructions the agent loads (`SKILL.md`): built-in, or from a repository's `.agents/skills/` | — |

@@ -1707,3 +1707,50 @@ def test_a_backslash_path_is_not_treated_as_same_origin():
     html = _media_body([{"kind": "image", "mime_type": "image/png", "url": "/\\evil.test/a.png"}])
 
     assert "evil.test" not in html
+
+
+@pytest.mark.parametrize(
+    ("name", "args", "phrase", "live"),
+    [
+        (
+            "browser_run",
+            {"code": 'await page.goto("http://localhost:5173/login")'},
+            "Opened http://localhost:5173/login",
+            "Opening http://localhost:5173/login",
+        ),
+        (
+            "browser_run",
+            {"code": "await page.goto('http://localhost:3000', { waitUntil: 'domcontentloaded' });"},
+            "Opened http://localhost:3000",
+            "Opening http://localhost:3000",
+        ),
+        (
+            "browser_run",
+            {"actions": [{"op": "click", "id": "1-2"}, {"op": "fill", "id": "1-3", "value": "a"}]},
+            "Ran 2 browser actions",
+            "Running 2 browser actions",
+        ),
+        (
+            "browser_run",
+            {"actions": [{"op": "click", "id": "1-2"}]},
+            "Ran 1 browser action",
+            "Running 1 browser action",
+        ),
+        (
+            "browser_run",
+            {"code": 'await page.goto("http://localhost:5173");\nreturn await page.title();'},
+            "Ran a browser script",
+            "Running a browser script",
+        ),
+        ("browser_snapshot", {}, "Read the page", "Reading the page"),
+        ("browser_screenshot", {"fullPage": True}, "Took a screenshot", "Taking a screenshot"),
+    ],
+)
+def test_browser_calls_have_readable_rows(name, args, phrase, live):
+    row = _row(name, args)
+    assert (row["phrase"], row["livePhrase"], row["icon"], row["category"]) == (
+        phrase,
+        live,
+        "browser",
+        {"key": "browser"},
+    )

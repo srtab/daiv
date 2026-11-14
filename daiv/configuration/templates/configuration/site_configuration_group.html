@@ -2,6 +2,11 @@
 {% load configuration_tags icon_tags %}
 
 {% block group_content %}
+{% for warning in group_warnings %}
+<div class="rounded-2xl border border-amber-800/50 bg-amber-950/30 p-4">
+    <p class="text-[15px] text-amber-200">{{ warning }}</p>
+</div>
+{% endfor %}
 {% if form.non_field_errors %}
 <div class="rounded-2xl border border-red-800/50 bg-red-950/30 p-4">
     {% for error in form.non_field_errors %}

@@ -205,7 +205,7 @@ When the agent commits changes, DAIV creates or updates a merge request on the s
 
 ### Images and files in tool results
 
-When a tool hands the agent an image or a file (a screenshot from an MCP browser tool, or an image, PDF, audio or video file the agent opened with `read_file`), the tool's row in the transcript shows it under **Attached**, both while the run streams and after a reload.
+When a tool hands the agent an image or a file (a screenshot from the agent's [browser](browser.md) or an MCP browser tool, or an image, PDF, audio or video file the agent opened with `read_file`), the tool's row in the transcript shows it under **Attached**, both while the run streams and after a reload.
 
 - Images show as thumbnails that open full size in a new tab.
 - PDFs, audio and video show as a chip with their size, which downloads the file.
@@ -214,6 +214,8 @@ When a tool hands the agent an image or a file (a screenshot from an MCP browser
 Anyone who can see the session can open these files, as they can read the rest of its transcript: its owner, people who can read its repository, and admins. That includes screenshots from MCP servers a person connected with their own account, so a screenshot of a page they were signed in to is visible to everyone who can see the session.
 
 DAIV keeps these files with the run in its file storage under `MEDIA_ROOT` for as long as it keeps the run. DAIV does not delete runs on its own, and deleting a run deletes its files, but the session's saved agent state still holds each file as the tool returned it. DAIV keeps PNG, JPEG, GIF and WebP images, PDFs, audio and video, within the size and per-run limits that [Artifacts](../reference/env-variables.md#artifacts) lists. A file it did not keep shows the reason instead, such as `Too large to keep`, and runs from before DAIV kept these files show `Not saved`. The agent always gets the full tool result, whether or not the file was kept.
+
+When the run's model cannot read images in tool results, as its provider profile says, the image is still kept for the transcript, and the agent gets a note in its place: that it cannot view the image, and, for a browser screenshot, to read the page snapshot instead.
 
 ## Artifacts
 

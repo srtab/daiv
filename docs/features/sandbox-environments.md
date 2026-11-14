@@ -55,6 +55,7 @@ You need a base image for the environment, such as `python:3.14`. To let the age
 | **Environment variables** | Name and value pairs for the sandbox, each plain or secret. See [Environment variables](#environment-variables). |
 | **Repositories** | The repositories the environment claims, as `owner/repo` or `group/subgroup/repo`. See [Repository bindings](#repository-bindings). |
 | **Network** | **Off** (the default) or **On**. **On** shows the **Network access** section. See [Network access and egress policy](#network-access-and-egress-policy). |
+| **Browser** | **Off** (the default) or **On**. **On** lets the agent use a headless browser beside the sandbox, when the site's **Browser** setting is on too. See [Browser](#browser). |
 | **Resources** | Expand it to set **Memory** and **CPUs**. Each is **Use default** or **Custom**. |
 | **Memory** | A whole number of at least 1, with the unit **MiB** or **GiB**. |
 | **CPUs** | A number of at least 0.25, in steps of 0.25. |
@@ -121,6 +122,10 @@ The proxy always inspects the TLS traffic of every reachable host, which is what
 DAIV encrypts credential values with Fernet before it stores them, and never sends them back to the browser or in an API or MCP response. A saved credential shows the placeholder `🔒 keep existing`, and saving keeps it unless you type a new value. An environment has at most 100 allowed-host rules and 100 credentials, and the encrypted credentials together may not exceed 32 KiB. A credential header name must be a valid HTTP header name, and its value cannot contain a line break.
 
 If DAIV cannot decrypt an environment's egress credentials at run time, or its egress configuration is invalid, the run starts with no network access.
+
+## Browser
+
+With **Browser** set to **On**, runs in the environment get a headless browser beside the sandbox, as long as an administrator turned on the site's **Browser** setting and the sandbox service is daiv-sandbox 0.6.0 or later. The browser reaches the services the agent starts in the sandbox, and only the hosts **Network** allows. Each environment sets its own **Browser** field, and changing it never replaces a session's sandbox. The environment list shows `Browser` in an environment's summary when it is on. For what the agent can do with the browser, what it keeps between a session's runs, and its limits, see [Browser](browser.md).
 
 ## Repository bindings
 

@@ -924,3 +924,28 @@ def test_off_forces_null_policy_even_with_hosts(make_form_data):
     form = build_env_form(data)
     assert form.is_valid(), form.errors
     assert form.cleaned_data["egress_policy"] is None
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(("choice", "enabled"), [("on", True), ("off", False), ("", False)])
+def test_form_browser_choice_saves_browser_enabled_and_nothing_else(user, make_form_data, choice, enabled):
+    form = SandboxEnvironmentForm(data=make_form_data(browser_choice=choice), user=user, is_admin=False)
+    assert form.is_valid(), form.errors
+
+    env = form.save()
+
+    assert env.browser_enabled is enabled
+    assert env.egress_policy is None
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("enabled", [True, False])
+def test_form_prefills_browser_from_instance(user, enabled):
+    env = SandboxEnvironment.objects.create(
+        scope=Visibility.USER, user=user, name="dev", base_image="alpine", browser_enabled=enabled
+    )
+
+    form = SandboxEnvironmentForm(instance=env, user=user, is_admin=False)
+
+    assert form.initial["browser_choice"] == ("on" if enabled else "off")
+    assert form.fields["browser_choice"].disabled is False

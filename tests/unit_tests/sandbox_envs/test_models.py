@@ -569,3 +569,25 @@ def test_summary_marks_net_when_egress_policy_present():
     assert "net" in on.summary and "net" in on.short_summary
     assert "net" not in off.summary and "net" not in off.short_summary
     assert not hasattr(off, "network_enabled")
+
+
+@pytest.mark.django_db
+def test_browser_is_off_by_default(user):
+    env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=user, name="dev", base_image="alpine:3.20")
+    assert env.browser_enabled is False
+    assert "Browser" not in env.summary
+    assert "Browser" not in env.short_summary
+
+
+@pytest.mark.django_db
+def test_summaries_name_the_browser_when_it_is_on(user):
+    env = SandboxEnvironment.objects.create(
+        scope=Visibility.USER,
+        user=user,
+        name="dev",
+        base_image="node:22",
+        egress_policy={"default": "allow", "intercept": "all", "rules": []},
+        browser_enabled=True,
+    )
+    assert env.summary == "node:22 · net · Browser"
+    assert env.short_summary == "node:22 · net · Browser"

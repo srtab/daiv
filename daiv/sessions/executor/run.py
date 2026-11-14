@@ -47,6 +47,7 @@ if TYPE_CHECKING:
     from automation.agent.session_links import SessionLinksResolver
     from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler
     from automation.agent.workspace.base import Workspace
+    from automation.agent.workspace.browser import SandboxBrowser
     from automation.agent.workspace.git_manager import FastForward
     from automation.agent.workspace.session import SandboxSession
     from sessions.executor.spec import RunSpec
@@ -419,12 +420,14 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
                 await _repin_fallback_ref(thread_id, ctx.repo.ref)
             if hooks.on_context_ready is not None:
                 await hooks.on_context_ready(ctx.repo.ref)
-            settings = resolve_agent_settings(site=site_settings.snapshot(), repo=ctx.config, run=spec.overrides())
+            site = site_settings.snapshot()
+            settings = resolve_agent_settings(site=site, repo=ctx.config, run=spec.overrides())
             model = settings.agent.names[0]
             await _persist_resolved_agent(spec, model=model, thinking_level=settings.agent.thinking_level or "")
             session_links = _session_links(spec, settings)
             if workspace.session is not None and not skips_sandbox(spec.input_messages, ctx, settings):
                 await acquire_sandbox(workspace.session, ctx, await _checkpointed_values(checkpointer, thread_id))
+            await workspace.aresolve_browser(site)
             fast_forward = await _fast_forward(spec, ctx, workspace)
             delegator = (
                 await SessionJobDelegator.afor(spec.thread_id)
@@ -484,8 +487,14 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
                         await _archive_thread(checkpointer, thread_id, reset=reset)
         finally:
             try:
-                if workspace.session is not None and not handed_over:
-                    await _release_sandbox(workspace.session, resumable=spec.thread_id is not None, thread_id=thread_id)
+                try:
+                    if workspace.browser is not None:
+                        await _release_browser(workspace.browser, stop=not handed_over, thread_id=thread_id)
+                finally:
+                    if workspace.session is not None and not handed_over:
+                        await _release_sandbox(
+                            workspace.session, resumable=spec.thread_id is not None, thread_id=thread_id
+                        )
             finally:
                 await _record_measurements(spec.run_id, ctx, workspace)
 
@@ -591,6 +600,17 @@ async def _archive_thread(checkpointer: BaseCheckpointSaver, thread_id: str, *, 
             await aarchive_thread(checkpointer, thread_id, reset=reset)
     except Exception:
         logger.exception("executor: failed to archive thread_id=%s", thread_id)
+
+
+async def _release_browser(browser: SandboxBrowser, *, stop: bool, thread_id: str) -> None:
+    """``arelease`` logs its own failures and never raises one; anything it lets out is logged here.
+
+    A run that lost its slot leaves the container running for the new holder (``stop=False``).
+    """
+    try:
+        await browser.arelease(stop=stop)
+    except Exception:
+        logger.exception("executor: failed to release the browser for thread_id=%s", thread_id)
 
 
 async def _release_sandbox(session: SandboxSession, *, resumable: bool, thread_id: str) -> None:

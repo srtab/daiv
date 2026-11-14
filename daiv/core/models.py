@@ -488,6 +488,28 @@ class SiteConfiguration(models.Model):
             "Timeout for sandbox requests, in seconds. Also the longest timeout the agent can give a bash command."
         ),
     )
+    sandbox_browser_enabled = models.BooleanField(
+        _("browser"),
+        null=True,
+        help_text=_(
+            "Let the agent use a headless browser in sandbox environments that turn Browser on. "
+            "Off turns it off everywhere."
+        ),
+    )
+    sandbox_browser_memory_bytes = models.PositiveBigIntegerField(
+        _("browser memory"),
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(268_435_456)],
+        help_text=_("Memory limit of each run's browser, separate from the environment's. At least 256 MiB."),
+    )
+    sandbox_browser_cpus = models.FloatField(
+        _("browser CPUs"),
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(0.25)],
+        help_text=_("CPU limit of each run's browser, separate from the environment's. At least 0.25."),
+    )
 
     # -- Authentication --
     auth_login_enabled = models.BooleanField(

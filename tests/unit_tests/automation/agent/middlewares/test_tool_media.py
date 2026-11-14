@@ -3,9 +3,12 @@ import copy
 import json
 import logging
 import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from deepagents.middleware.unsupported_content import UnsupportedContentMiddleware
+from langchain.agents.middleware import ModelRequest, ModelResponse
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_openai import ChatOpenAI
@@ -13,7 +16,7 @@ from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
 from automation.agent.events import TOOL_MEDIA_EVENT
-from automation.agent.middlewares.tool_media import ToolMediaMiddleware
+from automation.agent.middlewares.tool_media import ToolImageNoticeMiddleware, ToolMediaMiddleware
 from automation.agent.synthetic import is_synthetic
 from automation.agent.tool_media import RUN_LIMIT, ToolMediaError
 from tests.unit_tests.conftest import FakeToolMediaStore
@@ -263,3 +266,59 @@ async def test_a_data_url_block_is_stored_as_bytes(dispatch):
         {"ordinal": 0, "kind": "image", "mime_type": "image/png", "id": str(uuid.UUID(int=1)), "size": len(RAW)}
     ]
     assert (store.stored[0]["mime_type"], store.stored[0]["content"]) == ("image/png", RAW)
+
+
+def _screenshot_message(name: str = "browser_screenshot", **kwargs) -> ToolMessage:
+    return ToolMessage(
+        content=[{"type": "text", "text": "Browser restored."}, _image()], tool_call_id="call-1", name=name, **kwargs
+    )
+
+
+def _model_request(*messages, profile=None) -> ModelRequest:
+    model = SimpleNamespace(profile=profile)
+    return ModelRequest(model=model, messages=list(messages), system_prompt=None, state={}, runtime=SimpleNamespace())
+
+
+async def _sent(request: ModelRequest) -> ModelRequest:
+    seen: list[ModelRequest] = []
+
+    async def handler(req):
+        seen.append(req)
+        return ModelResponse(result=[])
+
+    await ToolImageNoticeMiddleware().awrap_model_call(request, handler)
+    return seen[0]
+
+
+def test_the_image_notice_takes_deepagents_slot_by_name():
+    assert ToolImageNoticeMiddleware().name == UnsupportedContentMiddleware().name
+
+
+@pytest.mark.parametrize(
+    ("name", "note"),
+    [
+        (
+            "browser_screenshot",
+            "[A screenshot was kept in the transcript, but this model cannot view images. "
+            "Use browser_snapshot to read the page.]",
+        ),
+        ("mcp_screenshot", "[A screenshot was kept in the transcript, but this model cannot view images.]"),
+    ],
+)
+async def test_a_model_that_cannot_read_images_gets_a_note_in_their_place(name, note):
+    message = _screenshot_message(name)
+    request = _model_request(HumanMessage(content="hi"), message, profile={"image_tool_message": False})
+
+    sent = await _sent(request)
+
+    assert sent.messages[1].content[1] == {"type": "text", "text": note}
+    assert message.content[1] == _image()
+    assert request.messages[1] is message
+
+
+async def test_a_read_file_image_keeps_deepagents_note_naming_the_file():
+    message = _screenshot_message("read_file", additional_kwargs={"read_file_path": "/workspace/repo/logo.png"})
+
+    sent = await _sent(_model_request(message, profile={"image_tool_message": False}))
+
+    assert "/workspace/repo/logo.png" in sent.messages[0].content[1]["text"]

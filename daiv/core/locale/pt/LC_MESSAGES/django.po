@@ -494,3 +494,21 @@ msgstr "Nome de utilizador do bot do Telegram"
 
 msgid "Derived from the bot token via getMe; not editable here."
 msgstr "Obtido a partir do token do bot via getMe; não editável aqui."
+
+msgid "browser"
+msgstr "navegador"
+
+msgid "Let the agent use a headless browser in sandbox environments that turn Browser on. Off turns it off everywhere."
+msgstr "Permite ao agente usar um navegador sem interface nos ambientes de sandbox que ligam o Navegador. Desligado desliga-o em todo o lado."
+
+msgid "browser memory"
+msgstr "memória do navegador"
+
+msgid "Memory limit of each run's browser, separate from the environment's. At least 256 MiB."
+msgstr "Limite de memória do navegador de cada execução, separado do do ambiente. Pelo menos 256 MiB."
+
+msgid "browser CPUs"
+msgstr "CPUs do navegador"
+
+msgid "CPU limit of each run's browser, separate from the environment's. At least 0.25."
+msgstr "Limite de CPU do navegador de cada execução, separado do do ambiente. Pelo menos 0,25."

@@ -441,3 +441,15 @@ msgstr "Ambientes globais"
 
 msgid "My environments"
 msgstr "Os meus ambientes"
+
+msgid "browser"
+msgstr "navegador"
+
+msgid "Browser"
+msgstr "Navegador"
+
+msgid "Lets the agent open pages in a headless browser beside the sandbox, when the site's Browser setting is on. It reaches services the agent starts in the sandbox, and only the hosts Network allows."
+msgstr "Permite ao agente abrir páginas num navegador sem interface ao lado da sandbox, quando a definição Navegador do site está ligada. Alcança os serviços que o agente inicia na sandbox e apenas os hosts que a Rede permite."
+
+msgid "The site's Browser setting is off, so this has no effect yet."
+msgstr "A definição Navegador do site está desligada, por isso isto ainda não tem efeito."

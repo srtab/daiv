@@ -23,6 +23,7 @@ class SandboxEnvOverride:
     cpus: float | None
     env_vars: dict[str, str]
     egress: EgressConfigRequest | None = None
+    browser: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,7 @@ class SandboxSpec:
     cpus: float | None
     env_vars: dict[str, str]
     egress: EgressConfigRequest | None = None
+    browser: bool = False
 
     @property
     def enabled(self) -> bool:
@@ -44,7 +46,8 @@ class SandboxSpec:
         """A stable digest of what a sandbox container is built from.
 
         Covers the base image, memory, CPUs, env vars and the egress policy. Egress secrets are left
-        out: a warm session gets their current values through ``update_egress``. Keyed on
+        out: a warm session gets their current values through ``update_egress``. ``browser`` is left out too,
+        because turning the browser on or off must never replace a sandbox. Keyed on
         ``SECRET_KEY`` so a checkpoint never holds a plain hash of env var values, which may be secrets.
         """
         payload = json.dumps(
@@ -69,7 +72,7 @@ def merge_sandbox_spec(*, per_run: SandboxEnvOverride | None, global_default: Sa
     wins; otherwise the field's runtime default applies.
 
     ``env_vars`` are unioned with per-run keys shadowing GLOBAL keys.
-    ``egress`` is taken from the effective env as-is (see inline comment).
+    ``egress`` and ``browser`` are taken from the effective env as-is (see inline comment).
     """
 
     def pick(field: str, runtime_default):
@@ -93,4 +96,7 @@ def merge_sandbox_spec(*, per_run: SandboxEnvOverride | None, global_default: Sa
             per_run.egress if per_run is not None else (global_default.egress if global_default is not None else None)
         ),
         env_vars={**(global_default.env_vars if global_default else {}), **(per_run.env_vars if per_run else {})},
+        browser=bool(
+            per_run.browser if per_run is not None else (global_default.browser if global_default is not None else None)
+        ),
     )
