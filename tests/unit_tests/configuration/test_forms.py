@@ -669,3 +669,32 @@ class TestSiteConfigurationNumericWidgets:
         assert attrs["min"] == "2"
         assert attrs["max"] == "60"
         assert attrs["data-bound"] == "custom"
+
+
+@pytest.mark.django_db
+class TestSandboxBrowserFields:
+    def _form(self, **data):
+        group = SiteConfiguration.get_group_by_key("sandbox")
+        return SiteConfigurationForm(
+            instance=SiteConfiguration.objects.get_instance(),
+            group=group,
+            env_locked_fields=set(),
+            field_defaults={},
+            data={"sandbox_timeout": "600", **data},
+        )
+
+    def test_the_sandbox_group_offers_the_browser_switch_and_limits(self):
+        form = self._form()
+        assert {"sandbox_browser_enabled", "sandbox_browser_memory_bytes", "sandbox_browser_cpus"} <= set(form.fields)
+
+    @pytest.mark.parametrize(
+        ("field", "value"), [("sandbox_browser_memory_bytes", "268435455"), ("sandbox_browser_cpus", "0.2")]
+    )
+    def test_limits_below_the_minimum_are_rejected(self, field, value):
+        form = self._form(**{field: value})
+        assert not form.is_valid()
+        assert field in form.errors
+
+    def test_limits_at_the_minimum_are_accepted(self):
+        form = self._form(sandbox_browser_memory_bytes="268435456", sandbox_browser_cpus="0.25")
+        assert form.is_valid(), form.errors

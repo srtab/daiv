@@ -114,6 +114,10 @@ class SandboxSession:
         return self._client
 
     @property
+    def spec(self) -> SandboxSpec:
+        return self._spec
+
+    @property
     def session_id(self) -> str | None:
         """The held container's id: ``None`` before ``acquire`` and after ``release``."""
         return self._session_id

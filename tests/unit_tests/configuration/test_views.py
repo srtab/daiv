@@ -1,6 +1,6 @@
 import re
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.contrib.staticfiles import finders
 from django.template import TemplateDoesNotExist
@@ -12,6 +12,7 @@ from configuration.forms import WEB_FETCH_AUTH_HEADERS_FORMSET_PREFIX as PREFIX
 
 from accounts.models import Role, User
 from core.models import Provider, ProviderType, SiteConfiguration, WebFetchAuthHeader
+from core.sandbox.schemas import SandboxCapabilities
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[3] / "daiv" / "configuration" / "templates"
 TEMPLATE_REFERENCE = re.compile(r"""\{%\s*(?:include|extends)\s+["']([^"']+)["']""")
@@ -1596,3 +1597,57 @@ class TestAgentGroupSubagentModels:
         config = SiteConfiguration.objects.get_instance()
         assert config.agent_subagent_models == {"cr-security": "openai:gpt-5.4"}
         assert config.agent_skill_models == {"plan": "openai:gpt-5.4"}
+
+
+@pytest.mark.django_db
+class TestSandboxBrowserWarning:
+    WARNING = (
+        "The sandbox service does not support the browser, so runs get no browser tools. "
+        "Upgrade daiv-sandbox to 0.6.0 or later."
+    )
+
+    def _get(self, client, admin_user, group_url, *, browser: bool):
+        client.force_login(admin_user)
+        with patch(
+            "configuration.views.SandboxCapabilityProbe.aget",
+            AsyncMock(return_value=SandboxCapabilities(browser=browser)),
+        ) as probe:
+            response = client.get(group_url("sandbox"))
+        return response.content.decode(), probe
+
+    def test_warns_when_the_switch_is_on_and_the_service_cannot_run_a_browser(
+        self, client, admin_user, group_url, monkeypatch
+    ):
+        monkeypatch.setenv("DAIV_SANDBOX_BROWSER_ENABLED", "true")
+
+        content, probe = self._get(client, admin_user, group_url, browser=False)
+
+        assert self.WARNING in content
+        probe.assert_awaited_once()
+
+    def test_no_warning_when_the_service_can_run_a_browser(self, client, admin_user, group_url, monkeypatch):
+        monkeypatch.setenv("DAIV_SANDBOX_BROWSER_ENABLED", "true")
+
+        content, _ = self._get(client, admin_user, group_url, browser=True)
+
+        assert self.WARNING not in content
+
+    def test_no_warning_and_no_probe_while_the_switch_is_off(self, client, admin_user, group_url):
+        content, probe = self._get(client, admin_user, group_url, browser=False)
+
+        assert self.WARNING not in content
+        probe.assert_not_awaited()
+
+    def test_the_browser_fields_render_in_the_sandbox_group(self, client, admin_user, group_url):
+        content, _ = self._get(client, admin_user, group_url, browser=True)
+
+        for name in ("sandbox_browser_enabled", "sandbox_browser_memory_bytes", "sandbox_browser_cpus"):
+            assert f'name="{name}"' in content
+
+    def test_an_environment_variable_locks_its_browser_field(self, client, admin_user, group_url, monkeypatch):
+        monkeypatch.setenv("DAIV_SANDBOX_BROWSER_CPUS", "2")
+
+        content, _ = self._get(client, admin_user, group_url, browser=True)
+
+        cpus_input = re.search(r'<input[^>]*name="sandbox_browser_cpus"[^>]*>', content).group(0)
+        assert "disabled" in cpus_input

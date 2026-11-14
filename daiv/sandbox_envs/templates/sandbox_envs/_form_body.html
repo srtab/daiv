@@ -259,6 +259,28 @@
         </fieldset>
     </div>
 
+    <div x-data="{ browser: '{{ form.browser_choice.value|default:'off'|escapejs }}' }">
+        <label class="block text-[15px] font-medium text-gray-400">{% translate "Browser" %}</label>
+        <div class="mt-2 flex flex-wrap items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
+            <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
+                   :class="browser === 'off' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
+                <input type="radio" name="browser_choice" value="off" x-model="browser" class="sr-only">
+                {% translate "Off" %}
+            </label>
+            <label class="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200"
+                   :class="browser === 'on' ? 'bg-white/[0.1] text-white shadow-sm' : 'text-gray-400 hover:text-gray-300'">
+                <input type="radio" name="browser_choice" value="on" x-model="browser" class="sr-only">
+                {% translate "On" %}
+            </label>
+        </div>
+        <p class="mt-1.5 text-sm text-gray-500">{{ form.browser_choice.help_text }}</p>
+        {% if not form.site_browser_enabled %}
+        <p x-show="browser === 'on'" x-cloak class="mt-1 text-xs text-amber-400/80">
+            {% translate "The site's Browser setting is off, so this has no effect yet." %}
+        </p>
+        {% endif %}
+    </div>
+
     <div class="border-t border-white/[0.06]"></div>
 
     <div x-data="resourceControl({

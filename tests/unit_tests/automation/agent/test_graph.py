@@ -9,12 +9,16 @@ from deepagents.backends import StateBackend
 from deepagents.middleware.memory import MemoryMiddleware
 from langchain.agents.middleware import ModelRequest, ModelResponse
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.tools import BaseTool
+from langchain_core.utils.function_calling import convert_to_openai_tool
 
 from automation.agent.artifacts import FETCH_ARTIFACT_TOOL_NAME, PUBLISH_ARTIFACT_TOOL_NAME
 from automation.agent.graph import ALWAYS_LOADED_TOOLS, create_daiv_agent, dynamic_daiv_system_prompt
 from automation.agent.middlewares.artifacts import ArtifactsMiddleware
 from automation.agent.middlewares.ask_user_question import AskUserQuestionMiddleware
+from automation.agent.middlewares.browser import BROWSER_TOOL_NAMES, BrowserMiddleware
+from automation.agent.middlewares.deferred_tools import DeferredToolsMiddleware
 from automation.agent.middlewares.ensure_response import ensure_non_empty_response
 from automation.agent.middlewares.file_system import DAIVFilesystemMiddleware
 from automation.agent.middlewares.loop_breaker import LoopBreakerMiddleware
@@ -26,6 +30,7 @@ from automation.agent.middlewares.tool_media import ToolMediaMiddleware
 from automation.agent.prompts import AGENTS_MEMORY_SYSTEM_PROMPT
 from automation.agent.questions import ASK_USER_QUESTION_TOOL_NAME
 from automation.agent.workspace.backends import WORKSPACE_FENCE_PERMISSIONS
+from automation.agent.workspace.browser import SandboxBrowser
 from automation.agent.workspace.disk import DiskWorkspace
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxSession
@@ -58,7 +63,7 @@ def _patches() -> dict[str, tuple[str, dict]]:
     }
 
 
-async def _build(workspace, **agent_kwargs) -> SimpleNamespace:
+async def _build(workspace, *, site_overrides: dict | None = None, **agent_kwargs) -> SimpleNamespace:
     """Build the agent over ``workspace`` with its collaborators stubbed and return the stubs. The context's spec has a
     base image, so a disk workspace shows the mode is the workspace's, not the context's."""
     with ExitStack() as stack:
@@ -67,14 +72,15 @@ async def _build(workspace, **agent_kwargs) -> SimpleNamespace:
             for name, (target, kwargs) in _patches().items()
         }
         stack.enter_context(patch("automation.agent.middlewares.deferred_tools.deferred_settings", ENABLED=False))
-        site = site_snapshot(
-            agent_recursion_limit=50,
-            agent_model_name="m",
-            agent_fallback_model_name="m",
-            agent_thinking_level=None,
-            web_fetch_enabled=False,
-            web_search_enabled=False,
-        )
+        site = site_snapshot(**{
+            "agent_recursion_limit": 50,
+            "agent_model_name": "m",
+            "agent_fallback_model_name": "m",
+            "agent_thinking_level": None,
+            "web_fetch_enabled": False,
+            "web_search_enabled": False,
+            **(site_overrides or {}),
+        })
         ctx = MagicMock()
         ctx.sandbox = sandbox_spec()
         ctx.config.context_file_name = "AGENTS.md"
@@ -278,3 +284,105 @@ async def test_the_tool_media_store_adds_the_middleware():
 
     assert kept._store is store
     assert without == []
+
+
+def _browser_workspace() -> SandboxWorkspace:
+    workspace, client = _sandbox_workspace()
+    workspace.browser = SandboxBrowser(workspace.session, client, memory_bytes=2**30, cpus=1.0)
+    return workspace
+
+
+async def test_a_run_with_a_browser_gets_the_browser_tools_before_the_inline_definitions():
+    workspace = _browser_workspace()
+    middleware = _middleware(await _build(workspace, tool_media_store=FakeToolMediaStore()))
+
+    [browser] = [m for m in middleware if isinstance(m, BrowserMiddleware)]
+    [tool_media] = [m for m in middleware if isinstance(m, ToolMediaMiddleware)]
+    [step_budget] = [m for m in middleware if isinstance(m, StepBudgetMiddleware)]
+    assert browser._browser is workspace.browser
+    assert middleware.index(tool_media) < middleware.index(browser) < middleware.index(step_budget)
+    assert {t.name for t in browser.tools} == BROWSER_TOOL_NAMES
+
+
+async def test_a_run_without_a_browser_gets_no_browser_middleware():
+    workspace, _ = _sandbox_workspace()
+
+    assert not any(isinstance(m, BrowserMiddleware) for m in _middleware(await _build(workspace)))
+
+
+def test_the_browser_tools_are_deferred():
+    assert not BROWSER_TOOL_NAMES & ALWAYS_LOADED_TOOLS
+
+
+async def _first_request(workspace) -> ModelRequest:
+    """The main agent's first model request as the deferred-tools middleware sends it, over the stack's real tools."""
+    middleware = _middleware(
+        await _build(workspace, site_overrides={"web_fetch_enabled": True, "web_search_enabled": True})
+    )
+    tools = [t for m in middleware for t in (getattr(m, "tools", None) or []) if isinstance(t, BaseTool)]
+    context = SimpleNamespace(
+        bot_username="daiv",
+        repository=SimpleNamespace(html_url="https://gitlab.test/group/repo"),
+        git_platform=GitPlatform.GITLAB,
+        repo=SimpleNamespace(current_ref="main"),
+    )
+    model = ChatAnthropic(model="claude-sonnet-4-5-20250929", api_key="sk-ant-not-used")
+    request = ModelRequest(
+        model=model,
+        messages=[HumanMessage(content="Fix the sign-up form.")],
+        system_prompt=None,
+        tools=tools,
+        state={},
+        runtime=SimpleNamespace(context=context),
+    )
+    deferred = DeferredToolsMiddleware(always_loaded=ALWAYS_LOADED_TOOLS, extra_tools=[], top_k_default=5, top_k_max=10)
+    seen: list[ModelRequest] = []
+
+    async def send(req: ModelRequest) -> ModelResponse:
+        seen.append(req)
+        return ModelResponse(result=[])
+
+    async def defer(req: ModelRequest) -> ModelResponse:
+        return await deferred.awrap_model_call(req, send)
+
+    await dynamic_daiv_system_prompt.awrap_model_call(request, defer)
+    return seen[0]
+
+
+def _input_size(request: ModelRequest) -> int:
+    return len(request.system_prompt or "") + sum(len(str(convert_to_openai_tool(t))) for t in request.tools)
+
+
+async def test_a_run_that_never_uses_the_browser_pays_only_three_index_lines():
+    """SC-006: the browser adds no tool schema and no prompt to the first request, only its deferred-index lines."""
+    off = await _first_request(_sandbox_workspace()[0])
+    on = await _first_request(_browser_workspace())
+
+    assert [t.name for t in on.tools] == [t.name for t in off.tools]
+    off_lines = off.system_prompt.splitlines()
+    added = [line for line in on.system_prompt.splitlines() if line not in off_lines]
+    assert sorted(line.split(":", 1)[0] for line in added) == sorted(BROWSER_TOOL_NAMES)
+    assert [line for line in on.system_prompt.splitlines() if line not in added] == off_lines
+    assert sum(len(line) + 1 for line in added) / _input_size(off) < 0.02
+
+
+def test_the_image_notice_replaces_deepagents_unsupported_content_middleware_in_place():
+    from deepagents.middleware.unsupported_content import UnsupportedContentMiddleware
+
+    from automation.agent.middlewares.tool_media import ToolImageNoticeMiddleware
+
+    model = ChatAnthropic(model="claude-sonnet-4-5-20250929", api_key="sk-ant-not-used")
+    notice = ToolImageNoticeMiddleware()
+
+    default = _final_stack(model=model, backend=StateBackend())
+    merged = _final_stack(model=model, backend=StateBackend(), middleware=[notice])
+
+    [slot] = [i for i, m in enumerate(default) if isinstance(m, UnsupportedContentMiddleware)]
+    assert merged[slot] is notice
+    assert [m for m in merged if isinstance(m, UnsupportedContentMiddleware)] == [notice]
+
+
+async def test_the_main_agent_carries_the_image_notice():
+    from automation.agent.middlewares.tool_media import ToolImageNoticeMiddleware
+
+    assert any(isinstance(m, ToolImageNoticeMiddleware) for m in _middleware(await _build(_disk_workspace())))

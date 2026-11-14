@@ -104,6 +104,9 @@ DAIV runs in the `Europe/Lisbon` time zone. It is fixed in the settings and is n
 | `DAIV_SANDBOX_URL`     | URL of the sandbox service    | `http://sandbox:8000` | `http://sandbox:8000` |
 | `DAIV_SANDBOX_TIMEOUT` | Timeout for sandbox requests in seconds, and the longest timeout the agent can give a bash command, whose request waits up to 60 seconds longer | `600`          | `600`           |
 | `DAIV_SANDBOX_API_KEY` :material-lock: | API key for sandbox requests        | *(none)*          | `random-api-key`           |
+| `DAIV_SANDBOX_BROWSER_ENABLED` | Let the agent use a headless browser in sandbox environments that turn Browser on; see [Browser](../features/browser.md) | `false` | `true` |
+| `DAIV_SANDBOX_BROWSER_MEMORY_BYTES` | Memory limit of each run's browser, in bytes, separate from the environment's; at least `268435456` (256 MiB) | `1073741824` | `2147483648` |
+| `DAIV_SANDBOX_BROWSER_CPUS` | CPU limit of each run's browser, separate from the environment's; at least `0.25` | `1.0` | `2` |
 | `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` | JSON array of extra bash command rules to block globally | *(none)* | `'["curl", "npm publish"]'` |
 | `DAIV_SANDBOX_COMMAND_POLICY_ALLOW` | JSON array of bash command rules to permit; has no effect (see [Precedence](../features/sandbox.md#precedence)) | *(none)* | `'["my-safe-tool"]'` |
 

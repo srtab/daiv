@@ -1,4 +1,98 @@
 {
+  "BrowserStartRequest": {
+    "properties": {
+      "cpus": {
+        "description": "CPU limit of the browser container.",
+        "exclusiveMinimum": 0,
+        "title": "Cpus",
+        "type": "number"
+      },
+      "extension_sha256": {
+        "description": "sha256 of the Stagehand extension archive; the archive is cached under this digest.",
+        "pattern": "^[0-9a-f]{64}$",
+        "title": "Extension Sha256",
+        "type": "string"
+      },
+      "memory_bytes": {
+        "description": "Memory limit of the browser container, in bytes.",
+        "exclusiveMinimum": 0,
+        "title": "Memory Bytes",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "memory_bytes",
+      "cpus",
+      "extension_sha256"
+    ],
+    "title": "BrowserStartRequest",
+    "type": "object"
+  },
+  "BrowserStartResponse": {
+    "properties": {
+      "browser_ws_path": {
+        "description": "The browser's DevTools WebSocket path, '/devtools/browser/<guid>'.",
+        "title": "Browser Ws Path",
+        "type": "string"
+      },
+      "devtools_port": {
+        "description": "The browser-local DevTools port, for the extension's CDP URL.",
+        "title": "Devtools Port",
+        "type": "integer"
+      },
+      "profile": {
+        "description": "'empty' on the browser container's first start; 'reset' when its profile could not be read or the container was recreated after a removal the service did not initiate; 'restored' otherwise.",
+        "enum": [
+          "empty",
+          "restored",
+          "reset"
+        ],
+        "title": "Profile",
+        "type": "string"
+      },
+      "restored_urls": {
+        "description": "Tabs re-opened from the profile, in order.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Restored Urls",
+        "type": "array"
+      },
+      "started": {
+        "description": "False when the browser was already running and nothing was started.",
+        "title": "Started",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "started",
+      "profile",
+      "devtools_port",
+      "browser_ws_path"
+    ],
+    "title": "BrowserStartResponse",
+    "type": "object"
+  },
+  "BrowserStopResponse": {
+    "properties": {
+      "oom_killed": {
+        "default": false,
+        "description": "Whether the container was killed for memory before stop.",
+        "title": "Oom Killed",
+        "type": "boolean"
+      },
+      "saved_urls": {
+        "description": "Tab URLs saved to the profile, in order.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Saved Urls",
+        "type": "array"
+      }
+    },
+    "title": "BrowserStopResponse",
+    "type": "object"
+  },
   "EgressConfigRequest": {
     "$defs": {
       "EgressPolicy": {
@@ -15,7 +109,7 @@
           },
           "intercept": {
             "default": "all",
-            "description": "'all' MITMs every reachable host; 'credentialed' MITMs only hosts that inject a credential or carry a per-host methods restriction (others are tunnelled untouched).",
+            "description": "'all' MITMs every reachable host; 'credentialed' MITMs only hosts that inject a credential, restrict methods, or carry a path-scoped rule (others are tunnelled untouched).",
             "enum": [
               "all",
               "credentialed"
@@ -184,7 +278,7 @@
       },
       "intercept": {
         "default": "all",
-        "description": "'all' MITMs every reachable host; 'credentialed' MITMs only hosts that inject a credential or carry a per-host methods restriction (others are tunnelled untouched).",
+        "description": "'all' MITMs every reachable host; 'credentialed' MITMs only hosts that inject a credential, restrict methods, or carry a path-scoped rule (others are tunnelled untouched).",
         "enum": [
           "all",
           "credentialed"
@@ -1227,6 +1321,18 @@
     "title": "RunResult",
     "type": "object"
   },
+  "SandboxCapabilities": {
+    "properties": {
+      "browser": {
+        "default": false,
+        "description": "Whether the service can run a browser beside a session.",
+        "title": "Browser",
+        "type": "boolean"
+      }
+    },
+    "title": "SandboxCapabilities",
+    "type": "object"
+  },
   "StartSessionRequest": {
     "$defs": {
       "EgressConfigRequest": {
@@ -1259,7 +1365,7 @@
           },
           "intercept": {
             "default": "all",
-            "description": "'all' MITMs every reachable host; 'credentialed' MITMs only hosts that inject a credential or carry a per-host methods restriction (others are tunnelled untouched).",
+            "description": "'all' MITMs every reachable host; 'credentialed' MITMs only hosts that inject a credential, restrict methods, or carry a path-scoped rule (others are tunnelled untouched).",
             "enum": [
               "all",
               "credentialed"

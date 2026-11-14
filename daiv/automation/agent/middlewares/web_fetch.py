@@ -149,7 +149,10 @@ async def _fetch_url_text(
     parsed = urlparse(url)
     hostname = parsed.hostname or ""
     if _is_private_or_local(hostname):
-        raise ValueError(f"Requests to private/local addresses are blocked: {url}")
+        raise ValueError(
+            f"Requests to private/local addresses are blocked: {url}. web_fetch runs outside the sandbox: reach a "
+            "service you started in the sandbox with `bash` or the browser tools, if the run has them."
+        )
 
     request_headers = {"User-Agent": USER_AGENT, **(extra_headers or {})}
 

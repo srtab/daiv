@@ -1369,3 +1369,48 @@ msgstr "Mostrar nos detalhes"
 
 msgid "Suggested answer"
 msgstr "Resposta sugerida"
+
+msgid "used the browser"
+msgstr "usou o navegador"
+
+msgid "used the browser {count} times"
+msgstr "usou o navegador {count} vezes"
+
+msgid "using the browser"
+msgstr "a usar o navegador"
+
+msgid "Opened {url}"
+msgstr "Abriu {url}"
+
+msgid "Opening {url}"
+msgstr "A abrir {url}"
+
+msgid "Ran {count} browser action"
+msgstr "Executou {count} ação no navegador"
+
+msgid "Running {count} browser action"
+msgstr "A executar {count} ação no navegador"
+
+msgid "Ran {count} browser actions"
+msgstr "Executou {count} ações no navegador"
+
+msgid "Running {count} browser actions"
+msgstr "A executar {count} ações no navegador"
+
+msgid "Ran a browser script"
+msgstr "Executou um script no navegador"
+
+msgid "Running a browser script"
+msgstr "A executar um script no navegador"
+
+msgid "Read the page"
+msgstr "Leu a página"
+
+msgid "Reading the page"
+msgstr "A ler a página"
+
+msgid "Took a screenshot"
+msgstr "Fez uma captura de ecrã"
+
+msgid "Taking a screenshot"
+msgstr "A fazer uma captura de ecrã"

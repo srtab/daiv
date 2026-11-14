@@ -9,6 +9,9 @@ from core.conf import settings
 from core.site_settings import site_settings
 
 from .schemas import (
+    BrowserStartRequest,
+    BrowserStartResponse,
+    BrowserStopResponse,
     EgressConfigRequest,
     FsEditRequest,
     FsEditResponse,
@@ -24,6 +27,7 @@ from .schemas import (
     FsWriteResponse,
     RunCommandsRequest,
     RunCommandsResponse,
+    SandboxCapabilities,
     StartSessionRequest,
 )
 
@@ -62,6 +66,9 @@ SANDBOX_CONNECTION_LIMITS = httpx.Limits(max_connections=32, max_keepalive_conne
 
 # Covers the sandbox's wait for the session lock (30s) and its kill of a timed-out command (under 10s).
 _COMMAND_TIMEOUT_HEADROOM = 60
+
+# Asked while a run starts and while the configuration page renders, so neither waits on a service that is down.
+CAPABILITIES_TIMEOUT_SECONDS = 5
 
 
 class SandboxCapabilityError(RuntimeError):
@@ -263,6 +270,49 @@ class DAIVSandboxClient:
         """
         response = await self._client.put(f"session/{session_id}/egress/", json=egress.to_wire())
         response.raise_for_status()
+
+    async def get_capabilities(self) -> SandboxCapabilities:
+        """What the service can do beyond sessions; a service older than the endpoint (404) can do nothing more."""
+        response = await self._client.get("-/capabilities/", timeout=CAPABILITIES_TIMEOUT_SECONDS)
+        if response.status_code == 404:
+            return SandboxCapabilities()
+        response.raise_for_status()
+        return SandboxCapabilities.model_validate(response.json())
+
+    async def start_browser(
+        self, session_id: str, request: BrowserStartRequest, extension_archive: bytes | None
+    ) -> BrowserStartResponse:
+        """Start the session's browser container, creating it on the first call; idempotent while it runs.
+
+        ``extension_archive`` may be omitted once the service holds an archive with the same digest; it answers
+        409 when it holds none.
+        """
+        files: dict[str, tuple[str | None, bytes, str]] = {
+            "request": (None, request.model_dump_json().encode(), "application/json")
+        }
+        if extension_archive is not None:
+            files["extension_archive"] = ("extension.zip", extension_archive, "application/zip")
+        response = await self._client.post(f"session/{session_id}/browser/", files=files)
+        response.raise_for_status()
+        return BrowserStartResponse.model_validate(response.json())
+
+    async def stop_browser(self, session_id: str, *, force: bool = False) -> BrowserStopResponse:
+        """Save the browser's tabs and stop its container, keeping the profile; ``force`` removes it with the profile.
+
+        A session or browser that is already gone answers with empty values.
+        """
+        response = await self._client.delete(f"session/{session_id}/browser/", params={"force": force})
+        response.raise_for_status()
+        return BrowserStopResponse.model_validate(response.json())
+
+    def browser_cdp_url(self, session_id: str) -> str:
+        """The WebSocket URL that tunnels one TCP stream to the session browser's DevTools port."""
+        url = httpx.URL(self.url.rstrip("/") + "/").join(f"session/{session_id}/browser/cdp")
+        return str(url.copy_with(scheme="wss" if url.scheme == "https" else "ws"))
+
+    def auth_headers(self) -> dict[str, str]:
+        """The service's authentication header, for connections the HTTP client does not make."""
+        return self._get_headers()
 
     def _get_headers(self) -> dict[str, str]:
         """

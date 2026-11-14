@@ -637,3 +637,30 @@ def test_locked_sheet_variant_states_the_env_rather_than_offering_it(selected_en
     assert "Locked for this conversation" in html
     if selected_env is not None:
         assert "ci-heavy" in html
+
+
+SITE_OFF_NOTE = "The site's Browser setting is off, so this has no effect yet."
+
+
+@pytest.mark.django_db
+def test_the_browser_radio_notes_when_the_site_switch_is_off(client, user):
+    env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=user, name="dev", base_image="x")
+    client.force_login(user)
+
+    content = client.get(reverse("sandbox_envs:edit", args=[env.id]), HTTP_HX_REQUEST="true").content.decode()
+
+    assert 'name="browser_choice"' in content
+    assert SITE_OFF_NOTE in content
+    assert 'name="browser_choice" value="on" x-model="browser" class="sr-only" disabled' not in content
+
+
+@pytest.mark.django_db
+def test_the_browser_radio_has_no_note_when_the_site_switch_is_on(client, user, monkeypatch):
+    monkeypatch.setenv("DAIV_SANDBOX_BROWSER_ENABLED", "true")
+    env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=user, name="dev", base_image="x")
+    client.force_login(user)
+
+    content = client.get(reverse("sandbox_envs:edit", args=[env.id]), HTTP_HX_REQUEST="true").content.decode()
+
+    assert 'name="browser_choice"' in content
+    assert SITE_OFF_NOTE not in content

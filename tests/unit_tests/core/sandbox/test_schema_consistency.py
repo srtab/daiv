@@ -47,6 +47,10 @@ _SHARED_TYPES = [
     "EgressSecret",
     "EgressPolicy",
     "EgressConfigRequest",
+    "SandboxCapabilities",
+    "BrowserStartRequest",
+    "BrowserStartResponse",
+    "BrowserStopResponse",
 ]
 
 # Types that exist on both sides but are deliberately allowed to diverge.

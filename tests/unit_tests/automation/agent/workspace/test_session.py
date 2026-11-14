@@ -239,6 +239,21 @@ class TestAcquire:
         assert session_id != prior_id
         assert session.acquisition is SandboxAcquisition.ENV_CHANGED
 
+    @pytest.mark.parametrize("browser", [True, False], ids=["turned-on", "turned-off"])
+    async def test_turning_the_browser_on_or_off_reuses_the_warm_container(self, browser):
+        """FR-017a: the Browser field is outside the fingerprint, so the next run keeps the session's sandbox."""
+        client = FakeSandboxClient.opened()
+        prior_id = await _running(client, None)
+        session = _session(client, sandbox_spec(browser=browser))
+
+        await session.acquire(
+            prior_id=prior_id, prior_fingerprint=sandbox_spec(browser=not browser).fingerprint, seed=_seed()
+        )
+
+        assert session.session_id == prior_id
+        assert session.acquisition is SandboxAcquisition.WARM
+        assert client.calls_to("close_session") == []
+
     @pytest.mark.parametrize("stops", [1, 2])
     async def test_a_start_cancelled_in_flight_removes_the_container_it_still_creates(self, stops):
         client = FakeSandboxClient.opened()

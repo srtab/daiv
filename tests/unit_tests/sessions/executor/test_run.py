@@ -32,6 +32,7 @@ from automation.agent.questions import render_questions
 from automation.agent.references import ExternalRef
 from automation.agent.session_links import SessionLinks
 from automation.agent.validators import AgentConfigurationError
+from automation.agent.workspace.browser import SandboxBrowser
 from automation.agent.workspace.disk import DiskWorkspace
 from automation.agent.workspace.git_runners import LocalGitRunner
 from automation.agent.workspace.sandbox import SandboxWorkspace
@@ -39,6 +40,7 @@ from codebase.base import MergeRequestDiffStats, Scope
 from codebase.clients.base import GitEgressCredential
 from codebase.repo_config import RepositoryConfig
 from core.redis import SOCKET_TIMEOUT_S
+from core.sandbox.schemas import SandboxCapabilities
 from tests.unit_tests.automation.agent.conftest import make_merge_request
 from tests.unit_tests.conftest import (
     SAMPLE_QUESTION_PAYLOAD,
@@ -1507,11 +1509,11 @@ async def test_an_unknown_environment_id_fails_the_run_before_the_clone():
     on_failure.assert_awaited_once_with(error, draft_published=False, snapshot=None)
 
 
-def _sandbox_ctx(client: FakeSandboxClient, *, credential_source=None) -> MagicMock:
+def _sandbox_ctx(client: FakeSandboxClient, *, credential_source=None, browser: bool = False) -> MagicMock:
     """The stubbed clone's ``RuntimeCtx`` for a sandbox run: its spec, its open client and its credential source."""
     return MagicMock(
         repo=SimpleNamespace(ref="main", clone_seconds=2.5),
-        sandbox=sandbox_spec(),
+        sandbox=sandbox_spec(browser=browser),
         sandbox_client=client,
         credential_source=credential_source,
         bot_username="daiv",
@@ -1597,6 +1599,40 @@ async def test_a_slash_command_turn_acquires_a_container_only_when_the_agent_nee
         await execute_run(make_spec(input_messages=(HumanMessage(content=content),)))
 
     assert len(client.calls_to("start_session")) == starts
+
+
+def _browser_client() -> FakeSandboxClient:
+    client = FakeSandboxClient.opened()
+    client.capabilities = SandboxCapabilities(browser=True)
+    return client
+
+
+async def test_a_run_whose_switch_and_environment_allow_the_browser_is_built_with_one():
+    site = site_snapshot(sandbox_browser_enabled=True)
+
+    with agent_stack(_agent(), ctx=_sandbox_ctx(_browser_client(), browser=True), site=site) as stack:
+        await execute_run(make_spec())
+
+    assert isinstance(stack.create_agent.await_args.kwargs["workspace"].browser, SandboxBrowser)
+
+
+async def test_a_fresh_install_gives_no_run_a_browser():
+    """The site switch is off by default, so an environment with Browser on still gets none."""
+    with agent_stack(_agent(), ctx=_sandbox_ctx(_browser_client(), browser=True)) as stack:
+        await execute_run(make_spec())
+
+    assert stack.create_agent.await_args.kwargs["workspace"].browser is None
+
+
+async def test_a_turn_that_skips_the_sandbox_gets_no_browser():
+    client = _browser_client()
+    site = site_snapshot(sandbox_browser_enabled=True)
+
+    with agent_stack(_agent(), ctx=_sandbox_ctx(client, browser=True), site=site) as stack:
+        await execute_run(make_spec(input_messages=(HumanMessage(content="/help"),)))
+
+    assert stack.create_agent.await_args.kwargs["workspace"].browser is None
+    assert client.calls_to("get_capabilities") == []
 
 
 @pytest.mark.parametrize("recorded", [True, False], ids=["recorded", "never-recorded"])
@@ -2300,3 +2336,141 @@ class TestFastForward:
 
         factory.assert_awaited_once_with("advanced")
         assert agent.ainvoke.await_args.args[0] == {"messages": [built]}
+
+
+class TestBrowserRelease:
+    """The run's browser is released before its sandbox session, whatever ended the run."""
+
+    @staticmethod
+    def _browser_run(client: FakeSandboxClient | None = None, *, checkpointed=None):
+        client = client or _browser_client()
+        site = site_snapshot(sandbox_browser_enabled=True)
+        return client, agent_stack(
+            _agent(), ctx=_sandbox_ctx(client, browser=True), site=site, checkpointed=checkpointed
+        )
+
+    @staticmethod
+    def _record_release(events: list[str], *, error: BaseException | None = None):
+        async def _release(browser, *, stop=True):
+            events.append(f"browser released stop={stop}")
+            if error is not None:
+                raise error
+
+        return patch.object(SandboxBrowser, "arelease", autospec=True, side_effect=_release)
+
+    async def test_a_finished_run_releases_the_browser_before_the_sandbox(self):
+        client, stack_cm = self._browser_run()
+        with stack_cm as stack, self._record_release(stack.events):
+            close_session = client.close_session
+
+            async def _recorded_close(sid, *, force=False):
+                stack.events.append(f"closed {sid}")
+                await close_session(sid, force=force)
+
+            client.close_session = _recorded_close
+            await execute_run(make_spec())
+
+        assert stack.events.index("browser released stop=True") < stack.events.index("closed sess-1")
+
+    async def test_a_run_without_a_browser_releases_none(self):
+        events: list[str] = []
+        with agent_stack(_agent(), ctx=_sandbox_ctx(_browser_client())), self._record_release(events):
+            await execute_run(make_spec())
+
+        assert events == []
+
+    @pytest.mark.parametrize(
+        "error",
+        [RuntimeError("agent blew up"), asyncio.CancelledError(), TimeoutError("run timed out")],
+        ids=["failure", "cancelled", "timeout"],
+    )
+    async def test_a_run_that_ends_badly_still_releases_the_browser_and_the_sandbox(self, error):
+        client, stack_cm = self._browser_run()
+        with stack_cm as stack, self._record_release(stack.events), pytest.raises(type(error)):
+            stack.create_agent.return_value.ainvoke = AsyncMock(side_effect=error)
+            await execute_run(make_spec())
+
+        assert "browser released stop=True" in stack.events
+        assert client.calls_to("close_session") == [("sess-1", True)]
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_stopped_run_still_releases_the_browser(self):
+        thread_id = await amake_job_session()
+        invoked = asyncio.Event()
+
+        async def _invoke(*_args, **_kwargs):
+            invoked.set()
+            await asyncio.Event().wait()
+
+        async def _should_stop():
+            return invoked.is_set()
+
+        client, stack_cm = self._browser_run()
+        with (
+            stack_cm as stack,
+            self._record_release(stack.events),
+            patch("sessions.executor.run.STOP_POLL_INTERVAL_S", 0.01),
+            pytest.raises(RunStoppedError),
+        ):
+            stack.create_agent.return_value.ainvoke = AsyncMock(side_effect=_invoke)
+            await execute_run(
+                make_spec(thread_id=thread_id, lock=Wait(holder_id="run-1", timeout_s=1)), should_stop=_should_stop
+            )
+
+        assert "browser released stop=True" in stack.events
+        assert client.calls_to("close_session")
+
+    async def test_a_cancelled_browser_release_still_releases_the_sandbox_after_it(self):
+        client, stack_cm = self._browser_run()
+        with (
+            stack_cm as stack,
+            self._record_release(stack.events, error=asyncio.CancelledError()),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            close_session = client.close_session
+
+            async def _recorded_close(sid, *, force=False):
+                stack.events.append(f"closed {sid}")
+                await close_session(sid, force=force)
+
+            client.close_session = _recorded_close
+            await execute_run(make_spec())
+
+        assert stack.events.index("browser released stop=True") < stack.events.index("closed sess-1")
+
+    async def test_a_failing_browser_release_is_logged_and_the_sandbox_is_still_released(self, caplog):
+        client, stack_cm = self._browser_run()
+        with (
+            stack_cm as stack,
+            self._record_release(stack.events, error=RuntimeError("release blew up")),
+            caplog.at_level("ERROR", logger="daiv.sessions"),
+        ):
+            await execute_run(make_spec())
+
+        assert client.calls_to("close_session")
+        assert "failed to release the browser" in caplog.text
+
+    @pytest.mark.django_db(transaction=True)
+    async def test_a_run_that_lost_its_slot_leaves_the_browser_running_for_the_new_holder(self):
+        thread_id = await amake_job_session(active_run_id="chat-run")
+        client = _browser_client()
+        session_id = client.add_running_session("sess-1")
+        site = site_snapshot(sandbox_browser_enabled=True)
+        events: list[str] = []
+
+        with (
+            agent_stack(
+                _agent(state={"session_id": "sess-1"}),
+                ctx=_sandbox_ctx(client, browser=True),
+                site=site,
+                checkpointed={"session_id": session_id},
+            ),
+            self._record_release(events),
+            patch("sessions.executor.run.STREAM_HEARTBEAT_INTERVAL_S", 0.0),
+            patch("sessions.executor.lock.SessionLock.heartbeat", AsyncMock(return_value=False)),
+            pytest.raises(SessionLockLostError),
+        ):
+            await _drain(make_spec(thread_id=thread_id, lock=Held(holder_id="chat-run")), _stream("a", "b"))
+
+        assert events == ["browser released stop=False"]
+        assert client.calls_to("close_session") == []

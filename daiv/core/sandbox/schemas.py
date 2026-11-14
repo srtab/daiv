@@ -242,6 +242,40 @@ class FsDeleteResponse(BaseModel):
         return self.error is None
 
 
+# --- Browser wire schemas -----------------------------------------------------
+
+
+class SandboxCapabilities(BaseModel):
+    browser: bool = Field(default=False, description="Whether the service can run a browser beside a session.")
+
+
+class BrowserStartRequest(BaseModel):
+    memory_bytes: int = Field(gt=0, description="Memory limit of the browser container, in bytes.")
+    cpus: float = Field(gt=0, description="CPU limit of the browser container.")
+    extension_sha256: str = Field(
+        pattern=r"^[0-9a-f]{64}$",
+        description="sha256 of the Stagehand extension archive; the archive is cached under this digest.",
+    )
+
+
+class BrowserStartResponse(BaseModel):
+    started: bool = Field(description="False when the browser was already running and nothing was started.")
+    profile: Literal["empty", "restored", "reset"] = Field(
+        description=(
+            "'empty' on the browser container's first start; 'reset' when its profile could not be read or the "
+            "container was recreated after a removal the service did not initiate; 'restored' otherwise."
+        )
+    )
+    restored_urls: list[str] = Field(default_factory=list, description="Tabs re-opened from the profile, in order.")
+    devtools_port: int = Field(description="The browser-local DevTools port, for the extension's CDP URL.")
+    browser_ws_path: str = Field(description="The browser's DevTools WebSocket path, '/devtools/browser/<guid>'.")
+
+
+class BrowserStopResponse(BaseModel):
+    saved_urls: list[str] = Field(default_factory=list, description="Tab URLs saved to the profile, in order.")
+    oom_killed: bool = Field(default=False, description="Whether the container was killed for memory before stop.")
+
+
 # --- Egress proxy wire schemas -----------------------------------------------
 #
 # Mirror of the daiv-sandbox ``Egress*`` schemas; kept structurally identical so the

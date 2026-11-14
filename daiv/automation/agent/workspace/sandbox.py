@@ -8,10 +8,12 @@ from deepagents.backends.composite import CompositeBackend
 
 from automation.agent.constants import REPO_PATH, WORKSPACE_PATH
 from automation.agent.context import extra_repo_path
+from automation.agent.workspace.browser import SandboxBrowser
 from automation.agent.workspace.git_manager import FastForward, GitManager
 from automation.agent.workspace.git_runners import SandboxGitRunner
 from automation.agent.workspace.repo_view import RepoWorkspace
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend
+from core.sandbox.capabilities import SandboxCapabilityProbe
 
 if TYPE_CHECKING:
     from deepagents.backends.protocol import FileDownloadResponse
@@ -19,6 +21,7 @@ if TYPE_CHECKING:
     from automation.agent.context import RepoHandle
     from automation.agent.workspace.base import PublishWorkspace
     from automation.agent.workspace.session import SandboxSession
+    from core.site_settings import SiteSnapshot
 
 logger = logging.getLogger("daiv.tools")
 
@@ -44,10 +47,24 @@ class SandboxWorkspace:
         # defaults to "/", and the sandbox rejects evictions written there.
         self.backend = CompositeBackend(default=self.bash, routes={}, artifacts_root=WORKSPACE_PATH)
         self.git = GitManager(SandboxGitRunner(self.bash))
+        self.browser: SandboxBrowser | None = None
 
     @property
     def is_ready(self) -> bool:
         return self.session.is_acquired
+
+    async def aresolve_browser(self, site: SiteSnapshot) -> None:
+        """The capability is asked last, so a service that lacks it is logged only where the browser was wanted."""
+        if not (site.sandbox_browser_enabled and self.session.spec.browser and self.is_ready):
+            return
+        if not (await SandboxCapabilityProbe().aget(self.session.client)).browser:
+            return
+        self.browser = SandboxBrowser(
+            self.session,
+            self.session.client,
+            memory_bytes=site.sandbox_browser_memory_bytes,
+            cpus=site.sandbox_browser_cpus,
+        )
 
     @property
     def skills_provisioning_errors(self) -> list[str]:

@@ -493,3 +493,113 @@ async def test_update_egress_raises_on_error(fake_settings, mock_put):
     async with DAIVSandboxClient() as client:
         with pytest.raises(httpx.HTTPStatusError):
             await client.update_egress("sid", egress)
+
+
+def _response(method: str, status: int, json_body=None) -> httpx.Response:
+    return httpx.Response(status, json=json_body, request=httpx.Request(method, "http://sandbox.test/"))
+
+
+def _open_client(**calls):
+    from core.sandbox.client import DAIVSandboxClient
+
+    client = DAIVSandboxClient()
+    client._client = Mock()
+    for name, response in calls.items():
+        setattr(client._client, name, AsyncMock(return_value=response))
+    return client
+
+
+_START_BODY = {
+    "started": True,
+    "profile": "restored",
+    "restored_urls": ["http://localhost:5173/login"],
+    "devtools_port": 39222,
+    "browser_ws_path": "/devtools/browser/abc",
+}
+
+
+async def test_get_capabilities_reads_the_service_answer():
+    client = _open_client(get=_response("GET", 200, {"browser": True}))
+    capabilities = await client.get_capabilities()
+    assert capabilities.browser is True
+    client._client.get.assert_awaited_once_with("-/capabilities/", timeout=5)
+
+
+async def test_get_capabilities_treats_a_service_without_the_endpoint_as_no_browser():
+    client = _open_client(get=_response("GET", 404))
+    assert (await client.get_capabilities()).browser is False
+
+
+async def test_get_capabilities_raises_on_other_errors():
+    client = _open_client(get=_response("GET", 500))
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.get_capabilities()
+
+
+async def test_start_browser_sends_the_request_and_archive_as_multipart():
+    from core.sandbox.schemas import BrowserStartRequest
+
+    client = _open_client(post=_response("POST", 200, _START_BODY))
+    request = BrowserStartRequest(memory_bytes=1024, cpus=0.5, extension_sha256="b" * 64)
+
+    response = await client.start_browser("sid", request, b"zip-bytes")
+
+    assert response.profile == "restored"
+    assert response.restored_urls == ["http://localhost:5173/login"]
+    url = client._client.post.await_args.args[0]
+    files = client._client.post.await_args.kwargs["files"]
+    assert url == "session/sid/browser/"
+    assert files["request"][0] is None
+    assert BrowserStartRequest.model_validate_json(files["request"][1]) == request
+    assert files["extension_archive"][1:] == (b"zip-bytes", "application/zip")
+
+
+async def test_start_browser_omits_the_archive_when_none_is_given():
+    from core.sandbox.schemas import BrowserStartRequest
+
+    client = _open_client(post=_response("POST", 200, _START_BODY))
+    await client.start_browser("sid", BrowserStartRequest(memory_bytes=1, cpus=1, extension_sha256="c" * 64), None)
+    assert set(client._client.post.await_args.kwargs["files"]) == {"request"}
+
+
+async def test_start_browser_raises_on_a_non_2xx_answer():
+    from core.sandbox.schemas import BrowserStartRequest
+
+    client = _open_client(post=_response("POST", 503, {"detail": "browser not ready"}))
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.start_browser("sid", BrowserStartRequest(memory_bytes=1, cpus=1, extension_sha256="c" * 64), None)
+
+
+@pytest.mark.parametrize("force", [False, True])
+async def test_stop_browser_passes_force_and_reads_the_answer(force):
+    client = _open_client(
+        delete=_response("DELETE", 200, {"saved_urls": ["http://localhost:3000/"], "oom_killed": True})
+    )
+
+    response = await client.stop_browser("sid", force=force)
+
+    assert response.saved_urls == ["http://localhost:3000/"]
+    assert response.oom_killed is True
+    client._client.delete.assert_awaited_once_with("session/sid/browser/", params={"force": force})
+
+
+@pytest.mark.parametrize(
+    ("base", "expected"),
+    [
+        ("http://sandbox.test/", "ws://sandbox.test/session/sid/browser/cdp"),
+        ("http://sandbox:8000", "ws://sandbox:8000/session/sid/browser/cdp"),
+        ("https://sandbox.example/api/v1/", "wss://sandbox.example/api/v1/session/sid/browser/cdp"),
+    ],
+)
+def test_browser_cdp_url_follows_the_base_url(fake_settings, base, expected):
+    from core.sandbox.client import DAIVSandboxClient
+
+    client = DAIVSandboxClient()
+    client.url = base
+    assert client.browser_cdp_url("sid") == expected
+
+
+def test_auth_headers_carry_the_api_key(fake_settings):
+    from core.sandbox.client import DAIVSandboxClient
+
+    assert DAIVSandboxClient().auth_headers() == {"X-API-KEY": "fake-key"}

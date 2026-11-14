@@ -162,6 +162,9 @@ def _build_field_defaults() -> dict[str, Any]:
         "web_fetch_max_content_chars": 50_000,
         # Sandbox
         "sandbox_timeout": 600,
+        "sandbox_browser_enabled": False,
+        "sandbox_browser_memory_bytes": 1_073_741_824,
+        "sandbox_browser_cpus": 1.0,
         # Jobs
         "jobs_throttle_rate": "20/hour",
         # Pipeline watch
@@ -241,6 +244,9 @@ class SiteSnapshot:
     web_fetch_timeout_seconds: int
     web_fetch_max_content_chars: int
     sandbox_timeout: float
+    sandbox_browser_enabled: bool
+    sandbox_browser_memory_bytes: int
+    sandbox_browser_cpus: float
     jobs_throttle_rate: str
     pipeline_watch_enabled: bool
     pipeline_watch_max_attempts: int

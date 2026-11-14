@@ -275,3 +275,6 @@ msgstr "(novo)"
 
 msgid "Telegram synchronisation failed; check the server logs."
 msgstr "A sincronização com o Telegram falhou; consulte os registos do servidor."
+
+msgid "The sandbox service does not support the browser, so runs get no browser tools. Upgrade daiv-sandbox to 0.6.0 or later."
+msgstr "O serviço de sandbox não suporta o navegador, por isso as execuções não recebem ferramentas de navegador. Atualize o daiv-sandbox para a versão 0.6.0 ou posterior."

@@ -31,7 +31,7 @@ The configuration has the following groups, organized by category.
 | **Providers** | Models | LLM provider records (slug, wire protocol, base URL, API key, extra headers and more) that every model field draws from. See [Providers](#providers). |
 | **Web Search** | Agent tools | Turn the web search tool on or off, pick DuckDuckGo, Tavily or SearXNG, set the maximum results, store the Tavily API key, and set the SearXNG search URL and timeout. See [Set up SearXNG](#set-up-searxng). |
 | **Web Fetch** | Agent tools | Turn the web fetch tool on or off, choose the model that processes fetched pages, set the cache TTL, timeout and maximum content size, and define per-domain auth headers. |
-| **Sandbox** | Runtime | Sandbox request timeout and the sandbox API key. |
+| **Sandbox** | Runtime | Sandbox request timeout, the sandbox API key, and the [browser](../features/browser.md) switch with its memory and CPU limits. |
 | **Jobs** | Runtime | Per-user rate limit for [Jobs API](../features/jobs-api.md) submissions (e.g. `20/hour`). |
 | **Pipeline Watch** | Runtime | Watch CI on merge requests DAIV publishes and try to fix failures, and how many fix attempts (at least 1) to spend on one merge request before handing back. |
 | **Rocket Chat** | Integrations | Offer Rocket.Chat as a notification channel, with the instance URL, bot user ID and auth token. |
