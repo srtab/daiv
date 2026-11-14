@@ -44,7 +44,7 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 
 ### Added
 
-- Add a headless browser the agent can use beside its sandbox, turned on per sandbox environment and site-wide; it needs daiv-sandbox 0.6.0 or later (#PR)
+- Add a headless browser the agent can use beside its sandbox, turned on per sandbox environment and site-wide; it needs daiv-sandbox 0.6.0 or later ([#1836](https://github.com/srtab/daiv/pull/1836))
 - Add a web dashboard, signed in with a GitLab or GitHub account, an emailed code or a passkey, with admin and member roles ([#993](https://github.com/srtab/daiv/pull/993), [#1559](https://github.com/srtab/daiv/pull/1559))
 - Add sessions: every run, whether started from chat, a webhook, the Jobs API, MCP or a schedule, is a session you can watch live, continue, retry, stop and archive in the dashboard ([#1374](https://github.com/srtab/daiv/pull/1374), [#1691](https://github.com/srtab/daiv/pull/1691))
 - Give a webhook's session to the DAIV user who signed in with the author's GitLab or GitHub account, who then gets its notifications ([#1744](https://github.com/srtab/daiv/pull/1744))
