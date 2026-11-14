@@ -12,6 +12,7 @@ from configuration.forms import WEB_FETCH_AUTH_HEADERS_FORMSET_PREFIX as PREFIX
 
 from accounts.models import Role, User
 from core.models import Provider, ProviderType, SiteConfiguration, WebFetchAuthHeader
+from core.sandbox.capabilities import NO_BROWSER_MESSAGE
 from core.sandbox.schemas import SandboxCapabilities
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[3] / "daiv" / "configuration" / "templates"
@@ -1601,10 +1602,7 @@ class TestAgentGroupSubagentModels:
 
 @pytest.mark.django_db
 class TestSandboxBrowserWarning:
-    WARNING = (
-        "The sandbox service does not support the browser, so runs get no browser tools. "
-        "Upgrade daiv-sandbox to 0.6.0 or later."
-    )
+    WARNING = NO_BROWSER_MESSAGE
 
     def _get(self, client, admin_user, group_url, *, browser: bool | None):
         client.force_login(admin_user)
@@ -1623,17 +1621,13 @@ class TestSandboxBrowserWarning:
         assert self.WARNING in content
         probe.assert_awaited_once()
 
-    def test_no_warning_when_the_service_can_run_a_browser(self, client, admin_user, group_url, monkeypatch):
+    @pytest.mark.parametrize("browser", [True, None], ids=["capable", "unreachable"])
+    def test_no_warning_unless_the_service_says_it_has_no_browser(
+        self, client, admin_user, group_url, monkeypatch, browser
+    ):
         monkeypatch.setenv("DAIV_SANDBOX_BROWSER_ENABLED", "true")
 
-        content, _ = self._get(client, admin_user, group_url, browser=True)
-
-        assert self.WARNING not in content
-
-    def test_no_upgrade_warning_when_the_service_could_not_be_asked(self, client, admin_user, group_url, monkeypatch):
-        monkeypatch.setenv("DAIV_SANDBOX_BROWSER_ENABLED", "true")
-
-        content, probe = self._get(client, admin_user, group_url, browser=None)
+        content, probe = self._get(client, admin_user, group_url, browser=browser)
 
         assert self.WARNING not in content
         probe.assert_awaited_once()

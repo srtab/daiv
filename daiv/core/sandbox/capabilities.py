@@ -30,13 +30,20 @@ class SandboxCapabilityProbe:
 
     async def aget(self, client: DAIVSandboxClient | None = None) -> SandboxCapabilities | None:
         """The service's answer; ``None`` when it could not be asked, which is not cached, so the next call asks
-        again."""
-        cached = await cache.aget(CAPABILITIES_CACHE_KEY)
+        again. Never raises: a cache that fails is passed over and the service is asked."""
+        try:
+            cached = await cache.aget(CAPABILITIES_CACHE_KEY)
+        except Exception:
+            logger.warning("Could not read the sandbox capabilities from the cache", exc_info=True)
+            cached = None
         if cached is not None:
             return SandboxCapabilities.model_validate(cached)
         capabilities = await self._fetch(client)
         if capabilities is not None:
-            await cache.aset(CAPABILITIES_CACHE_KEY, capabilities.model_dump(), CAPABILITIES_CACHE_TTL)
+            try:
+                await cache.aset(CAPABILITIES_CACHE_KEY, capabilities.model_dump(), CAPABILITIES_CACHE_TTL)
+            except Exception:
+                logger.warning("Could not cache the sandbox capabilities", exc_info=True)
         return capabilities
 
     async def _fetch(self, client: DAIVSandboxClient | None) -> SandboxCapabilities | None:

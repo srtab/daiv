@@ -70,6 +70,15 @@ def stagehand_stubs():
         patch.object(browser_module, "StagehandFacadeTools", side_effect=facade),
     ):
         yield stubs
+    cache.delete(browser_module.extension_cache_key("sess-1"))
+
+
+async def _drop(_facade):
+    raise CDPConnectionClosedError
+
+
+async def _hang(*_args, **_kwargs):
+    await asyncio.sleep(10)
 
 
 def _browser(client: FakeSandboxClient | None = None) -> SandboxBrowser:
@@ -123,22 +132,12 @@ async def test_a_later_run_on_the_same_session_leaves_the_extension_out(stagehan
 async def test_a_container_that_lost_the_extension_gets_it_again(stagehand_stubs):
     client = FakeSandboxClient.opened()
     await _started_browser(client)
-    start = client.start_browser
+    conflict = client._status_error("start_browser", 409, "extension missing")
+    client.start_browser = AsyncMock(side_effect=[conflict, client.browser_start_response])
 
-    async def missing_without_archive(session_id, request, extension_archive):
-        if extension_archive is None:
-            client.calls.append(("start_browser", (session_id, request, None)))
-            raise client._status_error("start_browser", 409, "extension missing")
-        return await start(session_id, request, extension_archive)
-
-    client.start_browser = missing_without_archive
     await _browser(client).aensure()
 
-    assert [archive for *_, archive in client.calls_to("start_browser")] == [
-        get_extension_archive(),
-        None,
-        get_extension_archive(),
-    ]
+    assert [call.args[2] for call in client.start_browser.await_args_list] == [None, get_extension_archive()]
 
 
 async def _started_browser(client: FakeSandboxClient) -> None:
@@ -287,11 +286,8 @@ async def test_a_lost_connection_stops_the_browser_and_the_next_call_restarts_it
     await browser.aensure()
     browser.take_note()
 
-    async def drop(_facade):
-        raise CDPConnectionClosedError
-
     with caplog.at_level(logging.WARNING, logger="daiv.tools"), pytest.raises(BrowserError) as raised:
-        await browser.acall(drop)
+        await browser.acall(_drop)
 
     assert str(raised.value) == (
         f"error: The browser stopped ({reason}). The next browser call restarts it from this session's last saved "
@@ -340,11 +336,7 @@ async def test_a_failed_start_says_so_then_latches_unavailable(stagehand_stubs, 
         client.fail("start_browser", status=status)
     else:
         monkeypatch.setattr(browser_module, "START_BUDGET_SECONDS", 0.01)
-
-        async def hang(*_args, **_kwargs):
-            await asyncio.sleep(10)
-
-        client.start_browser = hang
+        client.start_browser = _hang
     browser = _browser(client)
 
     with caplog.at_level(logging.ERROR, logger="daiv.tools"):
@@ -483,25 +475,25 @@ async def test_two_calls_that_lose_the_browser_together_stop_it_once(stagehand_s
     assert browser.client.calls_to("stop_browser") == [("sess-1", False)]
 
 
-async def test_a_late_failure_on_the_old_connection_leaves_the_restarted_browser_running(stagehand_stubs):
-    browser = _browser()
+async def _late_call_on_a_lost_connection(browser: SandboxBrowser) -> tuple[asyncio.Task, asyncio.Event]:
     await browser.aensure()
-    old_facade = browser.facade
     release_late_call = asyncio.Event()
 
     async def late(_facade):
         await release_late_call.wait()
         raise CDPConnectionClosedError
 
-    async def drop(_facade):
-        raise CDPConnectionClosedError
-
     late_call = asyncio.create_task(browser.acall(late))
     await asyncio.sleep(0)
     with pytest.raises(BrowserError):
-        await browser.acall(drop)
+        await browser.acall(_drop)
+    return late_call, release_late_call
+
+
+async def test_a_late_failure_on_the_old_connection_leaves_the_restarted_browser_running(stagehand_stubs):
+    browser = _browser()
+    late_call, release_late_call = await _late_call_on_a_lost_connection(browser)
     await browser.aensure()
-    assert browser.facade is not old_facade
     release_late_call.set()
 
     with pytest.raises(BrowserError) as raised:
@@ -510,24 +502,31 @@ async def test_a_late_failure_on_the_old_connection_leaves_the_restarted_browser
         "error: The browser stopped (the connection was lost) and restarted from this session's last saved profile; "
         "pages and state since then were lost."
     )
+    assert browser.take_note() is None
     assert browser.state == "ready"
     assert browser.client.calls_to("stop_browser") == [("sess-1", False)]
 
 
+async def test_a_late_failure_after_the_restarts_failed_says_the_browser_is_unavailable(stagehand_stubs):
+    browser = _browser()
+    late_call, release_late_call = await _late_call_on_a_lost_connection(browser)
+    browser.client.fail("start_browser", status=None)
+    for _ in range(2):
+        with pytest.raises(BrowserError):
+            await browser.aensure()
+    release_late_call.set()
+
+    with pytest.raises(BrowserError) as raised:
+        await late_call
+    assert str(raised.value) == UNAVAILABLE
+
+
 async def test_a_stop_that_hangs_after_a_loss_is_cut_short(stagehand_stubs, monkeypatch):
     monkeypatch.setattr(browser_module, "RELEASE_BUDGET_SECONDS", 0.01)
-    client = FakeSandboxClient.opened()
-    browser = _browser(client)
+    browser = _browser()
     await browser.aensure()
-
-    async def hang(*_args, **_kwargs):
-        await asyncio.sleep(10)
-
-    async def drop(_facade):
-        raise CDPConnectionClosedError
-
-    client.stop_browser = hang
+    browser.client.stop_browser = _hang
 
     with pytest.raises(BrowserError, match="connection was lost"):
-        await asyncio.wait_for(browser.acall(drop), timeout=2)
+        await asyncio.wait_for(browser.acall(_drop), timeout=2)
     assert browser.state == "lost"

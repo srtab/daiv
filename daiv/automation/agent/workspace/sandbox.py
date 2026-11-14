@@ -58,11 +58,7 @@ class SandboxWorkspace:
         failure to ask leaves the run without a browser rather than failing it."""
         if not (site.sandbox_browser_enabled and self.session.spec.browser and self.is_ready):
             return
-        try:
-            capabilities = await SandboxCapabilityProbe().aget(self.session.client)
-        except Exception:
-            logger.exception("Could not check the sandbox service for the browser, so this run gets no browser tools")
-            return
+        capabilities = await SandboxCapabilityProbe().aget(self.session.client)
         if capabilities is None or not capabilities.browser:
             return
         # Imported here so Stagehand loads only in processes that run a browser.

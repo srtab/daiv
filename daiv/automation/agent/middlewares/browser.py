@@ -190,17 +190,17 @@ class BrowserMiddleware(AgentMiddleware):
         image, note = await self._call_with_note(
             lambda facade: facade.screenshot(full_page=full_page, type=image_type, quality=quality)
         )
+        too_large = None
         retake_shrinks = image_type == "png" or quality is None or quality > RETAKE_JPEG_QUALITY
-        if len(image["data"]) > MAX_SCREENSHOT_BYTES and retake_shrinks:
+        if (dimensions := _image_size(image["data"])) is not None and max(dimensions) > MAX_SCREENSHOT_SIDE:
+            too_large = f"{dimensions[0]}×{dimensions[1]} px"
+        elif len(image["data"]) > MAX_SCREENSHOT_BYTES and retake_shrinks:
             image, retake_note = await self._call_with_note(
                 lambda facade: facade.screenshot(full_page=full_page, type="jpeg", quality=RETAKE_JPEG_QUALITY)
             )
             note = _join_notes(note, retake_note)
-        too_large = None
-        if (size := len(image["data"])) > MAX_SCREENSHOT_BYTES:
+        if too_large is None and (size := len(image["data"])) > MAX_SCREENSHOT_BYTES:
             too_large = f"{size / 2**20:.1f} MiB"
-        elif (dimensions := _image_size(image["data"])) is not None and max(dimensions) > MAX_SCREENSHOT_SIDE:
-            too_large = f"{dimensions[0]}×{dimensions[1]} px"
         if too_large is not None:
             raise ToolException(
                 _with_note(note, f"error: The page is too large to capture whole ({too_large}). Use fullPage: false.")

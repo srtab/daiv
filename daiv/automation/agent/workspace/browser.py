@@ -290,10 +290,8 @@ class SandboxBrowser:
         """Stop the browser whose connection ``stagehand`` held, unless it was already stopped or replaced, and say
         what the agent is told."""
         async with self._lock:
-            if self.state == "ready" and self.stagehand is not stagehand:
-                return f"error: {restarted_note(self._lost_reason)}"
             if self.state == "lost" or self.stagehand is not stagehand:
-                return lost_text(self._lost_reason)
+                return self._stale_connection_text()
             self.state = "lost"
             await self._discard_connection()
             stopped = await self._stop_after_loss()
@@ -307,6 +305,14 @@ class SandboxBrowser:
             )
             self.pending_note = restarted_note(reason)
             return lost_text(reason)
+
+    def _stale_connection_text(self) -> str:
+        """What a call on a connection already stopped or replaced is told, from the state it finds."""
+        if self.state == "ready":
+            return f"error: {self.take_note() or restarted_note(self._lost_reason)}"
+        if self.state in ("unavailable", "released"):
+            return UNAVAILABLE_TEXT
+        return lost_text(self._lost_reason)
 
     async def _stop_after_loss(self) -> BrowserStopResponse | None:
         if self._session_id is None:

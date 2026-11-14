@@ -182,9 +182,9 @@ async def test_a_screenshot_still_over_five_mib_says_to_capture_the_viewport(too
     assert message.content == "error: The page is too large to capture whole (8.0 MiB). Use fullPage: false."
 
 
-def _png(width: int, height: int) -> dict:
+def _png(width: int, height: int, padding: int = 0) -> dict:
     header = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + struct.pack(">II", width, height) + b"\x08\x06\x00\x00\x00"
-    return {"data": base64.b64encode(header).decode(), "mimeType": "image/png"}
+    return {"data": base64.b64encode(header + b"\x00" * padding).decode(), "mimeType": "image/png"}
 
 
 def _jpeg(width: int, height: int) -> dict:
@@ -201,6 +201,15 @@ async def test_a_screenshot_over_8000_px_on_a_side_says_to_capture_the_viewport(
 
     assert message.status == "error"
     assert "px). Use fullPage: false." in message.content
+
+
+async def test_a_page_too_tall_to_capture_is_not_retaken(tools, browser):
+    browser.facade.screenshot.return_value = _png(1280, 9000, padding=6 * 2**20)
+
+    message = await _call(tools["browser_screenshot"], fullPage=True)
+
+    assert message.content == "error: The page is too large to capture whole (1280×9000 px). Use fullPage: false."
+    browser.facade.screenshot.assert_awaited_once()
 
 
 @pytest.mark.parametrize("image", [_png(1280, 8000), _jpeg(1280, 720)], ids=["png", "jpeg"])
