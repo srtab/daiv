@@ -21,7 +21,7 @@ Starts the session's browser container, or creates it the first time. The reques
 | Part | Content |
 |---|---|
 | `request` | JSON `BrowserStartRequest{memory_bytes, cpus, extension_sha256}` |
-| `extension_archive` | the zip from `stagehand.get_extension_archive()`. DAIV may omit it after a start whose response showed the same `extension_sha256` already installed; the service answers 409 `extension missing` when it is absent and not cached |
+| `extension_archive` | the zip from `stagehand.get_extension_archive()`. DAIV may omit it after a start whose response showed the same `extension_sha256` already installed; the service answers 412 `extension missing` when it is absent and not cached |
 
 **Steps** (under the per-session lock):
 1. Resume the sandbox container, as for any session call.
@@ -61,7 +61,8 @@ Starts the session's browser container, or creates it the first time. The reques
 | Status | Reason |
 |---|---|
 | 404 | unknown session |
-| 409 | extension missing; or the session is busy past the lock wait |
+| 409 | the session is busy past the lock wait |
+| 412 | extension missing: the archive was left out and the container holds none with that digest |
 | 503 | the browser image is unavailable, or Chromium did not become ready in time |
 | 500 | anything else, logged with the traceback |
 

@@ -263,14 +263,14 @@ class SandboxBrowser:
     async def _start_container(
         self, session_id: str, request: BrowserStartRequest, archive: bytes
     ) -> BrowserStartResponse:
-        """Leaves the extension archive out when the session's container already holds it, and sends it on the 409 a
+        """Leaves the extension archive out when the session's container already holds it, and sends it on the 412 a
         container that lost it answers."""
         key = extension_cache_key(session_id)
         if await cache.aget(key) == request.extension_sha256:
             try:
                 return await self.client.start_browser(session_id, request, None)
             except httpx.HTTPStatusError as error:
-                if error.response.status_code != httpx.codes.CONFLICT:
+                if error.response.status_code != httpx.codes.PRECONDITION_FAILED:
                     raise
         response = await self.client.start_browser(session_id, request, archive)
         await cache.aset(key, request.extension_sha256, EXTENSION_CACHE_TTL)

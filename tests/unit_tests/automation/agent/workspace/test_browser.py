@@ -132,12 +132,24 @@ async def test_a_later_run_on_the_same_session_leaves_the_extension_out(stagehan
 async def test_a_container_that_lost_the_extension_gets_it_again(stagehand_stubs):
     client = FakeSandboxClient.opened()
     await _started_browser(client)
-    conflict = client._status_error("start_browser", 409, "extension missing")
-    client.start_browser = AsyncMock(side_effect=[conflict, client.browser_start_response])
+    missing = client._status_error("start_browser", 412, "extension missing")
+    client.start_browser = AsyncMock(side_effect=[missing, client.browser_start_response])
 
     await _browser(client).aensure()
 
     assert [call.args[2] for call in client.start_browser.await_args_list] == [None, get_extension_archive()]
+
+
+async def test_a_busy_session_is_a_failed_start_not_a_lost_extension(stagehand_stubs):
+    client = FakeSandboxClient.opened()
+    await _started_browser(client)
+    busy = client._status_error("start_browser", 409, "Session is busy")
+    client.start_browser = AsyncMock(side_effect=[busy])
+
+    with pytest.raises(BrowserError):
+        await _browser(client).aensure()
+
+    assert [call.args[2] for call in client.start_browser.await_args_list] == [None]
 
 
 async def _started_browser(client: FakeSandboxClient) -> None:
