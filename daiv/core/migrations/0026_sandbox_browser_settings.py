@@ -23,7 +23,7 @@ class Migration(migrations.Migration):
             model_name="siteconfiguration",
             name="sandbox_browser_enabled",
             field=models.BooleanField(
-                help_text="Let the agent use a headless browser in sandbox environments that turn Browser on. Off turns it off everywhere.",
+                help_text="Let the agent use a headless browser in sandbox environments that turn Browser on. While it is off, no run gets a browser.",
                 null=True,
                 verbose_name="browser",
             ),
@@ -33,7 +33,7 @@ class Migration(migrations.Migration):
             name="sandbox_browser_memory_bytes",
             field=models.PositiveBigIntegerField(
                 blank=True,
-                help_text="Memory limit of each run's browser, separate from the environment's. At least 256 MiB.",
+                help_text="Memory limit of each run's browser in bytes, separate from the environment's. At least 268435456 (256 MiB).",
                 null=True,
                 validators=[django.core.validators.MinValueValidator(268435456)],
                 verbose_name="browser memory",

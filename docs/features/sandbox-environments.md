@@ -125,7 +125,7 @@ If DAIV cannot decrypt an environment's egress credentials at run time, or its e
 
 ## Browser
 
-With **Browser** set to **On**, runs in the environment get a headless browser beside the sandbox, as long as an administrator turned on the site's **Browser** setting and the sandbox service is daiv-sandbox 0.6.0 or later. The browser reaches the services the agent starts in the sandbox, and only the hosts **Network** allows. Each environment sets its own **Browser** field, and changing it never replaces a session's sandbox. The environment list shows `Browser` in an environment's summary when it is on. For what the agent can do with the browser, what it keeps between a session's runs, and its limits, see [Browser](browser.md).
+With **Browser** set to **On**, runs in the environment get a headless browser beside the sandbox, as long as an administrator turned on the site's **Browser** setting. Changing the field never replaces a session's sandbox. In a session's **Environment** field, an environment's summary ends in `browser` when it is on. For what the browser needs and reaches, what it keeps between a session's runs, and its limits, see [Browser](browser.md).
 
 ## Repository bindings
 

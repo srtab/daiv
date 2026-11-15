@@ -46,7 +46,7 @@ uv run evals/compare_runs.py BEFORE.jsonl AFTER.jsonl                # PR-body t
 
 ## Invariants / footguns
 
-- **`InlineToolDefinitionsMiddleware` stays the last DAIV middleware** (main and subagent stacks) — a middleware that appends messages to the model request must sit before it, or an Anthropic request gets a system turn followed by a user turn and langchain raises; see `automation/agent/deferred/inline.py`.
+- **`InlineToolDefinitionsMiddleware` stays the last DAIV middleware that can append messages** (main and subagent stacks) — a middleware that appends messages to the model request must sit before it, or an Anthropic request gets a system turn followed by a user turn and langchain raises. `ToolImageNoticeMiddleware` takes deepagents' unsupported-content slot by name, so it runs after it and must only rewrite blocks; see `automation/agent/deferred/inline.py`.
 - **Tools can't mutate `runtime.state`** — return a `Command(update={...}, messages=[ToolMessage(...)])`; in tests unpack `isinstance(result, Command)`.
 - **Auth** — email signup disabled (`AccountAdapter.is_open_for_signup` → `False`); `AdminRequiredMixin` needs `user.is_admin`; `APIKey.objects.create_key(...)` is **async**.
 - **`run_job_task` requires a non-empty `thread_id`** — missing breaks chat resume. The task checks only non-empty; the UUID check is in `sessions.services.asubmit_batch_runs`.

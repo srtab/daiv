@@ -76,6 +76,23 @@ async def test_aclose_closes_the_listener_and_every_open_bridge(fake_service):
     writer.close()
 
 
+async def test_an_unexpected_failure_closes_the_connection_and_logs_only_its_type(fake_service, monkeypatch, caplog):
+    def broken_connect(*args, **kwargs):
+        raise ValueError("X-API-KEY: fake-key")
+
+    monkeypatch.setattr("core.sandbox.tunnel.connect", broken_connect)
+    tunnel = await BrowserTunnel(fake_service.client, "sid").aopen()
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", int(tunnel.http_url.rsplit(":", 1)[1]))
+        assert await asyncio.wait_for(reader.read(), 5) == b""
+        writer.close()
+    finally:
+        await tunnel.aclose()
+
+    records = [(r.levelname, r.getMessage()) for r in caplog.records if r.name == "daiv.sandbox"]
+    assert records == [("ERROR", "Browser tunnel connection failed: ValueError")]
+
+
 def test_http_url_needs_an_open_tunnel(fake_service):
     with pytest.raises(RuntimeError):
         _ = BrowserTunnel(fake_service.client, "sid").http_url

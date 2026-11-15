@@ -575,8 +575,8 @@ def test_summary_marks_net_when_egress_policy_present():
 def test_browser_is_off_by_default(user):
     env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=user, name="dev", base_image="alpine:3.20")
     assert env.browser_enabled is False
-    assert "Browser" not in env.summary
-    assert "Browser" not in env.short_summary
+    assert "browser" not in env.summary
+    assert "browser" not in env.short_summary
 
 
 @pytest.mark.django_db
@@ -589,5 +589,5 @@ def test_summaries_name_the_browser_when_it_is_on(user):
         egress_policy={"default": "allow", "intercept": "all", "rules": []},
         browser_enabled=True,
     )
-    assert env.summary == "node:22 · net · Browser"
-    assert env.short_summary == "node:22 · net · Browser"
+    assert env.summary == "node:22 · net · browser"
+    assert env.short_summary == "node:22 · net · browser"

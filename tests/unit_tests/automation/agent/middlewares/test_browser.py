@@ -6,9 +6,16 @@ from unittest.mock import AsyncMock
 
 import pytest
 from langchain_stagehand.actions import SnapshotAction
+from stagehand.rpc_client import RPCError, _JSONRPCError
 from stagehand_middleware.facade import StagehandFacadeExecutionError, StagehandFacadeInputError
 
-from automation.agent.middlewares.browser import UNTRUSTED_CONTENT, BrowserMiddleware, refused_navigation_note
+from automation.agent.middlewares.browser import (
+    FAILED_TEXT,
+    TIMED_OUT_TEXT,
+    UNTRUSTED_CONTENT,
+    BrowserMiddleware,
+    refused_navigation_note,
+)
 from automation.agent.workspace.browser import BrowserError
 
 if TYPE_CHECKING:
@@ -270,9 +277,9 @@ def test_the_loopback_port_defaults_follow_the_scheme():
     [
         (StagehandFacadeInputError("Snapshot ID 1-2 is stale. Take a new snapshot."), "Snapshot ID 1-2 is stale."),
         (StagehandFacadeExecutionError("TypeError", "x is not a function"), "x is not a function"),
-        (TimeoutError("page.snapshot timed out after 120s"), "TimeoutError: page.snapshot timed out"),
+        (RPCError(_JSONRPCError(code=-32000, message="No node found for selector")), "No node found for selector"),
     ],
-    ids=["stale-id", "run-code", "timeout"],
+    ids=["stale-id", "run-code", "browser-rpc"],
 )
 async def test_a_facade_error_reaches_the_agent_as_its_own_text(tools, browser, error, text):
     browser.error = error
@@ -281,6 +288,30 @@ async def test_a_facade_error_reaches_the_agent_as_its_own_text(tools, browser, 
 
     assert message.status == "error"
     assert text in message.content
+
+
+@pytest.mark.parametrize(
+    ("error", "text"),
+    [
+        (TimeoutError("page.snapshot received no response within 120000ms"), TIMED_OUT_TEXT),
+        (KeyError("_internal_state"), FAILED_TEXT),
+    ],
+    ids=["timeout", "unexpected"],
+)
+async def test_a_timeout_or_unexpected_error_reaches_the_agent_as_a_fixed_text(tools, browser, error, text):
+    browser.error = error
+
+    message = await _call(tools["browser_snapshot"])
+
+    assert (message.status, message.content) == ("error", text)
+
+
+async def test_an_unexpected_error_is_logged_at_error(tools, browser, caplog):
+    browser.error = KeyError("_internal_state")
+
+    await _call(tools["browser_snapshot"])
+
+    assert [record.levelname for record in caplog.records if record.name == "daiv.tools"] == ["ERROR"]
 
 
 async def test_a_browser_failure_reaches_the_agent_as_its_fixed_text(tools, browser):

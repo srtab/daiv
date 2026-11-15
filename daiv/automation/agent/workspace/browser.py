@@ -16,9 +16,8 @@ import functools
 import hashlib
 import json
 import logging
-import shutil
-import tempfile
 from typing import TYPE_CHECKING, Literal
+from urllib.parse import urlsplit, urlunsplit
 
 from django.core.cache import cache
 
@@ -50,6 +49,8 @@ MAX_START_FAILURES = 2
 NAVIGATION_HISTORY_BUDGET_SECONDS = 5
 EXTENSION_CACHE_TTL = 24 * 60 * 60
 CHROME_ERROR_URL_PREFIX = "chrome-error://"
+# A path under a file, so every write fails, as root too: nothing on the worker reads run-code screenshots.
+REFUSED_ARTIFACT_ROOT = "/dev/null/daiv-browser-artifacts"
 
 START_FAILED_TEXT = "error: The browser could not start. Try again; if it fails again, continue without it."
 UNAVAILABLE_TEXT = "error: The browser is unavailable for this run."
@@ -82,9 +83,19 @@ def profile_note(response: BrowserStartResponse) -> str | None:
         return "This session's browser profile was reset; the browser started empty."
     if response.profile == "restored":
         if response.restored_urls:
-            return f"Browser restored from this session's profile; re-opened: {', '.join(response.restored_urls)}."
+            urls = ", ".join(_shown_url(url) for url in response.restored_urls)
+            return f"Browser restored from this session's profile; re-opened: {urls}."
         return "Browser restored from this session's profile (cookies and storage kept, no open pages)."
     return None
+
+
+def _shown_url(url: str) -> str:
+    """A restored tab's address without credentials, query or fragment, which may hold tokens; only the scheme of an
+    address that is not a web page, whose text could be anything."""
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https"):
+        return f"{parts.scheme}:"
+    return urlunsplit((parts.scheme, parts.netloc.rpartition("@")[2], parts.path, "", ""))
 
 
 async def _attempted_url(http_url: str, target_id: str) -> str:
@@ -138,7 +149,6 @@ class SandboxBrowser:
         self.facade: StagehandFacadeTools | None = None
         self.pending_note: str | None = None
         self.start_failures = 0
-        self.artifact_dir: str | None = None
         self._session_id: str | None = None
         self._lost_reason = CONNECTION_LOST_REASON
         self._lock = asyncio.Lock()
@@ -230,10 +240,6 @@ class SandboxBrowser:
                     await self.client.stop_browser(self._session_id)
         except Exception:
             logger.exception("Could not release the browser of sandbox session %s", self.session.session_id)
-        finally:
-            if self.artifact_dir is not None:
-                shutil.rmtree(self.artifact_dir, ignore_errors=True)
-                self.artifact_dir = None
 
     async def _start(self) -> tuple[BrowserStartResponse, StagehandFacadeTools]:
         session_id = self.session.session_id
@@ -251,8 +257,6 @@ class SandboxBrowser:
             extension_cdp_url=f"ws://127.0.0.1:{response.devtools_port}{response.browser_ws_path}",
         )
         self.stagehand = stagehand = await Stagehand.create(browser=browser, logging={"level": "off"})
-        if self.artifact_dir is None:
-            self.artifact_dir = tempfile.mkdtemp(prefix="daiv-browser-")
         self.facade = facade = self._new_facade(stagehand)
         return response, facade
 
@@ -273,7 +277,9 @@ class SandboxBrowser:
         return response
 
     def _new_facade(self, stagehand: Stagehand) -> StagehandFacadeTools:
-        return StagehandFacadeTools(stagehand, artifact_root=self.artifact_dir, on_close_requested=self._reopen_facade)
+        return StagehandFacadeTools(
+            stagehand, artifact_root=REFUSED_ARTIFACT_ROOT, on_close_requested=self._reopen_facade
+        )
 
     async def _reopen_facade(self) -> None:
         """Run code that calls ``browser.close()`` gets a fresh facade over the same browser, which the run owns."""

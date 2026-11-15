@@ -52,7 +52,7 @@ class SandboxEnvironmentForm(forms.ModelForm):
     network_choice = forms.ChoiceField(required=False, choices=[("on", _("On")), ("off", _("Off"))], initial="off")
     browser_choice = forms.ChoiceField(
         required=False,
-        choices=[("off", _("Off")), ("on", _("On"))],
+        choices=[("on", _("On")), ("off", _("Off"))],
         initial="off",
         help_text=_(
             "Lets the agent open pages in a headless browser beside the sandbox, when the site's Browser setting is "

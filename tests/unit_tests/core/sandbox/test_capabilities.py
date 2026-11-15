@@ -1,11 +1,18 @@
 import logging
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import ANY, AsyncMock, Mock
+
+from django.core.cache import cache
 
 import httpx
 import pytest
 from pydantic import ValidationError
 
-from core.sandbox.capabilities import NO_BROWSER_MESSAGE, SandboxCapabilityProbe
+from core.sandbox.capabilities import (
+    CAPABILITIES_CACHE_KEY,
+    NO_BROWSER_MESSAGE,
+    UNREACHABLE_CACHE_TTL,
+    SandboxCapabilityProbe,
+)
 from core.sandbox.schemas import SandboxCapabilities
 
 
@@ -36,17 +43,28 @@ async def test_aget_reports_no_browser_on_an_old_service_and_logs_once_per_refre
     assert [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR] == [NO_BROWSER_MESSAGE]
 
 
-async def test_aget_answers_none_on_a_transport_error_and_asks_again_next_time(caplog):
+async def test_aget_answers_none_on_a_transport_error_and_keeps_that_answer_for_a_shorter_period(caplog, monkeypatch):
+    aset = AsyncMock(wraps=cache.aset)
+    monkeypatch.setattr("core.sandbox.capabilities.cache.aset", aset)
     client = _client(error=httpx.ConnectError("refused"))
 
     with caplog.at_level(logging.ERROR, logger="daiv.sandbox"):
         assert await SandboxCapabilityProbe().aget(client) is None
         client.get_capabilities.side_effect = None
         client.get_capabilities.return_value = SandboxCapabilities(browser=True)
-        assert (await SandboxCapabilityProbe().aget(client)).browser is True
+        assert await SandboxCapabilityProbe().aget(client) is None
 
     assert len([r for r in caplog.records if r.levelno == logging.ERROR]) == 1
-    assert client.get_capabilities.await_count == 2
+    client.get_capabilities.assert_awaited_once()
+    aset.assert_awaited_once_with(CAPABILITIES_CACHE_KEY, ANY, UNREACHABLE_CACHE_TTL)
+
+
+async def test_aget_asks_again_when_the_cached_value_does_not_parse():
+    await cache.aset(CAPABILITIES_CACHE_KEY, {"browser": "maybe"})
+    client = _client(SandboxCapabilities(browser=True))
+
+    assert (await SandboxCapabilityProbe().aget(client)).browser is True
+    client.get_capabilities.assert_awaited_once()
 
 
 async def test_aget_asks_the_service_when_the_cache_fails(monkeypatch):

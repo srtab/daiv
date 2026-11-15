@@ -177,7 +177,7 @@ class SandboxEnvironment(TimeStampedModel):
         Format: ``"<base_image> · <N> CPU · <memory> · net"`` with each
         segment omitted when its source value is missing. Memory renders
         as ``GiB`` for whole-GiB values, ``MiB`` otherwise. Network is
-        included only when an egress policy is configured, and Browser only when the field is on."""
+        included only when an egress policy is configured, and browser only when the field is on."""
         parts: list[str] = []
         if self.base_image:
             parts.append(self.base_image)
@@ -188,13 +188,13 @@ class SandboxEnvironment(TimeStampedModel):
         if self.is_networked:
             parts.append("net")
         if self.browser_enabled:
-            parts.append("Browser")
+            parts.append("browser")
         return " · ".join(parts)
 
     @property
     def short_summary(self) -> str:
         """Compact ``"<base_image>"`` description, with ``" · net"`` appended
-        when an egress policy is configured and ``" · Browser"`` when the browser is on. Segments are omitted
+        when an egress policy is configured and ``" · browser"`` when the browser is on. Segments are omitted
         when their source value is missing."""
         parts: list[str] = []
         if self.base_image:
@@ -202,7 +202,7 @@ class SandboxEnvironment(TimeStampedModel):
         if self.is_networked:
             parts.append("net")
         if self.browser_enabled:
-            parts.append("Browser")
+            parts.append("browser")
         return " · ".join(parts)
 
     @property

@@ -8,6 +8,7 @@ from django.template.loader import get_template
 from django.urls import reverse
 
 import pytest
+from bs4 import BeautifulSoup
 from configuration.forms import WEB_FETCH_AUTH_HEADERS_FORMSET_PREFIX as PREFIX
 
 from accounts.models import Role, User
@@ -1631,6 +1632,20 @@ class TestSandboxBrowserWarning:
 
         assert self.WARNING not in content
         probe.assert_awaited_once()
+
+    def test_the_warning_sits_in_the_form_column_not_its_own_grid_cell(
+        self, client, admin_user, group_url, monkeypatch
+    ):
+        monkeypatch.setenv("DAIV_SANDBOX_BROWSER_ENABLED", "true")
+
+        content, _ = self._get(client, admin_user, group_url, browser=False)
+
+        soup = BeautifulSoup(content, "html.parser")
+        grid = soup.find(class_=lambda classes: classes and "popover:grid-cols-[200px_minmax(0,1fr)]" in classes)
+        form = grid.find("form", attrs={"autocomplete": "off"})
+        warning = grid.find("p", string=lambda text: text and self.WARNING in text)
+        assert form.parent is not grid
+        assert form.parent in warning.parents
 
     def test_no_warning_and_no_probe_while_the_switch_is_off(self, client, admin_user, group_url):
         content, probe = self._get(client, admin_user, group_url, browser=False)

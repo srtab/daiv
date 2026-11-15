@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.tools")
 
-CANNOT_VIEW_IMAGES = "A screenshot was kept in the transcript, but this model cannot view images."
+CANNOT_VIEW_IMAGES = "An image was left out here: this model cannot view images."
 BROWSER_IMAGE_NOTE = f"[{CANNOT_VIEW_IMAGES} Use {BROWSER_SNAPSHOT_NAME} to read the page.]"
 TOOL_IMAGE_NOTE = f"[{CANNOT_VIEW_IMAGES}]"
 

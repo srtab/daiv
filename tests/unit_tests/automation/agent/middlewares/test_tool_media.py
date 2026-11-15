@@ -299,10 +299,9 @@ def test_the_image_notice_takes_deepagents_slot_by_name():
     [
         (
             "browser_screenshot",
-            "[A screenshot was kept in the transcript, but this model cannot view images. "
-            "Use browser_snapshot to read the page.]",
+            "[An image was left out here: this model cannot view images. Use browser_snapshot to read the page.]",
         ),
-        ("mcp_screenshot", "[A screenshot was kept in the transcript, but this model cannot view images.]"),
+        ("mcp_screenshot", "[An image was left out here: this model cannot view images.]"),
     ],
 )
 async def test_a_model_that_cannot_read_images_gets_a_note_in_their_place(name, note):

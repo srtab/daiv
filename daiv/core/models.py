@@ -493,7 +493,7 @@ class SiteConfiguration(models.Model):
         null=True,
         help_text=_(
             "Let the agent use a headless browser in sandbox environments that turn Browser on. "
-            "Off turns it off everywhere."
+            "While it is off, no run gets a browser."
         ),
     )
     sandbox_browser_memory_bytes = models.PositiveBigIntegerField(
@@ -501,7 +501,10 @@ class SiteConfiguration(models.Model):
         blank=True,
         null=True,
         validators=[MinValueValidator(268_435_456)],
-        help_text=_("Memory limit of each run's browser, separate from the environment's. At least 256 MiB."),
+        help_text=_(
+            "Memory limit of each run's browser in bytes, separate from the environment's. "
+            "At least 268435456 (256 MiB)."
+        ),
     )
     sandbox_browser_cpus = models.FloatField(
         _("browser CPUs"),

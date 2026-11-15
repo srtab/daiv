@@ -68,11 +68,13 @@ class BrowserTunnel:
                 await self._pump(reader, writer, websocket)
         except (OSError, WebSocketException) as exc:
             logger.warning("Browser tunnel connection ended: %s", type(exc).__name__)
+        except Exception as exc:
+            logger.error("Browser tunnel connection failed: %s", type(exc).__name__)
         finally:
             if task is not None:
                 self._bridges.discard(task)
             writer.close()
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(OSError):
                 await writer.wait_closed()
 
     @staticmethod
