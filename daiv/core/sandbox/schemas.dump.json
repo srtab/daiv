@@ -2,8 +2,8 @@
   "BrowserStartRequest": {
     "properties": {
       "cpus": {
-        "description": "CPU limit of the browser container.",
-        "exclusiveMinimum": 0,
+        "description": "CPU limit of the browser container; at least 0.25.",
+        "minimum": 0.25,
         "title": "Cpus",
         "type": "number"
       },
@@ -14,8 +14,8 @@
         "type": "string"
       },
       "memory_bytes": {
-        "description": "Memory limit of the browser container, in bytes.",
-        "exclusiveMinimum": 0,
+        "description": "Memory limit of the browser container, in bytes; at least 256 MiB.",
+        "minimum": 268435456,
         "title": "Memory Bytes",
         "type": "integer"
       }

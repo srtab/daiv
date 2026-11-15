@@ -540,7 +540,7 @@ async def test_start_browser_sends_the_request_and_archive_as_multipart():
     from core.sandbox.schemas import BrowserStartRequest
 
     client = _open_client(post=_response("POST", 200, _START_BODY))
-    request = BrowserStartRequest(memory_bytes=1024, cpus=0.5, extension_sha256="b" * 64)
+    request = BrowserStartRequest(memory_bytes=256 << 20, cpus=0.5, extension_sha256="b" * 64)
 
     response = await client.start_browser("sid", request, b"zip-bytes")
 
@@ -558,7 +558,9 @@ async def test_start_browser_omits_the_archive_when_none_is_given():
     from core.sandbox.schemas import BrowserStartRequest
 
     client = _open_client(post=_response("POST", 200, _START_BODY))
-    await client.start_browser("sid", BrowserStartRequest(memory_bytes=1, cpus=1, extension_sha256="c" * 64), None)
+    await client.start_browser(
+        "sid", BrowserStartRequest(memory_bytes=256 << 20, cpus=1, extension_sha256="c" * 64), None
+    )
     assert set(client._client.post.await_args.kwargs["files"]) == {"request"}
 
 
@@ -567,7 +569,9 @@ async def test_start_browser_raises_on_a_non_2xx_answer():
 
     client = _open_client(post=_response("POST", 503, {"detail": "browser not ready"}))
     with pytest.raises(httpx.HTTPStatusError):
-        await client.start_browser("sid", BrowserStartRequest(memory_bytes=1, cpus=1, extension_sha256="c" * 64), None)
+        await client.start_browser(
+            "sid", BrowserStartRequest(memory_bytes=256 << 20, cpus=1, extension_sha256="c" * 64), None
+        )
 
 
 @pytest.mark.parametrize("force", [False, True])

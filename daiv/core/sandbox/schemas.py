@@ -250,8 +250,10 @@ class SandboxCapabilities(BaseModel):
 
 
 class BrowserStartRequest(BaseModel):
-    memory_bytes: int = Field(gt=0, description="Memory limit of the browser container, in bytes.")
-    cpus: float = Field(gt=0, description="CPU limit of the browser container.")
+    memory_bytes: int = Field(
+        ge=256 << 20, description="Memory limit of the browser container, in bytes; at least 256 MiB."
+    )
+    cpus: float = Field(ge=0.25, description="CPU limit of the browser container; at least 0.25.")
     extension_sha256: str = Field(
         pattern=r"^[0-9a-f]{64}$",
         description="sha256 of the Stagehand extension archive; the archive is cached under this digest.",

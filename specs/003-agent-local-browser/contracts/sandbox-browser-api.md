@@ -20,7 +20,7 @@ Starts the session's browser container, or creates it the first time. The reques
 
 | Part | Content |
 |---|---|
-| `request` | JSON `BrowserStartRequest{memory_bytes, cpus, extension_sha256}` |
+| `request` | JSON `BrowserStartRequest{memory_bytes, cpus, extension_sha256}`; at least 256 MiB and 0.25 CPU |
 | `extension_archive` | the zip from `stagehand.get_extension_archive()`. DAIV may omit it after a start whose response showed the same `extension_sha256` already installed; the service answers 412 `extension missing` when it is absent and not cached |
 
 **Steps** (under the per-session lock):
@@ -33,8 +33,9 @@ Starts the session's browser container, or creates it the first time. The reques
 5. When the session has an egress proxy, stage the operator CA under the browser user's `$HOME` (never `/tmp`, which runsc hides from `put_archive`) and install it into the user's NSS database (`$HOME/.pki/nssdb`) with `certutil`.
 6. Route the browser's traffic through `daiv-relay listen`, a SOCKS5 server on `127.0.0.1:39223` inside the browser container. Chromium uses it as its only proxy (step 8). The relay routes by destination:
    - loopback (`localhost`, `*.localhost`, `127.0.0.1`, `[::1]`) goes to the sandbox, multiplexed over the relay's stdio, where `daiv-relay serve` dials `127.0.0.1:<port>` and then `::1:<port>`;
-   - everything else goes through an HTTP `CONNECT` to the session's egress proxy at its current address, or is refused with a SOCKS failure when the session has no proxy. A refused `CONNECT` is also a SOCKS failure.
-7. Copy `daiv-relay` into the sandbox (`/home/daiv-sandbox/.daiv/relay`, mode 0755, sandbox uid). Start `daiv-relay serve` there and `daiv-relay listen` in the browser container as exec streams, and pump between them in a task the service tracks per session.
+   - everything else goes through an HTTP `CONNECT` to the session's egress proxy at its current address, or is refused with a SOCKS failure when the session has no proxy. A refused `CONNECT` is also a SOCKS failure. Each `CONNECT` carries `X-Daiv-Client: browser`, and the proxy then injects a credential only when `Sec-Fetch-Site` is `same-origin` or `none`;
+   - each multiplexed stream may have at most 256 KiB in flight, returned by the receiver as it writes, so a stream nobody reads stalls only itself.
+7. Copy `daiv-relay` into the sandbox (`/home/daiv-sandbox/.daiv/relay`, mode 0755, sandbox uid) unless the service already copied this image's relay there and it is still in place. Start `daiv-relay serve` there and `daiv-relay listen` in the browser container as exec streams, and pump between them in a task the service tracks per session.
 8. Launch Chromium, detached, with:
    - `--headless=new`, `--user-data-dir=/profile`, `--load-extension=<path>`, `--enable-unsafe-extension-debugging`;
    - `--remote-debugging-address=127.0.0.1`, `--remote-debugging-port=39222`, `--remote-allow-origins=chrome-extension://<id derived from path>`;
@@ -63,7 +64,8 @@ Starts the session's browser container, or creates it the first time. The reques
 | 404 | unknown session |
 | 409 | the session is busy past the lock wait |
 | 412 | extension missing: the archive was left out and the container holds none with that digest |
-| 503 | the browser image is unavailable, or Chromium did not become ready in time |
+| 422 | an invalid request (limits below the minimum included) or extension archive |
+| 503 | the browser image is unavailable, Chromium did not become ready in time, or a Docker fault |
 | 500 | anything else, logged with the traceback |
 
 Bodies carry a short reason, never a traceback.
@@ -79,7 +81,7 @@ Bodies carry a short reason, never a traceback.
 
 **`force=true`**: remove the container, including its profile.
 
-**Response**: `200 BrowserStopResponse{saved_urls, oom_killed}`. A session or browser that is already gone is not an error: the answer is `200` with empty values.
+**Response**: `200 BrowserStopResponse{saved_urls, oom_killed}`. A session or browser that is already gone is not an error: the answer is `200` with empty values. A Docker fault answers `503`, anything else `500`.
 
 ## `WS /session/{id}/browser/cdp`
 
