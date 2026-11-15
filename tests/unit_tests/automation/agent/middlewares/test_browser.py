@@ -161,8 +161,8 @@ async def test_a_screenshot_note_comes_as_a_text_block_before_the_image(tools, b
     assert message.content[1]["type"] == "image"
 
 
-async def test_a_screenshot_over_five_mib_is_retaken_once_as_jpeg(tools, browser):
-    browser.facade.screenshot.side_effect = [_image(6 * 2**20), _image(2**20, "image/jpeg")]
+async def test_a_screenshot_over_one_mib_is_retaken_once_as_jpeg(tools, browser):
+    browser.facade.screenshot.side_effect = [_image(2**20), _image(2**19, "image/jpeg")]
 
     message = await _call(tools["browser_screenshot"], fullPage=True)
 
@@ -172,7 +172,7 @@ async def test_a_screenshot_over_five_mib_is_retaken_once_as_jpeg(tools, browser
 
 @pytest.mark.parametrize("quality", [60, 30])
 async def test_a_jpeg_already_at_or_below_the_retake_quality_is_not_retaken(tools, browser, quality):
-    browser.facade.screenshot.return_value = _image(6 * 2**20, "image/jpeg")
+    browser.facade.screenshot.return_value = _image(2**20, "image/jpeg")
 
     message = await _call(tools["browser_screenshot"], fullPage=True, type="jpeg", quality=quality)
 
@@ -180,13 +180,13 @@ async def test_a_jpeg_already_at_or_below_the_retake_quality_is_not_retaken(tool
     browser.facade.screenshot.assert_awaited_once_with(full_page=True, type="jpeg", quality=quality)
 
 
-async def test_a_screenshot_still_over_five_mib_says_to_capture_the_viewport(tools, browser):
-    browser.facade.screenshot.side_effect = [_image(7 * 2**20), _image(6 * 2**20, "image/jpeg")]
+async def test_a_screenshot_still_over_one_mib_says_to_capture_the_viewport(tools, browser):
+    browser.facade.screenshot.side_effect = [_image(2**21), _image(3 * 2**19, "image/jpeg")]
 
     message = await _call(tools["browser_screenshot"], fullPage=True)
 
     assert message.status == "error"
-    assert message.content == "error: The page is too large to capture whole (8.0 MiB). Use fullPage: false."
+    assert message.content == "error: The page is too large to capture whole (2.0 MiB). Use fullPage: false."
 
 
 def _png(width: int, height: int, padding: int = 0) -> dict:
@@ -200,8 +200,8 @@ def _jpeg(width: int, height: int) -> dict:
     return {"data": base64.b64encode(b"\xff\xd8" + app0 + sof).decode(), "mimeType": "image/jpeg"}
 
 
-@pytest.mark.parametrize("image", [_png(1280, 9000), _jpeg(9001, 600)], ids=["tall-png", "wide-jpeg"])
-async def test_a_screenshot_over_8000_px_on_a_side_says_to_capture_the_viewport(tools, browser, image):
+@pytest.mark.parametrize("image", [_png(1280, 3001), _jpeg(3001, 600)], ids=["tall-png", "wide-jpeg"])
+async def test_a_screenshot_over_3000_px_on_a_side_says_to_capture_the_viewport(tools, browser, image):
     browser.facade.screenshot.return_value = image
 
     message = await _call(tools["browser_screenshot"], fullPage=True)
@@ -211,16 +211,16 @@ async def test_a_screenshot_over_8000_px_on_a_side_says_to_capture_the_viewport(
 
 
 async def test_a_page_too_tall_to_capture_is_not_retaken(tools, browser):
-    browser.facade.screenshot.return_value = _png(1280, 9000, padding=6 * 2**20)
+    browser.facade.screenshot.return_value = _png(1280, 3001, padding=2**21)
 
     message = await _call(tools["browser_screenshot"], fullPage=True)
 
-    assert message.content == "error: The page is too large to capture whole (1280×9000 px). Use fullPage: false."
+    assert message.content == "error: The page is too large to capture whole (1280×3001 px). Use fullPage: false."
     browser.facade.screenshot.assert_awaited_once()
 
 
-@pytest.mark.parametrize("image", [_png(1280, 8000), _jpeg(1280, 720)], ids=["png", "jpeg"])
-async def test_a_screenshot_within_8000_px_is_kept(tools, browser, image):
+@pytest.mark.parametrize("image", [_png(1280, 3000), _jpeg(1280, 720)], ids=["png", "jpeg"])
+async def test_a_screenshot_within_3000_px_is_kept(tools, browser, image):
     browser.facade.screenshot.return_value = image
 
     message = await _call(tools["browser_screenshot"])
@@ -229,7 +229,7 @@ async def test_a_screenshot_within_8000_px_is_kept(tools, browser, image):
 
 
 async def test_a_note_from_a_restart_during_the_retake_is_kept(tools, browser):
-    browser.facade.screenshot.side_effect = [_image(6 * 2**20), _image(2**20, "image/jpeg")]
+    browser.facade.screenshot.side_effect = [_image(2**20), _image(2**19, "image/jpeg")]
     browser.notes = [None, "The browser stopped (the connection was lost) and restarted ..."]
 
     message = await _call(tools["browser_screenshot"])
