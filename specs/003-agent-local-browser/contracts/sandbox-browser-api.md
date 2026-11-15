@@ -52,7 +52,7 @@ Starts the session's browser container, or creates it the first time. The reques
 
 | Field | Meaning |
 |---|---|
-| `started` | `false` when the browser was already running; the call is then a no-op that returns the current state |
+| `started` | `false` when the browser was already running the requested extension; the call then only applies new limits and returns the current state. A browser running another extension saves its tabs and is relaunched on the requested one (`true`) |
 | `profile` | `empty` on the container's first start. `reset` when the container existed but its profile could not be read, or it was recreated after a removal the service did not initiate, such as a missing container. `restored` otherwise |
 | `restored_urls` | the tabs it re-opened |
 
