@@ -13,7 +13,7 @@ import pytest
 from stagehand import get_extension_archive
 from stagehand.cdp_client import CDPConnectionClosedError
 from stagehand.rpc_client import RPCError, _JSONRPCError
-from stagehand_middleware.facade import StagehandFacadeInputError, StagehandFacadeTools
+from stagehand_middleware.facade import StagehandFacadeExecutionError, StagehandFacadeInputError, StagehandFacadeTools
 
 from automation.agent.workspace import browser as browser_module
 from automation.agent.workspace.browser import BrowserError, SandboxBrowser
@@ -152,6 +152,7 @@ async def test_a_busy_session_is_a_failed_start_not_a_lost_extension(stagehand_s
         await _browser(client).aensure()
 
     assert [call.args[2] for call in client.start_browser.await_args_list] == [None]
+    assert client.calls_to("stop_browser") == []
 
 
 async def _started_browser(client: FakeSandboxClient) -> None:
@@ -366,8 +367,12 @@ SLOW_PAGE = TimeoutError("page.snapshot received no response within 120000ms")
 
 @pytest.mark.parametrize(
     "failure",
-    [_rpc_error("CDP connection closed: socket-error CDP websocket error"), SLOW_PAGE],
-    ids=["rpc-error", "timeout"],
+    [
+        _rpc_error("CDP connection closed: socket-error CDP websocket error"),
+        SLOW_PAGE,
+        StagehandFacadeExecutionError("Error", "CDP connection closed: socket-error CDP websocket error"),
+    ],
+    ids=["rpc-error", "timeout", "run-code-error"],
 )
 @pytest.mark.parametrize("check", ["refused", "unanswered"])
 async def test_a_failure_while_the_extension_cannot_reach_chromium_loses_the_browser(
@@ -388,7 +393,15 @@ async def test_a_failure_while_the_extension_cannot_reach_chromium_loses_the_bro
     assert browser.client.calls_to("stop_browser") == [("sess-1", False)]
 
 
-@pytest.mark.parametrize("failure", [_rpc_error("No node found for selector"), SLOW_PAGE], ids=["rpc-error", "timeout"])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        _rpc_error("No node found for selector"),
+        SLOW_PAGE,
+        StagehandFacadeExecutionError("TypeError", "page.clik is not a function"),
+    ],
+    ids=["rpc-error", "timeout", "run-code-error"],
+)
 async def test_a_failure_while_the_extension_still_reaches_chromium_keeps_the_browser(stagehand_stubs, failure):
     browser = _browser()
     await browser.aensure()
@@ -433,6 +446,31 @@ async def test_a_failed_start_says_so_then_latches_unavailable(stagehand_stubs, 
     if kind == "fail":
         assert len(client.calls_to("start_browser")) == 2
     assert len([r for r in caplog.records if r.levelno == logging.ERROR]) == 2
+
+
+@pytest.mark.parametrize("init", ["fails", "hangs"])
+async def test_a_start_that_fails_once_its_container_runs_stops_it_so_the_retry_gets_a_fresh_one(
+    stagehand_stubs, monkeypatch, init
+):
+    monkeypatch.setattr(browser_module, "START_BUDGET_SECONDS", 0.05)
+    create = browser_module.Stagehand.create.side_effect
+
+    async def broken_once(**kwargs):
+        browser_module.Stagehand.create.side_effect = create
+        if init == "hangs":
+            await _hang()
+        raise TimeoutError("Stagehand initialization timed out after 60000ms")
+
+    browser_module.Stagehand.create.side_effect = broken_once
+    browser = _browser()
+
+    with pytest.raises(BrowserError, match="could not start"):
+        await browser.aensure()
+    assert browser.client.calls_to("stop_browser") == [("sess-1", False)]
+
+    await browser.aensure()
+    assert browser.state == "ready"
+    assert len(browser.client.calls_to("start_browser")) == 2
 
 
 async def test_failure_texts_carry_no_service_address_key_or_exception(stagehand_stubs):

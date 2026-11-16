@@ -25,7 +25,7 @@ import httpx
 from stagehand import Stagehand, get_extension_archive, local_browser
 from stagehand.cdp_client import CDPConnectionClosedError
 from stagehand.rpc_client import RPCError
-from stagehand_middleware.facade import StagehandFacadeTools
+from stagehand_middleware.facade import StagehandFacadeExecutionError, StagehandFacadeTools
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
@@ -131,8 +131,9 @@ def _extension() -> tuple[bytes, str]:
 class SandboxBrowser:
     """One run's browser: idle until the first tool call, released when the run ends.
 
-    A lost connection stops the browser container, so the next call restarts it from the profile that stop saved. Two
-    failed starts in a run make it unavailable for the rest of the run.
+    A lost connection, or a start that fails once its container runs, stops the browser container, so the next call
+    starts a fresh one from the profile that stop saved. Two failed starts in a run make it unavailable for the rest of
+    the run.
 
     Args:
         session: The run's sandbox session; its id is read when the browser starts.
@@ -152,6 +153,7 @@ class SandboxBrowser:
         self.pending_note: str | None = None
         self.start_failures = 0
         self._session_id: str | None = None
+        self._container_started = False
         self._lost_reason = CONNECTION_LOST_REASON
         self._lock = asyncio.Lock()
 
@@ -163,8 +165,8 @@ class SandboxBrowser:
         """Run ``operation`` on the facade, starting the browser first if needed.
 
         A facade error is raised as it is; a lost connection raises a ``BrowserError`` after the browser is stopped. An
-        RPC error or a timeout counts as a lost connection when Stagehand's extension can no longer reach Chromium: its
-        own connection dies with Chromium's network service, while the worker's stays up.
+        RPC error, a timeout or a run-code error counts as a lost connection when Stagehand's extension can no longer
+        reach Chromium: its own connection dies with Chromium's network service, while the worker's stays up.
         """
         facade = await self.aensure()
         stagehand = self.stagehand
@@ -188,6 +190,8 @@ class SandboxBrowser:
                     response, facade = await self._start()
             except Exception:
                 await self._discard_connection()
+                if self._container_started:
+                    await self._stop_container()
                 self.start_failures += 1
                 logger.exception(
                     "Browser %s failed for sandbox session %s (%d of %d)",
@@ -250,11 +254,13 @@ class SandboxBrowser:
         if session_id is None:
             raise RuntimeError("The sandbox session is not acquired")
         self._session_id = session_id
+        self._container_started = False
         archive, digest = _extension()
         memory_bytes, cpus = self.limits
         response = await self._start_container(
             session_id, BrowserStartRequest(memory_bytes=memory_bytes, cpus=cpus, extension_sha256=digest), archive
         )
+        self._container_started = True
         self.tunnel = await BrowserTunnel(self.client, session_id).aopen()
         browser = await local_browser.connect(
             cdp_url=self.tunnel.http_url,
@@ -299,7 +305,7 @@ class SandboxBrowser:
     @staticmethod
     async def _extension_lost(error: BaseException, stagehand: Stagehand | None) -> bool:
         """Whether the extension fails a cookie read, which needs its own connection to Chromium, after ``error``."""
-        if stagehand is None or not isinstance(error, (RPCError, TimeoutError)):
+        if stagehand is None or not isinstance(error, (RPCError, TimeoutError, StagehandFacadeExecutionError)):
             return False
         try:
             async with asyncio.timeout(EXTENSION_CHECK_BUDGET_SECONDS):
@@ -317,7 +323,7 @@ class SandboxBrowser:
                 return self._stale_connection_text()
             self.state = "lost"
             await self._discard_connection()
-            stopped = await self._stop_after_loss()
+            stopped = await self._stop_container()
             oom = stopped is not None and stopped.oom_killed
             reason = self._lost_reason = OOM_REASON if oom else CONNECTION_LOST_REASON
             logger.log(
@@ -337,14 +343,14 @@ class SandboxBrowser:
             return UNAVAILABLE_TEXT
         return lost_text(self._lost_reason)
 
-    async def _stop_after_loss(self) -> BrowserStopResponse | None:
+    async def _stop_container(self) -> BrowserStopResponse | None:
         if self._session_id is None:
             return None
         try:
             async with asyncio.timeout(RELEASE_BUDGET_SECONDS):
                 return await self.client.stop_browser(self._session_id)
         except Exception:
-            logger.exception("Could not stop the lost browser of sandbox session %s", self.session.session_id)
+            logger.exception("Could not stop the browser of sandbox session %s", self.session.session_id)
             return None
 
     async def _discard_connection(self) -> None:

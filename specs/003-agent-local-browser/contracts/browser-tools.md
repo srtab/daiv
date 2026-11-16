@@ -51,7 +51,7 @@ Each note appears once, on the first result after the event that caused it, sepa
 
 `<reason>` is `it ran out of memory` when the stop reported `oom_killed`, and `the connection was lost` otherwise.
 
-A call that fails with an RPC error or a timeout is also a lost connection when Stagehand's extension then fails a cookie read within 5 s. That read needs the extension's own connection to Chromium, which dies with Chromium's network service while the worker's connection stays up.
+A call that fails with an RPC error, a timeout or a run-code error is also a lost connection when Stagehand's extension then fails a cookie read within 5 s. That read needs the extension's own connection to Chromium, which dies with Chromium's network service while the worker's connection stays up.
 
 ## Refused navigation (FR-006)
 
