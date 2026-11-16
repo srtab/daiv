@@ -6,7 +6,7 @@
        x-id="['nav-settings-panel']"
        x-cloak>
   <div class="sidebar__brand flex items-center gap-2.5 px-5 pt-5 pb-5">
-    <span class="brand-mark"></span>
+    <span class="brand-mark">{% icon "daiv-mark" "h-3.5 w-3.5" %}</span>
     <a href="{% url 'dashboard' %}" class="sidebar__collapsible brand-wordmark">DAIV</a>
     {% if not sheet %}
     {% translate "Collapse sidebar" as collapse_label %}
