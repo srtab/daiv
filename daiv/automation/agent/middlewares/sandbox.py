@@ -345,8 +345,11 @@ async def _run_bash_commands(
         logger.exception("Transport error calling sandbox API; treating as transient.")
         return BashFailure.TRANSIENT
     except httpx.HTTPStatusError as e:
+        if is_transient_sandbox_error(e):
+            logger.warning("Transient sandbox error %s: %s", e.response.status_code, e.response.text)
+            return BashFailure.TRANSIENT
         logger.exception("Status code %s calling sandbox API: %s", e.response.status_code, e.response.text)
-        return BashFailure.TRANSIENT if is_transient_sandbox_error(e) else BashFailure.PERMANENT
+        return BashFailure.PERMANENT
 
 
 class SandboxState(AgentState):
