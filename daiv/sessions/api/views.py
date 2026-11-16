@@ -62,7 +62,7 @@ class ArchiveIn(Schema):
 @sessions_router.patch("/{thread_id}", response=dict, url_name="session_update")
 async def session_update(request: HttpRequest, thread_id: str, payload: TitleIn):
     """Rename the session. Blank titles are refused, so the page keeps the old one."""
-    session = await _get_runnable_session(request.auth, thread_id)  # ty: ignore[unresolved-attribute]
+    session = await _get_runnable_session(request.auth, thread_id)  # ty: ignore[missing-attribute]
     title = payload.title.strip()[:MAX_TITLE_LENGTH].rstrip()
     if not title:
         raise HttpError(422, "A title can't be blank")
@@ -82,7 +82,7 @@ async def session_ci_watch(request: HttpRequest, thread_id: str, payload: CIWatc
     session's CI and a ``reason``: ``not_owned`` when the session does not own that merge request, ``disabled`` when
     the repository has the watch switched off.
     """
-    session = await _get_runnable_session(request.auth, thread_id)  # ty: ignore[unresolved-attribute]
+    session = await _get_runnable_session(request.auth, thread_id)  # ty: ignore[missing-attribute]
     owned = MergeRequestOwnership.objects.filter(
         session=session, repo_id=payload.repo_id or session.repo_id, closed_at__isnull=True
     )
@@ -112,7 +112,7 @@ async def _ci(session: Session) -> dict:
 async def session_archive(request: HttpRequest, thread_id: str, payload: ArchiveIn):
     """Archive the session for everyone, or bring it back for everyone; either needs run access to its repository and
     drains its inbox, which stops its leg follow-ups or starts what it kept waiting."""
-    session = await _get_runnable_session(request.auth, thread_id)  # ty: ignore[unresolved-attribute]
+    session = await _get_runnable_session(request.auth, thread_id)  # ty: ignore[missing-attribute]
     fields = {"archived_at": timezone.now(), "archive_pending": False} if payload.archived else {"archived_at": None}
     if not await Session.objects.filter(pk=session.pk, archived_at__isnull=payload.archived).aupdate(**fields):
         return {"archived": payload.archived}
@@ -125,7 +125,7 @@ async def session_archive(request: HttpRequest, thread_id: str, payload: Archive
 async def session_turns(request: HttpRequest, thread_id: str):
     """The session as its page shows it (``sessions.page_state.turns_payload``), which an open page fetches when the
     nav stream announces a change."""
-    user = request.auth  # ty: ignore[unresolved-attribute]
+    user = request.auth  # ty: ignore[missing-attribute]
     session = await _get_visible_session(user, thread_id)
     return turns_payload(await aload_session_state(session, user, always_look_up_merge_request=False), session)
 
@@ -134,7 +134,7 @@ async def session_turns(request: HttpRequest, thread_id: str):
 async def session_up_next(request: HttpRequest, thread_id: str):
     """What the session will do next; kept for detail pages loaded before the nav stream carried ``session`` frames,
     which poll it while a run streams to them."""
-    user = request.auth  # ty: ignore[unresolved-attribute]
+    user = request.auth  # ty: ignore[missing-attribute]
     session = await _get_visible_session(user, thread_id)
     unfinished = session.runs.exclude(status__in=RunStatus.terminal()).select_related("user").order_by("created_at")
     return {"up_next": await aup_next_payload(session, [r async for r in unfinished], user)}
