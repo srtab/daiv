@@ -24,6 +24,7 @@ from django.core.cache import cache
 import httpx
 from stagehand import Stagehand, get_extension_archive, local_browser
 from stagehand.cdp_client import CDPConnectionClosedError
+from stagehand.rpc_client import RPCError
 from stagehand_middleware.facade import StagehandFacadeTools
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
@@ -45,6 +46,7 @@ BrowserState = Literal["idle", "starting", "ready", "lost", "restarting", "unava
 START_BUDGET_SECONDS = 30
 RELEASE_BUDGET_SECONDS = 60
 DISCONNECT_BUDGET_SECONDS = 10
+EXTENSION_CHECK_BUDGET_SECONDS = 5
 MAX_START_FAILURES = 2
 NAVIGATION_HISTORY_BUDGET_SECONDS = 5
 EXTENSION_CACHE_TTL = 24 * 60 * 60
@@ -160,14 +162,16 @@ class SandboxBrowser:
     async def acall[T](self, operation: Callable[[StagehandFacadeTools], Awaitable[T]]) -> T:
         """Run ``operation`` on the facade, starting the browser first if needed.
 
-        A facade error is raised as it is; a lost connection raises a ``BrowserError`` after the browser is stopped.
+        A facade error is raised as it is; a lost connection raises a ``BrowserError`` after the browser is stopped. An
+        RPC error or a timeout counts as a lost connection when Stagehand's extension can no longer reach Chromium: its
+        own connection dies with Chromium's network service, while the worker's stays up.
         """
         facade = await self.aensure()
         stagehand = self.stagehand
         try:
             return await operation(facade)
         except Exception as error:
-            if not self._connection_lost(error, stagehand):
+            if not (self._connection_lost(error, stagehand) or await self._extension_lost(error, stagehand)):
                 raise
             raise BrowserError(await self._on_lost(stagehand)) from None
 
@@ -291,6 +295,19 @@ class SandboxBrowser:
         if isinstance(error, (CDPConnectionClosedError, ConnectionClosed, ConnectionError)):
             return True
         return stagehand is not None and not stagehand.browser.connected
+
+    @staticmethod
+    async def _extension_lost(error: BaseException, stagehand: Stagehand | None) -> bool:
+        """Whether the extension fails a cookie read, which needs its own connection to Chromium, after ``error``."""
+        if stagehand is None or not isinstance(error, (RPCError, TimeoutError)):
+            return False
+        try:
+            async with asyncio.timeout(EXTENSION_CHECK_BUDGET_SECONDS):
+                await stagehand.browser.context.cookies(urls="about:blank")
+        except Exception as check_error:
+            logger.warning("Browser extension cannot reach Chromium after a %s: %r", type(error).__name__, check_error)
+            return True
+        return False
 
     async def _on_lost(self, stagehand: Stagehand | None) -> str:
         """Stop the browser whose connection ``stagehand`` held, unless it was already stopped or replaced, and say

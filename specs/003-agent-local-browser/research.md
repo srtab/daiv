@@ -221,7 +221,7 @@ That warning is new: today's configuration warnings appear only after a save.
 
 **What each case does**:
 - **Start failure.** A transport error, a non-2xx answer, or a timeout of the start budget (30 s) returns "The browser is unavailable for this run." DAIV logs at ERROR with the cause. A second failure in one run latches `unavailable` for the rest of the run, so the agent stops retrying.
-- **Lost connection.** Stagehand's socket closes, an RPC fails with a connection error, or the container was OOM-killed. The current call fails with a result that says the browser stopped, and why when the service knows: "it ran out of memory". The next call restarts from the last saved profile (FR-020). Its result starts with a note: the browser restarted, and the pages and state since the profile was last saved were lost.
+- **Lost connection.** Stagehand's socket closes, an RPC fails with a connection error, the extension can no longer reach Chromium after an RPC error or a timeout, or the container was OOM-killed. The current call fails with a result that says the browser stopped, and why when the service knows: "it ran out of memory". The next call restarts from the last saved profile (FR-020). Its result starts with a note: the browser restarted, and the pages and state since the profile was last saved were lost.
 - **First call of a run.** The result starts with one of these notes:
   - the pages re-opened from the session's profile (FR-007a);
   - that the profile was reset (FR-007b);

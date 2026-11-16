@@ -12,6 +12,7 @@ import httpx
 import pytest
 from stagehand import get_extension_archive
 from stagehand.cdp_client import CDPConnectionClosedError
+from stagehand.rpc_client import RPCError, _JSONRPCError
 from stagehand_middleware.facade import StagehandFacadeInputError, StagehandFacadeTools
 
 from automation.agent.workspace import browser as browser_module
@@ -27,6 +28,7 @@ class FakeStagehandBrowser:
     def __init__(self) -> None:
         self.connected = True
         self.disconnect = AsyncMock()
+        self.context = SimpleNamespace(cookies=AsyncMock(return_value=[]))
 
 
 class FakeTunnel:
@@ -353,6 +355,51 @@ async def test_a_disconnected_browser_counts_as_lost_whatever_the_error(stagehan
 
     with pytest.raises(BrowserError, match="connection was lost"):
         await browser.acall(gone)
+
+
+def _rpc_error(message: str) -> RPCError:
+    return RPCError(_JSONRPCError(code=-32000, message=message))
+
+
+SLOW_PAGE = TimeoutError("page.snapshot received no response within 120000ms")
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [_rpc_error("CDP connection closed: socket-error CDP websocket error"), SLOW_PAGE],
+    ids=["rpc-error", "timeout"],
+)
+@pytest.mark.parametrize("check", ["refused", "unanswered"])
+async def test_a_failure_while_the_extension_cannot_reach_chromium_loses_the_browser(
+    stagehand_stubs, monkeypatch, failure, check
+):
+    monkeypatch.setattr(browser_module, "EXTENSION_CHECK_BUDGET_SECONDS", 0.01)
+    browser = _browser()
+    await browser.aensure()
+    cookies = stagehand_stubs.created[0].browser.context.cookies
+    cookies.side_effect = _rpc_error("Stagehand loopback CDP is not configured") if check == "refused" else _hang
+
+    async def fail(_facade):
+        raise failure
+
+    with pytest.raises(BrowserError, match="connection was lost"):
+        await browser.acall(fail)
+    assert browser.state == "lost"
+    assert browser.client.calls_to("stop_browser") == [("sess-1", False)]
+
+
+@pytest.mark.parametrize("failure", [_rpc_error("No node found for selector"), SLOW_PAGE], ids=["rpc-error", "timeout"])
+async def test_a_failure_while_the_extension_still_reaches_chromium_keeps_the_browser(stagehand_stubs, failure):
+    browser = _browser()
+    await browser.aensure()
+
+    async def fail(_facade):
+        raise failure
+
+    with pytest.raises(type(failure)):
+        await browser.acall(fail)
+    assert browser.state == "ready"
+    assert browser.client.calls_to("stop_browser") == []
 
 
 @pytest.mark.parametrize(
