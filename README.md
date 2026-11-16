@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="docs/assets/logo.svg" alt="DAIV" width="400">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo.svg">
+    <img src="docs/assets/logo-light.svg" alt="DAIV" width="400">
+  </picture>
 </p>
 <h1 align="center">Issues in. Merge requests out. On your infrastructure.</h1>
 <p align="center"><strong>Open-source, self-hosted SWE agents for GitLab &amp; GitHub</strong></p>
