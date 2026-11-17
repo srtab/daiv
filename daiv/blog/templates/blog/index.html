@@ -10,7 +10,7 @@
 
 {% block og_description %}Experiments, numbers and design notes from building DAIV, an open-source, self-hosted coding agent for GitLab &amp; GitHub.{% endblock %}
 
-{% block head_extra %}{% include "dashboard/_landing_analytics.html" %}{% block feed_link %}{% endblock %}{% endblock %}
+{% block head_extra %}{% include "dashboard/_landing_analytics.html" %}{% block feed_link %}<link rel="alternate" type="application/rss+xml" title="DAIV blog" href="{% url 'blog:feed' %}">{% endblock %}{% endblock %}
 
 {% block content %}
 {% include "dashboard/_landing_nav.html" %}
