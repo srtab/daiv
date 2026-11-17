@@ -2,6 +2,7 @@
 root_packages =
     accounts
     automation
+    blog
     chat
     codebase
     configuration
@@ -259,3 +260,28 @@ modules =
     jobs
     mcp_api
     webhooks
+
+[importlinter:contract:blog]
+name = nothing but the project package imports blog
+type = forbidden
+source_modules =
+    accounts
+    automation
+    chat
+    codebase
+    configuration
+    core
+    dashboard
+    jobs
+    mcp_api
+    mcp_connectors
+    memory
+    notifications
+    sandbox_envs
+    schedules
+    sessions
+    skills
+    slash_commands
+    webhooks
+forbidden_modules = blog
+allow_indirect_imports = True
