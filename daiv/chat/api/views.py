@@ -121,7 +121,7 @@ async def stream_run_events(request: HttpRequest, thread_id: str, run_id: str):
     is thread visibility: the relay key embeds the thread id, so a run id from
     another thread reads an empty stream even if guessed.
     """
-    user = request.auth  # ty: ignore[unresolved-attribute]
+    user = request.auth  # ty: ignore[missing-attribute]
     if not await sync_to_async(lambda: Session.objects.visible_to(user).filter(thread_id=thread_id).exists())():
         raise HttpError(404, "Thread not found")
     last_id = request.headers.get("Last-Event-ID") or "0-0"
@@ -186,7 +186,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     # Blank runs on the default branch: a job submitted without a ref leaves its session's ref blank.
     ref = request.headers.get(HEADER_REF) or ""
 
-    user = request.auth  # ty: ignore[unresolved-attribute]
+    user = request.auth  # ty: ignore[missing-attribute]
     thread_id = input_data.thread_id
     run_id = input_data.run_id
 
@@ -482,7 +482,7 @@ async def cancel_chat_run(request: HttpRequest, payload: CancelIn):
     event boundary wherever it executes, and the local task cancel is immediate when the run lives in this process;
     a background run is asked to stop through ``RunManager.cancel``, which its task checks.
     """
-    user = request.auth  # ty: ignore[unresolved-attribute]
+    user = request.auth  # ty: ignore[missing-attribute]
     session = await Session.objects.by_owner(user).filter(thread_id=payload.thread_id).afirst()
     if session is None:
         raise HttpError(404, "Thread not found")
@@ -516,7 +516,7 @@ async def session_spend(request: HttpRequest, thread_id: str):
     persisted the turn (the end sentinel is published by the runner's ``finally`` once the
     generator, finalize included, completed) — never on RUN_FINISHED, which races the write.
     """
-    user = request.auth  # ty: ignore[unresolved-attribute]
+    user = request.auth  # ty: ignore[missing-attribute]
 
     def _load():
         # ``visible_to`` resolves platform identity at query-build time (sync only).
@@ -532,7 +532,7 @@ async def session_spend(request: HttpRequest, thread_id: str):
 @chat_router.get("/environment", url_name="chat_auto_environment")
 async def auto_environment(request: HttpRequest, repo: str):
     """The environment "Auto" picks for ``repo`` on a new chat's first turn; ``{}`` when none."""
-    user = request.auth  # ty: ignore[unresolved-attribute]
+    user = request.auth  # ty: ignore[missing-attribute]
     if not await sync_to_async(can_view)(user, repo):
         raise HttpError(404, "Repository not found")
     env = await resolve_env_for_run(user=user, repo_id=repo)

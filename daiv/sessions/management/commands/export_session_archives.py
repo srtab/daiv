@@ -64,7 +64,7 @@ def _export(session: Session) -> dict[str, Any]:
                 "closed_at": archive.closed_at,
                 "messages": messages_to_dict(decode_values(archive.state_type, archive.state).get("messages") or []),
             }
-            for archive in session.archives.all()  # ty: ignore[unresolved-attribute]
+            for archive in session.archives.all()  # ty: ignore[missing-attribute]
         ],
         "runs": [
             {
@@ -79,6 +79,6 @@ def _export(session: Session) -> dict[str, Any]:
                 "created_at": run.created_at,
                 "finished_at": run.finished_at,
             }
-            for run in session.runs.all()  # ty: ignore[unresolved-attribute]
+            for run in session.runs.all()  # ty: ignore[missing-attribute]
         ],
     }

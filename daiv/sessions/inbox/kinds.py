@@ -174,7 +174,7 @@ class EventContent:
             raise ValueError(f"unknown inbox event kind {self.kind!r}")
         if not isinstance(self.payload, Mapping):
             raise ValueError(f"a {self.kind} payload must be a mapping")
-        if missing := sorted(PAYLOADS[self.kind].__required_keys__ - self.payload.keys()):  # ty: ignore[unresolved-attribute]
+        if missing := sorted(PAYLOADS[self.kind].__required_keys__ - self.payload.keys()):  # ty: ignore[missing-attribute]
             raise ValueError(f"a {self.kind} payload is missing {', '.join(missing)}")
 
     def follows_session(self) -> bool:
