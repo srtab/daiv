@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("core", "0025_alter_siteconfiguration_agent_skill_models_and_more")]
+    dependencies = [("core", "0026_sandbox_browser_settings")]
 
     operations = [
         migrations.AddField(

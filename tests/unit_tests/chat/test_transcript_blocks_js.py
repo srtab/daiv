@@ -7,6 +7,7 @@ import pytest
 from tests.unit_tests.chat.transcript_driver import run_transcript
 from tests.unit_tests.chat.transcript_fixtures import (
     ENDED,
+    STORED_SHOT,
     asst,
     bash,
     delegate,
@@ -18,6 +19,7 @@ from tests.unit_tests.chat.transcript_fixtures import (
     question,
     read,
     refused_question,
+    screenshot,
     started_leg,
     status_turn,
     subagent,
@@ -148,6 +150,46 @@ def test_live_run_keeps_its_publishes_in_place_as_one_card():
     assert _kinds(b["items"]) == ["step", "artifacts", "step"]
     assert [it["id"] for it in b["items"][1]["items"]] == ["art-p1", "art-p2"]
     assert b["cards"] == [] and b["endingText"] == [] and b["endingTail"] == []
+
+
+def test_a_folded_run_shows_its_shown_screenshots_after_the_artifacts():
+    b = _blocks([user("u1"), asst("a1", read("c1"), publish("p1"), screenshot("s1", show_user=True), text("done"))])[0]
+
+    assert _kinds(b["cards"]) == ["artifacts", "screenshots"]
+    assert b["cards"][1]["items"] == [STORED_SHOT]
+
+
+def test_an_unflagged_screenshot_gets_no_card():
+    b = _blocks([user("u1"), asst("a1", read("c1"), screenshot("s1"), text("done"))])[0]
+
+    assert b["cards"] == []
+
+
+def test_a_live_run_has_no_screenshot_card():
+    b = _blocks([user("u1"), asst("a1", screenshot("s1", show_user=True), streaming=True)], in_flight=True)[0]
+
+    assert "screenshots" not in _kinds(b["items"]) and b["cards"] == []
+
+
+def test_a_flagged_screenshot_that_failed_gets_no_card():
+    failed = screenshot("s1", show_user=True, media=(), status="error")
+    b = _blocks([user("u1"), asst("a1", read("c1"), failed, text("done"))])[0]
+
+    assert b["cards"] == []
+
+
+def test_a_second_build_reuses_the_screenshot_card():
+    expr = """(() => {
+      const build = (previous) => buildRunBlocks(vars.turns, {latestArtifactsById: new Map(), mcpRows: [], previous});
+      const first = build();
+      const segs = vars.turns[1].segments;
+      segs[2] = {...segs[2], content: `${segs[2].content} More.`};
+      const second = build(first);
+      return [first[0].cards[0].kind, second[0].cards[0] === first[0].cards[0], second[0] === first[0]];
+    })()"""
+    turns = [user("u1"), asst("a1", read("c1"), screenshot("s1", show_user=True), text("Here it is."))]
+
+    assert run_transcript(expr, {"turns": turns}) == ["screenshots", True, False]
 
 
 def test_checking_delegated_jobs_is_a_step_and_delegating_is_not():

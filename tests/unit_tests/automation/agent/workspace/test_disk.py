@@ -175,3 +175,12 @@ async def test_fast_forward_fetches_with_a_credential_minted_now(tmp_path):
         assert await workspace.fast_forward("chore/x") == "advanced"
 
     git.fast_forward.assert_awaited_once_with("chore/x")
+
+
+async def test_a_disk_workspace_never_has_a_browser(tmp_path):
+    from tests.unit_tests.conftest import site_snapshot
+
+    workspace = DiskWorkspace(_ctx(tmp_path))
+    await workspace.aresolve_browser(site_snapshot(sandbox_browser_enabled=True))
+
+    assert workspace.browser is None

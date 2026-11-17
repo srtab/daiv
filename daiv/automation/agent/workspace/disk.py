@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
     from automation.agent.context import RepoHandle, RuntimeCtx
     from automation.agent.workspace.base import PublishWorkspace
+    from core.site_settings import SiteSnapshot
 
 
 class DiskWorkspace:
@@ -30,6 +31,7 @@ class DiskWorkspace:
 
     bash = None
     session = None
+    browser = None
     fs_permissions = WORKSPACE_FENCE_PERMISSIONS
     provisions_skills = False
     skills_provisioning_errors = ()
@@ -43,6 +45,9 @@ class DiskWorkspace:
             extra_clones={extra_repo_path(h): Path(h.gitrepo.working_dir) for h in ctx.extra_repos},
         )
         self.git = GitManager(LocalGitRunner(ctx.gitrepo))
+
+    async def aresolve_browser(self, site: SiteSnapshot) -> None:
+        return None
 
     async def authenticated_git(self) -> GitManager:
         """A manager over the clone that overlays a credential env minted now: the clone's ``.git/config`` holds

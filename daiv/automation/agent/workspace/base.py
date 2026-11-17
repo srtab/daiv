@@ -16,9 +16,11 @@ if TYPE_CHECKING:
     from deepagents.middleware.filesystem import FilesystemPermission
 
     from automation.agent.context import RepoHandle
+    from automation.agent.workspace.browser import SandboxBrowser
     from automation.agent.workspace.git_manager import FastForward, GitManager
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
     from automation.agent.workspace.session import SandboxSession
+    from core.site_settings import SiteSnapshot
 
 
 class PublishWorkspace(Protocol):
@@ -57,6 +59,12 @@ class Workspace(PublishWorkspace, Protocol):
         ...
 
     @property
+    def browser(self) -> SandboxBrowser | None:
+        """The run's headless browser; ``None`` unless ``aresolve_browser`` gave it one, so the agent gets no browser
+        tools."""
+        ...
+
+    @property
     def fs_permissions(self) -> list[FilesystemPermission] | None:
         """The file tools' rules for the main agent and its subagents (the explore subagent adds read-only on top);
         ``None`` leaves them unfenced."""
@@ -78,6 +86,11 @@ class Workspace(PublishWorkspace, Protocol):
     def is_ready(self) -> bool:
         """Whether the files and git can be reached yet: always on disk; on a sandbox, once its session is acquired,
         which a turn that skips the sandbox (``skips_sandbox``) or a failed acquisition never gets to."""
+        ...
+
+    async def aresolve_browser(self, site: SiteSnapshot) -> None:
+        """Decide, once per run, whether the run has a browser: on a sandbox, when the site switch and the
+        environment's Browser field are on, the session is acquired, and the sandbox service can run one."""
         ...
 
     async def fast_forward(self, branch: str) -> FastForward:

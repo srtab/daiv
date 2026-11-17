@@ -15,6 +15,7 @@ from automation.agent.events import PUBLISH_RESULT_EVENT, publish_result_payload
 from automation.agent.questions import QUESTION_DELIVERED
 from tests.unit_tests.chat.chat_stream_driver import REACTIVITY, run_chat_stream
 from tests.unit_tests.chat.transcript_fixtures import (
+    STORED_SHOT,
     asst,
     bash,
     delegate,
@@ -22,6 +23,7 @@ from tests.unit_tests.chat.transcript_fixtures import (
     question,
     read,
     refused_question,
+    screenshot,
     status_turn,
     text,
     thinking,
@@ -412,6 +414,7 @@ for (const entry of script) {
   if (op === "segmentTypes") out.push(live().segments.map((s) => s.type));
   if (op === "segmentStatuses") out.push(live().segments.map((s) => s.status));
   if (op === "media") out.push(segment(arg)?.media ?? null);
+  if (op === "screenshots") out.push(chat.shownScreenshots);
   if (op === "block0.publish") out.push(chat.runBlocks[0].publish);
   if (op === "hasFailedPublish") out.push(chat._hasFailedPublish());
   if (op === "break") broken = true;
@@ -1550,3 +1553,26 @@ def test_a_media_event_for_an_unknown_row_is_ignored():
     value = json.dumps({"tool_call_id": "nope", "media": [MEDIA_ITEM]})
 
     assert _drive(LIVE, script=[f"custom:daiv_tool_media:{value}", "media:c1", "errors"]) == [None, 0]
+
+
+SHOT_TURNS = [user("u1"), asst("a1", screenshot("s1", show_user=True), screenshot("s2"), text("done"))]
+
+
+def test_outputs_list_the_kept_shown_screenshots():
+    assert _drive(SHOT_TURNS, script=["screenshots"]) == [[{"url": STORED_SHOT["url"], "segmentId": "tool-s1"}]]
+
+
+def test_outputs_leave_out_a_shown_screenshot_that_was_not_kept():
+    lost = screenshot("s1", show_user=True, media=({"kind": "image", "mime_type": "image/png", "error": "failed"},))
+
+    assert _drive([user("u1"), asst("a1", lost, text("done"))], script=["screenshots"]) == [[]]
+
+
+def test_outputs_pick_up_a_screenshot_whose_media_lands_late():
+    live = [user("u1"), asst("a1", screenshot("s1", show_user=True, media=()), streaming=True)]
+    value = json.dumps({"tool_call_id": "s1", "media": [STORED_SHOT]})
+
+    assert _drive(live, script=["screenshots", f"custom:daiv_tool_media:{value}", "screenshots"]) == [
+        [],
+        [{"url": STORED_SHOT["url"], "segmentId": "tool-s1"}],
+    ]

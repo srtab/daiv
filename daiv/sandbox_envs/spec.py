@@ -24,6 +24,7 @@ class SandboxEnvOverride:
     env_vars: dict[str, str]
     egress: EgressConfigRequest | None = None
     before_publish: tuple[str, ...] | None = None
+    browser: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,7 @@ class SandboxSpec:
     env_vars: dict[str, str]
     egress: EgressConfigRequest | None = None
     before_publish: tuple[str, ...] | None = None
+    browser: bool = False
 
     @property
     def enabled(self) -> bool:
@@ -45,8 +47,9 @@ class SandboxSpec:
     def fingerprint(self) -> str:
         """A stable digest of what a sandbox container is built from.
 
-        Covers the base image, memory, CPUs, env vars and the egress policy. ``before_publish`` is left
-        out, as are egress secrets: a warm session gets their current values through ``update_egress``. Keyed on
+        Covers the base image, memory, CPUs, env vars and the egress policy. ``before_publish`` is left out, as are
+        egress secrets: a warm session gets their current values through ``update_egress``. ``browser`` is left out too,
+        because turning the browser on or off must never replace a sandbox. Keyed on
         ``SECRET_KEY`` so a checkpoint never holds a plain hash of env var values, which may be secrets.
         """
         payload = json.dumps(
@@ -71,7 +74,7 @@ def merge_sandbox_spec(*, per_run: SandboxEnvOverride | None, global_default: Sa
     wins; otherwise the field's runtime default applies.
 
     ``env_vars`` are unioned with per-run keys shadowing GLOBAL keys.
-    ``egress`` is taken from the effective env as-is (see inline comment).
+    ``egress`` and ``browser`` are taken from the effective env as-is (see inline comment).
     """
 
     def pick(field: str, runtime_default):
@@ -90,10 +93,13 @@ def merge_sandbox_spec(*, per_run: SandboxEnvOverride | None, global_default: Sa
         before_publish=pick("before_publish", None),
         memory_bytes=pick("memory_bytes", None),
         cpus=pick("cpus", None),
-        # Network is explicit per env (no inherit): take the effective env's egress as-is. A per-run env
-        # that is Off (egress=None) must NOT inherit the global default's policy, so this is not pick().
+        env_vars={**(global_default.env_vars if global_default else {}), **(per_run.env_vars if per_run else {})},
+        # Network and browser are explicit per env (no inherit): a per-run env with either Off must NOT inherit
+        # the global default's, so these are not pick().
         egress=(
             per_run.egress if per_run is not None else (global_default.egress if global_default is not None else None)
         ),
-        env_vars={**(global_default.env_vars if global_default else {}), **(per_run.env_vars if per_run else {})},
+        browser=bool(
+            per_run.browser if per_run is not None else (global_default.browser if global_default is not None else None)
+        ),
     )

@@ -2,4 +2,5 @@
 
 set -eu
 
-exec django-admin db_worker --reload --skip-checks --queue-name "${1:-*}"
+# watchfiles, unlike --reload, stops the worker with SIGINT and waits, so an agent run can stop cleanly.
+exec watchfiles --filter python --sigint-timeout 120 "django-admin db_worker --skip-checks --queue-name \"${1:-*}\"" daiv

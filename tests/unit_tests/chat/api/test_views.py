@@ -1687,6 +1687,36 @@ async def test_cancel_stops_a_background_run_of_a_session_the_caller_owns(client
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_cancel_ends_a_background_run_whose_worker_stopped_heartbeating(
+    client: TestAsyncClient, authed, fake_redis
+):
+    from datetime import timedelta
+
+    from asgiref.sync import sync_to_async
+
+    from tests.unit_tests.sessions.conftest import hold_slot
+
+    _, raw, user = authed
+    session = await Session.objects.acreate(
+        origin=SessionOrigin.CHAT, thread_id="t-dead", user=user, repo_id="a/b", ref="main"
+    )
+    run = await Run.objects.acreate(
+        session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id="a/b", status=RunStatus.RUNNING
+    )
+    await sync_to_async(hold_slot)(run, silent_for=timedelta(minutes=10))
+
+    response = await client.post(
+        "/chat/cancel", json={"thread_id": "t-dead", "run_id": str(run.pk)}, headers=_auth_headers(raw)
+    )
+
+    assert response.json() == {"cancelled": True, "local": False}
+    await run.arefresh_from_db()
+    assert run.is_cancelled
+    assert (await Session.objects.aget(pk="t-dead")).active_run_id is None
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_cancel_rejects_run_not_in_flight(client: TestAsyncClient, authed, fake_redis):
     _, raw, user = authed
     await Session.objects.acreate(

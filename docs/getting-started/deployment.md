@@ -233,6 +233,7 @@ services:
   worker:
     image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main} # (5)!
     command: sh /home/daiv/start-worker default
+    stop_grace_period: 2m # (15)!
     environment:
       <<: *app_environment_defaults
     secrets:
@@ -380,6 +381,7 @@ secrets:
 12.  **Required**: the egress CA you stored as secrets in step 3 of [Deploy with Docker Swarm](#deploy-with-docker-swarm). The sandbox's egress proxy signs with it; without it, every agent run fails when the sandbox rejects the session.
 13.  The SMTP user. DAIV sends the `email_host_password` secret only when this is set; delete the line if your relay needs no authentication. Without an SMTP server, replace the `EMAIL_*` lines with `EMAIL_BACKEND: django.core.mail.backends.console.EmailBackend` and read the sign-in code from `docker service logs daiv_app`.
 14.  **Optional**: uncomment the two `allauth_*` lines under `app`'s `secrets:` and the two under the top-level `secrets:` only after you create both secrets. DAIV then takes the OAuth client ID and secret from them and locks the fields under **Configuration** → **Authentication**. Leave them commented to set up OAuth login in the dashboard.
+15.  Gives an agent run time to stop cleanly when the worker restarts, for example on a deploy. The run releases its sandbox and ends as interrupted. Chat messages, CI fixes and mentions it was handling run again once the worker is back; a job from the API, MCP or a schedule does not, and its session can be continued by hand. With Docker's default of 10 seconds, the worker is killed mid-run and the run shows as running for about 30 minutes, until DAIV notices.
 
 ## Deploy with Docker Compose
 
@@ -512,6 +514,7 @@ services:
   worker:
     <<: *x_app_default
     command: sh /home/daiv/start-worker default
+    stop_grace_period: 2m # (20)!
     # volumes:  (15)
     #   - media-volume:/home/daiv/data/media
     #   - ./custom-skills:/home/daiv/data/skills:ro
@@ -606,6 +609,7 @@ volumes:
 17. Replace `987` with the group of the Docker socket, the output of `stat -c '%g' /var/run/docker.sock`. The sandbox starts a container for each agent run through it.
 18. Use the same API key as in annotation 12.
 19. The egress CA from step 1 of [Deploy with Docker Compose](#deploy-with-docker-compose).
+20. Gives an agent run time to stop cleanly when the worker restarts, for example on `docker compose up -d` with a new image. The run releases its sandbox and ends as interrupted. Chat messages, CI fixes and mentions it was handling run again once the worker is back; a job from the API, MCP or a schedule does not, and its session can be continued by hand. With Docker's default of 10 seconds, the worker is killed mid-run and the run shows as running for about 30 minutes, until DAIV notices.
 
 ## Put DAIV behind Nginx
 

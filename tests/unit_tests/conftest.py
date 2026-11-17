@@ -45,11 +45,16 @@ from core.models import (
     WEB_FETCH_AUTH_HEADERS_CACHE_KEY,
     WebFetchAuthHeader,
 )
+from core.sandbox.capabilities import CAPABILITIES_CACHE_KEY
 from core.sandbox.schemas import (
+    BrowserStartRequest,
+    BrowserStartResponse,
+    BrowserStopResponse,
     EgressConfigRequest,
     RunCommandResult,
     RunCommandsRequest,
     RunCommandsResponse,
+    SandboxCapabilities,
     StartSessionRequest,
 )
 from core.site_settings import SiteSnapshot, site_settings
@@ -73,8 +78,10 @@ def agent_settings(
     )
 
 
-def sandbox_spec(*, base_image: str | None = "python:3.12", egress: EgressConfigRequest | None = None) -> SandboxSpec:
-    return SandboxSpec(base_image=base_image, memory_bytes=None, cpus=None, env_vars={}, egress=egress)
+def sandbox_spec(
+    *, base_image: str | None = "python:3.12", egress: EgressConfigRequest | None = None, browser: bool = False
+) -> SandboxSpec:
+    return SandboxSpec(base_image=base_image, memory_bytes=None, cpus=None, env_vars={}, egress=egress, browser=browser)
 
 
 @contextmanager
@@ -155,6 +162,11 @@ class FakeSandboxClient:
         self.is_open = False
         self._failures: dict[str, Exception] = {}
         self._next_id = 0
+        self.capabilities = SandboxCapabilities()
+        self.browser_start_response = BrowserStartResponse(
+            started=True, profile="empty", devtools_port=39222, browser_ws_path="/devtools/browser/guid"
+        )
+        self.browser_stop_response = BrowserStopResponse()
 
     @classmethod
     def opened(cls, responses: dict[str, tuple[int, str]] | None = None) -> FakeSandboxClient:
@@ -269,6 +281,26 @@ class FakeSandboxClient:
             raise self._status_error("update_egress", 409, "Session has no egress proxy")
         session.egress = egress
 
+    async def get_capabilities(self) -> SandboxCapabilities:
+        self._record("get_capabilities")
+        return self.capabilities
+
+    async def start_browser(
+        self, session_id: str, request: BrowserStartRequest, extension_archive: bytes | None
+    ) -> BrowserStartResponse:
+        self._record("start_browser", session_id, request, extension_archive)
+        return self.browser_start_response
+
+    async def stop_browser(self, session_id: str, *, force: bool = False) -> BrowserStopResponse:
+        self._record("stop_browser", session_id, force)
+        return self.browser_stop_response
+
+    def browser_cdp_url(self, session_id: str) -> str:
+        return f"ws://sandbox.test/session/{session_id}/browser/cdp"
+
+    def auth_headers(self) -> dict[str, str]:
+        return {"X-API-KEY": "fake-key"}
+
     async def run_commands(self, session_id: str, request: RunCommandsRequest) -> RunCommandsResponse:
         self._record("run_commands", session_id, tuple(request.commands))
         self._require("run_commands", session_id).state = "running"
@@ -296,6 +328,7 @@ class FakeWorkspace:
     git: Any = field(default_factory=AsyncMock)
     bash: Any = None
     session: Any = None
+    browser: Any = None
     fs_permissions: Any = None
     provisions_skills: bool = False
     skills_provisioning_errors: Any = ()
@@ -304,6 +337,9 @@ class FakeWorkspace:
 
     async def authenticated_git(self) -> Any:
         return self.git
+
+    async def aresolve_browser(self, site: Any) -> None:
+        return None
 
     async def download_file(self, path: str, *, max_bytes: int) -> Any:
         (response,) = await self.backend.adownload_files([path])
@@ -409,6 +445,15 @@ def write_skill(root: Path, name: str, description: str, files: dict[str, str] |
 
 
 @pytest.fixture
+def worker_shutdown():
+    """``core.worker_shutdown``, with any shutdown the test requests withdrawn after it."""
+    from core import worker_shutdown
+
+    yield worker_shutdown
+    worker_shutdown._requested.clear()
+
+
+@pytest.fixture
 def skill_roots(tmp_path, monkeypatch) -> tuple[Path, Path]:
     """Point the built-in and custom global skill roots at empty temp dirs."""
     builtin, custom = tmp_path / "builtin", tmp_path / "custom"
@@ -424,7 +469,7 @@ def _clear_model_caches():
     # Provider/WebFetchAuthHeader/SiteConfiguration invalidate via
     # transaction.on_commit; @pytest.mark.django_db tests roll back without
     # committing, so the LocMem cache would otherwise leak state between tests.
-    keys = (PROVIDERS_CACHE_KEY, SITE_CONFIGURATION_CACHE_KEY, WEB_FETCH_AUTH_HEADERS_CACHE_KEY)
+    keys = (PROVIDERS_CACHE_KEY, SITE_CONFIGURATION_CACHE_KEY, WEB_FETCH_AUTH_HEADERS_CACHE_KEY, CAPABILITIES_CACHE_KEY)
     for key in keys:
         cache.delete(key)
     yield
@@ -454,7 +499,11 @@ def _clear_site_settings_overrides():
 
     site_settings.__dict__.clear()
     yield
-    site_settings.__dict__.clear()
+    # Note: no teardown clear — the setup clear at the start of the next test
+    # removes any leaked attributes. A teardown clear here ran before
+    # ``monkeypatch.undo()`` in newer pytest/plugin versions, causing the
+    # ``delattr`` in undo to fail with ``AttributeError`` because the key
+    # was already gone. The setup clear is sufficient for isolation.
 
 
 @pytest.fixture(autouse=True)

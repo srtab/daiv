@@ -23,6 +23,7 @@ from automation.agent.publish_errors import publish_error_kind
 from automation.agent.workspace.git_manager import GitPushStaleError
 from automation.agent.workspace.session import SandboxAcquisition
 from codebase.base import MergeRequestDiffStats
+from core.constants import INTERRUPTED_MESSAGE
 from tests.unit_tests.automation.agent.conftest import make_merge_request
 
 pytestmark = pytest.mark.django_db
@@ -606,3 +607,20 @@ def test_by_owner_does_not_match_a_run_the_inbox_ran_for_someone_else_in_a_priva
     _mk_run(session, trigger_type=SessionOrigin.MR_WEBHOOK, user=mentioner)
     assert list(Session.objects.by_owner(owner)) == [session]
     assert list(Session.objects.by_owner(mentioner)) == []
+
+
+@pytest.mark.parametrize(
+    ("status", "task_result_id", "error_message", "interrupted"),
+    [
+        pytest.param(RunStatus.FAILED, uuid.uuid4(), INTERRUPTED_MESSAGE, True, id="task-backed"),
+        pytest.param(RunStatus.FAILED, None, INTERRUPTED_MESSAGE, False, id="inline-chat"),
+        pytest.param(RunStatus.FAILED, uuid.uuid4(), "boom", False, id="other-failure"),
+        pytest.param(RunStatus.SUCCESSFUL, uuid.uuid4(), INTERRUPTED_MESSAGE, False, id="not-failed"),
+    ],
+)
+def test_only_a_task_backed_run_its_worker_shutdown_stopped_is_interrupted(
+    status, task_result_id, error_message, interrupted
+):
+    run = Run(status=status, task_result_id=task_result_id, error_message=error_message)
+
+    assert run.is_interrupted is interrupted

@@ -317,3 +317,21 @@ async def test_submit_job_auth_failure_returns_error_without_running():
     assert "error" in data
     assert "auth" in data["error"].lower()
     submit.assert_not_awaited()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("enabled", [True, False])
+async def test_get_environment_reports_the_browser_field(enabled):
+    from accounts.models import User
+
+    await SandboxEnvironment.objects.filter(scope=Visibility.GLOBAL).adelete()
+    user = await User.objects.acreate_user(username="u", email="u@e.com", password="x")  # noqa: S106
+    await SandboxEnvironment.objects.acreate(
+        scope=Visibility.USER, user=user, name="web", base_image="node:22", browser_enabled=enabled
+    )
+    from mcp_api.server import get_environment
+
+    with patch("mcp_api.server.get_current_user", new=AsyncMock(return_value=user)):
+        result = await get_environment("web")
+
+    assert result is not None and result["browser_enabled"] is enabled

@@ -11,6 +11,7 @@ from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.generic import TemplateView
 
+from asgiref.sync import async_to_sync
 from skills.pages import SkillPage, SkillPageMixin
 from skills.services import list_global_skills, skill_subagents
 
@@ -29,6 +30,7 @@ from configuration.forms import (
 from core.mixins import AdminRequiredMixin
 from core.model_choice import EMPTY_CHOICE
 from core.models import FieldGroup, Provider, SiteConfiguration, WebFetchAuthHeader
+from core.sandbox.capabilities import NO_BROWSER_MESSAGE, SandboxCapabilityProbe
 from core.site_settings import legacy_explore_model, site_settings
 from core.utils import short_model_name
 
@@ -215,7 +217,17 @@ class SiteConfigurationGroupView(AdminRequiredMixin, View):
             "telegram_bot_username": (site_settings.telegram_bot_username if self.group.key == "telegram" else None),
             "subagent_models_form": subagent_models,
             "subagent_models_env_var": site_settings.get_env_var_name("agent_subagent_models"),
+            "group_warnings": self._group_warnings(),
         }
+
+    def _group_warnings(self) -> list[str]:
+        """Standing warnings about the group's current settings, shown on every view and not only after a save."""
+        if self.group.key != "sandbox" or not site_settings.sandbox_browser_enabled:
+            return []
+        capabilities = async_to_sync(SandboxCapabilityProbe().aget)()
+        if capabilities is None or capabilities.browser:
+            return []
+        return [gettext(NO_BROWSER_MESSAGE)]
 
     @staticmethod
     def _split_provider_forms(formset) -> tuple[list, list]:

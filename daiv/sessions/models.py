@@ -16,6 +16,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from automation.agent.references import ExternalRef, refs_from_stored  # noqa: TC001
+from core.constants import INTERRUPTED_MESSAGE
 from core.models import ThinkingLevelChoices
 from sessions.artifacts import ArtifactKind, artifact_kind
 from sessions.executor.result import parse_agent_result
@@ -600,6 +601,15 @@ class Run(models.Model):
     def is_cancelled(self) -> bool:
         """Whether the run failed after ``RunManager.cancel`` asked it to stop."""
         return self.status == RunStatus.FAILED and self.cancel_requested_at is not None
+
+    @property
+    def is_interrupted(self) -> bool:
+        """Whether its worker's shutdown stopped this task-backed run (``sessions.executor.run.execute_run``)."""
+        return (
+            self.status == RunStatus.FAILED
+            and self.task_result_id is not None
+            and self.error_message == INTERRUPTED_MESSAGE
+        )
 
     @property
     def duration(self) -> float | None:

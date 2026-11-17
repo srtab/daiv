@@ -184,7 +184,7 @@ _EMPTY_SELECTION_REASON = (
     "A -m expression deselected every integration test. pytest does not validate -m names against "
     "registered markers, so a typo deselects everything and exits 5 (NO_TESTS_COLLECTED) with no "
     "indication the marker name was wrong — this suite names the cause instead. "
-    "Valid markers for this suite: ask_user, code_review, deferred_cache, deferred_frozen, delegation, "
+    "Valid markers for this suite: ask_user, browser, code_review, deferred_cache, deferred_frozen, delegation, "
     "diff_to_metadata, inbox, memory, sandbox, skills, subagents, todos, web_search."
 )
 

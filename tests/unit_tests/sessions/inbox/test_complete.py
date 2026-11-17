@@ -23,6 +23,8 @@ from sessions.queue import ENQUEUE_FAILED_PREFIX
 
 from codebase.base import GitPlatform
 from codebase.clients.base import CommentThread
+from core.constants import INTERRUPTED_MESSAGE
+from tests.unit_tests.sessions.conftest import make_task_result
 from tests.unit_tests.sessions.inbox.conftest import (
     amake_event,
     amake_session,
@@ -82,6 +84,20 @@ class TestOutcomes:
         stored = await _state(event)
         assert (stored.state, stored.attempts, stored.run_id) == (EventState.PENDING, 1, None)
         assert stored.payload["tried_runs"] == [str(run.pk)]
+        assert [call.args[0].thread_id for call in drain.call_args_list] == [run.session_id]
+
+    async def test_a_run_its_worker_shutdown_interrupted_puts_its_events_back_without_spending_an_attempt(self, drain):
+        task_result = await sync_to_async(make_task_result)(status="FAILED")
+        attempts = MAX_EVENT_ATTEMPTS - 1
+        run, event = await _run_with_event(
+            RunStatus.FAILED, attempts=attempts, task_result=task_result, error_message=INTERRUPTED_MESSAGE
+        )
+
+        await RunEnd(run).aon_run_ended()
+
+        stored = await _state(event)
+        assert (stored.state, stored.attempts, stored.run_id) == (EventState.PENDING, attempts, None)
+        assert "tried_runs" not in stored.payload
         assert [call.args[0].thread_id for call in drain.call_args_list] == [run.session_id]
 
     async def test_the_last_attempt_fails_the_events_and_logs(self, drain, caplog):

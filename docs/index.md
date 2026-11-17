@@ -4,7 +4,8 @@ description: "DAIV turns issues into merge requests, answers review comments and
 ---
 
 <p align="center">
-  <img src="assets/logo.svg" alt="DAIV" width="400">
+  <img src="assets/logo-light.svg#only-light" alt="DAIV" width="400">
+  <img src="assets/logo.svg#only-dark" alt="DAIV" width="400">
 </p>
 
 <h1 align="center">Open-source, self-hosted SWE agents for GitLab &amp; GitHub</h1>

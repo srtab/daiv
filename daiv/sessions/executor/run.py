@@ -10,6 +10,7 @@ from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from django.urls import reverse
+from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 from redis.exceptions import RedisError
@@ -17,15 +18,17 @@ from redisvl.exceptions import RedisSearchError
 
 from automation.agent.git_state import checkpointed_repo_publishes
 from automation.agent.session_links import SessionLinks
+from core import worker_shutdown
+from core.constants import INTERRUPTED_MESSAGE
 from core.utils import build_absolute_url
 from sessions.archive import aarchive_thread, arestore_thread
 from sessions.artifacts import RunArtifactStore, bind_active_run
 from sessions.delegation import SessionJobDelegator
-from sessions.executor.lock import SessionLockLostError, hold_session_lock, still_held
+from sessions.executor.lock import RunStoppedError, SessionLockLostError, hold_session_lock, still_held
 from sessions.executor.recovery import recover_draft
 from sessions.executor.spec import RunHooks, RunOutcome
 from sessions.inbox.ownership import Ownerships
-from sessions.models import PublishStatus, Run, publish_field_updates
+from sessions.models import PublishStatus, Run, RunStatus, publish_field_updates
 from sessions.multi_repo import aload_extra_repos, apersist_extra_repo_state
 from sessions.services import aget_session_ref, apersist_session_ref, areset_session_ref
 from sessions.tool_media import RunToolMediaStore
@@ -48,6 +51,7 @@ if TYPE_CHECKING:
     from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler
     from automation.agent.verification.outcome import VerificationOutcome
     from automation.agent.workspace.base import Workspace
+    from automation.agent.workspace.browser import SandboxBrowser
     from automation.agent.workspace.git_manager import FastForward
     from automation.agent.workspace.session import SandboxSession
     from sessions.executor.spec import RunSpec
@@ -58,10 +62,6 @@ logger = logging.getLogger("daiv.sessions")
 STREAM_HEARTBEAT_INTERVAL_S = 5.0
 STOP_POLL_INTERVAL_S = 10.0
 ARCHIVE_TIMEOUT_S = 30.0
-
-
-class RunStoppedError(Exception):
-    """``stream_run``'s ``should_stop`` asked the run to stop."""
 
 
 @dataclass(frozen=True)
@@ -89,7 +89,11 @@ class AgentRun:
 async def execute_run(
     spec: RunSpec, hooks: RunHooks | None = None, *, should_stop: Callable[[], Awaitable[bool]] | None = None
 ) -> RunOutcome:
-    """Run the agent once for ``spec``; the package docstring lists the order of the steps."""
+    """Run the agent once for ``spec``; the package docstring lists the order of the steps.
+
+    The worker's shutdown (``core.worker_shutdown``) stops the run as ``should_stop`` does, and a stopped ``Run`` ends
+    FAILED with ``INTERRUPTED_MESSAGE``.
+    """
     hooks = hooks or RunHooks()
     entered = False
     try:
@@ -99,7 +103,21 @@ async def execute_run(
     except Exception as exc:
         if not entered:
             await _notify_failure(hooks, exc)
+        if isinstance(exc, RunStoppedError) and spec.run_id and worker_shutdown.requested():
+            await _afinish_interrupted(spec.run_id)
         raise
+
+
+async def _afinish_interrupted(run_id: str) -> None:
+    """End the run a worker shutdown stopped as interrupted, so it neither reads as a failure nor waits for the
+    stuck-run sweep. A failure is logged, never raised over the stop."""
+    try:
+        if (run := await Run.objects.filter(pk=run_id).afirst()) is not None:
+            await Run.objects.afinish(
+                run, RunStatus.FAILED, error_message=INTERRUPTED_MESSAGE, finished_at=timezone.now()
+            )
+    except Exception:
+        logger.exception("Could not end run_id=%s as interrupted by the worker shutdown", run_id)
 
 
 async def stream_run(
@@ -197,7 +215,7 @@ async def _run_in_slot(
     async with _live_relay(spec, holder_id) as run_relay:
         try:
             invoke = partial(_invoke, spec, hooks, recovery, run_relay)
-            outcome = await (invoke() if should_stop is None else _until_stopped(invoke, spec.thread_id, should_stop))
+            outcome = await _until_stopped(invoke, spec.thread_id, should_stop)
         except Exception as exc:
             await _notify_failure(hooks, exc, draft_published=recovery.draft_published, snapshot=recovery.snapshot)
             raise
@@ -209,20 +227,25 @@ async def _run_in_slot(
 async def _until_stopped(
     invoke: Callable[[], Coroutine[Any, Any, RunOutcome]],
     thread_id: str | None,
-    should_stop: Callable[[], Awaitable[bool]],
+    should_stop: Callable[[], Awaitable[bool]] | None,
 ) -> RunOutcome:
-    """Run ``invoke`` unless ``should_stop`` asks to stop first, asking again every ``STOP_POLL_INTERVAL_S``.
+    """Run ``invoke`` unless the worker's shutdown or ``should_stop`` asks to stop first, asking again every
+    ``STOP_POLL_INTERVAL_S``.
 
     A stop request raises ``RunStoppedError``, after cancelling the invocation and waiting for it to close the run's
     context if it had started; an invocation that ends while ``should_stop`` is asked keeps its outcome.
     """
-    if await should_stop():
+
+    async def stop_requested() -> bool:
+        return worker_shutdown.requested() or (should_stop is not None and await should_stop())
+
+    if await stop_requested():
         raise RunStoppedError(f"run for thread_id={thread_id} was asked to stop before it started")
     task = asyncio.ensure_future(invoke())
     try:
         while not task.done():
             await asyncio.wait({task}, timeout=STOP_POLL_INTERVAL_S)
-            if not task.done() and await should_stop() and not task.done():
+            if not task.done() and await stop_requested() and not task.done():
                 raise RunStoppedError(f"run for thread_id={thread_id} was asked to stop")
         return task.result()
     finally:
@@ -420,12 +443,14 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
                 await _repin_fallback_ref(thread_id, ctx.repo.ref)
             if hooks.on_context_ready is not None:
                 await hooks.on_context_ready(ctx.repo.ref)
-            settings = resolve_agent_settings(site=site_settings.snapshot(), repo=ctx.config, run=spec.overrides())
+            site = site_settings.snapshot()
+            settings = resolve_agent_settings(site=site, repo=ctx.config, run=spec.overrides())
             model = settings.agent.names[0]
             await _persist_resolved_agent(spec, model=model, thinking_level=settings.agent.thinking_level or "")
             session_links = _session_links(spec, settings)
             if workspace.session is not None and not skips_sandbox(spec.input_messages, ctx, settings):
                 await acquire_sandbox(workspace.session, ctx, await _checkpointed_values(checkpointer, thread_id))
+            await workspace.aresolve_browser(site)
             fast_forward = await _fast_forward(spec, ctx, workspace)
             delegator = (
                 await SessionJobDelegator.afor(spec.thread_id)
@@ -485,8 +510,14 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
                         await _archive_thread(checkpointer, thread_id, reset=reset)
         finally:
             try:
-                if workspace.session is not None and not handed_over:
-                    await _release_sandbox(workspace.session, resumable=spec.thread_id is not None, thread_id=thread_id)
+                try:
+                    if workspace.browser is not None:
+                        await _release_browser(workspace.browser, stop=not handed_over, thread_id=thread_id)
+                finally:
+                    if workspace.session is not None and not handed_over:
+                        await _release_sandbox(
+                            workspace.session, resumable=spec.thread_id is not None, thread_id=thread_id
+                        )
             finally:
                 await _record_measurements(spec.run_id, ctx, workspace)
 
@@ -592,6 +623,17 @@ async def _archive_thread(checkpointer: BaseCheckpointSaver, thread_id: str, *, 
             await aarchive_thread(checkpointer, thread_id, reset=reset)
     except Exception:
         logger.exception("executor: failed to archive thread_id=%s", thread_id)
+
+
+async def _release_browser(browser: SandboxBrowser, *, stop: bool, thread_id: str) -> None:
+    """``arelease`` logs its own failures and never raises one; anything it lets out is logged here.
+
+    A run that lost its slot leaves the container running for the new holder (``stop=False``).
+    """
+    try:
+        await browser.arelease(stop=stop)
+    except Exception:
+        logger.exception("executor: failed to release the browser for thread_id=%s", thread_id)
 
 
 async def _release_sandbox(session: SandboxSession, *, resumable: bool, thread_id: str) -> None:

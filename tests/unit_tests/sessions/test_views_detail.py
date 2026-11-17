@@ -1587,7 +1587,8 @@ def test_detail_overview_sections_keep_their_visibility_conditions(member_client
 
     assert 'x-show="contextUsage"' in _section(details, "session-details-context")
     assert 'x-show="spend"' in _section(details, "session-details-spend")
-    assert 'x-show="latestArtifactsById.size"' in _section(details, "session-details-outputs")
+    outputs = _section(details, "session-details-outputs")
+    assert 'x-show="latestArtifactsById.size || shownScreenshots.length"' in outputs
 
 
 @pytest.mark.django_db

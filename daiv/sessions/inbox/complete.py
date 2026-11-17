@@ -139,6 +139,10 @@ class RunEnd:
         elif run.status == RunStatus.FAILED and run.cancel_requested_at is not None:
             if taken.update(state=EventState.DISMISSED, updated_at=timezone.now()):
                 session_changed(run.session_id)
+        elif run.is_interrupted:
+            # A restart is no attempt at the events, so they go back without spending one.
+            if taken.update(state=EventState.PENDING, run=None, claim_token="", updated_at=timezone.now()):
+                session_changed(run.session_id)
         elif run.status == RunStatus.FAILED:
             FailedAttempt(taken.exclude(kind=EventKind.LEG_FOLLOW_UP), cause=f"run={run.pk} failed").record()
 

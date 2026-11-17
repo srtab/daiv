@@ -356,7 +356,7 @@
   }
 
   .brand-mark {
-    @apply inline-block h-6 w-6 shrink-0 rounded-md bg-brand;
+    @apply inline-grid h-6 w-6 shrink-0 place-items-center rounded-md bg-brand text-text-strong;
   }
 
   .brand-wordmark {
@@ -2553,9 +2553,14 @@ html {
   }
 
   .body-media-chip,
-  .body-media-missing {
+  .body-media-missing,
+  .step-row__more {
     @apply inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-0.5 text-[12px] font-medium;
     overflow-wrap: anywhere;
+  }
+
+  .step-row__more {
+    @apply bg-surface-2 text-text-muted;
   }
 
   .body-media-chip {
@@ -3102,6 +3107,7 @@ html {
   }
 
   .step-row__summary {
+    flex-wrap: wrap;
     align-items: center;
     padding: 3px 0;
     font-size: 13px;
@@ -3116,8 +3122,10 @@ html {
     white-space: nowrap;
   }
 
+  /* A zero basis keeps a long detail from wrapping the summary; max-content keeps it from stretching. */
   .step-row__detail {
-    flex: 0 1 auto;
+    flex: 1 1 0;
+    max-width: max-content;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -3139,6 +3147,29 @@ html {
 
   .step-row__chev {
     margin-left: auto;
+  }
+
+  .step-row__media {
+    display: flex;
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding-left: 24px;
+  }
+
+  .step-row__media:empty {
+    display: none;
+  }
+
+  .step-row__thumb-link {
+    @apply block overflow-hidden rounded-md border border-border transition-colors hover:border-accent;
+  }
+
+  .step-row__thumb {
+    display: block;
+    max-width: 160px;
+    max-height: 72px;
   }
 
   .step-row--failed .step-row__phrase {
@@ -3312,6 +3343,38 @@ html {
 
   .artifact-card__meta--error {
     @apply text-red-300;
+  }
+
+  .shot-card {
+    @apply flex flex-col divide-y divide-white/[0.06] overflow-hidden rounded-2xl border border-white/[0.06]
+      bg-white/[0.02];
+  }
+
+  .shot-card__item {
+    @apply m-0 flex flex-col gap-2 p-3;
+  }
+
+  .shot-card__frame {
+    @apply block overflow-hidden rounded-lg border border-white/[0.06] transition-colors hover:border-accent;
+  }
+
+  .shot-card__img {
+    display: block;
+    width: 100%;
+    max-height: 480px;
+    object-fit: contain;
+  }
+
+  .shot-card__meta {
+    @apply flex items-center gap-3 px-1 text-[12px] text-gray-500;
+  }
+
+  .shot-card__label {
+    @apply mr-auto inline-flex items-center gap-1.5;
+  }
+
+  .shot-card__link {
+    @apply text-accent transition-colors hover:text-accent-bright;
   }
 
   .delegated-card__goal {

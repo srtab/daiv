@@ -1,4 +1,4 @@
-"""Content of the public homepage that the template shows and its FAQPage JSON-LD repeats."""
+"""Content of the public homepage that the template shows and its JSON-LD repeats: the FAQ and the social accounts."""
 
 from dataclasses import dataclass
 
@@ -7,6 +7,21 @@ from daiv import DOCS_URL
 DOCS_ROOT = DOCS_URL.rstrip("/")
 QUICKSTART_URL = f"{DOCS_ROOT}/getting-started/quickstart/"
 DEPLOYMENT_URL = f"{DOCS_ROOT}/getting-started/deployment/"
+
+
+@dataclass(frozen=True)
+class SocialLink:
+    name: str
+    url: str
+
+
+SOCIAL_LINKS = (
+    SocialLink("X", "https://x.com/daivagent"),
+    SocialLink("Bluesky", "https://bsky.app/profile/daivagent.com"),
+    SocialLink("LinkedIn", "https://www.linkedin.com/company/daivagent"),
+    SocialLink("Mastodon", "https://mastodon.social/@daivagent"),
+    SocialLink("YouTube", "https://www.youtube.com/@daivagent"),
+)
 
 
 @dataclass(frozen=True)

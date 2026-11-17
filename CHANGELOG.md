@@ -41,9 +41,12 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 - Deprecate `DAIV_AGENT_EXPLORE_MODEL_NAME` in favour of an `explore` entry in `DAIV_AGENT_SUBAGENT_MODELS`; `django-admin check` warns with `core.W001` while it is set ([#1727](https://github.com/srtab/daiv/pull/1727))
 - Move the documentation to [docs.daivagent.com](https://docs.daivagent.com/) ([#1826](https://github.com/srtab/daiv/pull/1826))
 - Run the explore subagent at the run's thinking level instead of without thinking ([#1835](https://github.com/srtab/daiv/pull/1835))
+- Show DAIV's mark, a white D on a violet tile, in the logo, favicon, app icons and sidebar ([#1840](https://github.com/srtab/daiv/pull/1840))
+- Link DAIV's accounts on X, Bluesky, LinkedIn, Mastodon and YouTube from the homepage footer ([#1841](https://github.com/srtab/daiv/pull/1841))
 
 ### Added
 
+- Add a headless browser the agent can use beside its sandbox, turned on per sandbox environment and site-wide, whose screenshots taken for you show under the agent's reply; it needs daiv-sandbox 0.6.0 or later ([#1836](https://github.com/srtab/daiv/pull/1836))
 - Add a web dashboard, signed in with a GitLab or GitHub account, an emailed code or a passkey, with admin and member roles ([#993](https://github.com/srtab/daiv/pull/993), [#1559](https://github.com/srtab/daiv/pull/1559))
 - Add sessions: every run, whether started from chat, a webhook, the Jobs API, MCP or a schedule, is a session you can watch live, continue, retry, stop and archive in the dashboard ([#1374](https://github.com/srtab/daiv/pull/1374), [#1691](https://github.com/srtab/daiv/pull/1691))
 - Give a webhook's session to the DAIV user who signed in with the author's GitLab or GitHub account, who then gets its notifications ([#1744](https://github.com/srtab/daiv/pull/1744))
@@ -78,7 +81,7 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 - Support Claude 5 and GPT-6 models, and an **Extra high** (`xhigh`) thinking level ([#1405](https://github.com/srtab/daiv/pull/1405), [#1254](https://github.com/srtab/daiv/pull/1254))
 - Add a per-request timeout and retry count for LLM calls, `DAIV_MODEL_REQUEST_TIMEOUT_SECONDS` (120) and `DAIV_MODEL_MAX_RETRIES` (2) ([#1740](https://github.com/srtab/daiv/pull/1740))
 - Add deferred tool loading: the agent starts with a small tool set and loads MCP and other tools when a task needs them ([#1140](https://github.com/srtab/daiv/pull/1140), [#1465](https://github.com/srtab/daiv/pull/1465))
-- Show the images and files a tool returns in the session transcript, and let the agent open base64 files an MCP server returns ([#1782](https://github.com/srtab/daiv/pull/1782), [#1736](https://github.com/srtab/daiv/pull/1736))
+- Show the images and files a tool returns in the session transcript, with image thumbnails on the closed tool row, and let the agent open base64 files an MCP server returns ([#1782](https://github.com/srtab/daiv/pull/1782), [#1736](https://github.com/srtab/daiv/pull/1736), [#1836](https://github.com/srtab/daiv/pull/1836))
 - Add SearXNG as a web-search backend ([#1779](https://github.com/srtab/daiv/pull/1779)) (Tobi)
 - Read one section of a page with `web_fetch` by passing its URL `#fragment` ([#1752](https://github.com/srtab/daiv/pull/1752))
 - Track token usage and cost per run and session ([#1077](https://github.com/srtab/daiv/pull/1077), [#1776](https://github.com/srtab/daiv/pull/1776))
@@ -106,6 +109,7 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 
 ### Fixed
 
+- Fix a worker restart leaving its agent run spinning for about 30 minutes: the worker now stops the run cleanly, and **Stop** ends a run whose worker is gone; give the worker `stop_grace_period: 2m` so a deploy doesn't kill it mid-run ([#1842](https://github.com/srtab/daiv/pull/1842))
 - Refuse agent file-tool writes under `.git`, and run DAIV's host-side git without hooks, fsmonitor or external diff, closing a prompt-injection path to the worker ([#1676](https://github.com/srtab/daiv/pull/1676))
 - Fix `web_fetch` following unlimited same-host redirects without checking SSRF protection again; it now follows at most 5 and checks each one ([#971](https://github.com/srtab/daiv/pull/971))
 - Fix the sandbox command policy skipping commands inside `if`, `case`, `!`, `time` or `coproc`, or after a variable assignment, so a blocked command such as `git push` could run ([#1581](https://github.com/srtab/daiv/pull/1581))

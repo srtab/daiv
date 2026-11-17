@@ -1,6 +1,6 @@
 # Demo recordings
 
-Scripts that record the README's hero GIF and the launch video from a real DAIV run against the local GitLab, and render the launch screenshots and social preview. Every plan, commit, reply and merge request in them is DAIV's own output; only the waits are cut.
+Scripts that record the README's hero GIF and the launch video from a real DAIV run against the local GitLab, and render the launch screenshots, social preview, profile banners and icons. Every plan, commit, reply and merge request in them is DAIV's own output; only the waits are cut.
 
 | File | What it does |
 | --- | --- |
@@ -10,6 +10,8 @@ Scripts that record the README's hero GIF and the launch video from a real DAIV 
 | `overlay.js` | The cursor, captions and badges, injected into every page |
 | `make_gif.py` | Cuts the waits out of the video and exports a GIF and an MP4; `--until hero` stops at the merge request |
 | `make_card.py` | Renders the GitHub social preview, and the closing card of the video |
+| `make_banners.py` | Renders the profile banners for X, Bluesky, Mastodon, LinkedIn and YouTube |
+| `make_icons.py` | Renders the favicons and app icons from `daiv/public/favicon.svg`, and the social avatar |
 | `capture_screens.py` | Screenshots the issue plan, the merge request, a `/code-review` report, a live session, the sandbox egress form and Insights, signed in as Alex |
 
 ## Record
@@ -50,3 +52,13 @@ uv run --no-project --with playwright==1.62.0 python -I scripts/demo/make_card.p
 ```
 
 `capture_screens.py` shoots pages that need data from real runs on the demo project: a planned issue, an open merge request with a `@daiv /code-review` report, a session while a run is in progress (`--wait-running`), a sandbox environment with an egress policy, and merged merge requests for Insights. Its docstring has the commands.
+
+## Profile banners and icons
+
+```bash
+uv run --no-project --with playwright==1.62.0 python -I scripts/demo/make_banners.py ~/.cache/daiv-demo/launch/banners
+uv run --no-project --with playwright==1.62.0 --with pillow==11.3.0 python -I scripts/demo/make_icons.py \
+  --avatar ~/.cache/daiv-demo/launch/avatar.png
+```
+
+The brand SVGs are the sources: the D mark in `daiv/core/static/core/img/icons/daiv-mark.svg`, the tile in `daiv/public/favicon.svg` and `docs/assets/mark.svg`, and the logo in `docs/assets/logo.svg`, `docs/assets/logo-light.svg` and `daiv/accounts/static/accounts/img/logo.svg`. After changing the mark or the tile, run `make_icons.py` to regenerate the PNG and ICO files it writes into `daiv/public/` and `docs/assets/`.

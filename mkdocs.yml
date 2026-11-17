@@ -19,7 +19,8 @@ exclude_docs: |
 theme:
   name: material
   custom_dir: docs/overrides
-  logo: assets/logo.svg
+  logo: assets/mark.svg
+  favicon: assets/favicon.png
 
   font:
     text: Inter
@@ -102,6 +103,7 @@ plugins:
         - features/subagents.md
         - features/sandbox.md
         - features/sandbox-environments.md
+        - features/browser.md
         Integrations:
         - integrations/rt/index.md
         Customization:
@@ -176,6 +178,7 @@ nav:
     - Subagents: features/subagents.md
     - Sandbox: features/sandbox.md
     - Sandbox environments: features/sandbox-environments.md
+    - Browser: features/browser.md
   - Integrations:
     - Request Tracker triage: integrations/rt/index.md
   - Customization:

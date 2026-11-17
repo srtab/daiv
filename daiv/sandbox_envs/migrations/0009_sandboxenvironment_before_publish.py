@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("sandbox_envs", "0007_default_image_with_git")]
+    dependencies = [("sandbox_envs", "0008_sandboxenvironment_browser_enabled")]
 
     operations = [
         migrations.AddField(

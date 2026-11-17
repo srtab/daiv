@@ -89,6 +89,21 @@ def publish(call_id: str) -> dict[str, Any]:
     return tool_call(call_id, "publish_artifact", {"path": "/workspace/tmp/report.md"}, result=json.dumps(result))
 
 
+STORED_SHOT = {"kind": "image", "mime_type": "image/png", "size": 2048, "url": "/dashboard/sessions/t1/tool-media/s1/"}
+
+
+def screenshot(
+    call_id: str,
+    *,
+    show_user: bool | str | int | None = None,
+    media: tuple[dict, ...] = (STORED_SHOT,),
+    status: str = "done",
+    result: str = "",
+) -> dict[str, Any]:
+    args = {} if show_user is None else {"showUser": show_user}
+    return tool_call(call_id, "browser_screenshot", args, result=result, status=status) | {"media": list(media)}
+
+
 def delegate(
     call_id: str = "d1", *, args: dict | None = None, result: dict | str | None = None, legs: list | None = None
 ) -> dict[str, Any]:
