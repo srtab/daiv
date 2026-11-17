@@ -85,6 +85,9 @@ Take a screenshot of the active page in the run's headless browser.
 
 Captures the viewport unless fullPage is true. A smaller image is a viewport JPEG: {{"type":"jpeg","quality":40}}.
 
+Set showUser to true when the screenshot is for the user: they asked to see the page, or your reply points to it as \
+evidence. It then shows under your reply. Leave it false for screenshots you take to check the page yourself.
+
 {UNTRUSTED_CONTENT}"""
 
 _SINGLE_GOTO = re.compile(r"""page\.goto\(\s*(["'`])(?P<url>[^"'`]+)\1""")
@@ -163,6 +166,9 @@ def _with_note(note: str | None, text: str) -> str:
     return f"{note}\n\n{text}" if note else text
 
 
+SHOWN_TO_USER_NOTE = "Shown to the user under your reply."
+
+
 def _join_notes(*notes: str | None) -> str | None:
     return "\n\n".join(note for note in notes if note) or None
 
@@ -194,8 +200,9 @@ class BrowserMiddleware(AgentMiddleware):
             fullPage: bool = False,  # noqa: N803
             type: Literal["png", "jpeg"] = "png",  # noqa: A002
             quality: Annotated[float | None, Field(ge=0, le=100)] = None,
+            showUser: bool = False,  # noqa: N803
         ) -> list[dict[str, Any]]:
-            return await self._screenshot(full_page=fullPage, image_type=type, quality=quality)
+            return await self._screenshot(full_page=fullPage, image_type=type, quality=quality, show_user=showUser)
 
         self.tools = [browser_run, browser_snapshot, browser_screenshot]
         for browser_tool in self.tools:
@@ -203,7 +210,7 @@ class BrowserMiddleware(AgentMiddleware):
             browser_tool.handle_validation_error = True
 
     async def _screenshot(
-        self, *, full_page: bool, image_type: Literal["png", "jpeg"], quality: float | None
+        self, *, full_page: bool, image_type: Literal["png", "jpeg"], quality: float | None, show_user: bool
     ) -> list[dict[str, Any]]:
         image, note = await self._call_with_note(
             lambda facade: facade.screenshot(full_page=full_page, type=image_type, quality=quality)
@@ -223,6 +230,7 @@ class BrowserMiddleware(AgentMiddleware):
             raise ToolException(
                 _with_note(note, f"error: The page is too large to capture whole ({too_large}). Use fullPage: false.")
             )
+        note = _join_notes(note, SHOWN_TO_USER_NOTE if show_user else None)
         blocks: list[dict[str, Any]] = [{"type": "image", "base64": image["data"], "mime_type": image["mimeType"]}]
         return [{"type": "text", "text": note}, *blocks] if note else blocks
 

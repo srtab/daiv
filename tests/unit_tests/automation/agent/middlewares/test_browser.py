@@ -12,6 +12,7 @@ from stagehand_middleware.facade import StagehandFacadeExecutionError, Stagehand
 from automation.agent.middlewares.browser import (
     FAILED_TEXT,
     MAX_SCREENSHOT_BYTES,
+    SHOWN_TO_USER_NOTE,
     TIMED_OUT_TEXT,
     UNTRUSTED_CONTENT,
     BrowserMiddleware,
@@ -149,6 +150,24 @@ async def test_screenshot_returns_an_image_block(tools, browser):
 
     assert message.content == [{"type": "image", "base64": base64.b64encode(b"png").decode(), "mime_type": "image/png"}]
     browser.facade.screenshot.assert_awaited_once_with(full_page=False, type="png", quality=None)
+
+
+async def test_a_screenshot_for_the_user_says_so_before_the_image(tools, browser):
+    message = await _call(tools["browser_screenshot"], showUser=True)
+
+    assert message.content[0] == {"type": "text", "text": "Shown to the user under your reply."}
+    assert message.content[1]["type"] == "image"
+
+
+async def test_a_shown_screenshot_joins_the_browser_note(tools, browser):
+    browser.notes = ["This session's browser profile was reset; the browser started empty."]
+
+    message = await _call(tools["browser_screenshot"], showUser=True)
+
+    assert [block["type"] for block in message.content] == ["text", "image"]
+    assert message.content[0]["text"] == (
+        f"This session's browser profile was reset; the browser started empty.\n\n{SHOWN_TO_USER_NOTE}"
+    )
 
 
 async def test_a_screenshot_note_comes_as_a_text_block_before_the_image(tools, browser):
