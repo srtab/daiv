@@ -107,6 +107,7 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 
 ### Fixed
 
+- Fix a worker restart leaving its agent run spinning for about 30 minutes: the worker now stops the run cleanly, and **Stop** ends a run whose worker is gone; give the worker `stop_grace_period: 2m` so a deploy doesn't kill it mid-run ([#1842](https://github.com/srtab/daiv/pull/1842))
 - Refuse agent file-tool writes under `.git`, and run DAIV's host-side git without hooks, fsmonitor or external diff, closing a prompt-injection path to the worker ([#1676](https://github.com/srtab/daiv/pull/1676))
 - Fix `web_fetch` following unlimited same-host redirects without checking SSRF protection again; it now follows at most 5 and checks each one ([#971](https://github.com/srtab/daiv/pull/971))
 - Fix the sandbox command policy skipping commands inside `if`, `case`, `!`, `time` or `coproc`, or after a variable assignment, so a blocked command such as `git push` could run ([#1581](https://github.com/srtab/daiv/pull/1581))

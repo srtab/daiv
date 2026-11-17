@@ -17,6 +17,8 @@ from sessions.live.notify import publish_session_changed, session_changed
 from sessions.signal_defs import run_ended, run_finished
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from accounts.models import User
     from sessions.models import MergeRequestOwnership, Run, RunArtifact, Session, ToolResultMedia
 
@@ -356,7 +358,8 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
         A run that is not RUNNING finishes FAILED here as ``never_started``, with ``message`` (who stopped it), and its
         task fails too unless a worker claimed it. A ``run_job_task`` running the run stops at its next
         :meth:`acancel_requested` check, before the agent if it has not reached it, and a RUNNING run finishes as that
-        task does: with what it recorded, or SUCCESSFUL if it finished first.
+        task does: with what it recorded, or SUCCESSFUL if it finished first. A RUNNING run whose worker is gone has no
+        task left to check, so it finishes FAILED here, on a repeated call too (:meth:`_finish_dead_holder`).
         """
         from sessions.executor.run import RunStoppedError
         from sessions.models import RunStatus
@@ -364,7 +367,7 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
         now = timezone.now()
         if not self._unfinished(run).filter(cancel_requested_at__isnull=True).update(cancel_requested_at=now):
             run.refresh_from_db(fields=["status", "cancel_requested_at"])
-            return False
+            return self._finish_dead_holder(run, message=message, now=now)
         run.cancel_requested_at = now
         finished = self.finish(
             run,
@@ -376,6 +379,8 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
             started_at=run.started_at or now,
         )
         if not finished:
+            if self._finish_dead_holder(run, message=message, now=now):
+                return True
             session_changed(run.session_id)
             run.refresh_from_db(fields=["status"])
             return run.status not in RunStatus.terminal()
@@ -386,6 +391,23 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
             traceback=message,
         )
         return True
+
+    def _finish_dead_holder(self, run: Run, *, message: str, now: datetime) -> bool:
+        """Finish ``run`` FAILED with ``message`` if it is a task-backed RUNNING run holding its session's slot under
+        its pk whose heartbeat has been silent for ``TASK_HOLDER_DEAD_AFTER`` and whose worker is no longer alive
+        (:mod:`core.worker_liveness`): its worker was killed and nothing will read the stop request. A live worker
+        whose run cannot heartbeat still reads it. Returns whether this call finished it.
+        """
+        from core import worker_liveness
+        from sessions.executor.lock import TASK_HOLDER_DEAD_AFTER
+        from sessions.models import RunStatus, Session
+
+        silent = Session.objects.filter(active_run_id=str(run.pk), last_active_at__lt=now - TASK_HOLDER_DEAD_AFTER)
+        dead = models.Q(status=RunStatus.RUNNING, task_result__isnull=False, session_id__in=silent.values("pk"))
+        worker_ids = self.filter(dead, pk=run.pk).values_list("task_result__worker_ids", flat=True).first()
+        if worker_ids is None or (worker_ids and worker_liveness.alive(worker_ids[-1])):
+            return False
+        return self.finish(run, RunStatus.FAILED, where=dead, error_message=message, finished_at=now)
 
     async def acancel_requested(self, run_id: str) -> bool:
         """Whether :meth:`cancel` asked the run ``run_id`` to stop."""

@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 
+from core import worker_shutdown
 from sessions.live.notify import asession_changed, session_changed
 from sessions.models import RunStatus, Session, SessionOrigin
 
@@ -26,6 +27,7 @@ STALE_RUN_MINUTES = 30
 LOCK_WAIT_TIMEOUT_S = STALE_RUN_MINUTES * 60.0  # give a long-running chat turn time to finish
 LOCK_POLL_INTERVAL_S = 5.0
 LOCK_HEARTBEAT_INTERVAL_S = 60.0
+TASK_HOLDER_DEAD_AFTER = timedelta(seconds=3 * LOCK_HEARTBEAT_INTERVAL_S)
 
 
 def stale_cutoff(now: datetime | None = None) -> datetime:
@@ -291,6 +293,10 @@ class SessionLockLostError(Exception):
     """A stale takeover reassigned the slot while a stream held it, or before a ``Claimed`` run started."""
 
 
+class RunStoppedError(Exception):
+    """The run was asked to stop: by its ``should_stop``, or by its worker's shutdown (``core.worker_shutdown``)."""
+
+
 @asynccontextmanager
 async def hold_session_lock(
     policy: LockPolicy, thread_id: str, *, background_heartbeat: bool = True
@@ -337,11 +343,11 @@ async def still_held(thread_id: str, holder_id: str) -> bool:
 async def _acquire_session_lock(policy: LockPolicy, thread_id: str) -> str | None:
     """Return the holder id that now holds the slot, or ``None`` to run unlocked.
 
-    ``Wait`` raises ``SessionLockTimeoutError`` if the slot never frees within ``timeout_s``, and
-    ``Session.DoesNotExist`` at once when there is no slot to free: the thread has no ``Session`` row. Takeover needs
-    the holder's last heartbeat to be ``STALE_RUN_MINUTES`` old, so with ``timeout_s`` at that length
-    (``LOCK_WAIT_TIMEOUT_S``) a waiter that started before a crashed holder's last heartbeat times out before
-    it can take over.
+    ``Wait`` raises ``SessionLockTimeoutError`` if the slot never frees within ``timeout_s``, ``RunStoppedError`` once
+    the worker shuts down, and ``Session.DoesNotExist`` at once when there is no slot to free: the thread has no
+    ``Session`` row. Takeover needs the holder's last heartbeat to be ``STALE_RUN_MINUTES`` old, so with
+    ``timeout_s`` at that length (``LOCK_WAIT_TIMEOUT_S``) a waiter that started before a crashed holder's last
+    heartbeat times out before it can take over.
     """
     if isinstance(policy, NoLock):
         return None
@@ -357,6 +363,8 @@ async def _acquire_session_lock(policy: LockPolicy, thread_id: str) -> str | Non
     deadline = start + policy.timeout_s
     polled = False
     while time.monotonic() < deadline:
+        if worker_shutdown.requested():
+            raise RunStoppedError(f"the worker shut down while thread_id={thread_id} waited for its slot")
         if await SessionLock.try_claim(thread_id, policy.holder_id):
             if polled:
                 logger.info(

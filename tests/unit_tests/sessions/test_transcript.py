@@ -339,6 +339,14 @@ def test_interrupted_run_renders_aborted_marker():
     }
 
 
+@pytest.mark.parametrize("trigger_type", [SessionOrigin.PIPELINE_WEBHOOK, SessionOrigin.API_JOB])
+def test_a_background_run_a_worker_shutdown_interrupted_renders_aborted_marker(trigger_type):
+    turns = [_user("h1"), _assistant("a1")]
+    runs = [_run("r1", trigger_type=trigger_type, status=RunStatus.FAILED, error_message=INTERRUPTED_MESSAGE)]
+    marker = annotate_transcript(turns, runs)[-1]
+    assert (marker["status"], marker["message"]) == ("aborted", INTERRUPTED_MESSAGE)
+
+
 def test_message_id_match_flushes_intervening_unowned_segment():
     # A run whose message_id matches a segment *past* the cursor forces the intervening,
     # run-less segment to flush first so ordering is preserved. Covers the

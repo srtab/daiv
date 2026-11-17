@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from django.tasks import task
 
 from codebase.base import Scope
+from core import worker_shutdown
 from sessions.executor.lock import Claimed, wait_for_slot
 from sessions.executor.spec import RunHooks, RunSpec
 from sessions.models import EventState, Run, Session
@@ -52,6 +53,8 @@ async def run_job_task(
     (``Claimed``), and takes its input from the events it took (``sessions.inbox.render``) rather than ``prompt``; one
     whose events were settled before its task started fails instead of running without a request. It acts as the
     run's user, whom ``sessions.inbox.drain`` chose, not the session's.
+    A shutdown of the worker stops the run as a stop request does (``execute_run``); the inbox events it took go back
+    for the session's next run without spending an attempt (``RunEnd.settle_events``).
     Webhook callers (issue/review addressors) bypass this task; ``use_max`` is therefore
     not accepted here.
     """
@@ -95,7 +98,10 @@ async def run_job_task(
 
     async def _log_failure(exc: Exception, *, draft_published: bool, snapshot: StateSnapshot | None) -> None:
         if isinstance(exc, RunStoppedError):
-            logger.info("Job cancelled for repo_id=%s, thread_id=%s", repo_id, thread_id)
+            if worker_shutdown.requested():
+                logger.warning("Job interrupted by a worker shutdown for repo_id=%s, thread_id=%s", repo_id, thread_id)
+            else:
+                logger.info("Job cancelled for repo_id=%s, thread_id=%s", repo_id, thread_id)
             return
         logger.error(
             "Job failed for repo_id=%s, ref=%s, agent_model=%s", repo_id, ref, agent_model or "<auto>", exc_info=exc

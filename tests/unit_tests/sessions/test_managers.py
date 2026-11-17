@@ -13,6 +13,7 @@ from django_tasks_db.models import DBTaskResult
 from sessions.models import Run, RunStatus, Session, SessionOrigin, SessionRepository
 from sessions.signal_defs import run_ended, run_finished
 
+from core import worker_liveness
 from core.constants import CANCELLED_BY_COORDINATOR_MESSAGE
 from schedules.models import ScheduledJob
 from tests.unit_tests.sessions.conftest import grant_read_access, make_task_result
@@ -21,6 +22,19 @@ from tests.unit_tests.sessions.conftest import grant_read_access, make_task_resu
 def _create_run(*, status: str = RunStatus.RUNNING, trigger_type: str = SessionOrigin.PIPELINE_WEBHOOK) -> Run:
     session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=trigger_type, repo_id="acme/api")
     return Run.objects.create(session=session, trigger_type=trigger_type, repo_id="acme/api", status=status)
+
+
+def _hold_slot(run: Run, *, silent_for: timedelta, holder: str | None = None) -> str:
+    """Back ``run`` with a task running on a worker that is gone and give its session's slot to ``holder`` (the run
+    itself by default), last heartbeated ``silent_for`` ago. Returns the worker's id."""
+    task_result = make_task_result(status="RUNNING")
+    task_result.worker_ids = [worker_id := str(uuid.uuid4())]
+    task_result.save(update_fields=["worker_ids"])
+    Run.objects.filter(pk=run.pk).update(task_result=task_result)
+    Session.objects.filter(pk=run.session_id).update(
+        active_run_id=holder or str(run.pk), last_active_at=timezone.now() - silent_for
+    )
+    return worker_id
 
 
 @pytest.mark.django_db
@@ -148,7 +162,7 @@ class TestCancel:
 
         task_result = DBTaskResult.objects.get(run=run)
         assert task_result.status == "FAILED"
-        assert task_result.exception_class_path == "sessions.executor.run.RunStoppedError"
+        assert task_result.exception_class_path == "sessions.executor.lock.RunStoppedError"
 
     def test_a_task_a_worker_claimed_is_left_to_it(self, run_finished_spy, badge):
         run = _create_run(status=RunStatus.READY)
@@ -212,6 +226,56 @@ class TestCancel:
         Run.objects.cancel(run)
 
         assert Run.objects.cancel(run) is False
+
+    def test_a_running_run_whose_worker_stopped_heartbeating_finishes_failed_at_once(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.RUNNING)
+        _hold_slot(run, silent_for=timedelta(minutes=10))
+
+        assert Run.objects.cancel(run) is True
+
+        run.refresh_from_db()
+        assert (run.status, run.error_message) == (RunStatus.FAILED, CANCELLED_BY_COORDINATOR_MESSAGE)
+        assert run.is_cancelled and run.finished_at is not None
+        assert run_finished_spy.call_args.kwargs["never_started"] is False
+
+    def test_a_repeated_cancel_finishes_a_run_whose_worker_stopped_heartbeating_since(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.RUNNING)
+        _hold_slot(run, silent_for=timedelta(seconds=30))
+        assert Run.objects.cancel(run) is True
+        assert not run_finished_spy.called
+
+        Session.objects.filter(pk=run.session_id).update(last_active_at=timezone.now() - timedelta(minutes=10))
+
+        assert Run.objects.cancel(run) is True
+        run.refresh_from_db()
+        assert run.is_cancelled
+
+    @pytest.mark.parametrize(
+        ("holder", "silent_for"),
+        [
+            pytest.param(None, timedelta(seconds=30), id="heartbeating"),
+            pytest.param("job-other", timedelta(minutes=10), id="waiting-behind-another-holder"),
+        ],
+    )
+    def test_a_running_run_not_known_dead_is_only_asked_to_stop(self, run_finished_spy, badge, holder, silent_for):
+        run = _create_run(status=RunStatus.RUNNING)
+        _hold_slot(run, silent_for=silent_for, holder=holder)
+
+        assert Run.objects.cancel(run) is True
+
+        run.refresh_from_db()
+        assert run.status == RunStatus.RUNNING
+        assert not run_finished_spy.called
+
+    def test_a_silent_run_whose_worker_is_still_alive_is_only_asked_to_stop(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.RUNNING)
+        worker_liveness.refresh(_hold_slot(run, silent_for=timedelta(minutes=10)))
+
+        assert Run.objects.cancel(run) is True
+
+        run.refresh_from_db()
+        assert run.status == RunStatus.RUNNING
+        assert not run_finished_spy.called
 
     def test_a_finished_run_is_left_as_it_ended(self, run_finished_spy, badge):
         run = _create_run(status=RunStatus.SUCCESSFUL)

@@ -70,7 +70,7 @@ INTERACTIVE_TASKS = {
 }
 TITLING_TASKS = {"sessions.tasks:generate_title_task", "sessions.tasks:generate_batch_title_task"}
 
-QUEUE_ARGUMENT = re.compile(r"--queue-name \"\$\{1:-([^}]+)\}\"")
+QUEUE_ARGUMENT = re.compile(r"--queue-name \\?\"\$\{1:-([^}]+)\}\\?\"")
 YAML_BLOCK = re.compile(r"```yaml\n(.*?)```", re.DOTALL)
 WORKER_ENTRYPOINT = "start-worker"
 

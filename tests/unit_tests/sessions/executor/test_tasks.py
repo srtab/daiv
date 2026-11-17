@@ -14,6 +14,7 @@ from sessions.executor.tasks import run_job_task
 from sessions.inbox.ownership import Ownerships
 from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
 
+from core.constants import INTERRUPTED_MESSAGE
 from tests.unit_tests.conftest import stub_sandbox_spec
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session, claim_recorder, make_task_result
 from tests.unit_tests.sessions.executor.conftest import disk_ctx, resolved_to
@@ -735,6 +736,33 @@ class TestRunJobTaskAfterRunMatrix:
         assert any(m.startswith("Job cancelled") for m in messages)
         assert not any(m.startswith("Job failed") for m in messages)
         assert await active_holder(thread_id) is None
+
+    async def test_a_run_its_worker_shutdown_stops_ends_interrupted(self, caplog, worker_shutdown):
+        thread_id = await amake_job_session()
+        run = await Run.objects.acreate(
+            session_id=thread_id, trigger_type=SessionOrigin.API_JOB, repo_id="owner/repo", status=RunStatus.RUNNING
+        )
+        agent = _agent_with_mr(None)
+
+        async def _invoke(*_args, **_kwargs):
+            worker_shutdown.request()
+            await asyncio.Event().wait()
+
+        agent.ainvoke = AsyncMock(side_effect=_invoke)
+        with (
+            _job_scaffolding(agent, claimed=[]),
+            patch("sessions.executor.run.STOP_POLL_INTERVAL_S", 0.01),
+            caplog.at_level("INFO", logger="daiv.sessions"),
+            pytest.raises(RunStoppedError),
+        ):
+            await run_job_task.func(repo_id="owner/repo", prompt="hi", thread_id=thread_id, run_id=str(run.pk))
+
+        await run.arefresh_from_db()
+        assert (run.status, run.error_message) == (RunStatus.FAILED, INTERRUPTED_MESSAGE)
+        assert run.finished_at is not None
+        messages = [r.getMessage() for r in caplog.records]
+        assert any(m.startswith("Job interrupted by a worker shutdown") for m in messages)
+        assert not any(m.startswith(("Job cancelled", "Job failed")) for m in messages)
 
     async def test_a_cancel_check_that_fails_is_logged_and_the_job_runs_on(self, caplog):
         with (
