@@ -566,14 +566,11 @@ async def test_run_job_task_hands_fork_branch_to_the_agent(fork_branch):
 
 
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("run_id", [str(uuid.uuid4()), None], ids=["run", "no-run"])
-async def test_run_job_task_is_asked_to_stop_once_its_worker_shuts_down(run_id, worker_shutdown):
+@pytest.mark.parametrize(("run_id", "checks"), [("run-9", True), (None, False)], ids=["run", "no-run"])
+async def test_run_job_task_checks_for_a_cancel_only_when_it_has_a_run(run_id, checks):
     captured = await _execute_run_call(await amake_job_session(), run_id=run_id)
-    assert await captured["should_stop"]() is False
 
-    worker_shutdown.request()
-
-    assert await captured["should_stop"]() is True
+    assert (captured["should_stop"] is not None) is checks
 
 
 @pytest.mark.django_db(transaction=True)

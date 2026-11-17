@@ -38,6 +38,7 @@ from automation.agent.workspace.sandbox import SandboxWorkspace
 from codebase.base import MergeRequestDiffStats, Scope
 from codebase.clients.base import GitEgressCredential
 from codebase.repo_config import RepositoryConfig
+from core.constants import INTERRUPTED_MESSAGE
 from core.redis import SOCKET_TIMEOUT_S
 from tests.unit_tests.automation.agent.conftest import make_merge_request
 from tests.unit_tests.conftest import (
@@ -844,6 +845,46 @@ async def test_a_lock_that_never_frees_reaches_on_failure():
     assert stack.events == []
     stack.create_agent.assert_not_awaited()
     assert await active_holder(thread_id) == "chat-run"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_worker_shutdown_stops_a_run_waiting_for_the_slot_and_ends_it_interrupted(worker_shutdown):
+    thread_id = await amake_job_session(active_run_id="chat-run")
+    run = await Run.objects.acreate(
+        session_id=thread_id, trigger_type=SessionOrigin.API_JOB, repo_id="owner/repo", status=RunStatus.RUNNING
+    )
+    on_failure = AsyncMock()
+
+    async def _shut_down_soon():
+        await asyncio.sleep(0.05)
+        worker_shutdown.request()
+
+    spec = make_spec(thread_id=thread_id, lock=Wait(holder_id=str(run.pk), timeout_s=5), run_id=str(run.pk))
+    with (
+        agent_stack(_agent()) as stack,
+        patch("sessions.executor.lock.LOCK_POLL_INTERVAL_S", 0.01),
+        pytest.raises(RunStoppedError),
+    ):
+        await asyncio.gather(execute_run(spec, RunHooks(on_failure=on_failure)), _shut_down_soon())
+
+    assert isinstance(on_failure.await_args.args[0], RunStoppedError)
+    stack.create_agent.assert_not_awaited()
+    assert await active_holder(thread_id) == "chat-run"
+    await run.arefresh_from_db()
+    assert (run.status, run.error_message) == (RunStatus.FAILED, INTERRUPTED_MESSAGE)
+
+
+async def test_a_worker_shutdown_stops_a_run_that_has_no_stop_check_of_its_own(worker_shutdown):
+    agent = _agent()
+
+    async def _invoke(*_args, **_kwargs):
+        worker_shutdown.request()
+        await asyncio.Event().wait()
+
+    agent.ainvoke = AsyncMock(side_effect=_invoke)
+
+    with agent_stack(agent), patch("sessions.executor.run.STOP_POLL_INTERVAL_S", 0.01), pytest.raises(RunStoppedError):
+        await execute_run(make_spec())
 
 
 @pytest.mark.django_db(transaction=True)

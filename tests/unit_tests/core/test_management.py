@@ -18,10 +18,11 @@ class TestDbWorker:
 
         assert get_commands()["db_worker"] == "core"
 
-    def test_its_worker_tells_the_running_task_of_a_shutdown_and_still_finishes_it(self, worker_shutdown):
+    @staticmethod
+    def _worker():
         from core.management.commands.db_worker import Worker
 
-        worker = Worker(
+        return Worker(
             queue_names=["*"],
             interval=1,
             batch=False,
@@ -31,12 +32,29 @@ class TestDbWorker:
             worker_id="w",
             excluded_queue_names=[],
         )
+
+    def test_its_worker_tells_the_running_task_of_a_shutdown_and_still_finishes_it(self, worker_shutdown):
+        worker = self._worker()
         worker.running_task = True
 
         worker.shutdown(signal.SIGTERM, None)
 
         assert worker_shutdown.requested()
         assert worker.running is False
+
+    def test_its_worker_keeps_saying_it_is_alive_while_it_runs(self, monkeypatch):
+        from django_tasks_db.management.commands import db_worker as upstream
+
+        from core import worker_liveness
+
+        start, upstream_run = Mock(), Mock()
+        monkeypatch.setattr(worker_liveness, "start", start)
+        monkeypatch.setattr(upstream.Worker, "run", upstream_run)
+
+        self._worker().run()
+
+        start.assert_called_once_with("w")
+        upstream_run.assert_called_once()
 
     def test_the_command_runs_that_worker(self, monkeypatch):
         from django_tasks_db.management.commands import db_worker as upstream

@@ -394,14 +394,19 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
 
     def _finish_dead_holder(self, run: Run, *, message: str, now: datetime) -> bool:
         """Finish ``run`` FAILED with ``message`` if it is a task-backed RUNNING run holding its session's slot under
-        its pk whose heartbeat has been silent for ``TASK_HOLDER_DEAD_AFTER``: a live one beats every minute, so its
-        worker was killed (a restart) and nothing will read the stop request. Returns whether this call finished it.
+        its pk whose heartbeat has been silent for ``TASK_HOLDER_DEAD_AFTER`` and whose worker is no longer alive
+        (:mod:`core.worker_liveness`): its worker was killed and nothing will read the stop request. A live worker
+        whose run cannot heartbeat still reads it. Returns whether this call finished it.
         """
+        from core import worker_liveness
         from sessions.executor.lock import TASK_HOLDER_DEAD_AFTER
         from sessions.models import RunStatus, Session
 
         silent = Session.objects.filter(active_run_id=str(run.pk), last_active_at__lt=now - TASK_HOLDER_DEAD_AFTER)
         dead = models.Q(status=RunStatus.RUNNING, task_result__isnull=False, session_id__in=silent.values("pk"))
+        worker_ids = self.filter(dead, pk=run.pk).values_list("task_result__worker_ids", flat=True).first()
+        if worker_ids is None or (worker_ids and worker_liveness.alive(worker_ids[-1])):
+            return False
         return self.finish(run, RunStatus.FAILED, where=dead, error_message=message, finished_at=now)
 
     async def acancel_requested(self, run_id: str) -> bool:

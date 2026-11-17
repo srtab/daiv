@@ -10,6 +10,7 @@ from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from django.urls import reverse
+from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 from redis.exceptions import RedisError
@@ -17,15 +18,17 @@ from redisvl.exceptions import RedisSearchError
 
 from automation.agent.git_state import checkpointed_repo_publishes
 from automation.agent.session_links import SessionLinks
+from core import worker_shutdown
+from core.constants import INTERRUPTED_MESSAGE
 from core.utils import build_absolute_url
 from sessions.archive import aarchive_thread, arestore_thread
 from sessions.artifacts import RunArtifactStore, bind_active_run
 from sessions.delegation import SessionJobDelegator
-from sessions.executor.lock import SessionLockLostError, hold_session_lock, still_held
+from sessions.executor.lock import RunStoppedError, SessionLockLostError, hold_session_lock, still_held
 from sessions.executor.recovery import recover_draft
 from sessions.executor.spec import RunHooks, RunOutcome
 from sessions.inbox.ownership import Ownerships
-from sessions.models import PublishStatus, Run, publish_field_updates
+from sessions.models import PublishStatus, Run, RunStatus, publish_field_updates
 from sessions.multi_repo import aload_extra_repos, apersist_extra_repo_state
 from sessions.services import aget_session_ref, apersist_session_ref, areset_session_ref
 from sessions.tool_media import RunToolMediaStore
@@ -59,10 +62,6 @@ STOP_POLL_INTERVAL_S = 10.0
 ARCHIVE_TIMEOUT_S = 30.0
 
 
-class RunStoppedError(Exception):
-    """``stream_run``'s ``should_stop`` asked the run to stop."""
-
-
 @dataclass(frozen=True)
 class AgentRun:
     """The built agent and what it runs with. ``usage`` tallies the run's tokens and cost, subagents included.
@@ -88,17 +87,39 @@ class AgentRun:
 async def execute_run(
     spec: RunSpec, hooks: RunHooks | None = None, *, should_stop: Callable[[], Awaitable[bool]] | None = None
 ) -> RunOutcome:
-    """Run the agent once for ``spec``; the package docstring lists the order of the steps."""
+    """Run the agent once for ``spec``; the package docstring lists the order of the steps.
+
+    The worker's shutdown (``core.worker_shutdown``) stops the run as ``should_stop`` does, and a stopped ``Run`` ends
+    FAILED with ``INTERRUPTED_MESSAGE``.
+    """
     hooks = hooks or RunHooks()
     entered = False
     try:
         async with _hold_slot(spec) as holder_id:
             entered = True
-            return await _run_in_slot(spec, hooks, holder_id, should_stop)
+            return await _run_in_slot(spec, hooks, holder_id, partial(_stop_requested, should_stop))
     except Exception as exc:
         if not entered:
             await _notify_failure(hooks, exc)
+        if isinstance(exc, RunStoppedError) and spec.run_id and worker_shutdown.requested():
+            await _afinish_interrupted(spec.run_id)
         raise
+
+
+async def _stop_requested(should_stop: Callable[[], Awaitable[bool]] | None) -> bool:
+    return worker_shutdown.requested() or (should_stop is not None and await should_stop())
+
+
+async def _afinish_interrupted(run_id: str) -> None:
+    """End the run a worker shutdown stopped as interrupted, so it neither reads as a failure nor waits for the
+    stuck-run sweep. A failure is logged, never raised over the stop."""
+    try:
+        if (run := await Run.objects.filter(pk=run_id).afirst()) is not None:
+            await Run.objects.afinish(
+                run, RunStatus.FAILED, error_message=INTERRUPTED_MESSAGE, finished_at=timezone.now()
+            )
+    except Exception:
+        logger.exception("Could not end run_id=%s as interrupted by the worker shutdown", run_id)
 
 
 async def stream_run(
@@ -190,13 +211,13 @@ async def _supervised(
 
 
 async def _run_in_slot(
-    spec: RunSpec, hooks: RunHooks, holder_id: str | None, should_stop: Callable[[], Awaitable[bool]] | None
+    spec: RunSpec, hooks: RunHooks, holder_id: str | None, should_stop: Callable[[], Awaitable[bool]]
 ) -> RunOutcome:
     recovery = _Recovery()
     async with _live_relay(spec, holder_id) as run_relay:
         try:
             invoke = partial(_invoke, spec, hooks, recovery, run_relay)
-            outcome = await (invoke() if should_stop is None else _until_stopped(invoke, spec.thread_id, should_stop))
+            outcome = await _until_stopped(invoke, spec.thread_id, should_stop)
         except Exception as exc:
             await _notify_failure(hooks, exc, draft_published=recovery.draft_published, snapshot=recovery.snapshot)
             raise
