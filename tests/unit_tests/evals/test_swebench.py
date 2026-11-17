@@ -6,6 +6,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+from langchain_core.messages import AIMessage
 from sessions.executor.lock import NoLock
 from sessions.executor.spec import RunOutcome
 
@@ -25,24 +27,39 @@ ITEM = {
     "hints_text": "",
 }
 SECOND = ITEM | {"instance_id": "owner__repo-2"}
+THIRD = ITEM | {"instance_id": "owner__repo-3"}
 
 
 def _outcome(**values) -> RunOutcome:
     return RunOutcome(agent_result={}, response_text="done", snapshot=SimpleNamespace(values=values))
 
 
-async def _main(tmp_path, execute, items=(ITEM,), validate=None) -> list[dict]:
+async def _main(
+    tmp_path, execute, items=(ITEM,), validate=None, models=("model-a", "model-b"), **options
+) -> list[dict]:
     with (
         patch("datasets.load_dataset", return_value=list(items)),
         patch.object(swebench, "execute_run", execute),
         patch.object(swebench, "validate_agent_override", validate or MagicMock()),
     ):
-        await swebench.main("dataset", "test", str(tmp_path / "predictions.json"), ["model-a", "model-b"])
+        await swebench.main("dataset", "test", str(tmp_path / "predictions.json"), list(models), **options)
     return _written(tmp_path)
 
 
 def _written(tmp_path) -> list[dict]:
     return json.loads((tmp_path / "predictions.json").read_text())
+
+
+def _attempts(tmp_path) -> list[dict]:
+    return [json.loads(line) for line in (tmp_path / "predictions.usage.jsonl").read_text().splitlines()]
+
+
+def _patched(*instance_ids: str) -> list[tuple[str, str]]:
+    return [(instance_id, "diff") for instance_id in instance_ids]
+
+
+def _ran(execute: AsyncMock) -> list[str]:
+    return [call.args[0].extra_metadata["instance_id"] for call in execute.await_args_list]
 
 
 async def test_each_instance_runs_as_a_one_shot_run_on_the_exact_model_chain(tmp_path):
@@ -81,7 +98,7 @@ async def test_a_model_the_site_cant_run_stops_the_eval_before_any_instance(tmp_
     with pytest.raises(AgentOverrideError):
         await _main(tmp_path, execute, validate=validate)
 
-    validate.assert_called_once_with("model-a", None)
+    validate.assert_called_once_with("model-a", "high")
     execute.assert_not_awaited()
 
 
@@ -131,18 +148,24 @@ async def test_a_dirty_workspace_is_reported_next_to_the_run(tmp_path, capsys):
     assert "[owner__repo-1] WARNING: workspace was dirty before the run" in capsys.readouterr().err
 
 
-async def test_an_eval_stopped_mid_instance_still_writes_its_predictions(tmp_path, capsys):
-    """Ctrl-C under ``asyncio.run`` cancels ``main``: the finished instances and the interrupted one are kept."""
+async def test_an_eval_stopped_mid_instance_keeps_the_finished_predictions_and_reruns_the_interrupted_one(
+    tmp_path, capsys
+):
+    """Ctrl-C under ``asyncio.run`` cancels ``main``: an interrupted task is not a result, so the rerun runs it."""
     execute = AsyncMock(side_effect=[_outcome(model_patch="diff"), asyncio.CancelledError()])
 
     with pytest.raises(asyncio.CancelledError):
         await _main(tmp_path, execute, items=(ITEM, SECOND))
 
-    assert [(p["instance_id"], p["model_patch"]) for p in _written(tmp_path)] == [
-        ("owner__repo-1", "diff"),
-        ("owner__repo-2", ""),
-    ]
+    assert [(p["instance_id"], p["model_patch"]) for p in _written(tmp_path)] == _patched("owner__repo-1")
+    assert [a["status"] for a in _attempts(tmp_path)] == ["finished", "interrupted"]
     assert "[owner__repo-2] interrupted" in capsys.readouterr().err
+
+    rerun = AsyncMock(return_value=_outcome(model_patch="diff"))
+    predictions = await _main(tmp_path, rerun, items=(ITEM, SECOND))
+
+    assert _ran(rerun) == ["owner__repo-2"]
+    assert [(p["instance_id"], p["model_patch"]) for p in predictions] == _patched("owner__repo-1", "owner__repo-2")
 
 
 async def test_a_cleanup_error_while_ctrl_c_unwinds_a_run_still_stops_the_eval(tmp_path):
@@ -168,11 +191,11 @@ async def test_a_cleanup_error_while_ctrl_c_unwinds_a_run_still_stops_the_eval(t
         await eval_task
 
     assert len(specs) == 1
-    assert [(p["instance_id"], p["model_patch"]) for p in _written(tmp_path)] == [("owner__repo-1", "")]
+    assert _written(tmp_path) == []
 
 
 def test_the_options_an_instance_runs_with_are_ones_the_clone_and_the_agent_accept():
-    spec = swebench._run_spec(ITEM, ["model-a"])
+    spec = swebench._run_spec(ITEM, ["model-a"], "high")
 
     agent_sig = inspect.signature(create_daiv_agent, annotation_format=annotationlib.Format.FORWARDREF)
     agent_sig.bind(settings=None, ctx=None, checkpointer=None, workspace=None, **spec.agent_options)
@@ -182,8 +205,8 @@ def test_the_options_an_instance_runs_with_are_ones_the_clone_and_the_agent_acce
 
 
 def test_each_instance_clones_through_a_client_of_its_own():
-    first = swebench._run_spec(ITEM, ["model-a"]).context_options["repo_client"]
-    second = swebench._run_spec(SECOND, ["model-a"]).context_options["repo_client"]
+    first = swebench._run_spec(ITEM, ["model-a"], "high").context_options["repo_client"]
+    second = swebench._run_spec(SECOND, ["model-a"], "high").context_options["repo_client"]
 
     assert first is not second
 
@@ -195,3 +218,112 @@ def test_a_message_with_hints_includes_the_hints_section():
 
     assert "## Hints" in message
     assert "Check the parser's empty-input branch." in message
+
+
+async def test_the_thinking_level_asked_for_is_validated_and_run_with(tmp_path):
+    execute = AsyncMock(return_value=_outcome(model_patch="diff"))
+    validate = MagicMock()
+
+    await _main(tmp_path, execute, validate=validate, thinking_level="low")
+
+    assert validate.call_args_list == [(("model-a", "low"),), (("model-b", "low"),)]
+    assert execute.await_args.args[0].agent_thinking_level == "low"
+
+
+async def test_named_tasks_run_exactly_and_in_dataset_order(tmp_path):
+    execute = AsyncMock(return_value=_outcome(model_patch="diff"))
+
+    await _main(tmp_path, execute, items=(ITEM, SECOND, THIRD), instance_ids=["owner__repo-3", "owner__repo-1"])
+
+    assert _ran(execute) == ["owner__repo-1", "owner__repo-3"]
+
+
+async def test_a_named_task_the_dataset_lacks_stops_the_eval_before_any_run(tmp_path):
+    execute = AsyncMock()
+
+    with pytest.raises(SystemExit, match="owner__repo-9"):
+        await _main(tmp_path, execute, instance_ids=["owner__repo-1", "owner__repo-9"])
+
+    execute.assert_not_awaited()
+
+
+def test_a_sample_is_reproducible_spans_the_dataset_and_a_larger_one_extends_it():
+    rows = [ITEM | {"instance_id": f"owner__repo-{index}"} for index in range(50)]
+
+    sample = swebench.select_items(rows, None, 5, seed=0)
+
+    assert sample == swebench.select_items(rows, None, 5, seed=0)
+    assert sample != rows[:5]
+    assert swebench.select_items(rows, None, 20, seed=0)[:5] == sample
+    assert swebench.select_items(rows, None, 5, seed=1) != sample
+    assert sorted(row["instance_id"] for row in swebench.select_items(rows, None, None, seed=0)) == sorted(
+        row["instance_id"] for row in rows
+    )
+
+
+async def test_each_attempt_logs_its_time_tokens_and_cost_even_when_the_run_raises(tmp_path):
+    """The usage log is the eval's bill: a run that raises after calling the model has spent money too."""
+    reply = AIMessage(
+        content="done",
+        usage_metadata={"input_tokens": 100, "output_tokens": 20, "total_tokens": 120},
+        response_metadata={"model_name": "model-a", "provider_cost_usd": 0.25},
+    )
+
+    async def execute(spec):
+        await GenericFakeChatModel(messages=iter([reply])).ainvoke("fix it")
+        if spec.extra_metadata["instance_id"] == "owner__repo-1":
+            raise RuntimeError("sandbox lost")
+        return _outcome(model_patch="diff")
+
+    await _main(tmp_path, execute, items=(ITEM, SECOND))
+
+    attempts = _attempts(tmp_path)
+    assert [(a["instance_id"], a["status"]) for a in attempts] == [
+        ("owner__repo-1", "failed"),
+        ("owner__repo-2", "finished"),
+    ]
+    for attempt in attempts:
+        assert (attempt["input_tokens"], attempt["output_tokens"], attempt["cost_usd"]) == (100, 20, 0.25)
+        assert (attempt["model_name_or_path"], attempt["thinking_level"]) == ("model-a, model-b", "high")
+        assert attempt["seconds"] >= 0
+
+
+async def test_a_rerun_skips_the_predicted_tasks_and_keeps_their_predictions(tmp_path):
+    await _main(tmp_path, AsyncMock(return_value=_outcome(model_patch="diff")))
+    rerun = AsyncMock(return_value=_outcome(model_patch="diff"))
+
+    predictions = await _main(tmp_path, rerun, items=(ITEM, SECOND))
+
+    assert _ran(rerun) == ["owner__repo-2"]
+    assert [(p["instance_id"], p["model_patch"]) for p in predictions] == _patched("owner__repo-1", "owner__repo-2")
+
+
+@pytest.mark.parametrize(
+    "rerun_with",
+    [{"models": ("model-c",)}, {"thinking_level": "low"}],
+    ids=["another-model-chain", "another-thinking-level"],
+)
+async def test_a_rerun_with_another_setup_is_refused_before_any_run(tmp_path, rerun_with):
+    await _main(tmp_path, AsyncMock(return_value=_outcome(model_patch="diff")))
+    rerun = AsyncMock()
+
+    with pytest.raises(SystemExit, match="another --output-path"):
+        await _main(tmp_path, rerun, items=(ITEM, SECOND), **rerun_with)
+
+    rerun.assert_not_awaited()
+
+
+async def test_a_failed_task_stays_unresolved_on_rerun_until_its_retry_is_asked_for(tmp_path):
+    """Rerunning a failure by default would grade the best of several attempts."""
+    first = AsyncMock(side_effect=[RuntimeError("clone failed"), _outcome(model_patch="diff")])
+    await _main(tmp_path, first, items=(ITEM, SECOND))
+    rerun = AsyncMock(return_value=_outcome(model_patch="diff"))
+
+    await _main(tmp_path, rerun, items=(ITEM, SECOND))
+    rerun.assert_not_awaited()
+
+    predictions = await _main(tmp_path, rerun, items=(ITEM, SECOND), retry_failed=True)
+
+    assert _ran(rerun) == ["owner__repo-1"]
+    patches = sorted((p["instance_id"], p["model_patch"]) for p in predictions)
+    assert patches == _patched("owner__repo-1", "owner__repo-2")

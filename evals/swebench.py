@@ -1,15 +1,30 @@
+"""Run DAIV on SWE-bench-format tasks and write predictions for the official SWE-bench harness.
+
+Each task runs offline through ``execute_run``, with no web tools, and its captured patch becomes one row of the
+predictions file. A run that raises predicts an empty patch, so it is graded unresolved; ``--retry-failed`` runs those
+tasks again. Every attempt, failed and interrupted ones included, appends its time, tokens and cost to
+``<predictions>.usage.jsonl``. A task already in the predictions file is skipped, so a rerun resumes.
+"""
+
 import argparse
 import asyncio
 import json
+import random
 import sys
 import traceback
+from contextlib import contextmanager
+from contextvars import ContextVar
+from decimal import Decimal
 from pathlib import Path
 from textwrap import dedent
+from time import monotonic
+from typing import TYPE_CHECKING
 
 import django
 from django.apps import apps
 
 from langchain_core.messages import HumanMessage
+from langchain_core.tracers.context import register_configure_hook
 
 # The first-party imports below define Django models at import time, so the app registry must be populated
 # before them, once: under pytest a second setup re-applies the test LOGGING and disables existing loggers.
@@ -21,10 +36,125 @@ from sessions.executor.run import execute_run  # noqa: E402
 from sessions.executor.spec import RunOutcome, RunSpec  # noqa: E402
 
 from automation.agent.base import ThinkingLevel  # noqa: E402
+from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler, build_usage_summary  # noqa: E402
 from automation.agent.validators import validate_agent_override  # noqa: E402
 from codebase.base import Scope  # noqa: E402
 from core.constants import ModelName  # noqa: E402
 from evals.swe_client import SWERepoClient  # noqa: E402
+
+if TYPE_CHECKING:
+    from collections.abc import Generator, Iterable
+
+DEFAULT_DATASET = "SWE-bench/SWE-bench_Verified"
+DEFAULT_THINKING_LEVEL = ThinkingLevel.HIGH.value
+
+_run_usage: ContextVar[CostAwareUsageMetadataCallbackHandler | None] = ContextVar("swebench_run_usage", default=None)
+register_configure_hook(_run_usage, inheritable=True)
+
+
+@contextmanager
+def track_run_usage() -> Generator[CostAwareUsageMetadataCallbackHandler]:
+    """One task's model usage, subagents included: ``execute_run`` tallies its own, but returns none when it raises."""
+    handler = CostAwareUsageMetadataCallbackHandler()
+    token = _run_usage.set(handler)
+    try:
+        yield handler
+    finally:
+        _run_usage.reset(token)
+
+
+def select_items(
+    rows: Iterable[dict], instance_ids: list[str] | None, num_samples: int | None, seed: int
+) -> list[dict]:
+    """The named tasks in dataset order, else the dataset shuffled by ``seed`` and cut to ``num_samples``.
+
+    The shuffle does not depend on ``num_samples``, so with one seed a smaller sample is the start of a larger one.
+    """
+    rows = list(rows)
+    if instance_ids:
+        wanted = set(instance_ids)
+        if missing := wanted - {row["instance_id"] for row in rows}:
+            raise SystemExit(f"Not in the dataset: {', '.join(sorted(missing))}")
+        return [row for row in rows if row["instance_id"] in wanted]
+    random.Random(seed).shuffle(rows)  # noqa: S311
+    return rows if num_samples is None else rows[:num_samples]
+
+
+def load_predictions(path: Path) -> list[dict]:
+    return json.loads(path.read_text()) if path.exists() else []
+
+
+def write_predictions(path: Path, predictions: list[dict]) -> None:
+    partial = path.with_suffix(".partial")
+    partial.write_text(json.dumps(predictions, indent=2))
+    partial.replace(path)
+
+
+def load_attempts(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text().splitlines() if line] if path.exists() else []
+
+
+def failed_instance_ids(attempts: list[dict]) -> set[str]:
+    """The tasks whose latest attempt raised."""
+    latest = {attempt["instance_id"]: attempt["status"] for attempt in attempts}
+    return {instance_id for instance_id, status in latest.items() if status == "failed"}
+
+
+def check_resumable(
+    predictions: list[dict], attempts: list[dict], model_name_or_path: str, thinking_level: str
+) -> None:
+    """A rerun only adds to an output that the same model chain and thinking level wrote."""
+    models = {row["model_name_or_path"] for row in [*predictions, *attempts]}
+    levels = {attempt["thinking_level"] for attempt in attempts}
+    if models - {model_name_or_path} or levels - {thinking_level}:
+        raise SystemExit(
+            f"The output already holds runs of {', '.join(sorted(models))} at thinking level "
+            f"{', '.join(sorted(levels)) or 'unknown'}: pass another --output-path for {model_name_or_path} "
+            f"at {thinking_level}."
+        )
+
+
+def attempt_record(
+    instance_id: str,
+    status: str,
+    model_name_or_path: str,
+    thinking_level: str,
+    usage: CostAwareUsageMetadataCallbackHandler,
+    seconds: float,
+) -> dict:
+    """One attempt's line in the usage log; ``cost_usd`` is None when a model it called has no known price."""
+    record = {
+        "instance_id": instance_id,
+        "status": status,
+        "model_name_or_path": model_name_or_path,
+        "thinking_level": thinking_level,
+        "seconds": round(seconds, 1),
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": 0.0,
+        "by_model": {},
+    }
+    if usage.usage_metadata:
+        summary = build_usage_summary(usage)
+        record |= {
+            "input_tokens": summary.input_tokens,
+            "output_tokens": summary.output_tokens,
+            "total_tokens": summary.total_tokens,
+            "cost_usd": None if summary.cost_usd is None else float(Decimal(summary.cost_usd)),
+            "by_model": summary.by_model,
+        }
+    return record
+
+
+def cost_summary(attempts: list[dict]) -> str:
+    priced = [attempt["cost_usd"] for attempt in attempts if attempt["cost_usd"] is not None]
+    summary = f"{len(attempts)} attempt(s) logged, ${sum(priced):.2f}"
+    if priced:
+        summary += f", ${sum(priced) / len(priced):.2f} per attempt"
+    if unpriced := len(attempts) - len(priced):
+        summary += f"; {unpriced} attempt(s) called a model with no known price"
+    return summary
 
 
 async def main(
@@ -32,35 +162,46 @@ async def main(
     dataset_split: str,
     output_path: str,
     model_names: list[ModelName | str],
+    thinking_level: str = DEFAULT_THINKING_LEVEL,
     instance_ids: list[str] | None = None,
     num_samples: int | None = None,
+    seed: int = 0,
+    retry_failed: bool = False,
 ):
     for model_name in model_names:
-        validate_agent_override(model_name, None)
+        validate_agent_override(model_name, thinking_level)
 
     from datasets import load_dataset
 
-    dataset = load_dataset(dataset_path, split=dataset_split)
-    if instance_ids:
-        selected_instance_ids = set(instance_ids)
-        dataset = dataset.filter(lambda item: item["instance_id"] in selected_instance_ids)
+    output = Path(output_path)
+    usage_path = output.with_suffix(".usage.jsonl")
+    model_name_or_path = ", ".join(model_names)
+    predictions = load_predictions(output)
+    attempts = load_attempts(usage_path)
+    check_resumable(predictions, attempts, model_name_or_path, thinking_level)
+    if retry_failed:
+        retried = failed_instance_ids(attempts)
+        predictions = [prediction for prediction in predictions if prediction["instance_id"] not in retried]
+    predicted = {prediction["instance_id"] for prediction in predictions}
 
-    if num_samples is not None:
-        if num_samples >= 20:
-            raise ValueError("num_samples must be less than or equal to 20")
+    items = select_items(load_dataset(dataset_path, split=dataset_split), instance_ids, num_samples, seed)
+    todo = [item for item in items if item["instance_id"] not in predicted]
+    print(f"{len(todo)} of {len(items)} selected task(s) to run, the rest already predicted", file=sys.stderr)  # noqa: T201
+    output.parent.mkdir(parents=True, exist_ok=True)
+    write_predictions(output, predictions)
 
-        dataset = dataset.take(num_samples)
-
-    predictions = []
     failed = []
-
-    try:
-        for item in dataset:
-            instance_id = item["instance_id"]
-            outcome = None
+    for item in todo:
+        instance_id = item["instance_id"]
+        outcome = None
+        status = "failed"
+        started = monotonic()
+        with track_run_usage() as usage:
             try:
-                outcome = await _execute(_run_spec(item, model_names))
+                outcome = await _execute(_run_spec(item, model_names, thinking_level))
+                status = "finished"
             except asyncio.CancelledError:
+                status = "interrupted"
                 print(f"[{instance_id}] interrupted", file=sys.stderr)  # noqa: T201
                 raise
             except Exception:
@@ -68,20 +209,28 @@ async def main(
                 print(f"[{instance_id}] run failed:", file=sys.stderr)  # noqa: T201
                 traceback.print_exc()
             finally:
-                predictions.append({
-                    "model_patch": _model_patch(instance_id, outcome),
-                    "model_name_or_path": ", ".join(model_names),
-                    "instance_id": instance_id,
-                })
-    finally:
-        print(json.dumps(predictions, indent=2))  # noqa: T201
+                record = attempt_record(
+                    instance_id, status, model_name_or_path, thinking_level, usage, monotonic() - started
+                )
+                with usage_path.open("a") as log:
+                    log.write(json.dumps(record) + "\n")
+                cost = "unpriced" if record["cost_usd"] is None else f"${record['cost_usd']:.2f}"
+                print(f"[{instance_id}] {status} after {record['seconds']:.0f}s, {cost}", file=sys.stderr)  # noqa: T201
+        predictions.append({
+            "model_patch": _model_patch(instance_id, outcome),
+            "model_name_or_path": model_name_or_path,
+            "instance_id": instance_id,
+        })
+        write_predictions(output, predictions)
 
-        with Path(output_path).open("w") as f:
-            json.dump(predictions, f, indent=2)
-
+    print(f"{len(predictions)} prediction(s) in {output}; {cost_summary(load_attempts(usage_path))}", file=sys.stderr)  # noqa: T201
     if failed:
-        print(f"{len(failed)}/{len(predictions)} instances failed: {', '.join(failed)}", file=sys.stderr)  # noqa: T201
-        if len(failed) == len(predictions):
+        print(  # noqa: T201
+            f"{len(failed)}/{len(todo)} instances failed: {', '.join(failed)}. They count as unresolved; rerun with "
+            "--retry-failed if they failed for reasons outside the agent, such as the sandbox or the clone.",
+            file=sys.stderr,
+        )
+        if len(failed) == len(todo):
             raise SystemExit(1)
 
 
@@ -96,7 +245,7 @@ async def _execute(spec: RunSpec) -> RunOutcome:
 
 
 def _model_patch(instance_id: str, outcome: RunOutcome | None) -> str:
-    """A failed or interrupted run predicts no patch; a finished one that captured none means the eval is broken."""
+    """A failed run predicts no patch; a finished one that captured none means the eval is broken."""
     if outcome is None:
         return ""
     if outcome.snapshot is None:
@@ -114,7 +263,7 @@ def _model_patch(instance_id: str, outcome: RunOutcome | None) -> str:
     return values["model_patch"]
 
 
-def _run_spec(item: dict, model_names: list[ModelName | str]) -> RunSpec:
+def _run_spec(item: dict, model_names: list[ModelName | str], thinking_level: str) -> RunSpec:
     """One SWE-bench instance as a one-shot run: no session, no platform API, the exact model chain asked for."""
     return RunSpec(
         thread_id=None,
@@ -125,7 +274,7 @@ def _run_spec(item: dict, model_names: list[ModelName | str]) -> RunSpec:
         trigger="eval",
         lock=NoLock(),
         model_names=tuple(model_names),
-        agent_thinking_level=ThinkingLevel.HIGH,
+        agent_thinking_level=thinking_level,
         context_options={"offline": True, "repo_client": SWERepoClient(repo_host="github.com")},
         web_search_enabled=False,
         web_fetch_enabled=False,
@@ -189,14 +338,20 @@ def _human_message(item: dict) -> str:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset-path", type=str, default="princeton-nlp/SWE-bench_Verified")
-    parser.add_argument("--dataset-split", type=str, default="test")
-    parser.add_argument("--num-samples", type=int, default=10)
-    parser.add_argument("--model-names", type=str, nargs="+", default=[ModelName.MINIMAX_M3])
-    parser.add_argument("--instance-ids", type=str, nargs="+")
-    parser.add_argument("--output-path", type=str, default="predictions.json")
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--dataset-path", default=DEFAULT_DATASET)
+    parser.add_argument("--dataset-split", default="test")
+    parser.add_argument(
+        "--output-path", default="predictions.json", help="The usage log goes next to it, as <stem>.usage.jsonl."
+    )
+    parser.add_argument("--model-names", nargs="+", default=[ModelName.MINIMAX_M3])
+    parser.add_argument("--thinking-level", choices=ThinkingLevel.values, default=DEFAULT_THINKING_LEVEL)
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--instance-ids", nargs="+", help="Run exactly these tasks.")
+    selection.add_argument(
+        "--num-samples", type=int, help="Run this many tasks of the dataset shuffled by --seed; all of them if omitted."
+    )
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--retry-failed", action="store_true", help="Run again the tasks whose last attempt raised.")
 
-    args = parser.parse_args()
-
-    asyncio.run(main(**vars(args)))
+    asyncio.run(main(**vars(parser.parse_args())))
