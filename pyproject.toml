@@ -303,7 +303,6 @@ ini_options.norecursedirs = [
   "data",
   "docker",
   "docs",
-  "evals",
   "node_modules",
   "static",
 ]
