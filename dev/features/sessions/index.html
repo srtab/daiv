@@ -1391,6 +1391,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../browser/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Browser
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2566,7 +2594,7 @@
 <li><strong>Repositories</strong> (<strong>Repository</strong> for a lone one): a card per repository.</li>
 <li><strong>Environment</strong>: the <strong>Sandbox</strong> and the <strong>Model</strong>.</li>
 <li><strong>Context</strong> and <strong>Spend</strong>: how full the model's context window is, and what the session has cost.</li>
-<li><strong>Outputs</strong>: the artifacts the session published, once there are any.</li>
+<li><strong>Outputs</strong>: the artifacts the session published and the screenshots the agent took for you, once there are any.</li>
 </ul>
 </li>
 <li><strong>Info</strong>: status, who started the session, its owner, the number of runs, when it was created and its <strong>Session ID</strong> (with a copy button). On a session that delegated work, it also lists the <strong>Delegated jobs</strong> of each batch (<a href="../orchestration/#seeing-the-batch">Seeing the batch</a> describes them).</li>
@@ -2588,14 +2616,16 @@
 </ul>
 <p>When the agent commits changes, DAIV creates or updates a merge request on the session's ref, and the repository card links to it and flags drafts. A repository card shows an open merge request that already exists for the ref even before the agent runs.</p>
 <h3 id="images-and-files-in-tool-results">Images and files in tool results</h3>
-<p>When a tool hands the agent an image or a file (a screenshot from an MCP browser tool, or an image, PDF, audio or video file the agent opened with <code>read_file</code>), the tool's row in the transcript shows it under <strong>Attached</strong>, both while the run streams and after a reload.</p>
+<p>When a tool hands the agent an image or a file (a screenshot from the agent's <a href="../browser/">browser</a> or an MCP browser tool, or an image, PDF, audio or video file the agent opened with <code>read_file</code>), the tool's row in the transcript shows it under <strong>Attached</strong> when you open the row, both while the run streams and after a reload.</p>
 <ul>
-<li>Images show as thumbnails that open full size in a new tab.</li>
+<li>Images show as thumbnails that open full size in a new tab. Up to three of them also show on the row while it is closed, with a count of the rest.</li>
 <li>PDFs, audio and video show as a chip with their size, which downloads the file.</li>
 <li>An image an MCP server only gives as a link to another site shows as a link, so viewing the transcript loads nothing from that site.</li>
 </ul>
+<p>A screenshot the agent's browser takes for you, because you asked to see the page or the agent's reply points to it as evidence, also shows under the reply once the run finishes, with <strong>Open</strong> and <strong>Download</strong>, and in the session's <strong>Outputs</strong> as <strong>Screenshot 1</strong>, <strong>Screenshot 2</strong> and so on. The agent's other screenshots, which it takes to check the page itself, stay on their rows. These screenshots show only in DAIV: a reply the agent posts as a GitLab or GitHub comment does not include them.</p>
 <p>Anyone who can see the session can open these files, as they can read the rest of its transcript: its owner, people who can read its repository, and admins. That includes screenshots from MCP servers a person connected with their own account, so a screenshot of a page they were signed in to is visible to everyone who can see the session.</p>
 <p>DAIV keeps these files with the run in its file storage under <code>MEDIA_ROOT</code> for as long as it keeps the run. DAIV does not delete runs on its own, and deleting a run deletes its files, but the session's saved agent state still holds each file as the tool returned it. DAIV keeps PNG, JPEG, GIF and WebP images, PDFs, audio and video, within the size and per-run limits that <a href="../../reference/env-variables/#artifacts">Artifacts</a> lists. A file it did not keep shows the reason instead, such as <code>Too large to keep</code>, and runs from before DAIV kept these files show <code>Not saved</code>. The agent always gets the full tool result, whether or not the file was kept.</p>
+<p>When the run's model cannot read images in tool results, as its provider profile says, the image is still kept for the transcript, and the agent gets a note in its place: that it cannot view the image, and, for a browser screenshot, to read the page snapshot instead.</p>
 <h2 id="artifacts">Artifacts</h2>
 <p>A run's final message is a paragraph of text, and the agent's workspace is discarded when the run ends. A task whose deliverable is a document (a dependency audit, a code-quality report, a changelog draft, a chart) needs somewhere else to put it. That place is an <strong>artifact</strong>.</p>
 <p>The agent has a <code>publish_artifact</code> tool: it writes the file to its scratchpad (<code>/workspace/tmp/...</code>), publishes it, and gets back a URL that it includes in its final response. DAIV copies the file out of the sandbox into its own storage and attaches it to the run, so it stays available after the sandbox is gone and nothing is committed to the repository.</p>
@@ -2880,7 +2910,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 12, 2026 16:02:09 UTC">November 12, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 17, 2026 20:06:24 UTC">November 17, 2026</span>
   </span>
 
     

@@ -43,18 +43,19 @@ You need a base image for the environment, such as `python:3.14`. To let the age
 1. Fill in the fields in the table below, starting with **Name** and **Base image**.
 1. Select **Save**. The drawer closes, and the environment appears in its list.
 
-| Field                     | What to enter                                                                                                                                            |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Name**                  | A label of up to 80 characters, unique within its scope. Required.                                                                                       |
-| **Description**           | Free text. Optional.                                                                                                                                     |
-| **Scope**                 | **Personal** for a User environment, or **Shared with everyone** for a Global one. Only administrators see the second choice.                            |
-| **Base image**            | The image the sandbox runs, for example `python:3.14`, `node:22` or `ubuntu:24.04`. Required.                                                            |
-| **Environment variables** | Name and value pairs for the sandbox, each plain or secret. See [Environment variables](#environment-variables).                                         |
-| **Repositories**          | The repositories the environment claims, as `owner/repo` or `group/subgroup/repo`. See [Repository bindings](#repository-bindings).                      |
-| **Network**               | **Off** (the default) or **On**. **On** shows the **Network access** section. See [Network access and egress policy](#network-access-and-egress-policy). |
-| **Resources**             | Expand it to set **Memory** and **CPUs**. Each is **Use default** or **Custom**.                                                                         |
-| **Memory**                | A whole number of at least 1, with the unit **MiB** or **GiB**.                                                                                          |
-| **CPUs**                  | A number of at least 0.25, in steps of 0.25.                                                                                                             |
+| Field                     | What to enter                                                                                                                                                             |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Name**                  | A label of up to 80 characters, unique within its scope. Required.                                                                                                        |
+| **Description**           | Free text. Optional.                                                                                                                                                      |
+| **Scope**                 | **Personal** for a User environment, or **Shared with everyone** for a Global one. Only administrators see the second choice.                                             |
+| **Base image**            | The image the sandbox runs, for example `python:3.14`, `node:22` or `ubuntu:24.04`. Required.                                                                             |
+| **Environment variables** | Name and value pairs for the sandbox, each plain or secret. See [Environment variables](#environment-variables).                                                          |
+| **Repositories**          | The repositories the environment claims, as `owner/repo` or `group/subgroup/repo`. See [Repository bindings](#repository-bindings).                                       |
+| **Network**               | **Off** (the default) or **On**. **On** shows the **Network access** section. See [Network access and egress policy](#network-access-and-egress-policy).                  |
+| **Browser**               | **Off** (the default) or **On**. **On** lets the agent use a headless browser beside the sandbox, when the site's **Browser** setting is on too. See [Browser](#browser). |
+| **Resources**             | Expand it to set **Memory** and **CPUs**. Each is **Use default** or **Custom**.                                                                                          |
+| **Memory**                | A whole number of at least 1, with the unit **MiB** or **GiB**.                                                                                                           |
+| **CPUs**                  | A number of at least 0.25, in steps of 0.25.                                                                                                                              |
 
 **Use default** leaves **Memory** or **CPUs** unset, so the value comes from the global default environment. If that sets none either, DAIV asks for no limit. On the global default itself, the option reads **Unconstrained**. **Network** never comes from the global default: each environment sets its own.
 
@@ -120,6 +121,10 @@ The proxy always inspects the TLS traffic of every reachable host, which is what
 DAIV encrypts credential values with Fernet before it stores them, and never sends them back to the browser or in an API or MCP response. A saved credential shows the placeholder `🔒 keep existing`, and saving keeps it unless you type a new value. An environment has at most 100 allowed-host rules and 100 credentials, and the encrypted credentials together may not exceed 32 KiB. A credential header name must be a valid HTTP header name, and its value cannot contain a line break.
 
 If DAIV cannot decrypt an environment's egress credentials at run time, or its egress configuration is invalid, the run starts with no network access.
+
+## Browser
+
+With **Browser** set to **On**, runs in the environment get a headless browser beside the sandbox, as long as an administrator turned on the site's **Browser** setting. Changing the field never replaces a session's sandbox. In a session's **Environment** field, an environment's summary ends in `browser` when it is on. For what the browser needs and reaches, what it keeps between a session's runs, and its limits, see [Browser](https://docs.daivagent.com/dev/features/browser/index.md).
 
 ## Repository bindings
 

@@ -18,7 +18,7 @@
         <link rel="prev" href="../sandbox/">
       
       
-        <link rel="next" href="../../integrations/rt/">
+        <link rel="next" href="../browser/">
       
       
         
@@ -1116,6 +1116,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#browser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Browser
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#repository-bindings" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1163,6 +1174,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../browser/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Browser
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1771,6 +1810,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#browser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Browser
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#repository-bindings" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1973,6 +2023,10 @@
 <td><strong>Off</strong> (the default) or <strong>On</strong>. <strong>On</strong> shows the <strong>Network access</strong> section. See <a href="#network-access-and-egress-policy">Network access and egress policy</a>.</td>
 </tr>
 <tr>
+<td><strong>Browser</strong></td>
+<td><strong>Off</strong> (the default) or <strong>On</strong>. <strong>On</strong> lets the agent use a headless browser beside the sandbox, when the site's <strong>Browser</strong> setting is on too. See <a href="#browser">Browser</a>.</td>
+</tr>
+<tr>
 <td><strong>Resources</strong></td>
 <td>Expand it to set <strong>Memory</strong> and <strong>CPUs</strong>. Each is <strong>Use default</strong> or <strong>Custom</strong>.</td>
 </tr>
@@ -2052,6 +2106,8 @@
 <p>The proxy always inspects the TLS traffic of every reachable host, which is what lets it add credentials and enforce the method rules. You cannot turn that off.</p>
 <p>DAIV encrypts credential values with Fernet before it stores them, and never sends them back to the browser or in an API or MCP response. A saved credential shows the placeholder <code>🔒 keep existing</code>, and saving keeps it unless you type a new value. An environment has at most 100 allowed-host rules and 100 credentials, and the encrypted credentials together may not exceed 32 KiB. A credential header name must be a valid HTTP header name, and its value cannot contain a line break.</p>
 <p>If DAIV cannot decrypt an environment's egress credentials at run time, or its egress configuration is invalid, the run starts with no network access.</p>
+<h2 id="browser">Browser</h2>
+<p>With <strong>Browser</strong> set to <strong>On</strong>, runs in the environment get a headless browser beside the sandbox, as long as an administrator turned on the site's <strong>Browser</strong> setting. Changing the field never replaces a session's sandbox. In a session's <strong>Environment</strong> field, an environment's summary ends in <code>browser</code> when it is on. For what the browser needs and reaches, what it keeps between a session's runs, and its limits, see <a href="../browser/">Browser</a>.</p>
 <h2 id="repository-bindings">Repository bindings</h2>
 <p>The <strong>Repositories</strong> field lists the repositories the environment claims. To add one, type <code>owner/repo</code> or <code>group/subgroup/repo</code> and select <strong>+ Add</strong>. When a run targets a claimed repository and no environment is selected, DAIV picks this one (see <a href="#how-an-environment-is-resolved">How an environment is resolved</a>).</p>
 <p>A repository can be claimed by one environment per scope. For User environments, that means one of your own. DAIV rejects a binding that overlaps another environment of the same scope and names that environment. The same repository can still appear in one User environment and one Global environment, and the User one wins.</p>
@@ -2137,7 +2193,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 12, 2026 15:27:46 UTC">November 12, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 15, 2026 14:45:54 UTC">November 15, 2026</span>
   </span>
 
     
