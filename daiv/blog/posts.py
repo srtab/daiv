@@ -6,6 +6,7 @@ from pathlib import Path
 from urllib.parse import urljoin
 
 from django.templatetags.static import static
+from django.urls import reverse
 
 import yaml
 
@@ -41,7 +42,7 @@ class Post:
 
     @property
     def canonical_url(self) -> str:
-        return f"{CANONICAL_ORIGIN}/blog/{self.slug}/"
+        return CANONICAL_ORIGIN + reverse("blog:post", args=[self.slug])
 
     @property
     def image_url(self) -> str | None:

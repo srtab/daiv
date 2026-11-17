@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}{{ post.title }} — DAIV{% endblock %}
+
+{% block meta_description %}<meta name="description" content="{{ post.summary }}">{% endblock %}
+
+{% block canonical %}<link rel="canonical" href="{{ post.canonical_url }}">{% endblock %}
+
+{% block open_graph %}
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="{{ post.canonical_url }}">
+    <meta property="og:title" content="{{ post.title }}">
+    <meta property="og:description" content="{{ post.summary }}">
+    <meta property="og:site_name" content="DAIV">
+    {% if post.image %}<meta property="og:image" content="{{ post.absolute_image_url }}">{% endif %}
+    <meta property="article:published_time" content="{{ post.date|date:'Y-m-d' }}">
+    <meta property="article:author" content="{{ post.author }}">
+{% endblock open_graph %}
+
+{% block twitter_card %}<meta name="twitter:card" content="{% if post.image %}summary_large_image{% else %}summary{% endif %}">{% endblock %}
+
+{% block head_extra %}
+{% include "dashboard/_landing_analytics.html" %}
+{% block feed_link %}{% endblock %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "{{ post.title|escapejs }}",
+  "description": "{{ post.summary|escapejs }}",
+  "datePublished": "{{ post.date|date:'Y-m-d' }}",
+  "url": "{{ post.canonical_url|escapejs }}",
+  "mainEntityOfPage": "{{ post.canonical_url|escapejs }}",
+  {% if post.image %}"image": "{{ post.absolute_image_url|escapejs }}",{% endif %}
+  "author": {"@type": "Person", "name": "{{ post.author|escapejs }}"},
+  "publisher": {"@type": "Organization", "name": "DAIV", "url": "https://daivagent.com/"}
+}
+</script>
+{% endblock head_extra %}
+
+{% block content %}
+{% include "dashboard/_landing_nav.html" %}
+
+<main>
+<article class="landing-page">
+    <div class="landing-container max-w-3xl">
+        <p class="landing-eyebrow">
+            <time datetime="{{ post.date|date:'Y-m-d' }}">{{ post.date|date:"j M Y" }}</time> · {{ post.author }}
+            {% if status %}<span class="landing-badge ml-2 px-2.5 py-0.5">{{ status }}</span>{% endif %}
+        </p>
+        <h1 class="landing-heading">{{ post.title }}</h1>
+        <p class="landing-lede">{{ post.summary }}</p>
+
+        <div class="landing-prose mt-12">
+            {{ post.html|safe }}
+        </div>
+
+        <div class="mt-16 flex flex-col gap-3 sm:flex-row sm:gap-4">
+            {% include "dashboard/_landing_ctas.html" %}
+        </div>
+    </div>
+</article>
+</main>
+
+{% include "dashboard/_landing_footer.html" %}
+{% endblock content %}
