@@ -2079,6 +2079,33 @@
     return thumbs.join("") + (rest > 0 ? `<span class="step-row__more">+${rest}</span>` : "");
   };
 
+  // A frozen tools array can send a scalar arg as a string.
+  const flagSet = (value) => value === true || value === "true";
+
+  window.shownMedia = (seg) => {
+    if (seg?.name !== "browser_screenshot" || !flagSet(parseArgs(seg.args).showUser)) return [];
+    return Array.isArray(seg.media) ? seg.media : [];
+  };
+
+  const shotHTML = (url, index) => {
+    const label = t("media_screenshot");
+    const alt = escapeAttr(`${label} ${index + 1}`);
+    const img = `<img class="shot-card__img" src="${escapeAttr(url)}" alt="${alt}" loading="lazy">`;
+    const name = `<span class="shot-card__label">${window.TranscriptLabels.iconHTML("photo")}${escapeHtml(label)}</span>`;
+    const open = newTabLink(url, "shot-card__link", escapeHtml(t("open_link")));
+    const download = `<a class="shot-card__link" href="${escapeAttr(url)}" download>${escapeHtml(t("artifact_download"))}</a>`;
+    const meta = `<div class="shot-card__meta">${name}${open}${download}</div>`;
+    return `<figure class="shot-card__item">${newTabLink(url, "shot-card__frame", img)}${meta}</figure>`;
+  };
+
+  window.shownMediaHTML = (items) =>
+    (Array.isArray(items) ? items : [])
+      .map((item, i) => {
+        const url = storedImageUrl(item);
+        return url ? shotHTML(url, i) : `<div class="shot-card__item">${mediaItemHTML(item, i)}</div>`;
+      })
+      .join("");
+
   window.toolBodyHTML = (seg, ctx) => {
     if (!seg) return "";
     const name = String(seg.name ?? "");

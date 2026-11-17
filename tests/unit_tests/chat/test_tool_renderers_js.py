@@ -10,7 +10,7 @@ import pytest
 from sessions.delegation import LegRun
 
 from tests.unit_tests.chat.transcript_driver import run_transcript
-from tests.unit_tests.chat.transcript_fixtures import tool_call
+from tests.unit_tests.chat.transcript_fixtures import STORED_SHOT, screenshot, tool_call
 from tests.unit_tests.jsdriver import requires_node
 
 pytestmark = requires_node
@@ -1736,6 +1736,41 @@ def test_a_row_thumbnail_leaves_out_links_errors_and_files():
 
 def test_a_row_without_media_has_no_thumbnails():
     assert _row_media(tool_call("c1", "read_file", {"file_path": "/workspace/repo/a"}, result="x")) == ""
+
+
+def _shown(seg: dict) -> list[dict]:
+    return run_transcript("shownMedia(vars.seg)", {"seg": seg}, blocks=False)
+
+
+def test_shown_media_is_the_media_of_a_flagged_browser_screenshot_only():
+    assert _shown(screenshot("c1", show_user=True)) == [STORED_SHOT]
+    assert _shown(screenshot("c1")) == []
+    assert _shown(screenshot("c1", show_user=False)) == []
+    assert _shown(tool_call("c1", "read_file", {"showUser": True}, result="") | {"media": [STORED_SHOT]}) == []
+
+
+def test_shown_media_accepts_a_stringified_flag():
+    assert _shown(screenshot("c1", show_user="true")) == [STORED_SHOT]
+
+
+def _card(items: list[dict]) -> str:
+    labels = {"icons": MEDIA_ICONS | {"photo": "<i>photo</i>"}}
+    return run_transcript("shownMediaHTML(vars.items)", {"items": items}, blocks=False, labels=labels)
+
+
+def test_a_shown_screenshot_renders_large_with_open_and_download():
+    html = _card([STORED_SHOT])
+
+    assert f'<img class="shot-card__img" src="{STORED_SHOT["url"]}"' in html
+    assert 'alt="Screenshot 1"' in html and "<i>photo</i>Screenshot" in html
+    assert f'href="{STORED_SHOT["url"]}" download' in html
+    assert f'href="{STORED_SHOT["url"]}" target="_blank" rel="noopener noreferrer"' in html
+
+
+def test_a_shown_screenshot_that_was_not_kept_says_why():
+    html = _card([{"kind": "image", "mime_type": "image/png", "error": "too_large"}])
+
+    assert "Too large to keep" in html and "<img" not in html
 
 
 @pytest.mark.parametrize(

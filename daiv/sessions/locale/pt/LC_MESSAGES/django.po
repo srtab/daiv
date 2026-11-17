@@ -464,6 +464,9 @@ msgstr "HTML"
 msgid "Image"
 msgstr "Imagem"
 
+msgid "Screenshot"
+msgstr "Captura de ecrã"
+
 msgid "Text"
 msgstr "Texto"
 

@@ -104,6 +104,7 @@
     body_result: "Result",
     body_media: "Attached",
     media_image: "Image",
+    media_screenshot: "Screenshot",
     media_pdf: "PDF",
     media_audio: "Audio",
     media_video: "Video",

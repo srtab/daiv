@@ -3345,6 +3345,38 @@ html {
     @apply text-red-300;
   }
 
+  .shot-card {
+    @apply flex flex-col divide-y divide-white/[0.06] overflow-hidden rounded-2xl border border-white/[0.06]
+      bg-white/[0.02];
+  }
+
+  .shot-card__item {
+    @apply m-0 flex flex-col gap-2 p-3;
+  }
+
+  .shot-card__frame {
+    @apply block overflow-hidden rounded-lg border border-white/[0.06] transition-colors hover:border-accent;
+  }
+
+  .shot-card__img {
+    display: block;
+    width: 100%;
+    max-height: 480px;
+    object-fit: contain;
+  }
+
+  .shot-card__meta {
+    @apply flex items-center gap-3 px-1 text-[12px] text-gray-500;
+  }
+
+  .shot-card__label {
+    @apply mr-auto inline-flex items-center gap-1.5;
+  }
+
+  .shot-card__link {
+    @apply text-accent transition-colors hover:text-accent-bright;
+  }
+
   .delegated-card__goal {
     @apply border-b border-white/[0.06] px-4 py-2.5 text-[13px] text-text;
   }
