@@ -16,7 +16,7 @@ To try DAIV on one machine first, follow the [Quickstart](quickstart.md).
 | Docker Compose | 2.17.0 or later, which provides the `docker compose` command and `depends_on.restart`. Only the Compose deployment needs it. |
 | PostgreSQL | 15 or later, the minimum of the Django release DAIV pins; the samples run `postgres:17.6`. |
 | Redis | 8 or later. The samples run `redis:8.6-alpine`. The agent's checkpoints use Redis search commands that Redis 7 lacks, and they must stay on database `0`; see [Redis](../reference/env-variables.md#redis). |
-| daiv-sandbox | The samples pull `ghcr.io/srtab/daiv-sandbox:latest`. Update the sandbox together with DAIV: multi-repository sessions need a release with `repos_archive` support and path-scoped egress rules, and DAIV reports an error when the sandbox lacks it. |
+| daiv-sandbox | 0.6.0 or later; the samples pull `ghcr.io/srtab/daiv-sandbox:0.6.0`. Update the sandbox together with DAIV: multi-repository sessions need its `repos_archive` support and path-scoped egress rules, and DAIV reports an error when the sandbox lacks them. |
 
 You also need a domain name that points to your server, with an SSL certificate for it, and a way for your Git platform to reach `DAIV_EXTERNAL_URL`. Your Git platform sends webhooks to that URL.
 
@@ -206,7 +206,7 @@ services:
       <<: *deploy_defaults
 
   app:
-    image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main} # (5)!
+    image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-3.0.0} # (5)!
     environment:
       <<: *app_environment_defaults
     secrets:
@@ -231,7 +231,7 @@ services:
       <<: *deploy_defaults
 
   worker:
-    image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main} # (5)!
+    image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-3.0.0} # (5)!
     command: sh /home/daiv/start-worker default
     stop_grace_period: 2m # (15)!
     environment:
@@ -260,7 +260,7 @@ services:
       replicas: 1 # (8)!
 
   worker-interactive:
-    image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main} # (5)!
+    image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-3.0.0} # (5)!
     command: sh /home/daiv/start-worker interactive
     environment:
       <<: *app_environment_defaults
@@ -288,7 +288,7 @@ services:
       replicas: 1
 
   scheduler:
-    image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main} # (5)!
+    image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-3.0.0} # (5)!
     command: sh /home/daiv/start-crontask
     environment:
       <<: *app_environment_defaults
@@ -311,7 +311,7 @@ services:
       <<: *deploy_defaults
 
   sandbox:
-    image: ghcr.io/srtab/daiv-sandbox:latest # (5)!
+    image: ghcr.io/srtab/daiv-sandbox:0.6.0 # (5)!
     environment:
       DAIV_SANDBOX_EGRESS_CA_CERT_FILE: /run/secrets/daiv_sandbox_egress_ca_cert # (12)!
       DAIV_SANDBOX_EGRESS_CA_KEY_FILE: /run/secrets/daiv_sandbox_egress_ca_key
@@ -371,7 +371,7 @@ secrets:
 2.   Replace with your full URL, including the scheme (for example `https://daiv.example.com`). Your GitLab sends webhooks to this URL, so it must be able to reach it.
 3.   Set to your GitLab instance URL (for example `https://gitlab.com` for GitLab.com).
 4.   Points to the sandbox service. Use `http://sandbox:8000` when the sandbox runs in the same stack.
-5.   Continuous deploys track the `main` tag. Keep the `${DAIV_IMAGE_TAG:-main}` form on every service, so the Deploy workflow can roll back to a pinned per-commit tag (for example `DAIV_IMAGE_TAG=sha-XXXXXXX`).
+5.   Runs the 3.0.0 release. Set `DAIV_IMAGE_TAG=main` to track every merge to `main` instead. Keep the `${DAIV_IMAGE_TAG:-…}` form on every service, so the Deploy workflow can roll back to a pinned per-commit tag (for example `DAIV_IMAGE_TAG=sha-XXXXXXX`).
 6.   **Required**: the sandbox needs Docker socket access to create isolated containers.
 7.   **Optional**: remove this volume if you don't need private registry access.
 8.   **Scaling**: increase `replicas` to handle more concurrent agent runs (for example `replicas: 3`). A worker runs one task to completion before it claims the next, so concurrency is the number of worker containers. Each claims independently from the queues named in its command.
@@ -428,7 +428,7 @@ If you turn on OAuth login before anyone signs in, the first Git platform sign-i
 
 ```yaml
 x-app-defaults: &x_app_default
-  image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main}
+  image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-3.0.0}
   restart: unless-stopped
   volumes:
     - media-volume:/home/daiv/data/media # (1)!
@@ -568,7 +568,7 @@ services:
         restart: true
 
   sandbox:
-    image: ghcr.io/srtab/daiv-sandbox:latest
+    image: ghcr.io/srtab/daiv-sandbox:0.6.0
     restart: unless-stopped
     group_add:
       - 987 # (17)!

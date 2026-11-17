@@ -1,6 +1,6 @@
 import os
 
-__version__ = "2.0.0"
+__version__ = "3.0.0"
 
 GIT_SHA = os.environ.get("DAIV_GIT_SHA", "")
 GIT_SHA_SHORT = GIT_SHA[:7]

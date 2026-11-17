@@ -1,6 +1,6 @@
 [project]
 name = "daiv"
-version = "2.0.0"
+version = "3.0.0"
 description = "Open-source, self-hosted SWE agents for GitLab & GitHub"
 readme = "README.md"
 license = { file = "LICENSE" }
