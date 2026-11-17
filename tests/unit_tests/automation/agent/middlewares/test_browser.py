@@ -155,7 +155,12 @@ async def test_screenshot_returns_an_image_block(tools, browser):
 async def test_a_screenshot_for_the_user_says_so_before_the_image(tools, browser):
     message = await _call(tools["browser_screenshot"], showUser=True)
 
-    assert message.content[0] == {"type": "text", "text": "Shown to the user under your reply."}
+    assert message.content[0] == {
+        "type": "text",
+        "text": (
+            "Shown to the user under your reply in the DAIV session; a GitLab or GitHub comment does not include it."
+        ),
+    }
     assert message.content[1]["type"] == "image"
 
 

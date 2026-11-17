@@ -211,7 +211,7 @@ When a tool hands the agent an image or a file (a screenshot from the agent's [b
 - PDFs, audio and video show as a chip with their size, which downloads the file.
 - An image an MCP server only gives as a link to another site shows as a link, so viewing the transcript loads nothing from that site.
 
-A screenshot the agent's browser takes for you, because you asked to see the page or the agent's reply points to it as evidence, also shows under the reply once the run finishes, with **Open** and **Download**, and in the session's **Outputs** as **Screenshot 1**, **Screenshot 2** and so on. The agent's other screenshots, which it takes to check the page itself, stay on their rows.
+A screenshot the agent's browser takes for you, because you asked to see the page or the agent's reply points to it as evidence, also shows under the reply once the run finishes, with **Open** and **Download**, and in the session's **Outputs** as **Screenshot 1**, **Screenshot 2** and so on. The agent's other screenshots, which it takes to check the page itself, stay on their rows. These screenshots show only in DAIV: a reply the agent posts as a GitLab or GitHub comment does not include them.
 
 Anyone who can see the session can open these files, as they can read the rest of its transcript: its owner, people who can read its repository, and admins. That includes screenshots from MCP servers a person connected with their own account, so a screenshot of a page they were signed in to is visible to everyone who can see the session.
 

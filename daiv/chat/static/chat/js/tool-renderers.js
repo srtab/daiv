@@ -2080,8 +2080,10 @@
     return thumbs.join("") + (rest > 0 ? `<span class="step-row__more">+${rest}</span>` : "");
   };
 
-  // A frozen tools array can send a scalar arg as a string.
-  const flagSet = (value) => value === true || value === "true";
+  // What the tool's pydantic bool takes as true: a frozen tools array can send a scalar arg as a string.
+  const TRUE_STRINGS = new Set(["1", "on", "t", "true", "y", "yes"]);
+  const flagSet = (value) =>
+    value === true || value === 1 || (typeof value === "string" && TRUE_STRINGS.has(value.toLowerCase()));
 
   window.shownMedia = (seg) => {
     if (seg?.name !== "browser_screenshot" || !flagSet(parseArgs(seg.args).showUser)) return [];

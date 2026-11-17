@@ -1753,6 +1753,16 @@ def test_shown_media_accepts_a_stringified_flag():
     assert _shown(screenshot("c1", show_user="true")) == [STORED_SHOT]
 
 
+@pytest.mark.parametrize("flag", ["True", "1", "yes", "ON", "t", "Y", 1])
+def test_shown_media_accepts_every_value_the_tool_takes_as_true(flag):
+    assert _shown(screenshot("c1", show_user=flag)) == [STORED_SHOT]
+
+
+@pytest.mark.parametrize("flag", ["false", "0", "2", " true", 0, 2])
+def test_shown_media_rejects_values_the_tool_does_not_take_as_true(flag):
+    assert _shown(screenshot("c1", show_user=flag)) == []
+
+
 def _card(items: list[dict]) -> str:
     labels = {"icons": MEDIA_ICONS | {"photo": "<i>photo</i>"}}
     return run_transcript("shownMediaHTML(vars.items)", {"items": items}, blocks=False, labels=labels)

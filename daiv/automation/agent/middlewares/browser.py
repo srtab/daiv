@@ -86,7 +86,8 @@ Take a screenshot of the active page in the run's headless browser.
 Captures the viewport unless fullPage is true. A smaller image is a viewport JPEG: {{"type":"jpeg","quality":40}}.
 
 Set showUser to true when the screenshot is for the user: they asked to see the page, or your reply points to it as \
-evidence. It then shows under your reply. Leave it false for screenshots you take to check the page yourself.
+evidence. It then shows under your reply in the DAIV session, but not in a GitLab or GitHub comment. Leave it false \
+for screenshots you take to check the page yourself.
 
 {UNTRUSTED_CONTENT}"""
 
@@ -166,7 +167,9 @@ def _with_note(note: str | None, text: str) -> str:
     return f"{note}\n\n{text}" if note else text
 
 
-SHOWN_TO_USER_NOTE = "Shown to the user under your reply."
+SHOWN_TO_USER_NOTE = (
+    "Shown to the user under your reply in the DAIV session; a GitLab or GitHub comment does not include it."
+)
 
 
 def _join_notes(*notes: str | None) -> str | None:

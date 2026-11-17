@@ -180,7 +180,8 @@ def _opens_the_local_page(call: dict) -> bool:
 
 
 def _shown_to_user(call: dict) -> bool:
-    return call["name"] == "browser_screenshot" and call["args"].get("showUser") in (True, "true")
+    flag = str(call["args"].get("showUser")).lower()
+    return call["name"] == "browser_screenshot" and flag in {"1", "on", "t", "true", "y", "yes"}
 
 
 def _screenshot_kept(messages: list, call_id: str) -> bool:

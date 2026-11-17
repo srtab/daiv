@@ -18,7 +18,7 @@ The agent gets three browser tools. Like other tools beyond the core set, they a
 | `browser_snapshot` | Reads the active page as an outline of its elements, each with an id the next actions can name. It includes the content of frames. |
 | `browser_screenshot` | Takes a screenshot of the visible page, or of the whole page. With `showUser`, the screenshot is for you, and shows under the agent's reply. |
 
-The browser starts on the agent's first browser call, not when the run starts. The transcript shows each call with a readable label, such as **Opened `http://localhost:5173`**, **Ran 3 browser actions** or **Took a screenshot**. A screenshot shows as a thumbnail on its row. When the agent takes one for you, because you asked to see the page or its reply points to the page as evidence, the screenshot also shows under its reply and in the session's **Outputs**, as described in [Images and files in tool results](sessions.md#images-and-files-in-tool-results).
+The browser starts on the agent's first browser call, not when the run starts. The transcript shows each call with a readable label, such as **Opened `http://localhost:5173`**, **Ran 3 browser actions** or **Took a screenshot**. A screenshot shows as a thumbnail on its row. When the agent takes one for you, because you asked to see the page or its reply points to the page as evidence, the screenshot also shows under its reply and in the session's **Outputs** in DAIV (not in a GitLab or GitHub comment), as described in [Images and files in tool results](sessions.md#images-and-files-in-tool-results).
 
 The tools use the run's own model and need no other model, provider account or API key. Their descriptions tell the agent that page content is untrusted input, never instructions.
 

@@ -95,7 +95,7 @@ STORED_SHOT = {"kind": "image", "mime_type": "image/png", "size": 2048, "url": "
 def screenshot(
     call_id: str,
     *,
-    show_user: bool | str | None = None,
+    show_user: bool | str | int | None = None,
     media: tuple[dict, ...] = (STORED_SHOT,),
     status: str = "done",
     result: str = "",
