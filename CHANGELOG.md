@@ -46,6 +46,7 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 
 ### Added
 
+- Add a headless browser the agent can use beside its sandbox, turned on per sandbox environment and site-wide, whose screenshots taken for you show under the agent's reply; it needs daiv-sandbox 0.6.0 or later ([#1836](https://github.com/srtab/daiv/pull/1836))
 - Add a web dashboard, signed in with a GitLab or GitHub account, an emailed code or a passkey, with admin and member roles ([#993](https://github.com/srtab/daiv/pull/993), [#1559](https://github.com/srtab/daiv/pull/1559))
 - Add sessions: every run, whether started from chat, a webhook, the Jobs API, MCP or a schedule, is a session you can watch live, continue, retry, stop and archive in the dashboard ([#1374](https://github.com/srtab/daiv/pull/1374), [#1691](https://github.com/srtab/daiv/pull/1691))
 - Give a webhook's session to the DAIV user who signed in with the author's GitLab or GitHub account, who then gets its notifications ([#1744](https://github.com/srtab/daiv/pull/1744))
@@ -79,7 +80,7 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 - Support Claude 5 and GPT-6 models, and an **Extra high** (`xhigh`) thinking level ([#1405](https://github.com/srtab/daiv/pull/1405), [#1254](https://github.com/srtab/daiv/pull/1254))
 - Add a per-request timeout and retry count for LLM calls, `DAIV_MODEL_REQUEST_TIMEOUT_SECONDS` (120) and `DAIV_MODEL_MAX_RETRIES` (2) ([#1740](https://github.com/srtab/daiv/pull/1740))
 - Add deferred tool loading: the agent starts with a small tool set and loads MCP and other tools when a task needs them ([#1140](https://github.com/srtab/daiv/pull/1140), [#1465](https://github.com/srtab/daiv/pull/1465))
-- Show the images and files a tool returns in the session transcript, and let the agent open base64 files an MCP server returns ([#1782](https://github.com/srtab/daiv/pull/1782), [#1736](https://github.com/srtab/daiv/pull/1736))
+- Show the images and files a tool returns in the session transcript, with image thumbnails on the closed tool row, and let the agent open base64 files an MCP server returns ([#1782](https://github.com/srtab/daiv/pull/1782), [#1736](https://github.com/srtab/daiv/pull/1736), [#1836](https://github.com/srtab/daiv/pull/1836))
 - Add SearXNG as a web-search backend ([#1779](https://github.com/srtab/daiv/pull/1779)) (Tobi)
 - Read one section of a page with `web_fetch` by passing its URL `#fragment` ([#1752](https://github.com/srtab/daiv/pull/1752))
 - Track token usage and cost per run and session ([#1077](https://github.com/srtab/daiv/pull/1077), [#1776](https://github.com/srtab/daiv/pull/1776))

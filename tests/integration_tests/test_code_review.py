@@ -5,6 +5,9 @@ Each run clones srtab/daiv, points the clone's ``main`` at the case's ``base_sha
 ``main``), applies the case's patch to the working tree, and asks for an interactive working-tree review in a fresh
 sandbox seeded from that clone. A case that cannot be set up stops the whole run: it is a broken case, not a vote.
 If the local GitLab mirror lacks a frozen base, fetch that commit from the public fixture repository first.
+
+With ``DAIV_SANDBOX_BROWSER_ENABLED=true`` the review's environment turns the browser on as well, so the run gets the
+browser tools when the sandbox service supports them, for measuring their cost against a run without them.
 """
 
 import asyncio
@@ -75,7 +78,9 @@ def ensure_case_base(gitrepo, base_sha: str):
 
 @asynccontextmanager
 async def patched_checkout(case: dict):
-    spec = replace(await build_sandbox_spec(None), base_image=SANDBOX_IMAGE)
+    spec = replace(
+        await build_sandbox_spec(None), base_image=SANDBOX_IMAGE, browser=site_settings.sandbox_browser_enabled
+    )
     async with set_runtime_ctx(repo_id="srtab/daiv", scope=Scope.GLOBAL, ref="main", sandbox_spec=spec) as ctx:
         try:
             ensure_case_base(ctx.gitrepo, case["base_sha"])
@@ -93,10 +98,14 @@ async def patched_checkout(case: dict):
                 returncode=2,
             )
         session = SandboxSession(ctx.sandbox_client, ctx.sandbox, credential_source=ctx.credential_source)
+        workspace = SandboxWorkspace(session)
         try:
             await acquire_sandbox(session, ctx, {})
-            yield ctx, session
+            await workspace.aresolve_browser(site_settings.snapshot())
+            yield ctx, workspace
         finally:
+            if workspace.browser is not None:
+                await workspace.browser.arelease()
             await session.release(resumable=False)
 
 
@@ -146,11 +155,11 @@ async def test_code_review_recall(model_name, case, eval_request):
         pytest.skip("SANDBOX_API_KEY is not configured.")
     t.log_inputs({"model_name": model_name, "case": case["id"]})
 
-    async with patched_checkout(case) as (ctx, session):
+    async with patched_checkout(case) as (ctx, workspace):
         agent = await create_daiv_agent(
             settings=agent_settings_on(model_name, ctx),
             ctx=ctx,
-            workspace=SandboxWorkspace(session),
+            workspace=workspace,
             mcp_servers=await default_mcp_servers(),
             auto_commit_changes=False,
             checkpointer=InMemorySaver(),

@@ -494,3 +494,24 @@ msgstr "Nome de utilizador do bot do Telegram"
 
 msgid "Derived from the bot token via getMe; not editable here."
 msgstr "Obtido a partir do token do bot via getMe; não editável aqui."
+
+msgid "browser"
+msgstr "navegador"
+
+msgid "Let the agent use a headless browser in sandbox environments that turn Browser on. While it is off, no run gets a browser."
+msgstr "Permite ao agente usar um navegador sem interface nos ambientes de sandbox que ligam o Navegador. Enquanto estiver desligado, nenhuma execução recebe um navegador."
+
+msgid "browser memory"
+msgstr "memória do navegador"
+
+msgid "Memory limit of each run's browser in bytes, separate from the environment's. At least 268435456 (256 MiB)."
+msgstr "Limite de memória do navegador de cada execução em bytes, independente do limite do ambiente. Pelo menos 268435456 (256 MiB)."
+
+msgid "browser CPUs"
+msgstr "CPUs do navegador"
+
+msgid "CPU limit of each run's browser, separate from the environment's. At least 0.25."
+msgstr "Limite de CPU do navegador de cada execução, independente do limite do ambiente. Pelo menos 0,25."
+
+msgid "The sandbox service does not support the browser, so runs get no browser tools. Upgrade daiv-sandbox to 0.6.0 or later."
+msgstr "O serviço de sandbox não suporta o navegador, por isso as execuções não recebem ferramentas de navegador. Atualize o daiv-sandbox para a versão 0.6.0 ou posterior."

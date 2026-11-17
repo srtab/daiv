@@ -362,6 +362,8 @@
           published.push(artifact);
         }
         if (published.length) cards.push({ kind: "artifacts", key: claim(`c-${key}`), items: published });
+        const shots = entries.flatMap((e) => (e.kind === "step" ? window.shownMedia(e.seg) : []));
+        if (shots.length) cards.push({ kind: "screenshots", key: claim(`m-${key}`), items: shots });
       }
 
       const lastText = entries.findLast((e) => e.kind === "text");

@@ -454,3 +454,21 @@ class TestLegacyExploreModel:
         monkeypatch.setenv("DAIV_AGENT_EXPLORE_MODEL_NAME", "openrouter:legacy/explore")
         with patch.object(SiteConfiguration, "get_cached", return_value=SiteConfiguration()):
             assert ss.agent_skill_models == {}
+
+
+class TestBrowserSettings:
+    def test_the_browser_is_off_by_default_with_one_gib_and_one_cpu(self, ss):
+        with patch.object(SiteConfiguration, "get_cached", return_value=SiteConfiguration()):
+            assert ss.sandbox_browser_enabled is False
+            assert ss.sandbox_browser_memory_bytes == 1_073_741_824
+            assert ss.sandbox_browser_cpus == 1.0
+
+    def test_environment_variables_override_the_browser_settings(self, ss, monkeypatch):
+        monkeypatch.setenv("DAIV_SANDBOX_BROWSER_ENABLED", "true")
+        monkeypatch.setenv("DAIV_SANDBOX_BROWSER_MEMORY_BYTES", "536870912")
+        monkeypatch.setenv("DAIV_SANDBOX_BROWSER_CPUS", "0.5")
+        with patch.object(SiteConfiguration, "get_cached", return_value=SiteConfiguration()):
+            snapshot = ss.snapshot()
+        assert snapshot.sandbox_browser_enabled is True
+        assert snapshot.sandbox_browser_memory_bytes == 536_870_912
+        assert snapshot.sandbox_browser_cpus == 0.5

@@ -93,3 +93,22 @@ def test_the_leg_follow_up_labels_read_the_same_on_both_sides():
             "inbox_leg_follow_up": "Leg follow-up",
         }
     )
+
+
+BROWSER_KEYS = """Object.fromEntries(
+  Object.entries(TranscriptLabels.defaults).filter(([key]) => key.includes("browser")),
+)"""
+
+
+def test_the_browser_labels_read_the_same_on_both_sides():
+    browser = run_transcript(BROWSER_KEYS, {}, blocks=False)
+    with translation.override("en"):
+        server = {key: value for key, value in transcript_labels().items() if "browser" in key}
+
+    assert server == browser
+    assert {"sum_browser", "live_sum_browser", "row_browser_open", "row_browser_screenshot"} <= set(server)
+
+
+def test_the_browser_icon_ships():
+    assert "browser" in TRANSCRIPT_ICONS
+    assert finders.find("core/img/icons/browser.svg")

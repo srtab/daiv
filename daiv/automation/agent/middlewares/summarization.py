@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING
 
 from deepagents.middleware import SummarizationMiddleware
 from deepagents.middleware.summarization import compute_summarization_defaults
+from langchain_core.messages.utils import count_tokens_approximately
 
 from automation.agent.usage_tracking import chat_model_name, resolve_window_by_name
 
@@ -12,6 +14,8 @@ if TYPE_CHECKING:
     from langchain.chat_models import BaseChatModel
 
 COMPACTION_WINDOW_FRACTION = 0.85
+MAX_IMAGES_BEFORE_COMPACTION = 90
+SCREENSHOT_TOKENS = 1600
 
 
 def build_summarization_middleware(model: BaseChatModel, backend: BackendProtocol) -> SummarizationMiddleware:
@@ -29,6 +33,12 @@ def build_summarization_middleware(model: BaseChatModel, backend: BackendProtoco
     is lower. A model whose window is unknown keeps deepagents' defaults, truncation included, since
     truncation is then what holds off an overflow.
 
+    Images are counted so that compaction runs before the conversation holds ``MAX_IMAGES_BEFORE_COMPACTION`` of
+    them: Anthropic accepts at most 100 images in a request to a 200k-token model, and a 1M-token window would
+    otherwise fill with hundreds of screenshots, past its 128 MB request limit, before the token trigger. An image
+    counts at least ``SCREENSHOT_TOKENS``, near what a screenshot costs, rather than langchain's 85. The count decides
+    only when compaction runs and how much it keeps, never what a request holds, so the prompt cache is unaffected.
+
     The instance reports deepagents' own ``SummarizationMiddleware`` name, so passing it to
     ``create_deep_agent`` replaces the default one in place.
     """
@@ -41,6 +51,10 @@ def build_summarization_middleware(model: BaseChatModel, backend: BackendProtoco
         trigger = ("tokens", min(trigger[1], int(window * COMPACTION_WINDOW_FRACTION)))
         truncate_args_settings = None
 
+    profile_window = (model.profile or {}).get("max_input_tokens") or 0
+    trigger_tokens = trigger[1] if trigger[0] == "tokens" else int(profile_window * trigger[1])
+    tokens_per_image = max(SCREENSHOT_TOKENS, int(trigger_tokens // MAX_IMAGES_BEFORE_COMPACTION))
+
     return SummarizationMiddleware(
         model=model,
         backend=backend,
@@ -48,6 +62,7 @@ def build_summarization_middleware(model: BaseChatModel, backend: BackendProtoco
         keep=defaults["keep"],
         trim_tokens_to_summarize=None,
         truncate_args_settings=truncate_args_settings,
+        token_counter=partial(count_tokens_approximately, tokens_per_image=tokens_per_image),
     )
 
 

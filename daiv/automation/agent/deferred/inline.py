@@ -15,8 +15,9 @@ the schema in its ``tool_search`` result.
 
 Anthropic accepts a mid-conversation system turn only before an assistant turn or at the end, and langchain-anthropic
 raises on one followed by a user turn. The declarations therefore have to be inserted after every reminder or nudge a
-middleware appends: ``InlineToolDefinitionsMiddleware`` runs after every DAIV middleware, and the deepagents tail inside
-it (skills, prompt caching, memory) appends no messages.
+middleware appends: ``InlineToolDefinitionsMiddleware`` runs after every DAIV middleware that appends messages, and the
+deepagents tail inside it (skills, prompt caching, memory, and ``ToolImageNoticeMiddleware`` in deepagents'
+unsupported-content slot) appends none.
 """
 
 from __future__ import annotations

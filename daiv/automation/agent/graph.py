@@ -54,7 +54,7 @@ from automation.agent.middlewares.skills import SkillModelMiddleware, SkillsMidd
 from automation.agent.middlewares.slash_commands import SlashCommandMiddleware
 from automation.agent.middlewares.step_budget import StepBudgetMiddleware
 from automation.agent.middlewares.summarization import build_summarization_middleware
-from automation.agent.middlewares.tool_media import ToolMediaMiddleware
+from automation.agent.middlewares.tool_media import ToolImageNoticeMiddleware, ToolMediaMiddleware
 from automation.agent.middlewares.web_fetch import WebFetchMiddleware
 from automation.agent.middlewares.web_search import WebSearchMiddleware
 from automation.agent.profile import register as _register_harness_profile
@@ -85,6 +85,7 @@ if TYPE_CHECKING:
     from automation.agent.session_links import SessionLinksResolver
     from automation.agent.tool_media import ToolMediaStore
     from automation.agent.workspace.base import Workspace
+    from automation.agent.workspace.browser import SandboxBrowser
 
 
 logger = logging.getLogger("daiv.agent")
@@ -174,6 +175,13 @@ def dynamic_write_todos_system_prompt(bash_tool_enabled: bool) -> str:
     Dynamic prompt for the write todos system.
     """
     return cast("str", WRITE_TODOS_SYSTEM_PROMPT.format(bash_tool_enabled=bash_tool_enabled).content)
+
+
+def _browser_middleware(browser: SandboxBrowser) -> AgentMiddleware:
+    # Imported here so Stagehand loads only in processes that run a browser.
+    from automation.agent.middlewares.browser import BrowserMiddleware
+
+    return BrowserMiddleware(browser=browser)
 
 
 async def create_daiv_agent(
@@ -328,6 +336,9 @@ async def create_daiv_agent(
         *([WebFetchMiddleware()] if settings.web_fetch_enabled else []),
         *([ArtifactsMiddleware(workspace=workspace, store=artifact_store)] if artifact_store is not None else []),
         *([ToolMediaMiddleware(store=tool_media_store)] if tool_media_store is not None else []),
+        *([_browser_middleware(workspace.browser)] if workspace.browser is not None else []),
+        # Takes the slot of deepagents' UnsupportedContentMiddleware, innermost, by name.
+        ToolImageNoticeMiddleware(),
         *([DelegateJobsMiddleware(delegator=delegator)] if delegator is not None else []),
         *([ModelFallbackMiddleware(fallback_models[0], *fallback_models[1:])] if fallback_models else []),
         # Inside the fallback and outside the deferred tools and context meter, which act on the model serving the call.

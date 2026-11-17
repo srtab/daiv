@@ -212,6 +212,9 @@
     return name ? `${name}${skillArgs ? " " + truncate(String(skillArgs), 60) : ""}` : "";
   };
 
+  const SINGLE_GOTO_RE = /^\s*(?:await\s+)?page\.goto\(\s*(["'`])([^"'`]+)\1\s*(?:,[^()]*)?\)\s*;?\s*$/;
+  const singleGotoUrl = (code) => (typeof code === "string" ? (SINGLE_GOTO_RE.exec(code)?.[2] ?? "") : "");
+
   // `new URL` throws on partial streaming values; fall back to the raw string.
   const summarizeUrl = (url) => {
     if (!url) return "";
@@ -536,6 +539,24 @@
       badges: REDIRECT_TAG_RE.test(String(result ?? "")) ? [badge("redirect", "warn")] : [],
       category: { key: "fetch" },
     }),
+    browser_run: ({ args }) => {
+      const actions = pickKey(args, ["actions"]);
+      if (Array.isArray(actions)) {
+        const count = actions.length;
+        return {
+          icon: "browser",
+          key: count === 1 ? "browser_action" : "browser_actions",
+          vars: { count },
+          category: { key: "browser" },
+        };
+      }
+      const url = singleGotoUrl(pickKey(args, ["code"]));
+      return url
+        ? { icon: "browser", key: "browser_open", vars: { url: truncate(url, 80) }, category: { key: "browser" } }
+        : { icon: "browser", key: "browser_script", category: { key: "browser" } };
+    },
+    browser_snapshot: () => ({ icon: "browser", key: "browser_snapshot", category: { key: "browser" } }),
+    browser_screenshot: () => ({ icon: "browser", key: "browser_screenshot", category: { key: "browser" } }),
     gitlab: platformRow("GitLab", "gitlab"),
     gh: platformRow("GitHub", "github"),
     tool_search: ({ args }) => {
@@ -2040,6 +2061,53 @@
     if (!Array.isArray(media) || !media.length) return "";
     return section("body_media", `<div class="body-media">${media.map(mediaItemHTML).join("")}</div>`);
   };
+
+  const ROW_THUMBS = 3;
+
+  const storedImageUrl = (item) =>
+    item?.kind === "image" && !item.error && !item.external ? safeMediaUrl(String(item.url ?? "")) : null;
+  window.storedImageUrl = storedImageUrl;
+
+  window.toolRowMediaHTML = (seg) => {
+    const urls = (Array.isArray(seg?.media) ? seg.media : []).map(storedImageUrl).filter(Boolean);
+    if (!urls.length) return "";
+    const label = t("media_image");
+    const thumbs = urls.slice(0, ROW_THUMBS).map((url, i) => {
+      const img = `<img class="step-row__thumb" src="${escapeAttr(url)}" alt="${escapeAttr(`${label} ${i + 1}`)}" loading="lazy">`;
+      return newTabLink(url, "step-row__thumb-link", img);
+    });
+    const rest = urls.length - ROW_THUMBS;
+    return thumbs.join("") + (rest > 0 ? `<span class="step-row__more">+${rest}</span>` : "");
+  };
+
+  // What the tool's pydantic bool takes as true: a frozen tools array can send a scalar arg as a string.
+  const TRUE_STRINGS = new Set(["1", "on", "t", "true", "y", "yes"]);
+  const flagSet = (value) =>
+    value === true || value === 1 || (typeof value === "string" && TRUE_STRINGS.has(value.toLowerCase()));
+
+  window.shownMedia = (seg) => {
+    if (seg?.name !== "browser_screenshot" || !flagSet(parseArgs(seg.args).showUser)) return [];
+    return Array.isArray(seg.media) ? seg.media : [];
+  };
+
+  const shotHTML = (url, index) => {
+    const label = t("media_screenshot");
+    const alt = escapeAttr(`${label} ${index + 1}`);
+    const img = `<img class="shot-card__img" src="${escapeAttr(url)}" alt="${alt}" loading="lazy">`;
+    const name = `<span class="shot-card__label">${window.TranscriptLabels.iconHTML("photo")}${escapeHtml(label)}</span>`;
+    const open = newTabLink(url, "shot-card__link", escapeHtml(t("open_link")));
+    const download = `<a class="shot-card__link" href="${escapeAttr(url)}" download>${escapeHtml(t("artifact_download"))}</a>`;
+    const meta = `<div class="shot-card__meta">${name}${open}${download}</div>`;
+    return `<figure class="shot-card__item">${newTabLink(url, "shot-card__frame", img)}${meta}</figure>`;
+  };
+
+  window.shownMediaHTML = (items) =>
+    (Array.isArray(items) ? items : [])
+      .map((item, i) => {
+        const url = storedImageUrl(item);
+        return url ? shotHTML(url, i) : `<div class="shot-card__item">${mediaItemHTML(item, i)}</div>`;
+      })
+      .join("");
 
   window.toolBodyHTML = (seg, ctx) => {
     if (!seg) return "";
