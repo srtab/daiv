@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}{{ post.title }} — DAIV{% endblock %}
 
@@ -21,6 +22,7 @@
 
 {% block head_extra %}
 {% include "dashboard/_landing_analytics.html" %}
+<link rel="stylesheet" href="{% static 'blog/css/highlight.css' %}">
 {% block feed_link %}<link rel="alternate" type="application/rss+xml" title="DAIV blog" href="{% url 'blog:feed' %}">{% endblock %}
 <script type="application/ld+json">
 {

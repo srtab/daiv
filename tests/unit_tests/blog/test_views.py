@@ -28,6 +28,7 @@ def test_post_page_shows_the_post_and_the_ctas(write_post):
     write_post(body="Body text.")
     content = Client().get("/blog/egress/").content.decode()
     assert "Egress</h1>" in content and "<p>Body text.</p>" in content
+    assert "/static/blog/css/highlight.css" in content
     assert f'href="{landing.QUICKSTART_URL}"' in content
     assert 'href="https://github.com/srtab/daiv"' in content
 

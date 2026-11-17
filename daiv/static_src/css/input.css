@@ -5161,6 +5161,81 @@ html {
   .landing-subheading {
     @apply text-xl font-semibold tracking-tight text-text-strong;
   }
+  .landing-prose {
+    @apply text-[16px] leading-[1.75] break-words text-text;
+  }
+  .landing-prose h2 {
+    @apply mt-14 mb-4 scroll-mt-24 text-2xl font-semibold tracking-tight text-text-strong first:mt-0;
+  }
+  .landing-prose h3 {
+    @apply mt-10 mb-3 scroll-mt-24 text-lg font-semibold text-text-strong;
+  }
+  .landing-prose p,
+  .landing-prose ul,
+  .landing-prose ol {
+    @apply my-5;
+  }
+  .landing-prose ul {
+    @apply list-disc pl-6 marker:text-text-faint;
+  }
+  .landing-prose ol {
+    @apply list-decimal pl-6 marker:text-text-faint;
+  }
+  .landing-prose li {
+    @apply my-1.5;
+  }
+  .landing-prose li > p {
+    @apply my-2;
+  }
+  .landing-prose a {
+    @apply text-accent underline underline-offset-2 hover:text-accent-bright;
+  }
+  .landing-prose strong {
+    @apply font-semibold text-text-strong;
+  }
+  .landing-prose blockquote {
+    @apply my-6 border-l-2 border-border pl-5 text-text-muted;
+  }
+  .landing-prose hr {
+    @apply my-12 border-border;
+  }
+  .landing-prose img {
+    @apply h-auto max-w-full rounded-xl border border-border;
+  }
+  .landing-prose figure {
+    @apply my-8;
+  }
+  .landing-prose figcaption {
+    @apply mt-2 text-center text-[13px] text-text-faint;
+  }
+  .landing-prose :not(pre) > code {
+    @apply rounded bg-surface-3 px-1.5 py-0.5 font-mono text-[0.875em] text-text-strong;
+  }
+  .landing-prose pre {
+    @apply my-6 overflow-x-auto rounded-xl border border-border bg-surface-2 p-4 font-mono text-[13px] leading-relaxed
+      scheme-dark;
+  }
+  .landing-prose .codehilite {
+    @apply my-6 bg-transparent;
+  }
+  .landing-prose .codehilite pre {
+    @apply my-0;
+  }
+  .landing-prose table {
+    @apply my-6 block max-w-full overflow-x-auto text-left text-[14px] scheme-dark;
+  }
+  .landing-prose th {
+    @apply border-b border-border px-3 py-2 font-semibold text-text-strong;
+  }
+  .landing-prose td {
+    @apply border-b border-border px-3 py-2 text-text-muted;
+  }
+  .landing-prose .footnote {
+    @apply mt-14 text-[13px] text-text-muted;
+  }
+  .landing-prose .footnote hr {
+    @apply mb-6;
+  }
   .landing-compare {
     @apply border-t border-border;
   }
