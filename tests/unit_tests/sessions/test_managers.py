@@ -23,6 +23,15 @@ def _create_run(*, status: str = RunStatus.RUNNING, trigger_type: str = SessionO
     return Run.objects.create(session=session, trigger_type=trigger_type, repo_id="acme/api", status=status)
 
 
+def _hold_slot(run: Run, *, silent_for: timedelta, holder: str | None = None) -> None:
+    """Back ``run`` with a running task and give its session's slot to ``holder`` (the run itself by default), last
+    heartbeated ``silent_for`` ago."""
+    Run.objects.filter(pk=run.pk).update(task_result=make_task_result(status="RUNNING"))
+    Session.objects.filter(pk=run.session_id).update(
+        active_run_id=holder or str(run.pk), last_active_at=timezone.now() - silent_for
+    )
+
+
 @pytest.mark.django_db
 class TestFinish:
     def test_it_writes_the_status_and_fields_and_updates_the_instance(self, run_finished_spy, badge):
@@ -212,6 +221,46 @@ class TestCancel:
         Run.objects.cancel(run)
 
         assert Run.objects.cancel(run) is False
+
+    def test_a_running_run_whose_worker_stopped_heartbeating_finishes_failed_at_once(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.RUNNING)
+        _hold_slot(run, silent_for=timedelta(minutes=10))
+
+        assert Run.objects.cancel(run) is True
+
+        run.refresh_from_db()
+        assert (run.status, run.error_message) == (RunStatus.FAILED, CANCELLED_BY_COORDINATOR_MESSAGE)
+        assert run.is_cancelled and run.finished_at is not None
+        assert run_finished_spy.call_args.kwargs["never_started"] is False
+
+    def test_a_repeated_cancel_finishes_a_run_whose_worker_stopped_heartbeating_since(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.RUNNING)
+        _hold_slot(run, silent_for=timedelta(seconds=30))
+        assert Run.objects.cancel(run) is True
+        assert not run_finished_spy.called
+
+        Session.objects.filter(pk=run.session_id).update(last_active_at=timezone.now() - timedelta(minutes=10))
+
+        assert Run.objects.cancel(run) is True
+        run.refresh_from_db()
+        assert run.is_cancelled
+
+    @pytest.mark.parametrize(
+        ("holder", "silent_for"),
+        [
+            pytest.param(None, timedelta(seconds=30), id="heartbeating"),
+            pytest.param("job-other", timedelta(minutes=10), id="waiting-behind-another-holder"),
+        ],
+    )
+    def test_a_running_run_not_known_dead_is_only_asked_to_stop(self, run_finished_spy, badge, holder, silent_for):
+        run = _create_run(status=RunStatus.RUNNING)
+        _hold_slot(run, silent_for=silent_for, holder=holder)
+
+        assert Run.objects.cancel(run) is True
+
+        run.refresh_from_db()
+        assert run.status == RunStatus.RUNNING
+        assert not run_finished_spy.called
 
     def test_a_finished_run_is_left_as_it_ended(self, run_finished_spy, badge):
         run = _create_run(status=RunStatus.SUCCESSFUL)

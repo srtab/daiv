@@ -26,6 +26,7 @@ STALE_RUN_MINUTES = 30
 LOCK_WAIT_TIMEOUT_S = STALE_RUN_MINUTES * 60.0  # give a long-running chat turn time to finish
 LOCK_POLL_INTERVAL_S = 5.0
 LOCK_HEARTBEAT_INTERVAL_S = 60.0
+TASK_HOLDER_DEAD_AFTER = timedelta(seconds=3 * LOCK_HEARTBEAT_INTERVAL_S)
 
 
 def stale_cutoff(now: datetime | None = None) -> datetime:
