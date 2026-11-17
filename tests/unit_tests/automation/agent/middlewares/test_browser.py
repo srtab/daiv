@@ -196,10 +196,11 @@ def _png(width: int, height: int, padding: int = 0) -> dict:
     return {"data": base64.b64encode(header + b"\x00" * padding).decode(), "mimeType": "image/png"}
 
 
-def _jpeg(width: int, height: int) -> dict:
+def _jpeg(width: int, height: int, app1_padding: int = 0) -> dict:
     app0 = b"\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+    app1 = b"\xff\xe1" + struct.pack(">H", app1_padding + 2) + b"\x00" * app1_padding if app1_padding else b""
     sof = b"\xff\xc0\x00\x11\x08" + struct.pack(">HH", height, width) + b"\x03" + b"\x00" * 9
-    return {"data": base64.b64encode(b"\xff\xd8" + app0 + sof).decode(), "mimeType": "image/jpeg"}
+    return {"data": base64.b64encode(b"\xff\xd8" + app0 + app1 + sof).decode(), "mimeType": "image/jpeg"}
 
 
 @pytest.mark.parametrize("image", [_png(1280, 3001), _jpeg(3001, 600)], ids=["tall-png", "wide-jpeg"])
@@ -213,7 +214,7 @@ async def test_a_screenshot_over_3000_px_on_a_side_says_to_capture_the_viewport(
 
 
 def test_the_screenshots_held_before_compaction_fit_in_one_request():
-    """Anthropic's request limit is 128 MB; raising the compaction window must not outgrow it."""
+    """Screenshots only: at their cap, those held until compaction stay under Anthropic's 128 MB request limit."""
     assert MAX_IMAGES_BEFORE_COMPACTION * MAX_SCREENSHOT_BYTES < 128 * 10**6
 
 
@@ -225,6 +226,14 @@ async def test_only_the_header_is_decoded_to_read_the_side(tools, browser):
     message = await _call(tools["browser_screenshot"], fullPage=True)
 
     assert message.content == "error: The page is too large to capture whole (1280×3001 px). Use fullPage: false."
+
+
+async def test_a_jpeg_frame_past_the_header_window_is_still_measured(tools, browser):
+    browser.facade.screenshot.return_value = _jpeg(3001, 600, app1_padding=60_000)
+
+    message = await _call(tools["browser_screenshot"], fullPage=True)
+
+    assert message.content == "error: The page is too large to capture whole (3001×600 px). Use fullPage: false."
 
 
 async def test_a_page_too_tall_to_capture_is_not_retaken(tools, browser):
