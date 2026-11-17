@@ -193,4 +193,4 @@ async def nav_events(request: HttpRequest, session: str = ""):
     ``session`` is the thread id of the session page the tab is showing, if any; the
     stream then also carries that session's change revision.
     """
-    return sse_response(_nav_frames(request.auth, session))  # ty: ignore[unresolved-attribute]
+    return sse_response(_nav_frames(request.auth, session))  # ty: ignore[missing-attribute]

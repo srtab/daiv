@@ -486,7 +486,8 @@ What is particular to it:
 - **FAQ.** `<details>` rows (`.landing-faq*`), no Alpine. The questions and answers live in
   `dashboard/landing.py`, which the `FAQPage` JSON-LD repeats.
 - **Actions.** `.landing-button--primary` is the teal `accent`; `.btn-primary` stays white on legacy pages.
-- **Logo.** The nav keeps `accounts/img/logo.svg`, as the sign-in pages do, not the app shell's `brand-mark`.
+- **Logo.** The nav keeps `accounts/img/logo.svg`, as the sign-in pages do: the violet tile with the white D
+  (`daiv-mark` icon) that the app shell's `brand-mark` draws, beside the wordmark.
 
 ### Guide fold
 

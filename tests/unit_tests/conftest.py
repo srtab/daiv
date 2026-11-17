@@ -490,7 +490,11 @@ def _clear_site_settings_overrides():
 
     site_settings.__dict__.clear()
     yield
-    site_settings.__dict__.clear()
+    # Note: no teardown clear — the setup clear at the start of the next test
+    # removes any leaked attributes. A teardown clear here ran before
+    # ``monkeypatch.undo()`` in newer pytest/plugin versions, causing the
+    # ``delattr`` in undo to fail with ``AttributeError`` because the key
+    # was already gone. The setup clear is sufficient for isolation.
 
 
 @pytest.fixture(autouse=True)

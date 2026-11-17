@@ -407,7 +407,7 @@ class _Take:
         """The environment the newest follow-up job among ``taken`` was submitted with, while ``user`` still sees it.
         Else the session's, unless it is a USER environment ``user`` does not own: a run for another person, or for no
         one, never gets the owner's secrets. Then the one the repository resolves to for ``user``."""
-        visible = SandboxEnvironment.objects.visible_to(user)  # ty: ignore[unresolved-attribute]
+        visible = SandboxEnvironment.objects.visible_to(user)  # ty: ignore[missing-attribute]
         asked = [
             event.payload["sandbox_environment_id"]
             for event in taken

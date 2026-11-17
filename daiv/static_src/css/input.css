@@ -356,7 +356,7 @@
   }
 
   .brand-mark {
-    @apply inline-block h-6 w-6 shrink-0 rounded-md bg-brand;
+    @apply inline-grid h-6 w-6 shrink-0 place-items-center rounded-md bg-brand text-text-strong;
   }
 
   .brand-wordmark {
