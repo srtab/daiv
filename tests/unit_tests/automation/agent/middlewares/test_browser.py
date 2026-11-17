@@ -11,11 +11,13 @@ from stagehand_middleware.facade import StagehandFacadeExecutionError, Stagehand
 
 from automation.agent.middlewares.browser import (
     FAILED_TEXT,
+    MAX_SCREENSHOT_BYTES,
     TIMED_OUT_TEXT,
     UNTRUSTED_CONTENT,
     BrowserMiddleware,
     refused_navigation_note,
 )
+from automation.agent.middlewares.summarization import MAX_IMAGES_BEFORE_COMPACTION
 from automation.agent.workspace.browser import BrowserError
 
 if TYPE_CHECKING:
@@ -210,6 +212,21 @@ async def test_a_screenshot_over_3000_px_on_a_side_says_to_capture_the_viewport(
     assert "px). Use fullPage: false." in message.content
 
 
+def test_the_screenshots_held_before_compaction_fit_in_one_request():
+    """Anthropic's request limit is 128 MB; raising the compaction window must not outgrow it."""
+    assert MAX_IMAGES_BEFORE_COMPACTION * MAX_SCREENSHOT_BYTES < 128 * 10**6
+
+
+async def test_only_the_header_is_decoded_to_read_the_side(tools, browser):
+    image = _png(1280, 3001, padding=2**16)
+    image["data"] += "*"
+    browser.facade.screenshot.return_value = image
+
+    message = await _call(tools["browser_screenshot"], fullPage=True)
+
+    assert message.content == "error: The page is too large to capture whole (1280×3001 px). Use fullPage: false."
+
+
 async def test_a_page_too_tall_to_capture_is_not_retaken(tools, browser):
     browser.facade.screenshot.return_value = _png(1280, 3001, padding=2**21)
 
@@ -342,3 +359,4 @@ def test_the_deferred_index_builds_every_schema_with_its_refs_inlined(tools):
         assert entry.openai_schema is not None
         assert entry.anthropic_definition is not None
         assert "$ref" not in json.dumps(entry.openai_schema)
+        assert "$ref" not in json.dumps(entry.anthropic_definition)

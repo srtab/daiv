@@ -62,7 +62,7 @@ uv run pytest tests/unit_tests/automation/agent/workspace/test_browser.py \
 | Run ends: success, failure, cancel, `RunStoppedError` | US4-3, FR-009 | `stop_browser` before `close_session`; the artifact directory removed; `arelease` swallows and logs a client error |
 | Specs differing only in `browser` | FR-017a | equal fingerprints; no `ENV_CHANGED` |
 | `merge_sandbox_spec` with and without a per-run environment | R10 | `browser` from the per-run environment, else the global default |
-| A screenshot over 5 MiB | R13 | one JPEG retake, then the too-large error |
+| A screenshot over 1 MiB, or over 3000 px on a side | R13 | one JPEG retake, then the too-large error; a side over 3000 px gets no retake |
 | A model profile with `image_tool_message: False` | FR-021 | the request's image blocks are replaced with the note; the stored history is unchanged; the media is still stored |
 | First model request, browser off and on | SC-006 | the system prompts differ only by the three index lines, under 2% of the input |
 | Transcript labels | FR-019 | server and JS keys match; the `browser` icon is in `TRANSCRIPT_ICONS` with its SVG |

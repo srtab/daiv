@@ -74,15 +74,18 @@ They carry a fixed text, never exception text, a service URL or a key.
 | Start failed (2nd time), and every call after it | `error: The browser is unavailable for this run.` |
 | The connection was lost during the call | `error: The browser stopped (<reason>). The next browser call restarts it from this session's last saved profile.` |
 | A facade error (stale id, timeout, bad code, a 10 MiB return) | Stagehand's own `ToolException` text |
-| A screenshot over 5 MiB of base64 after the JPEG retry, or over 8000 px on a side | `error: The page is too large to capture whole (<n> MiB). Use fullPage: false.`, or `(<w>×<h> px)` for the side |
+| A screenshot over 1 MiB of base64 after the JPEG retry, or over 3000 px on a side | `error: The page is too large to capture whole (<n> MiB). Use fullPage: false.`, or `(<w>×<h> px)` for the side |
 
 What is logged at ERROR: a start failure, an unexpected restart failure, and a release failure. A connection loss is logged at WARNING, and with the OOM flag at ERROR, because an operator may need to raise the limit.
 
 ## Screenshot size rule (R13)
 
 1. Capture as asked.
-2. If the base64 image is over 5 MiB, recapture once as `jpeg` at quality 60. A note pending from a restart during the retake is kept.
-3. If it is still over 5 MiB, or a side read from the PNG or JPEG header is over 8000 px, return the error above. These are Anthropic's limits for one image, and an image the provider rejects stays in the thread and fails every later call.
+2. If a side read from the PNG or JPEG header is over 3000 px, return the error above without a retake.
+3. If the base64 image is over 1 MiB, recapture once as `jpeg` at quality 60, unless it already is a JPEG at quality 60 or lower. A note pending from a restart during the retake is kept.
+4. If it is still over 1 MiB, return the error above.
+
+3000 px is Anthropic's limit for a side once a request holds over 20 images. At 1 MiB each, the screenshots a conversation holds before compaction (`MAX_IMAGES_BEFORE_COMPACTION`) stay under its 128 MB request limit. An image the provider rejects stays in the thread and fails every later call.
 
 The returned block reaches `ToolMediaMiddleware` unchanged.
 

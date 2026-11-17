@@ -2358,16 +2358,20 @@ class TestBrowserRelease:
 
         return patch.object(SandboxBrowser, "arelease", autospec=True, side_effect=_release)
 
+    @staticmethod
+    def _record_close(client: FakeSandboxClient, events: list[str]) -> None:
+        close_session = client.close_session
+
+        async def _recorded_close(sid, *, force=False):
+            events.append(f"closed {sid}")
+            await close_session(sid, force=force)
+
+        client.close_session = _recorded_close
+
     async def test_a_finished_run_releases_the_browser_before_the_sandbox(self):
         client, stack_cm = self._browser_run()
         with stack_cm as stack, self._record_release(stack.events):
-            close_session = client.close_session
-
-            async def _recorded_close(sid, *, force=False):
-                stack.events.append(f"closed {sid}")
-                await close_session(sid, force=force)
-
-            client.close_session = _recorded_close
+            self._record_close(client, stack.events)
             await execute_run(make_spec())
 
         assert stack.events.index("browser released stop=True") < stack.events.index("closed sess-1")
@@ -2388,9 +2392,10 @@ class TestBrowserRelease:
         client, stack_cm = self._browser_run()
         with stack_cm as stack, self._record_release(stack.events), pytest.raises(type(error)):
             stack.create_agent.return_value.ainvoke = AsyncMock(side_effect=error)
+            self._record_close(client, stack.events)
             await execute_run(make_spec())
 
-        assert "browser released stop=True" in stack.events
+        assert stack.events.index("browser released stop=True") < stack.events.index("closed sess-1")
         assert client.calls_to("close_session") == [("sess-1", True)]
 
     @pytest.mark.django_db(transaction=True)
@@ -2413,12 +2418,12 @@ class TestBrowserRelease:
             pytest.raises(RunStoppedError),
         ):
             stack.create_agent.return_value.ainvoke = AsyncMock(side_effect=_invoke)
+            self._record_close(client, stack.events)
             await execute_run(
                 make_spec(thread_id=thread_id, lock=Wait(holder_id="run-1", timeout_s=1)), should_stop=_should_stop
             )
 
-        assert "browser released stop=True" in stack.events
-        assert client.calls_to("close_session")
+        assert stack.events.index("browser released stop=True") < stack.events.index("closed sess-1")
 
     async def test_a_cancelled_browser_release_still_releases_the_sandbox_after_it(self):
         client, stack_cm = self._browser_run()
@@ -2427,13 +2432,7 @@ class TestBrowserRelease:
             self._record_release(stack.events, error=asyncio.CancelledError()),
             pytest.raises(asyncio.CancelledError),
         ):
-            close_session = client.close_session
-
-            async def _recorded_close(sid, *, force=False):
-                stack.events.append(f"closed {sid}")
-                await close_session(sid, force=force)
-
-            client.close_session = _recorded_close
+            self._record_close(client, stack.events)
             await execute_run(make_spec())
 
         assert stack.events.index("browser released stop=True") < stack.events.index("closed sess-1")

@@ -90,12 +90,12 @@ def merge_sandbox_spec(*, per_run: SandboxEnvOverride | None, global_default: Sa
         base_image=pick("base_image", None),
         memory_bytes=pick("memory_bytes", None),
         cpus=pick("cpus", None),
-        # Network is explicit per env (no inherit): take the effective env's egress as-is. A per-run env
-        # that is Off (egress=None) must NOT inherit the global default's policy, so this is not pick().
+        env_vars={**(global_default.env_vars if global_default else {}), **(per_run.env_vars if per_run else {})},
+        # Network and browser are explicit per env (no inherit): a per-run env with either Off must NOT inherit
+        # the global default's, so these are not pick().
         egress=(
             per_run.egress if per_run is not None else (global_default.egress if global_default is not None else None)
         ),
-        env_vars={**(global_default.env_vars if global_default else {}), **(per_run.env_vars if per_run else {})},
         browser=bool(
             per_run.browser if per_run is not None else (global_default.browser if global_default is not None else None)
         ),

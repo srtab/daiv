@@ -285,7 +285,7 @@ class DAIVSandboxClient:
         """Start the session's browser container, creating it on the first call; idempotent while it runs.
 
         ``extension_archive`` may be omitted once the service holds an archive with the same digest; it answers
-        409 when it holds none.
+        412 when it holds none.
         """
         files: dict[str, tuple[str | None, bytes, str]] = {
             "request": (None, request.model_dump_json().encode(), "application/json")

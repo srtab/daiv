@@ -234,8 +234,9 @@ No result carries a DAIV exception, a URL with the service's address, or the API
 
 **Decision**:
 - `browser_screenshot` defaults to the viewport as PNG.
-- When the decoded image is over 5 MiB, DAIV retakes it once as JPEG at quality 60. Anthropic rejects images over 5 MB, and the run media store keeps up to 10 MiB.
-- If it is still over 5 MiB, the result says the page is too large to capture whole, and to use `fullPage: false`.
+- A screenshot over 3000 px on a side is refused without a retake: that is Anthropic's limit once a request holds over 20 images.
+- When the base64 image is over 1 MiB, DAIV retakes it once as JPEG at quality 60, unless it already is a JPEG at quality 60 or lower. At 1 MiB, the screenshots held before compaction stay under Anthropic's 128 MB request limit.
+- If it is still over 1 MiB, the result says the page is too large to capture whole, and to use `fullPage: false`.
 - `ToolMediaMiddleware` stores the image unchanged, under the existing per-file and per-run limits (FR-018).
 
 ## R14. Models that cannot read images
