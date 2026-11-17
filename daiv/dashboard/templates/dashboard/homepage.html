@@ -16,6 +16,7 @@
   "license": "https://github.com/srtab/daiv/blob/main/LICENSE",
   "url": "https://github.com/srtab/daiv",
   "codeRepository": "https://github.com/srtab/daiv",
+  "sameAs": [{% for link in social_links %}"{{ link.url|escapejs }}"{% if not forloop.last %}, {% endif %}{% endfor %}],
   "offers": {
     "@type": "Offer",
     "price": "0",

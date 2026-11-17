@@ -78,6 +78,16 @@ class TestHomepage:
         for faq in landing.FAQS:
             assert faq.answer in content
 
+    def test_footer_links_the_social_accounts_the_json_ld_names(self):
+        content = Client().get(reverse("homepage")).content.decode()
+
+        footer = BeautifulSoup(content, "html.parser").select_one("footer.landing-footer")
+        for link in landing.SOCIAL_LINKS:
+            assert "me" in footer.find("a", href=link.url)["rel"]
+        blocks = re.findall(r'<script type="application/ld\+json">(.*?)</script>', content, re.DOTALL)
+        app = next(data for data in map(json.loads, blocks) if data["@type"] == "SoftwareApplication")
+        assert app["sameAs"] == [link.url for link in landing.SOCIAL_LINKS]
+
     def test_hero_deploy_link_is_the_quickstart(self):
         content = Client().get(reverse("homepage")).content.decode()
 
