@@ -182,7 +182,7 @@ The sidebar has two tabs, and your browser remembers the tab and which sections 
     - **Repositories** (**Repository** for a lone one): a card per repository.
     - **Environment**: the **Sandbox** and the **Model**.
     - **Context** and **Spend**: how full the model's context window is, and what the session has cost.
-    - **Outputs**: the artifacts the session published, once there are any.
+    - **Outputs**: the artifacts the session published and the screenshots the agent took for you, once there are any.
 - **Info**: status, who started the session, its owner, the number of runs, when it was created and its **Session ID** (with a copy button). On a session that delegated work, it also lists the **Delegated jobs** of each batch ([Seeing the batch](orchestration.md#seeing-the-batch) describes them).
 
 A repository card shows:
@@ -205,11 +205,13 @@ When the agent commits changes, DAIV creates or updates a merge request on the s
 
 ### Images and files in tool results
 
-When a tool hands the agent an image or a file (a screenshot from the agent's [browser](browser.md) or an MCP browser tool, or an image, PDF, audio or video file the agent opened with `read_file`), the tool's row in the transcript shows it under **Attached**, both while the run streams and after a reload.
+When a tool hands the agent an image or a file (a screenshot from the agent's [browser](browser.md) or an MCP browser tool, or an image, PDF, audio or video file the agent opened with `read_file`), the tool's row in the transcript shows it under **Attached** when you open the row, both while the run streams and after a reload.
 
-- Images show as thumbnails that open full size in a new tab.
+- Images show as thumbnails that open full size in a new tab. Up to three of them also show on the row while it is closed, with a count of the rest.
 - PDFs, audio and video show as a chip with their size, which downloads the file.
 - An image an MCP server only gives as a link to another site shows as a link, so viewing the transcript loads nothing from that site.
+
+A screenshot the agent's browser takes for you, because you asked to see the page or the agent's reply points to it as evidence, also shows under the reply once the run finishes, with **Open** and **Download**, and in the session's **Outputs** as **Screenshot 1**, **Screenshot 2** and so on. The agent's other screenshots, which it takes to check the page itself, stay on their rows.
 
 Anyone who can see the session can open these files, as they can read the rest of its transcript: its owner, people who can read its repository, and admins. That includes screenshots from MCP servers a person connected with their own account, so a screenshot of a page they were signed in to is visible to everyone who can see the session.
 
