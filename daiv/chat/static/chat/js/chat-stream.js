@@ -288,11 +288,12 @@
     return [];
   };
 
-  // One walk for two outputs. `files`: every file the agent has written, most-recent first, as
-  // { path, op, fromPath?, segmentId }. `artifacts`: the last publish result per artifact id, what its URL serves now.
+  // One walk for three outputs. `files`: each file written, most-recent first ({ path, op, fromPath?, segmentId }).
+  // `artifacts`: the last publish result per artifact id. `screenshots`: kept images shown to the user ({ url, segmentId }).
   const collectOutputs = (turns) => {
     const files = new Map();
     const artifacts = new Map();
+    const screenshots = [];
     const record = (path, op, seg, extra = {}) => {
       if (!path) return;
       files.set(path, { path, op, segmentId: `tool-${seg.id}`, ...extra });
@@ -301,6 +302,9 @@
       if (t.role === "run_status") continue;
       for (const seg of t.segments ?? []) {
         if (seg.type !== "tool_call") continue;
+        for (const url of window.shownMedia(seg).map(window.storedImageUrl).filter(Boolean)) {
+          screenshots.push({ url, segmentId: `tool-${seg.id}` });
+        }
         if (seg.name === "publish_artifact") {
           const payload = artifactPayload(seg);
           if (payload?.id) artifacts.set(payload.id, payload);
@@ -314,7 +318,7 @@
         }
       }
     }
-    return { files: [...files.values()].reverse(), artifacts: [...artifacts.values()] };
+    return { files: [...files.values()].reverse(), artifacts: [...artifacts.values()], screenshots };
   };
 
   // Whether a freshly derived list still says what the published one does, by the fields a
@@ -325,6 +329,7 @@
   const TODO_FIELDS = ["content", "status"];
   const FILE_FIELDS = ["path", "op", "fromPath", "segmentId"];
   const ARTIFACT_FIELDS = ["id", "status", "title", "filename", "kind", "size", "url", "download_url"];
+  const SCREENSHOT_FIELDS = ["url", "segmentId"];
 
   const sameDrawer = (a, b) =>
     a === b ||
@@ -341,6 +346,7 @@
   let publishedFiles = [];
   let publishedArtifacts = [];
   let publishedArtifactsById = new Map();
+  let publishedScreenshots = [];
   let publishedBlocks = [];
   let publishedGroupKey = null;
   let publishedDrawer = null;
@@ -435,6 +441,7 @@
     // The drawer's bar, or ``null`` when it has nothing to show; derived by its own effect in `init()`.
     progressDrawer: null,
     latestArtifactsById: new Map(),
+    shownScreenshots: [],
     runBlocks: [],
     currentGroupKey: null,
     // User-toggled open state by block/group/step key, kept outside `runBlocks` so a re-derive never resets it.
@@ -806,9 +813,12 @@
       const mcpRows = this.mcpCatalog;
       this._deriveTranscript = window.Alpine.effect(() => {
         const todos = findLatestTodos(this.turns);
-        const { files, artifacts } = collectOutputs(this.turns);
+        const { files, artifacts, screenshots } = collectOutputs(this.turns);
         if (!sameList(todos, publishedTodos, TODO_FIELDS)) this.latestTodos = publishedTodos = todos;
         if (!sameList(files, publishedFiles, FILE_FIELDS)) this.filesTouched = publishedFiles = files;
+        if (!sameList(screenshots, publishedScreenshots, SCREENSHOT_FIELDS)) {
+          this.shownScreenshots = publishedScreenshots = screenshots;
+        }
         if (!sameList(artifacts, publishedArtifacts, ARTIFACT_FIELDS)) {
           publishedArtifacts = artifacts;
           publishedArtifactsById = new Map(artifacts.map((a) => [a.id, a]));

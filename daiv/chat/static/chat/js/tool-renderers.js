@@ -2066,6 +2066,7 @@
 
   const storedImageUrl = (item) =>
     item?.kind === "image" && !item.error && !item.external ? safeMediaUrl(String(item.url ?? "")) : null;
+  window.storedImageUrl = storedImageUrl;
 
   window.toolRowMediaHTML = (seg) => {
     const urls = (Array.isArray(seg?.media) ? seg.media : []).map(storedImageUrl).filter(Boolean);

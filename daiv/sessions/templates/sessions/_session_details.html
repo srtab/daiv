@@ -65,12 +65,15 @@ A column beside the transcript from 1100px, a bottom sheet below it. Must sit in
         </div>
       </section>
 
-      <section class="details-fold" id="session-details-outputs" x-show="latestArtifactsById.size" x-cloak>
-        {% include "sessions/_details_fold_head.html" with section="outputs" label=_("Outputs") summary_expr="latestArtifactsById.size" %}
+      <section class="details-fold" id="session-details-outputs" x-show="latestArtifactsById.size || shownScreenshots.length" x-cloak>
+        {% include "sessions/_details_fold_head.html" with section="outputs" label=_("Outputs") summary_expr="latestArtifactsById.size + shownScreenshots.length" %}
         <div class="details-fold__body" id="session-details-outputs-body" x-show="!isFolded('outputs')">
           <ul class="session-details__list">
             <template x-for="item in [...latestArtifactsById.values()]" :key="item.id">
               <li><a :href="item.url" x-text="item.title || item.filename" target="_blank" rel="noopener noreferrer"></a></li>
+            </template>
+            <template x-for="(shot, i) in shownScreenshots" :key="shot.url">
+              <li><a :href="shot.url" x-text="`${TranscriptLabels.t('media_screenshot')} ${i + 1}`" target="_blank" rel="noopener noreferrer"></a></li>
             </template>
           </ul>
         </div>
