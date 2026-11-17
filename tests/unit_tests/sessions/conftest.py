@@ -34,7 +34,7 @@ from core.site_settings import site_settings
 from tests.unit_tests.conftest import site_snapshot
 
 if TYPE_CHECKING:
-    from datetime import datetime
+    from datetime import datetime, timedelta
 
 
 def grant_read_access(user, repo_id: str) -> None:
@@ -82,7 +82,14 @@ def commit_revision(loaded: RunArtifact, content: bytes) -> str:
 
 
 def make_task_result(
-    *, status="SUCCESSFUL", return_value=None, started_at=None, finished_at=None, exception_class_path="", traceback=""
+    *,
+    status="SUCCESSFUL",
+    return_value=None,
+    started_at=None,
+    finished_at=None,
+    exception_class_path="",
+    traceback="",
+    worker_ids=(),
 ) -> DBTaskResult:
     """SYNC ONLY: a ``run_job_task`` DBTaskResult row."""
     return DBTaskResult.objects.create(
@@ -98,7 +105,19 @@ def make_task_result(
         finished_at=finished_at,
         exception_class_path=exception_class_path,
         traceback=traceback,
+        worker_ids=list(worker_ids),
     )
+
+
+def hold_slot(run: Run, *, silent_for: timedelta, holder: str | None = None) -> str:
+    """SYNC ONLY: back ``run`` with a task running on a worker that is gone and give its session's slot to ``holder``
+    (the run itself by default), last heartbeated ``silent_for`` ago. Returns the worker's id."""
+    worker_id = str(uuid.uuid4())
+    Run.objects.filter(pk=run.pk).update(task_result=make_task_result(status="RUNNING", worker_ids=[worker_id]))
+    Session.objects.filter(pk=run.session_id).update(
+        active_run_id=holder or str(run.pk), last_active_at=timezone.now() - silent_for
+    )
+    return worker_id
 
 
 @pytest.fixture

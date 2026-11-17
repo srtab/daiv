@@ -72,6 +72,7 @@ def _run(
     started_at=None,
     finished_at=None,
     is_cancelled=False,
+    is_interrupted=False,
     publish_status="",
     publish_error="",
     files_changed=None,
@@ -95,6 +96,7 @@ def _run(
         started_at=started_at,
         finished_at=finished_at,
         is_cancelled=is_cancelled,
+        is_interrupted=is_interrupted,
         publish_status=publish_status,
         publish_error=publish_error,
         files_changed=files_changed,
@@ -342,7 +344,15 @@ def test_interrupted_run_renders_aborted_marker():
 @pytest.mark.parametrize("trigger_type", [SessionOrigin.PIPELINE_WEBHOOK, SessionOrigin.API_JOB])
 def test_a_background_run_a_worker_shutdown_interrupted_renders_aborted_marker(trigger_type):
     turns = [_user("h1"), _assistant("a1")]
-    runs = [_run("r1", trigger_type=trigger_type, status=RunStatus.FAILED, error_message=INTERRUPTED_MESSAGE)]
+    runs = [
+        _run(
+            "r1",
+            trigger_type=trigger_type,
+            status=RunStatus.FAILED,
+            error_message=INTERRUPTED_MESSAGE,
+            is_interrupted=True,
+        )
+    ]
     marker = annotate_transcript(turns, runs)[-1]
     assert (marker["status"], marker["message"]) == ("aborted", INTERRUPTED_MESSAGE)
 

@@ -51,7 +51,7 @@ from asgiref.sync import sync_to_async
 
 from codebase.base import GitPlatform
 from core import ui_events
-from core.constants import BOT_NAME, INTERRUPTED_MESSAGE
+from core.constants import BOT_NAME
 from sessions.executor.lock import SessionLock, stale_cutoff
 from sessions.inbox.drain import Drain
 from sessions.inbox.leg_follow_ups import LegFollowUps
@@ -139,8 +139,8 @@ class RunEnd:
         elif run.status == RunStatus.FAILED and run.cancel_requested_at is not None:
             if taken.update(state=EventState.DISMISSED, updated_at=timezone.now()):
                 session_changed(run.session_id)
-        elif run.status == RunStatus.FAILED and run.task_result_id and run.error_message == INTERRUPTED_MESSAGE:
-            # Its worker shut down (``execute_run``), which is no attempt at the events: they go back as they were.
+        elif run.is_interrupted:
+            # A restart is no attempt at the events, so they go back without spending one.
             if taken.update(state=EventState.PENDING, run=None, claim_token="", updated_at=timezone.now()):
                 session_changed(run.session_id)
         elif run.status == RunStatus.FAILED:
