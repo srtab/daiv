@@ -1709,6 +1709,35 @@ def test_a_backslash_path_is_not_treated_as_same_origin():
     assert "evil.test" not in html
 
 
+def _row_media(seg: dict) -> str:
+    return run_transcript("toolRowMediaHTML(vars.seg)", {"seg": seg}, blocks=False, labels={"icons": MEDIA_ICONS})
+
+
+def _with_media(media: list[dict]) -> dict:
+    return tool_call("c1", "browser_screenshot", {}, result="") | {"media": media}
+
+
+def test_a_row_shows_up_to_three_image_thumbnails_and_counts_the_rest():
+    images = [STORED_IMAGE | {"url": f"/dashboard/sessions/t1/tool-media/i{n}/"} for n in range(5)]
+
+    html = _row_media(_with_media(images))
+
+    assert html.count('<img class="step-row__thumb"') == 3
+    assert 'href="/dashboard/sessions/t1/tool-media/i0/" target="_blank" rel="noopener noreferrer"' in html
+    assert "i3/" not in html and '<span class="step-row__more">+2</span>' in html
+
+
+def test_a_row_thumbnail_leaves_out_links_errors_and_files():
+    external = {"kind": "image", "mime_type": "image/png", "url": "https://x.test/a.png", "external": True}
+    missing = {"kind": "image", "mime_type": "image/png", "error": "too_large"}
+
+    assert _row_media(_with_media([external, missing, STORED_PDF])) == ""
+
+
+def test_a_row_without_media_has_no_thumbnails():
+    assert _row_media(tool_call("c1", "read_file", {"file_path": "/workspace/repo/a"}, result="x")) == ""
+
+
 @pytest.mark.parametrize(
     ("name", "args", "phrase", "live"),
     [

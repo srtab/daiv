@@ -24,6 +24,9 @@
       <span class="step-row__badge" :class="`step-row__badge--${badge.tone}`" x-text="badge.text"></span>
     </template>
     {% icon "chevron-right" "chat-chev chat-chev--right step-row__chev h-3.5 w-3.5" %}
+    <span class="step-row__media"
+          x-show="!isOpen(step.key)"
+          x-html="toolRowMediaHTML(step.seg)"></span>
   </summary>
   <template x-if="isOpen(step.key)">
     <div class="step-row__body"

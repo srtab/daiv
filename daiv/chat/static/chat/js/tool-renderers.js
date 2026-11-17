@@ -2062,6 +2062,23 @@
     return section("body_media", `<div class="body-media">${media.map(mediaItemHTML).join("")}</div>`);
   };
 
+  const ROW_THUMBS = 3;
+
+  const storedImageUrl = (item) =>
+    item?.kind === "image" && !item.error && !item.external ? safeMediaUrl(String(item.url ?? "")) : null;
+
+  window.toolRowMediaHTML = (seg) => {
+    const urls = (Array.isArray(seg?.media) ? seg.media : []).map(storedImageUrl).filter(Boolean);
+    if (!urls.length) return "";
+    const label = t("media_image");
+    const thumbs = urls.slice(0, ROW_THUMBS).map((url, i) => {
+      const img = `<img class="step-row__thumb" src="${escapeAttr(url)}" alt="${escapeAttr(`${label} ${i + 1}`)}" loading="lazy">`;
+      return newTabLink(url, "step-row__thumb-link", img);
+    });
+    const rest = urls.length - ROW_THUMBS;
+    return thumbs.join("") + (rest > 0 ? `<span class="step-row__more">+${rest}</span>` : "");
+  };
+
   window.toolBodyHTML = (seg, ctx) => {
     if (!seg) return "";
     const name = String(seg.name ?? "");
