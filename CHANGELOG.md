@@ -42,6 +42,7 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 - Move the documentation to [docs.daivagent.com](https://docs.daivagent.com/) ([#1826](https://github.com/srtab/daiv/pull/1826))
 - Run the explore subagent at the run's thinking level instead of without thinking ([#1835](https://github.com/srtab/daiv/pull/1835))
 - Show DAIV's mark, a white D on a violet tile, in the logo, favicon, app icons and sidebar ([#1840](https://github.com/srtab/daiv/pull/1840))
+- Link DAIV's accounts on X, Bluesky, LinkedIn, Mastodon and YouTube from the homepage footer ([#1841](https://github.com/srtab/daiv/pull/1841))
 
 ### Added
 
