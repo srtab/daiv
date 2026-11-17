@@ -97,17 +97,13 @@ async def execute_run(
     try:
         async with _hold_slot(spec) as holder_id:
             entered = True
-            return await _run_in_slot(spec, hooks, holder_id, partial(_stop_requested, should_stop))
+            return await _run_in_slot(spec, hooks, holder_id, should_stop)
     except Exception as exc:
         if not entered:
             await _notify_failure(hooks, exc)
         if isinstance(exc, RunStoppedError) and spec.run_id and worker_shutdown.requested():
             await _afinish_interrupted(spec.run_id)
         raise
-
-
-async def _stop_requested(should_stop: Callable[[], Awaitable[bool]] | None) -> bool:
-    return worker_shutdown.requested() or (should_stop is not None and await should_stop())
 
 
 async def _afinish_interrupted(run_id: str) -> None:
@@ -211,7 +207,7 @@ async def _supervised(
 
 
 async def _run_in_slot(
-    spec: RunSpec, hooks: RunHooks, holder_id: str | None, should_stop: Callable[[], Awaitable[bool]]
+    spec: RunSpec, hooks: RunHooks, holder_id: str | None, should_stop: Callable[[], Awaitable[bool]] | None
 ) -> RunOutcome:
     recovery = _Recovery()
     async with _live_relay(spec, holder_id) as run_relay:
@@ -229,20 +225,25 @@ async def _run_in_slot(
 async def _until_stopped(
     invoke: Callable[[], Coroutine[Any, Any, RunOutcome]],
     thread_id: str | None,
-    should_stop: Callable[[], Awaitable[bool]],
+    should_stop: Callable[[], Awaitable[bool]] | None,
 ) -> RunOutcome:
-    """Run ``invoke`` unless ``should_stop`` asks to stop first, asking again every ``STOP_POLL_INTERVAL_S``.
+    """Run ``invoke`` unless the worker's shutdown or ``should_stop`` asks to stop first, asking again every
+    ``STOP_POLL_INTERVAL_S``.
 
     A stop request raises ``RunStoppedError``, after cancelling the invocation and waiting for it to close the run's
     context if it had started; an invocation that ends while ``should_stop`` is asked keeps its outcome.
     """
-    if await should_stop():
+
+    async def stop_requested() -> bool:
+        return worker_shutdown.requested() or (should_stop is not None and await should_stop())
+
+    if await stop_requested():
         raise RunStoppedError(f"run for thread_id={thread_id} was asked to stop before it started")
     task = asyncio.ensure_future(invoke())
     try:
         while not task.done():
             await asyncio.wait({task}, timeout=STOP_POLL_INTERVAL_S)
-            if not task.done() and await should_stop() and not task.done():
+            if not task.done() and await stop_requested() and not task.done():
                 raise RunStoppedError(f"run for thread_id={thread_id} was asked to stop")
         return task.result()
     finally:

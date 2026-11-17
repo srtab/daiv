@@ -1694,20 +1694,16 @@ async def test_cancel_ends_a_background_run_whose_worker_stopped_heartbeating(
 
     from asgiref.sync import sync_to_async
 
-    from tests.unit_tests.sessions.conftest import make_task_result
+    from tests.unit_tests.sessions.conftest import hold_slot
 
     _, raw, user = authed
     session = await Session.objects.acreate(
         origin=SessionOrigin.CHAT, thread_id="t-dead", user=user, repo_id="a/b", ref="main"
     )
-    task = await sync_to_async(make_task_result)(status="RUNNING")
     run = await Run.objects.acreate(
-        session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id="a/b", status=RunStatus.RUNNING,
-        task_result=task,
-    )  # fmt: skip
-    await Session.objects.filter(pk="t-dead").aupdate(
-        active_run_id=str(run.pk), last_active_at=timezone.now() - timedelta(minutes=10)
+        session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id="a/b", status=RunStatus.RUNNING
     )
+    await sync_to_async(hold_slot)(run, silent_for=timedelta(minutes=10))
 
     response = await client.post(
         "/chat/cancel", json={"thread_id": "t-dead", "run_id": str(run.pk)}, headers=_auth_headers(raw)

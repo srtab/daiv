@@ -35,8 +35,9 @@ step sits where it does:
    they come. Between its events, at
    most every ``run.STREAM_HEARTBEAT_INTERVAL_S``, a stream heartbeats its slot and asks ``should_stop``: a slot a stale
    takeover reassigned raises ``lock.SessionLockLostError``, a stop request ``run.RunStoppedError``, and either one
-   closes the stream (the trigger's generator), abandoning the graph run inside it. An invoke given ``should_stop`` asks
-   it once the slot is held, before step 2, and then every ``run.STOP_POLL_INTERVAL_S``: a stop request skips steps
+   closes the stream (the trigger's generator), abandoning the graph run inside it. An invoke asks ``should_stop``, if
+   given, and whether its worker is shutting down (``core.worker_shutdown``, which also ends a ``Wait`` for the slot)
+   once the slot is held, before step 2, and then every ``run.STOP_POLL_INTERVAL_S``: a stop request skips steps
    2-6, or cancels them in flight, which close as they do for a cancelled stream, and raises ``run.RunStoppedError``
    for step 7, with no draft recovery; an invoke that ends while it asks keeps its outcome. If the agent or its stream
    raises (a lost slot or a stop request included) and the spec asks for it (``recover_draft``), a draft merge request
