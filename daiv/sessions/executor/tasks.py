@@ -3,11 +3,14 @@ from functools import partial
 from typing import TYPE_CHECKING
 
 from django.tasks import task
+from django.utils import timezone
 
 from codebase.base import Scope
+from core import worker_shutdown
+from core.constants import INTERRUPTED_MESSAGE
 from sessions.executor.lock import Claimed, wait_for_slot
 from sessions.executor.spec import RunHooks, RunSpec
-from sessions.models import EventState, Run, Session
+from sessions.models import EventState, Run, RunStatus, Session
 
 if TYPE_CHECKING:
     from langchain_core.messages import BaseMessage
@@ -52,6 +55,8 @@ async def run_job_task(
     (``Claimed``), and takes its input from the events it took (``sessions.inbox.render``) rather than ``prompt``; one
     whose events were settled before its task started fails instead of running without a request. It acts as the
     run's user, whom ``sessions.inbox.drain`` chose, not the session's.
+    A shutdown of the worker (``core.worker_shutdown``) stops the run as a stop request does, and its ``Run`` ends
+    FAILED with ``INTERRUPTED_MESSAGE``, which the session's next run can continue from.
     Webhook callers (issue/review addressors) bypass this task; ``use_max`` is therefore
     not accepted here.
     """
@@ -94,6 +99,9 @@ async def run_job_task(
         lock, acting_user_id = wait_for_slot(run_id or f"job-{thread_id[:8]}"), user_id
 
     async def _log_failure(exc: Exception, *, draft_published: bool, snapshot: StateSnapshot | None) -> None:
+        if isinstance(exc, RunStoppedError) and worker_shutdown.requested():
+            logger.warning("Job interrupted by a worker shutdown for repo_id=%s, thread_id=%s", repo_id, thread_id)
+            return
         if isinstance(exc, RunStoppedError):
             logger.info("Job cancelled for repo_id=%s, thread_id=%s", repo_id, thread_id)
             return
@@ -101,35 +109,39 @@ async def run_job_task(
             "Job failed for repo_id=%s, ref=%s, agent_model=%s", repo_id, ref, agent_model or "<auto>", exc_info=exc
         )
 
-    outcome = await execute_run(
-        RunSpec(
-            thread_id=thread_id,
-            repo_id=repo_id,
-            scope=Scope.GLOBAL,
-            input_messages=input_messages,
-            input_factory=input_factory,
-            trigger="job",
-            lock=lock,
-            ref=ref,
-            # A request that follows the session falls back like a chat turn when its branch was deleted (merged).
-            fallback_ref_on_missing=(inbox and bool(ref) and ref == session_row.ref)
-            or await acontinues_multi_repo_session(thread_id, run_id),
-            agent_model=agent_model,
-            agent_thinking_level=agent_thinking_level,
-            sandbox_env_id=sandbox_environment_id,
-            acting_user_id=acting_user_id,
-            mcp_overrides=session_row.mcp_overrides,
-            references=session_row.external_references(),
-            run_id=run_id,
-            persist_ref=True,
-            arm_watch=True,
-            ask_user_enabled=ask_user_enabled,
-            agent_options={"fork_branch": fork_branch},
-            extra_metadata={"ref": ref, "override_source": "explicit" if agent_model else None},
-        ),
-        RunHooks(on_failure=_log_failure),
-        should_stop=partial(_acancel_requested, run_id) if run_id else None,
+    spec = RunSpec(
+        thread_id=thread_id,
+        repo_id=repo_id,
+        scope=Scope.GLOBAL,
+        input_messages=input_messages,
+        input_factory=input_factory,
+        trigger="job",
+        lock=lock,
+        ref=ref,
+        # A request that follows the session falls back like a chat turn when its branch was deleted (merged).
+        fallback_ref_on_missing=(inbox and bool(ref) and ref == session_row.ref)
+        or await acontinues_multi_repo_session(thread_id, run_id),
+        agent_model=agent_model,
+        agent_thinking_level=agent_thinking_level,
+        sandbox_env_id=sandbox_environment_id,
+        acting_user_id=acting_user_id,
+        mcp_overrides=session_row.mcp_overrides,
+        references=session_row.external_references(),
+        run_id=run_id,
+        persist_ref=True,
+        arm_watch=True,
+        ask_user_enabled=ask_user_enabled,
+        agent_options={"fork_branch": fork_branch},
+        extra_metadata={"ref": ref, "override_source": "explicit" if agent_model else None},
     )
+    try:
+        outcome = await execute_run(
+            spec, RunHooks(on_failure=_log_failure), should_stop=partial(_astop_requested, run_id)
+        )
+    except RunStoppedError:
+        if run_id and worker_shutdown.requested():
+            await _afinish_interrupted(run_id)
+        raise
 
     logger.info("Job completed for repo_id=%s, thread_id=%s", repo_id, thread_id)
     return outcome.agent_result
@@ -140,11 +152,27 @@ async def _ainbox_input(run: Run, run_input: RunInput, fast_forward: FastForward
     return run_input.render(run, fast_forward=fast_forward).messages
 
 
-async def _acancel_requested(run_id: str) -> bool:
-    """Whether the run was asked to stop; a failed read is logged and counts as not, so only a definitive request
-    stops a live run."""
+async def _astop_requested(run_id: str | None) -> bool:
+    """Whether the worker is shutting down or the run was asked to stop; a failed read is logged and counts as not, so
+    only a definitive request stops a live run."""
+    if worker_shutdown.requested():
+        return True
+    if not run_id:
+        return False
     try:
         return await Run.objects.acancel_requested(run_id)
     except Exception:
         logger.exception("Could not read whether run_id=%s was asked to stop", run_id)
         return False
+
+
+async def _afinish_interrupted(run_id: str) -> None:
+    """End the run a worker shutdown stopped as interrupted, so it neither reads as a failure nor waits for the
+    stuck-run sweep. A failure is logged, never raised over the stop."""
+    try:
+        if (run := await Run.objects.filter(pk=run_id).afirst()) is not None:
+            await Run.objects.afinish(
+                run, RunStatus.FAILED, error_message=INTERRUPTED_MESSAGE, finished_at=timezone.now()
+            )
+    except Exception:
+        logger.exception("Could not end run_id=%s as interrupted by the worker shutdown", run_id)

@@ -1,3 +1,4 @@
+import signal
 from unittest.mock import Mock
 
 from django.conf import settings
@@ -9,6 +10,59 @@ import pytest
 from pydantic import HttpUrl
 
 from core.conf import settings as core_settings
+
+
+class TestDbWorker:
+    def test_it_is_the_db_worker_command_django_admin_runs(self):
+        from django.core.management import get_commands
+
+        assert get_commands()["db_worker"] == "core"
+
+    def test_its_worker_tells_the_running_task_of_a_shutdown_and_still_finishes_it(self, worker_shutdown):
+        from core.management.commands.db_worker import Worker
+
+        worker = Worker(
+            queue_names=["*"],
+            interval=1,
+            batch=False,
+            backend_name="default",
+            startup_delay=False,
+            max_tasks=None,
+            worker_id="w",
+            excluded_queue_names=[],
+        )
+        worker.running_task = True
+
+        worker.shutdown(signal.SIGTERM, None)
+
+        assert worker_shutdown.requested()
+        assert worker.running is False
+
+    def test_the_command_runs_that_worker(self, monkeypatch):
+        from django_tasks_db.management.commands import db_worker as upstream
+
+        from core.management.commands.db_worker import Command, Worker
+
+        ran = Mock()
+        monkeypatch.setattr(Command, "configure_logging", Mock())
+        monkeypatch.setattr(Worker, "configure_signals", Mock())
+        monkeypatch.setattr(Worker, "run", lambda worker: ran(type(worker)))
+
+        Command().handle(
+            verbosity=1,
+            queue_name="*",
+            interval=1,
+            batch=True,
+            backend_name="default",
+            startup_delay=False,
+            reload=False,
+            max_tasks=None,
+            worker_id="w",
+            exclude_queues="",
+        )
+
+        ran.assert_called_once_with(Worker)
+        assert upstream.Worker is not Worker
 
 
 @pytest.mark.django_db

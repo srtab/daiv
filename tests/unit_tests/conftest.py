@@ -409,6 +409,15 @@ def write_skill(root: Path, name: str, description: str, files: dict[str, str] |
 
 
 @pytest.fixture
+def worker_shutdown():
+    """``core.worker_shutdown``, with any shutdown the test requests withdrawn after it."""
+    from core import worker_shutdown
+
+    yield worker_shutdown
+    worker_shutdown._requested.clear()
+
+
+@pytest.fixture
 def skill_roots(tmp_path, monkeypatch) -> tuple[Path, Path]:
     """Point the built-in and custom global skill roots at empty temp dirs."""
     builtin, custom = tmp_path / "builtin", tmp_path / "custom"

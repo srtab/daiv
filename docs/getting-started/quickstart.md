@@ -146,6 +146,7 @@ services:
   worker:
     <<: *background
     command: sh /home/daiv/start-worker # (3)!
+    stop_grace_period: 2m # (6)!
 
   scheduler:
     <<: *background
@@ -176,6 +177,7 @@ volumes:
 3.  One worker that serves every queue. [Deployment](deployment.md) splits agent runs and short interactive tasks across two.
 4.  Runs DAIV's periodic tasks, among them adding the webhook to your GitLab projects.
 5.  The sandbox starts a container for each agent run through the Docker socket.
+6.  Gives an agent run time to stop cleanly when the worker restarts, so it ends as interrupted instead of showing as running for about 30 minutes.
 
 ## Start DAIV
 
