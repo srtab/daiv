@@ -2,12 +2,15 @@ import annotationlib
 import asyncio
 import inspect
 import json
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage
+from sandbox_envs.models import SandboxEnvironment
+from sandbox_envs.services import build_sandbox_spec
 from sessions.executor.lock import NoLock
 from sessions.executor.spec import RunOutcome
 
@@ -34,6 +37,11 @@ def _outcome(**values) -> RunOutcome:
     return RunOutcome(agent_result={}, response_text="done", snapshot=SimpleNamespace(values=values))
 
 
+@asynccontextmanager
+async def _task_env(item):
+    yield f"env-{item['instance_id']}"
+
+
 async def _main(
     tmp_path, execute, items=(ITEM,), validate=None, models=("model-a", "model-b"), **options
 ) -> list[dict]:
@@ -41,6 +49,7 @@ async def _main(
         patch("datasets.load_dataset", return_value=list(items)),
         patch.object(swebench, "execute_run", execute),
         patch.object(swebench, "validate_agent_override", validate or MagicMock()),
+        patch.object(swebench, "task_sandbox_env", _task_env),
     ):
         await swebench.main("dataset", "test", str(tmp_path / "predictions.json"), list(models), **options)
     return _written(tmp_path)
@@ -78,6 +87,7 @@ async def test_each_instance_runs_as_a_one_shot_run_on_the_exact_model_chain(tmp
     assert spec.agent_options == {"auto_commit_changes": False, "capture_patch": True}
     assert (spec.web_search_enabled, spec.web_fetch_enabled) == (False, False)
     assert spec.extra_metadata == {"instance_id": "owner__repo-1"}
+    assert spec.sandbox_env_id == "env-owner__repo-1"
     [message] = spec.input_messages
     assert "Parsing an empty file crashes." in message.content
     assert "## Hints" not in message.content
@@ -195,7 +205,7 @@ async def test_a_cleanup_error_while_ctrl_c_unwinds_a_run_still_stops_the_eval(t
 
 
 def test_the_options_an_instance_runs_with_are_ones_the_clone_and_the_agent_accept():
-    spec = swebench._run_spec(ITEM, ["model-a"], "high")
+    spec = swebench._run_spec(ITEM, ["model-a"], "high", "env")
 
     agent_sig = inspect.signature(create_daiv_agent, annotation_format=annotationlib.Format.FORWARDREF)
     agent_sig.bind(settings=None, ctx=None, checkpointer=None, workspace=None, **spec.agent_options)
@@ -205,10 +215,50 @@ def test_the_options_an_instance_runs_with_are_ones_the_clone_and_the_agent_acce
 
 
 def test_each_instance_clones_through_a_client_of_its_own():
-    first = swebench._run_spec(ITEM, ["model-a"], "high").context_options["repo_client"]
-    second = swebench._run_spec(SECOND, ["model-a"], "high").context_options["repo_client"]
+    first = swebench._run_spec(ITEM, ["model-a"], "high", "env").context_options["repo_client"]
+    second = swebench._run_spec(SECOND, ["model-a"], "high", "env").context_options["repo_client"]
 
     assert first is not second
+
+
+@pytest.mark.parametrize(
+    ("named", "image"),
+    [
+        ({"image": "swebench/sweb.eval.x86_64.a_1776_b-1:latest"}, "swebench/sweb.eval.x86_64.a_1776_b-1:latest"),
+        ({"docker_image": "swerebench/sweb.eval.x86_64.c_1776_d-2:v1"}, "swerebench/sweb.eval.x86_64.c_1776_d-2:v1"),
+        ({"instance_id": "Owner__Repo-1"}, "swebench/sweb.eval.x86_64.owner_1776_repo-1:latest"),
+    ],
+    ids=["verified", "swe-rebench", "mini"],
+)
+def test_a_task_runs_in_the_image_its_dataset_names_or_the_harness_would_build(named, image):
+    assert swebench.task_image(ITEM | named) == image
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_task_runs_with_no_network_on_its_image_and_the_environment_is_removed_after():
+    item = ITEM | {"image": "swebench/sweb.eval.x86_64.owner_1776_repo-1:latest"}
+
+    async with swebench.task_sandbox_env(item) as env_id:
+        sandbox = await build_sandbox_spec(env_id)
+
+    assert sandbox.base_image == "swebench/sweb.eval.x86_64.owner_1776_repo-1:latest"
+    assert sandbox.egress is None
+    assert sandbox.env_vars["PYTHONPATH"] == "/workspace/repo"
+    assert sandbox.env_vars["PATH"].startswith("/opt/miniconda3/envs/testbed/bin:")
+    assert not await SandboxEnvironment.objects.filter(pk=env_id).aexists()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_two_evals_on_the_same_task_keep_their_own_environment_and_both_are_removed_even_when_a_run_raises():
+    with pytest.raises(RuntimeError):
+        async with swebench.task_sandbox_env(ITEM) as first:
+            async with swebench.task_sandbox_env(ITEM) as second:
+                pass
+            assert (await build_sandbox_spec(first)).base_image == swebench.task_image(ITEM)
+            raise RuntimeError("sandbox unavailable")
+
+    assert first != second
+    assert not await SandboxEnvironment.objects.filter(name__startswith="swebench ").aexists()
 
 
 def test_a_message_with_hints_includes_the_hints_section():

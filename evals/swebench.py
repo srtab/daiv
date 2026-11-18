@@ -1,9 +1,11 @@
 """Run DAIV on SWE-bench-format tasks and write predictions for the official SWE-bench harness.
 
-Each task runs offline through ``execute_run``, with no web tools, and its captured patch becomes one row of the
-predictions file. A run that raises predicts an empty patch, so it is graded unresolved; ``--retry-failed`` runs those
-tasks again. Every attempt, failed and interrupted ones included, appends its time, tokens and cost to
-``<predictions>.usage.jsonl``. A task already in the predictions file is skipped, so a rerun resumes.
+Each task runs through ``execute_run`` in its own SWE-bench image with no network, so the agent finds the task's
+dependencies installed and cannot fetch a later release or the upstream repository, which hold the fix. Its captured
+patch becomes one row of the predictions file. A run that raises predicts an empty patch, so it is graded
+unresolved; ``--retry-failed`` runs those tasks again. Every attempt, failed and interrupted ones included, appends
+its time, tokens and cost to ``<predictions>.usage.jsonl``. A task already in the predictions file is skipped, so a
+rerun resumes.
 """
 
 import argparse
@@ -12,7 +14,8 @@ import json
 import random
 import sys
 import traceback
-from contextlib import contextmanager
+import uuid
+from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from decimal import Decimal
 from pathlib import Path
@@ -31,6 +34,7 @@ from langchain_core.tracers.context import register_configure_hook
 if not apps.ready:
     django.setup()
 
+from sandbox_envs.models import SandboxEnvironment, Visibility  # noqa: E402
 from sessions.executor.lock import NoLock  # noqa: E402
 from sessions.executor.run import execute_run  # noqa: E402
 from sessions.executor.spec import RunOutcome, RunSpec  # noqa: E402
@@ -43,10 +47,16 @@ from core.constants import ModelName  # noqa: E402
 from evals.swe_client import SWERepoClient  # noqa: E402
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterable
+    from collections.abc import AsyncGenerator, Generator, Iterable
 
 DEFAULT_DATASET = "SWE-bench/SWE-bench_Verified"
 DEFAULT_THINKING_LEVEL = ThinkingLevel.HIGH.value
+TASK_ENV_VARS = {
+    "PATH": "/opt/miniconda3/envs/testbed/bin:/opt/miniconda3/bin:"
+    "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    "PYTHONPATH": "/workspace/repo",
+    "LANG": "C.UTF-8",
+}
 
 _run_usage: ContextVar[CostAwareUsageMetadataCallbackHandler | None] = ContextVar("swebench_run_usage", default=None)
 register_configure_hook(_run_usage, inheritable=True)
@@ -198,7 +208,8 @@ async def main(
         started = monotonic()
         with track_run_usage() as usage:
             try:
-                outcome = await _execute(_run_spec(item, model_names, thinking_level))
+                async with task_sandbox_env(item) as sandbox_env_id:
+                    outcome = await _execute(_run_spec(item, model_names, thinking_level, sandbox_env_id))
                 status = "finished"
             except asyncio.CancelledError:
                 status = "interrupted"
@@ -234,6 +245,34 @@ async def main(
             raise SystemExit(1)
 
 
+def task_image(item: dict) -> str:
+    """The task's SWE-bench image: Verified and SWE-rebench rows name it; the Mini's is derived the harness's way."""
+    if image := item.get("image") or item.get("docker_image"):
+        return image
+    return f"swebench/sweb.eval.x86_64.{item['instance_id'].replace('__', '_1776_')}:latest".lower()
+
+
+@asynccontextmanager
+async def task_sandbox_env(item: dict) -> AsyncGenerator[str]:
+    """A sandbox environment on the task's image, with no network, for the length of one run.
+
+    The image's ``testbed`` interpreter has the task's dependencies installed, and ``PYTHONPATH`` points it at the
+    agent's copy of the repository. The row is deleted after the run, so it never stays in the environment picker;
+    its name is unique, so evals running the same task at once each get their own.
+    """
+    env = await SandboxEnvironment.objects.acreate(
+        scope=Visibility.GLOBAL,
+        name=f"swebench {uuid.uuid4().hex[:8]} {item['instance_id']}"[:80],
+        base_image=task_image(item),
+        egress_policy=None,
+        env_vars=[{"name": name, "value": value} for name, value in TASK_ENV_VARS.items()],
+    )
+    try:
+        yield str(env.pk)
+    finally:
+        await env.adelete()
+
+
 async def _execute(spec: RunSpec) -> RunOutcome:
     """``execute_run``, except that a cleanup error raised while Ctrl-C unwinds the run still stops the eval."""
     try:
@@ -263,9 +302,10 @@ def _model_patch(instance_id: str, outcome: RunOutcome | None) -> str:
     return values["model_patch"]
 
 
-def _run_spec(item: dict, model_names: list[ModelName | str], thinking_level: str) -> RunSpec:
+def _run_spec(item: dict, model_names: list[ModelName | str], thinking_level: str, sandbox_env_id: str) -> RunSpec:
     """One SWE-bench instance as a one-shot run: no session, no platform API, the exact model chain asked for."""
     return RunSpec(
+        sandbox_env_id=sandbox_env_id,
         thread_id=None,
         repo_id=item["repo"],
         scope=Scope.GLOBAL,
@@ -292,12 +332,12 @@ def _human_message(item: dict) -> str:
 
         ## Execution constraints
 
-        - Web research is unavailable: web search/fetch tools are disabled. Rely on the repository itself (existing code patterns, tests, docs). Installing packages with pip/uv DOES work — use it to provision test dependencies.
+        - The sandbox has no network: web search/fetch tools are disabled, and pip, uv and git cannot download anything. Rely on the repository itself (existing code patterns, tests, docs).
+        - The environment is ready: `python` is the project's interpreter with its test dependencies installed, and `/workspace/repo` comes first on `PYTHONPATH`, so tests run against your changes. Do not install anything.
 
         ## How to work
 
         - Treat any root-cause analysis embedded in the problem statement as a hypothesis to verify, not a conclusion — reporters are sometimes wrong or partial.
-        - Before running tests, provision the environment in ONE step: check `pyproject.toml` / `setup.py` / `tox.ini` for the supported Python version and the test extra's name, then install it once (e.g. `pip install -e ".[test]"`) instead of discovering missing dependencies one test failure at a time.
         - Prefer the smallest change that addresses the problem statement while preserving all existing intended behavior. A 3-line fix that follows the issue beats a 30-line architectural change; avoid touching files the fix doesn't require.
         - When the bug was introduced by an identifiable feature commit, fix the interaction between that feature and the broken case — do NOT revert or remove the feature; upstream maintainers virtually never resolve a regression by deleting the feature that caused it. Untested does not mean unintended: behavior promised by the offending commit's docs/changelog must keep working even when no test pins it, and a green test suite does not prove behavior preservation.
         - The grader resets every test file to its original state and applies its own held-out tests before scoring, so your edits to existing test files are discarded and never graded — only your source change is scored. Editing a pre-existing test to make it pass therefore cannot help here; if one seems to need changing, treat that as a signal you may be altering behavior the task wants preserved and re-examine your source. Adding new tests to characterize behavior is fine.
