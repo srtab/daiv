@@ -133,7 +133,8 @@ SWEBENCH_MODEL ?= openrouter:minimax/minimax-m3
 SWEBENCH_THINKING ?= high
 SWEBENCH_SEED ?= 0
 SWEBENCH_WORKERS ?= 4
-SWEBENCH_RUN_ID ?= daiv
+# The harness counts every container whose name contains the run ID as unstopped, so not "daiv".
+SWEBENCH_RUN_ID ?= grade
 VERIFIED_DATASET := SWE-bench/SWE-bench_Verified
 # Mini lacks the image and eval-script columns swebench 5 grades with; its tasks are graded against Verified.
 MINI_DATASET := MariusHobbhahn/swe-bench-verified-mini

@@ -19,7 +19,7 @@ None yet. The first one is the pilot under [How to run](#how-to-run); record it 
 
 - **Mini is two repositories.** Its 50 tasks are 25 django and 25 sphinx tasks of SWE-bench Verified, so a change that helps on other codebases does not show here. `make swebench SWEBENCH_SAMPLES=50` draws 50 of all 500 Verified tasks instead; seed 0's draw spans 10 repositories, about half of them django.
 - **Grading uses `SWE-bench/SWE-bench_Verified`.** The harness (swebench 5.0.2) grades only datasets that name each task's Docker image and eval script. `SWE-bench/SWE-bench_Verified` has those columns; the Mini and `princeton-nlp/SWE-bench_Verified` do not. The Mini's tasks match Verified's field for field. The two Verified copies differ only in `PASS_TO_PASS` for `astropy__astropy-7606` and `django__django-10097`, neither of them in the Mini.
-- **Docker.** Each task has its own image, `swebench/sweb.eval.x86_64.<task>:latest`, about 1.1 GB compressed. The Mini's 50 images share 9.7 GB of compressed layers, and take more once extracted.
+- **Docker.** Each task has its own image, `swebench/sweb.eval.x86_64.<task>:latest`, about 1.1 GB compressed. The Mini's 50 images share 9.7 GB of compressed layers. On disk, the pilot's 5 images took 1.4 GB each on top of a 1.4 GB base they share, which puts all 50 at about 70 GB. The harness leaves them in place; `docker rmi` them when done.
 
 ## How to run
 
@@ -41,7 +41,7 @@ Each task prints its time and cost when it ends, and the run closes with the tot
 make swebench-mini-evaluate SWEBENCH_PREDICTIONS=eval-runs/swebench/mini-deepseek-v4.1-flash/predictions.json
 ```
 
-The harness writes its logs and a report, `<model>.daiv.json`, next to the predictions. Because the Mini is graded against all of Verified, its "Total instances" line counts 500; the result is "Instances resolved" out of "Instances submitted". Regrading the same predictions reuses the reports already written.
+The harness writes its logs and a report, `<model>.grade.json`, next to the predictions. Because the Mini is graded against all of Verified, its "Total instances" line counts 500; the result is "Instances resolved" out of "Instances submitted". Each task's `logs/run_evaluation/grade/<model>/<task>/report.json` names the tests that failed. Regrading the same predictions reuses the reports already written. Grading the pilot's 5 took under 2 minutes, pulling the images included.
 
 **Variables.**
 
@@ -72,7 +72,7 @@ Newest first. Every run was offline, with no web tools.
 
 | Change | Model | Tasks | Resolved | Cost | Verdict |
 |---|---|---|---|---|---|
-| Pricing pilot at `5c81c016a`, on 2026-11-18 | DeepSeek V4.1 Flash, high | Seed 0's first 5: 3 sphinx, 2 django | Not graded | $0.48: $0.01 to $0.22 per task, $0.10 on average. 6.6 minutes per task on average, 12.1 at most. 98% of input tokens were cache reads. All 5 finished with a patch | Puts the 50 at about $5 and 5.5 hours, run one task at a time |
+| Pricing pilot at `5c81c016a`, on 2026-11-18 | DeepSeek V4.1 Flash, high | Seed 0's first 5: 3 sphinx, 2 django | 4 of 5. `django__django-11815` passed one of its two target tests: it serialized the enum by `__qualname__`, which breaks an enum defined inside a function | $0.48: $0.01 to $0.22 per task, $0.10 on average. 6.6 minutes per task on average, 12.1 at most. 98% of input tokens were cache reads. All 5 finished with a patch | Puts the 50 at about $5 and 5.5 hours, run one task at a time |
 
 ## Other datasets
 
