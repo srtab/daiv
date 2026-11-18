@@ -72,6 +72,7 @@ Newest first. Every run was offline, with no web tools.
 
 | Change | Model | Tasks | Resolved | Cost | Verdict |
 |---|---|---|---|---|---|
+| Pricing pilot at `3d49c0ffa`, on 2026-11-18 | GLM 5.3 Flash, high | The same 5 | 5 of 5 | $0.45: $0.02 to $0.21 per task, $0.09 on average. 7.7 minutes per task on average, 13.8 at most. 99% of input tokens were cache reads | Costs the same as DeepSeek V4.1 Flash and resolved one more; 5 tasks cannot tell the two apart |
 | Pricing pilot at `5c81c016a`, on 2026-11-18 | DeepSeek V4.1 Flash, high | Seed 0's first 5: 3 sphinx, 2 django | 4 of 5. `django__django-11815` passed one of its two target tests: it serialized the enum by `__qualname__`, which breaks an enum defined inside a function | $0.48: $0.01 to $0.22 per task, $0.10 on average. 6.6 minutes per task on average, 12.1 at most. 98% of input tokens were cache reads. All 5 finished with a patch | Puts the 50 at about $5 and 5.5 hours, run one task at a time |
 
 ## Other datasets
