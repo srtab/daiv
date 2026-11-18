@@ -139,7 +139,7 @@ VERIFIED_DATASET := SWE-bench/SWE-bench_Verified
 # Mini lacks the image and eval-script columns swebench 5 grades with; its tasks are graded against Verified.
 MINI_DATASET := MariusHobbhahn/swe-bench-verified-mini
 SWEREBENCH_DATASET := nebius/SWE-rebench-leaderboard
-# A split is unseen only by models trained before it; 2026_03 is the newest on Hugging Face as of 2026-11-17.
+# A split is unseen only by models trained before it; 2026_03 is the newest on Hugging Face as of 2026-11-18.
 SWEREBENCH_SPLIT ?= 2026_03
 SWEBENCH_HARNESS := uv run --no-project --python 3.11 --with swebench==5.0.2 python -m swebench.harness.run_evaluation
 SWEREBENCH_HARNESS := uv run --no-project --python 3.11 \
