@@ -2,6 +2,7 @@ from django.contrib.sitemaps import Sitemap
 from django.contrib.sitemaps.views import sitemap
 from django.urls import include, path, reverse
 
+from blog.sitemaps import BlogIndexSitemap, BlogPostSitemap
 from configuration.views import SkillModelsView
 from dashboard.comparisons import COMPARISONS
 from dashboard.views import ComparisonView, HomepageView, SkillUsageView
@@ -43,6 +44,7 @@ skills_patterns = [
 urlpatterns = [
     path("", HomepageView.as_view(), name="homepage"),
     path("compare/<slug:slug>/", ComparisonView.as_view(), name="comparison"),
+    path("blog/", include("blog.urls")),
     path("accounts/", include("accounts.urls.allauth")),
     path("accounts/api-keys/", include("accounts.urls.api_keys")),
     path("accounts/channels/", UserChannelsView.as_view(), name="user_channels"),
@@ -67,7 +69,14 @@ urlpatterns = [
     path(
         "sitemap.xml",
         sitemap,
-        {"sitemaps": {"static": StaticSitemap, "comparisons": ComparisonSitemap}},
+        {
+            "sitemaps": {
+                "static": StaticSitemap,
+                "comparisons": ComparisonSitemap,
+                "blog": BlogIndexSitemap,
+                "blog-posts": BlogPostSitemap,
+            }
+        },
         name="sitemap",
     ),
 ]
