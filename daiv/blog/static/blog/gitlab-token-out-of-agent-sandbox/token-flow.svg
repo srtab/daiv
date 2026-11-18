@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="440" viewBox="0 0 1200 440" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
+  <defs>
+    <marker id="ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#5eead4"/></marker>
+  </defs>
+  <rect width="1200" height="440" fill="#16181d"/>
+
+  <text x="40" y="58" fill="#9aa4b0" font-size="18">DAIV: holds the credentials</text>
+  <text x="660" y="58" fill="#9aa4b0" font-size="18">Sandbox: no git token</text>
+  <text x="940" y="58" fill="#9aa4b0" font-size="18">Proxy: adds the token</text>
+  <line x1="620" y1="40" x2="620" y2="400" stroke="#3a414c" stroke-width="2" stroke-dasharray="6 6"/>
+  <line x1="912" y1="40" x2="912" y2="400" stroke="#3a414c" stroke-width="2" stroke-dasharray="6 6"/>
+
+  <rect x="40" y="90" width="250" height="290" rx="12" fill="#2a2f38"/>
+  <text x="62" y="128" fill="#5eead4" font-size="16" font-weight="600">1. MINT</text>
+  <text x="62" y="160" fill="#e6edf3" font-size="21" font-weight="600">Project token</text>
+  <text x="62" y="196" fill="#9aa4b0" font-size="17">write_repository only</text>
+  <text x="62" y="222" fill="#9aa4b0" font-size="17">Developer role</text>
+  <text x="62" y="248" fill="#9aa4b0" font-size="17">one project</text>
+  <text x="62" y="274" fill="#9aa4b0" font-size="17">expires within 3 days</text>
+  <text x="62" y="330" fill="#9aa4b0" font-size="15">minted through the API</text>
+  <text x="62" y="352" fill="#9aa4b0" font-size="15">with DAIV's own token</text>
+
+  <line x1="290" y1="235" x2="342" y2="235" stroke="#5eead4" stroke-width="3" marker-end="url(#ok)"/>
+
+  <rect x="350" y="90" width="240" height="290" rx="12" fill="#2a2f38"/>
+  <text x="372" y="128" fill="#5eead4" font-size="16" font-weight="600">2. CLONE</text>
+  <text x="372" y="160" fill="#e6edf3" font-size="21" font-weight="600">On DAIV's worker</text>
+  <text x="372" y="196" fill="#9aa4b0" font-size="17">token in a header</text>
+  <text x="372" y="222" fill="#9aa4b0" font-size="17">set for one command</text>
+  <text x="372" y="262" fill="#9aa4b0" font-size="17">not in the URL</text>
+  <text x="372" y="288" fill="#9aa4b0" font-size="17">not in .git/config</text>
+  <text x="372" y="314" fill="#9aa4b0" font-size="17">not on argv</text>
+
+  <line x1="590" y1="235" x2="652" y2="235" stroke="#5eead4" stroke-width="3" marker-end="url(#ok)"/>
+
+  <rect x="660" y="90" width="230" height="290" rx="12" fill="#2a2f38"/>
+  <text x="682" y="128" fill="#5eead4" font-size="16" font-weight="600">3. WORK</text>
+  <text x="682" y="160" fill="#e6edf3" font-size="21" font-weight="600">Sandbox copy</text>
+  <text x="682" y="196" fill="#9aa4b0" font-size="17">no git token</text>
+  <text x="682" y="222" fill="#9aa4b0" font-size="17">agent's bash can't</text>
+  <text x="682" y="248" fill="#9aa4b0" font-size="17">git push or commit</text>
+  <text x="682" y="314" fill="#9aa4b0" font-size="17">DAIV pushes when</text>
+  <text x="682" y="340" fill="#9aa4b0" font-size="17">the run ends</text>
+
+  <line x1="890" y1="235" x2="932" y2="235" stroke="#5eead4" stroke-width="3" marker-end="url(#ok)"/>
+
+  <rect x="940" y="90" width="230" height="290" rx="12" fill="#2a2f38" stroke="#5eead4" stroke-width="2"/>
+  <text x="962" y="128" fill="#5eead4" font-size="16" font-weight="600">4. PUSH</text>
+  <text x="962" y="160" fill="#e6edf3" font-size="21" font-weight="600">Egress proxy</text>
+  <text x="962" y="196" fill="#9aa4b0" font-size="17">adds the token to</text>
+  <text x="962" y="222" fill="#9aa4b0" font-size="17">requests for the git host</text>
+  <text x="962" y="314" fill="#9aa4b0" font-size="17">a separate container</text>
+  <text x="962" y="340" fill="#9aa4b0" font-size="17">per session</text>
+</svg>
