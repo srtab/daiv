@@ -8,14 +8,14 @@ What each change to DAIV's issue-to-patch agent did on [SWE-bench Verified Mini]
 |---|---|
 | DAIV | `6757c19e6`, run on 2026-11-18 |
 | Model | Claude Haiku 5.5 on the Anthropic provider (`anthropic:claude-haiku-5-5`), thinking level `high` |
-| Tasks | All 50 of the Mini, one pass; each in its task image, with no network and a base-only clone |
-| Resolved | **40 of 50**: django 21 of 25, sphinx 19 of 25 |
-| Unresolved | `django__django-11790`, `-11848`, `-11885`, `-12325`; `sphinx-doc__sphinx-7590`, `-7748`, `-8056`, `-8548`, `-9229`, `-11510` |
-| Cost | $0.65: $0.004 to $0.046 per task, median $0.009. 94% of input tokens were cache reads |
-| Time | 1.4 minutes per task on average, 4.1 at most; 1.2 hours in all, one task at a time |
-| Noise | Not measured: one pass only. Run a second pass into another path before reading a 1- or 2-task difference |
+| Tasks | All 50 of the Mini, two passes; each in its task image, with no network and a base-only clone |
+| Resolved | **40 and 41 of 50**. Pass 1: django 21 of 25, sphinx 19 of 25 |
+| Failed in both passes | `django__django-11790`, `-11848`; `sphinx-doc__sphinx-7590`, `-7748`, `-8056`, `-8548`, `-9229`, `-11510` |
+| Flipped between passes | `sphinx-doc__sphinx-9461` resolved only in pass 1; `django__django-11885` and `-12325` only in pass 2 |
+| Cost | $0.65 and $0.81 a pass: under $0.05 per task, median $0.009. 94% of input tokens were cache reads |
+| Time | 1.2 and 1.3 hours a pass, one task at a time: 1.4 and 1.6 minutes per task on average, 12.2 at most |
 
-Predictions, usage log, transcripts and grading logs are in `eval-runs/swebench/mini-claude-haiku-5-5-6757c19e6/` of the main checkout.
+Predictions, usage logs, transcripts and grading logs are in `eval-runs/swebench/mini-claude-haiku-5-5-6757c19e6/` and `…-pass2/` of the main checkout.
 
 ## The benchmark
 
@@ -67,7 +67,7 @@ The harness writes its logs and a report, `<model>.grade.json`, next to the pred
 ## Comparing runs
 
 - **Same setup only.** Compare runs of one model, thinking level, dataset and seed. Each DAIV version gets its own predictions path.
-- **Run-to-run noise.** Not measured on the 50 yet. Run the first baseline twice, into two predictions paths, and record here how many tasks flip between the passes. The only samples so far: two GLM 5.3 Flash passes on the same 5 tasks differed on one, and Claude Haiku 5.5 resolved `django__django-11815` in 2 of 3 runs.
+- **Run-to-run noise.** Two passes of the baseline flipped 3 of 50 tasks, and the score moved by 1. So a difference of up to 3 tasks between two single passes says nothing; treat a change as real only after the step below.
 - **Rerun only what differs.** After a full pass of both versions, rerun the tasks whose result differs with `SWEBENCH_IDS`, twice per side, before calling a difference real.
 
 ## Experiment log
@@ -76,6 +76,7 @@ Newest first. Runs before `a79192752` could reach the upstream fix; each says wh
 
 | Change | Model | Tasks | Resolved | Cost | Verdict |
 |---|---|---|---|---|---|
+| Second baseline pass at `6757c19e6`, on 2026-11-18 | Claude Haiku 5.5 on the Anthropic provider, high | All 50 | 41 of 50 | $0.81, 1.3 hours | 3 tasks flipped against pass 1 (`sphinx-doc__sphinx-9461` lost; `django__django-11885`, `-12325` gained), 39 resolved in both, 8 failed in both. `sphinx-doc__sphinx-11510` was ambiguous again |
 | First baseline at `6757c19e6`, on 2026-11-18 | Claude Haiku 5.5 on the Anthropic provider, high | All 50 | 40 of 50 | $0.65, 1.2 hours | Baseline. No run raised or left an empty patch. The harness marked `sphinx-doc__sphinx-11510` ambiguous ("no tests collected"): the patch also edited `tests/test_directive_other.py`, and when the hidden tests add new files the harness's reset of existing test files fails, so the hidden test patch did not apply. Graded with the test-file edits removed, the source fix still fails, so it stays unresolved |
 | Task prompt at `6757c19e6`: no longer says that a pre-existing test needing change signals a wrong fix, which contradicted DAIV's own test rule | | | Not measured on its own | | Runs before it used the old line, so compare runs on the same side of it. One Haiku run cited the line to submit no patch for `sphinx-doc__sphinx-9229`; the baseline above, run after it, left no empty patch |
 | Reruns of Haiku's two misses, two passes each, with transcripts, on 2026-11-18 | Claude Haiku 5.5 on the Anthropic provider, high | `django__django-11815`, `sphinx-doc__sphinx-9229` | django: 2 of 2. sphinx: 0 of 2; one pass kept the `alias of` line after the docstring, the other changed nothing, judging that the change would break existing tests | $0.08 | The django miss was variance: the failed run also switched to `__qualname__`, which the issue did not ask for. Every sphinx-9229 patch from all three models keeps `alias of :class:` after the docstring, where the hidden test wants the docstring to replace it, while the existing tests pin that line for generic aliases. No harness change would fix it without fitting this task |
