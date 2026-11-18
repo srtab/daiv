@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import shutil
 import tempfile
 from contextlib import contextmanager
 from functools import cached_property
@@ -156,7 +155,11 @@ class SWERepoClient(RepoClient):
     @contextmanager
     def load_repo(self, repository: Repository, sha: str) -> Generator[Repo]:
         """
-        Clone a repository to a temporary directory and checkout the specified commit.
+        Fetch the specified commit and its history into a temporary directory, and check it out detached.
+
+        Only that commit's history is fetched, with no branches, remotes or tags, because the upstream fix for the
+        issue under evaluation is often already merged: a full clone keeps it reachable from a ref, and with the
+        refs removed still as an object ``git fsck --unreachable`` lists, which agents in real eval runs read.
 
         Sets _loaded_repo that other methods can use to access the repository.
 
@@ -165,20 +168,14 @@ class SWERepoClient(RepoClient):
             sha: The commit SHA or branch name to checkout.
 
         Yields:
-            The repository object cloned to the temporary directory.
+            The repository object, in the temporary directory.
         """
         with tempfile.TemporaryDirectory(prefix=f"{safe_slug(repository.slug)}-{repository.pk}") as tmpdir:
             logger.debug("Cloning repository %s to %s", repository.clone_url, tmpdir)
 
-            clone_dir = Path(tmpdir) / "repo"
-            clone_dir.mkdir(parents=True, exist_ok=True)
-            # Clone the repository without depth restriction to ensure the specific commit is available
-            # For SWE-bench, we often need specific historical commits, so a full clone is necessary
-            repo = Repo.clone_from(repository.clone_url, clone_dir)
-            # Detach so the base commit is never tied to a branch ref — branch refs are
-            # removed by the sanitization below.
-            repo.git.checkout("--detach", sha)
-            self._sanitize_history(repo)
+            repo = Repo.init(Path(tmpdir) / "repo")
+            repo.git.fetch("--quiet", "--no-tags", repository.clone_url, sha)
+            repo.git.checkout("--detach", "FETCH_HEAD")
 
             # Store instance variable for reuse by other methods
             self._loaded_repo = repo
@@ -188,31 +185,6 @@ class SWERepoClient(RepoClient):
             finally:
                 # Clear instance variable when context exits
                 self._loaded_repo = None
-
-    @staticmethod
-    def _sanitize_history(repo: Repo) -> None:
-        """
-        Drop every ref that could reveal commits made after the checked-out base commit.
-
-        SWE-bench style evals check out a historical base commit of a full clone; the
-        upstream fix for the very issue under evaluation is often already merged upstream,
-        so remote refs, local branches, tags and reflogs would let the agent read the
-        answer via ``git log --all`` / ``git show`` (observed in real eval runs). Tags
-        pointing at ancestors of the base commit are kept — VCS-versioning tools
-        (setuptools-scm, hatch-vcs) need them for editable installs.
-
-        Unreachable objects stay in the pack (``git gc --prune`` is prohibitively slow on
-        large repos), but without refs or reflogs they are not discoverable.
-        """
-        head_commit = repo.head.commit
-        for branch in list(repo.branches):
-            repo.delete_head(branch, force=True)
-        for remote in list(repo.remotes):
-            repo.delete_remote(remote)
-        for tag in list(repo.tags):
-            if not repo.is_ancestor(tag.commit, head_commit):
-                repo.delete_tag(tag)
-        shutil.rmtree(Path(repo.git_dir) / "logs", ignore_errors=True)
 
     def get_issue(self, repo_id: str, issue_id: int) -> Issue:
         """Not supported for SWE client."""
