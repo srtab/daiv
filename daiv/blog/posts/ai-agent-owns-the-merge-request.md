@@ -17,7 +17,7 @@ An agent that opens a merge request (a pull request, on GitHub) and stops there 
 
 No person commented or pushed in between. What follows is how that works: the session that published the merge request owns it, an inbox decides which events wake the agent, caps limit how often it wakes itself, and CI results are judged conservatively, with the cases that still go wrong.
 
-DAIV is an open-source coding agent for GitLab and GitHub that runs on your servers, with [the model you choose](https://docs.daivagent.com/latest/getting-started/llm-providers/), from a hosted provider to your own vLLM server. A session is its record of one piece of work: the runs, the conversation and the merge requests they produced.
+DAIV is an open-source coding agent for GitLab and GitHub that runs on your servers, with [the model you choose](https://docs.daivagent.com/dev/getting-started/llm-providers/), from a hosted provider to your own vLLM server. A session is its record of one piece of work: the runs, the conversation and the merge requests they produced.
 
 The failure woke the session that had opened the merge request. From the CI trace, the agent found that CI runs Python 3.12.12, while the Python it had tested with, 3.14.2, evaluates annotations lazily. It added `from __future__ import annotations` to the file:
 
@@ -27,7 +27,7 @@ That is one run on a demo repository, not a success rate. Had the fix failed as 
 
 ## One owner per merge request
 
-When a run publishes, its session claims the merge request and records the commit DAIV pushed. These runs claim it: addressing an issue, a job from the API, MCP or a schedule, and a chat turn ([which runs claim a merge request](https://docs.daivagent.com/latest/features/pipeline-watch/#which-runs-claim-a-merge-request)).
+When a run publishes, its session claims the merge request and records the commit DAIV pushed. These runs claim it: addressing an issue, a job from the API, MCP or a schedule, and a chat turn ([which runs claim a merge request](https://docs.daivagent.com/dev/features/pipeline-watch/#which-runs-claim-a-merge-request)).
 
 - A later publish from another session of the same person moves the merge request to that session.
 - A publish from another person's session leaves it where it is and tells the owning session.
@@ -44,7 +44,7 @@ Everything that asks a session to act is an event in its inbox:
 - a delegated batch finishing;
 - a coordinating session asking a session it delegated to, to continue its work.
 
-Each event either wakes the agent or is only remembered ([the session inbox](https://docs.daivagent.com/latest/features/sessions/#the-session-inbox)). A person's request wakes it: a chat message, a follow-up job, or a mention, unless the session is archived, when DAIV replies asking for it to be unarchived. A CI pass, a pipeline waiting for a person, someone else's push, a merge or close, and a comment that does not mention DAIV are remembered. They start no run, and the next run on that branch gets them as context, so the agent knows the branch moved before it pushes.
+Each event either wakes the agent or is only remembered ([the session inbox](https://docs.daivagent.com/dev/features/sessions/#the-session-inbox)). A person's request wakes it: a chat message, a follow-up job, or a mention, unless the session is archived, when DAIV replies asking for it to be unarchived. A CI pass, a pipeline waiting for a person, someone else's push, a merge or close, and a comment that does not mention DAIV are remembered. They start no run, and the next run on that branch gets them as context, so the agent knows the branch moved before it pushes.
 
 ![A diagram: seven kinds of event reach the session (a CI failure on DAIV's commit, a CI pass or a pipeline needing a person, a mention, a comment, push or merge, a chat message while busy, a follow-up job, a finished delegated batch) and go into the session's inbox. The inbox either wakes the agent, starting a run that is one at a time per session, one per person and branch, and acts as the requester, with 3 attempts by default for CI failures; or remembers the event, so no run starts and the next run on the branch gets it as context.](inbox-flow.svg)
 
@@ -88,13 +88,13 @@ The rows below are read top to bottom, and the first match wins:
 | `failed`, but every failed job is allowed to fail (GitLab) | Passed |
 | `success`, with at least one job | Passed |
 
-The zero-job row comes from GitLab's CI includes. When DAIV pushes with a project-scoped token on GitLab, the pipeline runs as that token's bot user. If the project's CI configuration includes a template from another private project, the bot cannot read it, and GitLab records a pipeline with no jobs ([conservative judgment](https://docs.daivagent.com/latest/features/pipeline-watch/#conservative-judgment)).
+The zero-job row comes from GitLab's CI includes. When DAIV pushes with a project-scoped token on GitLab, the pipeline runs as that token's bot user. If the project's CI configuration includes a template from another private project, the bot cannot read it, and GitLab records a pipeline with no jobs ([conservative judgment](https://docs.daivagent.com/dev/features/pipeline-watch/#conservative-judgment)).
 
 Treating that as green would let a broken pipeline pass, and treating it as a failure would spend every attempt on a pipeline that was never going to run. So DAIV records the result as needing a person and starts no run. The watch stays on, and the next pipeline on the branch is judged as usual. [The post on DAIV's GitLab tokens](/blog/gitlab-token-out-of-agent-sandbox/) covers how DAIV pushes around it.
 
 ## When a failure wakes the agent
 
-A failure wakes the owning session only when all of these hold, and the first one that doesn't becomes the reason the agent sees next time ([how it works](https://docs.daivagent.com/latest/features/pipeline-watch/#how-it-works)):
+A failure wakes the owning session only when all of these hold, and the first one that doesn't becomes the reason the agent sees next time ([how it works](https://docs.daivagent.com/dev/features/pipeline-watch/#how-it-works)):
 
 | Condition | Reason recorded when it fails |
 |---|---|
@@ -139,4 +139,4 @@ The watch is on by default, but it needs CI events. On GitLab, `docker compose e
 
 After that, DAIV watches every merge request a session owns. The session's repository card shows **Waiting for CI**, then **Passing**, **Failing** or **Needs a person**, and the **Fix CI failures** switch in its **⋯** menu turns the watch off for that merge request.
 
-The [pipeline watch page](https://docs.daivagent.com/latest/features/pipeline-watch/) covers these steps in full, and the site and repository limits. [The session inbox](https://docs.daivagent.com/latest/features/sessions/#the-session-inbox) covers how requests become runs.
+The [pipeline watch page](https://docs.daivagent.com/dev/features/pipeline-watch/) covers these steps in full, and the site and repository limits. [The session inbox](https://docs.daivagent.com/dev/features/sessions/#the-session-inbox) covers how requests become runs.

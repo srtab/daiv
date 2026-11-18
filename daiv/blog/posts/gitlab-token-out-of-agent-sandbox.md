@@ -35,7 +35,7 @@ DAIV needs GitLab for two different things, and they get different credentials.
 | DAIV's personal access token | Reading issues, posting comments, opening merge requests, minting project tokens | `api`, in every project DAIV's user belongs to | The expiry you set for it | DAIV's configuration |
 | Project token, one per project | `git clone` and `git push` | `write_repository`, Developer, pushes to one project | Expires within 3 days | DAIV's cache, the clone command's environment, the egress proxy |
 
-The personal access token is the one the [platform setup guide](https://docs.daivagent.com/latest/getting-started/platform-setup/) asks for: DAIV's user is a Maintainer on each project, with a token that has the `api` scope. When everything works, it stays in DAIV's own process.
+The personal access token is the one the [platform setup guide](https://docs.daivagent.com/dev/getting-started/platform-setup/) asks for: DAIV's user is a Maintainer on each project, with a token that has the `api` scope. When everything works, it stays in DAIV's own process.
 
 Everything the sandbox sends to the GitLab host carries the project token instead, added by the proxy. That includes API requests, since the API and git are on the same host. So the project token must be one that can do nothing but git.
 
@@ -112,6 +112,6 @@ The personal access token still never enters the sandbox. But the proxy adds it 
 
 ## Trying it
 
-The [platform setup guide](https://docs.daivagent.com/latest/getting-started/platform-setup/) covers DAIV's user, its role and its token on GitLab, and the GitHub App on GitHub.
+The [platform setup guide](https://docs.daivagent.com/dev/getting-started/platform-setup/) covers DAIV's user, its role and its token on GitLab, and the GitHub App on GitHub.
 
 After DAIV's first run on a GitLab project, the project's **Settings** → **Access tokens** page lists a `daiv-clone` token with the `write_repository` scope, expiring within three days. If none is listed, the token may have expired or been revoked, or the runs used the personal access token. For a given clone, DAIV's logs confirm the fallback with `with the configured PAT (ephemeral clone token unavailable)` at INFO level.

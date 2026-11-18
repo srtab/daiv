@@ -8,7 +8,7 @@ image: memory-flow.png
 
 If a model maintains its own memory file, each rewrite can drop a fact it judged unimportant or change one quietly, and nothing records what changed. The memory described here works the other way round: the model writes the text of new and replacement entries, code checks each change and keeps every replaced version on record, and code renders the document the next run reads, the same way every time. What follows shows each part in the code, and the mistakes it still lets through.
 
-DAIV is an open-source coding agent for GitLab and GitHub that you host yourself, with [the model you choose](https://docs.daivagent.com/latest/getting-started/llm-providers/), including one served by your own vLLM or llama.cpp server. Its repository memory is what it learns about each repository from its past runs.
+DAIV is an open-source coding agent for GitLab and GitHub that you host yourself, with [the model you choose](https://docs.daivagent.com/dev/getting-started/llm-providers/), including one served by your own vLLM or llama.cpp server. Its repository memory is what it learns about each repository from its past runs.
 
 Here is one entry from the rendered document for DAIV's own repository, on a development instance, as a later run receives it under the heading `## Build & test`:
 
@@ -18,7 +18,7 @@ A model wrote that text from what earlier runs observed, and it matches the test
 
 ## Four steps, two of them without a model
 
-Memory forms without anyone acting ([memory docs](https://docs.daivagent.com/latest/features/memory/#how-memory-forms)):
+Memory forms without anyone acting ([memory docs](https://docs.daivagent.com/dev/features/memory/#how-memory-forms)):
 
 | Step | Who does it | What it produces |
 |---|---|---|
@@ -33,7 +33,7 @@ The five categories are build and test, codebase facts, pitfalls, reviewer prefe
 
 ## When a round runs
 
-A repository is due for consolidation when it has at least 10 pending observations, or when its oldest pending observation is 7 days old, so a quiet repository still forms memory. Either way, a round runs only if the last attempt on that repository was at least 24 hours ago ([environment reference](https://docs.daivagent.com/latest/reference/env-variables/#memory)). Those are the defaults, and the `DAIV_MEMORY_*` variables change them.
+A repository is due for consolidation when it has at least 10 pending observations, or when its oldest pending observation is 7 days old, so a quiet repository still forms memory. Either way, a round runs only if the last attempt on that repository was at least 24 hours ago ([environment reference](https://docs.daivagent.com/dev/reference/env-variables/#memory)). Those are the defaults, and the `DAIV_MEMORY_*` variables change them.
 
 A failed attempt counts as an attempt. A repository whose rounds keep failing is therefore retried at the same pace as a healthy one, not on every hourly sweep ([models.py](https://github.com/srtab/daiv/blob/baf6f6d2367adb9dd100a3686ecfe1a51cb0d6c5/daiv/memory/models.py#L159-L161)). An admin can also run a round at once from the repository's memory page, which skips the thresholds and the interval. From a shell, the `consolidate_memory` command runs one in the foreground, and refuses while fewer than 10 observations are pending unless it is given `--force`.
 
@@ -145,4 +145,4 @@ Each pass takes the category with the most text and evicts its least recently co
 
 Memory is on by default. After DAIV's first runs on a repository, open **Settings** → **Memory** and select the repository. **Observations** lists what each run contributed, with a link to the run. Once a round has run, **Consolidated document** shows the text later runs receive, and an admin can select **Consolidate now** rather than wait for the hourly sweep to find the repository due.
 
-The [memory page](https://docs.daivagent.com/latest/features/memory/) of the docs covers the size limit and switching memory off, and the `DAIV_MEMORY_*` variables in the [environment reference](https://docs.daivagent.com/latest/reference/env-variables/#memory) set the thresholds and the models.
+The [memory page](https://docs.daivagent.com/dev/features/memory/) of the docs covers the size limit and switching memory off, and the `DAIV_MEMORY_*` variables in the [environment reference](https://docs.daivagent.com/dev/reference/env-variables/#memory) set the thresholds and the models.

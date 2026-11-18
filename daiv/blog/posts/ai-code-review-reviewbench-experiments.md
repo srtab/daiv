@@ -8,7 +8,7 @@ image: code-review.png
 
 On ReviewBench's 25 test pull requests, which held 352 known issues when I ran them on 27 October 2026, DAIV's code review found 150 of them for $7.75 in total, about $0.31 a pull request. That came out of seven measured changes, two of which I dropped. The biggest cost cut was one change: moving the reviewer from Claude Sonnet 5.5 to Haiku 5.5 took a full run from $26.86 to $7.76, about $1.07 to $0.31 a pull request, and found more issues under the same judge. Below is each change with its numbers, and the one measure of run-to-run noise I have.
 
-The reviewer is `/code-review`, the code-review skill of DAIV, an open-source coding agent for GitLab and GitHub that you host yourself. Every run here used Claude models. DAIV also runs on [OpenAI, Google and OpenRouter models, or on your own OpenAI-compatible server](https://docs.daivagent.com/latest/getting-started/llm-providers/) such as vLLM, and this post measures none of those.
+The reviewer is `/code-review`, the code-review skill of DAIV, an open-source coding agent for GitLab and GitHub that you host yourself. Every run here used Claude models. DAIV also runs on [OpenAI, Google and OpenRouter models, or on your own OpenAI-compatible server](https://docs.daivagent.com/dev/getting-started/llm-providers/) such as vLLM, and this post measures none of those.
 
 It hands the diff to detector subagents, each looking for one kind of problem, and merges what they report. Recall below is the share of known issues found; precision is the share of matched findings that are real issues.
 
@@ -133,10 +133,10 @@ Against the previous baseline, known issues went from 153 to 150, and false posi
 
 ## Trying it
 
-On a merge or pull request in a repository connected to DAIV, comment `@daiv /code-review`, with your DAIV bot user's name in place of `daiv`. DAIV reviews the diff and posts its findings in one comment, numbered and grouped by severity ([slash commands](https://docs.daivagent.com/latest/features/slash-commands/#code-review)).
+On a merge or pull request in a repository connected to DAIV, comment `@daiv /code-review`, with your DAIV bot user's name in place of `daiv`. DAIV reviews the diff and posts its findings in one comment, numbered and grouped by severity ([slash commands](https://docs.daivagent.com/dev/features/slash-commands/#code-review)).
 
 ## Reproducing it
 
 The current baseline used DAIV at `d3f513a56`, and every run was scored against ReviewBench at [`228f2a8`](https://github.com/review-bench/ReviewBench/tree/228f2a8d662c9c1c12d25757e23c52c9a6170d5a), whose known-issue set matches the hash recorded in the baseline's `results.json`. On 16 November 2026 ReviewBench removed duplicate entries, leaving 342 known issues, so check out `228f2a8` in the ReviewBench checkout to score against the same set. Leave out the example's `--pr` selection to review all 25.
 
-The [How to run](https://github.com/srtab/daiv/blob/baf6f6d2367adb9dd100a3686ecfe1a51cb0d6c5/evals/results/reviewbench/README.md#how-to-run) section covers the review run against a local DAIV stack and the judge settings for Claude 5 models. The [baseline files](https://github.com/srtab/daiv/tree/baf6f6d2367adb9dd100a3686ecfe1a51cb0d6c5/evals/results/reviewbench/baseline) hold the findings, the judge's score for each finding, and the usage of every agent. The [benchmarks page](https://docs.daivagent.com/latest/reference/benchmarks/) in the docs has the full results by category and severity.
+The [How to run](https://github.com/srtab/daiv/blob/baf6f6d2367adb9dd100a3686ecfe1a51cb0d6c5/evals/results/reviewbench/README.md#how-to-run) section covers the review run against a local DAIV stack and the judge settings for Claude 5 models. The [baseline files](https://github.com/srtab/daiv/tree/baf6f6d2367adb9dd100a3686ecfe1a51cb0d6c5/evals/results/reviewbench/baseline) hold the findings, the judge's score for each finding, and the usage of every agent. The [benchmarks page](https://docs.daivagent.com/dev/reference/benchmarks/) in the docs has the full results by category and severity.
