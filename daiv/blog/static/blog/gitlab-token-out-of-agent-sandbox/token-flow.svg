@@ -15,7 +15,7 @@
   <text x="62" y="160" fill="#e6edf3" font-size="21" font-weight="600">Project token</text>
   <text x="62" y="196" fill="#9aa4b0" font-size="17">write_repository only</text>
   <text x="62" y="222" fill="#9aa4b0" font-size="17">Developer role</text>
-  <text x="62" y="248" fill="#9aa4b0" font-size="17">one project</text>
+  <text x="62" y="248" fill="#9aa4b0" font-size="17">pushes to one project</text>
   <text x="62" y="274" fill="#9aa4b0" font-size="17">expires within 3 days</text>
   <text x="62" y="330" fill="#9aa4b0" font-size="15">minted through the API</text>
   <text x="62" y="352" fill="#9aa4b0" font-size="15">with DAIV's own token</text>
@@ -37,8 +37,8 @@
   <text x="682" y="128" fill="#5eead4" font-size="16" font-weight="600">3. WORK</text>
   <text x="682" y="160" fill="#e6edf3" font-size="21" font-weight="600">Sandbox copy</text>
   <text x="682" y="196" fill="#9aa4b0" font-size="17">no git token</text>
-  <text x="682" y="222" fill="#9aa4b0" font-size="17">agent's bash can't</text>
-  <text x="682" y="248" fill="#9aa4b0" font-size="17">git push or commit</text>
+  <text x="682" y="222" fill="#9aa4b0" font-size="17">bash tool rejects direct</text>
+  <text x="682" y="248" fill="#9aa4b0" font-size="17">git push and commit</text>
   <text x="682" y="314" fill="#9aa4b0" font-size="17">DAIV pushes when</text>
   <text x="682" y="340" fill="#9aa4b0" font-size="17">the run ends</text>
 

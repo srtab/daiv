@@ -13,7 +13,7 @@
 
   <line x1="310" y1="240" x2="452" y2="240" stroke="#5eead4" stroke-width="3" marker-end="url(#ok)"/>
   <text x="381" y="276" fill="#9aa4b0" font-size="15" text-anchor="middle">internal network,</text>
-  <text x="381" y="296" fill="#9aa4b0" font-size="15" text-anchor="middle">no gateway</text>
+  <text x="381" y="296" fill="#9aa4b0" font-size="15" text-anchor="middle">no route out</text>
 
   <rect x="460" y="120" width="320" height="240" rx="12" fill="#2a2f38" stroke="#5eead4" stroke-width="2"/>
   <text x="620" y="164" fill="#e6edf3" font-size="24" font-weight="600" text-anchor="middle">Egress proxy</text>

