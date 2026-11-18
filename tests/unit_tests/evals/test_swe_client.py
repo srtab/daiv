@@ -1,3 +1,5 @@
+import io
+import tarfile
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -168,6 +170,28 @@ class TestSWERepoClient:
             assert (list(repo.branches), list(repo.remotes), list(repo.tags)) == ([], [], [])
             assert repo.git.cat_file("-t", fix.hexsha, with_exceptions=False) == ""
             assert "the very issue under evaluation" not in repo.git.log("--all", "--oneline")
+
+    def test_load_repo_adds_the_generated_files_and_they_stay_out_of_the_working_tree_diff(self, tmp_path):
+        origin = Repo.init(tmp_path / "origin", initial_branch="main")
+        with origin.config_writer() as cw:
+            cw.set_value("user", "name", "Test").set_value("user", "email", "test@example.com")
+        (Path(origin.working_dir) / ".gitignore").write_text("pkg/_version.py\n")
+        origin.index.add([".gitignore"])
+        base_commit = origin.index.commit("base commit")
+
+        generated = io.BytesIO()
+        with tarfile.open(fileobj=generated, mode="w") as archive:
+            content = b"version = '1.0'\n"
+            info = tarfile.TarInfo("pkg/_version.py")
+            info.size = len(content)
+            archive.addfile(info, io.BytesIO(content))
+
+        client = SWERepoClient("github.com", generated_files=generated.getvalue())
+        repository = client.get_repository("owner/repo").model_copy(update={"clone_url": str(tmp_path / "origin")})
+
+        with client.load_repo(repository, base_commit.hexsha) as repo:
+            assert (Path(repo.working_dir) / "pkg/_version.py").read_text() == "version = '1.0'\n"
+            assert repo.git.status("--porcelain", "--untracked-files=all") == ""
 
     def test_current_user(self, swe_client):
         """Test current_user property."""

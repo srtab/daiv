@@ -1,8 +1,9 @@
 """Run DAIV on SWE-bench-format tasks and write predictions for the official SWE-bench harness.
 
 Each task runs through ``execute_run`` in its own SWE-bench image with no network, so the agent finds the task's
-dependencies installed and cannot fetch a later release or the upstream repository, which hold the fix. Its captured
-patch becomes one row of the predictions file. A run that raises predicts an empty patch, so it is graded
+dependencies installed and cannot fetch a later release or the upstream repository, which hold the fix. The driver
+needs ``docker`` and pulls the image itself, to copy the files its install generated into the agent's clone. The
+run's captured patch becomes one row of the predictions file. A run that raises predicts an empty patch, so it is graded
 unresolved; ``--retry-failed`` runs those tasks again. Every attempt, failed and interrupted ones included, appends
 its time, tokens and cost to ``<predictions>.usage.jsonl``. A finished task's conversation goes to
 ``<predictions>.transcripts/<instance_id>.json``, in the shape the trace-analyzer skill reads. A task already in the
@@ -13,6 +14,7 @@ import argparse
 import asyncio
 import json
 import random
+import re
 import sys
 import traceback
 import uuid
@@ -53,11 +55,14 @@ if TYPE_CHECKING:
 DEFAULT_DATASET = "SWE-bench/SWE-bench_Verified"
 DEFAULT_THINKING_LEVEL = ThinkingLevel.HIGH.value
 TASK_ENV_VARS = {
-    "PATH": "/opt/miniconda3/envs/testbed/bin:/opt/miniconda3/bin:"
+    "PATH": "/opt/miniconda3/envs/testbed/bin:/opt/conda/envs/testbed/bin:/opt/miniconda3/bin:/opt/conda/bin:"
     "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-    "PYTHONPATH": "/workspace/repo",
+    "PYTHONPATH": "/workspace/repo/src:/workspace/repo",
     "LANG": "C.UTF-8",
 }
+NOT_GENERATED = re.compile(
+    r"(^|/)(__pycache__|build|dist|\.eggs|\.tox|\.nox|\.pytest_cache|node_modules|[^/]+\.egg-info)/|\.py[co]$"
+)
 
 _run_usage: ContextVar[CostAwareUsageMetadataCallbackHandler | None] = ContextVar("swebench_run_usage", default=None)
 register_configure_hook(_run_usage, inheritable=True)
@@ -215,8 +220,9 @@ async def main(
         started = monotonic()
         with track_run_usage() as usage:
             try:
+                generated = await generated_files(task_image(item))
                 async with task_sandbox_env(item) as sandbox_env_id:
-                    outcome = await _execute(_run_spec(item, model_names, thinking_level, sandbox_env_id))
+                    outcome = await _execute(_run_spec(item, model_names, thinking_level, sandbox_env_id, generated))
                 status = "finished"
             except asyncio.CancelledError:
                 status = "interrupted"
@@ -265,13 +271,43 @@ def task_image(item: dict) -> str:
     return f"swebench/sweb.eval.x86_64.{item['instance_id'].replace('__', '_1776_')}:latest".lower()
 
 
+async def generated_files(image: str) -> bytes | None:
+    """The files the image's install generated in ``/testbed`` and the repository ignores, as a tar, or None.
+
+    Such as the version module that setuptools-scm or hatch-vcs writes: the agent's clone lacks it, and some packages
+    fail to import without it. Build trees and caches are left out. Only ``.gitignore`` rules count, because the clone
+    shares them: a file ignored through the image's own git settings would show up in the agent's patch.
+    """
+    listing = await _run_in_image(
+        image, "cd /testbed && git ls-files -z --others --ignored --exclude-per-directory=.gitignore"
+    )
+    paths = [path for path in listing.decode().split("\0") if path and not NOT_GENERATED.search(path)]
+    if not paths:
+        return None
+    return await _run_in_image(image, 'cd /testbed && tar -c -- "$@"', *paths)
+
+
+async def _run_in_image(image: str, script: str, *args: str) -> bytes:
+    process = await asyncio.create_subprocess_exec(
+        *("docker", "run", "--rm", "--network", "none", "--entrypoint", "sh", image, "-c", script, "sh", *args),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await process.communicate()
+    if process.returncode:
+        raise RuntimeError(f"docker run {image} exited {process.returncode}: {stderr.decode(errors='replace')[-2000:]}")
+    return stdout
+
+
 @asynccontextmanager
 async def task_sandbox_env(item: dict) -> AsyncGenerator[str]:
     """A sandbox environment on the task's image, with no network, for the length of one run.
 
-    The image's ``testbed`` interpreter has the task's dependencies installed, and ``PYTHONPATH`` points it at the
-    agent's copy of the repository. The row is deleted after the run, so it never stays in the environment picker;
-    its name is unique, so evals running the same task at once each get their own.
+    The image's ``testbed`` interpreter has the task's dependencies installed; SWE-bench images keep it under
+    ``/opt/miniconda3``, SWE-rebench's under ``/opt/conda``. The image installs the project in editable mode from its
+    own ``/testbed`` copy, so ``PYTHONPATH`` puts the agent's copy ahead of it, ``src/`` first for a src-layout project,
+    whose editable install ``/workspace/repo`` alone would not shadow. The row is deleted after the run, so it never
+    stays in the environment picker; its name is unique, so evals running the same task at once each get their own.
     """
     env = await SandboxEnvironment.objects.acreate(
         scope=Visibility.GLOBAL,
@@ -315,7 +351,13 @@ def _model_patch(instance_id: str, outcome: RunOutcome | None) -> str:
     return values["model_patch"]
 
 
-def _run_spec(item: dict, model_names: list[ModelName | str], thinking_level: str, sandbox_env_id: str) -> RunSpec:
+def _run_spec(
+    item: dict,
+    model_names: list[ModelName | str],
+    thinking_level: str,
+    sandbox_env_id: str,
+    generated: bytes | None = None,
+) -> RunSpec:
     """One SWE-bench instance as a one-shot run: no session, no platform API, the exact model chain asked for."""
     return RunSpec(
         sandbox_env_id=sandbox_env_id,
@@ -328,12 +370,28 @@ def _run_spec(item: dict, model_names: list[ModelName | str], thinking_level: st
         lock=NoLock(),
         model_names=tuple(model_names),
         agent_thinking_level=thinking_level,
-        context_options={"offline": True, "repo_client": SWERepoClient(repo_host="github.com")},
+        context_options={
+            "offline": True,
+            "repo_client": SWERepoClient(repo_host="github.com", generated_files=generated),
+        },
         web_search_enabled=False,
         web_fetch_enabled=False,
         agent_options={"auto_commit_changes": False, "capture_patch": True},
         extra_metadata={"instance_id": item["instance_id"]},
     )
+
+
+def _problem_statement(item: dict) -> str:
+    """The problem statement, with the task's SWE-rebench interface appended when the statement lacks it.
+
+    The interface names the API the hidden tests call. Most SWE-rebench statements that have one already end with it
+    under ``## Interface``; a few end with that heading left empty, or with no heading at all.
+    """
+    statement = item["problem_statement"]
+    interface = (item.get("interface") or "").strip()
+    if not interface or interface in statement:
+        return statement
+    return f"{statement.rstrip().removesuffix('## Interface').rstrip()}\n\n## Interface\n\n{interface}"
 
 
 def _human_message(item: dict) -> str:
@@ -364,7 +422,7 @@ def _human_message(item: dict) -> str:
         {problem_statement}
         ```
         """  # noqa: E501
-    ).format(problem_statement=item["problem_statement"])
+    ).format(problem_statement=_problem_statement(item))
 
     if item["hints_text"]:
         human_message += dedent(

@@ -43,13 +43,14 @@ async def _task_env(item):
 
 
 async def _main(
-    tmp_path, execute, items=(ITEM,), validate=None, models=("model-a", "model-b"), **options
+    tmp_path, execute, items=(ITEM,), validate=None, models=("model-a", "model-b"), generated=None, **options
 ) -> list[dict]:
     with (
         patch("datasets.load_dataset", return_value=list(items)),
         patch.object(swebench, "execute_run", execute),
         patch.object(swebench, "validate_agent_override", validate or MagicMock()),
         patch.object(swebench, "task_sandbox_env", _task_env),
+        patch.object(swebench, "generated_files", generated or AsyncMock(return_value=None)),
     ):
         await swebench.main("dataset", "test", str(tmp_path / "predictions.json"), list(models), **options)
     return _written(tmp_path)
@@ -231,6 +232,43 @@ def test_the_options_an_instance_runs_with_are_ones_the_clone_and_the_agent_acce
     ctx_sig.bind(spec.repo_id, scope=spec.scope, sandbox_spec=None, **spec.context_options)
 
 
+async def test_the_files_the_task_image_generated_reach_the_clone_of_that_task(tmp_path):
+    execute = AsyncMock(return_value=_outcome(model_patch="diff"))
+    generated = AsyncMock(return_value=b"tar")
+
+    await _main(tmp_path, execute, generated=generated)
+
+    generated.assert_awaited_once_with(swebench.task_image(ITEM))
+    assert execute.await_args.args[0].context_options["repo_client"].generated_files == b"tar"
+
+
+async def test_only_ignored_files_outside_build_trees_and_caches_are_taken_from_the_image():
+    listing = "\0".join([
+        "src/pkg/_version.py",
+        "pkg/_speedups.cpython-313-x86_64-linux-gnu.so",
+        "build/lib/pkg/__init__.py",
+        "pkg/__pycache__/mod.cpython-313.pyc",
+        "pkg.egg-info/PKG-INFO",
+        "docs/rebuilt.pyc",
+        "",
+    ])
+    run = AsyncMock(side_effect=[listing.encode(), b"tar"])
+
+    with patch.object(swebench, "_run_in_image", run):
+        assert await swebench.generated_files("image") == b"tar"
+
+    assert run.await_args.args[2:] == ("src/pkg/_version.py", "pkg/_speedups.cpython-313-x86_64-linux-gnu.so")
+
+
+async def test_an_image_that_generated_nothing_gives_the_clone_nothing():
+    run = AsyncMock(return_value=b"build/lib/pkg/__init__.py\0")
+
+    with patch.object(swebench, "_run_in_image", run):
+        assert await swebench.generated_files("image") is None
+
+    run.assert_awaited_once()
+
+
 def test_each_instance_clones_through_a_client_of_its_own():
     first = swebench._run_spec(ITEM, ["model-a"], "high", "env").context_options["repo_client"]
     second = swebench._run_spec(SECOND, ["model-a"], "high", "env").context_options["repo_client"]
@@ -260,8 +298,8 @@ async def test_a_task_runs_with_no_network_on_its_image_and_the_environment_is_r
 
     assert sandbox.base_image == "swebench/sweb.eval.x86_64.owner_1776_repo-1:latest"
     assert sandbox.egress is None
-    assert sandbox.env_vars["PYTHONPATH"] == "/workspace/repo"
-    assert sandbox.env_vars["PATH"].startswith("/opt/miniconda3/envs/testbed/bin:")
+    assert sandbox.env_vars["PYTHONPATH"] == "/workspace/repo/src:/workspace/repo"
+    assert sandbox.env_vars["PATH"].startswith("/opt/miniconda3/envs/testbed/bin:/opt/conda/envs/testbed/bin:")
     assert not await SandboxEnvironment.objects.filter(pk=env_id).aexists()
 
 
@@ -285,6 +323,29 @@ def test_a_message_with_hints_includes_the_hints_section():
 
     assert "## Hints" in message
     assert "Check the parser's empty-input branch." in message
+
+
+INTERFACE = "Type: Function\nName: parse\nPath: repo/parser.py"
+
+
+@pytest.mark.parametrize(
+    "statement",
+    ["Parsing an empty file crashes.", "Parsing an empty file crashes.\n\n## Interface\n"],
+    ids=["no-heading", "empty-heading"],
+)
+def test_an_interface_the_statement_lacks_is_appended_under_one_heading(statement):
+    message = swebench._human_message(ITEM | {"problem_statement": statement, "interface": INTERFACE})
+
+    assert message.count("## Interface") == 1
+    assert f"Parsing an empty file crashes.\n\n## Interface\n\n{INTERFACE}\n```" in message
+
+
+def test_an_interface_the_statement_already_ends_with_is_not_repeated():
+    statement = f"Parsing an empty file crashes.\n\n## Interface\n\n{INTERFACE}"
+
+    message = swebench._human_message(ITEM | {"problem_statement": statement, "interface": f"{INTERFACE}\n"})
+
+    assert message.count(INTERFACE) == 1
 
 
 async def test_the_thinking_level_asked_for_is_validated_and_run_with(tmp_path):

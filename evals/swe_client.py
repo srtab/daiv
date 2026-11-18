@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import logging
+import tarfile
 import tempfile
 from contextlib import contextmanager
 from functools import cached_property
@@ -46,14 +48,17 @@ class SWERepoClient(RepoClient):
     client: None = None  # No API client needed
     git_platform = GitPlatform.SWE
 
-    def __init__(self, repo_host: str):
+    def __init__(self, repo_host: str, generated_files: bytes | None = None):
         """
         Initialize the SWE client.
 
         Args:
             repo_host: The repository host to clone from, e.g. ``github.com``.
+            generated_files: A tar of files the clone gets after checkout, ones the repository ignores, such as the
+                version module its build generates.
         """
         self.repo_host = repo_host
+        self.generated_files = generated_files
         self._loaded_repo: Repo | None = None
 
     def get_repository(self, repo_id: str) -> Repository:
@@ -161,6 +166,8 @@ class SWERepoClient(RepoClient):
         issue under evaluation is often already merged: a full clone keeps it reachable from a ref, and with the
         refs removed still as an object ``git fsck --unreachable`` lists, which agents in real eval runs read.
 
+        The ``generated_files`` the client was given are then added to the working tree.
+
         Sets _loaded_repo that other methods can use to access the repository.
 
         Args:
@@ -176,6 +183,9 @@ class SWERepoClient(RepoClient):
             repo = Repo.init(Path(tmpdir) / "repo")
             repo.git.fetch("--quiet", "--no-tags", repository.clone_url, sha)
             repo.git.checkout("--detach", "FETCH_HEAD")
+            if self.generated_files:
+                with tarfile.open(fileobj=io.BytesIO(self.generated_files)) as archive:
+                    archive.extractall(repo.working_dir, filter="data")
 
             # Store instance variable for reuse by other methods
             self._loaded_repo = repo
