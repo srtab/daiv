@@ -72,7 +72,7 @@ The key is `http.<origin>.extraheader` and the value is an `Authorization: Basic
 
 Inside the sandbox, git talks to GitLab through the session's egress proxy, which adds the same `Authorization` header to requests for the git host ([egress.py](https://github.com/srtab/daiv/blob/baf6f6d2367adb9dd100a3686ecfe1a51cb0d6c5/daiv/core/sandbox/egress.py#L1-L8)). The proxy, and why the sandbox has no other route out, is the subject of [the companion post on network access](/blog/coding-agent-network-access-without-secrets/).
 
-## The agent can't push; DAIV does
+## The agent's shell refuses `git push`; DAIV publishes
 
 The agent has a shell in the sandbox, and git in it. Its `bash` tool parses each command before running it and refuses a fixed list: `git push`, `git commit`, `git config`, `git checkout` and other history- and branch-changing commands, plus the `gh` and `gitlab` command-line tools. The list is built in, and no setting can remove an entry from it ([command_policy.py](https://github.com/srtab/daiv/blob/baf6f6d2367adb9dd100a3686ecfe1a51cb0d6c5/daiv/automation/agent/workspace/bash_policy/command_policy.py#L18-L56)).
 
@@ -84,7 +84,7 @@ Narrow tokens have three side effects. Two of them needed code; the third is acc
 
 **A new token is not valid at once.** GitLab can reject a project token for git for a short while after creating it. DAIV retries the same token after 1, 2, 4 and 8 seconds, since minting another would only start the same wait again ([GitLab client, retry](https://github.com/srtab/daiv/blob/baf6f6d2367adb9dd100a3686ecfe1a51cb0d6c5/daiv/codebase/clients/gitlab/client.py#L65-L73)). A cached token can also die early, if someone revokes it or the project is reset. When the retries run out, DAIV drops the cached token and mints a new one, once ([GitLab client, re-mint](https://github.com/srtab/daiv/blob/baf6f6d2367adb9dd100a3686ecfe1a51cb0d6c5/daiv/codebase/clients/gitlab/client.py#L476-L494)).
 
-**CI runs as the token's bot user.** A project access token pushes as a bot user of that one project. A pipeline started by that push cannot read CI configuration that the project includes from another private project. So DAIV pushes with `-o ci.skip`. Opening a new merge request starts a pipeline as DAIV's user anyway; for a push to an existing one, DAIV creates the pipeline itself with its personal access token ([publishers.py, skip](https://github.com/srtab/daiv/blob/baf6f6d2367adb9dd100a3686ecfe1a51cb0d6c5/daiv/automation/agent/publishers.py#L243-L256)).
+**CI runs as the token's bot user.** A project access token pushes as a bot user of that one project. A pipeline started by that push cannot read CI configuration that the project includes from another private project. So DAIV pushes with `-o ci.skip`, and for a push to an existing merge request it then creates the merge request's pipeline itself, with its personal access token ([publishers.py, skip](https://github.com/srtab/daiv/blob/baf6f6d2367adb9dd100a3686ecfe1a51cb0d6c5/daiv/automation/agent/publishers.py#L243-L256)).
 
 A failed trigger would leave the merge request with no pipeline at all. The code's rule for that case is to surface it "loudly … and visibly …, never silently": DAIV logs an error and writes a note on the merge request ([publishers.py, trigger](https://github.com/srtab/daiv/blob/baf6f6d2367adb9dd100a3686ecfe1a51cb0d6c5/daiv/automation/agent/publishers.py#L371-L429)).
 
@@ -92,11 +92,11 @@ A failed trigger would leave the merge request with no pipeline at all. The code
 
 ## When DAIV falls back to its own token
 
-GitLab does not always let DAIV mint a project token. DAIV then uses its personal access token, for the clone and for the proxy, and logs that it did so on every clone ([GitLab client, fallback](https://github.com/srtab/daiv/blob/baf6f6d2367adb9dd100a3686ecfe1a51cb0d6c5/daiv/codebase/clients/gitlab/client.py#L529-L558)). That happens when:
+GitLab does not always let DAIV mint a project token. DAIV then uses its personal access token, for the clone and for the proxy, and logs that it did so on every clone ([GitLab client, fallback](https://github.com/srtab/daiv/blob/baf6f6d2367adb9dd100a3686ecfe1a51cb0d6c5/daiv/codebase/clients/gitlab/client.py#L529-L558)). That happens whenever GitLab won't mint a project token: for the next 5 minutes after a network error, a rate limit or a server error, and for the next hour after any other failure ([clone_tokens.py, failures](https://github.com/srtab/daiv/blob/baf6f6d2367adb9dd100a3686ecfe1a51cb0d6c5/daiv/codebase/clients/gitlab/clone_tokens.py#L90-L116)). The usual causes of the second kind are:
 
 - DAIV's user is below Maintainer on the project;
 - the GitLab plan has no project access tokens, as on GitLab.com Free;
-- a mint fails on a network error, a rate limit or a server error, for the next 5 minutes ([clone_tokens.py, failures](https://github.com/srtab/daiv/blob/baf6f6d2367adb9dd100a3686ecfe1a51cb0d6c5/daiv/codebase/clients/gitlab/clone_tokens.py#L90-L106)).
+- GitLab rejects DAIV's own token, or returns a project token without its secret.
 
 The personal access token still never enters the sandbox. But the proxy adds it to every request for the GitLab host, and it has the `api` scope. While the fallback lasts, anything running in the sandbox can call the GitLab API with DAIV's permissions, through the proxy.
 
@@ -106,7 +106,7 @@ The personal access token still never enters the sandbox. But the proxy adds it 
 - **CI on a branch the sandbox pushes.** A push from the sandbox can change the CI configuration on an unprotected branch, and that pipeline runs with the variables GitLab gives unprotected branches. On GitHub, a token with `workflows: write` can change `.github/workflows/` the same way. My reading: keep secrets that matter in protected variables, and grant `workflows: write` only where DAIV needs it.
 - **Tokens outliving the run.** A GitLab project token stays valid for up to three days after the run that used it.
 - **Several repositories in one session.** Each repository's token is added for its own path, so the sandbox can push to each of them.
-- **The fallback.** On a GitLab plan without project access tokens, or during a mint failure, the sandbox can use an `api`-scoped token through the proxy.
+- **The fallback.** Whenever GitLab won't mint a project token, the sandbox can use an `api`-scoped token through the proxy.
 
 ## Trying it
 
