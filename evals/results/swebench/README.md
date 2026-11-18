@@ -23,7 +23,7 @@ None yet. The first one is the pilot under [How to run](#how-to-run); record it 
 
 ## How to run
 
-Start the local stack (`docker start daiv-db daiv-redis daiv-sandbox`), with an enabled provider for the model and the sandbox API key set in the site configuration. Run from the repository root, outside any sandboxed shell (the sandbox's loopback is not the host's). The make targets point the run at the main stack from the host; a variable set in the shell wins over their defaults.
+Start the local stack (`docker start daiv-db daiv-redis daiv-sandbox`), with an enabled provider for the model and the sandbox API key set in the site configuration. Run from the repository root, outside any sandboxed shell (the sandbox's loopback is not the host's). The make targets point the run at the main stack from the host; a variable set in the shell wins over their defaults. The run reads the main database, `db`, which must have the checkout's migrations: a missing column fails every task at once, at no cost. In a worktree, use the slot's own database instead, `DB_NAME=db_<WORKTREE_SLOT from .env>`, which the slot's `make up` migrates.
 
 **1. Price it on 5 tasks.** Pick a cheap model from `ModelName` in `daiv/core/constants.py`, such as `openrouter:deepseek/deepseek-v4.1-flash`, `openrouter:z-ai/glm-5.3-flash` or `openrouter:minimax/minimax-m3`, and give the run its own predictions path:
 
@@ -72,6 +72,7 @@ Newest first. Every run was offline, with no web tools.
 
 | Change | Model | Tasks | Resolved | Cost | Verdict |
 |---|---|---|---|---|---|
+| Pricing pilot at `5c81c016a`, on 2026-11-18 | DeepSeek V4.1 Flash, high | Seed 0's first 5: 3 sphinx, 2 django | Not graded | $0.48: $0.01 to $0.22 per task, $0.10 on average. 6.6 minutes per task on average, 12.1 at most. 98% of input tokens were cache reads. All 5 finished with a patch | Puts the 50 at about $5 and 5.5 hours, run one task at a time |
 
 ## Other datasets
 

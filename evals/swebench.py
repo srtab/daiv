@@ -148,10 +148,10 @@ def attempt_record(
 
 
 def cost_summary(attempts: list[dict]) -> str:
-    priced = [attempt["cost_usd"] for attempt in attempts if attempt["cost_usd"] is not None]
-    summary = f"{len(attempts)} attempt(s) logged, ${sum(priced):.2f}"
-    if priced:
-        summary += f", ${sum(priced) / len(priced):.2f} per attempt"
+    priced = [attempt for attempt in attempts if attempt["cost_usd"] is not None]
+    summary = f"{len(attempts)} attempt(s) logged, ${sum(attempt['cost_usd'] for attempt in priced):.2f}"
+    if finished := [attempt["cost_usd"] for attempt in priced if attempt["status"] == "finished"]:
+        summary += f"; a finished task averaged ${sum(finished) / len(finished):.2f}"
     if unpriced := len(attempts) - len(priced):
         summary += f"; {unpriced} attempt(s) called a model with no known price"
     return summary

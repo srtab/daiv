@@ -261,7 +261,7 @@ def test_a_sample_is_reproducible_spans_the_dataset_and_a_larger_one_extends_it(
     )
 
 
-async def test_each_attempt_logs_its_time_tokens_and_cost_even_when_the_run_raises(tmp_path):
+async def test_each_attempt_logs_its_time_tokens_and_cost_even_when_the_run_raises(tmp_path, capsys):
     """The usage log is the eval's bill: a run that raises after calling the model has spent money too."""
     reply = AIMessage(
         content="done",
@@ -286,6 +286,7 @@ async def test_each_attempt_logs_its_time_tokens_and_cost_even_when_the_run_rais
         assert (attempt["input_tokens"], attempt["output_tokens"], attempt["cost_usd"]) == (100, 20, 0.25)
         assert (attempt["model_name_or_path"], attempt["thinking_level"]) == ("model-a, model-b", "high")
         assert attempt["seconds"] >= 0
+    assert "2 attempt(s) logged, $0.50; a finished task averaged $0.25" in capsys.readouterr().err
 
 
 async def test_a_rerun_skips_the_predicted_tasks_and_keeps_their_predictions(tmp_path):
