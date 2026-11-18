@@ -5,6 +5,7 @@ from django.utils.translation import gettext_lazy as _
 class ChannelType(models.TextChoices):
     EMAIL = "email", _("Email")
     ROCKETCHAT = "rocketchat", _("Rocket Chat")
+    DISCORD = "discord", _("Discord")
     TELEGRAM = "telegram", _("Telegram")
 
 

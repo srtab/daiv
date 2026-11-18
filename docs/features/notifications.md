@@ -1,10 +1,10 @@
 ---
-description: "Get notified when a DAIV run needs attention, via the in-app bell, email, Rocket.Chat or Telegram, with per-user delivery channels."
+description: "Get notified when a DAIV run needs attention, via the in-app bell, email, Rocket.Chat, Discord or Telegram, with per-user delivery channels."
 ---
 
 # Notifications
 
-DAIV tells you when your work needs attention. When a run finishes with something to look at, such as an issue found, a situation that needs review or an outright failure, DAIV writes an in-app notification and delivers it to external channels: email, Rocket.Chat and Telegram. Clean runs stay silent and appear only in their session, under **Sessions**.
+DAIV tells you when your work needs attention. When a run finishes with something to look at, such as an issue found, a situation that needs review or an outright failure, DAIV writes an in-app notification and delivers it to external channels: email, Rocket.Chat, Discord and Telegram. Clean runs stay silent and appear only in their session, under **Sessions**.
 
 Notifications are per user. Each recipient gets their own copy, delivered through that user's own channels.
 
@@ -31,13 +31,14 @@ Other notifications, such as the one DAIV sends when [pipeline watch](pipeline-w
 
 ## Channels
 
-DAIV reaches you through channels. In-app notifications are always on. Email, Rocket.Chat and Telegram are external channels, and your administrator decides which of the last two appear.
+DAIV reaches you through channels. In-app notifications are always on. Email, Rocket.Chat, Discord and Telegram are external channels, and your administrator decides which of the last three appear.
 
 | Channel | What you get | What it needs |
 |---------|--------------|---------------|
 | In-app | **Notifications** in the sidebar shows your unread count and opens your full history at `/dashboard/notifications/`. | Nothing. |
 | Email | A message to your account email address. | Nothing. DAIV keeps a verified email channel in sync with your account address, so there is nothing to connect. |
 | **Rocket Chat** | A direct message from the DAIV bot. | An administrator has enabled Rocket.Chat, and you have connected your `@username`. |
+| :simple-discord: **Discord** | A direct message from the DAIV bot. | An administrator has enabled Discord, you share a server with the bot, and you have connected your Discord user ID. |
 | **Telegram** | A direct message from the DAIV bot. | An administrator has enabled Telegram, and you have connected your chat. |
 
 A message about a run includes the run's summary. For a run waiting for an answer, that is the list of questions.
@@ -51,11 +52,12 @@ DAIV writes an in-app entry for each run whose outcome notifies, and none for an
 
 ## Connect a channel
 
-Email and in-app need no setup. Rocket.Chat and Telegram need an administrator to enable them first, and you then connect your own account on the channels page.
+Email and in-app need no setup. Rocket.Chat, Discord and Telegram need an administrator to enable them first, and you then connect your own account on the channels page.
 
 You need:
 
 - For Rocket.Chat, an administrator who has enabled it in **Settings** → **Configuration** → **Rocket Chat**, with the instance URL, bot user ID and auth token. See [Site configuration](../reference/site-configuration.md#setting-groups).
+- For Discord, an administrator who has enabled it in **Settings** → **Configuration** → **Discord**, as described in [Set up Discord](../reference/site-configuration.md#set-up-discord). You must share at least one Discord server with the bot.
 - For Telegram, an administrator who has enabled it in **Settings** → **Configuration** → **Telegram**, as described in [Set up Telegram](../reference/site-configuration.md#set-up-telegram). Telegram delivery to chats that are already linked needs only outbound internet access, but connecting a new chat needs DAIV reachable from the internet over HTTPS. On an instance without public ingress, you cannot link new chats.
 - Until the channel is enabled, its row does not appear on your channels page.
 
@@ -70,6 +72,21 @@ To open the channels page, select **Notification channels** in the account menu 
 DAIV checks the username against the Rocket.Chat instance. On success, the row shows a **Verified** badge and your handle. If the user is unknown or the instance is unreachable, DAIV shows an error and saves nothing: it stores no unverified binding.
 
 To stop Rocket.Chat delivery, select **Disconnect** in the same row.
+
+### Connect Discord
+
+Discord bots can only direct-message users who share a server with them. Make sure you and the DAIV bot belong to the same server before connecting.
+
+1. In Discord, open **User Settings** → **Advanced** and turn on **Developer Mode**.
+2. Right-click your Discord profile or avatar, then select **Copy User ID**.
+3. On the **Notification channels** page, find the **Discord** row.
+4. Paste your user ID into the field.
+5. Select **Connect**.
+6. Open the direct message from the DAIV bot and follow its confirmation link within 10 minutes.
+
+DAIV checks the user ID with Discord and sends a single-use confirmation link to that account. Only opening the link while signed in to the same DAIV account proves ownership and marks the binding **Verified**. If the ID is not numeric or unknown, Discord is unreachable, or the bot cannot message you, DAIV shows an error and does not enable delivery. Confirmation requests are limited to one per minute; request a new link if yours expires or has already been used.
+
+To stop Discord delivery, select **Disconnect** in the same row. If you leave every server you share with the bot, Discord refuses direct messages and DAIV marks those deliveries **failed**.
 
 ### Connect Telegram
 
@@ -109,8 +126,8 @@ A muted run produces no in-app entry at all: muting is full silence. DAIV has no
 
 When a run finishes with an outcome that notifies, DAIV records the notification, then one delivery for each external channel, and sends each delivery from a background worker:
 
-- A channel with no usable connection, such as Rocket.Chat or Telegram before you connect, or a channel DAIV does not know, is recorded as **skipped** rather than attempted.
-- DAIV retries a transient failure, up to three attempts in all, waiting 1 minute before the second and 5 minutes before the third. A permanent failure, such as a refused recipient or a disabled channel, is marked **failed** and not retried. When the provider names its own wait, as Telegram's flood control does, DAIV delays the next attempt to at least that long, up to one hour.
+- A channel with no usable connection, such as Rocket.Chat, Discord or Telegram before you connect, or a channel DAIV does not know, is recorded as **skipped** rather than attempted.
+- DAIV retries a transient failure, up to three attempts in all, waiting 1 minute before the second and 5 minutes before the third. A permanent failure, such as a refused recipient or a disabled channel, is marked **failed** and not retried. When the provider names its own wait, as Discord's rate limits and Telegram's flood control do, DAIV delays the next attempt to at least that long, up to one hour.
 - Blocking the DAIV bot in Telegram normally unlinks your chat at once. When that message does not reach DAIV, DAIV notices the refusal on the next delivery instead. It keeps the link and marks it **Unverified**, because that condition never recovers by itself and retrying would only use up attempts. Later notifications are **skipped**, until you redo the handshake.
 - The in-app entry does not depend on external delivery. DAIV writes it even when every external channel is skipped or fails.
 

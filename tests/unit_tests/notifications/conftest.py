@@ -66,6 +66,12 @@ def rocketchat_configured(site_settings_override):
 
 
 @pytest.fixture
+def discord_configured(site_settings_override):
+    """Point ``site_settings`` at a fake Discord bot with real ``SecretStr`` semantics."""
+    site_settings_override(discord_enabled=True, discord_bot_token=SecretStr("bottoken"))
+
+
+@pytest.fixture
 def telegram_configured(site_settings_override):
     """Point ``site_settings`` at a fake Telegram bot with real ``SecretStr`` semantics."""
     site_settings_override(
@@ -123,6 +129,15 @@ def enabled_with_env_token(monkeypatch):
         SiteConfiguration._invalidate_cache()
 
 
+@pytest.fixture(autouse=True)
+def _clear_notification_throttles():
+    from django.core.cache import cache
+
+    cache.clear()
+    yield
+    cache.clear()
+
+
 @pytest.fixture
 def configured_site(db):
     """Write fields onto the ``SiteConfiguration`` singleton and evict the cache afterwards.
@@ -150,6 +165,11 @@ def configured_site(db):
 @pytest.fixture
 def rocketchat_channel_enabled(configured_site):
     return configured_site(rocketchat_enabled=True)
+
+
+@pytest.fixture
+def discord_channel_enabled(configured_site):
+    return configured_site(discord_enabled=True, discord_bot_token="bottoken")  # noqa: S106 — test constant
 
 
 @pytest.fixture
