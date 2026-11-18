@@ -1,3 +1,4 @@
+import json
 from datetime import date
 
 import pytest
@@ -30,3 +31,15 @@ def write_post(posts_dir):
         posts.all_posts.cache_clear()
 
     return write
+
+
+@pytest.fixture
+def manifest_storage(settings, tmp_path_factory):
+    root = tmp_path_factory.mktemp("static")
+    paths = {"blog/egress/img/flow.png": "blog/egress/img/flow.abc123.png"}
+    (root / "staticfiles.json").write_text(json.dumps({"version": "1.1", "hash": "", "paths": paths}))
+    settings.STATIC_ROOT = str(root)
+    settings.STORAGES = {
+        **settings.STORAGES,
+        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"},
+    }

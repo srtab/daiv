@@ -55,3 +55,10 @@ def test_sitemap_lists_the_index_and_published_posts(write_post):
 
 def test_sitemap_has_no_blog_without_visible_posts(posts_dir):
     assert "/blog/" not in Client().get(reverse("sitemap")).content.decode()
+
+
+def test_a_broken_post_leaves_the_sitemap_and_the_blog_up(write_post, posts_dir):
+    write_post()
+    (posts_dir / "broken.md").write_text("no front-matter\n")
+    assert Client().get(reverse("sitemap")).status_code == 200
+    assert Client().get("/blog/").status_code == 200

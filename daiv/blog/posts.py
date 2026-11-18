@@ -1,8 +1,10 @@
 import functools
+import logging
 import re
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import urljoin
 
 from django.templatetags.static import static
@@ -10,10 +12,15 @@ from django.urls import reverse
 
 import yaml
 
-from blog.rendering import render_body
+from blog.rendering import render_body, static_path
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 CANONICAL_ORIGIN = "https://daivagent.com"
 POSTS_DIR = Path(__file__).parent / "posts"
+
+logger = logging.getLogger("daiv.blog")
 
 _SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _FRONT_MATTER = re.compile(r"\A---\n(.*?)^---$\n?(.*)\Z", re.DOTALL | re.MULTILINE)
@@ -42,15 +49,19 @@ class Post:
 
     @property
     def canonical_url(self) -> str:
-        return CANONICAL_ORIGIN + reverse("blog:post", args=[self.slug])
+        return _canonical_url(self.slug)
 
     @property
     def image_url(self) -> str | None:
-        return static(f"blog/{self.slug}/{self.image}") if self.image else None
+        return static(static_path(self.slug, self.image)) if self.image else None
 
     @property
     def absolute_image_url(self) -> str | None:
         return urljoin(CANONICAL_ORIGIN, self.image_url) if self.image_url else None
+
+
+def _canonical_url(slug: str) -> str:
+    return CANONICAL_ORIGIN + reverse("blog:post", args=[slug])
 
 
 def _read_front_matter(path: Path) -> tuple[dict, str]:
@@ -90,7 +101,12 @@ def parse_post(path: Path) -> Post:
         raise PostError(f"{path.name}: the slug {slug!r} must be lowercase letters and digits joined by hyphens")
     meta, body = _read_front_matter(path)
     _validate(path.name, meta)
-    html, feed_html = render_body(body, slug=slug, origin=CANONICAL_ORIGIN)
+    try:
+        html, feed_html = render_body(body, slug=slug, base_url=_canonical_url(slug))
+        if "image" in meta:
+            static(static_path(slug, meta["image"]))
+    except ValueError as exc:
+        raise PostError(f"{path.name}: {exc}") from exc
     return Post(
         slug=slug,
         title=meta["title"],
@@ -104,14 +120,25 @@ def parse_post(path: Path) -> Post:
     )
 
 
-def load_posts(directory: Path) -> tuple[Post, ...]:
-    posts = [parse_post(path) for path in directory.glob("*.md")]
+def _newest_first(posts: Iterable[Post]) -> tuple[Post, ...]:
     return tuple(sorted(posts, key=lambda post: (-post.date.toordinal(), post.title)))
+
+
+def load_posts(directory: Path) -> tuple[Post, ...]:
+    """Every post in `directory`, failing on the first one that can't be published as written."""
+    return _newest_first(parse_post(path) for path in directory.glob("*.md"))
 
 
 @functools.cache
 def all_posts() -> tuple[Post, ...]:
-    return load_posts(POSTS_DIR)
+    """The shipped posts, leaving out (and logging) any that can't be published as written."""
+    loaded = []
+    for path in POSTS_DIR.glob("*.md"):
+        try:
+            loaded.append(parse_post(path))
+        except PostError:
+            logger.exception("Skipping the blog post %s", path.name)
+    return _newest_first(loaded)
 
 
 def today() -> date:

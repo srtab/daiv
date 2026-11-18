@@ -12,8 +12,8 @@ logger = logging.getLogger("daiv.blog")
 def _has_visible_posts() -> bool:
     try:
         return bool(posts.visible_posts(include_unpublished=settings.DEBUG))
-    except posts.PostError:
-        logger.exception("A blog post failed to load, so the Blog link is hidden")
+    except Exception:
+        logger.exception("The blog posts failed to load, so the Blog link is hidden")
         return False
 
 

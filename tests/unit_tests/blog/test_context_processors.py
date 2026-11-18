@@ -35,3 +35,14 @@ def test_broken_post_hides_the_link_and_keeps_the_homepage_up(posts_dir, caplog)
 def test_app_pages_never_load_posts(member_client, monkeypatch):
     monkeypatch.setattr(posts, "all_posts", lambda: pytest.fail("posts loaded"))
     assert member_client.get(reverse("dashboard")).status_code == 200
+
+
+def test_unexpected_error_hides_the_link_and_keeps_the_homepage_up(monkeypatch, caplog):
+    def explode():
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(posts, "all_posts", explode)
+    response = Client().get(reverse("homepage"))
+    assert response.status_code == 200
+    assert _blog_links(response.content) == [False, False]
+    assert any(r.name == "daiv.blog" and r.levelname == "ERROR" for r in caplog.records)
