@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from sandbox_envs.models import SandboxEnvironment
 from sandbox_envs.services import build_sandbox_spec
 from sessions.executor.lock import NoLock
@@ -99,6 +99,23 @@ async def test_a_finished_run_predicts_the_patch_it_captured(tmp_path):
     assert predictions == [
         {"model_patch": "diff --git a/x b/x", "model_name_or_path": "model-a, model-b", "instance_id": "owner__repo-1"}
     ]
+
+
+async def test_a_finished_run_keeps_its_conversation_and_a_failed_one_writes_none(tmp_path):
+    messages = [HumanMessage("Parsing an empty file crashes."), AIMessage("Fixed the empty-input branch.")]
+    execute = AsyncMock(side_effect=[_outcome(model_patch="diff", messages=messages), RuntimeError("clone failed")])
+
+    await _main(tmp_path, execute, items=(ITEM, SECOND))
+
+    transcripts = tmp_path / "predictions.transcripts"
+    assert [path.name for path in transcripts.iterdir()] == ["owner__repo-1.json"]
+    transcript = json.loads((transcripts / "owner__repo-1.json").read_text())
+    assert [message["role"] for message in transcript["messages"]] == ["user", "assistant"]
+    assert transcript["metadata"] == {
+        "instance_id": "owner__repo-1",
+        "model": "model-a, model-b",
+        "thinking_level": "high",
+    }
 
 
 async def test_a_model_the_site_cant_run_stops_the_eval_before_any_instance(tmp_path):

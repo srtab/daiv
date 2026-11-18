@@ -4,8 +4,9 @@ Each task runs through ``execute_run`` in its own SWE-bench image with no networ
 dependencies installed and cannot fetch a later release or the upstream repository, which hold the fix. Its captured
 patch becomes one row of the predictions file. A run that raises predicts an empty patch, so it is graded
 unresolved; ``--retry-failed`` runs those tasks again. Every attempt, failed and interrupted ones included, appends
-its time, tokens and cost to ``<predictions>.usage.jsonl``. A task already in the predictions file is skipped, so a
-rerun resumes.
+its time, tokens and cost to ``<predictions>.usage.jsonl``. A finished task's conversation goes to
+``<predictions>.transcripts/<instance_id>.json``, in the shape the trace-analyzer skill reads. A task already in the
+predictions file is skipped, so a rerun resumes.
 """
 
 import argparse
@@ -26,7 +27,7 @@ from typing import TYPE_CHECKING
 import django
 from django.apps import apps
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, convert_to_openai_messages
 from langchain_core.tracers.context import register_configure_hook
 
 # The first-party imports below define Django models at import time, so the app registry must be populated
@@ -98,6 +99,12 @@ def write_predictions(path: Path, predictions: list[dict]) -> None:
     partial = path.with_suffix(".partial")
     partial.write_text(json.dumps(predictions, indent=2))
     partial.replace(path)
+
+
+def write_transcript(path: Path, messages: list, metadata: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    transcript = {"messages": convert_to_openai_messages(messages), "metadata": metadata}
+    path.write_text(json.dumps(transcript, ensure_ascii=False, indent=1, default=str))
 
 
 def load_attempts(path: Path) -> list[dict]:
@@ -233,6 +240,12 @@ async def main(
             "instance_id": instance_id,
         })
         write_predictions(output, predictions)
+        if outcome is not None and outcome.snapshot is not None:
+            write_transcript(
+                output.with_suffix(".transcripts") / f"{instance_id}.json",
+                outcome.snapshot.values.get("messages") or [],
+                {"instance_id": instance_id, "model": model_name_or_path, "thinking_level": thinking_level},
+            )
 
     print(f"{len(predictions)} prediction(s) in {output}; {cost_summary(load_attempts(usage_path))}", file=sys.stderr)  # noqa: T201
     if failed:

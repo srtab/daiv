@@ -33,7 +33,7 @@ Start the local stack (`docker start daiv-db daiv-redis daiv-sandbox`), with an 
 make swebench-mini SWEBENCH_MODEL=openrouter:deepseek/deepseek-v4.1-flash SWEBENCH_SAMPLES=5 SWEBENCH_PREDICTIONS=eval-runs/swebench/mini-deepseek-v4.1-flash/predictions.json
 ```
 
-Each task prints its time and cost when it ends, and the run closes with the total of every attempt in the usage log, `predictions.usage.jsonl` next to the predictions. For comparison, the ReviewBench baseline cost $0.31 per PR on Haiku.
+Each task prints its time and cost when it ends, and the run closes with the total of every attempt in the usage log, `predictions.usage.jsonl` next to the predictions. For comparison, the ReviewBench baseline cost $0.31 per PR on Haiku. Each finished task's conversation goes to `predictions.transcripts/<task>.json`, which `.claude/skills/trace-analyzer` reads; a run that raised has none.
 
 **2. Run the other 45.** The same command without `SWEBENCH_SAMPLES`. The 5 predicted tasks are skipped: the sample is the dataset shuffled by `SWEBENCH_SEED` (default 0), and a smaller sample is always the start of a larger one.
 
@@ -65,7 +65,7 @@ The harness writes its logs and a report, `<model>.grade.json`, next to the pred
 ## Comparing runs
 
 - **Same setup only.** Compare runs of one model, thinking level, dataset and seed. Each DAIV version gets its own predictions path.
-- **Run-to-run noise.** Not measured on the 50 yet. Run the first baseline twice, into two predictions paths, and record here how many tasks flip between the passes. The only sample so far: two GLM 5.3 Flash passes on the same 5 tasks differed on one.
+- **Run-to-run noise.** Not measured on the 50 yet. Run the first baseline twice, into two predictions paths, and record here how many tasks flip between the passes. The only samples so far: two GLM 5.3 Flash passes on the same 5 tasks differed on one, and Claude Haiku 5.5 resolved `django__django-11815` in 2 of 3 runs.
 - **Rerun only what differs.** After a full pass of both versions, rerun the tasks whose result differs with `SWEBENCH_IDS`, twice per side, before calling a difference real.
 
 ## Experiment log
@@ -74,6 +74,7 @@ Newest first. Runs before `a79192752` could reach the upstream fix; each says wh
 
 | Change | Model | Tasks | Resolved | Cost | Verdict |
 |---|---|---|---|---|---|
+| Reruns of Haiku's two misses, two passes each, with transcripts, on 2026-11-18 | Claude Haiku 5.5 on the Anthropic provider, high | `django__django-11815`, `sphinx-doc__sphinx-9229` | django: 2 of 2. sphinx: 0 of 2; one pass kept the `alias of` line after the docstring, the other changed nothing, judging that the change would break existing tests | $0.08 | The django miss was variance: the failed run also switched to `__qualname__`, which the issue did not ask for. Every sphinx-9229 patch from all three models keeps `alias of :class:` after the docstring, where the hidden test wants the docstring to replace it, while the existing tests pin that line for generic aliases. No harness change would fix it without fitting this task |
 | Pricing pilot at `afd7a0918`, on 2026-11-18: task image, no network, base-only clone | Claude Haiku 5.5 on the Anthropic provider, high | The same 5 | 3 of 5. Missed `sphinx-doc__sphinx-9229`, and `django__django-11815`: it serialized the enum by `__qualname__`, which the task's test rejects for an enum defined inside a function | $0.10: under $0.01 to $0.05 per task, $0.02 on average. 1.8 minutes per task on average, 3.4 at most. 95% of input tokens were cache reads | Puts the 50 at about $1 and 1.5 hours. Resolved as many as GLM 5.3 Flash at under a third of its cost and time, and never looked for the fix in git |
 | Pricing pilot at `a79192752`, on 2026-11-18: task image, no network, base-only clone | GLM 5.3 Flash, high | Seed 0's first 5: 3 sphinx, 2 django | 3 of 5. Missed `sphinx-doc__sphinx-9229` and `sphinx-doc__sphinx-10673` | $0.35: $0.01 to $0.22 per task, $0.07 on average. 6.3 minutes per task on average, 17.8 at most. 99% of input tokens were cache reads | Puts the 50 at about $3.50 and 5.3 hours, run one task at a time |
 | Pricing pilot at `a79192752`, on 2026-11-18: task image, no network, base-only clone | DeepSeek V4.1 Flash, high | The same 5 | 4 of 5. Missed `sphinx-doc__sphinx-9229` | $1.40: $0.01 to $0.74 per task, $0.28 on average. 16.3 minutes per task on average, 40.7 at most. 96% of input tokens were cache reads | Puts the 50 at about $14 and 14 hours. It kept hunting for the fix in git (`fsck`, the reflog, commit SHAs it guessed) on the three sphinx tasks; none of it is in the clone or the image |
