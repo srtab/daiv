@@ -4,16 +4,18 @@ What each change to DAIV's issue-to-patch agent did on [SWE-bench Verified Mini]
 
 ## Current baseline
 
-None yet. The first one is the pilot under [How to run](#how-to-run); record it here as:
-
 | | |
 |---|---|
-| DAIV | commit, run on date |
-| Model | model, thinking level |
-| Tasks | all 50 of the Mini, one pass |
-| Resolved | n of 50 |
-| Cost | total, per task, from the usage log |
-| Time | minutes per task on average, at most |
+| DAIV | `6757c19e6`, run on 2026-11-18 |
+| Model | Claude Haiku 5.5 on the Anthropic provider (`anthropic:claude-haiku-5-5`), thinking level `high` |
+| Tasks | All 50 of the Mini, one pass; each in its task image, with no network and a base-only clone |
+| Resolved | **40 of 50**: django 21 of 25, sphinx 19 of 25 |
+| Unresolved | `django__django-11790`, `-11848`, `-11885`, `-12325`; `sphinx-doc__sphinx-7590`, `-7748`, `-8056`, `-8548`, `-9229`, `-11510` |
+| Cost | $0.65: $0.004 to $0.046 per task, median $0.009. 94% of input tokens were cache reads |
+| Time | 1.4 minutes per task on average, 4.1 at most; 1.2 hours in all, one task at a time |
+| Noise | Not measured: one pass only. Run a second pass into another path before reading a 1- or 2-task difference |
+
+Predictions, usage log, transcripts and grading logs are in `eval-runs/swebench/mini-claude-haiku-5-5-6757c19e6/` of the main checkout.
 
 ## The benchmark
 
@@ -43,7 +45,7 @@ Each task prints its time and cost when it ends, and the run closes with the tot
 make swebench-mini-evaluate SWEBENCH_PREDICTIONS=eval-runs/swebench/mini-deepseek-v4.1-flash/predictions.json
 ```
 
-The harness writes its logs and a report, `<model>.grade.json`, next to the predictions. Because the Mini is graded against all of Verified, its "Total instances" line counts 500; the result is "Instances resolved" out of "Instances submitted". Each task's `logs/run_evaluation/grade/<model>/<task>/report.json` names the tests that failed. Regrading the same predictions reuses the reports already written. Grading the pilot's 5 took under 2 minutes, pulling the images included.
+The harness writes its logs and a report, `<model>.grade.json`, next to the predictions. Because the Mini is graded against all of Verified, its "Total instances" line counts 500; the result is "Instances resolved" out of "Instances submitted". Each task's `logs/run_evaluation/grade/<model>/<task>/report.json` names the tests that failed. An "ambiguous failure" with `no_tests_collected` usually means the hidden test patch did not apply: when it adds new files, the harness's reset of the existing test files fails, so a patch that also edited one of them conflicts with it. To see whether the source fix holds, regrade a copy of the prediction without its `tests/` hunks, under another `SWEBENCH_RUN_ID`. Regrading the same predictions reuses the reports already written. Grading the pilot's 5 took under 2 minutes, pulling the images included.
 
 **Variables.**
 
@@ -74,7 +76,8 @@ Newest first. Runs before `a79192752` could reach the upstream fix; each says wh
 
 | Change | Model | Tasks | Resolved | Cost | Verdict |
 |---|---|---|---|---|---|
-| Task prompt at `6757c19e6`: no longer says that a pre-existing test needing change signals a wrong fix, which contradicted DAIV's own test rule | | | Not run yet | | Runs before it used the old line, so compare runs on the same side of it. One Haiku run cited the line to submit no patch for `sphinx-doc__sphinx-9229`; the full run will show whether empty patches drop |
+| First baseline at `6757c19e6`, on 2026-11-18 | Claude Haiku 5.5 on the Anthropic provider, high | All 50 | 40 of 50 | $0.65, 1.2 hours | Baseline. No run raised or left an empty patch. The harness marked `sphinx-doc__sphinx-11510` ambiguous ("no tests collected"): the patch also edited `tests/test_directive_other.py`, and when the hidden tests add new files the harness's reset of existing test files fails, so the hidden test patch did not apply. Graded with the test-file edits removed, the source fix still fails, so it stays unresolved |
+| Task prompt at `6757c19e6`: no longer says that a pre-existing test needing change signals a wrong fix, which contradicted DAIV's own test rule | | | Not measured on its own | | Runs before it used the old line, so compare runs on the same side of it. One Haiku run cited the line to submit no patch for `sphinx-doc__sphinx-9229`; the baseline above, run after it, left no empty patch |
 | Reruns of Haiku's two misses, two passes each, with transcripts, on 2026-11-18 | Claude Haiku 5.5 on the Anthropic provider, high | `django__django-11815`, `sphinx-doc__sphinx-9229` | django: 2 of 2. sphinx: 0 of 2; one pass kept the `alias of` line after the docstring, the other changed nothing, judging that the change would break existing tests | $0.08 | The django miss was variance: the failed run also switched to `__qualname__`, which the issue did not ask for. Every sphinx-9229 patch from all three models keeps `alias of :class:` after the docstring, where the hidden test wants the docstring to replace it, while the existing tests pin that line for generic aliases. No harness change would fix it without fitting this task |
 | Pricing pilot at `afd7a0918`, on 2026-11-18: task image, no network, base-only clone | Claude Haiku 5.5 on the Anthropic provider, high | The same 5 | 3 of 5. Missed `sphinx-doc__sphinx-9229`, and `django__django-11815`: it serialized the enum by `__qualname__`, which the task's test rejects for an enum defined inside a function | $0.10: under $0.01 to $0.05 per task, $0.02 on average. 1.8 minutes per task on average, 3.4 at most. 95% of input tokens were cache reads | Puts the 50 at about $1 and 1.5 hours. Resolved as many as GLM 5.3 Flash at under a third of its cost and time, and never looked for the fix in git |
 | Pricing pilot at `a79192752`, on 2026-11-18: task image, no network, base-only clone | GLM 5.3 Flash, high | Seed 0's first 5: 3 sphinx, 2 django | 3 of 5. Missed `sphinx-doc__sphinx-9229` and `sphinx-doc__sphinx-10673` | $0.35: $0.01 to $0.22 per task, $0.07 on average. 6.3 minutes per task on average, 17.8 at most. 99% of input tokens were cache reads | Puts the 50 at about $3.50 and 5.3 hours, run one task at a time |
