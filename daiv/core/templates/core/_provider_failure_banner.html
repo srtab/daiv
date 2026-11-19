@@ -1,0 +1,24 @@
+{% load i18n icon_tags %}
+{% if provider_failures %}
+<div class="shrink-0 px-4 pt-4 sm:px-(--app-content-gutter)">
+  <div class="flex gap-3 rounded-2xl border border-red-800/50 bg-red-950/30 p-4" role="alert">
+    {% icon "exclamation-triangle" "mt-0.5 h-5 w-5 shrink-0 text-red-300" %}
+    <div class="min-w-0">
+      {% for failure in provider_failures %}
+      <p class="break-words text-sm text-red-200">
+        {% with provider=failure.display_name model=failure.failure_model %}
+        {% if failure.failure_kind == "out_of_credits" %}
+        {% blocktranslate with since=failure.failing_since|date:"M j, H:i" %}{{ provider }} can't cover requests to {{ model }}: out of credits since {{ since }}. Runs that use it are failing, or falling back to the fallback model if one is set.{% endblocktranslate %}
+        {% elif failure.failure_kind == "spend_limit_reached" %}
+        {% blocktranslate with since=failure.failing_since|date:"M j, H:i" %}DAIV's {{ provider }} key has hit its spending limit since {{ since }}. Runs that use it are failing, or falling back to the fallback model if one is set.{% endblocktranslate %}
+        {% else %}
+        {% blocktranslate with since=failure.failing_since|date:"M j, H:i" %}{{ provider }} has been rejecting DAIV's API key since {{ since }}. Runs that use it are failing, or falling back to the fallback model if one is set.{% endblocktranslate %}
+        {% endif %}
+        {% endwith %}
+      </p>
+      {% endfor %}
+      <a href="{% url 'site_configuration' group_key='providers' %}" class="mt-2 inline-block text-sm font-medium text-red-100 underline underline-offset-2 hover:text-white">{% translate "Open provider settings" %}</a>
+    </div>
+  </div>
+</div>
+{% endif %}
