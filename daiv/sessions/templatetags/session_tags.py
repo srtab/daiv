@@ -94,6 +94,24 @@ _ORIGIN_ICONS = {
 }
 
 
+@register.simple_tag(takes_context=True)
+def filter_query(context, key: str, value: str) -> str:
+    """The current query string with ``key`` set to ``value``, or removed when it is empty, and no page."""
+    query = context["request"].GET.copy()
+    query.pop("page", None)
+    if value:
+        query[key] = value
+    else:
+        query.pop(key, None)
+    return f"?{query.urlencode()}"
+
+
+@register.filter
+def option_label(options, value) -> str:
+    """The label ``(value, label)`` pairs give ``value``, or ``value`` itself when none matches."""
+    return next((label for option, label in options if option == value), value)
+
+
 @register.filter
 def origin_icon(origin) -> str:
     """Map a SessionOrigin value to an icon name; unknown → generic 'jobs'."""

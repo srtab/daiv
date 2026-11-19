@@ -5027,10 +5027,6 @@ html {
 /* -- Session list & filter bar ------------------------------------------- */
 
 @layer components {
-  .filter-search {
-    @apply h-9 w-full rounded-xl border border-white/[0.06] bg-[#0b1018]
-      pl-9 pr-3 text-sm text-gray-300 placeholder:text-gray-500;
-  }
   /* Wraps rather than scrolls: a hidden-scrollbar overflow cut off the last items on a phone. */
   .filter-seg {
     @apply inline-flex max-w-full flex-wrap items-center gap-0.5 rounded-xl
@@ -5041,29 +5037,58 @@ html {
       text-gray-400 transition-colors hover:text-gray-200;
   }
   .filter-seg-item--active { @apply bg-white/[0.1] text-white; }
+  .filter-search {
+    @apply h-10.5 w-full rounded-xl border border-border bg-surface-2 pl-9 pr-3 text-sm text-text
+      placeholder:text-text-faint;
+  }
   .filter-control {
-    @apply inline-flex h-9 items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02]
-      px-3 text-[13px] text-gray-300 transition-colors hover:border-white/[0.12];
+    @apply inline-flex h-10.5 max-w-full items-center rounded-xl border border-border bg-surface-2 text-[13px]
+      text-text-muted transition-colors hover:text-text;
   }
-  .filter-control--active { @apply border-white/[0.12] text-white; }
+  .filter-control--active { @apply bg-surface-3 text-text-strong hover:text-text-strong; }
+  .filter-control__toggle { @apply inline-flex h-full min-w-0 items-center gap-2 px-3; }
+  .filter-control__lead { @apply inline-flex shrink-0 items-center text-text-faint; }
+  .filter-control--active .filter-control__key { @apply text-text-muted; }
+  .filter-control--active .filter-control__key::after { content: ":"; }
+  .filter-control__value { @apply max-w-[220px] truncate; }
+  .filter-control__clear {
+    @apply -ml-1 mr-2 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-text-muted
+      hover:bg-border hover:text-text-strong;
+  }
   .filter-menu {
-    @apply absolute z-20 mt-1.5 min-w-[12rem] rounded-xl border border-white/[0.08]
-      bg-surface-2 p-1 shadow-xl;
+    @apply absolute z-20 mt-1.5 max-h-80 min-w-[13rem] max-w-[22rem] overflow-y-auto rounded-xl border border-border
+      bg-surface-2 p-1 shadow-overlay;
   }
+  .filter-menu--end { @apply right-0; }
   .filter-menu-item {
-    @apply flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] text-gray-300
-      transition-colors hover:bg-white/[0.05] hover:text-white;
+    @apply flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] text-text-muted transition-colors
+      hover:bg-surface-3 hover:text-text;
   }
-  .filter-menu-item--active { @apply bg-white/[0.06] text-white; }
+  .filter-menu-item--active { @apply bg-surface-3 text-text; }
+  .filter-menu-item__lead { @apply inline-flex shrink-0 items-center text-text-faint; }
   .filter-chip {
-    @apply inline-flex items-center gap-1 rounded-full border border-blue-400/30 bg-blue-500/10
-      py-1 pl-3 pr-1 text-[13px] font-medium text-blue-300;
+    @apply inline-flex items-center gap-1 rounded-full border border-border bg-surface-3 py-1 pl-3 pr-1 text-[13px]
+      font-medium text-text;
   }
   .filter-chip__x {
-    @apply inline-flex h-5 w-5 items-center justify-center rounded-full text-blue-300/70
-      hover:bg-white/[0.05] hover:text-white;
+    @apply inline-flex h-5 w-5 items-center justify-center rounded-full text-text-muted hover:bg-border
+      hover:text-text-strong;
   }
-  .filter-clear { @apply text-sm text-gray-400 transition-colors hover:text-white; }
+  .filter-clear { @apply h-10.5 px-1.5 text-[13px] text-text-muted transition-colors hover:text-text; }
+  .filter-context {
+    @apply flex items-center gap-3 rounded-xl border border-border bg-surface-2 py-2 pl-2.5 pr-2 text-[13.5px]
+      text-text-muted;
+  }
+  .filter-context__icon {
+    @apply inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-3 text-text;
+  }
+  .filter-context__text { @apply min-w-0 flex-1; }
+  .filter-context__text a { @apply font-medium text-accent-bright hover:underline; }
+  .filter-context__text b { @apply font-semibold text-text; }
+  .filter-context__clear {
+    @apply inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-text-muted hover:bg-surface-3
+      hover:text-text-strong;
+  }
 
   .session-group-header {
     @apply flex items-center gap-2 border-t border-white/[0.06] bg-white/[0.01] px-5 pb-2 pt-3.5

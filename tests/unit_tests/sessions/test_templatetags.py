@@ -203,3 +203,69 @@ def test_session_merge_request_carries_the_attached_state():
 def test_session_merge_request_none_when_nothing_published():
     session = types.SimpleNamespace(merge_request_iid=None, runs=_Runs([_mr_run()]), merge_request_state=None)
     assert session_merge_request(session) is None
+
+
+def _render_filter_query(rf, params: dict, key: str, value: str) -> dict:
+    import html
+
+    from django.http import QueryDict
+    from django.template import Context, Template
+
+    out = Template(f"{{% load session_tags %}}{{% filter_query '{key}' '{value}' %}}").render(
+        Context({"request": rf.get("/s/", params)})
+    )
+    assert out.startswith("?")
+    return QueryDict(html.unescape(out[1:])).dict()
+
+
+def test_filter_query_sets_the_key_and_drops_the_page(rf):
+    query = _render_filter_query(
+        rf, {"scope": "all", "page": "3", "status": "FAILED"}, "spend_model", "openrouter:z-ai/glm-5.2"
+    )
+
+    assert query == {"scope": "all", "status": "FAILED", "spend_model": "openrouter:z-ai/glm-5.2"}
+
+
+def test_filter_query_removes_the_key_for_an_empty_value(rf):
+    assert _render_filter_query(rf, {"scope": "all", "status": "FAILED"}, "status", "") == {"scope": "all"}
+
+
+def _dropdown(rf, current: str):
+    from django.template.loader import render_to_string
+
+    from bs4 import BeautifulSoup
+
+    model = "openrouter:z-ai/glm-5.2"
+    html = render_to_string(
+        "sessions/_filter_dropdown.html",
+        {
+            "key": "spend_model",
+            "label": "Model",
+            "icon": "cpu-chip",
+            "all_label": "Any model",
+            "options": [(model, model)],
+            "current": current,
+            "lead": "",
+            "align": "",
+        },
+        request=rf.get("/s/"),
+    )
+    return BeautifulSoup(html, "html.parser")
+
+
+def test_a_set_dropdown_shows_its_value_and_a_clear_link(rf):
+    soup = _dropdown(rf, "openrouter:z-ai/glm-5.2")
+
+    value = soup.select_one(".filter-control--active .filter-control__value")
+    assert value.get_text(strip=True) == "openrouter:z-ai/glm-5.2"
+    assert soup.select_one(".filter-control__clear")["href"] == "?"
+    menu = soup.select_one("[data-surface].filter-menu")
+    assert [a["data-value"] for a in menu.select("[data-filter-key=spend_model]")] == ["", "openrouter:z-ai/glm-5.2"]
+
+
+def test_an_unset_dropdown_shows_its_name_and_hides_its_clear(rf):
+    soup = _dropdown(rf, "")
+
+    assert soup.select(".filter-control--active") == []
+    assert soup.select_one(".filter-control__toggle").get_text(" ", strip=True) == "Model"
+    assert soup.select_one(".filter-control__clear")["style"] == "display:none"

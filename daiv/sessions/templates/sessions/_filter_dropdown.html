@@ -1,0 +1,37 @@
+{% load i18n icon_tags session_tags %}
+{% comment %}
+A filter dropdown. Context: key (URL param and Alpine key), label, icon (shown while unset), all_label, options ((value,
+label) pairs), current, lead ("", "status", "origin", "kind" or "repo"), align ("" or "end"). The Alpine component
+around it provides open, toggle(key), value(key), pick(key, value) and labelFor(key).
+{% endcomment %}
+<div class="relative" @click.outside="if (open === '{{ key }}') open = null" @keydown.escape="if (open === '{{ key }}') open = null">
+    <div class="filter-control{% if current %} filter-control--active{% endif %}" :class="{ 'filter-control--active': !!value('{{ key }}') }">
+        <button type="button" class="filter-control__toggle" @click="toggle('{{ key }}')" data-testid="filter-{{ key }}"
+                aria-haspopup="menu" aria-expanded="false" :aria-expanded="(open === '{{ key }}').toString()">
+            <span class="filter-control__lead"{% if lead %} x-show="!value('{{ key }}')"{% if current %} style="display:none"{% endif %}{% endif %}>{% icon icon "h-4 w-4" %}</span>
+            {% if lead %}
+            {% for value, option_label in options %}
+            <span class="filter-control__lead" x-show="value('{{ key }}') === '{{ value|escapejs }}'"{% if value != current %} style="display:none"{% endif %}>{% include "sessions/_filter_lead.html" %}</span>
+            {% endfor %}
+            {% endif %}
+            <span class="filter-control__key">{{ label }}</span>
+            <span class="filter-control__value" x-show="!!value('{{ key }}')" x-text="labelFor('{{ key }}')"{% if not current %} style="display:none"{% endif %}>{% if current %}{{ options|option_label:current }}{% endif %}</span>
+            <span class="filter-control__lead" x-show="!value('{{ key }}')"{% if current %} style="display:none"{% endif %}>{% icon "chevron-down" "h-3.5 w-3.5" %}</span>
+        </button>
+        <a href="{% filter_query key '' %}" class="filter-control__clear" @click.prevent="pick('{{ key }}', '')"
+           x-show="!!value('{{ key }}')"{% if not current %} style="display:none"{% endif %}
+           aria-label="{% blocktranslate %}Clear {{ label }} filter{% endblocktranslate %}">{% icon "x-mark" "h-3.5 w-3.5" %}</a>
+    </div>
+    <div data-surface class="filter-menu{% if align == 'end' %} filter-menu--end{% endif %}" role="menu" x-show="open === '{{ key }}'" x-cloak>
+        <a href="{% filter_query key '' %}" role="menuitem" data-filter-key="{{ key }}" data-value="" data-label="{{ all_label }}"
+           class="filter-menu-item{% if not current %} filter-menu-item--active{% endif %}"
+           @click.prevent="pick('{{ key }}', '')" :class="{ 'filter-menu-item--active': !value('{{ key }}') }">{{ all_label }}</a>
+        {% for value, option_label in options %}
+        <a href="{% filter_query key value %}" role="menuitem" data-filter-key="{{ key }}" data-value="{{ value }}" data-label="{{ option_label }}"
+           class="filter-menu-item{% if value == current %} filter-menu-item--active{% endif %}"
+           @click.prevent="pick('{{ key }}', $el.dataset.value)" :class="{ 'filter-menu-item--active': value('{{ key }}') === $el.dataset.value }">
+            {% if lead %}<span class="filter-menu-item__lead">{% include "sessions/_filter_lead.html" %}</span>{% endif %}<span class="truncate">{{ option_label }}</span>
+        </a>
+        {% endfor %}
+    </div>
+</div>
