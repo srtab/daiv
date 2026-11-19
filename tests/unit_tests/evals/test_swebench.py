@@ -1,7 +1,9 @@
 import annotationlib
 import asyncio
 import inspect
+import io
 import json
+import tarfile
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -38,19 +40,41 @@ def _outcome(**values) -> RunOutcome:
 
 
 @asynccontextmanager
-async def _task_env(item):
+async def _task_env(item, meson_build_dirs=()):
     yield f"env-{item['instance_id']}"
 
 
+def _tar(**files: bytes) -> bytes:
+    archive = io.BytesIO()
+    with tarfile.open(fileobj=archive, mode="w") as tar:
+        for name, content in files.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(content)
+            tar.addfile(info, io.BytesIO(content))
+    return archive.getvalue()
+
+
+def _untar(archive: bytes) -> dict[str, bytes]:
+    with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+        return {member.name: tar.extractfile(member).read() for member in tar}
+
+
 async def _main(
-    tmp_path, execute, items=(ITEM,), validate=None, models=("model-a", "model-b"), generated=None, **options
+    tmp_path,
+    execute,
+    items=(ITEM,),
+    validate=None,
+    models=("model-a", "model-b"),
+    generated=None,
+    task_env=_task_env,
+    **options,
 ) -> list[dict]:
     with (
         patch("datasets.load_dataset", return_value=list(items)),
         patch.object(swebench, "execute_run", execute),
         patch.object(swebench, "validate_agent_override", validate or MagicMock()),
-        patch.object(swebench, "task_sandbox_env", _task_env),
-        patch.object(swebench, "generated_files", generated or AsyncMock(return_value=None)),
+        patch.object(swebench, "task_sandbox_env", task_env),
+        patch.object(swebench, "generated_files", generated or AsyncMock(return_value=swebench.GeneratedFiles())),
     ):
         await swebench.main("dataset", "test", str(tmp_path / "predictions.json"), list(models), **options)
     return _written(tmp_path)
@@ -232,14 +256,21 @@ def test_the_options_an_instance_runs_with_are_ones_the_clone_and_the_agent_acce
     ctx_sig.bind(spec.repo_id, scope=spec.scope, sandbox_spec=None, **spec.context_options)
 
 
-async def test_the_files_the_task_image_generated_reach_the_clone_of_that_task(tmp_path):
+async def test_the_files_the_task_image_generated_reach_the_clone_and_its_meson_builds_the_environment(tmp_path):
     execute = AsyncMock(return_value=_outcome(model_patch="diff"))
-    generated = AsyncMock(return_value=b"tar")
+    generated = AsyncMock(return_value=swebench.GeneratedFiles(b"tar", ("/testbed/build/cp313",)))
+    environments = []
 
-    await _main(tmp_path, execute, generated=generated)
+    @asynccontextmanager
+    async def task_env(item, meson_build_dirs=()):
+        environments.append(meson_build_dirs)
+        yield "env"
+
+    await _main(tmp_path, execute, generated=generated, task_env=task_env)
 
     generated.assert_awaited_once_with(swebench.task_image(ITEM))
     assert execute.await_args.args[0].context_options["repo_client"].generated_files == b"tar"
+    assert environments == [("/testbed/build/cp313",)]
 
 
 async def test_only_ignored_files_outside_build_trees_and_caches_are_taken_from_the_image():
@@ -252,21 +283,53 @@ async def test_only_ignored_files_outside_build_trees_and_caches_are_taken_from_
         "docs/rebuilt.pyc",
         "",
     ])
-    run = AsyncMock(side_effect=[listing.encode(), b"tar"])
+    files = {"src/pkg/_version.py": b"version = '1.0'", "pkg/_speedups.cpython-313-x86_64-linux-gnu.so": b"ELF"}
+    run = AsyncMock(side_effect=[listing.encode(), b"", _tar(**files)])
 
     with patch.object(swebench, "_run_in_image", run):
-        assert await swebench.generated_files("image") == b"tar"
+        generated = await swebench.generated_files("image")
 
-    assert run.await_args.args[2:] == ("src/pkg/_version.py", "pkg/_speedups.cpython-313-x86_64-linux-gnu.so")
+    assert run.await_args.args[2:] == tuple(files)
+    assert _untar(generated.archive) == files
+    assert generated.meson_build_dirs == ()
+
+
+async def test_a_meson_build_gives_the_clone_what_it_installs_from_its_build_directory_where_it_installs_it():
+    plan = {
+        "targets": {
+            "/testbed/build/cp313/_cyutility.cpython-313-x86_64-linux-gnu.so": {
+                "destination": "{py_platlib}/pkg/_libs/_cyutility.cpython-313-x86_64-linux-gnu.so"
+            },
+            "/testbed/build/cp313/_version_meson.py": {"destination": "{py_purelib}/pkg/_version_meson.py"},
+            "/testbed/build/cp313/tool": {"destination": "{bindir}/tool"},
+        },
+        "python": {"/testbed/pkg/__init__.py": {"destination": "{py_purelib}/pkg/__init__.py"}},
+    }
+    plans = f"build/cp313/meson-info/intro-install_plan.json\0{json.dumps(plan)}\0"
+    built = {
+        "build/cp313/_cyutility.cpython-313-x86_64-linux-gnu.so": b"ELF",
+        "build/cp313/_version_meson.py": b"__version__ = '3.0'",
+    }
+    run = AsyncMock(side_effect=[b"", plans.encode(), _tar(**built)])
+
+    with patch.object(swebench, "_run_in_image", run):
+        generated = await swebench.generated_files("image")
+
+    assert run.await_args.args[2:] == tuple(built)
+    assert _untar(generated.archive) == {
+        "pkg/_libs/_cyutility.cpython-313-x86_64-linux-gnu.so": b"ELF",
+        "pkg/_version_meson.py": b"__version__ = '3.0'",
+    }
+    assert generated.meson_build_dirs == ("/testbed/build/cp313",)
 
 
 async def test_an_image_that_generated_nothing_gives_the_clone_nothing():
-    run = AsyncMock(return_value=b"build/lib/pkg/__init__.py\0")
+    run = AsyncMock(side_effect=[b"build/lib/pkg/__init__.py\0", b""])
 
     with patch.object(swebench, "_run_in_image", run):
-        assert await swebench.generated_files("image") is None
+        assert await swebench.generated_files("image") == swebench.GeneratedFiles()
 
-    run.assert_awaited_once()
+    assert run.await_count == 2
 
 
 def test_each_instance_clones_through_a_client_of_its_own():
@@ -300,7 +363,16 @@ async def test_a_task_runs_with_no_network_on_its_image_and_the_environment_is_r
     assert sandbox.egress is None
     assert sandbox.env_vars["PYTHONPATH"] == "/workspace/repo/src:/workspace/repo"
     assert sandbox.env_vars["PATH"].startswith("/opt/miniconda3/envs/testbed/bin:/opt/conda/envs/testbed/bin:")
+    assert "MESONPY_EDITABLE_SKIP" not in sandbox.env_vars
     assert not await SandboxEnvironment.objects.filter(pk=env_id).aexists()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_task_with_meson_builds_runs_with_their_rebuild_on_import_turned_off():
+    async with swebench.task_sandbox_env(ITEM, ("/testbed/build/cp313", "/testbed/build/cp314")) as env_id:
+        sandbox = await build_sandbox_spec(env_id)
+
+    assert sandbox.env_vars["MESONPY_EDITABLE_SKIP"] == "/testbed/build/cp313:/testbed/build/cp314"
 
 
 @pytest.mark.django_db(transaction=True)

@@ -179,12 +179,13 @@ class TestSWERepoClient:
         origin.index.add([".gitignore"])
         base_commit = origin.index.commit("base commit")
 
+        files = {"pkg/_version.py": b"version = '1.0'\n", "pkg/_version_meson.py": b"", "pkg/[gen]*.pxd": b""}
         generated = io.BytesIO()
         with tarfile.open(fileobj=generated, mode="w") as archive:
-            content = b"version = '1.0'\n"
-            info = tarfile.TarInfo("pkg/_version.py")
-            info.size = len(content)
-            archive.addfile(info, io.BytesIO(content))
+            for name, content in files.items():
+                info = tarfile.TarInfo(name)
+                info.size = len(content)
+                archive.addfile(info, io.BytesIO(content))
 
         client = SWERepoClient("github.com", generated_files=generated.getvalue())
         repository = client.get_repository("owner/repo").model_copy(update={"clone_url": str(tmp_path / "origin")})
@@ -192,6 +193,8 @@ class TestSWERepoClient:
         with client.load_repo(repository, base_commit.hexsha) as repo:
             assert (Path(repo.working_dir) / "pkg/_version.py").read_text() == "version = '1.0'\n"
             assert repo.git.status("--porcelain", "--untracked-files=all") == ""
+            (Path(repo.working_dir) / "pkg/gen.pxd").write_text("")
+            assert repo.git.status("--porcelain", "--untracked-files=all") == "?? pkg/gen.pxd"
 
     def test_current_user(self, swe_client):
         """Test current_user property."""

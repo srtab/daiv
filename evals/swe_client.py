@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import logging
+import re
 import tarfile
 import tempfile
 from contextlib import contextmanager
@@ -33,6 +34,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.clients")
 
 
+def _exclude_rule(path: str) -> str:
+    """A gitignore line matching exactly ``path``, relative to the repository root."""
+    return "/" + re.sub(r"([*?[\\])", r"\\\1", path) + "\n"
+
+
 class SWERepoClient(RepoClient):
     """
     SWE-bench client to interact with public OSS repositories without credentials.
@@ -54,8 +60,8 @@ class SWERepoClient(RepoClient):
 
         Args:
             repo_host: The repository host to clone from, e.g. ``github.com``.
-            generated_files: A tar of files the clone gets after checkout, ones the repository ignores, such as the
-                version module its build generates.
+            generated_files: A tar of files the clone gets after checkout, such as the version module or the
+                extensions its build generates.
         """
         self.repo_host = repo_host
         self.generated_files = generated_files
@@ -166,7 +172,8 @@ class SWERepoClient(RepoClient):
         issue under evaluation is often already merged: a full clone keeps it reachable from a ref, and with the
         refs removed still as an object ``git fsck --unreachable`` lists, which agents in real eval runs read.
 
-        The ``generated_files`` the client was given are then added to the working tree.
+        The ``generated_files`` the client was given are then added to the working tree, and to ``.git/info/exclude``
+        so they stay out of the captured patch, as some are files the repository does not ignore.
 
         Sets _loaded_repo that other methods can use to access the repository.
 
@@ -186,6 +193,11 @@ class SWERepoClient(RepoClient):
             if self.generated_files:
                 with tarfile.open(fileobj=io.BytesIO(self.generated_files)) as archive:
                     archive.extractall(repo.working_dir, filter="data")
+                    names = archive.getnames()
+                exclude = Path(repo.git_dir) / "info" / "exclude"
+                exclude.parent.mkdir(exist_ok=True)
+                with exclude.open("a") as rules:
+                    rules.writelines(_exclude_rule(name) for name in names)
 
             # Store instance variable for reuse by other methods
             self._loaded_repo = repo
