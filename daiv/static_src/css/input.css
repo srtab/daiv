@@ -5058,6 +5058,7 @@ html {
   .filter-menu-item__lead { @apply inline-flex shrink-0 items-center text-text-faint; }
   .filter-menu__section { @apply -mx-1 mt-1 border-t border-border px-3.5 pb-1.5 pt-2; }
   .filter-menu__label { @apply mb-1.5 text-[11px] uppercase tracking-wider text-text-faint; }
+  .filter-range { @apply flex flex-wrap items-center gap-2; }
   .filter-date { @apply rounded-lg border border-border bg-ground px-2 py-1 text-[12px] text-text; }
   .filter-apply {
     @apply rounded-lg bg-surface-3 px-2.5 py-1 text-[12px] text-text transition-colors hover:text-text-strong;

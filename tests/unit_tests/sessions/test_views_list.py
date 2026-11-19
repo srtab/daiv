@@ -864,6 +864,21 @@ class TestSessionListFilterBar:
         assert "filter-control--active" in control["class"]
         assert control.select_one(".filter-control__value").get_text(strip=True) == model
 
+    def test_archived_is_a_toggle_inside_its_own_control(self, logged_in_client, user):
+        toggle = self._soup(logged_in_client).select_one("[data-testid=filter-archived]")
+
+        assert "filter-control__toggle" in toggle["class"]
+        assert "filter-control" not in toggle["class"]
+        assert "filter-control" in toggle.parent["class"]
+
+    def test_the_custom_range_row_wraps_inside_the_time_menu(self, logged_in_client, user):
+        from tests.unit_tests.test_list_pages_on_tokens import _rules_for
+
+        row = self._soup(logged_in_client).select_one("[aria-label='From date']").parent
+
+        assert "filter-range" in row["class"]
+        assert any("flex-wrap" in body for body in _rules_for("filter-range"))
+
     def test_deep_link_chips_keep_their_own_row(self, logged_in_client, user):
         soup = self._soup(logged_in_client, {"repo": "group/project", "mr": "7"})
 

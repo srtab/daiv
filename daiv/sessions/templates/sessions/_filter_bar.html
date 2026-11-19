@@ -57,7 +57,7 @@
                 {% endfor %}
                 <div class="filter-menu__section">
                     <p class="filter-menu__label">{% translate "Custom range" %}</p>
-                    <div class="flex items-center gap-2" x-data="{ from: '{{ current_from|escapejs }}', to: '{{ current_to|escapejs }}' }"
+                    <div class="filter-range" x-data="{ from: '{{ current_from|escapejs }}', to: '{{ current_to|escapejs }}' }"
                          @sessions:url-changed.window="const p = new URLSearchParams(location.search); from = p.get('date_from') || ''; to = p.get('date_to') || ''">
                         <input type="date" x-model="from" aria-label="{% translate 'From date' %}" class="filter-date">
                         <span class="text-text-faint">–</span>
@@ -101,14 +101,15 @@
             </div>
 
             {# Archived sessions are a list of their own, so this swaps the list rather than narrowing it #}
-            <a href="{% if current_archived %}{% querystring archived=None page=None %}{% else %}{% querystring archived='true' page=None %}{% endif %}"
-               class="filter-control filter-control__toggle{% if current_archived %} filter-control--active{% endif %}"
-               :class="{ 'filter-control--active': archived === 'true' }"
-               @click.prevent="toggleArchived()"
-               :aria-pressed="(archived === 'true').toString()" aria-pressed="{{ current_archived|yesno:'true,false' }}"
-               role="button" data-testid="filter-archived">
-                {% icon "archive-box" "h-4 w-4" %}{% translate "Archived" %}
-            </a>
+            <div class="filter-control{% if current_archived %} filter-control--active{% endif %}"
+                 :class="{ 'filter-control--active': archived === 'true' }">
+                <a href="{% if current_archived %}{% querystring archived=None page=None %}{% else %}{% querystring archived='true' page=None %}{% endif %}"
+                   class="filter-control__toggle" @click.prevent="toggleArchived()"
+                   :aria-pressed="(archived === 'true').toString()" aria-pressed="{{ current_archived|yesno:'true,false' }}"
+                   role="button" data-testid="filter-archived">
+                    {% icon "archive-box" "h-4 w-4" %}{% translate "Archived" %}
+                </a>
+            </div>
         </div>
     </div>
 

@@ -55,6 +55,7 @@ PAGE_CLASSES = {
         "filter-menu-item__lead",
         "filter-menu__section",
         "filter-menu__label",
+        "filter-range",
         "filter-date",
         "filter-apply",
         "filter-chip",
