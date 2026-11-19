@@ -31,7 +31,7 @@ The admin-only pages are under **Admin** in the sidebar's **Settings** menu, the
 
 ## Repository access
 
-A member sees and acts on a repository only when they have access to it on the connected Git platform, GitLab or GitHub. DAIV mirrors each user's repository membership from the platform and checks it before it shows or runs anything on a repository. There is no separate DAIV-side permission to manage. Admins skip these checks.
+A member sees and acts on a repository only when they have access to it on the connected Git platform, GitLab or GitHub. DAIV mirrors each user's repository membership from the platform and checks it before it shows or runs anything on a repository. There is no separate DAIV-side permission to manage. Admins skip these checks, but they too can start runs only on repositories DAIV can work on: the ones the sync lists, where its GitLab user is a Maintainer or its GitHub App is installed. Until the first sync has run, admins can start runs on any repository.
 
 DAIV checks two tiers, matched to the platform's own roles:
 
