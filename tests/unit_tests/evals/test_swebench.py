@@ -30,9 +30,28 @@ ITEM = {
     "base_commit": "abc123",
     "problem_statement": "Parsing an empty file crashes.",
     "hints_text": "",
+    "test_patch": "",
 }
 SECOND = ITEM | {"instance_id": "owner__repo-2"}
 THIRD = ITEM | {"instance_id": "owner__repo-3"}
+
+
+def _new_file(path: str) -> str:
+    return (
+        f"diff --git a/{path} b/{path}\nnew file mode 100644\nindex 0000000..1111111\n--- /dev/null\n+++ b/{path}\n"
+        "@@ -0,0 +1 @@\n+def test_it(): pass\n"
+    )
+
+
+def _edited(path: str) -> str:
+    return (
+        f"diff --git a/{path} b/{path}\nindex 1111111..2222222 100644\n--- a/{path}\n+++ b/{path}\n"
+        "@@ -1 +1 @@\n-a\n+b\n"
+    )
+
+
+SOURCE_CHANGE = _edited("pkg/parser.py")
+HELD_OUT_TESTS = _new_file("tests/test_new.py") + _edited("tests/test_old.py")
 
 
 def _outcome(**values) -> RunOutcome:
@@ -124,6 +143,37 @@ async def test_a_finished_run_predicts_the_patch_it_captured(tmp_path):
     assert predictions == [
         {"model_patch": "diff --git a/x b/x", "model_name_or_path": "model-a, model-b", "instance_id": "owner__repo-1"}
     ]
+
+
+@pytest.mark.parametrize(
+    ("agent_section", "left_out"),
+    [
+        pytest.param(_new_file("tests/test_new.py"), ["tests/test_new.py"], id="created-where-held-out-tests-add"),
+        pytest.param(_edited("tests/test_old.py"), ["tests/test_old.py"], id="edited-where-held-out-tests-edit"),
+        pytest.param(
+            "diff --git a/tests/helper.py b/tests/test_new.py\nsimilarity index 90%\n"
+            "rename from tests/helper.py\nrename to tests/test_new.py\n",
+            ["tests/test_new.py"],
+            id="renamed-onto-held-out-path",
+        ),
+        pytest.param(_new_file("tests/test_mine.py"), [], id="own-test-file"),
+    ],
+)
+def test_only_the_agents_changes_to_files_the_held_out_tests_touch_are_left_out(agent_section, left_out):
+    patch, dropped = swebench.without_held_out_test_files(SOURCE_CHANGE + agent_section, HELD_OUT_TESTS)
+
+    assert dropped == left_out
+    assert patch == (SOURCE_CHANGE if left_out else SOURCE_CHANGE + agent_section)
+
+
+async def test_a_prediction_leaves_out_the_held_out_test_files_and_says_so(tmp_path, capsys):
+    item = ITEM | {"test_patch": HELD_OUT_TESTS}
+    execute = AsyncMock(return_value=_outcome(model_patch=SOURCE_CHANGE + _new_file("tests/test_new.py")))
+
+    [prediction] = await _main(tmp_path, execute, items=(item,))
+
+    assert prediction["model_patch"] == SOURCE_CHANGE
+    assert "left out its changes to held-out test files: tests/test_new.py" in capsys.readouterr().err
 
 
 async def test_a_finished_run_keeps_its_conversation_and_a_failed_one_writes_none(tmp_path):

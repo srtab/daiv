@@ -3,11 +3,13 @@
 Each task runs through ``execute_run`` in its own SWE-bench image with no network, so the agent finds the task's
 dependencies installed and cannot fetch a later release or the upstream repository, which hold the fix. The driver
 needs ``docker`` and pulls the image itself, to copy the files its install generated into the agent's clone. The
-run's captured patch becomes one row of the predictions file. A run that raises predicts an empty patch, so it is graded
-unresolved; ``--retry-failed`` runs those tasks again. Every attempt, failed and interrupted ones included, appends
-its time, tokens and cost to ``<predictions>.usage.jsonl``. A finished task's conversation goes to
-``<predictions>.transcripts/<instance_id>.json``, in the shape the trace-analyzer skill reads. A task already in the
-predictions file is skipped, so a rerun resumes.
+run's captured patch becomes one row of the predictions file, less its changes to the files the task's held-out test
+patch touches: the SWE-rebench harness applies that patch over the agent's tree without resetting it, so a test file
+the agent created at one of those paths would stop the held-out tests from applying. A run that raises predicts an
+empty patch, so it is graded unresolved; ``--retry-failed`` runs those tasks again. Every attempt, failed and
+interrupted ones included, appends its time, tokens and cost to ``<predictions>.usage.jsonl``. A finished task's
+conversation goes to ``<predictions>.transcripts/<instance_id>.json``, in the shape the trace-analyzer skill reads. A
+task already in the predictions file is skipped, so a rerun resumes.
 """
 
 import argparse
@@ -66,6 +68,8 @@ TASK_ENV_VARS = {
 NOT_GENERATED = re.compile(
     r"(^|/)(__pycache__|build|dist|\.eggs|\.tox|\.nox|\.pytest_cache|node_modules|[^/]+\.egg-info)/|\.py[co]$"
 )
+DIFF_SECTION_START = "diff --git "
+RENAMED_PATH = re.compile(r"^rename (?:from|to) (.+)$", re.MULTILINE)
 MESON_INSTALL_PLANS = (
     "cd /testbed && for plan in build/*/meson-info/intro-install_plan.json; do "
     '[ ! -f "$plan" ] || { printf "%s\\0" "$plan" && cat "$plan" && printf "\\0"; }; done'
@@ -249,8 +253,11 @@ async def main(
                     log.write(json.dumps(record) + "\n")
                 cost = "unpriced" if record["cost_usd"] is None else f"${record['cost_usd']:.2f}"
                 print(f"[{instance_id}] {status} after {record['seconds']:.0f}s, {cost}", file=sys.stderr)  # noqa: T201
+        model_patch, dropped = without_held_out_test_files(_model_patch(instance_id, outcome), item["test_patch"])
+        if dropped:
+            print(f"[{instance_id}] left out its changes to held-out test files: {', '.join(dropped)}", file=sys.stderr)  # noqa: T201
         predictions.append({
-            "model_patch": _model_patch(instance_id, outcome),
+            "model_patch": model_patch,
             "model_name_or_path": model_name_or_path,
             "instance_id": instance_id,
         })
@@ -400,6 +407,32 @@ def _model_patch(instance_id: str, outcome: RunOutcome | None) -> str:
     if "model_patch" not in values:
         raise RuntimeError(f"[{instance_id}] finished without a model_patch: the capture_patch wiring drifted")
     return values["model_patch"]
+
+
+def without_held_out_test_files(model_patch: str, test_patch: str) -> tuple[str, list[str]]:
+    """The model patch less its sections on files the test patch touches, and the paths those sections touched."""
+    held_out = set().union(*map(_diff_paths, _diff_sections(test_patch)))
+    kept, dropped = [], set()
+    for section in _diff_sections(model_patch):
+        if touched := _diff_paths(section) & held_out:
+            dropped |= touched
+        else:
+            kept.append(section)
+    return "".join(kept), sorted(dropped)
+
+
+def _diff_sections(patch: str) -> list[str]:
+    return re.split(r"(?=^diff --git )", patch, flags=re.MULTILINE)
+
+
+def _diff_paths(section: str) -> set[str]:
+    if not section.startswith(DIFF_SECTION_START):
+        return set()
+    header_line, _, rest = section.partition("\n")
+    sides = header_line.removeprefix(DIFF_SECTION_START)
+    path = sides[2 : (len(sides) - 1) // 2]
+    paths = {path} if sides == f"a/{path} b/{path}" else set()
+    return paths | set(RENAMED_PATH.findall(rest.split("\n@@", 1)[0]))
 
 
 def _run_spec(
