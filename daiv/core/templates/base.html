@@ -15,7 +15,7 @@
     <meta property="og:description" content="{% block og_description %}Issues in. Merge requests out. On your infrastructure. DAIV turns issues into merge requests, answers review comments, and fixes failing CI, in a sandbox you control with the LLM provider you choose.{% endblock %}">
     <meta property="og:site_name" content="DAIV">
     {% endblock open_graph %}
-    <meta name="twitter:card" content="summary">
+    {% block twitter_card %}<meta name="twitter:card" content="summary">{% endblock %}
     <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="shortcut icon" href="/favicon.ico" />
