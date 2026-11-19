@@ -32,6 +32,12 @@ def test_failure_message_falls_back_to_the_slug_for_a_deleted_provider():
 
 
 @pytest.mark.django_db
+def test_failure_message_rejects_an_unknown_kind():
+    with pytest.raises(ValueError, match="Unknown provider failure kind"):
+        failure_message("bogus", "openrouter")
+
+
+@pytest.mark.django_db
 def test_provider_failure_message_delegates():
     failure = ProviderFailure(kind=ProviderFailureKind.RATE_LIMITED, provider_slug="anthropic")
 
@@ -45,12 +51,13 @@ def test_active_provider_failures_lists_only_admin_kinds_within_the_ttl():
         failure_kind=ProviderFailureKind.OUT_OF_CREDITS, last_failed_at=now, failing_since=now, is_enabled=True
     )
     Provider.objects.filter(slug="anthropic").update(
-        failure_kind=ProviderFailureKind.RATE_LIMITED, last_failed_at=now, failing_since=now
+        failure_kind=ProviderFailureKind.RATE_LIMITED, last_failed_at=now, failing_since=now, is_enabled=True
     )
     Provider.objects.filter(slug="openai").update(
         failure_kind=ProviderFailureKind.AUTH_FAILED,
         last_failed_at=now - timedelta(hours=25),
         failing_since=now - timedelta(hours=25),
+        is_enabled=True,
     )
     Provider.invalidate_cache()
 
