@@ -13,66 +13,31 @@
 {% block app_content %}
 <div class="animate-fade-up page-header">
     <div class="page-header__title">
-        <h1 class="text-2xl font-bold tracking-tight">{% translate "Artifacts" %}</h1>
-        <p class="mt-1.5 text-[15px] font-light text-gray-400">
+        <h1 class="text-2xl font-bold tracking-tight text-text-strong">{% translate "Artifacts" %}</h1>
+        <p class="mt-1.5 text-[15px] font-light text-text-muted">
             {% translate "Reports, documents and images the agent published across your sessions." %}
         </p>
     </div>
 </div>
 
-<div class="animate-fade-up relative z-10 mt-8 flex flex-wrap items-center gap-3" style="animation-delay: 50ms"
+<div class="animate-fade-up relative z-10 mt-8 flex flex-wrap items-center gap-2" style="animation-delay: 50ms"
      x-data="artifactFilters()">
     <div class="relative min-w-[240px] flex-1">
-        <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
+        <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-faint">
             {% icon "magnifying-glass" "h-4 w-4" %}
         </span>
         <input type="text" class="filter-search" x-model="q"
                placeholder="{% translate 'Search by title or filename' %}" aria-label="{% translate 'Search by title or filename' %}"
                @input.debounce.350ms="_apply()" @keydown.enter.prevent="_apply()">
     </div>
-
-    <div class="filter-seg">
-        <a href="{% querystring kind=None page=None %}"
-           class="filter-seg-item {% if not current_kind %}filter-seg-item--active{% endif %}"
-           @click.prevent="setFilter('kind', '')" :class="{ 'filter-seg-item--active': kind === '' }">{% translate "All" %}</a>
-        {% for value, label in kinds %}
-        <a href="{% querystring kind=value page=None %}"
-           class="filter-seg-item {% if current_kind == value %}filter-seg-item--active{% endif %}"
-           @click.prevent="setFilter('kind', '{{ value }}')" :class="{ 'filter-seg-item--active': kind === '{{ value }}' }">
-            {% icon value|artifact_icon "h-3.5 w-3.5" %}{{ label }}
-        </a>
-        {% endfor %}
-    </div>
-
+    {% translate "Kind" as kind_label %}{% translate "All kinds" as all_kinds %}
+    {% include "sessions/_filter_dropdown.html" with key="kind" label=kind_label icon="squares-2x2" all_label=all_kinds options=kinds current=current_kind lead="kind" %}
     {% if repos %}
-    {% querystring repo=None page=None as clear_repo_url %}
-    <div class="relative" @click.outside="open = false" @keydown.escape="open = false">
-        <button type="button" class="filter-control {% if current_repo %}filter-control--active{% endif %}"
-                :class="{ 'filter-control--active': !!repo }" @click="open = !open"
-                aria-haspopup="true" :aria-expanded="open">
-            {% icon "repo" "h-4 w-4" %}
-            <span class="max-w-[200px] truncate" x-text="repo || $el.dataset.defaultLabel"
-                  data-default-label="{% translate 'Repository' %}">{% if current_repo %}{{ current_repo }}{% else %}{% translate "Repository" %}{% endif %}</span>
-            <a href="{{ clear_repo_url }}" @click.stop.prevent="setFilter('repo', '')"
-               x-show="!!repo" style="{% if not current_repo %}display:none{% endif %}"
-               class="ml-1 text-gray-500 hover:text-white" aria-label="{% translate 'Clear repository filter' %}">{% icon "x-mark" "h-3.5 w-3.5" %}</a>
-            <span x-show="!repo" style="{% if current_repo %}display:none{% endif %}">{% icon "chevron-down" "h-3.5 w-3.5 text-gray-500" %}</span>
-        </button>
-        <div data-surface class="filter-menu right-0 max-h-80 max-w-[20rem] overflow-y-auto" x-show="open" x-cloak>
-            <a href="{{ clear_repo_url }}"
-               class="filter-menu-item {% if not current_repo %}filter-menu-item--active{% endif %}"
-               @click.prevent="setFilter('repo', '')" :class="{ 'filter-menu-item--active': !repo }">{% translate "All repositories" %}</a>
-            {% for repo_id in repos %}
-            <a href="{% querystring repo=repo_id page=None %}"
-               class="filter-menu-item {% if current_repo == repo_id %}filter-menu-item--active{% endif %}"
-               @click.prevent="setFilter('repo', $el.dataset.repo)" data-repo="{{ repo_id }}"
-               :class="{ 'filter-menu-item--active': repo === $el.dataset.repo }">
-                {% icon "repo" "h-4 w-4 shrink-0 text-gray-500" %}<span class="truncate">{{ repo_id }}</span>
-            </a>
-            {% endfor %}
-        </div>
-    </div>
+    {% translate "Repository" as repo_label %}{% translate "All repositories" as all_repos %}
+    {% include "sessions/_filter_dropdown.html" with key="repo" label=repo_label icon="repo" all_label=all_repos options=repos current=current_repo lead="repo" align="end" %}
     {% endif %}
+    <a href="{% url 'artifact_list' %}" class="filter-clear" @click.prevent="clearAll()" x-show="q || kind || repo"
+       {% if not has_active_filters %}style="display:none"{% endif %}>{% translate "Clear all" %}</a>
 </div>
 
 <div id="artifact-results" class="animate-fade-up isolate mt-6" style="animation-delay: 100ms">

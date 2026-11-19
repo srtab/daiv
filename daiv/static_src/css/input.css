@@ -3482,12 +3482,12 @@ html {
   }
 
   .artifact-download {
-    @apply rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-white/[0.06] hover:text-white;
+    @apply rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-3 hover:text-text-strong;
   }
 
   .artifact-tile {
-    @apply inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.08]
-      bg-white/[0.03] text-gray-400;
+    @apply inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border
+      bg-surface-3 text-text-muted;
   }
 
   .artifact-tile--lg {

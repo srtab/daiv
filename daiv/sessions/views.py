@@ -642,13 +642,16 @@ class ArtifactListView(LoginRequiredMixin, FilterView):
         context["kinds"] = ArtifactKind.choices
         # Unfiltered, so the dropdown always offers every repo the viewer could pick.
         # ``order_by()`` clears the model's default ordering, which would otherwise defeat DISTINCT.
-        context["repos"] = sorted(
-            self.visible_artifacts
-            .exclude(run__session__repo_id="")
-            .order_by()
-            .values_list("run__session__repo_id", flat=True)
-            .distinct()
-        )
+        context["repos"] = [
+            (repo_id, repo_id)
+            for repo_id in sorted(
+                self.visible_artifacts
+                .exclude(run__session__repo_id="")
+                .order_by()
+                .values_list("run__session__repo_id", flat=True)
+                .distinct()
+            )
+        ]
         return context
 
 

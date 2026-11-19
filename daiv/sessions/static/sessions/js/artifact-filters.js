@@ -9,7 +9,7 @@ document.addEventListener("alpine:init", () => {
     const FIELDS = ["q", "kind", "repo"];
 
     Alpine.data("artifactFilters", () => ({
-        open: false,
+        open: null,
         q: "",
         kind: "",
         repo: "",
@@ -29,11 +29,28 @@ document.addEventListener("alpine:init", () => {
             for (const field of FIELDS) if (this[field]) params.set(field, this[field]);
             const qs = params.toString();
             swapResults(window.location.pathname + (qs ? "?" + qs : ""));
-            this.open = false;
+            this.open = null;
         },
 
-        setFilter(field, value) {
-            this[field] = value;
+        // The contract sessions/_filter_dropdown.html binds to.
+        toggle(key) {
+            this.open = this.open === key ? null : key;
+        },
+        value(key) {
+            return this[key];
+        },
+        pick(key, value) {
+            this[key] = value;
+            this._apply();
+        },
+        labelFor(key) {
+            const value = this.value(key);
+            if (!value) return "";
+            const el = this.$root.querySelector(`[data-filter-key="${key}"][data-value="${CSS.escape(value)}"]`);
+            return el ? el.dataset.label : value;
+        },
+        clearAll() {
+            for (const field of FIELDS) this[field] = "";
             this._apply();
         },
     }));

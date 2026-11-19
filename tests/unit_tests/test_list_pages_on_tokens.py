@@ -28,7 +28,12 @@ PAGE_TEMPLATES = {
         SESSIONS / "_session_results.html",
         SESSIONS / "_session_row.html",
         CORE / "_pagination.html",
-    ]
+    ],
+    "artifacts": [
+        SESSIONS / "artifact_list.html",
+        SESSIONS / "_artifact_results.html",
+        SESSIONS / "_artifact_row.html",
+    ],
 }
 
 PAGE_CLASSES = {
@@ -67,7 +72,8 @@ PAGE_CLASSES = {
         "empty-state__icon",
         "empty-state__title",
         "empty-state__body",
-    ]
+    ],
+    "artifacts": ["artifact-tile", "artifact-download"],
 }
 
 

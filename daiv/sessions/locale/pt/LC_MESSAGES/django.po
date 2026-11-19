@@ -1563,3 +1563,9 @@ msgstr "Sair da vista de Gastos"
 #, python-format
 msgid "Clear %(label)s filter"
 msgstr "Limpar filtro %(label)s"
+
+msgid "Kind"
+msgstr "Tipo"
+
+msgid "All kinds"
+msgstr "Todos os tipos"
