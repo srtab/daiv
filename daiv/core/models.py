@@ -8,6 +8,7 @@ import fnmatch
 import functools
 import logging
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from django.core.cache import cache
@@ -18,6 +19,8 @@ from django.utils.translation import gettext_lazy as _
 from core.validators import validate_searxng_url
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from pydantic import SecretStr
 
 logger = logging.getLogger("daiv.core")
@@ -30,6 +33,7 @@ WEB_FETCH_AUTH_HEADERS_CACHE_TIMEOUT = 60 * 5  # 5 minutes
 
 PROVIDERS_CACHE_KEY = "providers"
 PROVIDERS_CACHE_TIMEOUT = 60 * 5  # 5 minutes
+PROVIDER_FAILURE_TTL = timedelta(hours=24)
 
 
 def _close_old_connections_outside_transactions() -> None:
@@ -89,6 +93,14 @@ class ProviderType(models.TextChoices):
     ANTHROPIC = "anthropic", _("Anthropic")
     GOOGLE_GENAI = "google_genai", _("Google Gemini")
     OPENROUTER = "openrouter", _("OpenRouter")
+
+
+class ProviderFailureKind(models.TextChoices):
+    OUT_OF_CREDITS = "out_of_credits", _("Out of credits")
+    SPEND_LIMIT_REACHED = "spend_limit_reached", _("Spending limit reached")
+    AUTH_FAILED = "auth_failed", _("Authentication failed")
+    RATE_LIMITED = "rate_limited", _("Rate limited")
+    PROVIDER_UNAVAILABLE = "provider_unavailable", _("Provider unavailable")
 
 
 class SingletonManager(models.Manager["SiteConfiguration"]):
@@ -1077,6 +1089,12 @@ class Provider(models.Model):
     )
     is_locked = models.BooleanField(default=False, editable=False)
     sort_order = models.PositiveSmallIntegerField(default=0)
+    failure_kind = models.CharField(
+        max_length=32, choices=ProviderFailureKind.choices, blank=True, default="", editable=False
+    )
+    failure_model = models.CharField(max_length=255, blank=True, default="", editable=False)
+    failing_since = models.DateTimeField(null=True, editable=False)
+    last_failed_at = models.DateTimeField(null=True, editable=False)
 
     class Meta:
         verbose_name = _("provider")
@@ -1102,6 +1120,10 @@ class Provider(models.Model):
             original = type(self).objects.only("slug", "provider_type").get(pk=self.pk)
             if original.slug != self.slug or original.provider_type != self.provider_type:
                 raise ValueError(f"Provider {original.slug!r} is locked; slug and provider_type cannot change.")
+        self.failure_kind = ""
+        self.failure_model = ""
+        self.failing_since = None
+        self.last_failed_at = None
         super().save(*args, **kwargs)
         # Defer invalidation to commit so concurrent readers can't repopulate the
         # cache with pre-commit data and mask the new row for the 5-min TTL.
@@ -1146,6 +1168,17 @@ class Provider(models.Model):
         verify_ssl: bool
         is_locked: bool
         sort_order: int
+        failure_kind: str = ""
+        failure_model: str = ""
+        failing_since: datetime | None = None
+        last_failed_at: datetime | None = None
+
+        def active_failure_kind(self, now: datetime) -> str:
+            if not self.failure_kind or self.last_failed_at is None:
+                return ""
+            if now - self.last_failed_at > PROVIDER_FAILURE_TTL:
+                return ""
+            return self.failure_kind
 
     @classmethod
     def _build_from_db(cls) -> list[Provider.Cached]:
@@ -1174,6 +1207,10 @@ class Provider(models.Model):
                     verify_ssl=row.verify_ssl,
                     is_locked=row.is_locked,
                     sort_order=row.sort_order,
+                    failure_kind=row.failure_kind,
+                    failure_model=row.failure_model,
+                    failing_since=row.failing_since,
+                    last_failed_at=row.last_failed_at,
                 )
             )
         return out
@@ -1214,6 +1251,11 @@ class Provider(models.Model):
     @classmethod
     def get_cached_by_slug(cls) -> dict[str, Provider.Cached]:
         return {row.slug: row for row in cls.get_cached_rows()}
+
+    @classmethod
+    def display_name_for(cls, slug: str) -> str:
+        row = cls.get_cached_by_slug().get(slug)
+        return row.display_name if row else slug
 
     @classmethod
     def invalidate_cache(cls) -> None:
