@@ -35,6 +35,7 @@ from core.constants import (
     INTERRUPTED_MESSAGE,
     RUN_FAILED_MESSAGE,
 )
+from core.provider_failures import failure_message
 from tests.unit_tests.sessions.conftest import (
     delegate_segment,
     delegate_turns,
@@ -84,6 +85,8 @@ def _run(
     repo_id="srtab/daiv",
     merge_request_title="",
     repo_publishes=(),
+    failure_kind="",
+    failure_provider="",
 ):
     return SimpleNamespace(
         id=rid,
@@ -108,6 +111,8 @@ def _run(
         repo_id=repo_id,
         merge_request_title=merge_request_title,
         repo_publishes=list(repo_publishes),
+        failure_kind=failure_kind,
+        failure_provider=failure_provider,
     )
 
 
@@ -1590,3 +1595,54 @@ def test_mark_delegations_returns_the_calls_own_trimmed_goals(owner):
     goals = mark_delegations(turns, Delegations.load(coordinator.thread_id, owner))
 
     assert goals == {named: "Bump auth"}
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("trigger", [SessionOrigin.CHAT, SessionOrigin.API_JOB, SessionOrigin.ISSUE_WEBHOOK])
+def test_a_provider_failure_marker_names_the_provider(trigger):
+    runs = [
+        _run(
+            "r1",
+            trigger_type=trigger,
+            status=RunStatus.FAILED,
+            error_message="Traceback: raw",
+            failure_kind="out_of_credits",
+            failure_provider="openrouter",
+        )
+    ]
+    marker = annotate_transcript([_user("h1"), _assistant("a1")], runs)[-1]
+    assert (marker["status"], marker["message"]) == ("failed", failure_message("out_of_credits", "openrouter"))
+    assert "OpenRouter" in marker["message"]
+    assert "silent" not in marker
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("trigger", [SessionOrigin.CHAT, SessionOrigin.API_JOB])
+def test_a_stopped_run_keeps_the_stopped_marker_despite_a_provider_failure(trigger):
+    runs = [
+        _run(
+            "r1",
+            trigger_type=trigger,
+            status=RunStatus.FAILED,
+            is_cancelled=True,
+            failure_kind="out_of_credits",
+            failure_provider="openrouter",
+        )
+    ]
+    marker = annotate_transcript([_user("h1"), _assistant("a1")], runs)[-1]
+    assert (marker["status"], marker["message"]) == ("aborted", CANCELLED_BY_USER_MESSAGE)
+
+
+@pytest.mark.django_db
+def test_an_unknown_failure_kind_falls_back_to_the_generic_marker():
+    runs = [
+        _run(
+            "r1",
+            trigger_type=SessionOrigin.API_JOB,
+            status=RunStatus.FAILED,
+            failure_kind="from_the_future",
+            failure_provider="openrouter",
+        )
+    ]
+    marker = annotate_transcript([_user("h1"), _assistant("a1")], runs)[-1]
+    assert (marker["status"], marker["message"]) == ("failed", RUN_FAILED_MESSAGE)

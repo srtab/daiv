@@ -32,6 +32,8 @@ from core.constants import (
     INTERRUPTED_MESSAGE,
     RUN_FAILED_MESSAGE,
 )
+from core.models import ProviderFailureKind
+from core.provider_failures import failure_message
 from sessions.artifacts import published_tool_result
 from sessions.executor.lock import SessionActivity
 from sessions.legs import Leg
@@ -78,6 +80,8 @@ def _marker(run: Run) -> dict[str, Any] | None:
     # rendered verbatim. Fall those back to the generic sanitized message.
     if run.trigger_type == SessionOrigin.CHAT and run.is_cancelled:
         message, aborted = CANCELLED_BY_USER_MESSAGE, True
+    elif run.failure_kind in ProviderFailureKind.values and not run.is_cancelled:
+        message, aborted = failure_message(run.failure_kind, run.failure_provider), False
     elif run.trigger_type == SessionOrigin.CHAT:
         message = run.error_message if run.error_message in _CHAT_ERROR_MESSAGES else RUN_FAILED_MESSAGE
         # A user cancel and an interrupt (stale takeover / process shutdown) are neutral,

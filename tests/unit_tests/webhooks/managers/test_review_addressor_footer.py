@@ -10,9 +10,12 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
 from webhooks.managers.review_addressor import CommentsAddressorManager
 
+from automation.agent.provider_errors import tag_provider_failure
 from codebase.base import GitPlatform, MergeRequest, User
+from core.provider_failures import ProviderFailure
 
 _AUTHOR = User(id=1, username="alice")
 
@@ -133,3 +136,32 @@ class TestAppendFooter:
         markdown renderers swallow as front-matter."""
         result = CommentsAddressorManager._append_footer("", "footer")
         assert result == "\n\nfooter"
+
+
+class TestProviderFailureNote:
+    @patch("core.models.Provider.display_name_for", return_value="OpenRouter")
+    @pytest.mark.parametrize("platform", [GitPlatform.GITLAB, GitPlatform.GITHUB])
+    async def test_a_provider_failure_says_so_on_the_merge_request(self, _display_name, stub_base_init, platform):
+        manager = _make_manager(platform=platform)
+        manager.client.current_user = User(id=2, username="daiv")
+        error = RuntimeError("402 from provider")
+        tag_provider_failure(error, ProviderFailure("out_of_credits", "openrouter"))
+
+        with patch.object(manager, "_leave_comment") as leave_comment:
+            await manager._on_failure(error, draft_published=True, snapshot=None)
+
+        [(body,), _] = leave_comment.call_args
+        assert "OpenRouter is out of credits, so DAIV couldn't" in body
+        assert "To have" in body
+        assert "committed the changes done so far" in body
+        assert "unexpected error" not in body
+
+    async def test_an_unclassified_failure_keeps_the_generic_note(self, stub_base_init):
+        manager = _make_manager()
+        manager.client.current_user = User(id=2, username="daiv")
+
+        with patch.object(manager, "_leave_comment") as leave_comment:
+            await manager._on_failure(RuntimeError("boom"), draft_published=False, snapshot=None)
+
+        [(body,), _] = leave_comment.call_args
+        assert "An unexpected error occurred while working on this merge request." in body

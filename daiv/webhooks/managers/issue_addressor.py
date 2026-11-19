@@ -12,6 +12,7 @@ from langchain_core.messages import HumanMessage
 from sessions.executor.run import execute_run
 from sessions.executor.spec import RunHooks, RunSpec
 
+from automation.agent.provider_errors import provider_failure_of
 from automation.agent.synthetic import ISSUE_CONTEXT_KIND, synthetic_message
 from automation.agent.utils import repo_relative_text
 from automation.agent.validators import AgentConfigurationError
@@ -219,9 +220,12 @@ class IssueAddressorManager(BaseManager):
                     f"@{self.issue.author.username} I can't run yet: {exc}", reply_to_id=self.reply_to_id
                 )
             return
-        self._add_unable_to_address_issue_note(draft_published=draft_published)
+        failure = provider_failure_of(exc)
+        self._add_unable_to_address_issue_note(
+            draft_published=draft_published, failure_message=failure.message() if failure else None
+        )
 
-    def _add_unable_to_address_issue_note(self, *, draft_published: bool = False):
+    def _add_unable_to_address_issue_note(self, *, draft_published: bool = False, failure_message: str | None = None):
         """
         Add a note to the issue to inform the user that the response could not be generated.
         """
@@ -234,6 +238,7 @@ class IssueAddressorManager(BaseManager):
                     "bot_name": BOT_NAME,
                     "bot_username": self.client.current_user.username,
                     "draft_published": draft_published,
+                    "failure_message": failure_message,
                     "is_gitlab": self.client.git_platform == GitPlatform.GITLAB,
                     "is_github": self.client.git_platform == GitPlatform.GITHUB,
                 },

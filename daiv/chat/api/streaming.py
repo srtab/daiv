@@ -12,6 +12,7 @@ from django.utils import timezone
 from ag_ui.core.events import BaseEvent, CustomEvent, EventType, RunErrorEvent
 from asgiref.sync import sync_to_async
 from langchain_core.messages import HumanMessage, RemoveMessage
+from langchain_core.runnables.config import merge_configs
 from sessions.executor.lock import Held, SessionLock, SessionLockLostError
 from sessions.executor.run import RunStoppedError, stream_run
 from sessions.executor.spec import RunHooks, RunSpec
@@ -22,7 +23,7 @@ from sessions.inbox.render import RunInput
 from sessions.live import relay
 from sessions.live.agui import RuntimeContextLangGraphAGUIAgent
 from sessions.live.event_filter import SubagentEventFilter
-from sessions.live.publisher import close_graph_stream, sanitize_run_error
+from sessions.live.publisher import RootOutcome, close_graph_stream, run_error_event, sanitize_run_error
 from sessions.models import (
     CHAT_PROMPT_MAX_LENGTH,
     Run,
@@ -34,7 +35,7 @@ from sessions.models import (
 
 from automation.agent.usage_tracking import build_usage_summary
 from codebase.base import Scope
-from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
+from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE
 
 from .threads import _last_user_message
 
@@ -259,11 +260,12 @@ class ChatRunStreamer:
                     if await run_relay.cancel_requested():
                         turn.error = CANCELLED_BY_USER_MESSAGE
             raise
-        except Exception:
+        except Exception as exc:
             # The exception stays in the server log: its text can carry internal names and paths.
             logger.exception("Chat run failed for thread_id=%s run_id=%s", self.thread_id, self.run_id)
-            turn.error = RUN_FAILED_MESSAGE
-            yield RunErrorEvent(type=EventType.RUN_ERROR, message=RUN_FAILED_MESSAGE, code="run_failed")
+            error = run_error_event(exc)
+            turn.error = error.message
+            yield error
         finally:
             await self._end_turn(turn, succeeded=finished)
 
@@ -308,19 +310,23 @@ class ChatRunStreamer:
     async def _agui_events(self, turn: _Turn, run: AgentRun) -> AsyncGenerator[BaseEvent]:
         """The turn's AG-UI stream: a ``ref_fallback`` frame when the clone fell back or resolved a blank ref to the
         default branch, then the agent's events through the subagent filter, recorded on ``turn``. Raises
-        ``_ReportedRunError`` after the last event when one of them was a RUN_ERROR. A turn its owner stops before any
-        of the answer streamed is taken back out of the thread."""
+        ``_ReportedRunError`` after the last event when one of them was a RUN_ERROR, from the graph's own exception when
+        it raised one. A turn its owner stops before any of the answer streamed is taken back out of the thread."""
         turn.usage = run.usage
         if run.ctx.repo.ref != self.ref:
             yield CustomEvent(
                 type=EventType.CUSTOM, name="ref_fallback", value={"requested": self.ref, "using": run.ctx.repo.ref}
             )
+        outcome = RootOutcome()
         agui = RuntimeContextLangGraphAGUIAgent(
             name="DAIV",
             description="DAIV agent",
             graph=run.agent,
             # ag-ui's run config otherwise carries langchain-core's default (25) over the limit graph.py binds.
-            config={"recursion_limit": run.settings.recursion_limit, **run.config},
+            config=merge_configs(
+                {"recursion_limit": run.settings.recursion_limit, **run.config},
+                {"callbacks": [outcome], "run_id": outcome.root_id},
+            ),
             runtime_context=run.ctx,
         )
         # The client echoes every user turn it shows, pre-/clear and failed ones included; ag-ui would append each one
@@ -340,11 +346,12 @@ class ChatRunStreamer:
                             withdraw = True
                             raise RunStoppedError(f"chat turn for thread_id={self.thread_id} was stopped unanswered")
                         turn.answered = True
+                    event = sanitize_run_error(event, outcome.error)
                     if event.type in (EventType.TEXT_MESSAGE_CONTENT, EventType.TEXT_MESSAGE_CHUNK):
                         turn.add_text(getattr(event, "delta", None))
-                    elif event.type == EventType.RUN_ERROR:
-                        turn.error = RUN_FAILED_MESSAGE
-                    yield sanitize_run_error(event)
+                    elif isinstance(event, RunErrorEvent):
+                        turn.error = event.message
+                    yield event
         except asyncio.CancelledError, GeneratorExit:
             withdraw = turn.unanswered and await self._stopped_by_owner()
             raise
@@ -355,7 +362,7 @@ class ChatRunStreamer:
                 ids = (turn.context_message_id, turn_message.id if turn_message else None)
                 turn.in_thread = not await self._clear_turn(run, ids)
         if turn.error is not None:
-            raise _ReportedRunError
+            raise _ReportedRunError from outcome.error if isinstance(outcome.error, Exception) else None
 
     async def _add_inbox_context(self, turn: _Turn, run: AgentRun) -> None:
         """Write what the session's inbox holds for this turn into the thread, ahead of the person's message. The

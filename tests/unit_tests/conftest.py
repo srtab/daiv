@@ -29,6 +29,7 @@ from webhooks.conf import settings as webhooks_settings
 
 from accounts.models import Role
 from accounts.models import User as AccountUser
+from automation.agent import provider_health
 from automation.agent.agent_settings import AgentSettings, RunOverrides, resolve_agent_settings
 from automation.agent.artifacts import ArtifactError, ArtifactFile
 from automation.agent.constants import REPO_PATH
@@ -475,6 +476,12 @@ def _clear_model_caches():
     yield
     for key in keys:
         cache.delete(key)
+
+
+@pytest.fixture(autouse=True)
+def _drain_provider_health_jobs():
+    yield
+    provider_health._executor.submit(lambda: None).result()
 
 
 @pytest.fixture(autouse=True)

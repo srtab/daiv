@@ -89,6 +89,7 @@ TEMPLATES = [
                 "blog.context_processors.blog",
                 "codebase.context_processors.git_platform",
                 "core.context_processors.build_info",
+                "core.context_processors.provider_health",
             ]
         },
     }

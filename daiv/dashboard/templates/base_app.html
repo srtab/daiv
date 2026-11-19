@@ -60,6 +60,8 @@
       </a>
     </header>
 
+    {% include "core/_provider_failure_banner.html" %}
+
     {# A page that needs a bar or a side column beside its scrolling <main> replaces the whole body. #}
     {% block app_body %}
     <main class="scrollbar-thin flex-1 overflow-y-auto overflow-x-hidden px-4 pt-6 {% block main_padding_bottom %}pb-10{% endblock %} sm:px-(--app-content-gutter) sm:pt-8">
