@@ -81,6 +81,16 @@ DAIV creates four built-in providers the first time it runs: `anthropic`, `opena
 
 A model field anywhere in the configuration is rejected on save when its provider is disabled or has no API key, with a message that points you to the **Providers** group.
 
+### Provider health banner
+
+While a provider is out of credits, has hit the spending limit on its key or is rejecting its API key, DAIV shows a red banner at the top of every page for admins. It names the provider and the model that failed, says since when, and links to the **Providers** group. Runs that use the failing model fail with a message that names the provider and the cause, or fall back to the fallback model if one is set. Rate limits and provider outages do not raise the banner.
+
+The banner clears when any of these happens:
+
+- A request to the failing model succeeds. When the provider rejected its key, a successful request to any of its models clears it.
+- You save the provider settings.
+- 24 hours pass without a new failure.
+
 ### Add a custom provider
 
 Add a provider to use models from a server other than the four built-in providers. You need the admin role, the endpoint's URL and its API key.

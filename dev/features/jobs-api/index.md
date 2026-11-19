@@ -180,14 +180,14 @@ DAIV validates the body strictly and rejects unknown fields with `422`, `use_max
 
 ## Job status values
 
-| Status          | Meaning                                                                                                                                                                  |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `QUEUED`        | The job is the session's next run, waiting for its current run to finish. Only occurs for thread continuations (`thread_id` supplied).                                   |
-| `READY`         | The job is waiting for a worker.                                                                                                                                         |
-| `RUNNING`       | The agent is executing.                                                                                                                                                  |
-| `SUCCESSFUL`    | The run completed, and `result` holds the agent's last response.                                                                                                         |
-| `WAITING_INPUT` | The agent stopped to ask you a question. This is a final state, not a step towards `SUCCESSFUL`. `question` holds the questions asked, and `result` their rendered text. |
-| `FAILED`        | The agent hit an error, and `error` holds a message.                                                                                                                     |
+| Status          | Meaning                                                                                                                                                                                                                                                                         |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `QUEUED`        | The job is the session's next run, waiting for its current run to finish. Only occurs for thread continuations (`thread_id` supplied).                                                                                                                                          |
+| `READY`         | The job is waiting for a worker.                                                                                                                                                                                                                                                |
+| `RUNNING`       | The agent is executing.                                                                                                                                                                                                                                                         |
+| `SUCCESSFUL`    | The run completed, and `result` holds the agent's last response.                                                                                                                                                                                                                |
+| `WAITING_INPUT` | The agent stopped to ask you a question. This is a final state, not a step towards `SUCCESSFUL`. `question` holds the questions asked, and `result` their rendered text.                                                                                                        |
+| `FAILED`        | The agent hit an error, and `error` holds a message. When a model provider stopped the run, for example because it ran out of credits, hit its spending limit or rejected DAIV's API key, the message names the provider and the cause. Otherwise it is a generic failure text. |
 
 ## Error responses
 
