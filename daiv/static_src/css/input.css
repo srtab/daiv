@@ -5027,16 +5027,6 @@ html {
 /* -- Session list & filter bar ------------------------------------------- */
 
 @layer components {
-  /* Wraps rather than scrolls: a hidden-scrollbar overflow cut off the last items on a phone. */
-  .filter-seg {
-    @apply inline-flex max-w-full flex-wrap items-center gap-0.5 rounded-xl
-      border border-white/[0.06] bg-white/[0.02] p-1;
-  }
-  .filter-seg-item {
-    @apply inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium
-      text-gray-400 transition-colors hover:text-gray-200;
-  }
-  .filter-seg-item--active { @apply bg-white/[0.1] text-white; }
   .filter-search {
     @apply h-10.5 w-full rounded-xl border border-border bg-surface-2 pl-9 pr-3 text-sm text-text
       placeholder:text-text-faint;
@@ -5082,6 +5072,9 @@ html {
   }
   .filter-clear {
     @apply inline-flex h-10.5 items-center px-1.5 text-[13px] text-text-muted transition-colors hover:text-text;
+  }
+  .notice-found {
+    @apply flex items-start gap-2.5 rounded-xl border border-border bg-surface-2 px-4 py-3 text-sm text-text;
   }
   .filter-context {
     @apply flex items-center gap-3 rounded-xl border border-border bg-surface-2 py-2 pl-2.5 pr-2 text-[13.5px]

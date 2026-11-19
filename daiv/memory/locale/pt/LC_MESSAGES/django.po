@@ -178,3 +178,9 @@ msgstr ""
 "%(repo)s tem um documento de memória mas nenhuma entrada, pelo que "
 "consolidar iria descartá-lo. Um administrador tem de executar "
 "`backfill_memory_entries --repo-id %(repo)s` no servidor primeiro."
+
+msgid "Clear all"
+msgstr "Limpar tudo"
+
+msgid "Memory status"
+msgstr "Estado da memória"

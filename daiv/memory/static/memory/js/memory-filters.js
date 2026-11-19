@@ -38,5 +38,10 @@ document.addEventListener("alpine:init", () => {
             this.status = value;
             this._apply();
         },
+        clearAll() {
+            this.q = "";
+            this.status = "";
+            this._apply();
+        },
     }));
 });

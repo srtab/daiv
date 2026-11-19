@@ -18,6 +18,7 @@ LEGACY = re.compile(r"(?:bg|border|text|ring|divide)-white/\[|text-gray-\d|text-
 
 SESSIONS = DAIV_DIR / "sessions" / "templates" / "sessions"
 CORE = DAIV_DIR / "core" / "templates" / "core"
+MEMORY = DAIV_DIR / "memory" / "templates" / "memory"
 
 PAGE_TEMPLATES = {
     "sessions": [
@@ -34,6 +35,7 @@ PAGE_TEMPLATES = {
         SESSIONS / "_artifact_results.html",
         SESSIONS / "_artifact_row.html",
     ],
+    "memory": [MEMORY / "list.html", MEMORY / "_list_results.html"],
 }
 
 PAGE_CLASSES = {
@@ -74,7 +76,10 @@ PAGE_CLASSES = {
         "empty-state__body",
     ],
     "artifacts": ["artifact-tile", "artifact-download"],
+    "memory": ["notice-found"],
 }
+
+RETIRED_CLASSES = ("filter-seg", "filter-seg-item", "filter-seg-item--active")
 
 
 def _rules_for(class_name: str) -> list[str]:
@@ -105,3 +110,16 @@ def test_list_page_classes_use_only_tokens(page):
 
     assert not missing, f"No CSS rule for: {missing}"
     assert not offenders, "Legacy utilities in a token page's classes:\n" + "\n".join(offenders)
+
+
+def test_the_retired_segment_classes_are_gone():
+    used = [
+        f"{path.relative_to(DAIV_DIR)}: {name}"
+        for path in DAIV_DIR.rglob("*.html")
+        for name in RETIRED_CLASSES
+        if re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", path.read_text(encoding="utf-8"))
+    ]
+    defined = [name for name in RETIRED_CLASSES if _rules_for(name)]
+
+    assert not used, used
+    assert not defined, defined
