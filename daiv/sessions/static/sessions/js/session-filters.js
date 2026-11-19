@@ -6,6 +6,10 @@
  * only #session-results via the shared swapResults().
  */
 
+// The Spend page's params: those with no control in the bar show as one banner.
+const SPEND_BANNER_PARAMS = ["spend_from", "spend_to", "spend_repo", "spend_trigger", "spend_task"];
+const SPEND_PARAMS = [...SPEND_BANNER_PARAMS, "spend_person", "spend_model", "spend_provider"];
+
 const { swapResults } = window.createResultsSwap("session-results", {
     errorMessage: "Couldn't update the session list — check your connection and try again.",
     onUrlChanged: () => window.dispatchEvent(new CustomEvent("sessions:url-changed")),
@@ -27,6 +31,8 @@ document.addEventListener("alpine:init", () => {
         schedule: "",
         batch: "",
         archived: "",
+        sort: "",
+        ...Object.fromEntries(SPEND_PARAMS.map((name) => [name, ""])),
 
         init() {
             this._readUrl();
@@ -51,16 +57,8 @@ document.addEventListener("alpine:init", () => {
             this.batch = p.get("batch") || "";
             const archived = p.get("archived");
             this.archived = archived === "true" || archived === "all" ? archived : "";
-        },
-
-        _labelFor(kind, value) {
-            if (!value) return "";
-            const el = this.$root.querySelector(`[data-${kind}-value="${value}"]`);
-            if (el) return el.dataset.label || el.textContent.trim();
-            // A URL value with no matching menu item (renamed/removed enum, hand-edited
-            // URL): show the raw value so the active filter stays visible, and log it.
-            console.warn(`filterBar: no menu item for ${kind}="${value}"; showing raw value`);
-            return value;
+            this.sort = p.get("sort") || this.$root.dataset.defaultSort;
+            SPEND_PARAMS.forEach((name) => (this[name] = p.get(name) || ""));
         },
 
         _apply() {
@@ -82,31 +80,18 @@ document.addEventListener("alpine:init", () => {
             set("schedule", this.schedule);
             set("batch", this.batch);
             set("archived", this.archived);
+            SPEND_PARAMS.forEach((name) => set(name, this[name]));
+            set("sort", this.sort === this.$root.dataset.defaultSort ? "" : this.sort);
             const qs = params.toString();
             swapResults(window.location.pathname + (qs ? "?" + qs : ""));
             this.open = null;
-        },
-
-        toggle(id) {
-            this.open = this.open === id ? null : id;
         },
 
         setScope(value) {
             this.scope = value;
             this._apply();
         },
-        setStatus(value) {
-            this.status = value;
-            this._apply();
-        },
-        setTrigger(value) {
-            this.trigger = value;
-            this._apply();
-        },
-        clearTrigger() {
-            this.trigger = "";
-            this._apply();
-        },
+        ...window.filterDropdown,
         setRange(value) {
             this.range = value;
             this.from = "";
@@ -146,25 +131,23 @@ document.addEventListener("alpine:init", () => {
             this.schedule = "";
             this.batch = "";
             this.archived = "";
+            SPEND_PARAMS.forEach((name) => (this[name] = ""));
             this._apply();
         },
 
-        // Button labels are derived from the rendered menu items (single source of truth =
-        // the template), so they never need to be stored or cleared alongside the value.
-        get triggerLabel() {
-            return this._labelFor("trigger", this.trigger);
-        },
-        get rangeLabel() {
-            return this._labelFor("range", this.range);
-        },
-
         get timeLabel() {
-            if (this.rangeLabel) return this.rangeLabel;
+            if (this.range) return this.labelFor("range");
             if (this.from || this.to) return (this.from || "…") + " – " + (this.to || "…");
             return "";
         },
         get timeActive() {
             return !!(this.range || this.from || this.to);
+        },
+        get hasChips() {
+            return !!(this.repo || this.mr || this.archived === "all" || this.ranOn || this.schedule || this.batch);
+        },
+        get hasSpendBanner() {
+            return SPEND_BANNER_PARAMS.some((name) => this[name]);
         },
         get hasActiveFilters() {
             return !!(
@@ -179,7 +162,8 @@ document.addEventListener("alpine:init", () => {
                 this.ranOn ||
                 this.schedule ||
                 this.batch ||
-                this.archived
+                this.archived ||
+                SPEND_PARAMS.some((name) => this[name])
             );
         },
     }));

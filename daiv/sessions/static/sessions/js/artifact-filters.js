@@ -9,7 +9,7 @@ document.addEventListener("alpine:init", () => {
     const FIELDS = ["q", "kind", "repo"];
 
     Alpine.data("artifactFilters", () => ({
-        open: false,
+        open: null,
         q: "",
         kind: "",
         repo: "",
@@ -29,11 +29,13 @@ document.addEventListener("alpine:init", () => {
             for (const field of FIELDS) if (this[field]) params.set(field, this[field]);
             const qs = params.toString();
             swapResults(window.location.pathname + (qs ? "?" + qs : ""));
-            this.open = false;
+            this.open = null;
         },
 
-        setFilter(field, value) {
-            this[field] = value;
+        ...window.filterDropdown,
+
+        clearAll() {
+            for (const field of FIELDS) this[field] = "";
             this._apply();
         },
     }));

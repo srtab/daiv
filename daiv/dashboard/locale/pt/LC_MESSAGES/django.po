@@ -128,3 +128,691 @@ msgstr "%(count)d h"
 #, python-format
 msgid "%(count)dd"
 msgstr "%(count)d d"
+
+msgid "List the commands and skills available here"
+msgstr "Listar os comandos e competências disponíveis aqui"
+
+msgid "Explore the code and post an implementation plan"
+msgstr "Explorar o código e publicar um plano de implementação"
+
+msgid "Review the changes"
+msgstr "Rever as alterações"
+
+msgid "Start the conversation over"
+msgstr "Recomeçar a conversa"
+
+msgid "Changed code"
+msgstr "Alterou código"
+
+msgid "Done, no changes"
+msgstr "Concluída, sem alterações"
+
+msgid "Needed you"
+msgstr "Precisou de si"
+
+msgid "Failed"
+msgstr "Falhou"
+
+msgid "All your failed sessions"
+msgstr "Todas as suas sessões falhadas"
+
+msgid "All needing your input"
+msgstr "Todas as que aguardam a sua resposta"
+
+msgid "Your schedules"
+msgstr "Os seus agendamentos"
+
+msgid "Your editor"
+msgstr "O seu editor"
+
+msgid "Here"
+msgstr "Aqui"
+
+msgid "API"
+msgstr "API"
+
+msgid "Delegated by the agent"
+msgstr "Delegadas pelo agente"
+
+msgid "Plans, then waits for your go-ahead"
+msgstr "Planeia e depois aguarda a sua aprovação"
+
+msgid "Plans and implements without waiting"
+msgstr "Planeia e implementa sem esperar"
+
+msgid "Uses a more capable model; combine with either"
+msgstr "Usa um modelo mais capaz; combine com qualquer uma das anteriores"
+
+msgid "Today"
+msgstr "Hoje"
+
+msgid "7 days"
+msgstr "7 dias"
+
+msgid "30 days"
+msgstr "30 dias"
+
+msgid "90 days"
+msgstr "90 dias"
+
+msgid "All time"
+msgstr "Todo o período"
+
+msgid "Needs input"
+msgstr "Aguarda resposta"
+
+msgid "Involved DAIV"
+msgstr "Envolveu o DAIV"
+
+msgid "People only"
+msgstr "Apenas pessoas"
+
+#, python-format
+msgid "Rest (%(count)s person)"
+msgid_plural "Rest (%(count)s people)"
+msgstr[0] "Restante (%(count)s pessoa)"
+msgstr[1] "Restantes (%(count)s pessoas)"
+
+#, python-format
+msgid "Rest (%(count)s repository)"
+msgid_plural "Rest (%(count)s repositories)"
+msgstr[0] "Restante (%(count)s repositório)"
+msgstr[1] "Restantes (%(count)s repositórios)"
+
+#, python-format
+msgid "Rest (%(count)s model)"
+msgid_plural "Rest (%(count)s models)"
+msgstr[0] "Restante (%(count)s modelo)"
+msgstr[1] "Restantes (%(count)s modelos)"
+
+#, python-format
+msgid "Rest (%(count)s provider)"
+msgid_plural "Rest (%(count)s providers)"
+msgstr[0] "Restante (%(count)s fornecedor)"
+msgstr[1] "Restantes (%(count)s fornecedores)"
+
+msgid "Cache read"
+msgstr "Leitura da cache"
+
+msgid "Uncached input"
+msgstr "Entrada sem cache"
+
+msgid "Cache write"
+msgstr "Escrita na cache"
+
+msgid "Output"
+msgstr "Saída"
+
+msgid "Estimated from list prices"
+msgstr "Estimado a partir dos preços de tabela"
+
+msgid "Reported by the provider"
+msgstr "Reportado pelo fornecedor"
+
+msgid "Unknown source"
+msgstr "Fonte desconhecida"
+
+msgid "Input served from the prompt cache, the cheapest tokens."
+msgstr "Entrada servida a partir da cache de prompts, os tokens mais baratos."
+
+msgid "Input the model read at the full input price."
+msgstr "Entrada que o modelo leu ao preço total de entrada."
+
+msgid "Input stored in the cache for later calls; priced above plain input."
+msgstr "Entrada guardada na cache para chamadas posteriores; custa mais do que a entrada simples."
+
+#, python-format
+msgid "What the model wrote, %(reasoning)s of it reasoning; the dearest tokens."
+msgstr "O que o modelo escreveu, %(reasoning)s dos quais em raciocínio; os tokens mais caros."
+
+msgid "Tokens times the model's public price; your bill can differ."
+msgstr "Tokens multiplicados pelo preço público do modelo; a sua fatura pode ser diferente."
+
+msgid "The charge the provider returned for each call."
+msgstr "O valor cobrado que o fornecedor devolveu em cada chamada."
+
+msgid "Spend recorded before DAIV kept the two apart."
+msgstr "Gastos registados antes de o DAIV separar os dois."
+
+msgid "Other"
+msgstr "Outros"
+
+msgid "By person"
+msgstr "Por pessoa"
+
+msgid "By repository"
+msgstr "Por repositório"
+
+msgid "By model"
+msgstr "Por modelo"
+
+msgid "By provider"
+msgstr "Por fornecedor"
+
+#, python-format
+msgid "The rows past the top %(count)s are summed here"
+msgstr "As linhas além das %(count)s primeiras são somadas aqui"
+
+#, python-format
+msgid "%(platform)s, external"
+msgstr "%(platform)s, externo"
+
+msgid "deleted user"
+msgstr "utilizador eliminado"
+
+msgid "no person started it"
+msgstr "não iniciado por uma pessoa"
+
+msgid "Work no person started has no single list of sessions"
+msgstr "O trabalho que nenhuma pessoa iniciou não tem uma lista única de sessões"
+
+msgid "No repository"
+msgstr "Sem repositório"
+
+msgid "Batch titles have no repository or session to list"
+msgstr "Os títulos de lotes não têm repositório nem sessão para listar"
+
+msgid "Unknown provider"
+msgstr "Fornecedor desconhecido"
+
+#, python-format
+msgid "cost reported by %(provider)s"
+msgstr "custo reportado por %(provider)s"
+
+msgid "list prices"
+msgstr "preços de tabela"
+
+msgid "Spend recorded before DAIV kept providers has none to filter by"
+msgstr "Os gastos registados antes de o DAIV guardar os fornecedores não têm nenhum pelo qual filtrar"
+
+msgid "Repository-wide work has no session to list"
+msgstr "O trabalho ao nível do repositório não tem sessão para listar"
+
+msgid "Background"
+msgstr "Segundo plano"
+
+msgid "DAIV work outside runs, split by task below"
+msgstr "Trabalho do DAIV fora das execuções, dividido por tarefa abaixo"
+
+msgid "Started by"
+msgstr "Iniciado por"
+
+msgid "Untitled session"
+msgstr "Sessão sem título"
+
+msgid "DAIV"
+msgstr "DAIV"
+
+msgid "no price"
+msgstr "sem preço"
+
+msgid "New chat"
+msgstr "Nova conversa"
+
+#, python-format
+msgid "was %(was)s"
+msgstr "era %(was)s"
+
+msgid "Up"
+msgstr "Subiu"
+
+msgid "Down"
+msgstr "Desceu"
+
+msgid "No change"
+msgstr "Sem alteração"
+
+#, python-format
+msgid "%(counter)s run"
+msgid_plural "%(counter)s runs"
+msgstr[0] "%(counter)s execução"
+msgstr[1] "%(counter)s execuções"
+
+#, python-format
+msgid "%(rate)s%% cache hits"
+msgstr "%(rate)s%% de acertos na cache"
+
+msgid "cache not reported"
+msgstr "cache não reportada"
+
+msgid "Click to open these sessions"
+msgstr "Clique para abrir estas sessões"
+
+#, python-format
+msgid "Changes compare %(current)s with the period before, %(previous)s, up to the same time of day."
+msgstr "As variações comparam %(current)s com o período anterior, %(previous)s, até à mesma hora do dia."
+
+msgid "Insights"
+msgstr "Estatísticas"
+
+msgid "Activity"
+msgstr "Atividade"
+
+msgid "Spend"
+msgstr "Gastos"
+
+msgid "Needs you"
+msgstr "Precisa de si"
+
+#, python-format
+msgid "%(shown)s of %(total)s, worst first"
+msgstr "%(shown)s de %(total)s, mais graves primeiro"
+
+#, python-format
+msgid "%(since)s ago"
+msgstr "há %(since)s"
+
+msgid "Nothing needs you"
+msgstr "Nada precisa de si"
+
+msgid "Failed runs, questions waiting for your answer and findings from your sessions show up here."
+msgstr "As execuções falhadas, as perguntas à espera da sua resposta e as descobertas das suas sessões aparecem aqui."
+
+msgid "Collapse sidebar"
+msgstr "Recolher barra lateral"
+
+msgid "Expand sidebar"
+msgstr "Expandir barra lateral"
+
+msgid "Main"
+msgstr "Principal"
+
+msgid "Passkeys"
+msgstr "Chaves de acesso"
+
+msgid "Settings"
+msgstr "Definições"
+
+msgid "Resize sidebar"
+msgstr "Redimensionar barra lateral"
+
+msgid "Drag to resize, double-click to reset"
+msgstr "Arraste para redimensionar, faça duplo clique para repor"
+
+msgid "generating title…"
+msgstr "a gerar título…"
+
+msgid "Start a chat"
+msgstr "Iniciar conversa"
+
+msgid "Show more"
+msgstr "Mostrar mais"
+
+msgid "Home"
+msgstr "Início"
+
+msgid "Notifications"
+msgstr "Notificações"
+
+msgid "Optional. Usually set up once, often by a teammate."
+msgstr "Opcional. Normalmente configurado uma vez, muitas vezes por um colega de equipa."
+
+msgid "Agent setup"
+msgstr "Configuração do agente"
+
+msgid "Where the agent runs commands and tests"
+msgstr "Onde o agente executa comandos e testes"
+
+msgid "Extra tools the agent can call"
+msgstr "Ferramentas adicionais que o agente pode chamar"
+
+msgid "What the agent has learned about each repository"
+msgstr "O que o agente aprendeu sobre cada repositório"
+
+msgid "Global MCP servers"
+msgstr "Servidores MCP globais"
+
+msgid "Open run"
+msgstr "Abrir execução"
+
+msgid "Session no longer available"
+msgstr "Sessão já não disponível"
+
+#, python-format
+msgid "%(counter)s more in the CSV export"
+msgid_plural "%(counter)s more in the CSV export"
+msgstr[0] "mais %(counter)s na exportação CSV"
+msgstr[1] "mais %(counter)s na exportação CSV"
+
+#, python-format
+msgid "Show all %(count)s person"
+msgid_plural "Show all %(count)s people"
+msgstr[0] "Mostrar %(count)s pessoa"
+msgstr[1] "Mostrar todas as %(count)s pessoas"
+
+#, python-format
+msgid "Show all %(count)s repository"
+msgid_plural "Show all %(count)s repositories"
+msgstr[0] "Mostrar %(count)s repositório"
+msgstr[1] "Mostrar todos os %(count)s repositórios"
+
+#, python-format
+msgid "Show all %(count)s model"
+msgid_plural "Show all %(count)s models"
+msgstr[0] "Mostrar %(count)s modelo"
+msgstr[1] "Mostrar todos os %(count)s modelos"
+
+#, python-format
+msgid "Show all %(count)s provider"
+msgid_plural "Show all %(count)s providers"
+msgstr[0] "Mostrar %(count)s fornecedor"
+msgstr[1] "Mostrar todos os %(count)s fornecedores"
+
+msgid "Show the top 5 only"
+msgstr "Mostrar apenas os 5 primeiros"
+
+#, python-format
+msgid "%(tokens)s tok"
+msgstr "%(tokens)s tok"
+
+#, python-format
+msgid "%(counter)s model"
+msgid_plural "%(counter)s models"
+msgstr[0] "%(counter)s modelo"
+msgstr[1] "%(counter)s modelos"
+
+msgid "Prompt cache hit rate: the share of the input tokens served from the cache"
+msgstr "Taxa de acertos da cache de prompts: a parte dos tokens de entrada servida a partir da cache"
+
+#, python-format
+msgid "About %(title)s"
+msgstr "Sobre %(title)s"
+
+msgid "Ways to use DAIV"
+msgstr "Formas de usar o DAIV"
+
+#, python-format
+msgid "%(platform)s, your editor, or right here"
+msgstr "%(platform)s, o seu editor ou aqui mesmo"
+
+msgid "Show"
+msgstr "Mostrar"
+
+msgid "Hide"
+msgstr "Ocultar"
+
+msgid "Start work from wherever you already are. Everything you start shows up in the sidebar."
+msgstr "Comece a trabalhar a partir de onde já está. Tudo o que iniciar aparece na barra lateral."
+
+#, python-format
+msgid "On %(platform)s"
+msgstr "No %(platform)s"
+
+msgid "Add a label to an issue:"
+msgstr "Adicione uma etiqueta a uma issue:"
+
+#, python-format
+msgid "Or mention <code class=\"rounded-md bg-surface-3 px-1.5 py-0.5 font-mono text-[12px] text-text\">%(mention)s</code> in an issue or %(mr)s comment, with a slash command:"
+msgstr "Ou mencione <code class=\"rounded-md bg-surface-3 px-1.5 py-0.5 font-mono text-[12px] text-text\">%(mention)s</code> num comentário de uma issue ou de um %(mr)s, com um comando rápido:"
+
+msgid "Slash commands"
+msgstr "Comandos rápidos"
+
+msgid "From your editor"
+msgstr "A partir do seu editor"
+
+msgid "Connect an MCP client, such as Claude Code, Cursor or Codex, and hand tasks to DAIV without leaving it:"
+msgstr "Ligue um cliente MCP, como o Claude Code, o Cursor ou o Codex, e delegue tarefas ao DAIV sem sair dele:"
+
+msgid "Copy command"
+msgstr "Copiar comando"
+
+#, python-format
+msgid "Other clients use <code class=\"break-all font-mono text-[12px] text-text\">%(url)s</code>. Signing in opens your browser; for scripts and CI, send an <a href=\"%(api_keys_url)s\" class=\"text-accent hover:text-accent-bright\">API key</a> as a bearer token."
+msgstr "Os outros clientes usam <code class=\"break-all font-mono text-[12px] text-text\">%(url)s</code>. O início de sessão abre o seu navegador; para scripts e CI, envie uma <a href=\"%(api_keys_url)s\" class=\"text-accent hover:text-accent-bright\">chave API</a> como bearer token."
+
+msgid "Right here"
+msgstr "Aqui mesmo"
+
+msgid "Chat to work with the agent turn by turn, or start a background run to hand off a task on one or more repositories."
+msgstr "Converse para trabalhar com o agente turno a turno, ou inicie uma execução em segundo plano para delegar uma tarefa num ou mais repositórios."
+
+msgid "New background run"
+msgstr "Nova execução em segundo plano"
+
+msgid "Your week"
+msgstr "A sua semana"
+
+msgid "your sessions"
+msgstr "as suas sessões"
+
+#, python-format
+msgid "<span class=\"font-mono font-semibold text-text-strong\">%(runs)s</span> run"
+msgid_plural "<span class=\"font-mono font-semibold text-text-strong\">%(runs)s</span> runs"
+msgstr[0] "<span class=\"font-mono font-semibold text-text-strong\">%(runs)s</span> execução"
+msgstr[1] "<span class=\"font-mono font-semibold text-text-strong\">%(runs)s</span> execuções"
+
+#, python-format
+msgid "in %(sessions)s session"
+msgid_plural "in %(sessions)s sessions"
+msgstr[0] "em %(sessions)s sessão"
+msgstr[1] "em %(sessions)s sessões"
+
+#, python-format
+msgid "<span class=\"font-mono font-semibold text-text-strong\">%(total)s</span> %(mr)s worked on"
+msgid_plural "<span class=\"font-mono font-semibold text-text-strong\">%(total)s</span> %(mr)ss worked on"
+msgstr[0] "<span class=\"font-mono font-semibold text-text-strong\">%(total)s</span> %(mr)s trabalhado"
+msgstr[1] "<span class=\"font-mono font-semibold text-text-strong\">%(total)s</span> %(mr)ss trabalhados"
+
+#, python-format
+msgid "%(mr)ss DAIV worked on"
+msgstr "%(mr)ss em que o DAIV trabalhou"
+
+#, python-format
+msgid "%(more)s more"
+msgstr "mais %(more)s"
+
+msgid "Started from"
+msgstr "Iniciadas a partir de"
+
+msgid "No runs this week"
+msgstr "Sem execuções esta semana"
+
+#, python-format
+msgid "Label an issue <code class=\"rounded-md bg-surface-3 px-1.5 py-0.5 font-mono text-[12px] text-text\">%(label)s</code>, ask from your editor, or start a chat."
+msgstr "Adicione a etiqueta <code class=\"rounded-md bg-surface-3 px-1.5 py-0.5 font-mono text-[12px] text-text\">%(label)s</code> a uma issue, peça a partir do seu editor ou inicie uma conversa."
+
+#, python-format
+msgid "Welcome back, %(name)s"
+msgstr "Bem-vindo de volta, %(name)s"
+
+msgid "Team insights"
+msgstr "Estatísticas da equipa"
+
+msgid "How DAIV is used across the repositories you can see."
+msgstr "Como o DAIV é usado nos repositórios que pode ver."
+
+msgid "Agent activity"
+msgstr "Atividade do agente"
+
+msgid "All sessions"
+msgstr "Todas as sessões"
+
+msgid "runs"
+msgstr "execuções"
+
+msgid "success rate"
+msgstr "taxa de sucesso"
+
+msgid "changed code"
+msgstr "alteraram código"
+
+msgid "avg duration"
+msgstr "duração média"
+
+msgid "Runs over time"
+msgstr "Execuções ao longo do tempo"
+
+msgid "A column opens its sessions"
+msgstr "Cada coluna abre as suas sessões"
+
+msgid "No finished runs in this period."
+msgstr "Sem execuções concluídas neste período."
+
+msgid "Sessions by origin"
+msgstr "Sessões por origem"
+
+msgid "Latest run failed"
+msgstr "Última execução falhou"
+
+msgid "Origin"
+msgstr "Origem"
+
+msgid "Change"
+msgstr "Variação"
+
+msgid "Over time"
+msgstr "Ao longo do tempo"
+
+msgid "All origins"
+msgstr "Todas as origens"
+
+msgid "Code velocity"
+msgstr "Velocidade do código"
+
+msgid "Merges into default branches of the repositories you can read."
+msgstr "Merges nos ramos predefinidos dos repositórios que pode ler."
+
+msgid "merges"
+msgstr "merges"
+
+#, python-format
+msgid "involved DAIV <span class=\"text-text-faint\">(%(daiv)s of %(total)s)</span>"
+msgstr "envolveram o DAIV <span class=\"text-text-faint\">(%(daiv)s de %(total)s)</span>"
+
+#, python-format
+msgid "of commits by DAIV <span class=\"text-text-faint\">(%(daiv)s of %(total)s)</span>"
+msgstr "dos commits feitos pelo DAIV <span class=\"text-text-faint\">(%(daiv)s de %(total)s)</span>"
+
+msgid "lines changed"
+msgstr "linhas alteradas"
+
+msgid "Merges over time"
+msgstr "Merges ao longo do tempo"
+
+msgid "Period"
+msgstr "Período"
+
+msgid "What your work with DAIV cost."
+msgstr "Quanto custou o seu trabalho com o DAIV."
+
+msgid "What DAIV spent across the repositories you can see."
+msgstr "Quanto o DAIV gastou nos repositórios que pode ver."
+
+msgid "Scope"
+msgstr "Âmbito"
+
+msgid "Download CSV"
+msgstr "Transferir CSV"
+
+msgid "These figures cover only the runs you started and the background work that served them."
+msgstr "Estes valores incluem apenas as execuções que iniciou e o trabalho em segundo plano que as serviu."
+
+msgid "Nothing was spent in this period"
+msgstr "Nada foi gasto neste período"
+
+msgid "A floor: some tokens have no price, or some runs recorded nothing"
+msgstr "Um valor mínimo: alguns tokens não têm preço, ou algumas execuções não registaram nada"
+
+msgid "total cost"
+msgstr "custo total"
+
+msgid "tokens"
+msgstr "tokens"
+
+msgid "prompt cache hit rate"
+msgstr "taxa de acertos da cache de prompts"
+
+msgid "prompt cache hit rate not reported"
+msgstr "taxa de acertos da cache de prompts não reportada"
+
+#, python-format
+msgid "saved about %(saving)s%(floor)s against no caching"
+msgstr "poupou cerca de %(saving)s%(floor)s face a não usar cache"
+
+msgid "runs with spend"
+msgstr "execuções com gastos"
+
+msgid "average per run"
+msgstr "média por execução"
+
+msgid "per run that changed code"
+msgstr "por execução que alterou código"
+
+msgid "Behind the totals"
+msgstr "Por detrás dos totais"
+
+msgid "Tokens by kind"
+msgstr "Tokens por tipo"
+
+msgid "Providers price tokens by kind: reading from the prompt cache costs a fraction of fresh input, and output costs several times more. The bigger the cache share, the cheaper the same work."
+msgstr "Os fornecedores cobram os tokens consoante o tipo: ler da cache de prompts custa uma fração da entrada nova, e a saída custa várias vezes mais. Quanto maior a parte da cache, mais barato fica o mesmo trabalho."
+
+msgid "How the cost was worked out"
+msgstr "Como o custo foi calculado"
+
+msgid "How far to trust the total. Part of it may be the exact charge the provider reported; DAIV worked out the rest from public list prices, so your invoice can differ."
+msgstr "Até que ponto pode confiar no total. Parte dele pode ser o valor exato que o fornecedor reportou; o DAIV calculou o resto a partir dos preços de tabela públicos, por isso a sua fatura pode ser diferente."
+
+#, python-format
+msgid "%(tokens)s tokens from %(models)s have no price, so they add nothing to the total."
+msgstr "%(tokens)s tokens de %(models)s não têm preço, por isso não acrescentam nada ao total."
+
+msgid "Spend over time"
+msgstr "Gastos ao longo do tempo"
+
+#, python-format
+msgid "\"Cache hits\" is the prompt cache hit rate: the share of the input tokens the provider served from its cache instead of reading them again at full price. <span class=\"text-status-clear\">Green</span> is %(good)s%% or more, grey %(fair)s%% or more, <span class=\"text-status-found\">amber</span> under %(fair)s%%."
+msgstr "\"Acertos na cache\" é a taxa de acertos da cache de prompts: a parte dos tokens de entrada que o fornecedor serviu a partir da sua cache em vez de os ler novamente ao preço total. <span class=\"text-status-clear\">Verde</span> é %(good)s%% ou mais, cinzento %(fair)s%% ou mais, <span class=\"text-status-found\">âmbar</span> abaixo de %(fair)s%%."
+
+msgid "Most expensive sessions"
+msgstr "Sessões mais caras"
+
+msgid "Sort sessions by cost"
+msgstr "Ordenar sessões por custo"
+
+msgid "What these figures leave out"
+msgstr "O que estes valores deixam de fora"
+
+#, python-format
+msgid "The total is a floor: tokens from %(models)s have no price."
+msgstr "O total é um valor mínimo: os tokens de %(models)s não têm preço."
+
+#, python-format
+msgid "%(counter)s run in this period recorded no spend."
+msgid_plural "%(counter)s runs in this period recorded no spend."
+msgstr[0] "%(counter)s execução neste período não registou gastos."
+msgstr[1] "%(counter)s execuções neste período não registaram gastos."
+
+#, python-format
+msgid "%(counter)s run is still running; its spend so far is included."
+msgid_plural "%(counter)s runs are still running; their spend so far is included."
+msgstr[0] "%(counter)s execução ainda está a decorrer; os seus gastos até agora estão incluídos."
+msgstr[1] "%(counter)s execuções ainda estão a decorrer; os seus gastos até agora estão incluídos."
+
+msgid "Costs are estimates from list prices unless the provider reported what it charged."
+msgstr "Os custos são estimativas a partir dos preços de tabela, exceto quando o fornecedor reportou o que cobrou."
+
+msgid "How DAIV counts spend"
+msgstr "Como o DAIV contabiliza os gastos"
+
+msgid "Usage"
+msgstr "Utilização"
+
+msgid "invocations"
+msgstr "invocações"
+
+msgid "in the last 30 days"
+msgstr "nos últimos 30 dias"
+
+msgid "Last 30 days"
+msgstr "Últimos 30 dias"
+
+msgid "No usage in the last 30 days."
+msgstr "Sem utilização nos últimos 30 dias."
+
+msgid "Recent runs"
+msgstr "Execuções recentes"
+
+msgid "No run has invoked this skill yet."
+msgstr "Nenhuma execução invocou ainda esta competência."

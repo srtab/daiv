@@ -11,6 +11,7 @@ from automation.agent.chat_models import ChatOpenRouter
 from automation.agent.model_spec import HTTPX_CLIENT_PROVIDER_TYPES, ResolvedProvider, parse_model_spec
 from automation.agent.provider_clients import MissingApiKeyError, build_sdk_client_kwargs
 from automation.agent.provider_health import ProviderHealthCallback
+from automation.agent.usage_tracking import PROVIDER_NAME_METADATA_KEY, PROVIDER_SLUG_METADATA_KEY
 from core.constants import BOT_NAME
 from core.models import ProviderType
 from core.models import ThinkingLevelChoices as ThinkingLevel
@@ -296,6 +297,11 @@ def get_model(*, model: str, thinking_level: ThinkingLevel | None = None, **kwar
     """
     resolved = parse_model_spec(model)
     model_kwargs = get_model_kwargs(resolved=resolved, thinking_level=thinking_level, **kwargs)
+    model_kwargs["metadata"] = {
+        **(model_kwargs.get("metadata") or {}),
+        PROVIDER_SLUG_METADATA_KEY: resolved.row.slug,
+        PROVIDER_NAME_METADATA_KEY: resolved.row.display_name,
+    }
     model_kwargs["callbacks"] = [
         *(model_kwargs.get("callbacks") or []),
         ProviderHealthCallback(resolved.row.slug, resolved.model_name),

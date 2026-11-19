@@ -95,6 +95,20 @@ _ORIGIN_ICONS = {
 
 
 @register.filter
+def option_label(options, value) -> str:
+    """The label ``(value, label)`` pairs give ``value``, or ``value`` itself when none matches."""
+    return next((label for option, label in options if option == value), value)
+
+
+@register.simple_tag
+def cost_text(cost, floor) -> str:
+    """A cost, marked ``+`` as a floor when some of its tokens have no price, and never "$0" when none of them do."""
+    if floor and not cost:
+        return gettext("no price")
+    return (format_cost(cost) if cost else "$0.00") + ("+" if floor else "")
+
+
+@register.filter
 def origin_icon(origin) -> str:
     """Map a SessionOrigin value to an icon name; unknown → generic 'jobs'."""
     return _ORIGIN_ICONS.get(origin, "jobs")
@@ -162,10 +176,3 @@ def session_merge_request(session) -> dict | None:
     """``linked_merge_request`` with its ``state``, from ``attach_merge_request_states``."""
     merge_request = linked_merge_request(session)
     return merge_request and {**merge_request, "state": session.merge_request_state}
-
-
-@register.simple_tag
-def session_cost(session) -> str:
-    """Sum cost_usd across a session's runs (uses the prefetch cache), formatted."""
-    total = sum((r.cost_usd for r in session.runs.all() if r.cost_usd is not None), Decimal("0"))
-    return format_cost(total) if total > 0 else ""

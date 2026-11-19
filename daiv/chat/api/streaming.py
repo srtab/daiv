@@ -30,7 +30,9 @@ from sessions.models import (
     RunStatus,
     SessionOrigin,
     agent_result_field_updates,
+    stored_usage_superseded_q,
     usage_field_updates,
+    usage_supersedes,
 )
 
 from automation.agent.usage_tracking import build_usage_summary
@@ -105,6 +107,11 @@ async def finalize_chat_run(
     if agent_result:
         update.update(agent_result_field_updates(agent_result))
     usage_fields = usage_field_updates(usage, run_ref=run.pk) if usage else {}
+    if usage_fields:
+        # The spend recorder writes these as calls finish; the larger total wins, as in ``Run.sync_from_task_result``.
+        await run.arefresh_from_db(fields=list(usage_fields))
+        if not usage_supersedes(run.total_tokens, usage_fields):
+            usage_fields = {}
     if await Run.objects.afinish(run, status, **update, **usage_fields):
         return
     logger.warning(
@@ -112,7 +119,7 @@ async def finalize_chat_run(
     )
     if usage_fields:
         # The tokens were spent whichever writer finished the run.
-        await Run.objects.filter(pk=run.pk).aupdate(**usage_fields)
+        await Run.objects.filter(stored_usage_superseded_q(usage_fields), pk=run.pk).aupdate(**usage_fields)
 
 
 _ANSWER_EVENT_PREFIXES = ("TEXT_MESSAGE_", "THINKING_", "REASONING_", "TOOL_CALL_", "SUBAGENT_")

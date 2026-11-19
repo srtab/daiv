@@ -13,14 +13,16 @@ from django.conf import settings
 from django.contrib import messages as messages_module
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, SuspiciousOperation
+from django.db.models import F, Max
 from django.http import Http404, HttpResponse, HttpResponseBase
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.decorators.clickjacking import xframe_options_sameorigin
+from django.views.decorators.vary import vary_on_headers
 from django.views.generic import DetailView, FormView, TemplateView
 from django.views.generic.detail import SingleObjectMixin
 
@@ -47,17 +49,24 @@ from sessions.filters import (
     RANGE_CHOICES,
     SCOPE_CHOICES,
     SCOPE_MINE,
+    SORT_CHOICES,
+    SORT_COST,
+    SORT_RECENT,
+    SPEND_BANNER_PARAMS,
+    SPEND_CONTROL_PARAMS,
+    SPEND_PARAMS,
     STATUS_CHOICES,
     ArtifactFilter,
     SessionFilter,
     resolve_scope,
 )
 from sessions.forms import AgentRunCreateForm
-from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin, ToolResultMedia
+from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin, SpendRecord, SpendTask, ToolResultMedia
 from sessions.multi_repo import MAX_REPOS_PER_SESSION
 from sessions.page_state import aload_session_state
 from sessions.services import RepoTarget, submit_batch_runs
 from sessions.spend import build_session_spend
+from sessions.spend_ledger import SpendLedger
 from sessions.templatetags.session_tags import attach_merge_request_states
 from sessions.titling import MAX_TITLE_LENGTH
 from sessions.transcript_labels import transcript_icons, transcript_labels
@@ -138,6 +147,7 @@ class SessionStreamView(View):
         yield data_frame({"done": True, "complete": not tracking})
 
 
+@method_decorator(vary_on_headers("HX-Request"), name="dispatch")
 class SessionListView(LoginRequiredMixin, FilterView):
     model = Session
     filterset_class = SessionFilter
@@ -167,11 +177,27 @@ class SessionListView(LoginRequiredMixin, FilterView):
             return ["sessions/_session_results.html"]
         return ["sessions/session_list.html"]
 
+    sort = SORT_RECENT
+
     def get_queryset(self) -> QuerySet[Session]:
         # ``latest_run_status`` (annotation) still drives the status FILTER. Row DISPLAY
-        # (latest status/duration/MR/cost, run count) reads the prefetched runs, which also
+        # (latest status/duration/MR, run count) reads the prefetched runs, which also
         # gives the SSE dot the real ``Run.id`` to key live updates on.
         return self._listed(archived=self.archived).with_row_runs()
+
+    def get_filterset(self, filterset_class):
+        """The filterset over sessions carrying their run spend in the spend period, in the chosen order."""
+        filterset = super().get_filterset(filterset_class)
+        cleaned = {}
+        if filterset.is_bound:
+            filterset.form.is_valid()
+            cleaned = filterset.form.cleaned_data
+        self.sort = cleaned.get("sort") or SORT_RECENT
+        sessions = filterset.queryset.with_run_spend(cleaned.get("spend_from"), cleaned.get("spend_to"))
+        if self.sort == SORT_COST:
+            sessions = sessions.order_by(F("run_spend").desc(nulls_last=True), "-last_active_at")
+        filterset.queryset = sessions
+        return filterset
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -180,7 +206,6 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["current_scope"] = self.scope
         context["current_status"] = cleaned.get("status") or ""
         context["current_trigger"] = cleaned.get("trigger") or ""
-        context["current_trigger_label"] = dict(SessionOrigin.choices).get(context["current_trigger"], "")
         context["current_repo"] = cleaned.get("repo") or ""
         context["current_mr"] = cleaned.get("mr") or ""
         context["current_ran_on"] = self.request.GET.get("ran_on", "") if cleaned.get("ran_on") else ""
@@ -189,14 +214,21 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["current_batch_short"] = str(context["current_batch"])[:8] if context["current_batch"] else ""
         context["current_q"] = cleaned.get("q") or ""
         context["current_range"] = cleaned.get("range") or ""
-        context["current_range_label"] = dict(RANGE_CHOICES).get(context["current_range"], "")
         # Date fields are read raw: cleaned_data yields `date` objects, but the
         # HTML `<input type="date">` needs the original ISO string to round-trip.
         context["current_from"] = self.request.GET.get("date_from", "")
         context["current_to"] = self.request.GET.get("date_to", "")
         context["current_archived"] = self.archived is True
         context["current_archived_included"] = self.archived is None
+        context["current_sort"] = self.sort
+        context["default_sort"] = SORT_RECENT
+        context["group_by_day"] = self.sort == SORT_RECENT
+        context["sorts"] = SORT_CHOICES
+        clear_all = {"scope": self.scope} | ({"sort": self.sort} if self.sort != SORT_RECENT else {})
+        context["clear_all_url"] = f"{self.request.path}?{urlencode(clear_all)}"
+        context.update(self._spend_context(cleaned))
         context["has_active_filters"] = any([
+            context["has_spend_filters"],
             context["current_q"],
             context["current_status"],
             context["current_trigger"],
@@ -235,6 +267,95 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["in_flight_ids"] = ",".join(str(rid) for rid in in_flight.values_list("id", flat=True))
 
         return context
+
+    def _spend_context(self, cleaned: dict[str, Any]) -> dict[str, Any]:
+        """The Spent by, Model and Provider controls and the Spend banner.
+
+        A control holds only its current choice; the rest load when it first opens (``SessionSpendChoicesView``),
+        as listing them reads every record the user may see. A results swap leaves the filter bar in place, so it
+        gets only the flags the results read.
+        """
+        current = {name: self.request.GET.get(name, "") if cleaned.get(name) else "" for name in SPEND_PARAMS}
+        if is_htmx(self.request):
+            return {"current_spend": current, "has_spend_filters": any(current.values())}
+        records = SpendRecord.objects.visible_to(self.request.user)
+        controls = {}
+        if any(current[key] for key in SPEND_CONTROL_PARAMS) or records.exists():
+            controls = {
+                key: {
+                    "url": reverse("session_spend_choices", args=[key]),
+                    "options": [(current[key], self._spend_label(records, key, current[key]))] if current[key] else [],
+                }
+                for key in SPEND_CONTROL_PARAMS
+            }
+        return {
+            "spend_controls": controls,
+            "current_spend": current,
+            "spend_banner": self._spend_banner(cleaned, current),
+            "has_spend_filters": any(current.values()),
+        }
+
+    @staticmethod
+    def _spend_label(records: QuerySet[SpendRecord], key: str, value: str) -> str:
+        """The label the menu gives the current choice of a spend control, or ``value`` itself when no record has it."""
+        if key == "spend_person":
+            choices = SessionSpendChoicesView.people(records.filter(SpendLedger.person_filter(value)))
+        elif key == "spend_provider":
+            choices = SessionSpendChoicesView.providers(records.filter(provider_slug=value))
+        else:
+            return value
+        return dict(choices).get(value, value)
+
+    def _spend_banner(self, cleaned: dict[str, Any], current: dict[str, str]) -> dict[str, Any] | None:
+        """The Spend page's params that have no control in the bar, as one banner with a single clear."""
+        if not any(current[name] for name in SPEND_BANNER_PARAMS):
+            return None
+        query = self.request.GET.copy()
+        for name in (*SPEND_BANNER_PARAMS, "page"):
+            query.pop(name, None)
+        query["scope"] = self.scope
+        return {
+            "start": cleaned.get("spend_from"),
+            "end": cleaned.get("spend_to"),
+            "repo": current["spend_repo"],
+            "trigger": SessionOrigin(cleaned["spend_trigger"]).label if current["spend_trigger"] else "",
+            "task": SpendTask(cleaned["spend_task"]).label if current["spend_task"] else "",
+            "clear_url": f"{self.request.path}?{query.urlencode()}",
+        }
+
+
+class SessionSpendChoicesView(LoginRequiredMixin, View):
+    """The choices of one of the sessions list's spend controls, from the records the user may see, as menu items."""
+
+    def get(self, request, key: str):
+        choices = {"spend_person": self.people, "spend_model": self.models, "spend_provider": self.providers}
+        if key not in choices:
+            raise Http404
+        records = SpendRecord.objects.visible_to(request.user).order_by()
+        context = {
+            "key": key,
+            "options": choices[key](records),
+            "current": request.GET.get(key, ""),
+            "current_scope": resolve_scope(request.GET),
+        }
+        return render(request, "sessions/_filter_options.html", context)
+
+    @staticmethod
+    def people(records: QuerySet[SpendRecord]) -> list[tuple[str, str]]:
+        people = {}
+        for values in records.values(*SpendLedger.PERSON_VALUES).distinct():
+            person = SpendLedger.person(values)
+            people.setdefault(person.key, person.name)
+        return sorted(people.items(), key=lambda item: item[1].lower())
+
+    @staticmethod
+    def models(records: QuerySet[SpendRecord]) -> list[tuple[str, str]]:
+        return [(model, model) for model in records.values_list("model", flat=True).distinct().order_by("model")]
+
+    @staticmethod
+    def providers(records: QuerySet[SpendRecord]) -> list[tuple[str, str]]:
+        rows = records.exclude(provider_slug="").values_list("provider_slug").annotate(Max("provider_name"))
+        return list(rows.order_by("provider_slug"))
 
 
 class SessionMergeRequestRedirectView(LoginRequiredMixin, View):
@@ -539,6 +660,7 @@ class ToolResultMediaRawView(LoginRequiredMixin, SingleObjectMixin, View):
         )
 
 
+@method_decorator(vary_on_headers("HX-Request"), name="dispatch")
 class ArtifactListView(LoginRequiredMixin, FilterView):
     model = RunArtifact
     filterset_class = ArtifactFilter
@@ -570,13 +692,16 @@ class ArtifactListView(LoginRequiredMixin, FilterView):
         context["kinds"] = ArtifactKind.choices
         # Unfiltered, so the dropdown always offers every repo the viewer could pick.
         # ``order_by()`` clears the model's default ordering, which would otherwise defeat DISTINCT.
-        context["repos"] = sorted(
-            self.visible_artifacts
-            .exclude(run__session__repo_id="")
-            .order_by()
-            .values_list("run__session__repo_id", flat=True)
-            .distinct()
-        )
+        context["repos"] = [
+            (repo_id, repo_id)
+            for repo_id in sorted(
+                self.visible_artifacts
+                .exclude(run__session__repo_id="")
+                .order_by()
+                .values_list("run__session__repo_id", flat=True)
+                .distinct()
+            )
+        ]
         return context
 
 
@@ -625,7 +750,7 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
             return self.form_invalid(form)
         except Exception:
             logger.exception(
-                "Failed to submit UI run",
+                "Failed to submit background run",
                 extra={"user_pk": self.request.user.pk, "repos": form.cleaned_data.get("repos")},
             )
             form.add_error(None, _("Failed to submit the run. Please try again in a moment."))

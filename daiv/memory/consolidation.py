@@ -8,6 +8,8 @@ from django.db import transaction
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
+from sessions.models import SpendTask
+from sessions.spend_recording import BackgroundSpend
 
 from automation.agent.agent_settings import resolve_consolidation_chain
 from core.site_settings import site_settings
@@ -322,22 +324,23 @@ async def run_consolidation_round(
         for observation in observations
     )
 
-    result = cast(
-        "MemoryOperations",
-        await structured_llm.with_config(
-            run_name="MemoryConsolidation", tags=["MemoryConsolidation"], metadata={"repo_id": repo_id}
-        ).ainvoke([
-            SystemMessage(content=cast("str", consolidation_system.format().content)),
-            HumanMessage(
-                content=cast(
-                    "str",
-                    consolidation_human.format(
-                        repo_id=repo_id, entries=entries_text, observations=observations_text
-                    ).content,
-                )
-            ),
-        ]),
-    )
+    async with BackgroundSpend(SpendTask.MEMORY_CONSOLIDATION, repo_id=repo_id):
+        result = cast(
+            "MemoryOperations",
+            await structured_llm.with_config(
+                run_name="MemoryConsolidation", tags=["MemoryConsolidation"], metadata={"repo_id": repo_id}
+            ).ainvoke([
+                SystemMessage(content=cast("str", consolidation_system.format().content)),
+                HumanMessage(
+                    content=cast(
+                        "str",
+                        consolidation_human.format(
+                            repo_id=repo_id, entries=entries_text, observations=observations_text
+                        ).content,
+                    )
+                ),
+            ]),
+        )
 
     if result is None:
         logger.error(

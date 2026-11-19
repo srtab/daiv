@@ -5,7 +5,7 @@ from django.core.cache import cache
 import pytest
 
 from accounts.models import User
-from core.api.throttling import JobsRateThrottle
+from core.api.throttling import JobsRateThrottle, SpendRateThrottle
 
 
 @pytest.fixture(autouse=True)
@@ -44,3 +44,12 @@ def test_anonymous_requests_are_bucketed_by_ip():
     assert JobsRateThrottle("1/hour").allow_request(anonymous("10.0.0.1")) is True
     assert JobsRateThrottle("1/hour").allow_request(anonymous("10.0.0.1")) is False
     assert JobsRateThrottle("1/hour").allow_request(anonymous("10.0.0.2")) is True
+
+
+def test_spend_reads_allow_sixty_a_minute_per_user_in_a_bucket_of_their_own():
+    user, other = User(pk=1, username="a"), User(pk=2, username="b")
+
+    assert all(SpendRateThrottle().allow_request(_authed(user)) for _ in range(60))
+    assert SpendRateThrottle().allow_request(_authed(user)) is False
+    assert SpendRateThrottle().allow_request(_authed(other)) is True
+    assert JobsRateThrottle("1/hour").allow_request(_authed(user)) is True

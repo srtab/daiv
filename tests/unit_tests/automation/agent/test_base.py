@@ -226,6 +226,17 @@ class TestGetModelKwargs:
         model = get_model(model="anthropic:claude-sonnet-4-6")
         assert not isinstance(model, ChatOpenRouter)
 
+    @pytest.mark.parametrize(
+        ("slug", "spec"), [("anthropic", "anthropic:claude-sonnet-4-6"), ("openrouter", "openrouter:z-ai/glm-5")]
+    )
+    def test_get_model_tags_metadata_with_its_provider(self, slug, spec):
+        self._enable_seed(slug)
+        row = Provider.objects.get(slug=slug)
+        model = get_model(model=spec, metadata={"caller": "kept"})
+        assert model.metadata["caller"] == "kept"
+        assert model.metadata["daiv_provider_slug"] == slug
+        assert model.metadata["daiv_provider_name"] == row.display_name
+
     @pytest.mark.parametrize("thinking_level", [None, ThinkingLevelChoices.HIGH])
     @pytest.mark.parametrize("model", ["openrouter:z-ai/glm-5", "openrouter:anthropic/claude-sonnet-4.6"])
     def test_openrouter_routes_to_the_cheapest_provider(self, model, thinking_level):

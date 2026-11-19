@@ -47,6 +47,7 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 
 ### Added
 
+- Add an **Insights → Spend** page with what DAIV spent on models by person, repository, trigger, model and provider, the prompt cache hit rate, the costliest sessions and background spend, plus a cost sort and spend filters on the sessions list, a CSV export and `GET /api/spend/records` ([#1849](https://github.com/srtab/daiv/pull/1849))
 - Say which provider stopped a run — out of credits, spending limit, rejected key, rate limit or outage — on every failure surface, and warn admins with a banner while a provider needs them ([#1850](https://github.com/srtab/daiv/pull/1850))
 - Add a headless browser the agent can use beside its sandbox, turned on per sandbox environment and site-wide, whose screenshots taken for you show under the agent's reply; it needs daiv-sandbox 0.6.0 or later ([#1836](https://github.com/srtab/daiv/pull/1836))
 - Add a web dashboard, signed in with a GitLab or GitHub account, an emailed code or a passkey, with admin and member roles ([#993](https://github.com/srtab/daiv/pull/993), [#1559](https://github.com/srtab/daiv/pull/1559))
@@ -85,7 +86,7 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 - Show the images and files a tool returns in the session transcript, with image thumbnails on the closed tool row, and let the agent open base64 files an MCP server returns ([#1782](https://github.com/srtab/daiv/pull/1782), [#1736](https://github.com/srtab/daiv/pull/1736), [#1836](https://github.com/srtab/daiv/pull/1836))
 - Add SearXNG as a web-search backend ([#1779](https://github.com/srtab/daiv/pull/1779)) (Tobi)
 - Read one section of a page with `web_fetch` by passing its URL `#fragment` ([#1752](https://github.com/srtab/daiv/pull/1752))
-- Track token usage and cost per run and session ([#1077](https://github.com/srtab/daiv/pull/1077), [#1776](https://github.com/srtab/daiv/pull/1776))
+- Track token usage and cost per run and session, recorded as each model call finishes so a run that fails, is stopped or loses its worker keeps its spend ([#1077](https://github.com/srtab/daiv/pull/1077), [#1776](https://github.com/srtab/daiv/pull/1776), [#1849](https://github.com/srtab/daiv/pull/1849))
 - Link the merge requests DAIV opens to their session, with a `DAIV-Session` commit trailer; turn it off with `DAIV_SESSION_LINK_ENABLED` or `session_link` in `.daiv.yml` ([#1497](https://github.com/srtab/daiv/pull/1497))
 - Accept up to 20 external `references` on Jobs API and MCP jobs, linked from the merge request with the platform's closing syntax ([#1527](https://github.com/srtab/daiv/pull/1527))
 - Add `allowed_usernames` to `.daiv.yml` to restrict who can trigger DAIV in a repository ([#948](https://github.com/srtab/daiv/pull/948))

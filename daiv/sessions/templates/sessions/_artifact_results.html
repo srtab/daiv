@@ -1,6 +1,6 @@
 {% load i18n icon_tags session_tags %}
 {% if artifacts %}
-<div class="overflow-hidden rounded-2xl border border-white/[0.06]">
+<div class="overflow-hidden rounded-2xl border border-border bg-surface-2">
     {% for artifact in artifacts %}
         {% ifchanged %}
         <div class="session-group-header">
@@ -12,16 +12,16 @@
 </div>
 {% include "core/_pagination.html" with paginate_swap=True %}
 {% elif has_active_filters %}
-<div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-10 text-center">
-    <p class="text-[15px] text-gray-400">{% translate "No artifacts match these filters." %}</p>
-    <a href="{% url 'artifact_list' %}" class="mt-3 inline-block text-sm text-gray-400 hover:text-white">
+<div class="rounded-2xl border border-border bg-surface-2 p-10 text-center">
+    <p class="text-[15px] text-text-muted">{% translate "No artifacts match these filters." %}</p>
+    <a href="{% url 'artifact_list' %}" class="mt-3 inline-block text-sm text-text-muted hover:text-text-strong">
         {% translate "Clear all" %}
     </a>
 </div>
 {% else %}
 <div class="empty-state">
     <div class="empty-state__icon">
-        {% icon "document-text" "h-6 w-6 text-gray-400" %}
+        {% icon "document-text" "h-6 w-6 text-text-muted" %}
     </div>
     <h2 class="empty-state__title">{% translate "No artifacts yet" %}</h2>
     <p class="empty-state__body">

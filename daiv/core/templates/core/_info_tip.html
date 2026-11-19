@@ -1,0 +1,16 @@
+{% comment %}
+An (i) button whose tooltip opens on hover, focus or tap.
+
+Context:
+- label: the button's accessible name.
+- text: the tooltip's text, or text_expr: an Alpine expression that gives it.
+- wide: optional; the tooltip spans the nearest positioned ancestor instead of centring on the button.
+{% endcomment %}
+<span class="info-tip{% if wide %} info-tip--wide{% endif %}" x-data="{ open: false }" x-id="['info-tip']"
+      @mouseenter="open = true" @mouseleave="open = false">
+    <button type="button" class="info-tip__btn" :aria-describedby="$id('info-tip')" aria-label="{{ label }}"
+            :aria-expanded="open.toString()"
+            @click="open = true" @focus="open = true" @blur="open = false" @keydown.escape="open = false">i</button>
+    <span class="info-tip__panel" :id="$id('info-tip')" role="tooltip" x-show="open" x-cloak
+          {% if text_expr %}x-text="{{ text_expr }}"{% endif %}>{{ text|default:"" }}</span>
+</span>

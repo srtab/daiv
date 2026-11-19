@@ -83,8 +83,8 @@ msgstr "Execução via MCP"
 msgid "Scheduled Run"
 msgstr "Execução agendada"
 
-msgid "UI Run"
-msgstr "Execução via interface"
+msgid "Background Run"
+msgstr "Execução em segundo plano"
 
 msgid "Issue Webhook"
 msgstr "Webhook de issue"
@@ -262,9 +262,6 @@ msgstr "Todos"
 
 msgid "Type"
 msgstr "Tipo"
-
-msgid "Clear type filter"
-msgstr "Limpar filtro de tipo"
 
 msgid "All types"
 msgstr "Todos os tipos"
@@ -1418,8 +1415,169 @@ msgstr "Fez uma captura de ecrã"
 msgid "Taking a screenshot"
 msgstr "A fazer uma captura de ecrã"
 
+msgid "Most recent"
+msgstr "Mais recentes"
+
+msgid "Cost"
+msgstr "Custo"
+
+msgid "Session titles"
+msgstr "Títulos de sessões"
+
+msgid "Run classification"
+msgstr "Classificação de execuções"
+
+msgid "Memory extraction"
+msgstr "Extração de memória"
+
+msgid "Memory consolidation"
+msgstr "Consolidação de memória"
+
+msgid "occurred at"
+msgstr "ocorreu em"
+
+msgid "background task"
+msgstr "tarefa em segundo plano"
+
+msgid "person name"
+msgstr "nome da pessoa"
+
+msgid "model"
+msgstr "modelo"
+
+msgid "provider"
+msgstr "fornecedor"
+
+msgid "provider name"
+msgstr "nome do fornecedor"
+
+msgid "cache read tokens"
+msgstr "tokens lidos da cache"
+
+msgid "cache write tokens"
+msgstr "tokens escritos na cache"
+
+msgid "reasoning tokens"
+msgstr "tokens de raciocínio"
+
+msgid "reported cost (USD)"
+msgstr "custo reportado (USD)"
+
+msgid "unpriced tokens"
+msgstr "tokens sem preço"
+
+msgid "cache reported"
+msgstr "cache reportada"
+
+msgid "cache saving (USD)"
+msgstr "poupança da cache (USD)"
+
+msgid "cache unpriced tokens"
+msgstr "tokens da cache sem preço"
+
+msgid "updated at"
+msgstr "atualizado em"
+
+msgid "Spend record"
+msgstr "Registo de gasto"
+
+msgid "Spend records"
+msgstr "Registos de gasto"
+
+msgid "Person"
+msgstr "Pessoa"
+
+msgid "Model"
+msgstr "Modelo"
+
+msgid "Any model"
+msgstr "Qualquer modelo"
+
+msgid "Provider"
+msgstr "Fornecedor"
+
+msgid "Any provider"
+msgstr "Qualquer fornecedor"
+
+msgid "Sort"
+msgstr "Ordenar"
+
 msgid "failure kind"
 msgstr "tipo de falha"
 
 msgid "failure provider"
 msgstr "fornecedor da falha"
+
+msgid "Any status"
+msgstr "Qualquer estado"
+
+msgctxt "sessions last active"
+msgid "Active"
+msgstr "Atividade"
+
+msgid "Any time"
+msgstr "Qualquer altura"
+
+msgid "Spent by"
+msgstr "Gasto por"
+
+msgid "Anyone"
+msgstr "Qualquer pessoa"
+
+msgid "Sort:"
+msgstr "Ordenar:"
+
+msgid "From Spend"
+msgstr "De Gastos"
+
+msgid "Sessions with spend"
+msgstr "Sessões com gastos"
+
+#, python-format
+msgid "between <b>%(start)s</b> and <b>%(end)s</b>"
+msgstr "entre <b>%(start)s</b> e <b>%(end)s</b>"
+
+#, python-format
+msgid "since <b>%(start)s</b>"
+msgstr "desde <b>%(start)s</b>"
+
+#, python-format
+msgid "until <b>%(end)s</b>"
+msgstr "até <b>%(end)s</b>"
+
+#, python-format
+msgid "on <span class=\"font-mono\">%(repo)s</span>"
+msgstr "em <span class=\"font-mono\">%(repo)s</span>"
+
+#, python-format
+msgid "started by %(trigger)s"
+msgstr "iniciadas por %(trigger)s"
+
+#, python-format
+msgid "background work: %(task)s"
+msgstr "trabalho em segundo plano: %(task)s"
+
+msgid "Leave the Spend view"
+msgstr "Sair da vista de Gastos"
+
+msgid "Loading…"
+msgstr "A carregar…"
+
+msgid "Unknown person"
+msgstr "Pessoa desconhecida"
+
+msgid "no price"
+msgstr "sem preço"
+
+msgid "Couldn't load these choices."
+msgstr "Não foi possível carregar estas opções."
+
+#, python-format
+msgid "Clear %(label)s filter"
+msgstr "Limpar filtro %(label)s"
+
+msgid "Kind"
+msgstr "Tipo"
+
+msgid "All kinds"
+msgstr "Todos os tipos"

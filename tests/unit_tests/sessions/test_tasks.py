@@ -8,7 +8,17 @@ import pytest
 from django_tasks_db.models import DBTaskResult
 from sessions.executor.lock import stale_cutoff
 from sessions.inbox.drain import Drain
-from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, Session, SessionOrigin
+from sessions.models import (
+    EventKind,
+    EventState,
+    InboxEvent,
+    Run,
+    RunStatus,
+    Session,
+    SessionOrigin,
+    SpendRecord,
+    SpendTask,
+)
 from sessions.tasks import (
     drain_inboxes_cron_task,
     evaluate_pipeline_watch_task,
@@ -21,6 +31,7 @@ from sessions.tasks import (
 from sessions.titling import TitlerNotConfiguredError
 
 from core.constants import TASK_QUEUE_INTERACTIVE
+from tests.unit_tests.conftest import SPENT_MODEL, spending
 from tests.unit_tests.sessions.conftest import amake_owned_merge_request
 from tests.unit_tests.sessions.inbox.conftest import make_event
 
@@ -306,3 +317,40 @@ async def test_a_ci_evaluation_judges_its_pipeline_or_else_every_ci_subjects_lat
     getattr(watch.return_value, called).assert_awaited_once()
     other = "aevaluate_latest" if called == "aevaluate" else "aevaluate"
     getattr(watch.return_value, other).assert_not_awaited()
+
+
+@pytest.mark.django_db
+def test_generate_title_task_records_its_spend_for_the_session(member_user):
+    session = _chat_session(title="add login")
+    Session.objects.filter(pk=session.pk).update(user=member_user)
+
+    with patch("sessions.titling.generate_title", side_effect=spending("LLM generated")):
+        generate_title_task.func(pk=session.thread_id, prompt="add login", repo_id="group/repo")
+
+    record = SpendRecord.objects.get()
+    assert (record.task, record.session_id, record.repo_id, record.user_id, record.model) == (
+        SpendTask.TITLE,
+        session.thread_id,
+        "group/repo",
+        member_user.pk,
+        SPENT_MODEL,
+    )
+
+
+@pytest.mark.django_db
+def test_generate_batch_title_task_records_its_spend_for_the_batchs_first_person(member_user):
+    batch_id = uuid.uuid4()
+    first = _run_for_titling(batch_id=batch_id)
+    Run.objects.filter(pk=first.pk).update(user=member_user)
+    _run_for_titling(batch_id=batch_id)
+
+    with patch("sessions.titling.generate_title", side_effect=spending("Batch title")):
+        generate_batch_title_task.func(batch_id=str(batch_id), prompt="add login")
+
+    record = SpendRecord.objects.get()
+    assert (record.task, record.session_id, record.repo_id, record.user_id) == (
+        SpendTask.TITLE,
+        None,
+        "",
+        member_user.pk,
+    )

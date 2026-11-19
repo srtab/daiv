@@ -121,8 +121,9 @@ async def extract_observations_task(run_id: str) -> None:
     log + return — never an error confused with a run failure. See ``memory.extraction`` for the
     pipeline's own failure contract.
     """
-    from sessions.models import Run
+    from sessions.models import Run, SpendTask
     from sessions.multi_repo import ais_multi_repo
+    from sessions.spend_recording import BackgroundSpend
 
     from memory.extraction import extract_observations
 
@@ -131,7 +132,7 @@ async def extract_observations_task(run_id: str) -> None:
         logger.info("extract_observations_task: memory disabled site-wide, skipping run %s", run_id)
         return
 
-    run = await Run.objects.filter(pk=run_id).afirst()
+    run = await Run.objects.select_related("user").filter(pk=run_id).afirst()
     if run is None:
         logger.warning("extract_observations_task: run %s not found, skipping", run_id)
         return
@@ -150,7 +151,9 @@ async def extract_observations_task(run_id: str) -> None:
         logger.info("extract_observations_task: memory disabled for repo %s, skipping", run.repo_id)
         return
 
-    if not (observations := await extract_observations(run)):
+    async with BackgroundSpend(SpendTask.MEMORY_EXTRACTION, run=run):
+        observations = await extract_observations(run)
+    if not observations:
         return
 
     await MemoryObservation.objects.abulk_create([

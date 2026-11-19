@@ -99,6 +99,7 @@ plugins:
         - features/mcp-endpoint.md
         - features/notifications.md
         - features/merge-metrics.md
+        - features/spend.md
         - features/slash-commands.md
         - features/subagents.md
         - features/sandbox.md
@@ -174,6 +175,7 @@ nav:
     - MCP endpoint: features/mcp-endpoint.md
     - Notifications: features/notifications.md
     - Merge metrics: features/merge-metrics.md
+    - Spend: features/spend.md
     - Slash commands and skills: features/slash-commands.md
     - Subagents: features/subagents.md
     - Sandbox: features/sandbox.md

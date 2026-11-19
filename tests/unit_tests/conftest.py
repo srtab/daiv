@@ -22,6 +22,7 @@ import httpx
 import pytest
 from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.protocol import BackendProtocol
+from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, ToolMessage
 from pydantic import SecretStr
 from sandbox_envs.spec import SandboxSpec
@@ -62,6 +63,40 @@ from core.site_settings import SiteSnapshot, site_settings
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+
+SPENT_MODEL = "claude-haiku-4-5"
+
+
+def _spending_model() -> GenericFakeChatModel:
+    message = AIMessage(
+        content="",
+        usage_metadata={"input_tokens": 50, "output_tokens": 5, "total_tokens": 55},
+        response_metadata={"model_name": SPENT_MODEL},
+    )
+    return GenericFakeChatModel(
+        messages=iter([message]), metadata={"daiv_provider_slug": "anthropic", "daiv_provider_name": "Anthropic"}
+    )
+
+
+def spending(result: Any):
+    """A sync stand-in for a model-backed call: one stubbed model call that reports usage, then ``result``."""
+
+    def _call(*_args, **_kwargs):
+        _spending_model().invoke("x")
+        return result
+
+    return _call
+
+
+def aspending(result: Any):
+    """:func:`spending` for an ``ainvoke``."""
+
+    async def _call(*_args, **_kwargs):
+        await _spending_model().ainvoke("x")
+        return result
+
+    return _call
 
 
 def site_snapshot(**overrides: Any) -> SiteSnapshot:

@@ -136,20 +136,23 @@ def generate_title_task(pk: str, prompt: str, repo_id: str, ref: str = "") -> No
     remains.
     """
     from sessions.live.notify import session_changed
-    from sessions.models import Session
+    from sessions.models import Session, SpendTask
+    from sessions.spend_recording import BackgroundSpend
     from sessions.titling import TitlerNotConfiguredError, generate_title, heuristic_title
 
-    if not Session.objects.filter(pk=pk).exists():
+    session = Session.objects.select_related("user").filter(pk=pk).first()
+    if session is None:
         logger.warning("generate_title_task: session with pk=%s not found, skipping", pk)
         return
 
     try:
-        title = generate_title(
-            prompt,
-            repo_id=repo_id,
-            ref=ref,
-            run_metadata={"entity_type": "session", "entity_pk": pk, "repo_id": repo_id, "ref": ref},
-        )
+        with BackgroundSpend(SpendTask.TITLE, session=session, repo_id=repo_id):
+            title = generate_title(
+                prompt,
+                repo_id=repo_id,
+                ref=ref,
+                run_metadata={"entity_type": "session", "entity_pk": pk, "repo_id": repo_id, "ref": ref},
+            )
     except TitlerNotConfiguredError:
         logger.exception(
             "generate_title_task: model not configured for session pk=%s — feature disabled until API key is set", pk
@@ -172,11 +175,14 @@ def generate_batch_title_task(batch_id: str, prompt: str) -> None:
     affected run's Session when the session title is still empty.
     """
     from sessions.live.notify import session_changed
-    from sessions.models import Run, Session
+    from sessions.models import Run, Session, SpendTask
+    from sessions.spend_recording import BackgroundSpend
     from sessions.titling import TitlerNotConfiguredError, generate_title
 
+    first_run = Run.objects.select_related("user").filter(batch_id=batch_id).order_by("created_at").first()
     try:
-        title = generate_title(prompt, run_metadata={"entity_type": "run_batch", "batch_id": batch_id})
+        with BackgroundSpend(SpendTask.TITLE, person=first_run):
+            title = generate_title(prompt, run_metadata={"entity_type": "run_batch", "batch_id": batch_id})
     except TitlerNotConfiguredError:
         logger.exception(
             "generate_batch_title_task: model not configured for batch_id=%s — feature disabled until API key is set",

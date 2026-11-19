@@ -1,0 +1,12 @@
+{% load i18n %}
+{% comment %}
+Which periods the changes compare, under an Insights view's headline figures.
+
+Context:
+- window, previous_window: the period shown and the one before it, or None when nothing is compared.
+{% endcomment %}
+{% if previous_window %}
+<p class="mt-3.5 text-[12px] text-text-faint">
+    {% blocktranslate with current=window.label previous=previous_window.label %}Changes compare {{ current }} with the period before, {{ previous }}, up to the same time of day.{% endblocktranslate %}
+</p>
+{% endif %}

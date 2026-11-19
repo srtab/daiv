@@ -1,23 +1,29 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 from typing import TYPE_CHECKING
 
+from django.db.models import Q
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
-from ninja import Field, Router, Schema
+from ninja import Field, Query, Router, Schema
 from ninja.errors import HttpError
 from ninja.security import django_auth
 
 from accounts.api.security import AuthBearer
 from codebase.authorization import can_run
+from core.api.throttling import SpendRateThrottle
+from sessions.api.schemas import SpendPageSchema
+from sessions.filters import SCOPE_ALL
 from sessions.header import aci_payload, watch_payload
 from sessions.inbox.drain import Drain
 from sessions.live.notify import asession_changed
 from sessions.models import MergeRequestOwnership, RunStatus, Session
 from sessions.page_state import aload_session_state, turns_payload
 from sessions.pipeline_watch.service import PipelineWatch
+from sessions.spend_ledger import SpendLedger
 from sessions.titling import MAX_TITLE_LENGTH
 from sessions.up_next import aup_next_payload
 
@@ -27,6 +33,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.sessions")
 
 sessions_router = Router(tags=["sessions"], auth=[AuthBearer(), django_auth])
+spend_router = Router(tags=["spend"], auth=[AuthBearer(), django_auth])
+
+SPEND_PAGE_SIZE = 500
+SPEND_MAX_DAYS = 92
 
 
 async def _get_visible_session(user, thread_id: str) -> Session:
@@ -138,3 +148,44 @@ async def session_up_next(request: HttpRequest, thread_id: str):
     session = await _get_visible_session(user, thread_id)
     unfinished = session.runs.exclude(status__in=RunStatus.terminal()).select_related("user").order_by("created_at")
     return {"up_next": await aup_next_payload(session, [r async for r in unfinished], user)}
+
+
+@spend_router.get("/records", response={200: SpendPageSchema}, throttle=[SpendRateThrottle()], url_name="spend_records")
+async def spend_records(
+    request: HttpRequest,
+    start: str = Query("", alias="from"),
+    end: str = Query("", alias="to"),
+    scope: str = SCOPE_ALL,
+    cursor: str = "",
+):
+    """The spend records the caller may see from ``from`` to ``to`` (local days, at most 92 days apart), oldest first,
+    500 a page. ``next_cursor`` is null on the last page."""
+    try:
+        first, last = date.fromisoformat(start), date.fromisoformat(end)
+    except ValueError:
+        raise HttpError(400, "from and to must be dates (YYYY-MM-DD).") from None
+    if last < first:
+        raise HttpError(400, "to must not be before from.")
+    if (last - first).days > SPEND_MAX_DAYS:
+        raise HttpError(400, f"from and to must be at most {SPEND_MAX_DAYS} days apart.")
+    try:
+        after = SpendLedger.decode_cursor(cursor) if cursor else None
+    except ValueError:
+        raise HttpError(400, "Malformed cursor.") from None
+
+    records = await sync_to_async(SpendLedger.rows)(
+        request.auth,  # ty: ignore[missing-attribute]
+        scope,
+        first,
+        last,
+    )
+    if after is not None:
+        occurred_at, pk = after
+        records = records.filter(Q(occurred_at__gt=occurred_at) | Q(occurred_at=occurred_at, pk__gt=pk))
+    page = [record async for record in records[: SPEND_PAGE_SIZE + 1]]
+    has_next = len(page) > SPEND_PAGE_SIZE
+    page = page[:SPEND_PAGE_SIZE]
+    return {
+        "items": [SpendLedger.row(record) for record in page],
+        "next_cursor": SpendLedger.encode_cursor(page[-1].occurred_at, page[-1].pk) if has_next else None,
+    }

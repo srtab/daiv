@@ -1,28 +1,30 @@
 {% load i18n icon_tags session_tags %}
 <div id="session-in-flight" data-ids="{{ in_flight_ids }}" hidden></div>
 {% if sessions %}
-<div class="overflow-hidden rounded-2xl border border-white/[0.06]">
+<div class="overflow-hidden rounded-2xl border border-border bg-surface-2">
     {% for session in sessions %}
+        {% if group_by_day %}
         {% ifchanged %}
         <div class="session-group-header">
             <span>{{ session.last_active_at|date_bucket }}</span>
         </div>
         {% endifchanged %}
+        {% endif %}
         {% include "sessions/_session_row.html" with session=session %}
     {% endfor %}
 </div>
 {% include "core/_pagination.html" with paginate_swap=True %}
 {% elif has_active_filters %}
-<div class="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-10 text-center">
-    <p class="text-[15px] text-gray-400">{% translate "No sessions match these filters." %}</p>
-    <a href="{% url 'session_list' %}?scope={{ current_scope }}" class="mt-3 inline-block text-sm text-gray-400 hover:text-white">
+<div class="rounded-2xl border border-border bg-surface-2 p-10 text-center">
+    <p class="text-[15px] text-text-muted">{% translate "No sessions match these filters." %}</p>
+    <a href="{{ clear_all_url }}" class="mt-3 inline-block text-sm text-text-muted hover:text-text-strong">
         {% translate "Clear all" %}
     </a>
 </div>
 {% else %}
 <div class="empty-state">
     <div class="empty-state__icon">
-        {% icon "bolt" "h-6 w-6 text-gray-400" %}
+        {% icon "bolt" "h-6 w-6 text-text-muted" %}
     </div>
     <h2 class="empty-state__title">{% translate "Start your first run" %}</h2>
     <p class="empty-state__body">
@@ -32,15 +34,15 @@
         {% icon "plus" "h-4 w-4" %}{% translate "New" %}
     </a>
     {% if current_scope == "mine" %}
-    <a href="{% url 'session_list' %}?scope=all" class="mt-4 block text-sm text-gray-400 hover:text-white">
+    <a href="{% url 'session_list' %}?scope=all" class="mt-4 block text-sm text-text-muted hover:text-text-strong">
         {% translate "See everyone's sessions" %}
     </a>
     {% endif %}
 </div>
 {% endif %}
 {% if archived_matches %}
-<p class="mt-4 text-center text-sm text-gray-400" data-testid="archived-matches">
+<p class="mt-4 text-center text-sm text-text-muted" data-testid="archived-matches">
     {% blocktranslate count n=archived_matches %}{{ n }} archived session matches too.{% plural %}{{ n }} archived sessions match too.{% endblocktranslate %}
-    <a href="{% querystring archived='true' page=None %}" class="text-gray-300 underline hover:text-white">{% translate "Show archived" %}</a>
+    <a href="{% querystring archived='true' page=None %}" class="text-text underline hover:text-text-strong">{% translate "Show archived" %}</a>
 </p>
 {% endif %}

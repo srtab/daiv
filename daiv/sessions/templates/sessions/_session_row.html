@@ -15,13 +15,13 @@ Context:
         {{ latest.get_status_display }}
     </span>
 
-    <span class="shrink-0 text-gray-500" title="{{ session.get_origin_display }}">
+    <span class="shrink-0 text-text-faint" title="{{ session.get_origin_display }}">
         {% icon session.origin|origin_icon "h-4 w-4" %}
     </span>
 
     <div class="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden sm:flex-row sm:items-center sm:gap-2.5">
-        <span class="truncate text-[14px] font-medium text-white">
-            {% if session.title %}{{ session.title }}{% else %}<em class="text-gray-500">{% translate "generating title…" %}</em>{% endif %}
+        <span class="truncate text-[14px] font-medium text-text-strong">
+            {% if session.title %}{{ session.title }}{% else %}<em class="text-text-faint">{% translate "generating title…" %}</em>{% endif %}
         </span>
         {% session_merge_request session as merge_request %}
         {% if session.repo_id or session.ref or merge_request %}
@@ -50,15 +50,14 @@ Context:
     <div class="flex shrink-0 items-center gap-3">
         {% if latest.agent_model %}<span class="meta-pill hidden lg:inline-flex">{{ latest.agent_model }}</span>{% endif %}
         {% if latest.duration %}<span class="session-num hidden md:inline">{{ latest.duration|duration }}</span>{% endif %}
-        {% session_cost session as cost %}
-        {% if cost %}<span class="session-num hidden lg:inline">{{ cost }}</span>{% endif %}
+        {% if session.run_spend or session.run_spend_floor %}<span class="session-num hidden lg:inline" data-testid="session-cost">{% cost_text session.run_spend session.run_spend_floor %}</span>{% endif %}
         {% if session.user %}
         <span class="hidden sm:inline">{% include "accounts/_avatar.html" with user=session.user label="Owner" %}</span>
         {% elif session.external_username %}
-        <span class="hidden text-[12px] text-gray-500 sm:inline">{{ session.external_username }}</span>
+        <span class="hidden text-[12px] text-text-faint sm:inline">{{ session.external_username }}</span>
         {% endif %}
-        <span class="w-[76px] text-right text-[12.5px] tabular-nums text-gray-500">{{ session.last_active_at|naturaltime }}</span>
-        {% icon "chevron-right" "h-3.5 w-3.5 text-gray-700 transition-colors group-hover:text-gray-400" %}
+        <span class="w-[76px] text-right text-[12.5px] tabular-nums text-text-faint">{{ session.last_active_at|naturaltime }}</span>
+        {% icon "chevron-right" "h-3.5 w-3.5 text-text-faint transition-colors group-hover:text-text-muted" %}
     </div>
 </div>
 {% endwith %}

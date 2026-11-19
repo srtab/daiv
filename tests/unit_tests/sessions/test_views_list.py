@@ -2,15 +2,32 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import date, timedelta
+from decimal import Decimal
+from urllib.parse import urlsplit
 
 from django.db import connection
+from django.http import QueryDict
 from django.test import Client
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.cache import has_vary_header
 
 import pytest
-from sessions.models import MergeRequestOwnership, MergeRequestState, Run, RunStatus, Session, SessionOrigin
+from bs4 import BeautifulSoup
+from dashboard.insights import window_for
+from dashboard.spend import SpendReport
+from sessions.models import (
+    MergeRequestOwnership,
+    MergeRequestState,
+    Run,
+    RunStatus,
+    Session,
+    SessionOrigin,
+    SpendRecord,
+    SpendTask,
+)
 
 from accounts.models import User
 from schedules.models import Frequency, ScheduledJob
@@ -87,6 +104,9 @@ class TestSessionListView:
         response = logged_in_client.get(reverse("session_list"))
         assert response.status_code == 200
 
+    def test_varies_on_the_htmx_header(self, logged_in_client, user):
+        assert has_vary_header(logged_in_client.get(reverse("session_list")), "HX-Request")
+
     def test_has_no_breadcrumb(self, logged_in_client):
         response = logged_in_client.get(reverse("session_list"))
         assert b'data-testid="app-breadcrumb"' not in response.content
@@ -149,9 +169,10 @@ class TestSessionListView:
         assert list(response.context["sessions"]) == []
 
     def test_filter_bar_renders_the_scope_toggle(self, logged_in_client, user):
-        html = logged_in_client.get(reverse("session_list")).content.decode()
-        assert "setScope('mine')" in html
-        assert "setScope('all')" in html
+        soup = BeautifulSoup(logged_in_client.get(reverse("session_list")).content, "html.parser")
+
+        items = soup.select("nav.segmented-nav .segmented-nav__item")
+        assert [item["@click.prevent"] for item in items] == ["setScope('mine')", "setScope('all')"]
 
     def test_search_and_date_inputs_have_aria_labels(self, logged_in_client, user):
         html = logged_in_client.get(reverse("session_list")).content.decode()
@@ -266,7 +287,10 @@ class TestSessionListView:
     def test_status_filter_renders_needs_input_and_failed_first(self, logged_in_client, user):
         response = logged_in_client.get(reverse("session_list"))
         html = response.content.decode()
-        positions = [html.index(f"setStatus('{status}')") for status in ("WAITING_INPUT", "FAILED", "SUCCESSFUL")]
+        positions = [
+            html.index(f'data-filter-key="status" data-value="{status}"')
+            for status in ("WAITING_INPUT", "FAILED", "SUCCESSFUL")
+        ]
         assert positions == sorted(positions)
 
     def test_date_param_names_are_date_from_and_date_to(self, logged_in_client, user):
@@ -347,7 +371,10 @@ class TestSessionListView:
         assert response.status_code == 200
         assert response.context["current_q"] == "hello"
         assert response.context["current_range"] == "7d"
-        assert response.context["current_range_label"] == "Last 7 days"
+        assert (
+            "Last 7 days"
+            in BeautifulSoup(response.content, "html.parser").select_one("[data-testid=filter-time]").get_text()
+        )
         assert response.context["has_active_filters"] is True
 
     def test_has_active_filters_true_when_q_set(self, logged_in_client, user):
@@ -668,3 +695,256 @@ def test_pagination_partial_swap_marker_is_opt_in(rf):
 
     assert "data-page-swap" not in _render()  # default: plain links
     assert "data-page-swap" in _render(paginate_swap=True)  # opt-in flag turns it on
+
+
+def _spend(session: Session, cost: str, *, days_ago: int = 0, **fields) -> SpendRecord:
+    fields.setdefault("trigger_type", SessionOrigin.CHAT)
+    fields.setdefault("model", f"m-{uuid.uuid4().hex[:6]}")
+    return SpendRecord.objects.create(
+        session=session,
+        repo_id=session.repo_id,
+        occurred_at=timezone.now() - timedelta(days=days_ago),
+        cost_usd=Decimal(cost),
+        **fields,
+    )
+
+
+def _listed(client, **params) -> list[str]:
+    return [session.pk for session in client.get(reverse("session_list"), params).context["sessions"]]
+
+
+@pytest.mark.django_db
+class TestSessionListSpend:
+    def test_cost_sort_puts_the_costliest_first_and_unpriced_sessions_last(self, logged_in_client, user):
+        cheap, dear, unpriced = (_create_session(user=user) for _ in range(3))
+        _spend(cheap, "1")
+        _spend(dear, "2")
+        _spend(dear, "3")
+
+        assert _listed(logged_in_client, sort="cost") == [dear.pk, cheap.pk, unpriced.pk]
+
+    def test_a_spend_period_counts_only_its_spend_and_matches_the_spend_pages_ranking(
+        self, logged_in_client, user, admin_user
+    ):
+        old, recent = _create_session(user=user), _create_session(user=user)
+        _spend(old, "50", days_ago=20)
+        _spend(old, "1")
+        _spend(recent, "5")
+        window = window_for("7d")
+        params = {"sort": "cost", "spend_from": window.start.isoformat(), "spend_to": window.end.isoformat()}
+
+        listed = _listed(logged_in_client, **params)
+
+        assert listed == [recent.pk, old.pk]
+        top = SpendReport(admin_user, window, None, "all").top_sessions()
+        assert [row["thread_id"] for row in top] == listed
+
+    def test_each_row_shows_its_run_spend_with_priced_parts_and_without_background(self, logged_in_client, user):
+        session = _create_session(user=user, title="Spent")
+        _spend(session, "0.25", unpriced_tokens=10)
+        _spend(session, "9", task=SpendTask.TITLE, trigger_type="")
+
+        soup = BeautifulSoup(logged_in_client.get(reverse("session_list")).content, "html.parser")
+
+        assert soup.select_one("[data-testid=session-cost]").get_text(strip=True) == "$0.25+"
+
+    @pytest.mark.parametrize(
+        ("key", "expected"),
+        [
+            ("spend_model", [("visible-model", "visible-model")]),
+            ("spend_provider", [("anthropic", "Anthropic")]),
+            ("spend_person", None),
+        ],
+    )
+    def test_the_choices_offer_only_what_the_user_may_see(self, logged_in_client, user, other_user, key, expected):
+        mine = _create_session(user=user)
+        _spend(mine, "1", model="visible-model", provider_slug="anthropic", provider_name="Anthropic", user=user)
+        secret = _create_session(user=other_user, repo_id="acme/secret")
+        _spend(secret, "1", model="secret-model", provider_slug="secret", provider_name="Secret", user=other_user)
+
+        response = logged_in_client.get(reverse("session_spend_choices", args=[key]), {"scope": "all"})
+
+        items = BeautifulSoup(response.content, "html.parser").select(f"[data-filter-key={key}]")
+        offered = [(item["data-value"], item["data-label"]) for item in items]
+        assert offered == (expected or [(f"u{user.pk}", user.username)])
+
+    def test_a_full_load_lists_no_spend_choices_and_names_the_current_one(self, logged_in_client, user):
+        _spend(_create_session(user=user), "1", model="m1", user=user)
+        _spend(_create_session(user=user), "1", model="m2", user=user)
+
+        response = logged_in_client.get(reverse("session_list"), {"spend_person": f"u{user.pk}"})
+
+        soup = BeautifulSoup(response.content, "html.parser")
+        assert [item["data-value"] for item in soup.select("[data-filter-key=spend_model]")] == [""]
+        person = soup.select_one("[data-testid=filter-spend_person]")
+        assert person.select_one(".filter-control__value").get_text(strip=True) == user.username
+        loader = soup.select_one(f"[hx-get^='{reverse('session_spend_choices', args=['spend_model'])}']")
+        assert loader["hx-trigger"] == "intersect once"
+
+    def test_no_spend_anywhere_shows_no_spend_controls(self, logged_in_client, user):
+        soup = BeautifulSoup(logged_in_client.get(reverse("session_list")).content, "html.parser")
+
+        assert soup.select("[data-testid^=filter-spend_]") == []
+
+    def test_an_unknown_choice_list_is_not_found(self, logged_in_client, user):
+        assert logged_in_client.get(reverse("session_spend_choices", args=["status"])).status_code == 404
+
+    def test_a_spend_drill_down_shows_one_banner(self, logged_in_client, user):
+        params = {
+            "scope": "all",
+            "spend_from": "2026-08-22",
+            "spend_to": "2026-11-19",
+            "spend_repo": "srtab/daiv",
+            "spend_trigger": SessionOrigin.SCHEDULE,
+            "spend_task": SpendTask.TITLE,
+        }
+
+        banner = logged_in_client.get(reverse("session_list"), params).context["spend_banner"]
+
+        assert (banner["start"], banner["end"]) == (date(2026, 8, 22), date(2026, 11, 19))
+        assert (banner["repo"], banner["trigger"], banner["task"]) == (
+            "srtab/daiv",
+            SessionOrigin.SCHEDULE.label,
+            SpendTask.TITLE.label,
+        )
+
+    def test_an_open_ended_period_keeps_the_missing_end_empty(self, logged_in_client, user):
+        banner = logged_in_client.get(reverse("session_list"), {"spend_from": "2026-08-22"}).context["spend_banner"]
+
+        assert (banner["start"], banner["end"]) == (date(2026, 8, 22), None)
+
+    def test_clearing_the_banner_keeps_the_dropdown_filters_and_scope(self, logged_in_client, user):
+        params = {
+            "scope": "mine",
+            "spend_from": "2026-08-22",
+            "spend_repo": "srtab/daiv",
+            "spend_model": "m1",
+            "page": "1",
+        }
+
+        url = logged_in_client.get(reverse("session_list"), params).context["spend_banner"]["clear_url"]
+
+        assert dict(QueryDict(urlsplit(url).query).items()) == {"scope": "mine", "spend_model": "m1"}
+
+    def test_person_model_and_provider_alone_show_no_banner(self, logged_in_client, user):
+        context = logged_in_client.get(reverse("session_list"), {"spend_model": "m1", "spend_person": "zz"}).context
+
+        assert context["spend_banner"] is None
+        assert "spend_chips" not in context
+
+    def test_a_results_swap_reads_no_spend_choices(self, logged_in_client, user):
+        session = _create_session(user=user)
+        _spend(session, "1", model="m1", user=user)
+
+        response = logged_in_client.get(
+            reverse("session_list"), {"scope": "mine", "spend_model": "m1"}, HTTP_HX_REQUEST="true"
+        )
+
+        assert "spend_controls" not in response.context
+        assert response.context["has_active_filters"] is True
+        assert [s.pk for s in response.context["sessions"]] == [session.pk]
+
+    def test_pagination_keeps_the_sort(self, logged_in_client, user):
+        for _ in range(26):
+            _create_session(user=user)
+
+        soup = BeautifulSoup(logged_in_client.get(reverse("session_list"), {"sort": "cost"}).content, "html.parser")
+
+        next_link = next(a for a in soup.select("a[href*='page=2']"))
+        assert "sort=cost" in next_link["href"]
+
+
+@pytest.mark.django_db
+class TestSessionListFilterBar:
+    def _soup(self, client, params=None) -> BeautifulSoup:
+        return BeautifulSoup(client.get(reverse("session_list"), params or {}).content, "html.parser")
+
+    def test_the_bar_has_no_native_selects_and_names_its_dropdowns(self, logged_in_client, user):
+        _spend(_create_session(user=user), "1", user=user, model="m1", provider_slug="p", provider_name="P")
+
+        soup = self._soup(logged_in_client)
+
+        assert soup.select("select") == []
+        names = [toggle.get_text(" ", strip=True) for toggle in soup.select(".filter-control__toggle")]
+        assert names[:6] == ["Status", "Type", "Active", "Spent by", "Model", "Provider"]
+
+    def test_sort_shows_most_recent_without_a_sort_param(self, logged_in_client, user):
+        toggle = self._soup(logged_in_client).select_one("[data-testid=filter-sort]")
+
+        assert toggle.get_text(" ", strip=True) == "Sort: Most recent"
+
+    def test_the_spend_drill_down_reads_as_one_sentence(self, logged_in_client, user):
+        params = {"scope": "all", "spend_from": "2026-08-22", "spend_to": "2026-11-19", "spend_repo": "srtab/daiv"}
+
+        soup = self._soup(logged_in_client, params)
+
+        assert " ".join(soup.select_one(".filter-context__text").get_text(" ").split()) == (
+            "From Spend · Sessions with spend between 22 Aug 2026 and 19 Nov 2026 on srtab/daiv"
+        )
+        assert soup.select(".filter-chip") == []
+
+    def test_an_open_ended_spend_period_reads_since(self, logged_in_client, user):
+        soup = self._soup(logged_in_client, {"spend_from": "2026-08-22"})
+
+        assert " ".join(soup.select_one(".filter-context__text").get_text(" ").split()) == (
+            "From Spend · Sessions with spend since 22 Aug 2026"
+        )
+
+    def test_a_set_model_with_slashes_shows_in_its_control(self, logged_in_client, user):
+        model = "openrouter:z-ai/glm-5.2"
+        _spend(_create_session(user=user), "1", user=user, model=model)
+
+        soup = self._soup(logged_in_client, {"spend_model": model})
+
+        control = soup.select_one("[data-testid=filter-spend_model]").find_parent(class_="filter-control")
+        assert "filter-control--active" in control["class"]
+        assert control.select_one(".filter-control__value").get_text(strip=True) == model
+
+    def test_archived_is_a_toggle_inside_its_own_control(self, logged_in_client, user):
+        toggle = self._soup(logged_in_client).select_one("[data-testid=filter-archived]")
+
+        assert "filter-control__toggle" in toggle["class"]
+        assert "filter-control" not in toggle["class"]
+        assert "filter-control" in toggle.parent["class"]
+
+    def test_the_custom_range_row_wraps_inside_the_time_menu(self, logged_in_client, user):
+        from tests.unit_tests.test_list_pages_on_tokens import _rules_for
+
+        row = self._soup(logged_in_client).select_one("[aria-label='From date']").parent
+
+        assert "filter-range" in row["class"]
+        assert any("flex-wrap" in body for body in _rules_for("filter-range"))
+
+    def test_deep_link_chips_keep_their_own_row(self, logged_in_client, user):
+        soup = self._soup(logged_in_client, {"repo": "group/project", "mr": "7"})
+
+        assert len(soup.select(".filter-chip")) == 2
+        assert soup.select_one(".filter-clear").get_text(strip=True) == "Clear all"
+
+    def test_clear_all_keeps_the_scope_and_a_chosen_sort(self, logged_in_client, user):
+        soup = self._soup(logged_in_client, {"scope": "all", "status": "FAILED", "sort": "cost"})
+
+        url = soup.select_one(".filter-clear")["href"]
+        assert dict(QueryDict(urlsplit(url).query).items()) == {"scope": "all", "sort": "cost"}
+        empty_state_url = soup.select_one("#session-results a[href*='sort=cost']")["href"]
+        assert empty_state_url == url
+
+    def test_a_set_spend_filter_keeps_its_control_without_visible_spend(self, logged_in_client, user):
+        soup = self._soup(logged_in_client, {"spend_model": "gone-model"})
+
+        control = soup.select_one("[data-testid=filter-spend_model]").find_parent(class_="filter-control")
+        assert control.select_one(".filter-control__value").get_text(strip=True) == "gone-model"
+
+    def test_a_cost_sorted_list_has_no_date_headers(self, logged_in_client, user):
+        _spend(_create_session(user=user), "1")
+        _spend(_create_session(user=user, archived_at=timezone.now()), "1")
+
+        for params in ({"sort": "cost"}, {"sort": "cost", "archived": "true"}):
+            for headers in ({}, {"HTTP_HX_REQUEST": "true"}):
+                html = logged_in_client.get(reverse("session_list"), params, **headers).content.decode()
+                assert "session-group-header" not in html, (params, headers)
+
+    def test_a_recent_list_keeps_its_date_headers(self, logged_in_client, user):
+        _create_session(user=user)
+
+        assert "session-group-header" in logged_in_client.get(reverse("session_list")).content.decode()
