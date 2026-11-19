@@ -29,10 +29,19 @@ from langsmith.run_helpers import tracing_context
 from langsmith.run_trees import RunTree
 from redis.exceptions import ConnectionError as RedisConnectionError
 from sessions.live.agui import RuntimeContextLangGraphAGUIAgent
-from sessions.live.publisher import LiveRunError, _driving_live_run, _RootOutcome, ainvoke_live, publish_event
+from sessions.live.publisher import (
+    LiveRunError,
+    RootOutcome,
+    _driving_live_run,
+    ainvoke_live,
+    publish_event,
+    sanitize_run_error,
+)
 from sessions.live.relay import RunRelay
 
+from automation.agent.provider_errors import tag_provider_failure
 from core.constants import RUN_FAILED_MESSAGE
+from core.provider_failures import ProviderFailure, failure_message
 from tests.unit_tests.conftest import FakeAsyncRedis, _FakePipeline
 
 
@@ -275,6 +284,45 @@ async def test_a_graph_error_raises_the_original_exception():
     entries = await _entries(run_relay)
     errors = [e for e in _events(entries) if e["type"] == "RUN_ERROR"]
     assert [(e["message"], e["code"]) for e in errors] == [(RUN_FAILED_MESSAGE, "run_failed")]
+    assert not any("secret" in entry.data for entry in entries if entry.data)
+
+
+def _out_of_credits() -> RuntimeError:
+    error = RuntimeError("402 secret upstream text")
+    tag_provider_failure(error, ProviderFailure("out_of_credits", "openrouter"))
+    return error
+
+
+_AG_UI_RUN_ERROR = RunErrorEvent(type=EventType.RUN_ERROR, message="402 secret upstream text")
+
+
+@pytest.mark.django_db
+def test_sanitize_run_error_uses_the_provider_message_for_a_tagged_error():
+    event = sanitize_run_error(_AG_UI_RUN_ERROR, _out_of_credits())
+
+    assert (event.message, event.code) == (failure_message("out_of_credits", "openrouter"), "provider_out_of_credits")
+    assert "OpenRouter" in event.message
+
+
+def test_sanitize_run_error_stays_generic_for_an_untagged_error():
+    event = sanitize_run_error(_AG_UI_RUN_ERROR, RuntimeError("402 secret upstream text"))
+
+    assert (event.message, event.code) == (RUN_FAILED_MESSAGE, "run_failed")
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_live_run_publishes_the_provider_message():
+    error = _out_of_credits()
+    run_relay = _relay()
+
+    with pytest.raises(RuntimeError) as raised:
+        await _live(_failing_agent(error), [HumanMessage(content="hi")], run_relay)
+
+    assert raised.value is error
+    entries = await _entries(run_relay)
+    errors = [e for e in _events(entries) if e["type"] == "RUN_ERROR"]
+    message = failure_message("out_of_credits", "openrouter")
+    assert [(e["message"], e["code"]) for e in errors] == [(message, "provider_out_of_credits")]
     assert not any("secret" in entry.data for entry in entries if entry.data)
 
 
@@ -524,7 +572,7 @@ async def test_ag_ui_does_not_report_a_failure_the_executor_reraises(caplog):
 
 
 def test_ag_ui_logs_of_the_reraised_exception_are_dropped_whatever_their_message(caplog):
-    outcome = _RootOutcome()
+    outcome = RootOutcome()
     outcome.error = RuntimeError("boom")
     token = _driving_live_run.set(outcome)
     try:

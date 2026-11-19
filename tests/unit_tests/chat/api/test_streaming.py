@@ -24,18 +24,21 @@ from langchain_core.language_models.fake_chat_models import FakeMessagesListChat
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from sessions import artifacts
+from sessions.executor import run as executor_run
 from sessions.executor.result import parse_agent_result
 from sessions.inbox.complete import RunEnd
 from sessions.inbox.ownership import Ownerships
 from sessions.live.relay import RunRelay
-from sessions.models import EventKind, EventState, InboxEvent, Run, Session
+from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, Session
 
 from automation.agent.agent_settings import resolve_agent_settings
+from automation.agent.provider_errors import tag_provider_failure
 from automation.agent.questions import render_questions
 from automation.agent.references import ExternalRef
 from chat.api import runner
-from chat.api.streaming import ChatRunStreamer, start_chat_run
+from chat.api.streaming import ChatRunStreamer, _ReportedRunError, finalize_chat_run, start_chat_run
 from core.constants import CANCELLED_BY_USER_MESSAGE, INTERRUPTED_MESSAGE, RUN_FAILED_MESSAGE
+from core.provider_failures import ProviderFailure, failure_message
 from core.site_settings import site_settings
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages, site_snapshot
 from tests.unit_tests.sessions.conftest import amake_job_session, claim_recorder
@@ -483,6 +486,81 @@ async def test_events_finalizes_failed_when_run_error_event_emitted():
     run_error_events = [e for e in streamed_events if getattr(e, "type", None) == EventType.RUN_ERROR]
     assert [(e.message, e.code) for e in run_error_events] == [(RUN_FAILED_MESSAGE, "run_failed")]
     assert persist_calls == []
+
+
+def _out_of_credits() -> RuntimeError:
+    error = RuntimeError("402 secret upstream text")
+    tag_provider_failure(error, ProviderFailure("out_of_credits", "openrouter"))
+    return error
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_provider_failure_streams_and_persists_the_provider_message(_executor_stack):
+    error = _out_of_credits()
+
+    class OutOfCredits(GenericFakeChatModel):
+        async def _astream(self, *args, **kwargs):
+            raise error
+            yield
+
+        async def _agenerate(self, *args, **kwargs):
+            raise error
+
+    _executor_stack.create_agent.return_value = create_agent(
+        model=OutOfCredits(messages=iter([])), tools=[], checkpointer=InMemorySaver()
+    )
+    await amake_job_session("t-stream")
+    run = await _arecord_run()
+    record_failure = AsyncMock(wraps=executor_run._arecord_provider_failure)
+
+    with (
+        patch("chat.api.streaming.finalize_chat_run", new=finalize_chat_run),
+        patch("sessions.executor.run._arecord_provider_failure", new=record_failure),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        streamed = [event async for event in _streamer(chat_run=run).events()]
+
+    message = failure_message("out_of_credits", "openrouter")
+    errors = [event for event in streamed if event.type == EventType.RUN_ERROR]
+    assert [(event.message, event.code) for event in errors] == [(message, "provider_out_of_credits")]
+    await run.arefresh_from_db()
+    assert (run.status, run.error_message) == (RunStatus.FAILED, message)
+    assert (run.failure_kind, run.failure_provider) == ("out_of_credits", "openrouter")
+    [(_run_id, reported)] = [call.args for call in record_failure.await_args_list]
+    assert isinstance(reported, _ReportedRunError)
+    assert reported.__cause__ is error
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_provider_failure_raised_past_ag_ui_streams_the_provider_message():
+    async def _raises(_input):
+        raise _out_of_credits()
+        yield
+
+    agui = MagicMock(graph_stream=None)
+    agui.run = _raises
+    finalize_calls: list = []
+
+    async def _capture_finalize(_run, *, success, error_message="", **_kwargs):
+        finalize_calls.append((success, error_message))
+
+    await amake_job_session("t-stream")
+    run = await _arecord_run()
+
+    with (
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", return_value=agui),
+        patch("chat.api.streaming.finalize_chat_run", side_effect=_capture_finalize),
+        patch("sessions.executor.run.apersist_session_ref", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        streamed = [event async for event in _streamer(chat_run=run).events()]
+
+    message = failure_message("out_of_credits", "openrouter")
+    errors = [event for event in streamed if event.type == EventType.RUN_ERROR]
+    assert [(event.message, event.code) for event in errors] == [(message, "provider_out_of_credits")]
+    assert finalize_calls == [(False, message)]
 
 
 @pytest.mark.django_db(transaction=True)
