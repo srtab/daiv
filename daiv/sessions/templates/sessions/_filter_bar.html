@@ -119,8 +119,8 @@
         <label class="sr-only" for="filter-spend-model">{% translate "Model" %}</label>
         <select id="filter-spend-model" class="filter-control" x-model="spend.spend_model" @change="_apply()" data-testid="filter-spend-model">
             <option value="">{% translate "Any model" %}</option>
-            {% for model in spend_models %}
-            <option value="{{ model }}"{% if current_spend.spend_model == model %} selected{% endif %}>{{ model }}</option>
+            {% for model, label in spend_models %}
+            <option value="{{ model }}"{% if current_spend.spend_model == model %} selected{% endif %}>{{ label }}</option>
             {% endfor %}
         </select>
         <label class="sr-only" for="filter-spend-provider">{% translate "Provider" %}</label>

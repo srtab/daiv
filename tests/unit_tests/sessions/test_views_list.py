@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
+from urllib.parse import urlsplit
 
 from django.db import connection
+from django.http import QueryDict
 from django.test import Client
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
@@ -743,30 +745,52 @@ class TestSessionListSpend:
 
         context = logged_in_client.get(reverse("session_list")).context
 
-        assert context["spend_models"] == ["visible-model"]
+        assert context["spend_models"] == [("visible-model", "visible-model")]
         assert context["spend_providers"] == [("anthropic", "Anthropic")]
         assert context["spend_people"] == [(f"u{user.pk}", user.username)]
 
-    def test_spend_params_show_as_clearable_chips(self, logged_in_client, user):
-        session = _create_session(user=user)
-        _spend(session, "1", provider_slug="openrouter", provider_name="OpenRouter", user=user, model="m1")
+    def test_a_spend_drill_down_shows_one_banner(self, logged_in_client, user):
+        params = {
+            "scope": "all",
+            "spend_from": "2026-08-22",
+            "spend_to": "2026-11-19",
+            "spend_repo": "srtab/daiv",
+            "spend_trigger": SessionOrigin.SCHEDULE,
+            "spend_task": SpendTask.TITLE,
+        }
 
-        response = logged_in_client.get(
-            reverse("session_list"),
-            {"scope": "mine", "spend_provider": "openrouter", "spend_person": f"u{user.pk}", "spend_model": "m1"},
+        banner = logged_in_client.get(reverse("session_list"), params).context["spend_banner"]
+
+        assert (banner["start"], banner["end"]) == (date(2026, 8, 22), date(2026, 11, 19))
+        assert (banner["repo"], banner["trigger"], banner["task"]) == (
+            "srtab/daiv",
+            SessionOrigin.SCHEDULE.label,
+            SpendTask.TITLE.label,
         )
 
-        chips = {chip["label"]: chip["clear_url"] for chip in response.context["spend_chips"]}
-        assert set(chips) == {f"Person: {user.username}", "Model: m1", "Provider: OpenRouter"}
-        assert "spend_provider" not in chips["Provider: OpenRouter"]
-        assert "spend_model=m1" in chips["Provider: OpenRouter"]
-        assert response.context["has_active_filters"] is True
+    def test_an_open_ended_period_keeps_the_missing_end_empty(self, logged_in_client, user):
+        banner = logged_in_client.get(reverse("session_list"), {"spend_from": "2026-08-22"}).context["spend_banner"]
 
-    def test_an_invalid_person_is_dropped_with_no_chip(self, logged_in_client, user):
-        response = logged_in_client.get(reverse("session_list"), {"scope": "mine", "spend_person": "zz"})
+        assert (banner["start"], banner["end"]) == (date(2026, 8, 22), None)
 
-        assert response.context["spend_chips"] == []
-        assert response.context["has_spend_filters"] is False
+    def test_clearing_the_banner_keeps_the_dropdown_filters_and_scope(self, logged_in_client, user):
+        params = {
+            "scope": "mine",
+            "spend_from": "2026-08-22",
+            "spend_repo": "srtab/daiv",
+            "spend_model": "m1",
+            "page": "1",
+        }
+
+        url = logged_in_client.get(reverse("session_list"), params).context["spend_banner"]["clear_url"]
+
+        assert dict(QueryDict(urlsplit(url).query).items()) == {"scope": "mine", "spend_model": "m1"}
+
+    def test_person_model_and_provider_alone_show_no_banner(self, logged_in_client, user):
+        context = logged_in_client.get(reverse("session_list"), {"spend_model": "m1", "spend_person": "zz"}).context
+
+        assert context["spend_banner"] is None
+        assert "spend_chips" not in context
 
     def test_a_results_swap_reads_no_spend_choices(self, logged_in_client, user):
         session = _create_session(user=user)

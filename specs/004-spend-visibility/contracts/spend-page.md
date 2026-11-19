@@ -86,8 +86,8 @@ Signed-in users. Takes the same `period` and `scope`. Returns `text/csv; charset
 
 When any `spend_*` param is present, all of them combine into one `Exists(SpendRecord(session=OuterRef("pk"), …))`. The list then holds exactly the sessions with a record matching every given param.
 
-- **Chips.** Each param shows as a clearable chip: the person by name, the repository by path, the provider by its stored name.
-- **Widgets.** The filter bar gains **Person**, **Model** and **Provider** selects, which set `spend_person`, `spend_model` and `spend_provider` with no dates (FR-015). Their options are the distinct people, models and providers in `SpendRecord.objects.visible_to(user)`.
+- **Banner.** `spend_from`, `spend_to`, `spend_repo`, `spend_trigger` and `spend_task` show as one banner with a single clear.
+- **Widgets.** **Spent by**, **Model** and **Provider** dropdowns set `spend_person`, `spend_model` and `spend_provider` with no dates (FR-015), and show their value in the control; no chip repeats it. Their options are the distinct people, models and providers in `SpendRecord.objects.visible_to(user)`.
 - **Scope.** The `spend_*` params join `DEEP_LINK_PARAMS`, so a link carrying them opens on **Everyone**.
 
 ### Sort

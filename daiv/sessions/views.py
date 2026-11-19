@@ -51,6 +51,7 @@ from sessions.filters import (
     SORT_CHOICES,
     SORT_COST,
     SORT_RECENT,
+    SPEND_BANNER_PARAMS,
     SPEND_PARAMS,
     STATUS_CHOICES,
     ArtifactFilter,
@@ -263,7 +264,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
         return context
 
     def _spend_context(self, cleaned: dict[str, Any]) -> dict[str, Any]:
-        """The Person, Model and Provider choices, from the records the user may see, and the spend params' chips.
+        """The Spent by, Model and Provider choices, from the records the user may see, and the Spend banner.
 
         A results swap leaves the filter bar in place, so it gets only the flags the results read.
         """
@@ -281,48 +282,30 @@ class SessionListView(LoginRequiredMixin, FilterView):
             .values_list("provider_slug", "model")
             .annotate(Max("provider_name"))
         )
-        providers = {slug: name for slug, _model, name in pairs if slug}
-        chips = []
-        if current["spend_from"] or current["spend_to"]:
-            chips.append({
-                "params": ("spend_from", "spend_to"),
-                "label": _("Spend %(start)s – %(end)s")
-                % {"start": current["spend_from"] or "…", "end": current["spend_to"] or "…"},
-            })
-        values = {
-            "spend_person": people.get(current["spend_person"], current["spend_person"]),
-            "spend_repo": current["spend_repo"],
-            "spend_trigger": SessionOrigin(cleaned["spend_trigger"]).label if current["spend_trigger"] else "",
-            "spend_task": SpendTask(cleaned["spend_task"]).label if current["spend_task"] else "",
-            "spend_model": current["spend_model"],
-            "spend_provider": providers.get(current["spend_provider"], current["spend_provider"]),
-        }
-        formats = {
-            "spend_person": _("Person: %(value)s"),
-            "spend_repo": _("Spend on %(value)s"),
-            "spend_trigger": _("Started by: %(value)s"),
-            "spend_task": _("Background: %(value)s"),
-            "spend_model": _("Model: %(value)s"),
-            "spend_provider": _("Provider: %(value)s"),
-        }
-        chips.extend(
-            {"params": (name,), "label": formats[name] % {"value": value}}
-            for name, value in values.items()
-            if current[name]
-        )
-        for chip in chips:
-            query = self.request.GET.copy()
-            for name in (*chip["params"], "page"):
-                query.pop(name, None)
-            query["scope"] = self.scope
-            chip["clear_url"] = f"{self.request.path}?{query.urlencode()}"
         return {
             "spend_people": sorted(people.items(), key=lambda item: item[1].lower()),
-            "spend_models": sorted({model for _slug, model, _name in pairs}),
-            "spend_providers": list(providers.items()),
+            "spend_models": [(model, model) for model in sorted({model for _slug, model, _name in pairs})],
+            "spend_providers": list({slug: name for slug, _model, name in pairs if slug}.items()),
             "current_spend": current,
-            "spend_chips": chips,
+            "spend_banner": self._spend_banner(cleaned, current),
             "has_spend_filters": any(current.values()),
+        }
+
+    def _spend_banner(self, cleaned: dict[str, Any], current: dict[str, str]) -> dict[str, Any] | None:
+        """The Spend page's params that have no control in the bar, as one banner with a single clear."""
+        if not any(current[name] for name in SPEND_BANNER_PARAMS):
+            return None
+        query = self.request.GET.copy()
+        for name in (*SPEND_BANNER_PARAMS, "page"):
+            query.pop(name, None)
+        query["scope"] = self.scope
+        return {
+            "start": cleaned.get("spend_from"),
+            "end": cleaned.get("spend_to"),
+            "repo": current["spend_repo"],
+            "trigger": SessionOrigin(cleaned["spend_trigger"]).label if current["spend_trigger"] else "",
+            "task": SpendTask(cleaned["spend_task"]).label if current["spend_task"] else "",
+            "clear_url": f"{self.request.path}?{query.urlencode()}",
         }
 
 
