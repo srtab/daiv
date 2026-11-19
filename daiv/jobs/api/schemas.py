@@ -8,11 +8,12 @@ from pydantic import ConfigDict
 from sessions.artifacts import ArtifactPayload  # noqa: TC002 - required at runtime by Ninja
 
 from automation.agent.references import MAX_REFS_PER_SUBMISSION, RefIn  # noqa: TC001 - required at runtime by Ninja
+from codebase.base import RepoId  # noqa: TC001 - required at runtime by Ninja
 from core.models import ThinkingLevelChoices  # noqa: TC001 - required at runtime by Ninja
 
 
 class RepoSubmitItem(Schema):
-    repo_id: str = Field(min_length=1)
+    repo_id: RepoId = Field(min_length=1)
     ref: str | None = None
     prompt: str | None = Field(
         default=None,
