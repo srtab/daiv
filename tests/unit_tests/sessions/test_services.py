@@ -190,6 +190,21 @@ async def test_submit_continuation_queues_when_thread_busy():
 # ---------------------------------------------------------------------------
 
 
+class TestValidateRepoListNormalizes:
+    def test_slashes_around_a_repo_id_are_dropped(self):
+        assert validate_repo_list([{"repo_id": " /acme/api/ ", "ref": "main"}]) == [
+            {"repo_id": "acme/api", "ref": "main"}
+        ]
+
+    def test_a_slashed_repo_id_duplicates_the_bare_one(self):
+        with pytest.raises(ValueError, match="already in the list"):
+            validate_repo_list([{"repo_id": "/acme/api", "ref": ""}, {"repo_id": "acme/api", "ref": ""}])
+
+    def test_a_repo_id_of_only_slashes_is_refused(self):
+        with pytest.raises(ValueError, match="non-empty"):
+            validate_repo_list([{"repo_id": " / ", "ref": ""}])
+
+
 class TestValidateRepoListDuplicates:
     def test_duplicate_with_ref_mentions_both_repo_and_ref(self):
         raw = [{"repo_id": "acme/api", "ref": "main"}, {"repo_id": "acme/api", "ref": "main"}]

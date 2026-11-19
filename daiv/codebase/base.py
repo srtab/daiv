@@ -13,15 +13,19 @@ class GitPlatform(StrEnum):
     """SWE-bench evals (``evals/swe_client.py``): public repositories, no platform API. Never ``CODEBASE_CLIENT``."""
 
 
-def _strip_repo_id(value: str) -> str:
-    repo_id = value.strip().strip("/")
-    if not repo_id:
+def normalize_repo_id(value: str) -> str:
+    """``value`` without surrounding whitespace and slashes: ``/group/project/`` is ``group/project``."""
+    return value.strip().strip("/")
+
+
+def _require_repo_id(value: str) -> str:
+    if not (repo_id := normalize_repo_id(value)):
         raise ValueError("repo_id must name a repository.")
     return repo_id
 
 
-RepoId = Annotated[str, AfterValidator(_strip_repo_id)]
-"""A repository path as a caller sends it: ``/group/project/`` is ``group/project``."""
+RepoId = Annotated[str, AfterValidator(_require_repo_id)]
+"""A repository path as a caller sends it, through :func:`normalize_repo_id`; a blank one is refused."""
 
 
 class Scope(StrEnum):
