@@ -32,7 +32,7 @@ document.addEventListener("alpine:init", () => {
             this.open = null;
         },
 
-        ...window.filterDropdown(),
+        ...window.filterDropdown,
 
         clearAll() {
             for (const field of FIELDS) this[field] = "";

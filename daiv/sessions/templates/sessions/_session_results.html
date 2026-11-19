@@ -3,7 +3,7 @@
 {% if sessions %}
 <div class="overflow-hidden rounded-2xl border border-border bg-surface-2">
     {% for session in sessions %}
-        {% if current_sort == default_sort %}
+        {% if group_by_day %}
         {% ifchanged %}
         <div class="session-group-header">
             <span>{{ session.last_active_at|date_bucket }}</span>

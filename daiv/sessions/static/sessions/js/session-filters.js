@@ -41,8 +41,7 @@ document.addEventListener("alpine:init", () => {
         batch: "",
         archived: "",
         sort: "",
-        // The Spend page's drill-down params, keyed by their URL names.
-        spend: Object.fromEntries(SPEND_PARAMS.map((name) => [name, ""])),
+        ...Object.fromEntries(SPEND_PARAMS.map((name) => [name, ""])),
 
         init() {
             this._readUrl();
@@ -68,7 +67,7 @@ document.addEventListener("alpine:init", () => {
             const archived = p.get("archived");
             this.archived = archived === "true" || archived === "all" ? archived : "";
             this.sort = p.get("sort") || this.$root.dataset.defaultSort;
-            SPEND_PARAMS.forEach((name) => (this.spend[name] = p.get(name) || ""));
+            SPEND_PARAMS.forEach((name) => (this[name] = p.get(name) || ""));
         },
 
         _apply() {
@@ -90,7 +89,7 @@ document.addEventListener("alpine:init", () => {
             set("schedule", this.schedule);
             set("batch", this.batch);
             set("archived", this.archived);
-            SPEND_PARAMS.forEach((name) => set(name, this.spend[name]));
+            SPEND_PARAMS.forEach((name) => set(name, this[name]));
             set("sort", this.sort === this.$root.dataset.defaultSort ? "" : this.sort);
             const qs = params.toString();
             swapResults(window.location.pathname + (qs ? "?" + qs : ""));
@@ -101,10 +100,7 @@ document.addEventListener("alpine:init", () => {
             this.scope = value;
             this._apply();
         },
-        ...window.filterDropdown(),
-        _slot(key) {
-            return key.startsWith("spend_") ? this.spend : this;
-        },
+        ...window.filterDropdown,
         setRange(value) {
             this.range = value;
             this.from = "";
@@ -131,10 +127,6 @@ document.addEventListener("alpine:init", () => {
             keys.forEach((key) => (this[key] = ""));
             this._apply();
         },
-        clearSpend(...names) {
-            names.forEach((name) => (this.spend[name] = ""));
-            this._apply();
-        },
         clearAll() {
             this.q = "";
             this.status = "";
@@ -148,7 +140,7 @@ document.addEventListener("alpine:init", () => {
             this.schedule = "";
             this.batch = "";
             this.archived = "";
-            SPEND_PARAMS.forEach((name) => (this.spend[name] = ""));
+            SPEND_PARAMS.forEach((name) => (this[name] = ""));
             this._apply();
         },
 
@@ -164,7 +156,7 @@ document.addEventListener("alpine:init", () => {
             return !!(this.repo || this.mr || this.archived === "all" || this.ranOn || this.schedule || this.batch);
         },
         get hasSpendBanner() {
-            return SPEND_BANNER_PARAMS.some((name) => this.spend[name]);
+            return SPEND_BANNER_PARAMS.some((name) => this[name]);
         },
         get hasActiveFilters() {
             return !!(
@@ -180,7 +172,7 @@ document.addEventListener("alpine:init", () => {
                 this.schedule ||
                 this.batch ||
                 this.archived ||
-                SPEND_PARAMS.some((name) => this.spend[name])
+                SPEND_PARAMS.some((name) => this[name])
             );
         },
     }));

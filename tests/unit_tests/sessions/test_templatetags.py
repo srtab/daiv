@@ -205,38 +205,15 @@ def test_session_merge_request_none_when_nothing_published():
     assert session_merge_request(session) is None
 
 
-def _render_filter_query(rf, params: dict, key: str, value: str, **context) -> dict:
-    import html
-
-    from django.http import QueryDict
-    from django.template import Context, Template
-
-    out = Template(f"{{% load session_tags %}}{{% filter_query '{key}' '{value}' %}}").render(
-        Context({"request": rf.get("/s/", params), **context})
-    )
-    assert out.startswith("?")
-    return QueryDict(html.unescape(out[1:])).dict()
-
-
-def test_filter_query_sets_the_key_and_drops_the_page(rf):
-    query = _render_filter_query(
-        rf, {"scope": "all", "page": "3", "status": "FAILED"}, "spend_model", "openrouter:z-ai/glm-5.2"
-    )
-
-    assert query == {"scope": "all", "status": "FAILED", "spend_model": "openrouter:z-ai/glm-5.2"}
-
-
-def test_filter_query_removes_the_key_for_an_empty_value(rf):
-    assert _render_filter_query(rf, {"scope": "all", "status": "FAILED"}, "status", "") == {"scope": "all"}
-
-
-def test_filter_query_keeps_a_resolved_scope_explicit(rf):
-    query = _render_filter_query(rf, {"spend_model": "m1"}, "spend_model", "", current_scope="all")
-
-    assert query == {"scope": "all"}
-
-
-def _dropdown(rf, current: str, *, lead: str = "", options: list[tuple[str, str]] | None = None):
+def _dropdown(
+    rf,
+    current: str,
+    *,
+    lead: str = "",
+    options: list[tuple[str, str]] | None = None,
+    params: dict | None = None,
+    **context,
+):
     from django.template.loader import render_to_string
 
     from bs4 import BeautifulSoup
@@ -249,14 +226,40 @@ def _dropdown(rf, current: str, *, lead: str = "", options: list[tuple[str, str]
             "label": "Model",
             "icon": "cpu-chip",
             "all_label": "Any model",
-            "options": options or [(model, model)],
+            "options": [(model, model)] if options is None else options,
             "current": current,
             "lead": lead,
             "align": "",
+            **context,
         },
-        request=rf.get("/s/"),
+        request=rf.get("/s/", params or {}),
     )
     return BeautifulSoup(html, "html.parser")
+
+
+def _query(href: str) -> dict:
+    from django.http import QueryDict
+
+    assert href.startswith("?")
+    return QueryDict(href[1:]).dict()
+
+
+def test_an_option_link_sets_its_value_and_drops_the_page(rf):
+    soup = _dropdown(rf, "", params={"scope": "all", "page": "3", "status": "FAILED"}, current_scope="all")
+
+    href = soup.select_one("[data-filter-key=spend_model][data-value='openrouter:z-ai/glm-5.2']")["href"]
+    assert _query(href) == {"scope": "all", "status": "FAILED", "spend_model": "openrouter:z-ai/glm-5.2"}
+
+
+def test_the_clear_link_keeps_a_resolved_scope_explicit(rf):
+    soup = _dropdown(rf, "m1", params={"spend_model": "m1"}, current_scope="all")
+
+    assert _query(soup.select_one(".filter-control__clear")["href"]) == {"scope": "all"}
+
+
+def test_a_dropdown_with_no_options_and_no_value_renders_nothing(rf):
+    assert _dropdown(rf, "", options=[]).get_text(strip=True) == ""
+    assert _dropdown(rf, "gone", options=[]).select_one(".filter-control__value").get_text(strip=True) == "gone"
 
 
 def test_a_set_dropdown_shows_its_value_and_a_clear_link(rf):

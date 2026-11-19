@@ -211,7 +211,6 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["current_batch_short"] = str(context["current_batch"])[:8] if context["current_batch"] else ""
         context["current_q"] = cleaned.get("q") or ""
         context["current_range"] = cleaned.get("range") or ""
-        context["current_range_label"] = dict(RANGE_CHOICES).get(context["current_range"], "")
         # Date fields are read raw: cleaned_data yields `date` objects, but the
         # HTML `<input type="date">` needs the original ISO string to round-trip.
         context["current_from"] = self.request.GET.get("date_from", "")
@@ -220,6 +219,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["current_archived_included"] = self.archived is None
         context["current_sort"] = self.sort
         context["default_sort"] = SORT_RECENT
+        context["group_by_day"] = self.sort == SORT_RECENT
         context["sorts"] = SORT_CHOICES
         clear_all = {"scope": self.scope} | ({"sort": self.sort} if self.sort != SORT_RECENT else {})
         context["clear_all_url"] = f"{self.request.path}?{urlencode(clear_all)}"

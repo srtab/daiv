@@ -37,7 +37,7 @@
                     <span class="filter-control__lead">{% icon "calendar" "h-4 w-4" %}</span>
                     <span class="filter-control__key">{% translate "Active" context "sessions last active" %}</span>
                     <span class="filter-control__value" x-show="timeActive" x-text="timeLabel"
-                          {% if not current_range and not current_from and not current_to %}style="display:none"{% endif %}>{% if current_range_label %}{{ current_range_label }}{% elif current_from or current_to %}{{ current_from|default:"…" }} – {{ current_to|default:"…" }}{% endif %}</span>
+                          {% if not current_range and not current_from and not current_to %}style="display:none"{% endif %}>{% if current_range %}{{ ranges|option_label:current_range }}{% elif current_from or current_to %}{{ current_from|default:"…" }} – {{ current_to|default:"…" }}{% endif %}</span>
                     <span class="filter-control__lead" x-show="!timeActive"
                           {% if current_range or current_from or current_to %}style="display:none"{% endif %}>{% icon "chevron-down" "h-3.5 w-3.5" %}</span>
                 </button>
@@ -68,18 +68,12 @@
             </div>
         </div>
 
-        {% if spend_people or current_spend.spend_person %}
         {% translate "Spent by" as person_label %}{% translate "Anyone" as anyone %}
         {% include "sessions/_filter_dropdown.html" with key="spend_person" label=person_label icon="users" all_label=anyone options=spend_people current=current_spend.spend_person %}
-        {% endif %}
-        {% if spend_models or current_spend.spend_model %}
         {% translate "Model" as model_label %}{% translate "Any model" as any_model %}
         {% include "sessions/_filter_dropdown.html" with key="spend_model" label=model_label icon="cpu-chip" all_label=any_model options=spend_models current=current_spend.spend_model %}
-        {% endif %}
-        {% if spend_providers or current_spend.spend_provider %}
         {% translate "Provider" as provider_label %}{% translate "Any provider" as any_provider %}
         {% include "sessions/_filter_dropdown.html" with key="spend_provider" label=provider_label icon="providers" all_label=any_provider options=spend_providers current=current_spend.spend_provider %}
-        {% endif %}
 
         <a href="{{ clear_all_url }}" class="filter-clear" @click.prevent="clearAll()"
            x-show="hasActiveFilters" {% if not has_active_filters %}style="display:none"{% endif %}>{% translate "Clear all" %}</a>
@@ -180,7 +174,7 @@
             {% if spend_banner.task %}· {% blocktranslate with task=spend_banner.task %}background work: {{ task }}{% endblocktranslate %}{% endif %}
         </p>
         <a href="{{ spend_banner.clear_url }}" class="filter-context__clear"
-           @click.prevent="clearSpend('spend_from', 'spend_to', 'spend_repo', 'spend_trigger', 'spend_task')"
+           @click.prevent="clearParam('spend_from', 'spend_to', 'spend_repo', 'spend_trigger', 'spend_task')"
            aria-label="{% translate 'Leave the Spend view' %}">{% icon "x-mark" "h-4 w-4" %}</a>
     </div>
     {% endif %}

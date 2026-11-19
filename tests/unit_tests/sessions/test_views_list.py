@@ -367,7 +367,10 @@ class TestSessionListView:
         assert response.status_code == 200
         assert response.context["current_q"] == "hello"
         assert response.context["current_range"] == "7d"
-        assert response.context["current_range_label"] == "Last 7 days"
+        assert (
+            "Last 7 days"
+            in BeautifulSoup(response.content, "html.parser").select_one("[data-testid=filter-time]").get_text()
+        )
         assert response.context["has_active_filters"] is True
 
     def test_has_active_filters_true_when_q_set(self, logged_in_client, user):
