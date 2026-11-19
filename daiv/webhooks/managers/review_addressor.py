@@ -10,6 +10,7 @@ from langchain_core.messages import HumanMessage
 from sessions.executor.run import execute_run
 from sessions.executor.spec import RunHooks, RunSpec
 
+from automation.agent.provider_errors import provider_failure_of
 from automation.agent.utils import repo_relative_text
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, MergeRequest, Scope
@@ -141,8 +142,11 @@ class CommentsAddressorManager(BaseManager):
                     f"@{self.merge_request.author.username} I can't run yet: {exc}", reply_to_id=self.reply_to_id
                 )
             return
+        failure = provider_failure_of(exc)
         self._add_unable_to_address_review_note(
-            draft_published=draft_published, fallback_footer=self._render_protected_branch_footer(snapshot)
+            draft_published=draft_published,
+            fallback_footer=self._render_protected_branch_footer(snapshot),
+            failure_message=failure.message() if failure else None,
         )
 
     def _render_protected_branch_footer(self, snapshot) -> str | None:
@@ -185,7 +189,9 @@ class CommentsAddressorManager(BaseManager):
             },
         )
 
-    def _add_unable_to_address_review_note(self, *, draft_published: bool = False, fallback_footer: str | None = None):
+    def _add_unable_to_address_review_note(
+        self, *, draft_published: bool = False, fallback_footer: str | None = None, failure_message: str | None = None
+    ):
         """
         Add a note to the merge request to inform the user that the review could not be addressed.
 
@@ -193,6 +199,7 @@ class CommentsAddressorManager(BaseManager):
             draft_published: Whether the draft merge request was published to the repository.
             fallback_footer: Pre-rendered protected-branch fallback footer to bundle into
                 the note when the publisher swapped to a fresh MR.
+            failure_message: Fixed provider-failure text that replaces the generic first line.
         """
         if not self._claim_unable_note():
             return
@@ -202,6 +209,7 @@ class CommentsAddressorManager(BaseManager):
                 "bot_name": BOT_NAME,
                 "bot_username": self.client.current_user.username,
                 "draft_published": draft_published,
+                "failure_message": failure_message,
                 "is_gitlab": self.client.git_platform == GitPlatform.GITLAB,
             },
         )
