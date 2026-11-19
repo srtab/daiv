@@ -326,6 +326,23 @@ async def test_a_live_run_publishes_the_provider_message():
     assert not any("secret" in entry.data for entry in entries if entry.data)
 
 
+async def test_a_provider_message_that_cannot_be_built_leaves_the_run_error_generic(caplog):
+    error = _out_of_credits()
+    run_relay = _relay()
+
+    with (
+        patch.object(ProviderFailure, "message", side_effect=RedisConnectionError("down")),
+        caplog.at_level("ERROR", logger="daiv.sessions"),
+        pytest.raises(RuntimeError) as raised,
+    ):
+        await _live(_failing_agent(error), [HumanMessage(content="hi")], run_relay)
+
+    assert raised.value is error
+    errors = [e for e in _events(await _entries(run_relay)) if e["type"] == "RUN_ERROR"]
+    assert [(e["message"], e["code"]) for e in errors] == [(RUN_FAILED_MESSAGE, "run_failed")]
+    assert [r.levelname for r in caplog.records if r.name == "daiv.sessions"] == ["ERROR"]
+
+
 @contextlib.asynccontextmanager
 async def _nested_under_a_callers_run(caller: str):
     """The config extras for a graph run nested under a caller's run: a LangSmith trace, or a parent's callbacks."""

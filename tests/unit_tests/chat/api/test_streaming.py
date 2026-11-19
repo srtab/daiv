@@ -17,7 +17,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from ag_ui.core import RunAgentInput
-from ag_ui.core.events import EventType, StateSnapshotEvent, TextMessageContentEvent, TextMessageStartEvent
+from ag_ui.core.events import (
+    EventType,
+    RunErrorEvent,
+    StateSnapshotEvent,
+    TextMessageContentEvent,
+    TextMessageStartEvent,
+)
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel, GenericFakeChatModel
@@ -561,6 +567,37 @@ async def test_a_provider_failure_raised_past_ag_ui_streams_the_provider_message
     errors = [event for event in streamed if event.type == EventType.RUN_ERROR]
     assert [(event.message, event.code) for event in errors] == [(message, "provider_out_of_credits")]
     assert finalize_calls == [(False, message)]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_root_error_that_is_not_an_exception_is_not_the_reported_errors_cause():
+    def _agui(*, config, **_kwargs):
+        [outcome] = config["callbacks"]
+
+        async def _run(_input):
+            await outcome.on_chain_error(asyncio.CancelledError(), run_id=config["run_id"])
+            yield RunErrorEvent(type=EventType.RUN_ERROR, message="cancelled")
+
+        agui = MagicMock(graph_stream=None)
+        agui.run = _run
+        return agui
+
+    await amake_job_session("t-stream")
+    run = await _arecord_run()
+    record_failure = AsyncMock()
+
+    with (
+        patch("chat.api.streaming.RuntimeContextLangGraphAGUIAgent", side_effect=_agui),
+        patch("sessions.executor.run._arecord_provider_failure", new=record_failure),
+        patch("chat.api.streaming.SessionLock.release", new=AsyncMock()),
+        patch("chat.api.streaming.SessionLock.heartbeat", new=AsyncMock()),
+    ):
+        async for _ in _streamer(chat_run=run).events():
+            pass
+
+    [(_run_id, reported)] = [call.args for call in record_failure.await_args_list]
+    assert isinstance(reported, _ReportedRunError)
+    assert reported.__cause__ is None
 
 
 @pytest.mark.django_db(transaction=True)

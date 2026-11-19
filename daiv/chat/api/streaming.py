@@ -362,7 +362,7 @@ class ChatRunStreamer:
                 ids = (turn.context_message_id, turn_message.id if turn_message else None)
                 turn.in_thread = not await self._clear_turn(run, ids)
         if turn.error is not None:
-            raise _ReportedRunError from outcome.error
+            raise _ReportedRunError from outcome.error if isinstance(outcome.error, Exception) else None
 
     async def _add_inbox_context(self, turn: _Turn, run: AgentRun) -> None:
         """Write what the session's inbox holds for this turn into the thread, ahead of the person's message. The

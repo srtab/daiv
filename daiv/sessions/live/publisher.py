@@ -53,12 +53,17 @@ class LiveRunError(Exception):
     """The live stream ended without the graph returning or raising: ag-ui failed around it, or never ran it."""
 
 
-def run_error_event(error: BaseException | None = None) -> RunErrorEvent:
+def run_error_event(error: BaseException | None) -> RunErrorEvent:
     """The RUN_ERROR viewers see for a run that failed with ``error``: the provider's fixed message when a provider
-    failure is tagged on it, else the generic one. Never the exception's text: anyone who can view the session can
-    read its stream."""
+    failure is tagged on it, else the generic one, which also stands in when that message can't be built (logged).
+    Never the exception's text: anyone who can view the session can read its stream."""
     if (failure := provider_failure_of(error)) is not None:
-        return RunErrorEvent(type=EventType.RUN_ERROR, message=failure.message(), code=f"provider_{failure.kind}")
+        try:
+            return RunErrorEvent(type=EventType.RUN_ERROR, message=failure.message(), code=f"provider_{failure.kind}")
+        except Exception:
+            logger.exception(
+                "live: could not build the %s message for provider %s", failure.kind, failure.provider_slug
+            )
     return RunErrorEvent(type=EventType.RUN_ERROR, message=RUN_FAILED_MESSAGE, code="run_failed")
 
 
