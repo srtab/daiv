@@ -39,7 +39,11 @@ from codebase.clients.gitlab.clone_tokens import (
 )
 from codebase.clients.gitlab.utils import CHILD_PIPELINE_SOURCE
 from codebase.conf import settings as codebase_settings
-from codebase.exceptions import CloneRefNotFoundError, MergeRequestBranchNotVisibleError
+from codebase.exceptions import (
+    CloneCredentialUnavailableError,
+    CloneRefNotFoundError,
+    MergeRequestBranchNotVisibleError,
+)
 from codebase.utils import is_git_auth_error_text, is_git_ref_not_found_text
 from core.constants import BOT_NAME
 from daiv import USER_AGENT
@@ -478,7 +482,7 @@ class GitLabClient(RepoClient):
             # The PAT is long-lived, so a rejection is a real misconfiguration, not a mint-propagation
             # blip: give it a single fail-fast attempt. A freshly minted ephemeral token may just be
             # lagging propagation, so it gets the backoff window instead. Applied to both the initial
-            # token and the re-minted one (which resolves to the PAT if provisioning has since broken).
+            # token and the re-minted one (the PAT, if provisioning has since broken and the fallback is on).
             if clone_token == self.client.private_token:
                 return clone_with(clone_token)
             return self._clone_awaiting_token_propagation(clone_with, clone_token, repository, clone_dir)
@@ -545,13 +549,16 @@ class GitLabClient(RepoClient):
 
         Logged per clone: the mint-time warning in clone_tokens fires once per negative-cache
         window on a single worker, while every clone in that window authenticates with the
-        full-API PAT — each one should say so in its own log stream.
+        full-API PAT (or fails, with the fallback off) — each one should say so in its own log stream.
         """
         if token := get_ephemeral_clone_token(self.client, repository.pk):
             logger.debug("Cloning %s with an ephemeral project access token", repository.slug)
             return token
+        if pat := self._fallback_pat():
+            logger.info("Cloning %s with the configured PAT (ephemeral clone token unavailable)", repository.slug)
+            return pat
         if not codebase_settings.GITLAB_PAT_FALLBACK:
-            raise ImproperlyConfigured(
+            raise CloneCredentialUnavailableError(
                 f"Cannot authenticate the git clone of {repository.slug}: no ephemeral clone token could be "
                 "provisioned and CODEBASE_GITLAB_PAT_FALLBACK is off. Usual causes: the CODEBASE_GITLAB_AUTH_TOKEN "
                 "user is below Maintainer on the project, the project is on the GitLab.com Free tier, or a transient "
@@ -559,21 +566,23 @@ class GitLabClient(RepoClient):
                 "retries the token creation after up to an hour (5 minutes after a transient error); delete the "
                 f"'{CLONE_TOKEN_CACHE_KEY.format(project_pk=repository.pk)}' cache entry to retry sooner."
             )
-        if not self.client.private_token:
-            raise ImproperlyConfigured(
-                "Cannot authenticate the git clone: no ephemeral clone token could be provisioned "
-                "and CODEBASE_GITLAB_AUTH_TOKEN is not configured."
-            )
-        logger.info("Cloning %s with the configured PAT (ephemeral clone token unavailable)", repository.slug)
-        return self.client.private_token
+        raise ImproperlyConfigured(
+            "Cannot authenticate the git clone: no ephemeral clone token could be provisioned "
+            "and CODEBASE_GITLAB_AUTH_TOKEN is not configured."
+        )
+
+    def _fallback_pat(self) -> str | None:
+        """The PAT standing in for a missing ephemeral clone token, or ``None`` when it is unset or
+        ``GITLAB_PAT_FALLBACK`` forbids it."""
+        if not codebase_settings.GITLAB_PAT_FALLBACK:
+            return None
+        return self.client.private_token or None
 
     def _git_egress_token(self, repository: Repository) -> str | None:
-        """Reuse the same short-lived, project-scoped clone token as the clone (PAT fallback unless
-        ``GITLAB_PAT_FALLBACK`` is off; see :meth:`_get_clone_token`); ``None`` (host-only
-        reachability) when neither is available."""
-        if token := get_ephemeral_clone_token(self.client, repository.pk):
-            return token
-        return (codebase_settings.GITLAB_PAT_FALLBACK and self.client.private_token) or None
+        """Reuse the same short-lived, project-scoped clone token as the clone (else
+        :meth:`_fallback_pat`; see :meth:`_get_clone_token`); ``None`` (host-only reachability)
+        when neither is available."""
+        return get_ephemeral_clone_token(self.client, repository.pk) or self._fallback_pat()
 
     def push_uses_ephemeral_token(self, repository: Repository) -> bool:
         # Asserts the credential *kind*, not the token value: a day-cache expiry mid-turn re-mints

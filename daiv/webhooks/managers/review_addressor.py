@@ -15,7 +15,7 @@ from automation.agent.utils import repo_relative_text
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, MergeRequest, Scope
 from codebase.clients.base import CommentThread
-from codebase.exceptions import CloneRefNotFoundError
+from codebase.exceptions import CloneCredentialUnavailableError, CloneRefNotFoundError
 from core.constants import BOT_NAME
 
 from .base import BaseManager
@@ -135,7 +135,7 @@ class CommentsAddressorManager(BaseManager):
     async def _on_failure(self, exc: Exception, *, draft_published: bool, snapshot: StateSnapshot | None) -> None:
         if isinstance(exc, CloneRefNotFoundError):
             return
-        if isinstance(exc, AgentConfigurationError):
+        if isinstance(exc, (AgentConfigurationError, CloneCredentialUnavailableError)):
             logger.warning("review_addressor: %s", exc)
             if self._claim_unable_note():
                 self._leave_comment(

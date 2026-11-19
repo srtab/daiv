@@ -18,7 +18,7 @@ from codebase.clients.gitlab.client import (
     _is_source_branch_missing_error,
 )
 from codebase.conf import settings as codebase_settings
-from codebase.exceptions import MergeRequestBranchNotVisibleError
+from codebase.exceptions import CloneCredentialUnavailableError, MergeRequestBranchNotVisibleError
 
 _CLONE_URL = "https://gitlab.com/group/repo.git"
 
@@ -220,7 +220,7 @@ class TestGitLabClient:
 
         with (
             patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None),
-            pytest.raises(ImproperlyConfigured, match="CODEBASE_GITLAB_PAT_FALLBACK") as exc_info,
+            pytest.raises(CloneCredentialUnavailableError, match="CODEBASE_GITLAB_PAT_FALLBACK") as exc_info,
             gitlab_client.load_repo(repository, "main"),
         ):
             pass
@@ -371,7 +371,7 @@ class TestGitLabClient:
             patch("codebase.clients.gitlab.client.invalidate_clone_token") as invalidate,
             patch("codebase.clients.gitlab.client.shutil.rmtree"),
             patch("codebase.clients.gitlab.client.time.sleep"),
-            pytest.raises(ImproperlyConfigured),
+            pytest.raises(CloneCredentialUnavailableError),
             gitlab_client.load_repo(repository, "main"),
         ):
             pass
@@ -421,6 +421,13 @@ class TestGitLabClient:
             assert gitlab_client.get_git_auth_env(repository) is None
 
         assert "No git credential resolved for group/repo" in caplog.text
+
+    def test_get_git_auth_env_skips_pat_when_fallback_disabled(self, gitlab_client, clone_setup, monkeypatch):
+        repository, _, _ = clone_setup
+        monkeypatch.setattr(codebase_settings, "GITLAB_PAT_FALLBACK", False)
+
+        with patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None):
+            assert gitlab_client.get_git_auth_env(repository) is None
 
     def test_load_repo_does_not_retry_non_auth_clone_failures(self, gitlab_client, clone_setup):
         """A missing branch (or any non-auth 128) won't be fixed by a fresh credential, so it must

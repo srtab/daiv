@@ -17,6 +17,7 @@ from automation.agent.synthetic import ISSUE_CONTEXT_KIND, synthetic_message
 from automation.agent.utils import repo_relative_text
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, Scope
+from codebase.exceptions import CloneCredentialUnavailableError
 from core.constants import BOT_NAME, has_auto_label
 
 from .base import BaseManager
@@ -213,7 +214,7 @@ class IssueAddressorManager(BaseManager):
             self._add_unable_to_address_issue_note()
 
     async def _on_failure(self, exc: Exception, *, draft_published: bool, snapshot: StateSnapshot | None) -> None:
-        if isinstance(exc, AgentConfigurationError):
+        if isinstance(exc, (AgentConfigurationError, CloneCredentialUnavailableError)):
             logger.warning("issue_addressor: %s", exc)
             if self._claim_unable_note():
                 self._leave_comment(
