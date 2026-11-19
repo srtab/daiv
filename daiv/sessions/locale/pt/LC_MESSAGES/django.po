@@ -1566,6 +1566,12 @@ msgstr "A carregar…"
 msgid "Unknown person"
 msgstr "Pessoa desconhecida"
 
+msgid "no price"
+msgstr "sem preço"
+
+msgid "Couldn't load these choices."
+msgstr "Não foi possível carregar estas opções."
+
 #, python-format
 msgid "Clear %(label)s filter"
 msgstr "Limpar filtro %(label)s"

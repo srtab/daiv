@@ -38,7 +38,7 @@
 
     <div class="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div class="stat-tile" data-testid="tile-cost">
-            <p class="stat-value text-text-strong">{{ totals.cost_text }}{% if cost_floor %}<span class="text-status-found" title="{% translate 'A floor: some tokens have no price, or some runs recorded nothing' %}" aria-hidden="true">+</span><span class="sr-only">{% translate "A floor: some tokens have no price, or some runs recorded nothing" %}</span>{% endif %}</p>
+            <p class="stat-value text-text-strong">{{ totals.cost_text }}{% if cost_floor %}{% translate "A floor: some tokens have no price, or some runs recorded nothing" as floor_note %}<span class="text-status-found" title="{{ floor_note }}" aria-hidden="true">+</span><span class="sr-only">{{ floor_note }}</span>{% endif %}</p>
             <p class="mt-2 text-sm text-text-muted">{% translate "total cost" %}</p>
             {% include "dashboard/_change_badge.html" with change=totals.cost_change %}
         </div>

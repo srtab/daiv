@@ -6,18 +6,9 @@
  * only #session-results via the shared swapResults().
  */
 
-const SPEND_PARAMS = [
-    "spend_from",
-    "spend_to",
-    "spend_person",
-    "spend_repo",
-    "spend_trigger",
-    "spend_task",
-    "spend_model",
-    "spend_provider",
-];
-// The Spend page's params with no control in the bar: they show as one banner.
+// The Spend page's params: those with no control in the bar show as one banner.
 const SPEND_BANNER_PARAMS = ["spend_from", "spend_to", "spend_repo", "spend_trigger", "spend_task"];
+const SPEND_PARAMS = [...SPEND_BANNER_PARAMS, "spend_person", "spend_model", "spend_provider"];
 
 const { swapResults } = window.createResultsSwap("session-results", {
     errorMessage: "Couldn't update the session list — check your connection and try again.",

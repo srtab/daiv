@@ -475,28 +475,28 @@ msgstr[0] "mais %(counter)s na exportação CSV"
 msgstr[1] "mais %(counter)s na exportação CSV"
 
 #, python-format
-msgid "Show all %(counter)s person"
-msgid_plural "Show all %(counter)s people"
-msgstr[0] "Mostrar %(counter)s pessoa"
-msgstr[1] "Mostrar todas as %(counter)s pessoas"
+msgid "Show all %(count)s person"
+msgid_plural "Show all %(count)s people"
+msgstr[0] "Mostrar %(count)s pessoa"
+msgstr[1] "Mostrar todas as %(count)s pessoas"
 
 #, python-format
-msgid "Show all %(counter)s repository"
-msgid_plural "Show all %(counter)s repositories"
-msgstr[0] "Mostrar %(counter)s repositório"
-msgstr[1] "Mostrar todos os %(counter)s repositórios"
+msgid "Show all %(count)s repository"
+msgid_plural "Show all %(count)s repositories"
+msgstr[0] "Mostrar %(count)s repositório"
+msgstr[1] "Mostrar todos os %(count)s repositórios"
 
 #, python-format
-msgid "Show all %(counter)s model"
-msgid_plural "Show all %(counter)s models"
-msgstr[0] "Mostrar %(counter)s modelo"
-msgstr[1] "Mostrar todos os %(counter)s modelos"
+msgid "Show all %(count)s model"
+msgid_plural "Show all %(count)s models"
+msgstr[0] "Mostrar %(count)s modelo"
+msgstr[1] "Mostrar todos os %(count)s modelos"
 
 #, python-format
-msgid "Show all %(counter)s provider"
-msgid_plural "Show all %(counter)s providers"
-msgstr[0] "Mostrar %(counter)s fornecedor"
-msgstr[1] "Mostrar todos os %(counter)s fornecedores"
+msgid "Show all %(count)s provider"
+msgid_plural "Show all %(count)s providers"
+msgstr[0] "Mostrar %(count)s fornecedor"
+msgstr[1] "Mostrar todos os %(count)s fornecedores"
 
 msgid "Show the top 5 only"
 msgstr "Mostrar apenas os 5 primeiros"

@@ -297,13 +297,14 @@ class SessionListView(LoginRequiredMixin, FilterView):
 
     @staticmethod
     def _spend_label(records: QuerySet[SpendRecord], key: str, value: str) -> str:
-        """The label of the current choice of a spend control, or ``value`` itself when no record has it."""
+        """The label the menu gives the current choice of a spend control, or ``value`` itself when no record has it."""
         if key == "spend_person":
-            values = records.filter(SpendLedger.person_filter(value)).values(*SpendLedger.PERSON_VALUES).first()
-            return SpendLedger.person(values).name if values else value
-        if key == "spend_provider":
-            return records.filter(provider_slug=value).values_list("provider_name", flat=True).first() or value
-        return value
+            choices = SessionSpendChoicesView.people(records.filter(SpendLedger.person_filter(value)))
+        elif key == "spend_provider":
+            choices = SessionSpendChoicesView.providers(records.filter(provider_slug=value))
+        else:
+            return value
+        return dict(choices).get(value, value)
 
     def _spend_banner(self, cleaned: dict[str, Any], current: dict[str, str]) -> dict[str, Any] | None:
         """The Spend page's params that have no control in the bar, as one banner with a single clear."""
@@ -327,7 +328,7 @@ class SessionSpendChoicesView(LoginRequiredMixin, View):
     """The choices of one of the sessions list's spend controls, from the records the user may see, as menu items."""
 
     def get(self, request, key: str):
-        choices = {"spend_person": self._people, "spend_model": self._models, "spend_provider": self._providers}
+        choices = {"spend_person": self.people, "spend_model": self.models, "spend_provider": self.providers}
         if key not in choices:
             raise Http404
         records = SpendRecord.objects.visible_to(request.user).order_by()
@@ -340,7 +341,7 @@ class SessionSpendChoicesView(LoginRequiredMixin, View):
         return render(request, "sessions/_filter_options.html", context)
 
     @staticmethod
-    def _people(records: QuerySet[SpendRecord]) -> list[tuple[str, str]]:
+    def people(records: QuerySet[SpendRecord]) -> list[tuple[str, str]]:
         people = {}
         for values in records.values(*SpendLedger.PERSON_VALUES).distinct():
             person = SpendLedger.person(values)
@@ -348,11 +349,11 @@ class SessionSpendChoicesView(LoginRequiredMixin, View):
         return sorted(people.items(), key=lambda item: item[1].lower())
 
     @staticmethod
-    def _models(records: QuerySet[SpendRecord]) -> list[tuple[str, str]]:
+    def models(records: QuerySet[SpendRecord]) -> list[tuple[str, str]]:
         return [(model, model) for model in records.values_list("model", flat=True).distinct().order_by("model")]
 
     @staticmethod
-    def _providers(records: QuerySet[SpendRecord]) -> list[tuple[str, str]]:
+    def providers(records: QuerySet[SpendRecord]) -> list[tuple[str, str]]:
         rows = records.exclude(provider_slug="").values_list("provider_slug").annotate(Max("provider_name"))
         return list(rows.order_by("provider_slug"))
 

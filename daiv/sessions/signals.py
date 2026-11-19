@@ -30,7 +30,7 @@ logger = logging.getLogger("daiv.sessions")
 def stamp_spend_of_deleted_user(sender: type, instance: User, **kwargs: Any) -> None:
     """Keep a deleted user's spend under their id and the name the Spend page showed them by, as ``user`` goes NULL."""
     SpendRecord.objects.filter(user=instance).update(
-        deleted_user_id=instance.pk, person_name=instance.name or instance.username
+        user=None, deleted_user_id=instance.pk, person_name=instance.name or instance.username
     )
 
 

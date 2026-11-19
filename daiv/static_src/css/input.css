@@ -589,32 +589,32 @@ html {
   }
 
   .change-badge {
-    @apply inline-flex items-center gap-1 rounded-md px-2 py-0.5 font-semibold;
+    @apply inline-flex items-center gap-1 rounded-md bg-surface-3 px-2 py-0.5 font-semibold;
   }
   .change-badge--good {
-    @apply bg-surface-3 text-status-clear;
+    @apply text-status-clear;
   }
   .change-badge--bad {
-    @apply bg-surface-3 text-status-fail;
+    @apply text-status-fail;
   }
   .change-badge--neutral {
-    @apply bg-surface-3 text-text-muted;
+    @apply text-text-muted;
   }
 
   .cache-tag {
-    @apply inline-flex shrink-0 items-center rounded-[5px] px-1.5 font-mono text-[11px];
+    @apply inline-flex shrink-0 items-center rounded-[5px] bg-surface-3 px-1.5 font-mono text-[11px];
   }
   .cache-tag--good {
-    @apply bg-surface-3 text-status-clear;
+    @apply text-status-clear;
   }
   .cache-tag--fair {
-    @apply bg-surface-3 text-text-muted;
+    @apply text-text-muted;
   }
   .cache-tag--attention {
-    @apply bg-surface-3 text-status-found;
+    @apply text-status-found;
   }
   .cache-tag--unreported {
-    @apply text-text-faint;
+    @apply bg-transparent text-text-faint;
   }
 
   .split-bar {
@@ -962,27 +962,27 @@ html {
 
 @layer components {
   .status-badge {
-    @apply rounded-full px-2.5 py-0.5 text-xs font-medium;
+    @apply rounded-full bg-surface-3 px-2.5 py-0.5 text-xs font-medium;
   }
 
   .status-badge-success {
-    @apply bg-surface-3 text-status-clear;
+    @apply text-status-clear;
   }
 
   .status-badge-failed {
-    @apply bg-surface-3 text-status-fail;
+    @apply text-status-fail;
   }
 
   .status-badge-running {
-    @apply bg-surface-3 text-status-attn;
+    @apply text-status-attn;
   }
 
   .status-badge-queued {
-    @apply bg-surface-3 text-text;
+    @apply text-text;
   }
 
   .status-badge-warning {
-    @apply bg-surface-3 text-status-found;
+    @apply text-status-found;
   }
 
   .status-badge-waiting {
@@ -991,7 +991,7 @@ html {
   }
 
   .status-badge-pending {
-    @apply bg-surface-3 text-text-muted;
+    @apply text-text-muted;
   }
 
   /* Subtle inline chip used to surface per-run metadata (e.g., the agent
@@ -5098,7 +5098,6 @@ html {
     @apply inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-3 text-text;
   }
   .filter-context__text { @apply min-w-0 flex-1; }
-  .filter-context__text a { @apply font-medium text-accent transition-colors hover:text-accent-bright; }
   .filter-context__text b { @apply font-semibold text-text; }
   .filter-context__clear {
     @apply inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-text-muted hover:bg-surface-3

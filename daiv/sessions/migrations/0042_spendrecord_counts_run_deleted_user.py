@@ -68,15 +68,6 @@ class Migration(migrations.Migration):
                 verbose_name="user",
             ),
         ),
-        migrations.AddIndex(
-            model_name="spendrecord",
-            index=models.Index(
-                condition=models.Q(("task", "")),
-                fields=["session", "occurred_at"],
-                include=("cost_usd", "unpriced_tokens"),
-                name="spend_session_run_spend_idx",
-            ),
-        ),
         migrations.RunPython(mark_counted_runs, migrations.RunPython.noop),
         migrations.RunPython(key_deleted_users, migrations.RunPython.noop),
     ]

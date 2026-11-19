@@ -19,7 +19,7 @@ from sessions.filters import SCOPE_MINE
 from sessions.managers import RUN_SPEND
 from sessions.models import Run, RunStatus, Session, SessionOrigin, SpendRecord, SpendTask
 from sessions.spend_ledger import DAIV_PERSON, SpendLedger
-from sessions.templatetags.session_tags import format_cost, format_tokens
+from sessions.templatetags.session_tags import cost_text, format_cost, format_tokens
 
 from dashboard.insights import _rate_change, _relative_change, format_pct, pct, session_list_url, stacked_chart
 
@@ -36,6 +36,12 @@ REST_NAMES = {
     "repository": ngettext_lazy("Rest (%(count)s repository)", "Rest (%(count)s repositories)", "count"),
     "model": ngettext_lazy("Rest (%(count)s model)", "Rest (%(count)s models)", "count"),
     "provider": ngettext_lazy("Rest (%(count)s provider)", "Rest (%(count)s providers)", "count"),
+}
+SHOW_ALL_NAMES = {
+    "person": ngettext_lazy("Show all %(count)s person", "Show all %(count)s people", "count"),
+    "repository": ngettext_lazy("Show all %(count)s repository", "Show all %(count)s repositories", "count"),
+    "model": ngettext_lazy("Show all %(count)s model", "Show all %(count)s models", "count"),
+    "provider": ngettext_lazy("Show all %(count)s provider", "Show all %(count)s providers", "count"),
 }
 
 CACHE_GOOD = 85
@@ -265,7 +271,7 @@ class SpendReport:
             "name": name,
             "note": note,
             "cost": cost,
-            "cost_text": self._cost_text(cost, values["unpriced"]),
+            "cost_text": cost_text(cost, values["unpriced"]),
             "unpriced": values["unpriced"],
             **self._share(cost, total),
             "tokens": format_tokens(values["tokens"]),
@@ -293,7 +299,7 @@ class SpendReport:
             unpriced = sums["unpriced"] - sum(row["unpriced"] for row in top)
             rest = {
                 "name": REST_NAMES[key] % {"count": groups - FOLDED_ROWS},
-                "cost_text": self._cost_text(cost, unpriced),
+                "cost_text": cost_text(cost, unpriced),
                 **self._share(cost, sums["cost"]),
                 "why": _("The rows past the top %(count)s are summed here") % {"count": FOLDED_ROWS},
             }
@@ -302,6 +308,7 @@ class SpendReport:
             "title": title,
             "rows": shown,
             "rest": rest,
+            "show_all": SHOW_ALL_NAMES[key] % {"count": groups},
             "groups": groups,
             "not_shown": max(groups - SHOWN_ROWS, 0),
             "foldable": groups > FOLDED_ROWS,
@@ -536,13 +543,6 @@ class SpendReport:
     @staticmethod
     def _share(cost: Decimal, total: Decimal) -> dict[str, str]:
         return {"share": f"{cost / total * 100:.1f}" if total else "0", "share_text": format_pct(pct(cost, total))}
-
-    @staticmethod
-    def _cost_text(cost: Decimal, unpriced_tokens: int) -> str:
-        """A cost, marked as a floor when some of its tokens have no price, and never "$0" when none of them do."""
-        if unpriced_tokens and not cost:
-            return str(_("no price"))
-        return SpendReport.usd(cost) + ("+" if unpriced_tokens else "")
 
     @staticmethod
     def _per(cost: Decimal, count: int) -> Decimal | None:

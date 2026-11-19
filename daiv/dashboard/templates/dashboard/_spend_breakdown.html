@@ -49,7 +49,7 @@ Context:
     {% if table.foldable %}
     <button type="button" @click="open = !open" :aria-expanded="open.toString()" aria-expanded="false" data-testid="show-all"
             class="btn-surface mt-2.5 w-full">
-        <span x-show="!open">{% if table.key == "person" %}{% blocktranslate count counter=table.groups %}Show all {{ counter }} person{% plural %}Show all {{ counter }} people{% endblocktranslate %}{% elif table.key == "repository" %}{% blocktranslate count counter=table.groups %}Show all {{ counter }} repository{% plural %}Show all {{ counter }} repositories{% endblocktranslate %}{% elif table.key == "model" %}{% blocktranslate count counter=table.groups %}Show all {{ counter }} model{% plural %}Show all {{ counter }} models{% endblocktranslate %}{% else %}{% blocktranslate count counter=table.groups %}Show all {{ counter }} provider{% plural %}Show all {{ counter }} providers{% endblocktranslate %}{% endif %}</span>
+        <span x-show="!open">{{ table.show_all }}</span>
         <span x-show="open" x-cloak>{% translate "Show the top 5 only" %}</span>
     </button>
     {% endif %}

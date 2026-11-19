@@ -1190,12 +1190,6 @@ class SpendRecord(models.Model):
             models.Index(fields=["user", "occurred_at"], name="spend_user_occurred_idx"),
             models.Index(fields=["repo_id", "occurred_at"], name="spend_repo_occurred_idx"),
             models.Index(fields=["session", "occurred_at"], name="spend_session_occurred_idx"),
-            models.Index(
-                fields=["session", "occurred_at"],
-                include=["cost_usd", "unpriced_tokens"],
-                condition=models.Q(task=""),
-                name="spend_session_run_spend_idx",
-            ),
         ]
 
     def __str__(self) -> str:

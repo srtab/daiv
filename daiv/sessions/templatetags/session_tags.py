@@ -100,6 +100,14 @@ def option_label(options, value) -> str:
     return next((label for option, label in options if option == value), value)
 
 
+@register.simple_tag
+def cost_text(cost, floor) -> str:
+    """A cost, marked ``+`` as a floor when some of its tokens have no price, and never "$0" when none of them do."""
+    if floor and not cost:
+        return gettext("no price")
+    return (format_cost(cost) if cost else "$0.00") + ("+" if floor else "")
+
+
 @register.filter
 def origin_icon(origin) -> str:
     """Map a SessionOrigin value to an icon name; unknown → generic 'jobs'."""

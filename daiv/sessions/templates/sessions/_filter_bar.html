@@ -29,8 +29,7 @@
         {% include "sessions/_filter_dropdown.html" with key="trigger" label=type_label icon="bars-3" all_label=all_types options=origins current=current_trigger lead="origin" %}
 
         {% querystring range=None date_from=None date_to=None page=None as clear_time_url %}
-        <div class="relative" @click.outside="if (open === 'time') open = null"
-             @keydown.escape="if (open === 'time') { open = null; $el.querySelector('.filter-control__toggle').focus() }">
+        <div class="relative" @click.outside="close('time')" @keydown.escape="close('time', $el)">
             <div class="filter-control{% if current_range or current_from or current_to %} filter-control--active{% endif %}"
                  :class="{ 'filter-control--active': timeActive }">
                 <button type="button" class="filter-control__toggle" @click="toggle('time')" data-testid="filter-time"
@@ -80,8 +79,7 @@
            x-show="hasActiveFilters" {% if not has_active_filters %}style="display:none"{% endif %}>{% translate "Clear all" %}</a>
 
         <div class="ml-auto flex flex-wrap items-center gap-2">
-            <div class="relative" @click.outside="if (open === 'sort') open = null"
-             @keydown.escape="if (open === 'sort') { open = null; $el.querySelector('.filter-control__toggle').focus() }">
+            <div class="relative" @click.outside="close('sort')" @keydown.escape="close('sort', $el)">
                 <div class="filter-control">
                     <button type="button" class="filter-control__toggle" @click="toggle('sort')" data-testid="filter-sort"
                             aria-expanded="false" :aria-expanded="(open === 'sort').toString()">
@@ -164,7 +162,7 @@
     <div class="filter-context" role="status" x-show="hasSpendBanner" data-testid="spend-banner">
         <span class="filter-context__icon">{% icon "currency-dollar" "h-4 w-4" %}</span>
         <p class="filter-context__text">
-            <a href="{% url 'insights_spend' %}?scope={{ current_scope }}">{% translate "From Spend" %}</a> ·
+            <a href="{% url 'insights_spend' %}?scope={{ current_scope }}" class="link font-medium">{% translate "From Spend" %}</a> ·
             {% translate "Sessions with spend" %}
             {% with start=spend_banner.start|date:"j M Y" end=spend_banner.end|date:"j M Y" %}
             {% if start and end %}{% blocktranslate %}between <b>{{ start }}</b> and <b>{{ end }}</b>{% endblocktranslate %}
