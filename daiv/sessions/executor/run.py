@@ -17,6 +17,7 @@ from redis.exceptions import RedisError
 from redisvl.exceptions import RedisSearchError
 
 from automation.agent.git_state import checkpointed_repo_publishes
+from automation.agent.provider_errors import provider_failure_of
 from automation.agent.session_links import SessionLinks
 from core import worker_shutdown
 from core.constants import INTERRUPTED_MESSAGE
@@ -157,6 +158,7 @@ async def stream_run(
                     outcome = await _after_run(spec, run)
             except Exception as exc:
                 if interrupted is None:
+                    await _arecord_provider_failure(spec.run_id, exc)
                     await _notify_failure(
                         hooks, exc, draft_published=recovery.draft_published, snapshot=recovery.snapshot
                     )
@@ -216,6 +218,7 @@ async def _run_in_slot(
             invoke = partial(_invoke, spec, hooks, recovery, run_relay)
             outcome = await _until_stopped(invoke, spec.thread_id, should_stop)
         except Exception as exc:
+            await _arecord_provider_failure(spec.run_id, exc)
             await _notify_failure(hooks, exc, draft_published=recovery.draft_published, snapshot=recovery.snapshot)
             raise
         if hooks.on_success is not None:
@@ -787,6 +790,19 @@ async def _record_measurements(run_id: str | None, ctx: RuntimeCtx, workspace: W
             logger.error("executor: no Run row %s to record run measurements on", run_id)
     except Exception:
         logger.exception("executor: failed to record run measurements for run_id=%s", run_id)
+
+
+async def _arecord_provider_failure(run_id: str | None, exc: BaseException) -> None:
+    if run_id is None:
+        return
+    try:
+        failure = provider_failure_of(exc)
+        if failure is not None:
+            await Run.objects.filter(pk=run_id).aupdate(
+                failure_kind=failure.kind, failure_provider=failure.provider_slug
+            )
+    except Exception:
+        logger.exception("executor: failed to record the provider failure for run_id=%s", run_id)
 
 
 async def _notify_failure(
