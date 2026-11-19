@@ -3,10 +3,6 @@ from __future__ import annotations
 import contextlib
 from typing import TYPE_CHECKING, Any
 
-import anthropic
-import openai
-from google.genai import errors as genai_errors
-
 from core.models import ProviderFailureKind
 
 if TYPE_CHECKING:
@@ -15,6 +11,8 @@ if TYPE_CHECKING:
 TAG_ATTR = "daiv_provider_failure"
 
 _IN_FLIGHT_BUDGET = "openrouter_in_flight_budget"
+_CREDITS = "openrouter_credits"
+_KEY_LIMIT = "openrouter_key_limit"
 _SPEND_LIMIT_ERROR_CODE = "enforced_spend_limit_reached"
 
 
@@ -33,6 +31,16 @@ def _limit_source(error: dict[str, Any]) -> str:
     return source if isinstance(source, str) else ""
 
 
+def _classify_limit_source(limit_source: str) -> ProviderFailureKind | None:
+    if limit_source == _IN_FLIGHT_BUDGET:
+        return ProviderFailureKind.RATE_LIMITED
+    if limit_source == _CREDITS:
+        return ProviderFailureKind.OUT_OF_CREDITS
+    if limit_source == _KEY_LIMIT or limit_source.endswith("_budget"):
+        return ProviderFailureKind.SPEND_LIMIT_REACHED
+    return None
+
+
 def _classify_status(status: int, error: dict[str, Any]) -> ProviderFailureKind | None:
     limit_source = _limit_source(error)
     details = error.get("details")
@@ -40,14 +48,10 @@ def _classify_status(status: int, error: dict[str, Any]) -> ProviderFailureKind 
     match status:
         case 401:
             return ProviderFailureKind.AUTH_FAILED
-        case 402:
-            if limit_source == _IN_FLIGHT_BUDGET:
-                return ProviderFailureKind.RATE_LIMITED
-            return ProviderFailureKind.OUT_OF_CREDITS
-        case 403:
-            if limit_source == "openrouter_key_limit" or limit_source.endswith("_budget"):
-                return ProviderFailureKind.SPEND_LIMIT_REACHED
-            return None
+        case 402 | 403:
+            if limit_source:
+                return _classify_limit_source(limit_source)
+            return ProviderFailureKind.OUT_OF_CREDITS if status == 402 else None
         case 429:
             if error.get("code") == "insufficient_quota":
                 return ProviderFailureKind.OUT_OF_CREDITS
@@ -60,6 +64,10 @@ def _classify_status(status: int, error: dict[str, Any]) -> ProviderFailureKind 
 
 
 def _classify_one(exc: BaseException) -> ProviderFailureKind | None:
+    import anthropic
+    import openai
+    from google.genai import errors as genai_errors
+
     if isinstance(exc, openai.APIStatusError | anthropic.APIStatusError):
         error = _error_object(exc.body)
         if (
@@ -80,14 +88,16 @@ def _classify_one(exc: BaseException) -> ProviderFailureKind | None:
 
 def _chain(exc: BaseException | None):
     seen: set[int] = set()
-    stack = [exc]
-    while stack:
-        current = stack.pop(0)
-        if current is None or id(current) in seen:
-            continue
+    current = exc
+    while current is not None and id(current) not in seen:
         seen.add(id(current))
         yield current
-        stack.extend([current.__cause__, current.__context__])
+        if current.__cause__ is not None:
+            current = current.__cause__
+        elif not current.__suppress_context__:
+            current = current.__context__
+        else:
+            current = None
 
 
 def classify_provider_error(exc: BaseException) -> ProviderFailureKind | None:

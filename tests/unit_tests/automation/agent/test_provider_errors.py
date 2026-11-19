@@ -52,6 +52,25 @@ def gemini(cause: Exception) -> ChatGoogleGenerativeAIError:
         (openai_status(402, {"error": {"code": 402, "message": "Insufficient credits"}}), K.OUT_OF_CREDITS),
         (
             openai_status(
+                402, {"error": {"code": 402, "message": "x", "metadata": {"limit_source": "openrouter_key_limit"}}}
+            ),
+            K.SPEND_LIMIT_REACHED,
+        ),
+        (
+            openai_status(
+                402, {"error": {"code": 402, "message": "x", "metadata": {"limit_source": "some_future_source"}}}
+            ),
+            None,
+        ),
+        (
+            openai_status(
+                403,
+                {"error": {"code": 403, "message": "x", "metadata": {"limit_source": "openrouter_in_flight_budget"}}},
+            ),
+            K.RATE_LIMITED,
+        ),
+        (
+            openai_status(
                 402,
                 {"error": {"code": 402, "message": "x", "metadata": {"limit_source": "openrouter_in_flight_budget"}}},
             ),
@@ -179,11 +198,6 @@ def test_anthropic_spend_limit_row_uses_the_sdk_class():
     assert isinstance(exc, EnforcedSpendLimitReachedError)
 
 
-def test_openai_sdk_hands_the_inner_error_object_as_body():
-    exc = openai_status(402, {"error": {"code": 402, "message": "x"}})
-    assert exc.body == {"code": 402, "message": "x"}
-
-
 def test_classify_finds_the_provider_error_behind_a_wrapper():
     cause = openai_status(402, {"error": {"code": 402, "message": "x"}})
     try:
@@ -219,3 +233,35 @@ def test_tagging_an_exception_that_refuses_attributes_does_not_raise():
     exc = FrozenError()
     tag_provider_failure(exc, ProviderFailure(kind=K.AUTH_FAILED, provider_slug="openai"))
     assert provider_failure_of(exc) is None
+
+
+def test_classify_follows_an_implicit_context_link():
+    try:
+        try:
+            raise openai_status(402, {"error": {"code": 402, "message": "x"}})
+        except openai.APIStatusError:
+            raise RuntimeError("during handling")  # noqa: B904
+    except RuntimeError as exc:
+        assert exc.__cause__ is None
+        assert classify_provider_error(exc) == K.OUT_OF_CREDITS
+
+
+def test_a_suppressed_context_is_not_followed():
+    failure = ProviderFailure(kind=K.OUT_OF_CREDITS, provider_slug="openrouter")
+    try:
+        try:
+            raise openai_status(402, {"error": {"code": 402, "message": "x"}})
+        except openai.APIStatusError as inner:
+            tag_provider_failure(inner, failure)
+            raise RuntimeError("replaced") from None
+    except RuntimeError as exc:
+        assert classify_provider_error(exc) is None
+        assert provider_failure_of(exc) is None
+
+
+def test_tagging_swallows_type_error():
+    class PickyError(Exception):
+        def __setattr__(self, name, value):
+            raise TypeError(name)
+
+    tag_provider_failure(PickyError(), ProviderFailure(kind=K.AUTH_FAILED, provider_slug="openai"))
