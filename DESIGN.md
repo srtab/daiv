@@ -589,8 +589,9 @@ The bar above a list (Sessions, Artifacts, Memory). Every control is 42px (`h-10
   (the Spend drill-down) read as one sentence with one ×.
 - Controls never use a status colour or the accent; menus are `.filter-menu` surfaces.
 
-Dropdowns render through `sessions/_filter_dropdown.html`, against an Alpine component that
-provides `open`, `toggle(key)`, `value(key)`, `pick(key, value)` and `labelFor(key)`:
+Dropdowns render through `sessions/_filter_dropdown.html`, against an Alpine component that has
+`open` and `_apply()` and spreads `filterDropdown()` (`sessions/js/filter-dropdown.js`). They are
+disclosures, not ARIA menus: a toggle with `aria-expanded` over plain links that Tab reaches.
 
 ```django
 {% translate "Model" as model_label %}{% translate "Any model" as any_model %}

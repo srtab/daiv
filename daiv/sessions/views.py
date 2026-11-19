@@ -203,7 +203,6 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["current_scope"] = self.scope
         context["current_status"] = cleaned.get("status") or ""
         context["current_trigger"] = cleaned.get("trigger") or ""
-        context["current_trigger_label"] = dict(SessionOrigin.choices).get(context["current_trigger"], "")
         context["current_repo"] = cleaned.get("repo") or ""
         context["current_mr"] = cleaned.get("mr") or ""
         context["current_ran_on"] = self.request.GET.get("ran_on", "") if cleaned.get("ran_on") else ""
@@ -220,7 +219,10 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["current_archived"] = self.archived is True
         context["current_archived_included"] = self.archived is None
         context["current_sort"] = self.sort
+        context["default_sort"] = SORT_RECENT
         context["sorts"] = SORT_CHOICES
+        clear_all = {"scope": self.scope} | ({"sort": self.sort} if self.sort != SORT_RECENT else {})
+        context["clear_all_url"] = f"{self.request.path}?{urlencode(clear_all)}"
         context.update(self._spend_context(cleaned))
         context["has_active_filters"] = any([
             context["has_spend_filters"],

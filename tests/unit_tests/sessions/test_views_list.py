@@ -885,6 +885,21 @@ class TestSessionListFilterBar:
         assert len(soup.select(".filter-chip")) == 2
         assert soup.select_one(".filter-clear").get_text(strip=True) == "Clear all"
 
+    def test_clear_all_keeps_the_scope_and_a_chosen_sort(self, logged_in_client, user):
+        soup = self._soup(logged_in_client, {"scope": "all", "status": "FAILED", "sort": "cost"})
+
+        url = soup.select_one(".filter-clear")["href"]
+        assert dict(QueryDict(urlsplit(url).query).items()) == {"scope": "all", "sort": "cost"}
+        empty_state_url = soup.select_one("#session-results a[href*='sort=cost']")["href"]
+        assert empty_state_url == url
+
+    def test_a_set_spend_filter_keeps_its_control_without_visible_spend(self, logged_in_client, user):
+        soup = self._soup(logged_in_client, {"spend_model": "gone-model"})
+
+        control = soup.select_one("[data-testid=filter-spend_model]").find_parent(class_="filter-control")
+        assert control.select_one(".filter-control__value").get_text(strip=True) == "gone-model"
+        assert soup.select("[data-testid=filter-spend_person], [data-testid=filter-spend_provider]") == []
+
     def test_a_cost_sorted_list_has_no_date_headers(self, logged_in_client, user):
         _spend(_create_session(user=user), "1")
         _spend(_create_session(user=user, archived_at=timezone.now()), "1")

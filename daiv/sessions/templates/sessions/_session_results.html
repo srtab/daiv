@@ -3,7 +3,7 @@
 {% if sessions %}
 <div class="overflow-hidden rounded-2xl border border-border bg-surface-2">
     {% for session in sessions %}
-        {% if current_sort != "cost" %}
+        {% if current_sort == default_sort %}
         {% ifchanged %}
         <div class="session-group-header">
             <span>{{ session.last_active_at|date_bucket }}</span>
@@ -17,7 +17,7 @@
 {% elif has_active_filters %}
 <div class="rounded-2xl border border-border bg-surface-2 p-10 text-center">
     <p class="text-[15px] text-text-muted">{% translate "No sessions match these filters." %}</p>
-    <a href="{% url 'session_list' %}?scope={{ current_scope }}" class="mt-3 inline-block text-sm text-text-muted hover:text-text-strong">
+    <a href="{{ clear_all_url }}" class="mt-3 inline-block text-sm text-text-muted hover:text-text-strong">
         {% translate "Clear all" %}
     </a>
 </div>

@@ -96,9 +96,14 @@ _ORIGIN_ICONS = {
 
 @register.simple_tag(takes_context=True)
 def filter_query(context, key: str, value: str) -> str:
-    """The current query string with ``key`` set to ``value``, or removed when it is empty, and no page."""
+    """The current query string with ``key`` set to ``value``, or removed when it is empty, and no page.
+
+    Keeps a resolved ``current_scope`` explicit: dropping a deep-link param would otherwise re-resolve it.
+    """
     query = context["request"].GET.copy()
     query.pop("page", None)
+    if scope := context.get("current_scope"):
+        query["scope"] = scope
     if value:
         query[key] = value
     else:

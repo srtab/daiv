@@ -1,6 +1,6 @@
 {% load i18n icon_tags session_tags %}
 <div class="animate-fade-up relative z-10 mt-8 flex flex-col gap-2.5" style="animation-delay: 50ms"
-     x-data="filterBar()" data-scope="{{ current_scope }}">
+     x-data="filterBar()" data-scope="{{ current_scope }}" data-default-sort="{{ default_sort }}">
     <div class="flex flex-wrap items-center gap-2">
         <div class="relative min-w-[240px] flex-1">
             <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-faint">
@@ -33,7 +33,7 @@
             <div class="filter-control{% if current_range or current_from or current_to %} filter-control--active{% endif %}"
                  :class="{ 'filter-control--active': timeActive }">
                 <button type="button" class="filter-control__toggle" @click="toggle('time')" data-testid="filter-time"
-                        aria-haspopup="menu" aria-expanded="false" :aria-expanded="(open === 'time').toString()">
+                        aria-expanded="false" :aria-expanded="(open === 'time').toString()">
                     <span class="filter-control__lead">{% icon "calendar" "h-4 w-4" %}</span>
                     <span class="filter-control__key">{% translate "Active" context "sessions last active" %}</span>
                     <span class="filter-control__value" x-show="timeActive" x-text="timeLabel"
@@ -45,14 +45,14 @@
                    {% if not current_range and not current_from and not current_to %}style="display:none"{% endif %}
                    aria-label="{% translate 'Clear time filter' %}">{% icon "x-mark" "h-3.5 w-3.5" %}</a>
             </div>
-            <div data-surface class="filter-menu" role="menu" x-show="open === 'time'" x-cloak>
-                <a href="{{ clear_time_url }}" role="menuitem"
+            <div data-surface class="filter-menu" x-show="open === 'time'" x-cloak>
+                <a href="{{ clear_time_url }}"
                    class="filter-menu-item{% if not current_range and not current_from and not current_to %} filter-menu-item--active{% endif %}"
                    @click.prevent="clearTime()" :class="{ 'filter-menu-item--active': !timeActive }">{% translate "Any time" %}</a>
                 {% for value, label in ranges %}
-                <a href="{% querystring range=value date_from=None date_to=None page=None %}" role="menuitem"
+                <a href="{% querystring range=value date_from=None date_to=None page=None %}"
                    class="filter-menu-item{% if current_range == value %} filter-menu-item--active{% endif %}"
-                   data-range-value="{{ value }}" data-label="{{ label }}"
+                   data-filter-key="range" data-value="{{ value }}" data-label="{{ label }}"
                    @click.prevent="setRange('{{ value }}')" :class="{ 'filter-menu-item--active': range === '{{ value }}' }">{{ label }}</a>
                 {% endfor %}
                 <div class="filter-menu__section">
@@ -68,32 +68,36 @@
             </div>
         </div>
 
-        {% if spend_people or spend_models or spend_providers %}
+        {% if spend_people or current_spend.spend_person %}
         {% translate "Spent by" as person_label %}{% translate "Anyone" as anyone %}
         {% include "sessions/_filter_dropdown.html" with key="spend_person" label=person_label icon="users" all_label=anyone options=spend_people current=current_spend.spend_person %}
+        {% endif %}
+        {% if spend_models or current_spend.spend_model %}
         {% translate "Model" as model_label %}{% translate "Any model" as any_model %}
         {% include "sessions/_filter_dropdown.html" with key="spend_model" label=model_label icon="cpu-chip" all_label=any_model options=spend_models current=current_spend.spend_model %}
+        {% endif %}
+        {% if spend_providers or current_spend.spend_provider %}
         {% translate "Provider" as provider_label %}{% translate "Any provider" as any_provider %}
         {% include "sessions/_filter_dropdown.html" with key="spend_provider" label=provider_label icon="providers" all_label=any_provider options=spend_providers current=current_spend.spend_provider %}
         {% endif %}
 
-        <a href="{% url 'session_list' %}?scope={{ current_scope }}" class="filter-clear" @click.prevent="clearAll()"
+        <a href="{{ clear_all_url }}" class="filter-clear" @click.prevent="clearAll()"
            x-show="hasActiveFilters" {% if not has_active_filters %}style="display:none"{% endif %}>{% translate "Clear all" %}</a>
 
         <div class="ml-auto flex flex-wrap items-center gap-2">
             <div class="relative" @click.outside="if (open === 'sort') open = null" @keydown.escape="if (open === 'sort') open = null">
                 <div class="filter-control">
                     <button type="button" class="filter-control__toggle" @click="toggle('sort')" data-testid="filter-sort"
-                            aria-haspopup="menu" aria-expanded="false" :aria-expanded="(open === 'sort').toString()">
+                            aria-expanded="false" :aria-expanded="(open === 'sort').toString()">
                         <span class="filter-control__lead">{% icon "chevron-up-down" "h-4 w-4" %}</span>
                         <span>{% translate "Sort:" %}</span>
                         <span class="filter-control__value text-text" x-text="labelFor('sort')">{{ sorts|option_label:current_sort }}</span>
                         <span class="filter-control__lead">{% icon "chevron-down" "h-3.5 w-3.5" %}</span>
                     </button>
                 </div>
-                <div data-surface class="filter-menu filter-menu--end" role="menu" x-show="open === 'sort'" x-cloak>
+                <div data-surface class="filter-menu filter-menu--end" x-show="open === 'sort'" x-cloak>
                     {% for value, label in sorts %}
-                    <a href="{% querystring sort=value page=None %}" role="menuitem" data-filter-key="sort" data-value="{{ value }}" data-label="{{ label }}"
+                    <a href="{% querystring sort=value page=None %}" data-filter-key="sort" data-value="{{ value }}" data-label="{{ label }}"
                        class="filter-menu-item{% if current_sort == value %} filter-menu-item--active{% endif %}"
                        @click.prevent="pick('sort', $el.dataset.value)" :class="{ 'filter-menu-item--active': sort === $el.dataset.value }">{{ label }}</a>
                     {% endfor %}

@@ -32,23 +32,8 @@ document.addEventListener("alpine:init", () => {
             this.open = null;
         },
 
-        // The contract sessions/_filter_dropdown.html binds to.
-        toggle(key) {
-            this.open = this.open === key ? null : key;
-        },
-        value(key) {
-            return this[key];
-        },
-        pick(key, value) {
-            this[key] = value;
-            this._apply();
-        },
-        labelFor(key) {
-            const value = this.value(key);
-            if (!value) return "";
-            const el = this.$root.querySelector(`[data-filter-key="${key}"][data-value="${CSS.escape(value)}"]`);
-            return el ? el.dataset.label : value;
-        },
+        ...window.filterDropdown(),
+
         clearAll() {
             for (const field of FIELDS) this[field] = "";
             this._apply();

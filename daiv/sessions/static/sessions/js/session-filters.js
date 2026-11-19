@@ -40,7 +40,7 @@ document.addEventListener("alpine:init", () => {
         schedule: "",
         batch: "",
         archived: "",
-        sort: "recent",
+        sort: "",
         // The Spend page's drill-down params, keyed by their URL names.
         spend: Object.fromEntries(SPEND_PARAMS.map((name) => [name, ""])),
 
@@ -67,18 +67,8 @@ document.addEventListener("alpine:init", () => {
             this.batch = p.get("batch") || "";
             const archived = p.get("archived");
             this.archived = archived === "true" || archived === "all" ? archived : "";
-            this.sort = p.get("sort") || "recent";
+            this.sort = p.get("sort") || this.$root.dataset.defaultSort;
             SPEND_PARAMS.forEach((name) => (this.spend[name] = p.get(name) || ""));
-        },
-
-        _labelFor(kind, value) {
-            if (!value) return "";
-            const el = this.$root.querySelector(`[data-${kind}-value="${value}"]`);
-            if (el) return el.dataset.label || el.textContent.trim();
-            // A URL value with no matching menu item (renamed/removed enum, hand-edited
-            // URL): show the raw value so the active filter stays visible, and log it.
-            console.warn(`filterBar: no menu item for ${kind}="${value}"; showing raw value`);
-            return value;
         },
 
         _apply() {
@@ -101,34 +91,19 @@ document.addEventListener("alpine:init", () => {
             set("batch", this.batch);
             set("archived", this.archived);
             SPEND_PARAMS.forEach((name) => set(name, this.spend[name]));
-            set("sort", this.sort === "recent" ? "" : this.sort);
+            set("sort", this.sort === this.$root.dataset.defaultSort ? "" : this.sort);
             const qs = params.toString();
             swapResults(window.location.pathname + (qs ? "?" + qs : ""));
             this.open = null;
-        },
-
-        toggle(id) {
-            this.open = this.open === id ? null : id;
         },
 
         setScope(value) {
             this.scope = value;
             this._apply();
         },
-        // The contract sessions/_filter_dropdown.html binds to.
-        value(key) {
-            return key.startsWith("spend_") ? this.spend[key] : this[key];
-        },
-        pick(key, value) {
-            if (key.startsWith("spend_")) this.spend[key] = value;
-            else this[key] = value;
-            this._apply();
-        },
-        labelFor(key) {
-            const value = this.value(key);
-            if (!value) return "";
-            const el = this.$root.querySelector(`[data-filter-key="${key}"][data-value="${CSS.escape(value)}"]`);
-            return el ? el.dataset.label : value;
+        ...window.filterDropdown(),
+        _slot(key) {
+            return key.startsWith("spend_") ? this.spend : this;
         },
         setRange(value) {
             this.range = value;
@@ -177,14 +152,8 @@ document.addEventListener("alpine:init", () => {
             this._apply();
         },
 
-        // Button labels are derived from the rendered menu items (single source of truth =
-        // the template), so they never need to be stored or cleared alongside the value.
-        get rangeLabel() {
-            return this._labelFor("range", this.range);
-        },
-
         get timeLabel() {
-            if (this.rangeLabel) return this.rangeLabel;
+            if (this.range) return this.labelFor("range");
             if (this.from || this.to) return (this.from || "…") + " – " + (this.to || "…");
             return "";
         },

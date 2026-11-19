@@ -205,14 +205,14 @@ def test_session_merge_request_none_when_nothing_published():
     assert session_merge_request(session) is None
 
 
-def _render_filter_query(rf, params: dict, key: str, value: str) -> dict:
+def _render_filter_query(rf, params: dict, key: str, value: str, **context) -> dict:
     import html
 
     from django.http import QueryDict
     from django.template import Context, Template
 
     out = Template(f"{{% load session_tags %}}{{% filter_query '{key}' '{value}' %}}").render(
-        Context({"request": rf.get("/s/", params)})
+        Context({"request": rf.get("/s/", params), **context})
     )
     assert out.startswith("?")
     return QueryDict(html.unescape(out[1:])).dict()
@@ -230,7 +230,13 @@ def test_filter_query_removes_the_key_for_an_empty_value(rf):
     assert _render_filter_query(rf, {"scope": "all", "status": "FAILED"}, "status", "") == {"scope": "all"}
 
 
-def _dropdown(rf, current: str):
+def test_filter_query_keeps_a_resolved_scope_explicit(rf):
+    query = _render_filter_query(rf, {"spend_model": "m1"}, "spend_model", "", current_scope="all")
+
+    assert query == {"scope": "all"}
+
+
+def _dropdown(rf, current: str, *, lead: str = "", options: list[tuple[str, str]] | None = None):
     from django.template.loader import render_to_string
 
     from bs4 import BeautifulSoup
@@ -243,9 +249,9 @@ def _dropdown(rf, current: str):
             "label": "Model",
             "icon": "cpu-chip",
             "all_label": "Any model",
-            "options": [(model, model)],
+            "options": options or [(model, model)],
             "current": current,
-            "lead": "",
+            "lead": lead,
             "align": "",
         },
         request=rf.get("/s/"),
@@ -269,3 +275,13 @@ def test_an_unset_dropdown_shows_its_name_and_hides_its_clear(rf):
     assert soup.select(".filter-control--active") == []
     assert soup.select_one(".filter-control__toggle").get_text(" ", strip=True) == "Model"
     assert soup.select_one(".filter-control__clear")["style"] == "display:none"
+
+
+def test_a_dropdown_toggle_carries_one_lead_whatever_the_option_count(rf):
+    options = [(f"group/repo-{n}", f"group/repo-{n}") for n in range(20)]
+
+    soup = _dropdown(rf, "group/repo-3", lead="repo", options=options)
+
+    toggle = soup.select_one(".filter-control__toggle")
+    assert len(toggle.select(".filter-control__lead")) == 3
+    assert toggle.select_one("[x-html]").find("span") is not None
