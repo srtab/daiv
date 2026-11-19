@@ -32,8 +32,13 @@ from codebase.base import (
     User,
 )
 from codebase.clients import RepoClient
-from codebase.clients.gitlab.clone_tokens import get_ephemeral_clone_token, invalidate_clone_token
+from codebase.clients.gitlab.clone_tokens import (
+    CLONE_TOKEN_CACHE_KEY,
+    get_ephemeral_clone_token,
+    invalidate_clone_token,
+)
 from codebase.clients.gitlab.utils import CHILD_PIPELINE_SOURCE
+from codebase.conf import settings as codebase_settings
 from codebase.exceptions import CloneRefNotFoundError, MergeRequestBranchNotVisibleError
 from codebase.utils import is_git_auth_error_text, is_git_ref_not_found_text
 from core.constants import BOT_NAME
@@ -533,7 +538,8 @@ class GitLabClient(RepoClient):
         Prefers a short-lived project-scoped access token so the credential — which also feeds
         the sandbox egress proxy's injected header — cannot reach beyond this project's
         repository. Falls back to the configured PAT when the token cannot be provisioned
-        (e.g. PAT user below Maintainer, GitLab.com Free tier). Commit identity is unaffected:
+        (e.g. PAT user below Maintainer, GitLab.com Free tier), unless ``GITLAB_PAT_FALLBACK``
+        is off, in which case the clone fails instead. Commit identity is unaffected:
         _configure_commit_identity resolves the DAIV user through the PAT-authenticated client
         either way.
 
@@ -544,6 +550,15 @@ class GitLabClient(RepoClient):
         if token := get_ephemeral_clone_token(self.client, repository.pk):
             logger.debug("Cloning %s with an ephemeral project access token", repository.slug)
             return token
+        if not codebase_settings.GITLAB_PAT_FALLBACK:
+            raise ImproperlyConfigured(
+                f"Cannot authenticate the git clone of {repository.slug}: no ephemeral clone token could be "
+                "provisioned and CODEBASE_GITLAB_PAT_FALLBACK is off. Usual causes: the CODEBASE_GITLAB_AUTH_TOKEN "
+                "user is below Maintainer on the project, the project is on the GitLab.com Free tier, or a transient "
+                "GitLab API error. The warning logged when the token creation failed has the specific cause. DAIV "
+                "retries the token creation after up to an hour (5 minutes after a transient error); delete the "
+                f"'{CLONE_TOKEN_CACHE_KEY.format(project_pk=repository.pk)}' cache entry to retry sooner."
+            )
         if not self.client.private_token:
             raise ImproperlyConfigured(
                 "Cannot authenticate the git clone: no ephemeral clone token could be provisioned "
@@ -553,9 +568,12 @@ class GitLabClient(RepoClient):
         return self.client.private_token
 
     def _git_egress_token(self, repository: Repository) -> str | None:
-        """Reuse the same short-lived, project-scoped clone token as the clone (PAT fallback; see
-        :meth:`_get_clone_token`); ``None`` (host-only reachability) when neither is available."""
-        return get_ephemeral_clone_token(self.client, repository.pk) or self.client.private_token or None
+        """Reuse the same short-lived, project-scoped clone token as the clone (PAT fallback unless
+        ``GITLAB_PAT_FALLBACK`` is off; see :meth:`_get_clone_token`); ``None`` (host-only
+        reachability) when neither is available."""
+        if token := get_ephemeral_clone_token(self.client, repository.pk):
+            return token
+        return (codebase_settings.GITLAB_PAT_FALLBACK and self.client.private_token) or None
 
     def push_uses_ephemeral_token(self, repository: Repository) -> bool:
         # Asserts the credential *kind*, not the token value: a day-cache expiry mid-turn re-mints

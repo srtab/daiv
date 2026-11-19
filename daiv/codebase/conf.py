@@ -16,6 +16,10 @@ class CodebaseSettings(BaseSettings):
     # GitLab
     GITLAB_URL: HttpUrl | None = Field(default=None, description="URL of the GitLab instance")
     GITLAB_AUTH_TOKEN: SecretStr | None = Field(default=None, description="Authentication token for GitLab")
+    GITLAB_PAT_FALLBACK: bool = Field(
+        default=True,
+        description="Use GITLAB_AUTH_TOKEN for git clone/push when a per-project clone token can't be created",
+    )
 
     REPO_ACCESS_SYNC_CRON: str = Field(
         default="*/15 * * * *", description="Cron expression for the periodic repository access sync"

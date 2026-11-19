@@ -23,11 +23,11 @@ CLONE_TOKEN_LIFETIME_DAYS = 3
 CLONE_TOKEN_CACHE_TIMEOUT = 60 * 60 * 24
 # Persistent failures (role, tier, dead PAT): retrying soon won't change the answer.
 CLONE_TOKEN_UNAVAILABLE_TIMEOUT = 60 * 60
-# Transient failures (network blips, 429, 5xx): retry soon so a single blip doesn't park
-# clones on the PAT for a whole hour.
+# Transient failures (network blips, 429, 5xx): retry soon so a single blip doesn't leave
+# clones without an ephemeral token for a whole hour.
 CLONE_TOKEN_TRANSIENT_UNAVAILABLE_TIMEOUT = 60 * 5
 
-_CACHE_KEY = "codebase:gitlab:clone-token:{project_pk}"
+CLONE_TOKEN_CACHE_KEY = "codebase:gitlab:clone-token:{project_pk}"  # noqa: S105
 _UNAVAILABLE = "__unavailable__"
 
 
@@ -46,7 +46,7 @@ def get_ephemeral_clone_token(client: Gitlab, project_pk: int) -> str | None:
     transient API/network error); the failure is negative-cached — for an hour when it
     looks persistent, minutes when transient — to avoid hammering the API on every clone.
     """
-    cache_key = _CACHE_KEY.format(project_pk=project_pk)
+    cache_key = CLONE_TOKEN_CACHE_KEY.format(project_pk=project_pk)
     if (cached := cache.get(cache_key)) is not None:
         return None if cached == _UNAVAILABLE else cached
 
@@ -67,7 +67,7 @@ def invalidate_clone_token(project_pk: int) -> None:
     served for the remainder of the cache window, failing every clone of the project. A
     no-op when nothing is cached.
     """
-    cache.delete(_CACHE_KEY.format(project_pk=project_pk))
+    cache.delete(CLONE_TOKEN_CACHE_KEY.format(project_pk=project_pk))
 
 
 def _create_token(client: Gitlab, project_pk: int) -> tuple[str | None, int]:
@@ -88,27 +88,22 @@ def _create_token(client: Gitlab, project_pk: int) -> tuple[str | None, int]:
             "expires_at": expires_at,
         })
     except GitlabAuthenticationError as e:
-        # The fallback authenticates with the very credential GitLab just rejected, so the clone
-        # is likely to fail too — name the real culprit instead of claiming a benign degradation.
+        # The PAT fallback, when enabled, uses the very credential GitLab just rejected — name it.
         logger.warning(
             "GitLab rejected the configured PAT while provisioning a clone token for project %s "
-            "(is the PAT revoked or expired?); the clone will fall back to the PAT: %s",
+            "(is the PAT revoked or expired?): %s",
             project_pk,
             e,
         )
         return None, CLONE_TOKEN_UNAVAILABLE_TIMEOUT
     except (GitlabError, requests.RequestException) as e:
-        logger.warning(
-            "Could not create an ephemeral clone token for project %s (the clone will fall back to the PAT): %s",
-            project_pk,
-            e,
-        )
+        logger.warning("Could not create an ephemeral clone token for project %s: %s", project_pk, e)
         return None, CLONE_TOKEN_TRANSIENT_UNAVAILABLE_TIMEOUT if _is_transient(e) else CLONE_TOKEN_UNAVAILABLE_TIMEOUT
     if not (secret := getattr(token, "token", None)):
         # The create call succeeded, so GitLab now holds a token it never disclosed to us.
         logger.warning(
-            "GitLab returned an access token for project %s without a token secret; the clone will fall "
-            "back to the PAT (an orphaned '%s' token was likely left on the project).",
+            "GitLab returned an access token for project %s without a token secret "
+            "(an orphaned '%s' token was likely left on the project).",
             project_pk,
             CLONE_TOKEN_NAME,
         )

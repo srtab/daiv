@@ -214,12 +214,13 @@ Set `CODEBASE_CLIENT` to `gitlab` or `github`. Only one platform is active at a 
 | :material-asterisk: `CODEBASE_GITLAB_URL`            | URL of the GitLab instance                  | *(none)*  | `https://gitlab.com` |
 | :material-asterisk: `CODEBASE_GITLAB_AUTH_TOKEN`  :material-lock:    | Authentication token for GitLab             | *(none)*  | `glpat-xyz`          |
 | :material-asterisk: `CODEBASE_GITLAB_WEBHOOK_SECRET` :material-lock:| Secret token for GitLab webhook validation. Without it, every GitLab webhook request is rejected with 401 | *(none)*  | `random-webhook-secret` |
+| `CODEBASE_GITLAB_PAT_FALLBACK`  | Use `CODEBASE_GITLAB_AUTH_TOKEN` for `git clone` and `git push` when a per-project clone token can't be created | `true` | `false` |
 
 `CODEBASE_GITLAB_AUTH_TOKEN` is a personal access token with the `api` scope.
 
 For `git clone` and `git push`, DAIV does not put this token in the repository workspace. It creates a short-lived project access token for each repository instead: named `daiv-clone`, with the `write_repository` scope and the Developer access level, and valid for 48 to 72 hours. DAIV reuses a repository's token for up to 24 hours, so expect a few `daiv-clone` bot members on a project at a time. GitLab removes expired ones.
 
-Creating these tokens needs the token's user to hold at least the Maintainer role on each project and, on GitLab.com, the Premium or Ultimate tier. Self-managed instances accept any tier. When DAIV cannot create a token, it logs a warning and falls back to the personal access token.
+Creating these tokens needs the token's user to hold at least the Maintainer role on each project and, on GitLab.com, the Premium or Ultimate tier. Self-managed instances accept any tier. When DAIV cannot create a token, it logs a warning and falls back to the personal access token. To keep the personal access token out of the workspace entirely, set `CODEBASE_GITLAB_PAT_FALLBACK` to `false`: the run then fails with an error instead of falling back. DAIV remembers a failed token creation and retries it after up to an hour, or 5 minutes after a transient GitLab error, so runs on that project keep failing for that long after you fix the cause. Delete the `codebase:gitlab:clone-token:<project-id>` cache entry to retry sooner.
 
 The project access token pushes at the Developer level. If a branch protection rule matches the branches DAIV pushes to, for example a wildcard pattern that limits pushes to Maintainers, allow Developers to push on that pattern, or pushes fail.
 

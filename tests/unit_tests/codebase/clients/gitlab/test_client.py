@@ -17,6 +17,7 @@ from codebase.clients.gitlab.client import (
     GitLabClient,
     _is_source_branch_missing_error,
 )
+from codebase.conf import settings as codebase_settings
 from codebase.exceptions import MergeRequestBranchNotVisibleError
 
 _CLONE_URL = "https://gitlab.com/group/repo.git"
@@ -210,6 +211,23 @@ class TestGitLabClient:
 
         clone_from.assert_not_called()
 
+    @pytest.mark.parametrize("pat", ["pat-token", None])
+    def test_load_repo_raises_when_pat_fallback_disabled(self, gitlab_client, clone_setup, monkeypatch, pat):
+        """With the fallback off, a missing ephemeral token fails the clone instead of using the PAT."""
+        repository, clone_from, _ = clone_setup
+        gitlab_client.client.private_token = pat
+        monkeypatch.setattr(codebase_settings, "GITLAB_PAT_FALLBACK", False)
+
+        with (
+            patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None),
+            pytest.raises(ImproperlyConfigured, match="CODEBASE_GITLAB_PAT_FALLBACK") as exc_info,
+            gitlab_client.load_repo(repository, "main"),
+        ):
+            pass
+
+        clone_from.assert_not_called()
+        assert "codebase:gitlab:clone-token:1" in str(exc_info.value)
+
     @pytest.mark.parametrize(
         "n_failures",
         [
@@ -340,6 +358,27 @@ class TestGitLabClient:
         assert clone_from.call_args_list[-1].kwargs["env"] == _expected_clone_env("pat-token")
         # Only the stale token slept; the PAT attempt adds no further backoff.
         assert mock_sleep.call_args_list == [call(delay) for delay in backoff]
+
+    def test_load_repo_remint_raises_when_pat_fallback_disabled(self, gitlab_client, clone_setup, monkeypatch):
+        """If the re-mint after a stale token yields nothing, the fallback-off clone fails without trying the PAT."""
+        repository, clone_from, _ = clone_setup
+        monkeypatch.setattr(codebase_settings, "GITLAB_PAT_FALLBACK", False)
+        stale_attempts = len(CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS) + 1
+        clone_from.side_effect = GitCommandError("git clone", 128, "fatal: Authentication failed for 'https://...'")
+
+        with (
+            patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", side_effect=["glpat-stale", None]),
+            patch("codebase.clients.gitlab.client.invalidate_clone_token") as invalidate,
+            patch("codebase.clients.gitlab.client.shutil.rmtree"),
+            patch("codebase.clients.gitlab.client.time.sleep"),
+            pytest.raises(ImproperlyConfigured),
+            gitlab_client.load_repo(repository, "main"),
+        ):
+            pass
+
+        invalidate.assert_called_once_with(1)
+        assert clone_from.call_count == stale_attempts
+        assert all(c.kwargs["env"] != _expected_clone_env("pat-token") for c in clone_from.call_args_list)
 
     def test_load_repo_does_not_retry_when_the_clone_used_the_pat(self, gitlab_client, clone_setup):
         """Re-minting can't fix a clone that already used the PAT directly (no ephemeral token to
@@ -1073,6 +1112,14 @@ class TestGitLabClient:
         with patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None):
             cred = gitlab_client.get_git_egress_credential(self._egress_repo())
         assert cred.value.get_secret_value() == "Basic " + base64.b64encode(b"oauth2:pat-token").decode()
+
+    def test_get_git_egress_credential_skips_pat_when_fallback_disabled(self, gitlab_client, monkeypatch):
+        gitlab_client.client.private_token = "pat-token"  # noqa: S105
+        monkeypatch.setattr(codebase_settings, "GITLAB_PAT_FALLBACK", False)
+        with patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None):
+            cred = gitlab_client.get_git_egress_credential(self._egress_repo())
+        assert cred.host == "gitlab.example.com"
+        assert cred.value is None
 
     def test_get_git_egress_credential_no_token_returns_host_only(self, gitlab_client):
         gitlab_client.client.private_token = None
