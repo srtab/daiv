@@ -6,6 +6,7 @@ import pytest
 
 from core.models import Provider, ProviderFailureKind
 from core.provider_failures import ProviderFailure, active_provider_failures, failure_message
+from tests.unit_tests.translation_stub import catalog
 
 
 @pytest.mark.django_db
@@ -76,3 +77,11 @@ def test_active_provider_failures_skips_disabled_providers():
     Provider.invalidate_cache()
 
     assert [row.slug for row in active_provider_failures()] == ["anthropic"]
+
+
+@pytest.mark.django_db
+def test_failure_message_is_translated_at_display_time():
+    template = "%(provider)s is rate-limiting DAIV right now. Try again in a few minutes."
+
+    with catalog({template: "%(provider)s limita o DAIV."}):
+        assert failure_message(ProviderFailureKind.RATE_LIMITED, "openrouter") == "OpenRouter limita o DAIV."

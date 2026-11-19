@@ -1631,3 +1631,18 @@ def test_a_stopped_run_keeps_the_stopped_marker_despite_a_provider_failure(trigg
     ]
     marker = annotate_transcript([_user("h1"), _assistant("a1")], runs)[-1]
     assert (marker["status"], marker["message"]) == ("aborted", CANCELLED_BY_USER_MESSAGE)
+
+
+@pytest.mark.django_db
+def test_an_unknown_failure_kind_falls_back_to_the_generic_marker():
+    runs = [
+        _run(
+            "r1",
+            trigger_type=SessionOrigin.API_JOB,
+            status=RunStatus.FAILED,
+            failure_kind="from_the_future",
+            failure_provider="openrouter",
+        )
+    ]
+    marker = annotate_transcript([_user("h1"), _assistant("a1")], runs)[-1]
+    assert (marker["status"], marker["message"]) == ("failed", RUN_FAILED_MESSAGE)

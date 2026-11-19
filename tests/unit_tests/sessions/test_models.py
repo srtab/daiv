@@ -624,3 +624,11 @@ def test_only_a_task_backed_run_its_worker_shutdown_stopped_is_interrupted(
     run = Run(status=status, task_result_id=task_result_id, error_message=error_message)
 
     assert run.is_interrupted is interrupted
+
+
+@pytest.mark.django_db
+def test_provider_failure_message_ignores_an_unknown_kind():
+    run = Run(failure_kind="from_the_future", failure_provider="openrouter")
+    assert run.provider_failure_message() is None
+    run.failure_kind = "out_of_credits"
+    assert "OpenRouter" in run.provider_failure_message()

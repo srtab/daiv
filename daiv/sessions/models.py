@@ -581,7 +581,7 @@ class Run(models.Model):
         return f"{self.get_trigger_type_display()} on {self.repo_id} ({self.status})"
 
     def provider_failure_message(self) -> str | None:
-        if not self.failure_kind:
+        if self.failure_kind not in ProviderFailureKind.values:
             return None
         return failure_message(self.failure_kind, self.failure_provider)
 

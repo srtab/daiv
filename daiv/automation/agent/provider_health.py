@@ -84,8 +84,9 @@ def mark_provider_failure(provider_slug: str, kind: str, model_name: str, now: d
         provider = Provider.objects.filter(slug=provider_slug)
         with transaction.atomic():
             repeat = provider.filter(failure_kind=kind, last_failed_at__gte=now - PROVIDER_FAILURE_TTL)
-            if not repeat.update(last_failed_at=now):
-                provider.update(failure_kind=kind, failure_model=model_name, failing_since=now, last_failed_at=now)
+            if repeat.update(last_failed_at=now):
+                return
+            provider.update(failure_kind=kind, failure_model=model_name, failing_since=now, last_failed_at=now)
         Provider.invalidate_cache()
 
 
@@ -102,5 +103,6 @@ def clear_provider_failure(provider_slug: str, model_name: str) -> None:
         else:
             return
         with transaction.atomic():
-            marked.update(failure_kind="", failure_model="", failing_since=None, last_failed_at=None)
-        Provider.invalidate_cache()
+            cleared = marked.update(failure_kind="", failure_model="", failing_since=None, last_failed_at=None)
+        if cleared:
+            Provider.invalidate_cache()

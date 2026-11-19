@@ -106,6 +106,36 @@ def test_a_repeat_keeps_failing_since_and_bumps_last_failed_at():
 
 
 @pytest.mark.django_db
+def test_a_repeat_mark_does_not_invalidate_the_provider_cache():
+    mark_provider_failure("openrouter", K.OUT_OF_CREDITS, "m-big")
+
+    with patch.object(Provider, "invalidate_cache") as invalidate:
+        mark_provider_failure("openrouter", K.OUT_OF_CREDITS, "m-big")
+
+    invalidate.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_a_new_mark_invalidates_the_provider_cache():
+    with patch.object(Provider, "invalidate_cache") as invalidate:
+        mark_provider_failure("openrouter", K.OUT_OF_CREDITS, "m-big")
+
+    invalidate.assert_called_once()
+
+
+@pytest.mark.django_db
+def test_a_clear_that_changes_no_row_does_not_invalidate_the_provider_cache():
+    mark_provider_failure("openrouter", K.OUT_OF_CREDITS, "m-big")
+    assert Provider.get_cached_by_slug()["openrouter"].failure_model == "m-big"
+    Provider.objects.filter(slug="openrouter").update(failure_kind="", failure_model="", last_failed_at=None)
+
+    with patch.object(Provider, "invalidate_cache") as invalidate:
+        clear_provider_failure("openrouter", "m-big")
+
+    invalidate.assert_not_called()
+
+
+@pytest.mark.django_db
 def test_a_second_model_failing_the_same_way_keeps_the_first_mark():
     first = timezone.now() - timedelta(hours=1)
     mark_provider_failure("openrouter", K.OUT_OF_CREDITS, "m-big", now=first)
