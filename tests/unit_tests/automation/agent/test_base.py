@@ -210,15 +210,16 @@ class TestGetModelKwargs:
         assert isinstance(model, ChatOpenRouter)
         assert model.openai_api_base == OPENROUTER_BASE_URL
 
-    def test_get_model_attaches_the_health_callback(self):
-        self._enable_seed("openrouter", "sk-or")
+    @pytest.mark.parametrize(("slug", "model_name"), [("openrouter", "z-ai/glm-5"), ("anthropic", "claude-sonnet-4-6")])
+    def test_get_model_attaches_the_health_callback(self, slug, model_name):
+        self._enable_seed(slug, "sk")
         caller_callback = UsageMetadataCallbackHandler()
 
-        model = get_model(model="openrouter:z-ai/glm-5", callbacks=[caller_callback])
+        model = get_model(model=f"{slug}:{model_name}", callbacks=[caller_callback])
 
         assert model.callbacks[0] is caller_callback
         [health] = [cb for cb in model.callbacks if isinstance(cb, ProviderHealthCallback)]
-        assert (health.provider_slug, health.model_name) == ("openrouter", "z-ai/glm-5")
+        assert (health.provider_slug, health.model_name) == (slug, model_name)
 
     def test_get_model_non_openrouter_is_not_chat_openrouter(self):
         self._enable_seed("anthropic", "sk-a")

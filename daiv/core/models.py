@@ -36,7 +36,7 @@ PROVIDERS_CACHE_TIMEOUT = 60 * 5  # 5 minutes
 PROVIDER_FAILURE_TTL = timedelta(hours=24)
 
 
-def _close_old_connections_outside_transactions() -> None:
+def close_old_connections_outside_transactions() -> None:
     """``close_old_connections`` for the cache loaders, which may run inside a caller's transaction: closing that
     connection hands it back to the pool mid-transaction, and the caller's next query fails."""
     for conn in connections.all(initialized_only=True):
@@ -817,14 +817,14 @@ class SiteConfiguration(models.Model):
             return cached
 
         try:
-            _close_old_connections_outside_transactions()
+            close_old_connections_outside_transactions()
             instance = cls.objects.get_instance()
         except Exception:  # noqa: BLE001 — DB/cache may fail during startup or degraded state
             logger.exception("SiteConfiguration not available; falling back to defaults")
             return None
         finally:
             with contextlib.suppress(Exception):
-                _close_old_connections_outside_transactions()
+                close_old_connections_outside_transactions()
 
         cache.set(SITE_CONFIGURATION_CACHE_KEY, instance, SITE_CONFIGURATION_CACHE_TIMEOUT)
         return instance
@@ -1005,14 +1005,14 @@ class WebFetchAuthHeader(models.Model):
         diagnose the underlying failure.
         """
         try:
-            _close_old_connections_outside_transactions()
+            close_old_connections_outside_transactions()
             out = cls._build_from_db()
         except Exception:  # noqa: BLE001 — degrade gracefully on DB/migration/encryption errors
             logger.exception("WebFetchAuthHeader rows not available; falling back to empty dict")
             return {}
         finally:
             with contextlib.suppress(Exception):
-                _close_old_connections_outside_transactions()
+                close_old_connections_outside_transactions()
 
         cache.set(WEB_FETCH_AUTH_HEADERS_CACHE_KEY, out, WEB_FETCH_AUTH_HEADERS_CACHE_TIMEOUT)
         return out
@@ -1218,14 +1218,14 @@ class Provider(models.Model):
     @classmethod
     def _load_and_cache(cls) -> list[Cached]:
         try:
-            _close_old_connections_outside_transactions()
+            close_old_connections_outside_transactions()
             out = cls._build_from_db()
         except Exception:  # noqa: BLE001
             logger.exception("Provider rows not available; falling back to empty list")
             return []
         finally:
             with contextlib.suppress(Exception):
-                _close_old_connections_outside_transactions()
+                close_old_connections_outside_transactions()
 
         cache.set(PROVIDERS_CACHE_KEY, out, PROVIDERS_CACHE_TIMEOUT)
         return out

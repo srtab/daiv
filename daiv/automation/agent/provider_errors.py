@@ -14,6 +14,7 @@ _IN_FLIGHT_BUDGET = "openrouter_in_flight_budget"
 _CREDITS = "openrouter_credits"
 _KEY_LIMIT = "openrouter_key_limit"
 _SPEND_LIMIT_ERROR_CODE = "enforced_spend_limit_reached"
+_GOOGLE_MODULES = ("google", "langchain_google_genai")
 
 
 def _error_object(body: object) -> dict[str, Any]:
@@ -66,7 +67,6 @@ def _classify_status(status: int, error: dict[str, Any]) -> ProviderFailureKind 
 def _classify_one(exc: BaseException) -> ProviderFailureKind | None:
     import anthropic
     import openai
-    from google.genai import errors as genai_errors
 
     if isinstance(exc, openai.APIStatusError | anthropic.APIStatusError):
         error = _error_object(exc.body)
@@ -79,6 +79,11 @@ def _classify_one(exc: BaseException) -> ProviderFailureKind | None:
         return _classify_status(exc.status_code, error)
     if isinstance(exc, openai.APIConnectionError | anthropic.APIConnectionError):
         return ProviderFailureKind.PROVIDER_UNAVAILABLE
+    # google.genai takes ~0.65 s to import and this runs on the event loop, so only a Google error pays for it.
+    if not type(exc).__module__.startswith(_GOOGLE_MODULES):
+        return None
+    from google.genai import errors as genai_errors
+
     if isinstance(exc, genai_errors.APIError):
         if exc.code == 400 and "API key not valid" in str(exc.message or ""):
             return ProviderFailureKind.AUTH_FAILED

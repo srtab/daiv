@@ -1,4 +1,6 @@
+import sys
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import httpx2
 import openai
@@ -196,6 +198,18 @@ def test_anthropic_spend_limit_row_uses_the_sdk_class():
         },
     )
     assert isinstance(exc, EnforcedSpendLimitReachedError)
+
+
+@pytest.mark.parametrize(
+    ("exc", "expected"),
+    [
+        (openai_status(402, {"error": {"code": 402, "message": "Insufficient credits"}}), K.OUT_OF_CREDITS),
+        (ValueError("x"), None),
+    ],
+)
+def test_classifying_a_non_google_error_never_imports_google_genai(exc, expected):
+    with patch.dict(sys.modules, {"google.genai": None}):
+        assert classify_provider_error(exc) == expected
 
 
 def test_classify_finds_the_provider_error_behind_a_wrapper():

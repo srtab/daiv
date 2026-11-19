@@ -1,10 +1,12 @@
 import asyncio
+import logging
 import threading
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
-from django.db import DatabaseError
+from django.db import DatabaseError, transaction
+from django.db.models.sql.compiler import SQLUpdateCompiler
 from django.utils import timezone
 
 import httpx2
@@ -27,7 +29,7 @@ K = ProviderFailureKind
 
 
 class RaisingChatModel(BaseChatModel):
-    error: Exception
+    error: BaseException
 
     @property
     def _llm_type(self) -> str:
@@ -49,7 +51,7 @@ def openrouter_402() -> openai.APIStatusError:
     )
 
 
-def failing_call(model_name: str, error: Exception) -> Exception:
+def failing_call(model_name: str, error: BaseException) -> BaseException:
     model = RaisingChatModel(error=error, callbacks=[ProviderHealthCallback("openrouter", model_name)])
     with pytest.raises(type(error)) as excinfo:
         model.invoke("hi")
@@ -104,6 +106,30 @@ def test_a_repeat_keeps_failing_since_and_bumps_last_failed_at():
 
 
 @pytest.mark.django_db
+def test_a_second_model_failing_the_same_way_keeps_the_first_mark():
+    first = timezone.now() - timedelta(hours=1)
+    mark_provider_failure("openrouter", K.OUT_OF_CREDITS, "m-big", now=first)
+
+    failing_call("m-cheap", openrouter_402())
+
+    row = openrouter_row()
+    assert (row.failure_kind, row.failure_model, row.failing_since) == (K.OUT_OF_CREDITS, "m-big", first)
+    assert row.last_failed_at > first
+
+
+@pytest.mark.django_db
+def test_a_different_kind_replaces_the_mark():
+    first = timezone.now() - timedelta(hours=1)
+    mark_provider_failure("openrouter", K.AUTH_FAILED, "m-big", now=first)
+
+    failing_call("m-cheap", openrouter_402())
+
+    row = openrouter_row()
+    assert (row.failure_kind, row.failure_model) == (K.OUT_OF_CREDITS, "m-cheap")
+    assert row.failing_since == row.last_failed_at > first
+
+
+@pytest.mark.django_db
 def test_a_failure_after_the_mark_expired_restarts_failing_since():
     expired = timezone.now() - PROVIDER_FAILURE_TTL - timedelta(hours=1)
     mark_provider_failure("openrouter", K.OUT_OF_CREDITS, "m-big", now=expired)
@@ -151,7 +177,7 @@ def test_success_on_the_failing_model_clears_the_credits_mark():
 
 
 @pytest.mark.django_db
-def test_success_keeps_a_mark_another_worker_moved_to_a_different_model():
+def test_success_keeps_a_mark_another_worker_rewrote_for_a_different_model():
     failing_call("m-big", openrouter_402())
     assert Provider.get_cached_by_slug()["openrouter"].failure_model == "m-big"
     Provider.objects.filter(slug="openrouter").update(failure_model="m-other")
@@ -182,6 +208,59 @@ def test_a_db_failure_while_marking_keeps_the_original_error(caplog):
     assert raised is error
     assert provider_failure_of(error) == ProviderFailure(K.OUT_OF_CREDITS, "openrouter")
     assert any(record.exc_info and record.exc_info[1].__class__ is DatabaseError for record in caplog.records)
+
+
+@pytest.mark.django_db
+def test_a_classifier_failure_is_logged_and_the_original_error_still_raised(caplog):
+    error = openrouter_402()
+
+    with patch("automation.agent.provider_health.classify_provider_error", side_effect=RuntimeError("classifier bug")):
+        raised = failing_call("m-big", error)
+
+    assert raised is error
+    assert provider_failure_of(error) is None
+    assert any(
+        record.levelno == logging.ERROR and isinstance(record.exc_info[1], RuntimeError) for record in caplog.records
+    )
+
+
+@pytest.mark.django_db
+def test_a_cancellation_is_neither_tagged_nor_marked():
+    cancelled = asyncio.CancelledError()
+    cancelled.__context__ = openrouter_402()
+
+    failing_call("m-big", cancelled)
+
+    assert provider_failure_of(cancelled) is None
+    assert openrouter_row().failure_kind == ""
+
+
+@pytest.mark.django_db
+def test_a_db_error_while_marking_leaves_the_callers_transaction_usable():
+    with transaction.atomic():
+        with patch.object(SQLUpdateCompiler, "execute_sql", side_effect=DatabaseError("deadlock detected")):
+            mark_provider_failure("openrouter", K.OUT_OF_CREDITS, "m-big")
+
+        assert openrouter_row().failure_kind == ""
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("target", "attribute", "failure"),
+    [
+        (Provider, "get_cached_by_slug", ConnectionError("cache is down")),
+        (Provider.objects, "filter", DatabaseError("database is down")),
+    ],
+    ids=["cache", "db"],
+)
+def test_a_failure_while_clearing_is_logged_not_raised(caplog, target, attribute, failure):
+    failing_call("m-big", openrouter_402())
+
+    with patch.object(target, attribute, side_effect=failure):
+        succeeding_call("m-big")
+
+    assert openrouter_row().failure_kind == K.OUT_OF_CREDITS
+    assert any(record.exc_info and record.exc_info[1] is failure for record in caplog.records)
 
 
 @pytest.mark.django_db(transaction=True)
