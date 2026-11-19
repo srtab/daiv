@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
 import contextlib
 import logging
 from typing import TYPE_CHECKING, Any
@@ -13,19 +15,22 @@ from core.models import PROVIDER_FAILURE_TTL, Provider, ProviderFailureKind, _cl
 from core.provider_failures import ADMIN_KINDS, ProviderFailure
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from datetime import datetime
 
     from langchain_core.outputs import LLMResult
 
 logger = logging.getLogger("daiv.automation")
 
+# One worker applies marks and clears in the order their calls finished.
+_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="provider-health")
+
 
 class ProviderHealthCallback(BaseCallbackHandler):
     """Tags a provider error with its failure kind, and keeps the provider row's health mark in step."""
 
-    # Not inline: an async run awaits this sync handler in an executor thread, so the tag lands before the
-    # error propagates and the ORM never runs on the event loop.
-    run_inline = False
+    # Inline, so the tag lands before the error propagates and a streamed token costs no executor hop.
+    run_inline = True
     # Unhandled, a chat-model start makes langchain stringify the whole prompt on every call.
     ignore_chat_model = True
 
@@ -39,10 +44,19 @@ class ProviderHealthCallback(BaseCallbackHandler):
             return
         tag_provider_failure(error, ProviderFailure(kind, self.provider_slug))
         if kind in ADMIN_KINDS:
-            mark_provider_failure(self.provider_slug, kind, self.model_name)
+            _off_the_event_loop(mark_provider_failure, self.provider_slug, kind, self.model_name)
 
     def on_llm_end(self, response: LLMResult, **kwargs: Any) -> None:
-        clear_provider_failure(self.provider_slug, self.model_name)
+        _off_the_event_loop(clear_provider_failure, self.provider_slug, self.model_name)
+
+
+def _off_the_event_loop(job: Callable[..., None], *args: Any) -> None:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        job(*args)
+    else:
+        _executor.submit(job, *args)
 
 
 def mark_provider_failure(provider_slug: str, kind: str, model_name: str, now: datetime | None = None) -> None:
@@ -69,12 +83,14 @@ def clear_provider_failure(provider_slug: str, model_name: str) -> None:
         if row is None:
             return
         kind = row.active_failure_kind(timezone.now())
-        if not kind or (kind != ProviderFailureKind.AUTH_FAILED and row.failure_model != model_name):
+        if kind == ProviderFailureKind.AUTH_FAILED:
+            marked = Provider.objects.filter(slug=provider_slug, failure_kind=kind)
+        elif kind and row.failure_model == model_name:
+            marked = Provider.objects.filter(slug=provider_slug, failure_kind=kind, failure_model=model_name)
+        else:
             return
         _close_old_connections_outside_transactions()
-        Provider.objects.filter(slug=provider_slug, failure_kind=kind).update(
-            failure_kind="", failure_model="", failing_since=None, last_failed_at=None
-        )
+        marked.update(failure_kind="", failure_model="", failing_since=None, last_failed_at=None)
         Provider.invalidate_cache()
     except Exception:
         logger.exception("Could not clear the failure mark on provider %r", provider_slug)

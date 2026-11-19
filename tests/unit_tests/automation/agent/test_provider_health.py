@@ -1,6 +1,7 @@
+import asyncio
 import threading
 from datetime import timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 from django.db import DatabaseError
@@ -9,13 +10,18 @@ from django.utils import timezone
 import httpx2
 import openai
 import pytest
+from asgiref.sync import sync_to_async
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
+from automation.agent import provider_health
 from automation.agent.provider_errors import provider_failure_of
-from automation.agent.provider_health import ProviderHealthCallback, mark_provider_failure
-from core.models import PROVIDER_FAILURE_TTL, Provider, ProviderFailureKind
+from automation.agent.provider_health import ProviderHealthCallback, clear_provider_failure, mark_provider_failure
+from core.models import PROVIDER_FAILURE_TTL, Provider, ProviderFailureKind, ProviderType
 from core.provider_failures import ProviderFailure
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 K = ProviderFailureKind
 
@@ -56,6 +62,18 @@ def succeeding_call(model_name: str) -> None:
 
 def openrouter_row() -> Provider:
     return Provider.objects.get(slug="openrouter")
+
+
+def on_threads(job: Callable[..., None], threads: list[int]) -> Callable[..., None]:
+    def run(*args: Any, **kwargs: Any) -> None:
+        threads.append(threading.get_ident())
+        job(*args, **kwargs)
+
+    return run
+
+
+async def flush_health_jobs() -> None:
+    await asyncio.wrap_future(provider_health._executor.submit(lambda: None))
 
 
 @pytest.mark.django_db
@@ -133,6 +151,18 @@ def test_success_on_the_failing_model_clears_the_credits_mark():
 
 
 @pytest.mark.django_db
+def test_success_keeps_a_mark_another_worker_moved_to_a_different_model():
+    failing_call("m-big", openrouter_402())
+    assert Provider.get_cached_by_slug()["openrouter"].failure_model == "m-big"
+    Provider.objects.filter(slug="openrouter").update(failure_model="m-other")
+
+    succeeding_call("m-big")
+
+    row = openrouter_row()
+    assert (row.failure_kind, row.failure_model) == (K.OUT_OF_CREDITS, "m-other")
+
+
+@pytest.mark.django_db
 def test_any_success_clears_an_auth_mark():
     failing_call("m-big", openrouter_status(401, {"error": {"code": 401, "message": "No auth credentials found"}}))
     assert openrouter_row().failure_kind == K.AUTH_FAILED
@@ -154,22 +184,42 @@ def test_a_db_failure_while_marking_keeps_the_original_error(caplog):
     assert any(record.exc_info and record.exc_info[1].__class__ is DatabaseError for record in caplog.records)
 
 
+@pytest.mark.django_db(transaction=True)
 async def test_an_async_call_is_tagged_before_it_raises():
+    await Provider.objects.acreate(slug="health-async", display_name="Health", provider_type=ProviderType.OPENROUTER)
     error = openrouter_402()
-    marked_on: list[int] = []
-    model = RaisingChatModel(error=error, callbacks=[ProviderHealthCallback("openrouter", "m-big")])
+    model = RaisingChatModel(error=error, callbacks=[ProviderHealthCallback("health-async", "m-big")])
+    job_threads: list[int] = []
 
-    with (
-        patch(
-            "automation.agent.provider_health.mark_provider_failure",
-            side_effect=lambda *args, **kwargs: marked_on.append(threading.get_ident()),
-        ) as mark,
-        pytest.raises(openai.APIStatusError) as excinfo,
+    with patch(
+        "automation.agent.provider_health.mark_provider_failure", on_threads(mark_provider_failure, job_threads)
+    ):
+        with pytest.raises(openai.APIStatusError) as excinfo:
+            await model.ainvoke("hi")
+        assert excinfo.value is error
+        assert provider_failure_of(error) == ProviderFailure(K.OUT_OF_CREDITS, "health-async")
+        await flush_health_jobs()
+
+    row = await Provider.objects.aget(slug="health-async")
+    assert (row.failure_kind, row.failure_model) == (K.OUT_OF_CREDITS, "m-big")
+    [job_thread] = job_threads
+    assert job_thread != threading.get_ident()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_an_async_success_clears_the_mark_off_the_event_loop():
+    await Provider.objects.acreate(slug="health-async", display_name="Health", provider_type=ProviderType.OPENROUTER)
+    await sync_to_async(mark_provider_failure)("health-async", K.OUT_OF_CREDITS, "m-big")
+    model = FakeListChatModel(responses=["ok"], callbacks=[ProviderHealthCallback("health-async", "m-big")])
+    job_threads: list[int] = []
+
+    with patch(
+        "automation.agent.provider_health.clear_provider_failure", on_threads(clear_provider_failure, job_threads)
     ):
         await model.ainvoke("hi")
+        await flush_health_jobs()
 
-    assert excinfo.value is error
-    assert provider_failure_of(error) == ProviderFailure(K.OUT_OF_CREDITS, "openrouter")
-    mark.assert_called_once_with("openrouter", K.OUT_OF_CREDITS, "m-big")
-    [marking_thread] = marked_on
-    assert marking_thread != threading.get_ident()
+    row = await Provider.objects.aget(slug="health-async")
+    assert row.failure_kind == ""
+    [job_thread] = job_threads
+    assert job_thread != threading.get_ident()
