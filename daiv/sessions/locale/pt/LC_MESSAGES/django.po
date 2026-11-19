@@ -1417,3 +1417,9 @@ msgstr "Fez uma captura de ecrã"
 
 msgid "Taking a screenshot"
 msgstr "A fazer uma captura de ecrã"
+
+msgid "failure kind"
+msgstr "tipo de falha"
+
+msgid "failure provider"
+msgstr "fornecedor da falha"

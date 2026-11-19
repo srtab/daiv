@@ -21,6 +21,7 @@
       {% endif %}
       {% endwith %}
       {% endfor %}
+      <p class="alert-error__body mt-2 break-words text-sm">{% translate "This clears on the provider's next successful request, when you save the provider settings, or after 24 hours without a new failure." %}</p>
       <a href="{% url 'site_configuration' group_key='providers' %}" class="mt-2 inline-block text-sm font-medium text-red-100 underline underline-offset-2 hover:text-white">{% translate "Open provider settings" %}</a>
     </div>
   </div>
