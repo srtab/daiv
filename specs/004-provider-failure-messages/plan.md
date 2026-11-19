@@ -102,20 +102,25 @@ events, Alpine/Tailwind templates.
 ```python
 # tests/unit_tests/core/test_provider_failures.py
 @pytest.mark.django_db
-@pytest.mark.parametrize(("kind", "fragment"), [
-    (ProviderFailureKind.OUT_OF_CREDITS, "is out of credits"),
-    (ProviderFailureKind.SPEND_LIMIT_REACHED, "spending limit"),
-    (ProviderFailureKind.AUTH_FAILED, "rejected DAIV's API key"),
-    (ProviderFailureKind.RATE_LIMITED, "rate-limiting DAIV"),
-    (ProviderFailureKind.PROVIDER_UNAVAILABLE, "having problems"),
-])
+@pytest.mark.parametrize(
+    ("kind", "fragment"),
+    [
+        (ProviderFailureKind.OUT_OF_CREDITS, "is out of credits"),
+        (ProviderFailureKind.SPEND_LIMIT_REACHED, "spending limit"),
+        (ProviderFailureKind.AUTH_FAILED, "rejected DAIV's API key"),
+        (ProviderFailureKind.RATE_LIMITED, "rate-limiting DAIV"),
+        (ProviderFailureKind.PROVIDER_UNAVAILABLE, "having problems"),
+    ],
+)
 def test_failure_message_names_the_provider(kind, fragment):
     message = failure_message(kind, "openrouter")
     assert "OpenRouter" in message and fragment in message
 
+
 @pytest.mark.django_db
 def test_failure_message_falls_back_to_the_slug_for_a_deleted_provider():
     assert failure_message(ProviderFailureKind.AUTH_FAILED, "gone").startswith("gone ")
+
 
 @pytest.mark.django_db
 def test_active_provider_failures_lists_only_admin_kinds_within_the_ttl():
@@ -126,7 +131,7 @@ def test_active_provider_failures_lists_only_admin_kinds_within_the_ttl():
 
 ```python
 # tests/unit_tests/core/test_models_provider.py (add)
-def test_save_clears_the_failure_mark(): ...      # set the 4 fields via .update(), then .save() → all blank/None
+def test_save_clears_the_failure_mark(): ...  # set the 4 fields via .update(), then .save() → all blank/None
 def test_cached_row_carries_the_failure_fields(): ...
 def test_active_failure_kind_expires_after_the_ttl(): ...  # last_failed_at = now - 25h → ""
 ```
@@ -180,29 +185,126 @@ for openai/anthropic; `google.genai.errors.ClientError/ServerError(code, respons
 `ChatGoogleGenerativeAIError(...)` raised `from` it, as langchain-google-genai does).
 
 ```python
-@pytest.mark.parametrize(("exc", "expected"), [
-    (openai_status(402, {"error": {"code": 402, "message": "x", "metadata": {"limit_source": "openrouter_credits"}}}), OUT_OF_CREDITS),
-    (openai_status(402, {"error": {"code": 402, "message": "Insufficient credits"}}), OUT_OF_CREDITS),
-    (openai_status(402, {"error": {"code": 402, "message": "x", "metadata": {"limit_source": "openrouter_in_flight_budget"}}}), RATE_LIMITED),
-    (openai_status(403, {"error": {"code": 403, "message": "Budget limit exceeded (weekly limit).", "metadata": {"limit_source": "openrouter_key_limit"}}}), SPEND_LIMIT_REACHED),
-    (openai_status(403, {"error": {"code": 403, "message": "Request blocked: prompt injection patterns detected", "metadata": {"patterns": ["x"]}}}), None),
-    (openai_status(429, {"error": {"code": "insufficient_quota", "message": "x"}}), OUT_OF_CREDITS),
-    (openai_status(429, {"error": {"code": "rate_limit_exceeded", "message": "x"}}), RATE_LIMITED),
-    (openai_status(401, {"error": {"message": "bad key"}}), AUTH_FAILED),
-    (openai_status(500, {"error": {"message": "x"}}), PROVIDER_UNAVAILABLE),
-    (openai.APIConnectionError(request=REQ), PROVIDER_UNAVAILABLE),
-    (anthropic_status(400, {"type": "error", "error": {"type": "invalid_request_error", "message": "Your credit balance is too low to access the Anthropic API."}}), OUT_OF_CREDITS),
-    (anthropic_status(400, {"type": "error", "error": {"type": "invalid_request_error", "message": "messages: field required"}}), None),
-    (anthropic_status(402, {"type": "error", "error": {"type": "billing_error", "message": "x"}}), OUT_OF_CREDITS),
-    (anthropic_status(429, {"type": "error", "error": {"type": "rate_limit_error", "message": "x", "details": {"error_code": "enforced_spend_limit_reached"}}}), SPEND_LIMIT_REACHED),
-    (anthropic_status(529, {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}), PROVIDER_UNAVAILABLE),
-    (anthropic_status(401, {"type": "error", "error": {"type": "authentication_error", "message": "x"}}), AUTH_FAILED),
-    (gemini(ClientError(429, {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "message": "x"}})), RATE_LIMITED),
-    (gemini(ClientError(400, {"error": {"code": 400, "status": "INVALID_ARGUMENT", "message": "API key not valid. Please pass a valid API key."}})), AUTH_FAILED),
-    (gemini(ServerError(503, {"error": {"code": 503, "status": "UNAVAILABLE", "message": "x"}})), PROVIDER_UNAVAILABLE),
-    (ValueError("boom"), None),
-])
-def test_classify_provider_error(exc, expected): assert classify_provider_error(exc) == expected
+@pytest.mark.parametrize(
+    ("exc", "expected"),
+    [
+        (
+            openai_status(
+                402, {"error": {"code": 402, "message": "x", "metadata": {"limit_source": "openrouter_credits"}}}
+            ),
+            OUT_OF_CREDITS,
+        ),
+        (openai_status(402, {"error": {"code": 402, "message": "Insufficient credits"}}), OUT_OF_CREDITS),
+        (
+            openai_status(
+                402,
+                {"error": {"code": 402, "message": "x", "metadata": {"limit_source": "openrouter_in_flight_budget"}}},
+            ),
+            RATE_LIMITED,
+        ),
+        (
+            openai_status(
+                403,
+                {
+                    "error": {
+                        "code": 403,
+                        "message": "Budget limit exceeded (weekly limit).",
+                        "metadata": {"limit_source": "openrouter_key_limit"},
+                    }
+                },
+            ),
+            SPEND_LIMIT_REACHED,
+        ),
+        (
+            openai_status(
+                403,
+                {
+                    "error": {
+                        "code": 403,
+                        "message": "Request blocked: prompt injection patterns detected",
+                        "metadata": {"patterns": ["x"]},
+                    }
+                },
+            ),
+            None,
+        ),
+        (openai_status(429, {"error": {"code": "insufficient_quota", "message": "x"}}), OUT_OF_CREDITS),
+        (openai_status(429, {"error": {"code": "rate_limit_exceeded", "message": "x"}}), RATE_LIMITED),
+        (openai_status(401, {"error": {"message": "bad key"}}), AUTH_FAILED),
+        (openai_status(500, {"error": {"message": "x"}}), PROVIDER_UNAVAILABLE),
+        (openai.APIConnectionError(request=REQ), PROVIDER_UNAVAILABLE),
+        (
+            anthropic_status(
+                400,
+                {
+                    "type": "error",
+                    "error": {
+                        "type": "invalid_request_error",
+                        "message": "Your credit balance is too low to access the Anthropic API.",
+                    },
+                },
+            ),
+            OUT_OF_CREDITS,
+        ),
+        (
+            anthropic_status(
+                400,
+                {"type": "error", "error": {"type": "invalid_request_error", "message": "messages: field required"}},
+            ),
+            None,
+        ),
+        (anthropic_status(402, {"type": "error", "error": {"type": "billing_error", "message": "x"}}), OUT_OF_CREDITS),
+        (
+            anthropic_status(
+                429,
+                {
+                    "type": "error",
+                    "error": {
+                        "type": "rate_limit_error",
+                        "message": "x",
+                        "details": {"error_code": "enforced_spend_limit_reached"},
+                    },
+                },
+            ),
+            SPEND_LIMIT_REACHED,
+        ),
+        (
+            anthropic_status(529, {"type": "error", "error": {"type": "overloaded_error", "message": "x"}}),
+            PROVIDER_UNAVAILABLE,
+        ),
+        (
+            anthropic_status(401, {"type": "error", "error": {"type": "authentication_error", "message": "x"}}),
+            AUTH_FAILED,
+        ),
+        (
+            gemini(ClientError(429, {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "message": "x"}})),
+            RATE_LIMITED,
+        ),
+        (
+            gemini(
+                ClientError(
+                    400,
+                    {
+                        "error": {
+                            "code": 400,
+                            "status": "INVALID_ARGUMENT",
+                            "message": "API key not valid. Please pass a valid API key.",
+                        }
+                    },
+                )
+            ),
+            AUTH_FAILED,
+        ),
+        (
+            gemini(ServerError(503, {"error": {"code": 503, "status": "UNAVAILABLE", "message": "x"}})),
+            PROVIDER_UNAVAILABLE,
+        ),
+        (ValueError("boom"), None),
+    ],
+)
+def test_classify_provider_error(exc, expected):
+    assert classify_provider_error(exc) == expected
+
 
 def test_classify_finds_the_provider_error_behind_a_wrapper(): ...  # RuntimeError raised `from` a 402 → OUT_OF_CREDITS
 def test_provider_failure_of_reads_the_tag_through_the_cause_chain(): ...
@@ -261,25 +363,30 @@ the DB functions.
 
 ```python
 @pytest.mark.django_db
-def test_a_credits_error_is_tagged_and_marks_the_provider(): ...
+def test_a_credits_error_is_tagged_and_marks_the_provider():
+    ...
     # RaisingChatModel(error=openrouter_402, callbacks=[ProviderHealthCallback("openrouter", "m-big")]).invoke("hi")
     # raises the same object; provider_failure_of(err) == ProviderFailure("out_of_credits", "openrouter")
     # row: failure_kind "out_of_credits", failure_model "m-big", failing_since and last_failed_at set
+
+
 @pytest.mark.django_db
 def test_a_repeat_keeps_failing_since_and_bumps_last_failed_at(): ...
 @pytest.mark.django_db
 def test_a_rate_limit_is_tagged_but_marks_nothing(): ...
 @pytest.mark.django_db
-def test_success_on_another_model_keeps_the_credits_mark(): ...      # Review Focus 2
+def test_success_on_another_model_keeps_the_credits_mark(): ...  # Review Focus 2
 @pytest.mark.django_db
 def test_success_on_the_failing_model_clears_the_credits_mark(): ...
 @pytest.mark.django_db
 def test_any_success_clears_an_auth_mark(): ...
 @pytest.mark.django_db
-def test_a_db_failure_while_marking_keeps_the_original_error(caplog): ...  # Review Focus 5: patch Provider.objects.filter → DatabaseError
-async def test_an_async_call_is_tagged_before_it_raises(): ...       # patch mark_provider_failure; ainvoke; tag present
+def test_a_db_failure_while_marking_keeps_the_original_error(
+    caplog,
+): ...  # Review Focus 5: patch Provider.objects.filter → DatabaseError
+async def test_an_async_call_is_tagged_before_it_raises(): ...  # patch mark_provider_failure; ainvoke; tag present
 @pytest.mark.django_db
-def test_get_model_attaches_the_health_callback(): ...               # in test_base.py: one ProviderHealthCallback with slug/model
+def test_get_model_attaches_the_health_callback(): ...  # in test_base.py: one ProviderHealthCallback with slug/model
 ```
 
 - [ ] **Step 2: Run, expect FAIL** — `uv run pytest tests/unit_tests/automation/agent/test_provider_health.py tests/unit_tests/automation/agent/test_base.py -v`
@@ -335,11 +442,15 @@ the model.
   `test_a_failing_relay_close_does_not_mask_the_agents_error`, :275)
 
 ```python
-async def test_a_provider_failure_is_recorded_on_the_run(): ...
+async def test_a_provider_failure_is_recorded_on_the_run():
+    ...
     # agent raises an exception tagged ProviderFailure("out_of_credits", "openrouter"); run row exists for spec.run_id
     # after execute_run raises: run.failure_kind == "out_of_credits", run.failure_provider == "openrouter"
+
+
 async def test_an_untagged_failure_leaves_the_run_fields_blank(): ...
-async def test_stream_run_records_a_provider_failure_found_through_the_cause_chain(): ...
+async def test_stream_run_records_a_provider_failure_found_through_the_cause_chain():
+    ...
     # stream raises RuntimeError from a tagged error (the chat path's _ReportedRunError shape)
 ```
 
@@ -372,10 +483,11 @@ async def test_stream_run_records_a_provider_failure_found_through_the_cause_cha
 ```python
 # test_publisher.py
 def test_sanitize_run_error_uses_the_provider_message_for_a_tagged_error(): ...  # code "provider_out_of_credits", "OpenRouter" in message
-def test_sanitize_run_error_stays_generic_for_an_untagged_error(): ...           # RUN_FAILED_MESSAGE, "run_failed"
-async def test_a_live_run_publishes_the_provider_message(): ...                   # graph raises tagged error → published RUN_ERROR carries it
+def test_sanitize_run_error_stays_generic_for_an_untagged_error(): ...  # RUN_FAILED_MESSAGE, "run_failed"
+async def test_a_live_run_publishes_the_provider_message(): ...  # graph raises tagged error → published RUN_ERROR carries it
 # test_streaming.py, next to test_events_finalizes_failed_when_run_error_event_emitted (:439)
-async def test_a_provider_failure_streams_and_persists_the_provider_message(): ...
+async def test_a_provider_failure_streams_and_persists_the_provider_message():
+    ...
     # graph raises tagged ProviderFailure("out_of_credits","openrouter"): streamed RUN_ERROR code "provider_out_of_credits";
     # Run.error_message == that message; the _ReportedRunError reaching the executor has the tagged error as __cause__
 ```
@@ -410,13 +522,17 @@ async def test_a_provider_failure_streams_and_persists_the_provider_message(): .
 
 ```python
 # test_transcript.py
-@pytest.mark.parametrize("trigger", [SessionOrigin.CHAT, SessionOrigin.JOB, SessionOrigin.ISSUE_WEBHOOK])  # use the real enum members
-def test_a_provider_failure_marker_names_the_provider(trigger): ...  # status "failed", message == failure_message("out_of_credits","openrouter")
+@pytest.mark.parametrize(
+    "trigger", [SessionOrigin.CHAT, SessionOrigin.JOB, SessionOrigin.ISSUE_WEBHOOK]
+)  # use the real enum members
+def test_a_provider_failure_marker_names_the_provider(
+    trigger,
+): ...  # status "failed", message == failure_message("out_of_credits","openrouter")
 def test_a_stopped_run_keeps_the_stopped_marker_despite_a_provider_failure(): ...  # Review Focus 4: is_cancelled → "Stopped by user."
 # notifications/test_tasks.py
 async def test_a_failed_run_with_a_provider_failure_summarises_it(): ...
 # jobs/api/test_views.py, next to test_get_job_status_failed (:639)
-async def test_get_job_status_failed_by_a_provider_says_why(): ...      # error == provider message
+async def test_get_job_status_failed_by_a_provider_says_why(): ...  # error == provider message
 async def test_get_job_status_failed_otherwise_keeps_the_generic_error(): ...  # "Job execution failed"
 # mcp_api/test_server_jobs.py
 async def test_get_job_failed_by_a_provider_says_why(): ...
@@ -479,8 +595,11 @@ async def test_a_provider_failure_says_so_on_the_merge_request(...): ...
 ```python
 def test_provider_health_is_empty_for_a_non_admin(rf, member_user): ...
 def test_provider_health_lists_the_marked_provider_for_an_admin(rf, admin_user): ...
-def test_an_admin_sees_the_banner_with_a_link_to_provider_settings(admin_client): ...
+def test_an_admin_sees_the_banner_with_a_link_to_provider_settings(admin_client):
+    ...
     # dashboard page contains "OpenRouter", "out of credits", the model name, and reverse("site_configuration", kwargs={"group_key": "providers"})
+
+
 def test_a_member_never_sees_the_banner(member_client): ...
 def test_the_banner_is_gone_after_the_ttl(admin_client): ...
 ```
