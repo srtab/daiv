@@ -626,6 +626,20 @@ async def test_ac5_failed_run_without_error_message_uses_generic_gloss():
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_a_failed_run_with_a_provider_failure_summarises_it():
+    from core.provider_failures import failure_message
+
+    run = await _make_scheduled_run(status=RunStatus.FAILED, error_message="Traceback: boom")
+    await Run.objects.filter(pk=run.pk).aupdate(failure_kind="out_of_credits", failure_provider="openrouter")
+
+    await classify_run_task.func(str(run.pk))
+
+    envelope = await RunEnvelope.objects.aget(run=run)
+    assert envelope.status == EnvelopeStatus.FAILED
+    assert envelope.summary == failure_message("out_of_credits", "openrouter")
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_ac6_idempotent_writes_exactly_one_envelope():
     run = await _make_scheduled_run(intent=Intent.WATCH_FIND)
     classification = RunClassification(status="all-clear", summary="All good.", actionable=[])

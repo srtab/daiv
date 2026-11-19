@@ -2,7 +2,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("agent_sessions", "0038_backfill_spendrecord")]
+    dependencies = [("agent_sessions", "0039_backfill_spendrecord")]
 
     operations = [
         migrations.AddField(

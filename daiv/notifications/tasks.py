@@ -203,7 +203,8 @@ async def classify_run_task(run_id: str) -> None:
     # without — any LLM call. Its prose report may be empty, so the summary comes from error_message.
     if run.status == RunStatus.FAILED:
         first_line = next((line.strip() for line in run.error_message.splitlines() if line.strip()), "")
-        await _persist(status=EnvelopeStatus.FAILED, summary=first_line or gettext("Run failed."), actionable=[])
+        summary = run.provider_failure_message() or first_line or gettext("Run failed.")
+        await _persist(status=EnvelopeStatus.FAILED, summary=summary, actionable=[])
         return
 
     if run.status == RunStatus.WAITING_INPUT:

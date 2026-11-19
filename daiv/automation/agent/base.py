@@ -10,6 +10,7 @@ from langchain.chat_models import init_chat_model
 from automation.agent.chat_models import ChatOpenRouter
 from automation.agent.model_spec import HTTPX_CLIENT_PROVIDER_TYPES, ResolvedProvider, parse_model_spec
 from automation.agent.provider_clients import MissingApiKeyError, build_sdk_client_kwargs
+from automation.agent.provider_health import ProviderHealthCallback
 from automation.agent.usage_tracking import PROVIDER_NAME_METADATA_KEY, PROVIDER_SLUG_METADATA_KEY
 from core.constants import BOT_NAME
 from core.models import ProviderType
@@ -301,6 +302,10 @@ def get_model(*, model: str, thinking_level: ThinkingLevel | None = None, **kwar
         PROVIDER_SLUG_METADATA_KEY: resolved.row.slug,
         PROVIDER_NAME_METADATA_KEY: resolved.row.display_name,
     }
+    model_kwargs["callbacks"] = [
+        *(model_kwargs.get("callbacks") or []),
+        ProviderHealthCallback(resolved.row.slug, resolved.model_name),
+    ]
     try:
         if resolved.row.provider_type == ProviderType.OPENROUTER:
             # OpenRouter routes through our ChatOpenAI subclass (reasoning extraction +

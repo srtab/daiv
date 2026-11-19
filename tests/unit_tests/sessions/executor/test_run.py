@@ -28,6 +28,7 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin, SpendRecord
 
 from automation.agent.agent_settings import RunOverrides, resolve_agent_settings
 from automation.agent.events import PUBLISH_RESULT_EVENT, publish_result_payload, repo_publish_payload
+from automation.agent.provider_errors import tag_provider_failure
 from automation.agent.publishers import PublishOutcome
 from automation.agent.questions import render_questions
 from automation.agent.references import ExternalRef
@@ -41,6 +42,7 @@ from codebase.base import MergeRequestDiffStats, Scope
 from codebase.clients.base import GitEgressCredential
 from codebase.repo_config import RepositoryConfig
 from core.constants import INTERRUPTED_MESSAGE
+from core.provider_failures import ProviderFailure, failure_message
 from core.redis import SOCKET_TIMEOUT_S
 from core.sandbox.schemas import SandboxCapabilities
 from tests.unit_tests.automation.agent.conftest import make_merge_request
@@ -743,6 +745,67 @@ async def test_a_run_records_the_model_it_resolved_on_the_run_only(error):
     await run.arefresh_from_db()
     assert (session.agent_model, session.agent_thinking_level) == ("", "")
     assert (run.agent_model, run.agent_thinking_level) == ("claude-4-7-opus", "medium")
+
+
+def _tagged(kind: str = "out_of_credits", provider: str = "openrouter") -> RuntimeError:
+    error = RuntimeError("provider said no")
+    tag_provider_failure(error, ProviderFailure(kind, provider))
+    return error
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_provider_failure_is_recorded_on_the_run():
+    session, run = await _job_run()
+    agent = _agent()
+    agent.ainvoke.side_effect = _tagged()
+
+    with agent_stack(agent), pytest.raises(RuntimeError, match="provider said no"):
+        await execute_run(make_spec(thread_id=session.thread_id, run_id=str(run.pk)))
+
+    await run.arefresh_from_db()
+    assert (run.failure_kind, run.failure_provider) == ("out_of_credits", "openrouter")
+    assert run.provider_failure_message() == failure_message("out_of_credits", "openrouter")
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_an_untagged_failure_leaves_the_run_fields_blank():
+    session, run = await _job_run()
+    agent = _agent()
+    agent.ainvoke.side_effect = RuntimeError("boom")
+
+    with agent_stack(agent), pytest.raises(RuntimeError, match="boom"):
+        await execute_run(make_spec(thread_id=session.thread_id, run_id=str(run.pk)))
+
+    await run.arefresh_from_db()
+    assert (run.failure_kind, run.failure_provider) == ("", "")
+    assert run.provider_failure_message() is None
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_stream_run_records_a_provider_failure_found_through_the_cause_chain():
+    session, run = await _job_run()
+    wrapper = RuntimeError("run failed")
+    wrapper.__cause__ = _tagged("rate_limited", "anthropic")
+
+    with agent_stack(_agent()), pytest.raises(RuntimeError, match="run failed"):
+        await _drain(make_spec(thread_id=session.thread_id, run_id=str(run.pk)), _stream(error=wrapper))
+
+    await run.arefresh_from_db()
+    assert (run.failure_kind, run.failure_provider) == ("rate_limited", "anthropic")
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_failing_record_does_not_replace_the_runs_error():
+    session, run = await _job_run()
+    agent = _agent()
+    agent.ainvoke.side_effect = _tagged()
+
+    with (
+        agent_stack(agent),
+        patch.object(Run.objects, "filter", side_effect=RuntimeError("db down")),
+        pytest.raises(RuntimeError, match="provider said no"),
+    ):
+        await execute_run(make_spec(thread_id=session.thread_id, run_id=str(run.pk)))
 
 
 @pytest.mark.django_db(transaction=True)

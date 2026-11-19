@@ -573,3 +573,30 @@ async def test_submit_job_forwards_resolved_mcp_overrides(_default_mcp_user):
         await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x", mcp_overrides={"grafana": True})
 
     assert submit.call_args.kwargs["mcp_overrides"] == {"grafana": "on"}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_failed_by_a_provider_says_why(_default_mcp_user):
+    from mcp_api.server import get_job_status
+
+    from core.provider_failures import failure_message
+
+    run = await _run(
+        await _session(_default_mcp_user),
+        status=RunStatus.FAILED,
+        failure_kind="out_of_credits",
+        failure_provider="openrouter",
+    )
+
+    data = json.loads(await get_job_status(job_id=str(run.id)))
+
+    assert data["error"] == failure_message("out_of_credits", "openrouter")
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_failed_otherwise_keeps_the_generic_error(_default_mcp_user):
+    from mcp_api.server import get_job_status
+
+    run = await _run(await _session(_default_mcp_user), status=RunStatus.FAILED)
+
+    assert json.loads(await get_job_status(job_id=str(run.id)))["error"] == "Job execution failed."

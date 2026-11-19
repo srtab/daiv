@@ -78,7 +78,7 @@ def test_a_session_its_owner_archived_stays_archived_and_other_archives_are_drop
     from django.db import connection
     from django.db.migrations.executor import MigrationExecutor
 
-    before, after = ("agent_sessions", "0033_archive_pending"), ("agent_sessions", "0034_remove_hiddensession")
+    before = ("agent_sessions", "0033_archive_pending")
     executor = MigrationExecutor(connection)
     executor.migrate([before])
     try:
@@ -97,14 +97,14 @@ def test_a_session_its_owner_archived_stays_archived_and_other_archives_are_drop
         hidden.objects.create(session=untouched, user_id=admin_user.pk, hidden_at=owners)
     finally:
         executor = MigrationExecutor(connection)
-        executor.migrate([after])
+        executor.migrate(executor.loader.graph.leaf_nodes())
 
     rows = Session.objects.in_bulk([archived.pk, kept.pk, untouched.pk])
     assert (rows[archived.pk].archived_at, rows[archived.pk].archive_pending) == (owners, False)
     assert (rows[kept.pk].archived_at, rows[untouched.pk].archived_at) == (merged, None)
 
 
-backfill_spend_migration = import_module("sessions.migrations.0038_backfill_spendrecord")
+backfill_spend_migration = import_module("sessions.migrations.0039_backfill_spendrecord")
 
 
 def _spent_run(member_user, **fields):

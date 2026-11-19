@@ -1,4 +1,4 @@
-An unexpected error occurred while working on this issue.
+{% if failure_message %}{{ failure_message|safe }}{% else %}An unexpected error occurred while working on this issue.{% endif %}
 {% if draft_published %}
 To avoid losing progress, {{ bot_name }} created a draft {% if is_gitlab %}merge request{% else %}pull request{% endif %}.
 {% endif %}

@@ -9,7 +9,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("agent_sessions", "0036_session_schedule_created_idx"),
+        ("agent_sessions", "0037_run_failure_kind"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

@@ -17,7 +17,8 @@ from django.utils.translation import gettext_lazy as _
 
 from automation.agent.references import ExternalRef, refs_from_stored  # noqa: TC001
 from core.constants import INTERRUPTED_MESSAGE
-from core.models import ThinkingLevelChoices
+from core.models import ProviderFailureKind, ThinkingLevelChoices
+from core.provider_failures import failure_message
 from sessions.artifacts import ArtifactKind, artifact_kind
 from sessions.executor.result import parse_agent_result
 from sessions.managers import (
@@ -477,6 +478,10 @@ class Run(models.Model):
     # Denormalized result / error / usage — copied verbatim from Activity.
     result_summary = models.TextField(_("result summary"), blank=True, default="")
     error_message = models.TextField(_("error message"), blank=True, default="")
+    failure_kind = models.CharField(
+        _("failure kind"), max_length=32, choices=ProviderFailureKind.choices, blank=True, default=""
+    )
+    failure_provider = models.CharField(_("failure provider"), max_length=32, blank=True, default="")
     code_changes = models.BooleanField(_("code changes"), default=False)
     publish_status = models.CharField(
         _("publish status"), max_length=16, choices=PublishStatus.choices, blank=True, default=""
@@ -586,6 +591,11 @@ class Run(models.Model):
 
     def __str__(self) -> str:
         return f"{self.get_trigger_type_display()} on {self.repo_id} ({self.status})"
+
+    def provider_failure_message(self) -> str | None:
+        if self.failure_kind not in ProviderFailureKind.values:
+            return None
+        return failure_message(self.failure_kind, self.failure_provider)
 
     def primary_merge_request_url(self) -> str | None:
         """The main repository's merge request URL, else the first one the run opened in another repository."""

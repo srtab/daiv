@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("agent_sessions", "0039_spendrecord_cost_reported")]
+    dependencies = [("agent_sessions", "0040_spendrecord_cost_reported")]
 
     operations = [
         migrations.AlterField(

@@ -17,12 +17,14 @@ from webhooks.managers.issue_addressor import (
 )
 
 from automation.agent.agent_settings import resolve_agent_settings
+from automation.agent.provider_errors import tag_provider_failure
 from automation.agent.questions import render_questions
 from automation.agent.synthetic import SYNTHETIC_KWARG, is_synthetic
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, Issue, MergeRequest, Scope, User
 from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL
+from core.provider_failures import ProviderFailure
 from core.site_settings import site_settings
 from tests.unit_tests.conftest import (
     SAMPLE_QUESTION_PAYLOAD,
@@ -315,6 +317,19 @@ class TestIssueAfterRunMatrix:
         [note] = captured_client.create_issue_comment.call_args_list
         assert _UNABLE in note.args[2]
         assert "To avoid losing progress" not in note.args[2]
+
+    @patch("core.models.Provider.display_name_for", return_value="OpenRouter")
+    async def test_a_provider_failure_says_so_on_the_issue(self, _display_name, captured_client):
+        error = OSError("402 from provider")
+        tag_provider_failure(error, ProviderFailure("out_of_credits", "openrouter"))
+
+        with addressor_run(addressor_agent(), context=clone_raising(error)), pytest.raises(OSError, match="402"):
+            await _address()
+
+        [note] = captured_client.create_issue_comment.call_args_list
+        assert "OpenRouter is out of credits, so DAIV couldn't" in note.args[2]
+        assert "To have" in note.args[2]
+        assert "unexpected error" not in note.args[2]
 
     @pytest.mark.django_db(transaction=True)
     async def test_a_session_slot_that_never_frees_says_so_on_the_issue(self, captured_client):

@@ -92,7 +92,9 @@ async def get_job_status(request: HttpRequest, job_id: str):
     except Run.DoesNotExist:
         return 404, {"detail": "Job not found"}
 
-    error = "Job execution failed" if run.status == RunStatus.FAILED else None
+    error = None
+    if run.status == RunStatus.FAILED:
+        error = run.provider_failure_message() or "Job execution failed"
     artifacts, artifacts_error = await aserialize_run_artifacts_for_status(run)
     return 200, JobStatusResponse(
         job_id=str(run.id),

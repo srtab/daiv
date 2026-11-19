@@ -114,7 +114,7 @@ daiv/
 │   ├── views.py                           # sort and person/model/provider choices in the list context
 │   ├── templates/sessions/                # filter bar: Person, Model, Provider, Sort
 │   ├── api/views.py, api/schemas.py       # + spend_router, row schema
-│   └── migrations/0037_spendrecord.py, 0038_backfill_spendrecord.py
+│   └── migrations/0038_spendrecord.py, 0039_backfill_spendrecord.py
 ├── chat/api/streaming.py                  # finalize_chat_run: usage write only while unset
 ├── notifications/tasks.py                 # classify_run_task wrapped in BackgroundSpend
 ├── memory/tasks.py, memory/consolidation.py  # extraction and consolidation wrapped

@@ -135,6 +135,6 @@ def unbackfill(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("agent_sessions", "0037_spendrecord"), ("core", "0026_sandbox_browser_settings")]
+    dependencies = [("agent_sessions", "0038_spendrecord"), ("core", "0026_sandbox_browser_settings")]
 
     operations = [migrations.RunPython(backfill, unbackfill)]

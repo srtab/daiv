@@ -1539,3 +1539,9 @@ msgstr "Ordenar"
 #, python-format
 msgid "Clear %(label)s"
 msgstr "Limpar %(label)s"
+
+msgid "failure kind"
+msgstr "tipo de falha"
+
+msgid "failure provider"
+msgstr "fornecedor da falha"
