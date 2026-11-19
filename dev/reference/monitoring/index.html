@@ -870,6 +870,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../features/spend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../features/slash-commands/" class="md-nav__link">
         
   
@@ -2116,8 +2144,9 @@
 </table>
 <p>To compare models, group a chart by the <code>model</code> metadata field. To see who starts the runs, group by <code>author</code> or <code>triggered_by</code>.</p>
 <h2 id="usage-and-cost">Usage and cost</h2>
-<p>DAIV records the token usage and an estimated cost for every agent run in its own database, without a LangSmith account.</p>
-<p>DAIV counts the tokens of every model call in the run, including fallback models, models that tools call, and subagents, and prices each call on its own. For a call through OpenRouter, the cost is the charge OpenRouter reports, which depends on the provider it routed the call to. For any other call, DAIV estimates it from the model's list price in <a href="https://github.com/pydantic/genai-prices">genai-prices</a>. DAIV then totals the tokens and cost per model, and stores the totals on the run.</p>
+<p>DAIV records the token usage and an estimated cost of every model call it makes in its own database, without a LangSmith account.</p>
+<p>DAIV counts the tokens of every model call in a run, including fallback models, models that tools call, and subagents, and prices each call on its own. For a call through OpenRouter, the cost is the charge OpenRouter reports, which depends on the provider it routed the call to. For any other call, DAIV estimates it from the model's list price in <a href="https://github.com/pydantic/genai-prices">genai-prices</a>. DAIV writes the figures as each call finishes, so a run that fails, is stopped or loses its worker keeps the spend of every call that finished, and a running run shows its spend so far. DAIV also records which configured provider served each call.</p>
+<p>DAIV counts the model calls it makes outside runs too, as <a href="../../features/spend/#background-spend">background spend</a>. It shows on the <a href="../../features/spend/">Spend</a> page, not on a session's <strong>Spend</strong> section.</p>
 <p>A run records:</p>
 <table>
 <thead>
@@ -2151,10 +2180,11 @@
 </table>
 <p>Two limits apply:</p>
 <ul>
-<li>For a call DAIV prices from list prices, the cost is empty when genai-prices does not list the model, and a run's cost is empty when any of its calls has no price. The tokens are still recorded, and DAIV logs a warning naming the model.</li>
-<li>A cost priced from list prices is an estimate. Your provider's bill can differ.</li>
+<li>For a call DAIV prices from list prices, the cost is empty when genai-prices does not list the model, and a run's cost is empty when any of its calls has no price. The tokens are still recorded, and DAIV logs a warning naming the model. The <a href="../../features/spend/">Spend</a> page keeps the priced part and counts the rest as unpriced tokens, marking the total as a floor.</li>
+<li>A cost priced from list prices is an estimate. Your provider's bill can differ: providers bill by their own tiers, discounts and rounding, and a model's list price can change after DAIV recorded the call.</li>
 </ul>
-<p>You see the figures in three places. A row in the sessions list shows the session's cost, the <strong>Spend</strong> section of a session's <strong>Overview</strong> shows what the session cost, and a run's downloaded Markdown result holds <code>total_tokens</code> and <code>cost_usd</code> in its front matter. <a href="../../features/sessions/">Sessions</a> describes the pages.</p>
+<p>The prompt cache hit rate is the share of input tokens the provider served from its prompt cache: cache-read tokens over all input tokens, weighted by tokens rather than by calls. DAIV counts it only over calls whose provider reported a cache-read count, so a provider that reports none shows the rate as not reported, never as 0%. The cache saving is an estimate too: for each call, its cache-read tokens times the difference between the model's list input price and its list cache-read price. It is worked out from list prices even when OpenRouter reported the charge, and cache reads of a model with no list price leave the saving as a floor.</p>
+<p>You see the figures in four places. A row in the sessions list shows the session's run spend, the <strong>Spend</strong> section of a session's <strong>Overview</strong> shows what the session cost, a run's downloaded Markdown result holds <code>total_tokens</code> and <code>cost_usd</code> in its front matter, and <strong>Insights → Spend</strong> adds them up across sessions. <a href="../../features/sessions/">Sessions</a> and <a href="../../features/spend/">Spend</a> describe the pages.</p>
 <h2 id="export-session-archives">Export session archives</h2>
 <p>DAIV writes a copy of each session's conversation to its database when each run ends. This session archive is the saved copy, not a session's <strong>Archived</strong> state. The copy outlives the checkpointer's time to live and LangSmith's retention, and you can export it for offline analysis.</p>
 <div class="admonition warning">
@@ -2272,7 +2302,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 12, 2026 16:02:09 UTC">November 12, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 19, 2026 19:45:59 UTC">November 19, 2026</span>
   </span>
 
     

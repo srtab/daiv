@@ -159,7 +159,7 @@ Delete a user only when you will never restore their access. Deactivating keeps 
 
 Deleting a user cannot be undone
 
-Deleting removes the user's account, their API keys and all data associated with them. You cannot delete your own account.
+Deleting removes the user's account, their API keys and the data associated with them. Their [spend records](https://docs.daivagent.com/dev/features/spend/index.md) stay, under the name they had, so past totals do not change. You cannot delete your own account.
 
 1. Under **Admin** → **Users**, select the user.
 1. Select **Delete user**.
