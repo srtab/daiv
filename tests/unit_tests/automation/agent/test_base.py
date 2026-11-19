@@ -3,11 +3,13 @@ from unittest.mock import patch
 
 import openai
 import pytest
+from langchain_core.callbacks import UsageMetadataCallbackHandler
 
 from automation.agent.base import CLAUDE_THINKING_MODELS, OPENAI_THINKING_MODELS, get_model, get_model_kwargs
 from automation.agent.chat_models import ChatOpenRouter
 from automation.agent.model_spec import parse_model_spec
 from automation.agent.provider_clients import OPENROUTER_BASE_URL
+from automation.agent.provider_health import ProviderHealthCallback
 from core.constants import ModelName
 from core.models import Provider, ProviderType, ThinkingLevelChoices
 
@@ -207,6 +209,16 @@ class TestGetModelKwargs:
         model = get_model(model="openrouter:anthropic/claude-sonnet-4.6")
         assert isinstance(model, ChatOpenRouter)
         assert model.openai_api_base == OPENROUTER_BASE_URL
+
+    def test_get_model_attaches_the_health_callback(self):
+        self._enable_seed("openrouter", "sk-or")
+        caller_callback = UsageMetadataCallbackHandler()
+
+        model = get_model(model="openrouter:z-ai/glm-5", callbacks=[caller_callback])
+
+        assert model.callbacks[0] is caller_callback
+        [health] = [cb for cb in model.callbacks if isinstance(cb, ProviderHealthCallback)]
+        assert (health.provider_slug, health.model_name) == ("openrouter", "z-ai/glm-5")
 
     def test_get_model_non_openrouter_is_not_chat_openrouter(self):
         self._enable_seed("anthropic", "sk-a")
