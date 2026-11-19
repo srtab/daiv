@@ -187,7 +187,8 @@ class RepositoryCatalog(models.Model):
     Upserted by the access sync (which already lists the universe each cycle). Repository
     *listings* (pickers, search, MCP) are served from here as local DB joins instead of live
     platform fetches. Not security-load-bearing: what a user may *view* is still gated by
-    ``RepositoryAccess``; this table only supplies repo metadata and the admin-visible universe.
+    ``RepositoryAccess``; this table only supplies repo metadata and the admin-visible universe, which is also
+    where admins may run (``codebase.authorization.runnable_repo_ids``).
     """
 
     provider = models.CharField(_("provider"), max_length=10, choices=PlatformType.choices)

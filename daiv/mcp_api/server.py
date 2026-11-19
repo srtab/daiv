@@ -35,6 +35,7 @@ from sessions.services import MAX_REPOS_PER_BATCH, RepoTarget, alist_user_runs
 
 from automation.agent.references import MAX_REFS_PER_SUBMISSION, RefIn
 from codebase.authorization import asearch_viewable_repositories
+from codebase.base import RepoId  # noqa: TC001 - runtime type for MCPServer
 from core.conf import settings as core_settings
 from core.models import ThinkingLevelChoices  # noqa: TC001 - runtime literal for MCPServer
 from daiv import __version__
@@ -116,7 +117,9 @@ MAX_POLL_DURATION = 600.0  # 10 minutes
 
 
 class RepoSpec(BaseModel):
-    repo_id: str = Field(description='Repository identifier. "owner/repo" for GitHub or full project path for GitLab.')
+    repo_id: RepoId = Field(
+        description='Repository identifier. "owner/repo" for GitHub or full project path for GitLab.'
+    )
     ref: str | None = Field(
         default=None, description="Branch name to start from. None / empty string = default branch."
     )

@@ -905,6 +905,40 @@ async def test_a_first_turn_over_several_repos_opens_a_multi_repo_session(
     await user.adelete()
 
 
+@pytest.mark.django_db(transaction=True)
+async def test_slashes_around_a_first_turns_repos_are_ignored(
+    client: TestAsyncClient, authed, fake_redis, captured_runs, patched_streamer
+):
+    _, raw, user = authed
+    repos = [{"repo_id": "/a/b/", "ref": "main"}, {"repo_id": "/a/theme", "ref": "develop"}]
+
+    response = await _post_first_turn(client, raw, repos)
+
+    assert response.status_code == 200
+    await asyncio.gather(*captured_runs)
+    assert [r.repo_id for r in await aload_extra_repos("t-new")] == ["a/theme"]
+    await user.adelete()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_slashes_around_the_x_repo_id_header_are_ignored(client: TestAsyncClient, authed):
+    from sessions.admission import RepoAccessError
+
+    _, raw, user = authed
+    check = AsyncMock(side_effect=RepoAccessError(["a/b"]))
+
+    with patch("chat.api.views.aassert_repo_access", new=check):
+        response = await client.post(
+            "/chat/completions",
+            json=_run_agent_input(threadId="t-new"),
+            headers=_auth_headers(raw, **{"X-Repo-ID": "/a/b/", "X-Ref": "main"}),
+        )
+
+    assert response.status_code == 404
+    assert check.await_args.args[1] == ["a/b"]
+    await user.adelete()
+
+
 @pytest.mark.parametrize(
     ("repos", "detail"),
     [
@@ -914,6 +948,7 @@ async def test_a_first_turn_over_several_repos_opens_a_multi_repo_session(
         pytest.param([{"repo_id": 7, "ref": "main"}], "a list of", id="non-str-repo-id"),
         pytest.param([{"repo_id": "a/b", "ref": 3}], "a list of", id="non-str-ref"),
         pytest.param([{"repo_id": "  ", "ref": "main"}], "a list of", id="blank-repo-id"),
+        pytest.param([{"repo_id": " / ", "ref": "main"}], "a list of", id="slashes-only-repo-id"),
         pytest.param([REPOS[1], REPOS[0]], "must start with", id="not-the-header-repository-first"),
         pytest.param(
             [REPOS[0], *({"repo_id": f"a/r{i}", "ref": ""} for i in range(5))], "at most 5", id="more-than-five"

@@ -89,7 +89,7 @@ async def test_the_targets_reach_the_delegator_trimmed_with_the_runs_own_checkou
         delegator,
         goal=" Bump auth ",
         targets=[
-            DelegateTarget(repo_id=" acme/api ", prompt=" Bump it. "),
+            DelegateTarget(repo_id=" /acme/api/ ", prompt=" Bump it. "),
             DelegateTarget(repo_id="acme/web", ref=" release ", prompt="Rebuild."),
         ],
     )

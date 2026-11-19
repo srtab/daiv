@@ -43,6 +43,7 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 - Run the explore subagent at the run's thinking level instead of without thinking ([#1835](https://github.com/srtab/daiv/pull/1835))
 - Show DAIV's mark, a white D on a violet tile, in the logo, favicon, app icons and sidebar ([#1840](https://github.com/srtab/daiv/pull/1840))
 - Link DAIV's accounts on X, Bluesky, LinkedIn, Mastodon and YouTube from the homepage footer ([#1841](https://github.com/srtab/daiv/pull/1841))
+- Refuse an admin's run, chat or schedule on a repository DAIV doesn't list from the Git platform up front, as for members, instead of starting a run that fails with "404 Project Not Found"; until the first repository sync, admins can still use any repository ([#1851](https://github.com/srtab/daiv/pull/1851))
 
 ### Added
 
@@ -111,6 +112,7 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 ### Fixed
 
 - Fix runs that fail, are stopped or lose their worker recording no tokens or cost: DAIV now records spend as each model call finishes ([#1849](https://github.com/srtab/daiv/pull/1849))
+- Fix runs started with a repository such as `/group/project` failing with "404 Project Not Found": the jobs API, MCP, chat API, scheduled jobs and delegated jobs now ignore slashes around it ([#1851](https://github.com/srtab/daiv/pull/1851))
 - Fix a worker restart leaving its agent run spinning for about 30 minutes: the worker now stops the run cleanly, and **Stop** ends a run whose worker is gone; give the worker `stop_grace_period: 2m` so a deploy doesn't kill it mid-run ([#1842](https://github.com/srtab/daiv/pull/1842))
 - Refuse agent file-tool writes under `.git`, and run DAIV's host-side git without hooks, fsmonitor or external diff, closing a prompt-injection path to the worker ([#1676](https://github.com/srtab/daiv/pull/1676))
 - Fix `web_fetch` following unlimited same-host redirects without checking SSRF protection again; it now follows at most 5 and checks each one ([#971](https://github.com/srtab/daiv/pull/971))
