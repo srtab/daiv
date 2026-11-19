@@ -22,6 +22,7 @@ from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.decorators.clickjacking import xframe_options_sameorigin
+from django.views.decorators.vary import vary_on_headers
 from django.views.generic import DetailView, FormView, TemplateView
 from django.views.generic.detail import SingleObjectMixin
 
@@ -145,6 +146,7 @@ class SessionStreamView(View):
         yield data_frame({"done": True, "complete": not tracking})
 
 
+@method_decorator(vary_on_headers("HX-Request"), name="dispatch")
 class SessionListView(LoginRequiredMixin, FilterView):
     model = Session
     filterset_class = SessionFilter
@@ -613,6 +615,7 @@ class ToolResultMediaRawView(LoginRequiredMixin, SingleObjectMixin, View):
         )
 
 
+@method_decorator(vary_on_headers("HX-Request"), name="dispatch")
 class ArtifactListView(LoginRequiredMixin, FilterView):
     model = RunArtifact
     filterset_class = ArtifactFilter

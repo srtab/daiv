@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.cache import has_vary_header
 
 import pytest
 from bs4 import BeautifulSoup
@@ -314,6 +315,9 @@ class TestArtifactListView:
         resp = client.get(reverse("artifact_list"))
         assert resp.status_code == 302
         assert "login" in resp["Location"].lower()
+
+    def test_varies_on_the_htmx_header(self, member_client, member_user):
+        assert has_vary_header(member_client.get(reverse("artifact_list")), "HX-Request")
 
     def test_search_input_has_aria_label(self, member_client, member_user):
         resp = member_client.get(reverse("artifact_list"))

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 from django.contrib.messages import get_messages
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.cache import has_vary_header
 
 import pytest
 from bs4 import BeautifulSoup
@@ -30,6 +31,13 @@ def test_list_allows_member(client, member_user):
     client.force_login(member_user)
     resp = client.get(reverse("memory:list"))
     assert resp.status_code == 200
+
+
+@pytest.mark.django_db
+def test_list_varies_on_the_htmx_header(client, member_user):
+    client.force_login(member_user)
+
+    assert has_vary_header(client.get(reverse("memory:list")), "HX-Request")
 
 
 @pytest.mark.django_db

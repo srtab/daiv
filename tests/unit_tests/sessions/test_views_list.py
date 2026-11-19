@@ -12,6 +12,7 @@ from django.test import Client
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.cache import has_vary_header
 
 import pytest
 from bs4 import BeautifulSoup
@@ -102,6 +103,9 @@ class TestSessionListView:
     def test_authenticated_user_can_access(self, logged_in_client, user):
         response = logged_in_client.get(reverse("session_list"))
         assert response.status_code == 200
+
+    def test_varies_on_the_htmx_header(self, logged_in_client, user):
+        assert has_vary_header(logged_in_client.get(reverse("session_list")), "HX-Request")
 
     def test_has_no_breadcrumb(self, logged_in_client):
         response = logged_in_client.get(reverse("session_list"))
