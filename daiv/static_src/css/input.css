@@ -5325,3 +5325,21 @@ html {
     @apply text-[13px] text-text-muted transition-colors duration-200 hover:text-text;
   }
 }
+
+@layer components {
+  .alert-error {
+    @apply flex gap-3 rounded-2xl border border-red-800/50 bg-red-950/30 p-4;
+  }
+
+  .alert-error__icon {
+    @apply mt-0.5 h-5 w-5 shrink-0 text-red-300;
+  }
+
+  .alert-error__title {
+    @apply text-red-200;
+  }
+
+  .alert-error__body {
+    @apply text-red-200/80;
+  }
+}

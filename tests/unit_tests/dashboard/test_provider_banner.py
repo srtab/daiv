@@ -60,7 +60,31 @@ def test_a_member_never_sees_the_banner(member_client):
 def test_the_banner_is_gone_after_the_ttl(admin_client):
     _mark("openrouter", ProviderFailureKind.OUT_OF_CREDITS, when=timezone.now() - timedelta(hours=25))
 
-    assert "out of credits" not in admin_client.get(reverse("dashboard")).content.decode()
+    html = admin_client.get(reverse("dashboard")).content.decode()
+
+    assert "out of credits" not in html
+    assert "Open provider settings" not in html
+
+
+@pytest.mark.django_db
+def test_the_banner_escapes_the_provider_name_and_model(admin_client):
+    Provider.objects.filter(slug="openrouter").update(display_name="<b>x</b>")
+    _mark("openrouter", ProviderFailureKind.OUT_OF_CREDITS, model="<i>m</i>")
+
+    html = admin_client.get(reverse("dashboard")).content.decode()
+
+    assert "&lt;b&gt;x&lt;/b&gt;" in html
+    assert "&lt;i&gt;m&lt;/i&gt;" in html
+    assert "<b>x</b>" not in html
+
+
+@pytest.mark.django_db
+def test_an_unknown_kind_renders_no_line(admin_client):
+    _mark("openrouter", ProviderFailureKind.OUT_OF_CREDITS)
+    Provider.objects.filter(slug="openrouter").update(failure_kind="future_kind")
+    Provider.invalidate_cache()
+
+    assert "Runs that use it are failing" not in admin_client.get(reverse("dashboard")).content.decode()
 
 
 @pytest.mark.django_db
