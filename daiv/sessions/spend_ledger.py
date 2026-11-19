@@ -1,8 +1,8 @@
 """Reading ``SpendRecord`` rows: who a row's person is, the rows a user may export, and the API's paging cursor.
 
-A person is keyed ``u<user id>``, ``x<provider>:<uid>`` for a git platform account, ``d<name>`` for a deleted
-user (by the name recorded with the row) or ``daiv`` for work no person started. External accounts are matched
-by platform and account id, never by username, which another person may share.
+A person is keyed ``u<user id>``, ``x<provider>:<uid>`` for a git platform account, ``d<former user id>`` for a
+deleted user (shown by the name stamped as they were deleted) or ``daiv`` for work no person started. External
+accounts are matched by platform and account id, never by username, which another person may share.
 """
 
 from __future__ import annotations
@@ -15,9 +15,10 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from django.db.models import Q
+from django.utils.translation import gettext as _
 
 from sessions.api.schemas import SpendRowSchema
-from sessions.models import SpendRecord
+from sessions.models import RunStatus, SpendRecord
 
 if TYPE_CHECKING:
     from datetime import date
@@ -52,6 +53,7 @@ class SpendLedger:
         "external_provider",
         "external_uid",
         "external_username",
+        "deleted_user_id",
         "person_name",
     )
 
@@ -64,15 +66,15 @@ class SpendLedger:
         if get("external_provider") and get("external_uid"):
             key = f"x{get('external_provider')}:{get('external_uid')}"
             return Person(key, get("external_username") or get("external_uid") or "", "external")
-        if get("person_name"):
-            return Person(f"d{get('person_name')}", get("person_name") or "", "deleted")
+        if get("deleted_user_id") is not None:
+            return Person(f"d{get('deleted_user_id')}", get("person_name") or _("Unknown person"), "deleted")
         return Person(DAIV_PERSON, DAIV_LABEL, "daiv")
 
     @staticmethod
     def person_filter(key: str) -> Q:
         """The records of the person ``key``; ``ValueError`` when it is no person key."""
         if key == DAIV_PERSON:
-            return Q(user__isnull=True, person_name="") & (Q(external_provider="") | Q(external_uid=""))
+            return Q(user__isnull=True, deleted_user_id__isnull=True) & (Q(external_provider="") | Q(external_uid=""))
         kind, rest = key[:1], key[1:]
         if kind == "u" and rest.isdigit():
             return Q(user_id=int(rest))
@@ -80,8 +82,8 @@ class SpendLedger:
             provider, uid = rest.split(":", 1)
             if provider and uid:
                 return Q(user__isnull=True, external_provider=provider, external_uid=uid)
-        if kind == "d" and rest:
-            return Q(user__isnull=True, person_name=rest) & (Q(external_provider="") | Q(external_uid=""))
+        if kind == "d" and rest.removeprefix("-").isdigit():
+            return Q(user__isnull=True, deleted_user_id=int(rest)) & (Q(external_provider="") | Q(external_uid=""))
         raise ValueError(f"Not a person key: {key!r}")
 
     @staticmethod
@@ -89,7 +91,7 @@ class SpendLedger:
         """The records ``user`` may see from local midnight of ``start`` (or ever) to the end of ``end``, oldest first;
         under ``scope="mine"`` only those they started. SYNC ONLY, as ``SpendRecord.objects.visible_to`` is."""
         records = SpendRecord.objects.for_scope(user, scope).between(start, end)
-        return records.select_related("user", "session").only(*_ROW_FIELDS).order_by("occurred_at", "id")
+        return records.select_related("user", "session", "run").only(*_ROW_FIELDS).order_by("occurred_at", "id")
 
     @classmethod
     def row(cls, record: SpendRecord) -> dict[str, Any]:
@@ -102,7 +104,7 @@ class SpendLedger:
         else:
             person_text = person.name
         return {
-            "occurred_at": record.occurred_at.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+            "occurred_at": _utc(record.occurred_at),
             "kind": "background" if record.task else "run",
             "task": record.task or None,
             "trigger_type": record.trigger_type or None,
@@ -128,6 +130,8 @@ class SpendLedger:
             "cache_saving_usd": _money(record.cache_saving_usd),
             "cache_unpriced_tokens": record.cache_unpriced_tokens,
             "cost_source": cls.cost_source(record),
+            "final": bool(record.task) or record.run_id is None or record.run.status in RunStatus.terminal(),
+            "updated_at": _utc(record.updated_at),
         }
 
     @staticmethod
@@ -170,7 +174,12 @@ _ROW_FIELDS = (
     "user__username",
     "user__name",
     "session__scheduled_job",
+    "run__status",
 )
+
+
+def _utc(moment: datetime) -> str:
+    return moment.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _money(value: Decimal) -> str:

@@ -29,40 +29,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.sessions")
 
 
-def entry_fields(entry: LedgerEntry) -> dict[str, Any]:
-    """A ledger entry's figures as ``SpendRecord`` fields."""
-    return {
-        "provider_name": entry.provider_name,
-        "input_tokens": entry.input_tokens,
-        "cache_read_tokens": entry.cache_read_tokens,
-        "cache_write_tokens": entry.cache_write_tokens,
-        "output_tokens": entry.output_tokens,
-        "reasoning_tokens": entry.reasoning_tokens,
-        "total_tokens": entry.total_tokens,
-        "cost_usd": entry.cost,
-        "reported_cost_usd": entry.reported_cost,
-        "cost_reported": entry.cost_reported,
-        "unpriced_tokens": entry.unpriced_tokens,
-        "cache_reported": entry.cache_reported,
-        "cache_saving_usd": entry.cache_saving,
-        "cache_unpriced_tokens": entry.cache_unpriced_tokens,
-    }
-
-
-NO_PERSON = {"user_id": None, "external_provider": "", "external_uid": "", "external_username": "", "person_name": ""}
-
-
-def person_fields(source: Run | Session) -> dict[str, Any]:
-    """The person fields of a ``Run`` or ``Session``; from async code, its ``user`` must already be loaded."""
-    return {
-        "user_id": source.user_id,
-        "external_provider": source.external_provider,
-        "external_uid": source.external_uid,
-        "external_username": source.external_username,
-        "person_name": str(source.user) if source.user is not None else "",
-    }
-
-
 class RunSpendRecorder:
     """Keeps a run's ``SpendRecord`` rows and ``Run`` usage fields in step with its usage handler.
 
@@ -122,7 +88,7 @@ class RunSpendRecorder:
             logger.exception("Could not record the spend of run_id=%s", self.run_id)
 
     async def _read_run(self) -> dict[str, Any] | None:
-        run = await Run.objects.select_related("user").filter(pk=self.run_id).afirst()
+        run = await Run.objects.filter(pk=self.run_id).afirst()
         if run is None:
             logger.error("No Run row %s to record its spend on", self.run_id)
             return None
@@ -131,7 +97,7 @@ class RunSpendRecorder:
             "session_id": run.session_id,
             "repo_id": run.repo_id,
             "trigger_type": run.trigger_type,
-            **person_fields(run),
+            **SpendRecord.person_fields(run),
         }
 
     def _save(self, changed: dict[tuple[str, str], LedgerEntry], summary: UsageSummary) -> None:
@@ -142,9 +108,10 @@ class RunSpendRecorder:
         with transaction.atomic():
             for (provider_slug, model), entry in changed.items():
                 key = {"run_id": self.run_id, "provider_slug": provider_slug, "model": model, "task": ""}
-                fields = entry_fields(entry)
+                fields = SpendRecord.entry_fields(entry)
                 if not SpendRecord.objects.filter(**key).update(**fields, updated_at=now):
-                    SpendRecord.objects.create(**key, **self._shared, **fields)
+                    counts_run = not SpendRecord.objects.filter(run_id=self.run_id, task="").exists()
+                    SpendRecord.objects.create(**key, **self._shared, **fields, counts_run=counts_run)
             Run.objects.filter(pk=self.run_id).update(**run_fields)
 
 
@@ -154,7 +121,7 @@ class BackgroundSpend:
     Use as ``with`` or ``async with`` around the call. On exit, by any path, it inserts one record per provider and
     model the calls used; a retried task is charged again. ``run`` or ``session`` gives the record its session,
     repository and person; ``person`` (a ``Run`` or ``Session``) overrides the person, and with neither the work
-    belongs to DAIV. Each is used as loaded, so load its ``user`` with it.
+    belongs to DAIV.
     """
 
     def __init__(
@@ -208,13 +175,15 @@ class BackgroundSpend:
             )
 
     def _save(self, ledger: dict[tuple[str, str], LedgerEntry]) -> None:
-        shared = {"run_id": None, "session_id": None, "repo_id": "", **NO_PERSON}
+        shared = {"run_id": None, "session_id": None, "repo_id": "", **SpendRecord.NO_PERSON}
         if (session := self.session) is not None:
-            shared.update(session_id=session.pk, repo_id=session.repo_id, **person_fields(session))
+            shared.update(session_id=session.pk, repo_id=session.repo_id, **SpendRecord.person_fields(session))
         if (run := self.run) is not None:
-            shared.update(run_id=run.pk, session_id=run.session_id, repo_id=run.repo_id, **person_fields(run))
+            shared.update(
+                run_id=run.pk, session_id=run.session_id, repo_id=run.repo_id, **SpendRecord.person_fields(run)
+            )
         if self.person is not None:
-            shared.update(person_fields(self.person))
+            shared.update(SpendRecord.person_fields(self.person))
         if self.repo_id is not None:
             shared["repo_id"] = self.repo_id
         now = timezone.now()
@@ -226,7 +195,7 @@ class BackgroundSpend:
                 model=model,
                 provider_slug=provider_slug,
                 **shared,
-                **entry_fields(entry),
+                **SpendRecord.entry_fields(entry),
             )
             for (provider_slug, model), entry in ledger.items()
         ])

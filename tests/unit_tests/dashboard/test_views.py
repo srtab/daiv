@@ -1089,8 +1089,9 @@ class TestInsightsSpendPage:
         soup = BeautifulSoup(_spend_page(admin_client).content, "html.parser")
         people = soup.select_one("[data-testid=breakdown-person]")
 
-        daiv = next(span for span in people.select("[data-testid=no-link]") if span.get_text(strip=True) == "DAIV")
+        daiv = next(span for span in people.select("[data-testid=no-link]") if span.find(string=True).strip() == "DAIV")
         assert daiv["title"]
+        assert daiv.select_one(".sr-only").get_text(strip=True) == f"({daiv['title']})"
 
     def test_the_mine_scope_says_what_it_covers(self, member_user, member_client):
         spend_record(spend_run(spend_session(member_user)))
@@ -1129,11 +1130,20 @@ def _streamed(response) -> str:
 
 @pytest.mark.django_db
 class TestSpendExport:
+    @pytest.fixture(autouse=True)
+    def _fresh_throttle(self):
+        cache.clear()
+
     @staticmethod
     def _csv(client, **params):
         response = client.get(reverse("insights_spend_export"), params)
         assert response.status_code == 200
         return response, list(csv.DictReader(io.StringIO(_streamed(response))))
+
+    def test_past_ten_exports_an_hour_the_next_waits(self, admin_user, admin_client):
+        statuses = [admin_client.get(reverse("insights_spend_export")).status_code for _ in range(11)]
+
+        assert statuses == [200] * 10 + [429]
 
     def test_the_cost_column_sums_to_the_page_total(self, admin_user, admin_client):
         for index in range(3):
@@ -1156,7 +1166,9 @@ class TestSpendExport:
         assert header.split(",") == list(COLUMNS)
 
     def test_a_value_a_spreadsheet_would_run_as_a_formula_is_quoted(self, admin_client):
-        spend_record(None, task=SpendTask.TITLE, person_name='=HYPERLINK("http://x")', repo_id="@acme/api")
+        spend_record(
+            None, task=SpendTask.TITLE, deleted_user_id=7, person_name='=HYPERLINK("http://x")', repo_id="@acme/api"
+        )
 
         _response, rows = self._csv(admin_client)
 

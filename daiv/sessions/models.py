@@ -33,6 +33,7 @@ from sessions.managers import (
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from automation.agent.usage_tracking import LedgerEntry
     from sessions.executor.result import AgentResult
 
 logger = logging.getLogger("daiv.sessions")
@@ -1111,7 +1112,9 @@ class SpendRecord(models.Model):
 
     Run spend carries the run's ``trigger_type`` and is rewritten as each call finishes; background spend
     carries a ``task`` and is written once. The person is ``user``, else the git platform account in the
-    ``external_*`` fields, else DAIV. Rows outlive their run and session, so past totals never move.
+    ``external_*`` fields, else the deleted user whose id and name were stamped as it was deleted, else DAIV.
+    One row per run has ``counts_run``, so runs are counted with a plain sum. Rows outlive their run and
+    session, so past totals never move.
     """
 
     occurred_at = models.DateTimeField(_("occurred at"))
@@ -1123,6 +1126,7 @@ class SpendRecord(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
+        db_index=False,
         related_name="spend_records",
         verbose_name=_("session"),
     )
@@ -1136,6 +1140,7 @@ class SpendRecord(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
+        db_index=False,
         related_name="spend_records",
         verbose_name=_("user"),
     )
@@ -1143,6 +1148,7 @@ class SpendRecord(models.Model):
     external_uid = models.CharField(_("external account ID"), max_length=191, blank=True, default="")
     external_username = models.CharField(_("external username"), max_length=255, blank=True, default="")
     person_name = models.CharField(_("person name"), max_length=255, blank=True, default="")
+    deleted_user_id = models.BigIntegerField(_("deleted user ID"), null=True, blank=True)
     model = models.CharField(_("model"), max_length=255)
     provider_slug = models.CharField(_("provider"), max_length=32, blank=True, default="")
     provider_name = models.CharField(_("provider name"), max_length=64, blank=True, default="")
@@ -1161,9 +1167,12 @@ class SpendRecord(models.Model):
     cache_reported = models.BooleanField(_("cache reported"), default=False)
     cache_saving_usd = models.DecimalField(_("cache saving (USD)"), max_digits=12, decimal_places=6, default=Decimal(0))
     cache_unpriced_tokens = models.PositiveBigIntegerField(_("cache unpriced tokens"), default=0)
+    counts_run = models.BooleanField(_("counts its run"), default=False)
     updated_at = models.DateTimeField(_("updated at"), auto_now=True)
 
     objects = SpendRecordManager()
+
+    NO_PERSON = {"user_id": None, "external_provider": "", "external_uid": "", "external_username": ""}
 
     class Meta:
         verbose_name = _("Spend record")
@@ -1181,7 +1190,43 @@ class SpendRecord(models.Model):
             models.Index(fields=["user", "occurred_at"], name="spend_user_occurred_idx"),
             models.Index(fields=["repo_id", "occurred_at"], name="spend_repo_occurred_idx"),
             models.Index(fields=["session", "occurred_at"], name="spend_session_occurred_idx"),
+            models.Index(
+                fields=["session", "occurred_at"],
+                include=["cost_usd", "unpriced_tokens"],
+                condition=models.Q(task=""),
+                name="spend_session_run_spend_idx",
+            ),
         ]
 
     def __str__(self) -> str:
         return f"{self.model} {self.cost_usd} ({self.task or self.trigger_type})"
+
+    @staticmethod
+    def person_fields(source: Run | Session) -> dict[str, Any]:
+        """The person fields of a ``Run`` or ``Session``."""
+        return {
+            "user_id": source.user_id,
+            "external_provider": source.external_provider,
+            "external_uid": source.external_uid,
+            "external_username": source.external_username,
+        }
+
+    @staticmethod
+    def entry_fields(entry: LedgerEntry) -> dict[str, Any]:
+        """A ledger entry's figures as ``SpendRecord`` fields."""
+        return {
+            "provider_name": entry.provider_name,
+            "input_tokens": entry.input_tokens,
+            "cache_read_tokens": entry.cache_read_tokens,
+            "cache_write_tokens": entry.cache_write_tokens,
+            "output_tokens": entry.output_tokens,
+            "reasoning_tokens": entry.reasoning_tokens,
+            "total_tokens": entry.total_tokens,
+            "cost_usd": entry.cost,
+            "reported_cost_usd": entry.reported_cost,
+            "cost_reported": entry.cost_reported,
+            "unpriced_tokens": entry.unpriced_tokens,
+            "cache_reported": entry.cache_reported,
+            "cache_saving_usd": entry.cache_saving,
+            "cache_unpriced_tokens": entry.cache_unpriced_tokens,
+        }

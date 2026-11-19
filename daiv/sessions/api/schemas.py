@@ -32,6 +32,8 @@ class SpendRowSchema(Schema):
     cache_saving_usd: str
     cache_unpriced_tokens: int
     cost_source: str
+    final: bool
+    updated_at: str
 
 
 class SpendPageSchema(Schema):

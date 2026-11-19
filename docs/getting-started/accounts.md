@@ -162,7 +162,7 @@ An inactive user cannot sign in, and their API keys and MCP tokens stop working 
 Delete a user only when you will never restore their access. Deactivating keeps their history and ownership of runs: see [Deactivate a user](#deactivate-a-user).
 
 !!! warning "Deleting a user cannot be undone"
-    Deleting removes the user's account, their API keys and all data associated with them. You cannot delete your own account.
+    Deleting removes the user's account, their API keys and the data associated with them. Their [spend records](../features/spend.md) stay, under the name they had, so past totals do not change. You cannot delete your own account.
 
 1. Under **Admin** → **Users**, select the user.
 2. Select **Delete user**.

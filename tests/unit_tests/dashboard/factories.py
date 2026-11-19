@@ -89,6 +89,8 @@ def spend_record(run=None, *, days_ago=0, cost="1", model="claude-sonnet-4-6", p
             "user": run.user,
             **fields,
         }
+        if not fields.get("task"):
+            fields.setdefault("counts_run", not SpendRecord.objects.filter(run=run, task="").exists())
     fields.setdefault("input_tokens", 100)
     fields.setdefault("output_tokens", 10)
     fields.setdefault("total_tokens", fields["input_tokens"] + fields["output_tokens"])

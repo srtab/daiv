@@ -1,8 +1,7 @@
-"""Pins the list pages (Sessions, Artifacts, Memory) to the semantic design tokens.
+"""Pins the list pages (Sessions, Artifacts, Memory) and Insights' Spend page to the semantic design tokens.
 
-DESIGN.md migrates a page whole, never half, so a legacy utility in one of these templates, or in a CSS class
-they render, is a page drifting back. Status colours (dots, badges, merge request pills) match none of the
-patterns, so they need no exemption.
+DESIGN.md migrates a page whole, never half, so a legacy utility or a raw palette colour in one of these templates,
+or in a CSS class they render, is a page drifting back.
 """
 
 from __future__ import annotations
@@ -14,11 +13,16 @@ import pytest
 from tests.unit_tests.test_css_animations import DAIV_DIR, INPUT_CSS
 from tests.unit_tests.test_surface_contrast import iter_rules
 
-LEGACY = re.compile(r"(?:bg|border|text|ring|divide)-white/\[|text-gray-\d|text-white\b|bg-\[#")
+PALETTE = "red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|gray"
+LEGACY = re.compile(
+    rf"(?:bg|border|text|ring|divide)-white/\[|(?:bg|border|text|ring|divide)-(?:{PALETTE})-\d|text-white\b"
+    r"|bg-\[#|rgba?\(|shadow-\["
+)
 
 SESSIONS = DAIV_DIR / "sessions" / "templates" / "sessions"
 CORE = DAIV_DIR / "core" / "templates" / "core"
 MEMORY = DAIV_DIR / "memory" / "templates" / "memory"
+DASHBOARD = DAIV_DIR / "dashboard" / "templates" / "dashboard"
 
 PAGE_TEMPLATES = {
     "sessions": [
@@ -36,6 +40,16 @@ PAGE_TEMPLATES = {
         SESSIONS / "_artifact_row.html",
     ],
     "memory": [MEMORY / "list.html", MEMORY / "_list_results.html"],
+    "spend": [
+        DASHBOARD / "insights_spend.html",
+        DASHBOARD / "_spend_breakdown.html",
+        DASHBOARD / "_spend_breakdown_row.html",
+        DASHBOARD / "_spend_split.html",
+        DASHBOARD / "_chart_card.html",
+        DASHBOARD / "_change_badge.html",
+        DASHBOARD / "_change_pill.html",
+        CORE / "_info_tip.html",
+    ],
 }
 
 PAGE_CLASSES = {
@@ -67,6 +81,17 @@ PAGE_CLASSES = {
         "filter-context__clear",
         "session-group-header",
         "session-row",
+        "session-row--failed",
+        "status-dot",
+        "status-dot-success",
+        "status-dot-failed",
+        "status-dot-running",
+        "status-dot-queued",
+        "status-dot-waiting",
+        "status-dot-pending",
+        "mr-pill",
+        "mr-pill--merged",
+        "mr-pill--closed",
         "session-repo",
         "session-branch",
         "session-num",
@@ -77,7 +102,24 @@ PAGE_CLASSES = {
         "empty-state__body",
     ],
     "artifacts": ["artifact-tile", "artifact-download"],
-    "memory": ["notice-found"],
+    "memory": ["notice-found", "status-badge", "status-badge-success", "status-badge-pending"],
+    "spend": [
+        "btn-surface",
+        "link",
+        "stat-tile",
+        "change-badge",
+        "change-badge--good",
+        "change-badge--bad",
+        "change-badge--neutral",
+        "cache-tag",
+        "cache-tag--good",
+        "cache-tag--fair",
+        "cache-tag--attention",
+        "split-bar",
+        "chart-card",
+        "info-tip__btn",
+        "info-tip__panel",
+    ],
 }
 
 RETIRED_CLASSES = ("filter-seg", "filter-seg-item", "filter-seg-item--active")

@@ -26,5 +26,5 @@ Context:
         {% blocktranslate count counter=card.runs %}{{ counter }} run{% plural %}{{ counter }} runs{% endblocktranslate %} ·
         {% if card.hit_rate is not None %}{% blocktranslate with rate=card.hit_rate %}{{ rate }}% cache hits{% endblocktranslate %}{% else %}{% translate "cache not reported" %}{% endif %}
     </p>
-    <p class="mt-1 text-[11px] text-accent-bright">{% translate "Click to open these sessions" %}</p>
+    <p class="mt-1 text-[11px] text-text-muted">{% translate "Click to open these sessions" %}</p>
 </div>

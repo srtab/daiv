@@ -23,6 +23,11 @@ colors:
   status-found: "#D6A036"
   status-attn: "#38BDF8"
   status-fail: "#F8564E"
+  series-1: "#60A5FA"
+  series-2: "#F472B6"
+  series-3: "#FB923C"
+  series-4: "#C4B5FD"
+  series-5: "#FDE047"
 typography:
   body:
     fontFamily: Geist
@@ -215,6 +220,31 @@ components:
     backgroundColor: "{colors.surface-1}"
     textColor: "{colors.text-muted}"
     typography: "{typography.data}"
+  status-chip-clear:
+    backgroundColor: "{colors.surface-3}"
+    textColor: "{colors.status-clear}"
+  status-chip-found:
+    backgroundColor: "{colors.surface-3}"
+    textColor: "{colors.status-found}"
+  status-chip-attn:
+    backgroundColor: "{colors.surface-3}"
+    textColor: "{colors.status-attn}"
+  status-chip-fail:
+    backgroundColor: "{colors.surface-3}"
+    textColor: "{colors.status-fail}"
+  status-chip-neutral:
+    backgroundColor: "{colors.surface-3}"
+    textColor: "{colors.text-muted}"
+  chart-series-1:
+    backgroundColor: "{colors.series-1}"
+  chart-series-2:
+    backgroundColor: "{colors.series-2}"
+  chart-series-3:
+    backgroundColor: "{colors.series-3}"
+  chart-series-4:
+    backgroundColor: "{colors.series-4}"
+  chart-series-5:
+    backgroundColor: "{colors.series-5}"
 ---
 
 # Design System Rules
@@ -277,9 +307,11 @@ documents the roles.
 | `primary` | front matter only: names `accent`, the action color, because the design.md spec requires a `primary` |
 | `focus` | focus ring — reads the accent token, so the teal ramp moves as one |
 | `status-clear` / `status-found` / `status-attn` / `status-fail` | green / amber / cyan / red — each AA-legible on `ground` and every surface; a status color never signals "clickable" |
+| `series-1` … `series-5` | categorical chart series (Spend's models, token and cost kinds), hues apart from the status ramp, teal and violet; fills only, never text |
 
 Weak-tint status backgrounds = the status token at ~14–16% alpha via
-`color-mix(in srgb, <token> 14%, transparent)`; such tints carry no text.
+`color-mix(in srgb, <token> 14%, transparent)`; such tints carry no text. Status text sits on a
+neutral `surface-3` chip instead (`status-chip-*`: status badges, change pills, cache tags).
 
 ### Legacy raw utilities (pages not yet on the tokens)
 
@@ -587,7 +619,8 @@ The bar above a list (Sessions, Artifacts, Memory). Every control is 42px (`h-10
   for deep-link params with no control (repository, merge request, schedule, batch).
 - **Context banner** (`.filter-context`): params another page links in with and no control here
   (the Spend drill-down) read as one sentence with one ×.
-- Controls never use a status colour or the accent; menus are `.filter-menu` surfaces.
+- Controls never use a status colour or the accent for their own state; menus are `.filter-menu`
+  surfaces. An option may lead with its status dot, as the Status menu's do.
 
 Dropdowns render through `sessions/_filter_dropdown.html`, against an Alpine component that has
 `open` and `_apply()` and spreads `filterDropdown` (`sessions/js/filter-dropdown.js`). They are
@@ -597,6 +630,26 @@ disclosures, not ARIA menus: a toggle with `aria-expanded` over plain links that
 {% translate "Model" as model_label %}{% translate "Any model" as any_model %}
 {% include "sessions/_filter_dropdown.html" with key="spend_model" label=model_label icon="cpu-chip" all_label=any_model options=spend_models current=current_spend.spend_model %}
 ```
+
+### Insights
+
+Insights' Spend page is on the tokens.
+
+- **Stat tile** (`.stat-tile`): a figure in `stat-value`, its label in `text-muted`, and a
+  **change pill** (`dashboard/_change_badge.html`, `.change-badge--good|bad|neutral`) whose tone
+  says whether the figure moved the better way, not only which way.
+- **Cache tag** (`.cache-tag--good|fair|attention|unreported`): a hit rate's tone against the
+  85% and 70% thresholds.
+- **Split bar** (`.split-bar`, `dashboard/_spend_split.html`): one total split into kinds, each a
+  `series-*` fill with its share and meaning beside it.
+- **Chart hover card** (`.chart-card`): the overlay a chart column shows on hover or focus; an
+  overlay, so it takes `shadow-overlay`.
+- **Info tip** (`core/_info_tip.html`): a `?` button that opens a short explanation panel; it
+  keeps the global focus ring.
+- Chart series and split kinds take `series-*`, never a status colour, so a model's colour never
+  reads as good or bad. **Other** is `text-muted` at 40%.
+- A link is `.link` (accent, accent-bright on hover); a secondary action is `.btn-surface`, as
+  tall as a filter control.
 
 ### Badges / Pills
 

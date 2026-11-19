@@ -114,7 +114,7 @@ DAIV records the token usage and an estimated cost of every model call it makes 
 
 DAIV counts the tokens of every model call in a run, including fallback models, models that tools call, and subagents, and prices each call on its own. For a call through OpenRouter, the cost is the charge OpenRouter reports, which depends on the provider it routed the call to. For any other call, DAIV estimates it from the model's list price in [genai-prices](https://github.com/pydantic/genai-prices). DAIV writes the figures as each call finishes, so a run that fails, is stopped or loses its worker keeps the spend of every call that finished, and a running run shows its spend so far. DAIV also records which configured provider served each call.
 
-DAIV counts the model calls it makes outside runs too, as background spend: session titles, run classification, and repository memory extraction and consolidation. Background spend shows on the [Spend](../features/spend.md) page, not on a session's **Spend** section.
+DAIV counts the model calls it makes outside runs too, as [background spend](../features/spend.md#background-spend). It shows on the [Spend](../features/spend.md) page, not on a session's **Spend** section.
 
 A run records:
 

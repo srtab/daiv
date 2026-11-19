@@ -4,7 +4,7 @@ from django.utils import timezone
 
 import pytest
 from dashboard.insights import window_for
-from dashboard.spend import CACHE_FAIR, CACHE_GOOD, SHOWN_ROWS, SpendReport, cache_tag
+from dashboard.spend import CACHE_FAIR, CACHE_GOOD, SHOWN_ROWS, SpendReport
 from sessions.models import RunStatus, SessionOrigin, SpendRecord, SpendTask
 
 from tests.unit_tests.dashboard.factories import spend_record, spend_run, spend_session
@@ -177,6 +177,17 @@ class TestBreakdowns:
             else:
                 assert self._sum(table) == total, table["key"]
 
+    def test_a_run_on_two_models_counts_once_in_every_row_it_reaches(self, admin_user):
+        run = spend_run(spend_session(admin_user, repo_id="a/1"))
+        spend_record(run, model="m1")
+        spend_record(run, model="m2")
+
+        report = _report(admin_user)
+
+        assert report.totals()["runs"] == 1
+        runs = {table["key"]: [row["runs"] for row in table["rows"]] for table in report.breakdowns()}
+        assert runs == {"person": [1], "repository": [1], "started_by": [1], "model": [1, 1], "provider": [1]}
+
     def test_started_by_lists_triggers_then_background_by_task_with_no_link_for_consolidation(self, admin_user):
         spend_record(spend_run(spend_session(admin_user)), cost="3")
         spend_record(None, task=SpendTask.MEMORY_CONSOLIDATION, repo_id="acme/api", cost="1")
@@ -269,7 +280,7 @@ class TestBreakdowns:
         ],
     )
     def test_cache_tags_follow_the_thresholds(self, rate, tone):
-        assert cache_tag(rate) == tone
+        assert SpendReport.cache_tag(rate) == tone
 
     def test_a_row_whose_records_reported_no_cache_says_so(self, admin_user):
         spend_record(spend_run(spend_session(admin_user)), cache_read_tokens=0)
@@ -303,6 +314,15 @@ class TestTopSessions:
         )
 
         assert [row["title"] for row in _report(member_user).top_sessions()] == ["shared"]
+
+    def test_a_run_of_mine_in_a_session_i_cannot_open_is_left_out(self, member_user, other_user):
+        run = spend_run(spend_session(other_user, repo_id="acme/secret", title="theirs"))
+        spend_record(run, user=member_user, repo_id="acme/secret")
+
+        report = _report(member_user)
+
+        assert report.totals()["runs"] == 1
+        assert report.top_sessions() == []
 
     def test_the_sort_link_carries_the_period(self, admin_user):
         window = window_for("7d")

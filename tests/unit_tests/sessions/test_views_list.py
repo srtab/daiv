@@ -746,19 +746,48 @@ class TestSessionListSpend:
 
         soup = BeautifulSoup(logged_in_client.get(reverse("session_list")).content, "html.parser")
 
-        assert soup.select_one("[data-testid=session-cost]").get_text(strip=True) == "$0.25"
+        assert soup.select_one("[data-testid=session-cost]").get_text(strip=True) == "$0.25+"
 
-    def test_the_widgets_offer_only_what_the_user_may_see(self, logged_in_client, user, other_user):
+    @pytest.mark.parametrize(
+        ("key", "expected"),
+        [
+            ("spend_model", [("visible-model", "visible-model")]),
+            ("spend_provider", [("anthropic", "Anthropic")]),
+            ("spend_person", None),
+        ],
+    )
+    def test_the_choices_offer_only_what_the_user_may_see(self, logged_in_client, user, other_user, key, expected):
         mine = _create_session(user=user)
         _spend(mine, "1", model="visible-model", provider_slug="anthropic", provider_name="Anthropic", user=user)
         secret = _create_session(user=other_user, repo_id="acme/secret")
         _spend(secret, "1", model="secret-model", provider_slug="secret", provider_name="Secret", user=other_user)
 
-        context = logged_in_client.get(reverse("session_list")).context
+        response = logged_in_client.get(reverse("session_spend_choices", args=[key]), {"scope": "all"})
 
-        assert context["spend_models"] == [("visible-model", "visible-model")]
-        assert context["spend_providers"] == [("anthropic", "Anthropic")]
-        assert context["spend_people"] == [(f"u{user.pk}", user.username)]
+        items = BeautifulSoup(response.content, "html.parser").select(f"[data-filter-key={key}]")
+        offered = [(item["data-value"], item["data-label"]) for item in items]
+        assert offered == (expected or [(f"u{user.pk}", user.username)])
+
+    def test_a_full_load_lists_no_spend_choices_and_names_the_current_one(self, logged_in_client, user):
+        _spend(_create_session(user=user), "1", model="m1", user=user)
+        _spend(_create_session(user=user), "1", model="m2", user=user)
+
+        response = logged_in_client.get(reverse("session_list"), {"spend_person": f"u{user.pk}"})
+
+        soup = BeautifulSoup(response.content, "html.parser")
+        assert [item["data-value"] for item in soup.select("[data-filter-key=spend_model]")] == [""]
+        person = soup.select_one("[data-testid=filter-spend_person]")
+        assert person.select_one(".filter-control__value").get_text(strip=True) == user.username
+        loader = soup.select_one(f"[hx-get^='{reverse('session_spend_choices', args=['spend_model'])}']")
+        assert loader["hx-trigger"] == "intersect once"
+
+    def test_no_spend_anywhere_shows_no_spend_controls(self, logged_in_client, user):
+        soup = BeautifulSoup(logged_in_client.get(reverse("session_list")).content, "html.parser")
+
+        assert soup.select("[data-testid^=filter-spend_]") == []
+
+    def test_an_unknown_choice_list_is_not_found(self, logged_in_client, user):
+        assert logged_in_client.get(reverse("session_spend_choices", args=["status"])).status_code == 404
 
     def test_a_spend_drill_down_shows_one_banner(self, logged_in_client, user):
         params = {
@@ -811,7 +840,7 @@ class TestSessionListSpend:
             reverse("session_list"), {"scope": "mine", "spend_model": "m1"}, HTTP_HX_REQUEST="true"
         )
 
-        assert "spend_models" not in response.context
+        assert "spend_controls" not in response.context
         assert response.context["has_active_filters"] is True
         assert [s.pk for s in response.context["sessions"]] == [session.pk]
 
@@ -905,7 +934,6 @@ class TestSessionListFilterBar:
 
         control = soup.select_one("[data-testid=filter-spend_model]").find_parent(class_="filter-control")
         assert control.select_one(".filter-control__value").get_text(strip=True) == "gone-model"
-        assert soup.select("[data-testid=filter-spend_person], [data-testid=filter-spend_provider]") == []
 
     def test_a_cost_sorted_list_has_no_date_headers(self, logged_in_client, user):
         _spend(_create_session(user=user), "1")

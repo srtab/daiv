@@ -5,24 +5,33 @@ from functools import partial
 from typing import Any
 
 from django.db import IntegrityError, transaction
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import post_delete, post_save, pre_delete
 from django.dispatch import receiver
 from django.tasks.signals import task_finished, task_started
 
 from allauth.socialaccount.models import SocialAccount
 from django_tasks_db.backend import TaskResult as DatabaseTaskResult
 
+from accounts.models import User
 from core import ui_events
 from sessions.auto_archive import MergeArchive
 from sessions.delegation import DelegatedBatch
 from sessions.inbox.complete import RunEnd
 from sessions.inbox.requester import Requester
 from sessions.live.notify import session_changed
-from sessions.models import EventState, InboxEvent, MergeRequestOwnership, Run, RunStatus, Session
+from sessions.models import EventState, InboxEvent, MergeRequestOwnership, Run, RunStatus, Session, SpendRecord
 from sessions.queue import dispatch_next_queued, release_runs_waiting_for
 from sessions.signal_defs import run_ended, run_finished
 
 logger = logging.getLogger("daiv.sessions")
+
+
+@receiver(pre_delete, sender=User, dispatch_uid="sessions.stamp_spend_of_deleted_user")
+def stamp_spend_of_deleted_user(sender: type, instance: User, **kwargs: Any) -> None:
+    """Keep a deleted user's spend under their id and the name the Spend page showed them by, as ``user`` goes NULL."""
+    SpendRecord.objects.filter(user=instance).update(
+        deleted_user_id=instance.pk, person_name=instance.name or instance.username
+    )
 
 
 @receiver(post_save, sender=SocialAccount, dispatch_uid="sessions.claim_runs_for_linked_account")

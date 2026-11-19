@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from ninja.throttling import AuthRateThrottle
+from ninja.throttling import AuthRateThrottle, UserRateThrottle
 
 from core.site_settings import site_settings
 
@@ -40,6 +40,17 @@ class SpendRateThrottle(PerUserRateThrottle):
 
     scope = "spend"
     RATE = "60/m"
+
+    def __init__(self, rate: str = RATE) -> None:
+        super().__init__(rate)
+
+
+class SpendExportThrottle(UserRateThrottle):
+    """Per-user throttle for the Spend page's CSV export, which streams every record of its period, all time
+    included."""
+
+    scope = "spend_export"
+    RATE = "10/h"
 
     def __init__(self, rate: str = RATE) -> None:
         super().__init__(rate)

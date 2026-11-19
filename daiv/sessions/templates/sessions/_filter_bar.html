@@ -29,7 +29,8 @@
         {% include "sessions/_filter_dropdown.html" with key="trigger" label=type_label icon="bars-3" all_label=all_types options=origins current=current_trigger lead="origin" %}
 
         {% querystring range=None date_from=None date_to=None page=None as clear_time_url %}
-        <div class="relative" @click.outside="if (open === 'time') open = null" @keydown.escape="if (open === 'time') open = null">
+        <div class="relative" @click.outside="if (open === 'time') open = null"
+             @keydown.escape="if (open === 'time') { open = null; $el.querySelector('.filter-control__toggle').focus() }">
             <div class="filter-control{% if current_range or current_from or current_to %} filter-control--active{% endif %}"
                  :class="{ 'filter-control--active': timeActive }">
                 <button type="button" class="filter-control__toggle" @click="toggle('time')" data-testid="filter-time"
@@ -69,17 +70,18 @@
         </div>
 
         {% translate "Spent by" as person_label %}{% translate "Anyone" as anyone %}
-        {% include "sessions/_filter_dropdown.html" with key="spend_person" label=person_label icon="users" all_label=anyone options=spend_people current=current_spend.spend_person %}
+        {% include "sessions/_filter_dropdown.html" with key="spend_person" label=person_label icon="users" all_label=anyone options=spend_controls.spend_person.options current=current_spend.spend_person options_url=spend_controls.spend_person.url %}
         {% translate "Model" as model_label %}{% translate "Any model" as any_model %}
-        {% include "sessions/_filter_dropdown.html" with key="spend_model" label=model_label icon="cpu-chip" all_label=any_model options=spend_models current=current_spend.spend_model %}
+        {% include "sessions/_filter_dropdown.html" with key="spend_model" label=model_label icon="cpu-chip" all_label=any_model options=spend_controls.spend_model.options current=current_spend.spend_model options_url=spend_controls.spend_model.url %}
         {% translate "Provider" as provider_label %}{% translate "Any provider" as any_provider %}
-        {% include "sessions/_filter_dropdown.html" with key="spend_provider" label=provider_label icon="providers" all_label=any_provider options=spend_providers current=current_spend.spend_provider %}
+        {% include "sessions/_filter_dropdown.html" with key="spend_provider" label=provider_label icon="providers" all_label=any_provider options=spend_controls.spend_provider.options current=current_spend.spend_provider options_url=spend_controls.spend_provider.url %}
 
         <a href="{{ clear_all_url }}" class="filter-clear" @click.prevent="clearAll()"
            x-show="hasActiveFilters" {% if not has_active_filters %}style="display:none"{% endif %}>{% translate "Clear all" %}</a>
 
         <div class="ml-auto flex flex-wrap items-center gap-2">
-            <div class="relative" @click.outside="if (open === 'sort') open = null" @keydown.escape="if (open === 'sort') open = null">
+            <div class="relative" @click.outside="if (open === 'sort') open = null"
+             @keydown.escape="if (open === 'sort') { open = null; $el.querySelector('.filter-control__toggle').focus() }">
                 <div class="filter-control">
                     <button type="button" class="filter-control__toggle" @click="toggle('sort')" data-testid="filter-sort"
                             aria-expanded="false" :aria-expanded="(open === 'sort').toString()">

@@ -9,9 +9,9 @@ Context:
     <span class="inline-flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap">
         {% if row.swatch %}<span class="inline-block h-2.5 w-2.5 shrink-0 rounded-[3px] {{ row.swatch }}" aria-hidden="true"></span>{% endif %}
         {% if row.url %}
-        <a href="{{ row.url }}" class="truncate text-accent-bright hover:text-accent">{{ row.name }}</a>
+        <a href="{{ row.url }}" class="link truncate">{{ row.name }}</a>
         {% else %}
-        <span class="truncate text-text" title="{{ row.why }}" data-testid="no-link">{{ row.name }}</span>
+        <span class="truncate text-text" title="{{ row.why }}" data-testid="no-link">{{ row.name }}{% if row.why %}<span class="sr-only"> ({{ row.why }})</span>{% endif %}</span>
         {% endif %}
         {% if row.note %}<span class="text-[12px] text-text-faint">{{ row.note }}</span>{% endif %}
     </span>

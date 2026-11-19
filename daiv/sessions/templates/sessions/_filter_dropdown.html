@@ -1,11 +1,13 @@
 {% load i18n icon_tags query_tags session_tags %}
 {% comment %}
 A filter dropdown. Context: key (URL param and Alpine key), label, icon (shown while unset), all_label, options ((value,
-label) pairs), current, lead ("", "status", "origin", "kind" or "repo"), align ("" or "end"). Renders nothing with no
-options and no current value. The Alpine component around it spreads filterDropdown from sessions/js/filter-dropdown.js.
+label) pairs), current, lead ("", "status", "origin", "kind" or "repo"), align ("" or "end"), options_url (where the
+rest of the options load from when the menu first opens). Renders nothing with no options, no current value and no
+options_url. The Alpine component around it spreads filterDropdown from sessions/js/filter-dropdown.js.
 {% endcomment %}
-{% if options or current %}
-<div class="relative" @click.outside="if (open === '{{ key }}') open = null" @keydown.escape="if (open === '{{ key }}') open = null">
+{% if options or current or options_url %}
+<div class="relative" @click.outside="if (open === '{{ key }}') open = null"
+     @keydown.escape="if (open === '{{ key }}') { open = null; $el.querySelector('.filter-control__toggle').focus() }">
     <div class="filter-control{% if current %} filter-control--active{% endif %}" :class="{ 'filter-control--active': !!value('{{ key }}') }">
         <button type="button" class="filter-control__toggle" @click="toggle('{{ key }}')" data-testid="filter-{{ key }}"
                 aria-expanded="false" :aria-expanded="(open === '{{ key }}').toString()">
@@ -25,13 +27,14 @@ options and no current value. The Alpine component around it spreads filterDropd
         <a href="{% querystring request.GET key|query_param page=None scope=current_scope|default:None %}" data-filter-key="{{ key }}" data-value="" data-label="{{ all_label }}"
            class="filter-menu-item{% if not current %} filter-menu-item--active{% endif %}"
            @click.prevent="pick('{{ key }}', '')" :class="{ 'filter-menu-item--active': !value('{{ key }}') }">{{ all_label }}</a>
-        {% for value, option_label in options %}
-        <a href="{% querystring request.GET key|query_param:value page=None scope=current_scope|default:None %}" data-filter-key="{{ key }}" data-value="{{ value }}" data-label="{{ option_label }}"
-           class="filter-menu-item{% if value == current %} filter-menu-item--active{% endif %}"
-           @click.prevent="pick('{{ key }}', $el.dataset.value)" :class="{ 'filter-menu-item--active': value('{{ key }}') === $el.dataset.value }">
-            {% if lead %}<span class="filter-menu-item__lead">{% include "sessions/_filter_lead.html" %}</span>{% endif %}<span class="truncate">{{ option_label }}</span>
-        </a>
-        {% endfor %}
+        {% if options_url %}
+        <div hx-get="{{ options_url }}?{{ request.GET.urlencode }}" hx-trigger="intersect once" hx-swap="outerHTML">
+            {% include "sessions/_filter_options.html" %}
+            <p class="filter-menu__label filter-menu__loading" role="status">{% translate "Loading…" %}</p>
+        </div>
+        {% else %}
+        {% include "sessions/_filter_options.html" %}
+        {% endif %}
     </div>
 </div>
 {% endif %}

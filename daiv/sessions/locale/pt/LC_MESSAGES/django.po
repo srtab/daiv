@@ -1560,6 +1560,12 @@ msgstr "trabalho em segundo plano: %(task)s"
 msgid "Leave the Spend view"
 msgstr "Sair da vista de Gastos"
 
+msgid "Loading…"
+msgstr "A carregar…"
+
+msgid "Unknown person"
+msgstr "Pessoa desconhecida"
+
 #, python-format
 msgid "Clear %(label)s filter"
 msgstr "Limpar filtro %(label)s"

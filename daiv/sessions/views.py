@@ -15,7 +15,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, SuspiciousOperation
 from django.db.models import F, Max
 from django.http import Http404, HttpResponse, HttpResponseBase
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.utils.text import slugify
@@ -53,6 +53,7 @@ from sessions.filters import (
     SORT_COST,
     SORT_RECENT,
     SPEND_BANNER_PARAMS,
+    SPEND_CONTROL_PARAMS,
     SPEND_PARAMS,
     STATUS_CHOICES,
     ArtifactFilter,
@@ -268,32 +269,41 @@ class SessionListView(LoginRequiredMixin, FilterView):
         return context
 
     def _spend_context(self, cleaned: dict[str, Any]) -> dict[str, Any]:
-        """The Spent by, Model and Provider choices, from the records the user may see, and the Spend banner.
+        """The Spent by, Model and Provider controls and the Spend banner.
 
-        A results swap leaves the filter bar in place, so it gets only the flags the results read.
+        A control holds only its current choice; the rest load when it first opens (``SessionSpendChoicesView``),
+        as listing them reads every record the user may see. A results swap leaves the filter bar in place, so it
+        gets only the flags the results read.
         """
         current = {name: self.request.GET.get(name, "") if cleaned.get(name) else "" for name in SPEND_PARAMS}
         if is_htmx(self.request):
             return {"current_spend": current, "has_spend_filters": any(current.values())}
         records = SpendRecord.objects.visible_to(self.request.user)
-        people = {}
-        for values in records.order_by().values(*SpendLedger.PERSON_VALUES).distinct():
-            person = SpendLedger.person(values)
-            people.setdefault(person.key, person.name)
-        pairs = list(
-            records
-            .order_by("provider_slug", "model")
-            .values_list("provider_slug", "model")
-            .annotate(Max("provider_name"))
-        )
+        controls = {}
+        if any(current[key] for key in SPEND_CONTROL_PARAMS) or records.exists():
+            controls = {
+                key: {
+                    "url": reverse("session_spend_choices", args=[key]),
+                    "options": [(current[key], self._spend_label(records, key, current[key]))] if current[key] else [],
+                }
+                for key in SPEND_CONTROL_PARAMS
+            }
         return {
-            "spend_people": sorted(people.items(), key=lambda item: item[1].lower()),
-            "spend_models": [(model, model) for model in sorted({model for _slug, model, _name in pairs})],
-            "spend_providers": list({slug: name for slug, _model, name in pairs if slug}.items()),
+            "spend_controls": controls,
             "current_spend": current,
             "spend_banner": self._spend_banner(cleaned, current),
             "has_spend_filters": any(current.values()),
         }
+
+    @staticmethod
+    def _spend_label(records: QuerySet[SpendRecord], key: str, value: str) -> str:
+        """The label of the current choice of a spend control, or ``value`` itself when no record has it."""
+        if key == "spend_person":
+            values = records.filter(SpendLedger.person_filter(value)).values(*SpendLedger.PERSON_VALUES).first()
+            return SpendLedger.person(values).name if values else value
+        if key == "spend_provider":
+            return records.filter(provider_slug=value).values_list("provider_name", flat=True).first() or value
+        return value
 
     def _spend_banner(self, cleaned: dict[str, Any], current: dict[str, str]) -> dict[str, Any] | None:
         """The Spend page's params that have no control in the bar, as one banner with a single clear."""
@@ -311,6 +321,40 @@ class SessionListView(LoginRequiredMixin, FilterView):
             "task": SpendTask(cleaned["spend_task"]).label if current["spend_task"] else "",
             "clear_url": f"{self.request.path}?{query.urlencode()}",
         }
+
+
+class SessionSpendChoicesView(LoginRequiredMixin, View):
+    """The choices of one of the sessions list's spend controls, from the records the user may see, as menu items."""
+
+    def get(self, request, key: str):
+        choices = {"spend_person": self._people, "spend_model": self._models, "spend_provider": self._providers}
+        if key not in choices:
+            raise Http404
+        records = SpendRecord.objects.visible_to(request.user).order_by()
+        context = {
+            "key": key,
+            "options": choices[key](records),
+            "current": request.GET.get(key, ""),
+            "current_scope": resolve_scope(request.GET),
+        }
+        return render(request, "sessions/_filter_options.html", context)
+
+    @staticmethod
+    def _people(records: QuerySet[SpendRecord]) -> list[tuple[str, str]]:
+        people = {}
+        for values in records.values(*SpendLedger.PERSON_VALUES).distinct():
+            person = SpendLedger.person(values)
+            people.setdefault(person.key, person.name)
+        return sorted(people.items(), key=lambda item: item[1].lower())
+
+    @staticmethod
+    def _models(records: QuerySet[SpendRecord]) -> list[tuple[str, str]]:
+        return [(model, model) for model in records.values_list("model", flat=True).distinct().order_by("model")]
+
+    @staticmethod
+    def _providers(records: QuerySet[SpendRecord]) -> list[tuple[str, str]]:
+        rows = records.exclude(provider_slug="").values_list("provider_slug").annotate(Max("provider_name"))
+        return list(rows.order_by("provider_slug"))
 
 
 class SessionMergeRequestRedirectView(LoginRequiredMixin, View):

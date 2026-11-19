@@ -17,9 +17,9 @@ Context:
             {% for sub in row.subs %}
             <div class="flex justify-between gap-3 pl-[18px] pt-1.5 text-[13px]" data-testid="sub-row">
                 {% if sub.url %}
-                <a href="{{ sub.url }}" class="text-accent-bright hover:text-accent">{{ sub.name }}</a>
+                <a href="{{ sub.url }}" class="link">{{ sub.name }}</a>
                 {% else %}
-                <span class="text-text-muted" title="{{ sub.why }}" data-testid="no-link">{{ sub.name }}</span>
+                <span class="text-text-muted" title="{{ sub.why }}" data-testid="no-link">{{ sub.name }}<span class="sr-only"> ({{ sub.why }})</span></span>
                 {% endif %}
                 <span class="font-mono tabular-nums text-text-muted">{{ sub.cost_text }}</span>
             </div>
@@ -29,7 +29,7 @@ Context:
         {% if table.rest %}
         <li class="border-t border-border py-2.5" x-show="!open" data-testid="rest-row">
             <div class="flex items-baseline justify-between gap-3 text-sm">
-                <span class="truncate text-text" title="{{ table.rest.why }}" data-testid="no-link">{{ table.rest.name }}</span>
+                <span class="truncate text-text" title="{{ table.rest.why }}" data-testid="no-link">{{ table.rest.name }}<span class="sr-only"> ({{ table.rest.why }})</span></span>
                 <span class="font-mono font-semibold tabular-nums text-text">{{ table.rest.cost_text }}</span>
             </div>
             <div class="mt-1.5 flex items-center gap-3 font-mono text-[11px] text-text-faint">
@@ -40,7 +40,7 @@ Context:
         {% endif %}
         {% if table.not_shown %}
         <li class="border-t border-border pt-2.5 text-[13px] text-text-muted" x-show="open" x-cloak data-testid="not-shown">
-            <a href="{{ export_url }}" class="text-accent-bright hover:text-accent">
+            <a href="{{ export_url }}" class="link">
                 {% blocktranslate count counter=table.not_shown %}{{ counter }} more in the CSV export{% plural %}{{ counter }} more in the CSV export{% endblocktranslate %}
             </a>
         </li>
@@ -48,8 +48,8 @@ Context:
     </ul>
     {% if table.foldable %}
     <button type="button" @click="open = !open" :aria-expanded="open.toString()" aria-expanded="false" data-testid="show-all"
-            class="mt-2.5 inline-flex min-h-10 w-full items-center justify-center rounded-[10px] border border-border bg-surface-1 text-[13px] font-medium text-accent-bright transition-colors hover:text-accent">
-        <span x-show="!open">{% blocktranslate with count=table.groups plural=table.plural %}Show all {{ count }} {{ plural }}{% endblocktranslate %}</span>
+            class="btn-surface mt-2.5 w-full">
+        <span x-show="!open">{% if table.key == "person" %}{% blocktranslate count counter=table.groups %}Show all {{ counter }} person{% plural %}Show all {{ counter }} people{% endblocktranslate %}{% elif table.key == "repository" %}{% blocktranslate count counter=table.groups %}Show all {{ counter }} repository{% plural %}Show all {{ counter }} repositories{% endblocktranslate %}{% elif table.key == "model" %}{% blocktranslate count counter=table.groups %}Show all {{ counter }} model{% plural %}Show all {{ counter }} models{% endblocktranslate %}{% else %}{% blocktranslate count counter=table.groups %}Show all {{ counter }} provider{% plural %}Show all {{ counter }} providers{% endblocktranslate %}{% endif %}</span>
         <span x-show="open" x-cloak>{% translate "Show the top 5 only" %}</span>
     </button>
     {% endif %}

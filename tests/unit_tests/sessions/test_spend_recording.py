@@ -75,11 +75,7 @@ class TestRunSpendRecorder:
         assert (record.provider_slug, record.provider_name) == ("anthropic", "Anthropic")
         assert (record.input_tokens, record.total_tokens) == (entry.input_tokens, entry.total_tokens)
         assert record.cost_usd == entry.cost.quantize(Decimal("0.000001"))
-        assert (record.user_id, record.person_name, record.trigger_type) == (
-            member_user.pk,
-            str(member_user),
-            SessionOrigin.CHAT,
-        )
+        assert (record.user_id, record.trigger_type, record.counts_run) == (member_user.pk, SessionOrigin.CHAT, True)
         assert (record.session_id, record.repo_id, record.occurred_at) == (run.session_id, "g/r", run.created_at)
 
     async def test_a_burst_of_calls_coalesces_into_one_write(self, run):
@@ -201,7 +197,7 @@ class TestBackgroundSpend:
 
         record = await SpendRecord.objects.aget()
         assert (record.run_id, record.session_id, record.repo_id) == (run.pk, run.session_id, "g/r")
-        assert (record.user_id, record.person_name) == (member_user.pk, str(member_user))
+        assert (record.user_id, record.counts_run) == (member_user.pk, False)
 
     def test_repository_work_belongs_to_daiv(self):
         with BackgroundSpend(SpendTask.MEMORY_CONSOLIDATION, repo_id="g/r"):

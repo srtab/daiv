@@ -14,7 +14,7 @@
 {% endblock insights_filters %}
 
 {% block insights_actions %}
-<a href="{{ export_url }}" class="btn-secondary inline-flex min-h-10 items-center gap-2" data-testid="download-csv">
+<a href="{{ export_url }}" class="btn-surface" data-testid="download-csv">
     {% icon "arrow-down-tray" "h-4 w-4 shrink-0" %}{% translate "Download CSV" %}
 </a>
 {% endblock insights_actions %}
@@ -25,9 +25,9 @@
 {% endif %}
 
 {% if totals.empty %}
-<p class="mt-8 rounded-2xl border border-border bg-surface-2 px-6 py-12 text-center text-sm text-text-muted" data-testid="spend-empty">
-    {% translate "Nothing was spent in this period" %}
-</p>
+<div class="empty-state mt-8" data-testid="spend-empty">
+    <p class="empty-state__title">{% translate "Nothing was spent in this period" %}</p>
+</div>
 {% else %}
 <section aria-labelledby="spend-heading" data-testid="spend-summary"
          class="animate-fade-up mt-6 rounded-2xl border border-border bg-surface-2 p-6" style="animation-delay: 50ms">
@@ -38,7 +38,7 @@
 
     <div class="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div class="stat-tile" data-testid="tile-cost">
-            <p class="stat-value text-text-strong">{{ totals.cost_text }}{% if cost_floor %}<span class="text-status-found" title="{% translate 'A floor: some tokens have no price, or some runs recorded nothing' %}">+</span>{% endif %}</p>
+            <p class="stat-value text-text-strong">{{ totals.cost_text }}{% if cost_floor %}<span class="text-status-found" title="{% translate 'A floor: some tokens have no price, or some runs recorded nothing' %}" aria-hidden="true">+</span><span class="sr-only">{% translate "A floor: some tokens have no price, or some runs recorded nothing" %}</span>{% endif %}</p>
             <p class="mt-2 text-sm text-text-muted">{% translate "total cost" %}</p>
             {% include "dashboard/_change_badge.html" with change=totals.cost_change %}
         </div>
@@ -118,9 +118,9 @@
     <ul>
         {% for session in top_sessions %}
         <li class="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border py-3">
-            <span class="min-w-16 shrink-0 rounded-full border border-border bg-surface-3 px-2 py-0.5 text-center text-[11px] text-text-muted">{{ session.origin }}</span>
+            <span class="meta-pill min-w-16 justify-center">{{ session.origin }}</span>
             <div class="min-w-0 flex-[999_1_20rem]">
-                <a href="{% url 'session_detail' thread_id=session.thread_id %}" class="text-sm font-medium text-accent-bright hover:text-accent">{{ session.title }}</a>
+                <a href="{% url 'session_detail' thread_id=session.thread_id %}" class="link text-sm font-medium">{{ session.title }}</a>
                 <p class="mt-1 text-[12px] text-text-faint">
                     <span class="font-mono">{{ session.repo_id }}</span> · {{ session.owner }} · {{ session.models }} · {% blocktranslate count counter=session.runs %}{{ counter }} run{% plural %}{{ counter }} runs{% endblocktranslate %}
                 </p>
@@ -147,7 +147,7 @@
         {% if coverage.running_runs %}
         <p>{% blocktranslate count counter=coverage.running_runs %}{{ counter }} run is still running; its spend so far is included.{% plural %}{{ counter }} runs are still running; their spend so far is included.{% endblocktranslate %}</p>
         {% endif %}
-        <p class="mt-1.5 text-[12px] text-text-faint">{% translate "Costs are estimates from list prices unless the provider reported what it charged." %} <a href="{{ counting_docs_url }}" class="text-accent-bright hover:text-accent">{% translate "How DAIV counts spend" %}</a></p>
+        <p class="mt-1.5 text-[12px] text-text-faint">{% translate "Costs are estimates from list prices unless the provider reported what it charged." %} <a href="{{ counting_docs_url }}" class="link">{% translate "How DAIV counts spend" %}</a></p>
     </div>
 </section>
 {% endif %}

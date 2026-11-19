@@ -235,3 +235,49 @@ class TestBackfillSpendRecords:
         backfill_spend_migration.unbackfill(global_apps, None)
 
         assert set(SpendRecord.objects.values_list("pk", flat=True)) == {live.pk, background.pk}
+
+
+counts_run_migration = import_module("sessions.migrations.0042_spendrecord_counts_run_deleted_user")
+
+
+@pytest.mark.django_db
+class TestCountsRunAndDeletedUsers:
+    def test_one_run_spend_row_per_run_counts_it(self, member_user):
+        from django.apps import apps as global_apps
+        from django.utils import timezone
+
+        from sessions.models import SpendRecord, SpendTask
+
+        run = _run(RunStatus.SUCCESSFUL)
+        spent = {"occurred_at": timezone.now(), "trigger_type": SessionOrigin.API_JOB}
+        for model in ("m1", "m2"):
+            SpendRecord.objects.create(run=run, model=model, **spent)
+        SpendRecord.objects.create(run=run, model="m1", task=SpendTask.RUN_CLASSIFICATION, occurred_at=timezone.now())
+
+        counts_run_migration.mark_counted_runs(global_apps, None)
+
+        assert SpendRecord.objects.filter(counts_run=True).count() == 1
+        assert SpendRecord.objects.get(counts_run=True).task == ""
+
+    def test_rows_of_users_deleted_before_get_one_stand_in_id_per_name(self):
+        from django.apps import apps as global_apps
+        from django.utils import timezone
+
+        from sessions.models import SpendRecord
+
+        def _row(name, trigger=SessionOrigin.CHAT):
+            return SpendRecord.objects.create(
+                model="m", trigger_type=trigger, occurred_at=timezone.now(), person_name=name
+            )
+
+        ana, ana_again, bo = _row("Ana"), _row("Ana"), _row("Bo")
+        nameless_chat, daiv = _row(""), _row("", SessionOrigin.PIPELINE_WEBHOOK)
+
+        counts_run_migration.key_deleted_users(global_apps, None)
+
+        rows = (ana, ana_again, bo, nameless_chat, daiv)
+        ids = {row.pk: SpendRecord.objects.get(pk=row.pk).deleted_user_id for row in rows}
+        assert ids[ana.pk] == ids[ana_again.pk] < 0
+        assert ids[bo.pk] < 0 and ids[bo.pk] != ids[ana.pk]
+        assert ids[nameless_chat.pk] == 0
+        assert ids[daiv.pk] is None

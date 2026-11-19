@@ -5,7 +5,7 @@ from django.utils import timezone
 
 import pytest
 from allauth.socialaccount.models import SocialAccount
-from sessions.models import SessionOrigin, SpendRecord, SpendTask
+from sessions.models import Run, RunStatus, Session, SessionOrigin, SpendRecord, SpendTask
 from sessions.spend_ledger import SpendLedger
 
 D = Decimal
@@ -24,9 +24,9 @@ def _keyed(key: str) -> set[SpendRecord]:
 @pytest.mark.django_db
 class TestPersonKeys:
     def test_each_kind_round_trips_through_its_filter(self, member_user):
-        by_user = _spend(user=member_user, person_name=str(member_user))
+        by_user = _spend(user=member_user)
         external = _spend(external_provider="gitlab", external_uid="77", external_username="ana")
-        deleted = _spend(person_name="Old Name")
+        deleted = _spend(deleted_user_id=41, person_name="Old Name")
         daiv = _spend(task=SpendTask.MEMORY_CONSOLIDATION, trigger_type="")
 
         people = {record.pk: SpendLedger.person(record) for record in (by_user, external, deleted, daiv)}
@@ -34,7 +34,7 @@ class TestPersonKeys:
         assert [(p.key, p.kind) for p in people.values()] == [
             (f"u{member_user.pk}", "user"),
             ("xgitlab:77", "external"),
-            ("dOld Name", "deleted"),
+            ("d41", "deleted"),
             ("daiv", "daiv"),
         ]
         assert people[external.pk].name == "ana"
@@ -48,15 +48,29 @@ class TestPersonKeys:
 
         assert _keyed("xgitlab:77") == set()
 
-    def test_a_deleted_users_rows_keep_their_name_once_the_user_is_gone(self, django_user_model):
+    def test_a_deleted_users_rows_keep_their_id_and_name_once_the_user_is_gone(self, django_user_model):
         gone = django_user_model.objects.create_user(username="gone", email="g@x.io", name="Gone Person")
-        record = _spend(user=gone, person_name=str(gone))
+        gone_pk = gone.pk
+        record = _spend(user=gone)
         gone.delete()
         record.refresh_from_db()
 
         person = SpendLedger.person(record)
 
-        assert (person.key, person.name, person.kind) == ("dGone Person", "Gone Person", "deleted")
+        assert (person.key, person.name, person.kind) == (f"d{gone_pk}", "Gone Person", "deleted")
+
+    def test_two_deleted_users_of_one_name_stay_two_people(self, django_user_model):
+        first = django_user_model.objects.create_user(username="ana1", email="a1@x.io", name="Ana")
+        second = django_user_model.objects.create_user(username="ana2", email="a2@x.io", name="Ana")
+        records = [_spend(user=first), _spend(user=second)]
+        first.delete()
+        second.delete()
+
+        keys = {SpendLedger.person(record).key for record in SpendRecord.objects.filter(pk__in=[r.pk for r in records])}
+
+        assert len(keys) == 2
+        for key in keys:
+            assert len(_keyed(key)) == 1
 
     def test_a_values_row_labels_a_user_by_name_then_username(self, member_user):
         _spend(user=member_user)
@@ -65,7 +79,7 @@ class TestPersonKeys:
 
         assert SpendLedger.person(values).name == (member_user.name or member_user.username)
 
-    @pytest.mark.parametrize("key", ["", "u", "uabc", "x", "xgitlab", "xgitlab:", "x:77", "d", "z1"])
+    @pytest.mark.parametrize("key", ["", "u", "uabc", "x", "xgitlab", "xgitlab:", "x:77", "d", "dOld Name", "z1"])
     def test_anything_else_is_not_a_key(self, key):
         with pytest.raises(ValueError, match="person key"):
             SpendLedger.person_filter(key)
@@ -92,6 +106,20 @@ class TestRows:
 
         assert list(SpendLedger.rows(admin_user, "mine", today, today)) == [mine]
         assert len(SpendLedger.rows(admin_user, "all", today, today)) == 2
+
+
+class TestFinal:
+    @pytest.mark.parametrize(("status", "final"), [(RunStatus.RUNNING, False), (RunStatus.SUCCESSFUL, True)])
+    def test_run_spend_is_final_once_its_run_ends(self, member_user, status, final):
+        session = Session.objects.create(thread_id="t-final", origin=SessionOrigin.CHAT, user=member_user)
+        run = Run.objects.create(session=session, trigger_type=SessionOrigin.CHAT, user=member_user, status=status)
+        _spend(run=run, user=member_user)
+        _spend(run=run, task=SpendTask.RUN_CLASSIFICATION, trigger_type="", user=member_user)
+
+        rows = [SpendLedger.row(record) for record in SpendLedger.rows(member_user, "mine", None, timezone.localdate())]
+
+        assert sorted((row["kind"], row["final"]) for row in rows) == [("background", True), ("run", final)]
+        assert all(row["updated_at"].endswith("Z") for row in rows)
 
 
 class TestCursor:

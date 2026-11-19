@@ -1,7 +1,7 @@
 import csv
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import Http404, StreamingHttpResponse
+from django.http import Http404, HttpResponse, StreamingHttpResponse
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.http import urlencode
@@ -12,6 +12,7 @@ from sessions.spend_ledger import COLUMNS, SpendLedger
 from skills.models import SkillInvocation
 from skills.pages import SkillPageMixin
 
+from core.api.throttling import SpendExportThrottle
 from core.mixins import AdminRequiredMixin
 from dashboard import home, insights, landing, spend
 from dashboard.comparisons import CHECKED, COMPARISONS, COMPARISONS_BY_SLUG
@@ -108,17 +109,30 @@ class InsightsView(LoginRequiredMixin, TemplateView):
         return context
 
 
-class InsightsSpendView(LoginRequiredMixin, TemplateView):
+class SpendScopeMixin:
+    """The Spend page's period and scope: administrators open on everyone's spend, members on their own."""
+
+    default_period = "30d"
+
+    def spend_period(self) -> str:
+        return _period(self.request, self.default_period)
+
+    def spend_scope(self) -> str:
+        default = SCOPE_ALL if self.request.user.is_admin else SCOPE_MINE
+        scope = self.request.GET.get("scope", default)
+        return scope if scope in dict(SCOPE_CHOICES) else default
+
+
+class InsightsSpendView(LoginRequiredMixin, SpendScopeMixin, TemplateView):
     """What DAIV spent, by whom, where and on what; members open on their own spend."""
 
     template_name = "dashboard/insights_spend.html"
-    default_period = "30d"
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         user = self.request.user
-        period = _period(self.request, self.default_period)
-        scope = _spend_scope(self.request)
+        period = self.spend_period()
+        scope = self.spend_scope()
         window = insights.window_for(period)
         previous = window.previous()
         report = spend.SpendReport(user, window, previous, scope)
@@ -149,49 +163,44 @@ class InsightsSpendView(LoginRequiredMixin, TemplateView):
         return context
 
 
-class SpendExportView(LoginRequiredMixin, View):
+class SpendExportView(LoginRequiredMixin, SpendScopeMixin, View):
     """The Spend page's records as CSV, one row per record, for the page's period and scope."""
 
+    FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+    class _Echo:
+        def write(self, value: str) -> str:
+            return value
+
     def get(self, request, *args, **kwargs):
-        window = insights.window_for(_period(request, InsightsSpendView.default_period))
-        records = SpendLedger.rows(request.user, _spend_scope(request), window.start, window.end)
+        throttle = SpendExportThrottle()
+        if not throttle.allow_request(request):
+            return HttpResponse(status=429, headers={"Retry-After": str(int(throttle.wait() or 60))})
+        window = insights.window_for(self.spend_period())
+        records = SpendLedger.rows(request.user, self.spend_scope(), window.start, window.end)
         start = window.start.isoformat() if window.start is not None else "all"
-        response = StreamingHttpResponse(_csv_lines(records), content_type="text/csv; charset=utf-8")
+        response = StreamingHttpResponse(self._csv_lines(records), content_type="text/csv; charset=utf-8")
         response["Content-Disposition"] = f'attachment; filename="daiv-spend-{start}-{window.end.isoformat()}.csv"'
         return response
 
+    @classmethod
+    async def _csv_lines(cls, records):
+        writer = csv.writer(cls._Echo())
+        yield writer.writerow(COLUMNS)
+        async for record in records.aiterator(chunk_size=2000):
+            row = SpendLedger.row(record)
+            yield writer.writerow([cls._csv_value(row[column]) for column in COLUMNS])
 
-class _Echo:
-    def write(self, value: str) -> str:
-        return value
-
-
-async def _csv_lines(records):
-    writer = csv.writer(_Echo())
-    yield writer.writerow(COLUMNS)
-    async for record in records.aiterator(chunk_size=2000):
-        row = SpendLedger.row(record)
-        yield writer.writerow([_csv_value(row[column]) for column in COLUMNS])
-
-
-_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
-
-
-def _csv_value(value) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, str) and value.startswith(_FORMULA_PREFIXES):
-        # A leading quote keeps a spreadsheet from running a person's or repository's name as a formula.
-        return f"'{value}"
-    return str(value)
-
-
-def _spend_scope(request) -> str:
-    default = SCOPE_ALL if request.user.is_admin else SCOPE_MINE
-    scope = request.GET.get("scope", default)
-    return scope if scope in dict(SCOPE_CHOICES) else default
+    @classmethod
+    def _csv_value(cls, value) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, str) and value.startswith(cls.FORMULA_PREFIXES):
+            # A leading quote keeps a spreadsheet from running a person's or repository's name as a formula.
+            return f"'{value}"
+        return str(value)
 
 
 class SkillUsageView(AdminRequiredMixin, SkillPageMixin, TemplateView):

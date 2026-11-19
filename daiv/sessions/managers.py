@@ -180,12 +180,15 @@ class SessionQuerySet(models.QuerySet["Session"]):
     def with_run_spend(self, start: date | None = None, end: date | None = None) -> models.QuerySet[Session]:
         """Annotate ``run_spend``: the priced cost of the session's runs, from local midnight of ``start`` to the end
         of ``end`` when given; None when nothing was priced. Background spend is not counted, as on the session page.
+        ``run_spend_floor`` says some of those tokens have no price, so the cost is a floor.
         """
         from sessions.models import SpendRecord
 
         records = SpendRecord.objects.filter(session=models.OuterRef("pk")).run_spend().between(start, end)
         total = records.order_by().values("session").annotate(total=models.Sum("cost_usd")).values("total")
-        return self.annotate(run_spend=models.Subquery(total))
+        return self.annotate(
+            run_spend=models.Subquery(total), run_spend_floor=models.Exists(records.filter(unpriced_tokens__gt=0))
+        )
 
     def with_latest_status(self) -> models.QuerySet[Session]:
         """Annotate each session with ``latest_run_status`` (status of the newest run).

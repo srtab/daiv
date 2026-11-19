@@ -86,7 +86,7 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 - Show the images and files a tool returns in the session transcript, with image thumbnails on the closed tool row, and let the agent open base64 files an MCP server returns ([#1782](https://github.com/srtab/daiv/pull/1782), [#1736](https://github.com/srtab/daiv/pull/1736), [#1836](https://github.com/srtab/daiv/pull/1836))
 - Add SearXNG as a web-search backend ([#1779](https://github.com/srtab/daiv/pull/1779)) (Tobi)
 - Read one section of a page with `web_fetch` by passing its URL `#fragment` ([#1752](https://github.com/srtab/daiv/pull/1752))
-- Track token usage and cost per run and session ([#1077](https://github.com/srtab/daiv/pull/1077), [#1776](https://github.com/srtab/daiv/pull/1776))
+- Track token usage and cost per run and session, recorded as each model call finishes so a run that fails, is stopped or loses its worker keeps its spend ([#1077](https://github.com/srtab/daiv/pull/1077), [#1776](https://github.com/srtab/daiv/pull/1776), [#1849](https://github.com/srtab/daiv/pull/1849))
 - Link the merge requests DAIV opens to their session, with a `DAIV-Session` commit trailer; turn it off with `DAIV_SESSION_LINK_ENABLED` or `session_link` in `.daiv.yml` ([#1497](https://github.com/srtab/daiv/pull/1497))
 - Accept up to 20 external `references` on Jobs API and MCP jobs, linked from the merge request with the platform's closing syntax ([#1527](https://github.com/srtab/daiv/pull/1527))
 - Add `allowed_usernames` to `.daiv.yml` to restrict who can trigger DAIV in a repository ([#948](https://github.com/srtab/daiv/pull/948))
@@ -111,7 +111,6 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 
 ### Fixed
 
-- Fix runs that fail, are stopped or lose their worker recording no tokens or cost: DAIV now records spend as each model call finishes ([#1849](https://github.com/srtab/daiv/pull/1849))
 - Fix runs started with a repository such as `/group/project` failing with "404 Project Not Found": the jobs API, MCP, chat API, scheduled jobs and delegated jobs now ignore slashes around it ([#1851](https://github.com/srtab/daiv/pull/1851))
 - Fix a worker restart leaving its agent run spinning for about 30 minutes: the worker now stops the run cleanly, and **Stop** ends a run whose worker is gone; give the worker `stop_grace_period: 2m` so a deploy doesn't kill it mid-run ([#1842](https://github.com/srtab/daiv/pull/1842))
 - Refuse agent file-tool writes under `.git`, and run DAIV's host-side git without hooks, fsmonitor or external diff, closing a prompt-injection path to the worker ([#1676](https://github.com/srtab/daiv/pull/1676))

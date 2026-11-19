@@ -13,10 +13,11 @@ from typing import TYPE_CHECKING, Any
 
 from django.db.models import Case, CharField, Count, Exists, F, Max, OuterRef, Q, StringAgg, Sum, Value, When, Window
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import ngettext_lazy
 
 from sessions.filters import SCOPE_MINE
 from sessions.managers import RUN_SPEND
-from sessions.models import Run, RunStatus, SessionOrigin, SpendRecord, SpendTask
+from sessions.models import Run, RunStatus, Session, SessionOrigin, SpendRecord, SpendTask
 from sessions.spend_ledger import DAIV_PERSON, SpendLedger
 from sessions.templatetags.session_tags import format_cost, format_tokens
 
@@ -30,6 +31,13 @@ if TYPE_CHECKING:
     from accounts.models import User
     from dashboard.insights import Window as Period
 
+REST_NAMES = {
+    "person": ngettext_lazy("Rest (%(count)s person)", "Rest (%(count)s people)", "count"),
+    "repository": ngettext_lazy("Rest (%(count)s repository)", "Rest (%(count)s repositories)", "count"),
+    "model": ngettext_lazy("Rest (%(count)s model)", "Rest (%(count)s models)", "count"),
+    "provider": ngettext_lazy("Rest (%(count)s provider)", "Rest (%(count)s providers)", "count"),
+}
+
 CACHE_GOOD = 85
 CACHE_FAIR = 70
 FOLDED_ROWS = 5
@@ -39,87 +47,29 @@ TOP_SESSIONS = 10
 
 ZERO = Decimal(0)
 REPORTED_CACHE = Q(cache_reported=True)
+COUNTED_RUN = Q(counts_run=True)
+DISTINCT_RUNS = Count("run", distinct=True, filter=RUN_SPEND)
 RATE_SUMS: dict[str, Aggregate] = {
-    "runs": Count("run", distinct=True, filter=RUN_SPEND),
+    "runs": Count("pk", filter=COUNTED_RUN),
     "reported_read": Sum("cache_read_tokens", filter=REPORTED_CACHE, default=0),
     "reported_input": Sum("input_tokens", filter=REPORTED_CACHE, default=0),
     "cache_records": Count("pk", filter=REPORTED_CACHE),
 }
 
-MODEL_SWATCHES = ("bg-sky-400/65", "bg-amber-500/60", "bg-emerald-500/60", "bg-fuchsia-500/50", "bg-indigo-500/70")
+MODEL_SWATCHES = ("bg-series-1/75", "bg-series-2/70", "bg-series-3/70", "bg-series-4/75", "bg-series-5/65")
 OTHER_SWATCH = "bg-text-muted/40"
 
 TOKEN_KINDS = (
-    ("cache_read", _("Cache read"), "bg-sky-400/35"),
-    ("uncached_input", _("Uncached input"), "bg-sky-400/90"),
-    ("cache_write", _("Cache write"), "bg-sky-400/60"),
-    ("output", _("Output"), "bg-emerald-500/75"),
+    ("cache_read", _("Cache read"), "bg-series-1/35"),
+    ("uncached_input", _("Uncached input"), "bg-series-1/90"),
+    ("cache_write", _("Cache write"), "bg-series-1/60"),
+    ("output", _("Output"), "bg-series-2/75"),
 )
 COST_KINDS = (
-    ("estimated", _("Estimated from list prices"), "bg-sky-400/60"),
-    ("reported", _("Reported by the provider"), "bg-emerald-500/75"),
+    ("estimated", _("Estimated from list prices"), "bg-series-1/60"),
+    ("reported", _("Reported by the provider"), "bg-series-3/75"),
     ("unknown", _("Unknown source"), "bg-text-muted/40"),
 )
-
-
-def usd(value: Decimal | None) -> str:
-    if value is None:
-        return "—"
-    return format_cost(value) if value else "$0.00"
-
-
-def cache_tag(rate: int | None) -> str:
-    """The tone of a prompt cache hit rate: ``good``, ``fair``, ``attention``, or ``unreported`` with no rate."""
-    if rate is None:
-        return "unreported"
-    if rate >= CACHE_GOOD:
-        return "good"
-    return "fair" if rate >= CACHE_FAIR else "attention"
-
-
-def hit_rate(sums: dict[str, Any]) -> int | None:
-    """Cache-read tokens over input tokens, both over records that reported cache use (``RATE_SUMS``); None when
-    none did."""
-    return pct(sums["reported_read"], sums["reported_input"]) if sums["cache_records"] else None
-
-
-def _share(cost: Decimal, total: Decimal) -> dict[str, str]:
-    return {"share": f"{cost / total * 100:.1f}" if total else "0", "share_text": format_pct(pct(cost, total))}
-
-
-def _cost_text(cost: Decimal, unpriced_tokens: int) -> str:
-    """A cost, marked as a floor when some of its tokens have no price, and never "$0" when none of them do."""
-    if unpriced_tokens and not cost:
-        return str(_("no price"))
-    return usd(cost) + ("+" if unpriced_tokens else "")
-
-
-def _per(cost: Decimal, count: int) -> Decimal | None:
-    return cost / count if count else None
-
-
-def _period_params(window: Period) -> dict[str, str]:
-    params = {"spend_to": window.end.isoformat()}
-    if window.start is not None:
-        params["spend_from"] = window.start.isoformat()
-    return params
-
-
-def _split(kinds, values: dict[str, Any], meanings: dict[str, Any], *, text) -> dict[str, Any]:
-    total = sum(values[key] for key, _label, _css in kinds)
-    parts = []
-    for key, label, css in kinds:
-        share = values[key] / total * 100 if total else 0
-        parts.append({
-            "key": key,
-            "label": label,
-            "css": css,
-            "value": text(values[key]),
-            "share": f"{round(share)}%",
-            "width": f"{share:.1f}",
-            "meaning": meanings[key],
-        })
-    return {"total": text(total), "parts": parts}
 
 
 class SpendReport:
@@ -134,8 +84,6 @@ class SpendReport:
         self._current: dict[str, Any] | None = None
         self._models: list[dict] | None = None
 
-    # Totals ---------------------------------------------------------------------------------------
-
     def totals(self) -> dict[str, Any]:
         """The six tiles, their changes against the previous period, and the two "Behind the totals" panels."""
         now = self.sums()
@@ -149,13 +97,13 @@ class SpendReport:
         return {
             **figures,
             "empty": not now["records"],
-            "cost_text": usd(now["cost"]),
-            "cost_change": change("cost", better="down", text=usd),
+            "cost_text": self.usd(now["cost"]),
+            "cost_change": change("cost", better="down", text=self.usd),
             "tokens_change": change("tokens", better="down", text=format_tokens),
             "hit_rate_change": change("hit_rate", _rate_change, better="up"),
             "runs_change": change("runs"),
-            "avg_per_run_change": change("avg_per_run", better="down", text=usd),
-            "avg_per_changed_run_change": change("avg_per_changed_run", better="down", text=usd),
+            "avg_per_run_change": change("avg_per_run", better="down", text=self.usd),
+            "avg_per_changed_run_change": change("avg_per_changed_run", better="down", text=self.usd),
             "cache_saving": now["cache_saving"],
             "cache_saving_floor": now["cache_unpriced"] > 0,
             "unpriced_tokens": now["unpriced"],
@@ -163,15 +111,14 @@ class SpendReport:
             "cost_split": self._cost_split(now),
         }
 
-    @staticmethod
-    def _figures(sums: dict[str, Any]) -> dict[str, Any]:
+    def _figures(self, sums: dict[str, Any]) -> dict[str, Any]:
         return {
             "cost": sums["cost"],
             "tokens": sums["tokens"],
-            "hit_rate": hit_rate(sums),
+            "hit_rate": self.hit_rate(sums),
             "runs": sums["runs"],
-            "avg_per_run": _per(sums["run_cost"], sums["runs"]),
-            "avg_per_changed_run": _per(sums["changed_cost"], sums["changed_runs"]),
+            "avg_per_run": self._per(sums["run_spend"], sums["runs"]),
+            "avg_per_changed_run": self._per(sums["changed_cost"], sums["changed_runs"]),
         }
 
     def sums(self) -> dict[str, Any]:
@@ -196,13 +143,12 @@ class SpendReport:
             cache_saving=Sum("cache_saving_usd", default=ZERO),
             cache_unpriced=Sum("cache_unpriced_tokens", default=0),
             **RATE_SUMS,
-            run_cost=Sum("cost_usd", filter=RUN_SPEND, default=ZERO),
-            changed_runs=Count("run", distinct=True, filter=changed),
+            run_spend=Sum("cost_usd", filter=RUN_SPEND, default=ZERO),
+            changed_runs=Count("pk", filter=changed & COUNTED_RUN),
             changed_cost=Sum("cost_usd", filter=changed, default=ZERO),
         )
 
-    @staticmethod
-    def _token_split(sums: dict[str, Any]) -> dict[str, Any]:
+    def _token_split(self, sums: dict[str, Any]) -> dict[str, Any]:
         values = {
             "cache_read": sums["cache_read"],
             "uncached_input": max(sums["input"] - sums["cache_read"] - sums["cache_write"], 0),
@@ -216,10 +162,9 @@ class SpendReport:
             "output": _("What the model wrote, %(reasoning)s of it reasoning; the dearest tokens.")
             % {"reasoning": format_tokens(sums["reasoning"])},
         }
-        return _split(TOKEN_KINDS, values, meanings, text=format_tokens)
+        return self._split(TOKEN_KINDS, values, meanings, text=format_tokens)
 
-    @staticmethod
-    def _cost_split(sums: dict[str, Any]) -> dict[str, Any]:
+    def _cost_split(self, sums: dict[str, Any]) -> dict[str, Any]:
         values = {
             "estimated": sums["cost"] - sums["reported"] - sums["unknown"],
             "reported": sums["reported"],
@@ -231,9 +176,7 @@ class SpendReport:
             "unknown": _("Spend recorded before DAIV kept the two apart."),
         }
         kinds = COST_KINDS if values["unknown"] else COST_KINDS[:2]
-        return _split(kinds, values, meanings, text=usd)
-
-    # Chart ----------------------------------------------------------------------------------------
+        return self._split(kinds, values, meanings, text=self.usd)
 
     def chart(self) -> dict | None:
         """Spend per bucket stacked by the five costliest models and **Other**, each column with a hover card."""
@@ -247,9 +190,9 @@ class SpendReport:
             "occurred_at",
             self.window,
             kinds,
-            lambda bucket: session_list_url(_period_params(bucket), self.scope),
+            lambda bucket: session_list_url(self._period_params(bucket), self.scope),
             measure=lambda q: Sum("cost_usd", filter=q, default=ZERO),
-            text=usd,
+            text=self.usd,
             extra=RATE_SUMS,
         )
         if chart is None:
@@ -264,37 +207,38 @@ class SpendReport:
                     {
                         "name": segment["label"],
                         "css": segment["css"],
-                        "cost": usd(segment["count"]),
+                        "cost": self.usd(segment["count"]),
                         "share": f"{pct(segment['count'], column['total'])}%",
                     }
                     for segment in reversed(column["segments"])
                 ],
                 "runs": column["extra"]["runs"],
-                "hit_rate": hit_rate(column["extra"]),
+                "hit_rate": self.hit_rate(column["extra"]),
                 "side": "left" if index < half else "right",
             }
         return chart
-
-    # Breakdowns -----------------------------------------------------------------------------------
 
     def breakdowns(self) -> list[dict[str, Any]]:
         """The five ranked tables: person, repository, what started the spend, model and provider."""
         swatches = {row["model"]: MODEL_SWATCHES[i] for i, row in enumerate(self.model_rows()[:CHART_MODELS])}
         return [
-            self._folded("person", _("By person"), _("people"), self._person_rows()),
-            self._folded("repository", _("By repository"), _("repositories"), self._repository_rows()),
+            self._folded("person", _("By person"), self._person_rows()),
+            self._folded("repository", _("By repository"), self._repository_rows()),
             self._started_by(),
-            self._folded("model", _("By model"), _("models"), self._model_table_rows(swatches)),
-            self._folded("provider", _("By provider"), _("providers"), self._provider_rows()),
+            self._folded("model", _("By model"), self._model_table_rows(swatches)),
+            self._folded("provider", _("By provider"), self._provider_rows()),
         ]
 
     def model_rows(self) -> list[dict]:
         if self._models is None:
-            self._models = self._ranked(self.records, "model")
+            self._models = self._ranked(self.records, "model", runs=DISTINCT_RUNS)
         return self._models
 
     def _ranked(self, records: SpendRecordQuerySet, *group_by: str, **extra: Any) -> list[dict]:
-        """Up to ``SHOWN_ROWS + 1`` groups of the period's ``records``, costliest first; ``groups`` counts them all."""
+        """Up to ``SHOWN_ROWS + 1`` groups of the period's ``records``, costliest first; ``groups`` counts them all.
+
+        A group a run's records can split across, as models and providers are, passes ``runs=DISTINCT_RUNS``.
+        """
         rows = (
             records
             .in_window(self.window)
@@ -305,9 +249,8 @@ class SpendReport:
                 tokens=Sum("total_tokens", default=0),
                 unpriced=Sum("unpriced_tokens", default=0),
                 reported=Sum("reported_cost_usd", default=ZERO),
-                **RATE_SUMS,
                 groups=Window(Count(Value(1))),
-                **extra,
+                **{**RATE_SUMS, **extra},
             )
             .order_by("-cost", "-tokens", *group_by)
         )
@@ -315,20 +258,20 @@ class SpendReport:
 
     def _row(self, values: dict, name: str, *, note: Any = "", param: tuple[str, str] | None, why: Any = "") -> dict:
         total = self.sums()["cost"]
-        rate = hit_rate(values)
+        rate = self.hit_rate(values)
         cost = values["cost"]
-        url = session_list_url({**_period_params(self.window), param[0]: param[1]}, self.scope) if param else ""
+        url = session_list_url({**self._period_params(self.window), param[0]: param[1]}, self.scope) if param else ""
         return {
             "name": name,
             "note": note,
             "cost": cost,
-            "cost_text": _cost_text(cost, values["unpriced"]),
+            "cost_text": self._cost_text(cost, values["unpriced"]),
             "unpriced": values["unpriced"],
-            **_share(cost, total),
+            **self._share(cost, total),
             "tokens": format_tokens(values["tokens"]),
             "runs": values["runs"],
             "hit_rate": rate,
-            "cache": cache_tag(rate),
+            "cache": self.cache_tag(rate),
             "url": url,
             "why": why,
             "swatch": "",
@@ -336,7 +279,7 @@ class SpendReport:
             "groups": values.get("groups", 0),
         }
 
-    def _folded(self, key: str, title: Any, plural: Any, rows: list[dict]) -> dict[str, Any]:
+    def _folded(self, key: str, title: Any, rows: list[dict]) -> dict[str, Any]:
         """A table showing its top rows and a **Rest** row, with up to ``SHOWN_ROWS`` rows behind **Show all**."""
         groups = rows[0]["groups"] if rows else 0
         shown = rows[:SHOWN_ROWS]
@@ -349,15 +292,14 @@ class SpendReport:
             cost = sums["cost"] - sum(row["cost"] for row in top)
             unpriced = sums["unpriced"] - sum(row["unpriced"] for row in top)
             rest = {
-                "name": _("Rest (%(count)s %(plural)s)") % {"count": groups - FOLDED_ROWS, "plural": plural},
-                "cost_text": _cost_text(cost, unpriced),
-                **_share(cost, sums["cost"]),
+                "name": REST_NAMES[key] % {"count": groups - FOLDED_ROWS},
+                "cost_text": self._cost_text(cost, unpriced),
+                **self._share(cost, sums["cost"]),
                 "why": _("The rows past the top %(count)s are summed here") % {"count": FOLDED_ROWS},
             }
         return {
             "key": key,
             "title": title,
-            "plural": plural,
             "rows": shown,
             "rest": rest,
             "groups": groups,
@@ -372,7 +314,7 @@ class SpendReport:
         records = self.records.annotate(
             ext_provider=Case(When(external, then=F("external_provider")), default=Value(""), output_field=text),
             ext_uid=Case(When(external, then=F("external_uid")), default=Value(""), output_field=text),
-            deleted_name=Case(When(no_user & ~external, then=F("person_name")), default=Value(""), output_field=text),
+            deleted_id=Case(When(no_user & ~external, then=F("deleted_user_id")), default=None),
         )
         rows = self._ranked(
             records,
@@ -381,8 +323,9 @@ class SpendReport:
             "user__name",
             "ext_provider",
             "ext_uid",
-            "deleted_name",
+            "deleted_id",
             external_label=Max("external_username"),
+            deleted_label=Max("person_name"),
         )
         out = []
         for values in rows:
@@ -393,7 +336,8 @@ class SpendReport:
                 "external_provider": values["ext_provider"],
                 "external_uid": values["ext_uid"],
                 "external_username": values["external_label"],
-                "person_name": values["deleted_name"],
+                "deleted_user_id": values["deleted_id"],
+                "person_name": values["deleted_label"],
             })
             notes = {
                 "external": _("%(platform)s, external") % {"platform": values["ext_provider"].title()},
@@ -434,7 +378,11 @@ class SpendReport:
     def _provider_rows(self) -> list[dict]:
         out = []
         rows = self._ranked(
-            self.records, "provider_slug", provider_label=Max("provider_name"), models=Count("model", distinct=True)
+            self.records,
+            "provider_slug",
+            provider_label=Max("provider_name"),
+            models=Count("model", distinct=True),
+            runs=DISTINCT_RUNS,
         )
         for values in rows:
             slug = values["provider_slug"]
@@ -504,15 +452,13 @@ class SpendReport:
             "not_shown": 0,
         }
 
-    # Sessions and coverage ------------------------------------------------------------------------
-
     def top_sessions(self) -> list[dict[str, Any]]:
-        """The ``TOP_SESSIONS`` sessions with the most run spend in the period, as the sessions list's cost sort ranks
-        them."""
+        """The ``TOP_SESSIONS`` sessions the viewer can open with the most run spend in the period, as the sessions
+        list's cost sort ranks them."""
         rows = (
             self.records
             .in_window(self.window)
-            .filter(RUN_SPEND, session__isnull=False)
+            .filter(RUN_SPEND, session__in=Session.objects.visible_to(self.user))
             .order_by()
             .values(
                 "session_id",
@@ -525,7 +471,7 @@ class SpendReport:
             )
             .annotate(
                 cost=Sum("cost_usd", default=ZERO),
-                runs=Count("run", distinct=True),
+                runs=Count("pk", filter=COUNTED_RUN),
                 models=StringAgg("model", delimiter=Value("\n")),
                 last=Max("occurred_at"),
             )
@@ -544,13 +490,13 @@ class SpendReport:
                 or str(_("DAIV")),
                 "models": ", ".join(sorted(set(row["models"].split("\n")))),
                 "runs": row["runs"],
-                "cost_text": usd(row["cost"]),
+                "cost_text": self.usd(row["cost"]),
             }
             for row in rows
         ]
 
     def sessions_by_cost_url(self) -> str:
-        return session_list_url({**_period_params(self.window), "sort": "cost"}, self.scope)
+        return session_list_url({**self._period_params(self.window), "sort": "cost"}, self.scope)
 
     def coverage(self) -> dict[str, Any]:
         """What the figures leave out: unpriced models, runs that recorded nothing, and runs still running."""
@@ -565,3 +511,63 @@ class SpendReport:
             "unrecorded_runs": counts["unrecorded"],
             "running_runs": counts["running"],
         }
+
+    @staticmethod
+    def usd(value: Decimal | None) -> str:
+        if value is None:
+            return "—"
+        return format_cost(value) if value else "$0.00"
+
+    @staticmethod
+    def cache_tag(rate: int | None) -> str:
+        """The tone of a prompt cache hit rate: ``good``, ``fair``, ``attention``, or ``unreported`` with no rate."""
+        if rate is None:
+            return "unreported"
+        if rate >= CACHE_GOOD:
+            return "good"
+        return "fair" if rate >= CACHE_FAIR else "attention"
+
+    @staticmethod
+    def hit_rate(sums: dict[str, Any]) -> int | None:
+        """Cache-read tokens over input tokens, both over records that reported cache use (``RATE_SUMS``); None when
+        none did."""
+        return pct(sums["reported_read"], sums["reported_input"]) if sums["cache_records"] else None
+
+    @staticmethod
+    def _share(cost: Decimal, total: Decimal) -> dict[str, str]:
+        return {"share": f"{cost / total * 100:.1f}" if total else "0", "share_text": format_pct(pct(cost, total))}
+
+    @staticmethod
+    def _cost_text(cost: Decimal, unpriced_tokens: int) -> str:
+        """A cost, marked as a floor when some of its tokens have no price, and never "$0" when none of them do."""
+        if unpriced_tokens and not cost:
+            return str(_("no price"))
+        return SpendReport.usd(cost) + ("+" if unpriced_tokens else "")
+
+    @staticmethod
+    def _per(cost: Decimal, count: int) -> Decimal | None:
+        return cost / count if count else None
+
+    @staticmethod
+    def _period_params(window: Period) -> dict[str, str]:
+        params = {"spend_to": window.end.isoformat()}
+        if window.start is not None:
+            params["spend_from"] = window.start.isoformat()
+        return params
+
+    @staticmethod
+    def _split(kinds, values: dict[str, Any], meanings: dict[str, Any], *, text) -> dict[str, Any]:
+        total = sum(values[key] for key, _label, _css in kinds)
+        parts = []
+        for key, label, css in kinds:
+            share = values[key] / total * 100 if total else 0
+            parts.append({
+                "key": key,
+                "label": label,
+                "css": css,
+                "value": text(values[key]),
+                "share": f"{round(share)}%",
+                "width": f"{share:.1f}",
+                "meaning": meanings[key],
+            })
+        return {"total": text(total), "parts": parts}

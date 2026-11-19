@@ -53,12 +53,6 @@ def _merge(into, figures):
         into[key] = (into[key] or value) if isinstance(value, bool) else into[key] + value
 
 
-def _person_name(user):
-    if user is None:
-        return ""
-    return f"{user.first_name} {user.last_name}".strip() or user.name or user.username or user.email
-
-
 def records_for_run(run, provider_names):
     """The run-spend rows of one ``Run``, one per repaired model name, from its stored usage."""
     spec_slug, _, spec_model = run.agent_model.partition(":") if ":" in run.agent_model else ("", "", "")
@@ -91,7 +85,6 @@ def records_for_run(run, provider_names):
         "external_provider": run.external_provider,
         "external_uid": run.external_uid,
         "external_username": run.external_username,
-        "person_name": _person_name(run.user),
     }
     rows = []
     for name, figures in by_model.items():
@@ -116,7 +109,22 @@ def backfill(apps, schema_editor):
         Run.objects
         .filter(models.Q(usage_by_model__isnull=False) | models.Q(input_tokens__isnull=False))
         .exclude(spend_records__task="")
-        .select_related("user")
+        .only(
+            "agent_model",
+            "usage_by_model",
+            "input_tokens",
+            "output_tokens",
+            "total_tokens",
+            "cost_usd",
+            "created_at",
+            "session_id",
+            "repo_id",
+            "trigger_type",
+            "user_id",
+            "external_provider",
+            "external_uid",
+            "external_username",
+        )
         .order_by("pk")
     )
     batch = []

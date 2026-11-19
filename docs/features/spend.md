@@ -10,7 +10,7 @@ description: "See what DAIV spent on models, by person, repository, trigger, mod
 
 The toolbar sets what the page covers:
 
-- **Period**: **Today**, **7 days**, **30 days** (the default), **90 days** or **All time**. A record counts in the period of the run it belongs to, by when the run started, or of the background task, by when the call was made.
+- **Period**: **Today**, **7 days**, **30 days** (the default), **90 days** or **All time**. A record counts in the period of the run it belongs to, by when the run was created (a run that waited in the queue counts on the day it was queued), or of the background task, by when the call was made.
 - **Scope**: **Mine** shows only the runs you started and the background work that served them. **Everyone** shows every record you may see: the runs you started, the runs of schedules you subscribe to, and the runs on repositories you can read. Administrators open on **Everyone** and see every record; members open on **Mine**.
 
 With nothing spent in the period, the page says **Nothing was spent in this period** and shows nothing else.
@@ -23,7 +23,7 @@ Six tiles open the page:
 |------|---------------|
 | **total cost** | The priced cost of the period. A `+` after it marks a floor: some tokens have no price, or some runs recorded nothing |
 | **tokens** | Input and output tokens of every model call |
-| **prompt cache hit rate** | Cache-read tokens over all input tokens, counted only over records whose provider reported cache use; with none, it is **not reported**. The line under it is the estimated saving against no caching, with `+` when part of it could not be priced |
+| **prompt cache hit rate** | The share of input tokens served from the prompt cache, as [Usage and cost](../reference/monitoring.md#usage-and-cost) counts it; **not reported** when no provider reported cache use. The line under it is the estimated saving, with `+` when part of it could not be priced |
 | **runs with spend** | Runs that recorded any spend |
 | **average per run** | Run spend divided by the runs with spend; background spend is left out |
 | **per run that changed code** | The same over successful runs that changed code |
@@ -43,7 +43,7 @@ Each tile compares the period with the period of the same length before it, up t
 
 Five tables rank the period's spend:
 
-- **By person**: the person who started each run. A run a webhook started for someone with no DAIV account belongs to that git platform account, marked **external**. A deleted user keeps the name they had, marked **deleted user**. **DAIV** holds work no person started: repository-wide background work and runs started for no one.
+- **By person**: the person who started each run. A run a webhook started for someone with no DAIV account belongs to that git platform account, marked **external**. A deleted user keeps the name they had, marked **deleted user**; spend of users deleted before DAIV kept their name shows as **Unknown person**. **DAIV** holds work no person started: repository-wide background work and runs started for no one.
 - **By repository**: the repository of each run or background task.
 - **Started by**: the run's trigger type, then **Background** with a row per [background task](#background-spend). This table always shows every row.
 - **By model**: each model, with its colour in the chart.
@@ -76,9 +76,17 @@ DAIV makes four kinds of model call outside a run, and counts each under **Start
 
 A retried task is charged again, and counts again.
 
+## What is recorded and who can see it
+
+A spend record holds who the spend belongs to (a DAIV user, a git platform account, or **DAIV**), the repository, session and run it served, the model and provider, and its tokens and cost. It never holds a prompt or a response.
+
+Who can see a record follows [the scope](#choose-a-period-and-a-scope): a member sees the spend of every run they can open, including colleagues' runs on repositories they can read, by name, and can export it. Administrators see every record.
+
+DAIV keeps spend records with no end date and never prunes them. A record outlives its run and its session, so past totals do not change, and a [deleted user's](../getting-started/accounts.md#delete-a-user) records keep the name they had.
+
 ## Export spend records
 
-**Download CSV** in the toolbar downloads every record behind the page, for its period and scope, as `daiv-spend-<start>-<end>.csv`. One row is one record: one model through one provider for one run, or for one background task call. Its `cost_usd` column adds up to the page's total cost.
+**Download CSV** in the toolbar downloads every record behind the page, for its period and scope, as `daiv-spend-<start>-<end>.csv`, up to 10 downloads an hour per user. One row is one record: one model through one provider for one run, or for one background task call. Its `cost_usd` column adds up to the page's total cost.
 
 | Column | Meaning |
 |--------|---------|
@@ -96,6 +104,8 @@ A retried task is charged again, and counts again.
 | `cache_reported` | Whether the provider reported cache use; when `false`, a `cache_read_tokens` of 0 means unknown |
 | `cache_saving_usd`, `cache_unpriced_tokens` | The estimated saving from cache reads, and the cache-read tokens it could not price |
 | `cost_source` | `reported`, `estimated`, `mixed`, `unknown` or `unpriced` |
+| `final` | `false` while the record's run is still running and its figures can still grow |
+| `updated_at` | When the record last changed, in UTC |
 
 ## Read spend records through the API
 
@@ -112,6 +122,6 @@ curl -H "Authorization: Bearer <api-key>" "https://daiv.example.com/api/spend/re
 | `scope` | no | `all` (the default) or `mine` |
 | `cursor` | no | The `next_cursor` of the previous page |
 
-A page holds up to 500 rows in `items`, oldest first, with the CSV's keys and `null` for an empty value. `next_cursor` is `null` on the last page; pass it back as `cursor` for the next one. Pages stay consistent while running runs rewrite their records, and a record that changes after you paged past it is not sent again.
+A page holds up to 500 rows in `items`, oldest first, with the CSV's keys and `null` for an empty value. `next_cursor` is `null` on the last page; pass it back as `cursor` for the next one. Pages stay consistent while running runs rewrite their records, and a record that changes after you paged past it is not sent again: read a period again once its rows are `final` to get their last figures.
 
 The API answers `400` with a `detail` for a missing or invalid date, `to` before `from`, a range over 92 days or a malformed cursor, `401` without valid credentials, and `429` past 60 requests a minute per user.

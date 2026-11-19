@@ -77,7 +77,7 @@ Team statistics are on **Insights**, linked as **Team insights** at the top of H
 
 **Insights** has two tabs. **Activity** (`/dashboard/insights/`) shows how DAIV is used across the repositories you can see, and **Spend** shows what it spent; [Spend](spend.md) describes that tab. On **Activity**, choose a period: **Today**, **7 days** (the default), **30 days**, **90 days** or **All time**.
 
-- **Agent activity**: runs, success rate, runs that changed code and average duration, each compared with the period of the same length immediately before, up to the same time of day (the page names both periods). **Running now** is live and not compared.
+- **Agent activity**: runs, success rate, runs that changed code and average duration, each compared with the period of the same length immediately before, up to the same time of day (the page names both periods).
 - **Runs over time**: a column per day (per week for 30 and 90 days, per month for all time), stacked by outcome: changed code, done without changes, needs input, failed. A column opens the sessions active in its days. The chart is hidden for **Today**.
 - **Sessions by origin**: each origin's sessions this period and the period before, the change, and a small bar per day. Every count for this period opens the session list it counts. The previous period and the bars count sessions with a run in those days, so later activity does not move them.
 - **Code velocity**: see [merge metrics](merge-metrics.md).
@@ -103,11 +103,11 @@ The list shows your own sessions (**Mine**) or everyone's you can see (**Everyon
 | Filter | What it does |
 |--------|--------------|
 | Search | Matches a session's title or repository |
-| Status | **All**, **Needs input**, **Failed**, **Running**, **Queued**, **Pending** or **Done**, by the session's latest run |
+| **Status** | **Any status**, **Needs input**, **Failed**, **Running**, **Queued**, **Pending** or **Done**, by the session's latest run |
 | **Type** | One [origin](#session-origins), or **All types** |
-| **Time** | **All time** (the default), **Today**, **Last 2 days**, **Last 7 days**, **Last 30 days**, or a **Custom range** of two dates |
+| **Active** | When the session was last active: **Any time** (the default), **Today**, **Last 2 days**, **Last 7 days**, **Last 30 days**, or a **Custom range** of two dates |
 | **Archived** | Swaps the list for the [archived sessions](#archived-sessions) |
-| **Person**, **Model**, **Provider** | Sessions with spend by that person, on that model or through that provider. The choices are those in the spend records you can see |
+| **Spent by**, **Model**, **Provider** | Sessions with spend by that person, on that model or through that provider. The choices are those in the spend records you can see, and load when you open the menu |
 
 Six more filters have no control. They appear as chips when you arrive from a link, and each chip has a button that clears it:
 
@@ -120,7 +120,7 @@ Six more filters have no control. They appear as chips when you arrive from a li
 | **Batch** | A multi-repository submission: one prompt sent to several repositories shares a batch |
 | **Including archived** | A link that must show sessions whatever their state: the **view sessions** link in a merge request description, **Other sessions on !N** in a repository card's menu, a day in **Your week** on **Home** and its link to more merge requests, and a column in **Runs over time** or a count in **Sessions by origin** on **Insights**. The list then includes [archived sessions](#archived-sessions) |
 
-A row or chart column on the [Spend](spend.md) page opens the list with spend filters, shown as chips: a spend period, a person, a repository, a trigger type, a background task, a model or a provider. Together they match the sessions with one spend record that fits them all, so the list holds exactly the sessions behind the figure that linked there.
+A row or chart column on the [Spend](spend.md) page opens the list with spend filters. A person, a model or a provider shows in its menu. A spend period, a repository, a trigger type or a background task reads as one **From Spend** line above the list, whose button clears them all. Together they match the sessions with one spend record that fits them all, so the list holds exactly the sessions behind the figure that linked there.
 
 Filters combine, and they are in the URL, so you can bookmark or share a filtered list.
 
@@ -234,7 +234,7 @@ Published files appear in the transcript, in the turn that published them. Adjac
 
 The limits on a file's size and on the files per run, and the storage that the `app` and `worker` containers must share, are on [Artifacts](../reference/env-variables.md#artifacts) and in the [deployment guide](../getting-started/deployment.md). Deleting a run deletes its artifacts and their files.
 
-Select **Artifacts** in the sidebar (`/dashboard/artifacts/`) for every artifact you can see across all sessions: those of your own sessions and of sessions on repositories you can read (admins see them all). The list is newest first, grouped by date (**Today**, **Yesterday**, **Previous 7 days**, **Previous 30 days**, then by month), 25 per page. Search by title or filename, and filter by kind (**All**, **Markdown**, **HTML**, **Image**, **Text** or **File**) and repository. Each row links to the viewer, back to the session and run that produced it, and to a download.
+Select **Artifacts** in the sidebar (`/dashboard/artifacts/`) for every artifact you can see across all sessions: those of your own sessions and of sessions on repositories you can read (admins see them all). The list is newest first, grouped by date (**Today**, **Yesterday**, **Previous 7 days**, **Previous 30 days**, then by month), 25 per page. Search by title or filename, and filter by **Kind** (**All kinds**, **Markdown**, **HTML**, **Image**, **Text** or **File**) and **Repository**. Each row links to the viewer, back to the session and run that produced it, and to a download.
 
 The [jobs API](jobs-api.md#poll-job-status) and [MCP](mcp-endpoint.md) job-status responses list artifacts too, with absolute viewer and download URLs, so a CI pipeline or an editor assistant can hand the report to a person.
 

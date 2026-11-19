@@ -53,6 +53,7 @@ SPEND_PARAMS = (
     "spend_provider",
 )
 SPEND_BANNER_PARAMS = ("spend_from", "spend_to", "spend_repo", "spend_trigger", "spend_task")
+SPEND_CONTROL_PARAMS = ("spend_person", "spend_model", "spend_provider")
 DEEP_LINK_PARAMS = ("repo", "mr", "schedule", "batch", *SPEND_PARAMS)
 
 SORT_RECENT = "recent"
