@@ -1,7 +1,10 @@
+import csv
+import io
 import json
 import re
 import uuid
 from datetime import datetime, time, timedelta
+from decimal import Decimal
 from unittest.mock import patch
 
 from django.core.cache import cache
@@ -10,6 +13,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 import pytest
+from asgiref.sync import async_to_sync
 from bs4 import BeautifulSoup
 from dashboard import landing
 from dashboard.comparisons import COMPARISONS
@@ -29,13 +33,17 @@ from sessions.models import (
     RunStatus,
     Session,
     SessionOrigin,
+    SpendTask,
 )
+from sessions.spend_ledger import COLUMNS
 
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
 from core.conf import settings as core_settings
 from schedules.models import DispatchError, Frequency, ScheduledJob
+from tests.unit_tests.dashboard.factories import spend_record, spend_run, spend_session
+from tests.unit_tests.sessions.conftest import grant_read_access
 from tests.unit_tests.sessions.inbox.conftest import make_event
 
 
@@ -597,9 +605,10 @@ class TestInsightsPage:
         context = _insights(member_client)
 
         assert context["activity"]["total"] == 2
-        assert context["activity"]["total_change"] == {"direction": "up", "amount": "1", "was": "1"}
+        assert context["activity"]["total_change"] == {"direction": "up", "amount": "100%", "was": "1", "tone": "good"}
         chat = context["breakdown"]["segments"][0]
-        assert (chat["value"], chat["change"]["was"], chat["change"]["pct"]) == (2, "1", "+100%")
+        assert chat["value"] == 2
+        assert (chat["change"]["was"], chat["change"]["relative"], chat["change"]["tone"]) == ("1", "100%", "good")
 
     def test_a_session_active_in_both_periods_counts_in_both(self, member_user, member_client):
         session = _make_session(member_user, SessionOrigin.CHAT)
@@ -680,7 +689,7 @@ class TestInsightsPage:
 
         change = _insights(member_client)["activity"]["success_rate_change"]
 
-        assert change == {"direction": "down", "amount": "100 pts", "was": "100%"}
+        assert change == {"direction": "down", "amount": "100 pts", "was": "100%", "tone": "bad"}
 
     def test_no_runs_shows_an_empty_state_not_a_blank_chart(self, member_client):
         response = member_client.get(reverse("insights"))
@@ -991,3 +1000,174 @@ class TestSidebarListsView:
         assert response.context["nav_active_section"] == section
         heading = BeautifulSoup(response.content, "html.parser").select_one('[data-testid="nav-scheduled-group"] h2')
         assert ("sidebar__nav-item--active" in heading["class"]) is bool(section)
+
+
+def _spend_page(client, **params):
+    return client.get(reverse("insights_spend"), params)
+
+
+@pytest.fixture
+def other_user(django_user_model):
+    return django_user_model.objects.create_user(username="other", email="other@x.io")
+
+
+@pytest.mark.django_db
+class TestInsightsSpendPage:
+    def test_signed_out_visitors_are_sent_to_sign_in(self, client):
+        assert _spend_page(client).status_code == 302
+
+    @pytest.mark.parametrize(("client_fixture", "scope"), [("admin_client", "all"), ("member_client", "mine")])
+    def test_opens_on_thirty_days_and_on_everyone_for_admins_and_mine_for_members(self, request, client_fixture, scope):
+        response = _spend_page(request.getfixturevalue(client_fixture))
+
+        assert response.status_code == 200
+        assert (response.context["current_period"], response.context["current_scope"]) == ("30d", scope)
+        assert response.context["nav_active_section"] == "insights"
+
+    def test_an_invalid_period_or_scope_falls_back_to_the_default(self, member_client):
+        context = _spend_page(member_client, period="1y", scope="theirs").context
+
+        assert (context["current_period"], context["current_scope"]) == ("30d", "mine")
+
+    def test_an_empty_period_says_so_alone(self, admin_client):
+        soup = BeautifulSoup(_spend_page(admin_client).content, "html.parser")
+
+        assert soup.select_one("[data-testid=spend-empty]").get_text(strip=True) == "Nothing was spent in this period"
+        assert soup.select_one("[data-testid=spend-summary]") is None
+
+    def test_both_insights_views_link_each_other_on_the_same_period(self, admin_client):
+        for name in ("insights", "insights_spend"):
+            soup = BeautifulSoup(admin_client.get(reverse(name), {"period": "90d"}).content, "html.parser")
+            nav = soup.select_one("nav[aria-label=Insights]")
+            hrefs = [f"{reverse('insights')}?period=90d", f"{reverse('insights_spend')}?period=90d"]
+            assert [a["href"] for a in nav.select("a")] == hrefs
+            assert nav.select_one("[aria-current]")["href"] == f"{reverse(name)}?period=90d"
+
+    def test_tiles_badges_panels_and_tables_render(self, admin_user, admin_client):
+        for index in range(7):
+            run = spend_run(spend_session(admin_user, repo_id=f"r/{index}"), days_ago=index * 4)
+            spend_record(run, model=f"m{index}", cost=str(index + 1), days_ago=index * 4, cache_reported=True)
+        old = spend_run(spend_session(admin_user), days_ago=40)
+        spend_record(old, days_ago=40, cost="1", cache_reported=True, cache_read_tokens=90)
+
+        soup = BeautifulSoup(_spend_page(admin_client).content, "html.parser")
+
+        tiles = [tile["data-testid"] for tile in soup.select(".stat-tile[data-testid^=tile-]")]
+        assert tiles == ["tile-cost", "tile-tokens", "tile-cache", "tile-runs", "tile-avg", "tile-avg-changed"]
+        tones = {
+            tile["data-testid"]: tile.select_one("[data-testid=change-badge]")["data-tone"]
+            for tile in soup.select(".stat-tile[data-testid^=tile-]")
+            if tile.select_one("[data-testid=change-badge]")
+        }
+        assert (tones["tile-cost"], tones["tile-cache"], tones["tile-runs"]) == ("bad", "bad", "neutral")
+        assert len(soup.select("[data-testid=spend-split]")) == 2
+        assert soup.select("[data-testid=spend-chart] [data-testid=chart-card][role=tooltip]")
+        repos = soup.select_one("[data-testid=breakdown-repository]")
+        assert len(repos.select("[data-testid=hidden-row]")) == 2
+        assert (
+            repos.select_one("[data-testid=show-all]").get_text(" ", strip=True).startswith("Show all 7 repositories")
+        )
+        assert repos.select_one("[data-testid=rest-row]")
+        started_by = soup.select_one("[data-testid=breakdown-started_by]")
+        assert started_by.select_one("[data-testid=show-all]") is None
+        assert soup.select_one("[data-testid=top-sessions]")
+        assert soup.select_one("[data-testid=download-csv]")["href"].endswith("?period=30d&scope=all")
+
+    def test_the_activity_chart_has_no_hover_cards(self, admin_user, admin_client):
+        for days_ago in (0, 3):
+            spend_run(spend_session(admin_user), days_ago=days_ago)
+
+        soup = BeautifulSoup(admin_client.get(reverse("insights")).content, "html.parser")
+
+        assert soup.select_one("[data-testid=runs-chart]")
+        assert soup.select("[data-testid=chart-card]") == []
+
+    def test_rows_without_a_list_say_why(self, admin_user, admin_client):
+        spend_record(spend_run(spend_session(admin_user)))
+        spend_record(None, task=SpendTask.MEMORY_CONSOLIDATION, repo_id="acme/api", cost="1")
+
+        soup = BeautifulSoup(_spend_page(admin_client).content, "html.parser")
+        people = soup.select_one("[data-testid=breakdown-person]")
+
+        daiv = next(span for span in people.select("[data-testid=no-link]") if span.get_text(strip=True) == "DAIV")
+        assert daiv["title"]
+
+    def test_the_mine_scope_says_what_it_covers(self, member_user, member_client):
+        spend_record(spend_run(spend_session(member_user)))
+
+        soup = BeautifulSoup(_spend_page(member_client).content, "html.parser")
+
+        assert soup.select_one("[data-testid=mine-note]")
+        assert "What your work with DAIV cost." in soup.get_text()
+
+    def test_a_member_sees_nothing_from_a_repository_they_cannot_read(self, member_user, other_user, member_client):
+        grant_read_access(member_user, "acme/api")
+        spend_record(spend_run(spend_session(member_user)), model="mine-model")
+        spend_record(spend_run(spend_session(other_user, repo_id="acme/api", title="Shared")), model="shared-model")
+        secret = spend_run(spend_session(other_user, repo_id="acme/secret", title="Secret session"))
+        spend_record(secret, model="secret-model", unpriced_tokens=5, cost="0", provider="secret-provider")
+
+        mine = _spend_page(member_client, scope="mine")
+        everyone = _spend_page(member_client, scope="all")
+
+        assert mine.context["totals"]["cost"] == Decimal("1")
+        assert everyone.context["totals"]["cost"] == Decimal("2")
+        page = everyone.content.decode()
+        for leak in ("acme/secret", "secret-model", "Secret session", "Secret-Provider"):
+            assert leak not in page
+        assert everyone.context["coverage"]["unpriced_models"] == []
+
+
+def _streamed(response) -> str:
+    """The body of a response streamed from an async iterator, as ASGI serves it."""
+
+    async def _collect():
+        return b"".join([chunk.encode() if isinstance(chunk, str) else chunk async for chunk in response])
+
+    return async_to_sync(_collect)().decode()
+
+
+@pytest.mark.django_db
+class TestSpendExport:
+    @staticmethod
+    def _csv(client, **params):
+        response = client.get(reverse("insights_spend_export"), params)
+        assert response.status_code == 200
+        return response, list(csv.DictReader(io.StringIO(_streamed(response))))
+
+    def test_the_cost_column_sums_to_the_page_total(self, admin_user, admin_client):
+        for index in range(3):
+            spend_record(spend_run(spend_session(admin_user)), cost=f"{index}.25", days_ago=index)
+        spend_record(None, task=SpendTask.TITLE, user=admin_user, cost="0.5")
+        spend_record(spend_run(spend_session(admin_user), days_ago=45), cost="9", days_ago=45)
+
+        response, rows = self._csv(admin_client, period="30d")
+
+        total = _spend_page(admin_client, period="30d").context["totals"]["cost"]
+        assert sum(Decimal(row["cost_usd"]) for row in rows) == total
+        assert response["Content-Type"] == "text/csv; charset=utf-8"
+        assert response["Content-Disposition"].startswith('attachment; filename="daiv-spend-')
+
+    def test_the_header_follows_the_contract(self, admin_client):
+        response = admin_client.get(reverse("insights_spend_export"))
+
+        header = _streamed(response).splitlines()[0]
+
+        assert header.split(",") == list(COLUMNS)
+
+    def test_a_value_a_spreadsheet_would_run_as_a_formula_is_quoted(self, admin_client):
+        spend_record(None, task=SpendTask.TITLE, person_name='=HYPERLINK("http://x")', repo_id="@acme/api")
+
+        _response, rows = self._csv(admin_client)
+
+        assert (rows[0]["person"], rows[0]["repo_id"]) == ('\'=HYPERLINK("http://x")', "'@acme/api")
+        assert rows[0]["cost_usd"] == "1.000000"
+
+    def test_a_member_never_gets_a_row_from_a_private_repository(self, member_user, other_user, member_client):
+        grant_read_access(member_user, "acme/api")
+        spend_record(spend_run(spend_session(other_user, repo_id="acme/api")))
+        spend_record(spend_run(spend_session(other_user, repo_id="acme/secret")), repo_id="acme/secret")
+
+        _response, rows = self._csv(member_client, scope="all")
+
+        assert [row["repo_id"] for row in rows] == ["acme/api"]

@@ -108,6 +108,39 @@
             </div>
         </div>
 
+        {% if spend_people or spend_models or spend_providers %}
+        <label class="sr-only" for="filter-spend-person">{% translate "Person" %}</label>
+        <select id="filter-spend-person" class="filter-control" x-model="spend.spend_person" @change="_apply()" data-testid="filter-spend-person">
+            <option value="">{% translate "Any person" %}</option>
+            {% for key, name in spend_people %}
+            <option value="{{ key }}"{% if current_spend.spend_person == key %} selected{% endif %}>{{ name }}</option>
+            {% endfor %}
+        </select>
+        <label class="sr-only" for="filter-spend-model">{% translate "Model" %}</label>
+        <select id="filter-spend-model" class="filter-control" x-model="spend.spend_model" @change="_apply()" data-testid="filter-spend-model">
+            <option value="">{% translate "Any model" %}</option>
+            {% for model in spend_models %}
+            <option value="{{ model }}"{% if current_spend.spend_model == model %} selected{% endif %}>{{ model }}</option>
+            {% endfor %}
+        </select>
+        <label class="sr-only" for="filter-spend-provider">{% translate "Provider" %}</label>
+        <select id="filter-spend-provider" class="filter-control" x-model="spend.spend_provider" @change="_apply()" data-testid="filter-spend-provider">
+            <option value="">{% translate "Any provider" %}</option>
+            {% for slug, name in spend_providers %}
+            <option value="{{ slug }}"{% if current_spend.spend_provider == slug %} selected{% endif %}>{{ name }}</option>
+            {% endfor %}
+        </select>
+        {% endif %}
+
+        <div class="filter-seg" role="group" aria-label="{% translate 'Sort' %}" data-testid="filter-sort">
+            {% for value, label in sorts %}
+            <a href="{% querystring sort=value page=None %}"
+               class="filter-seg-item {% if current_sort == value %}filter-seg-item--active{% endif %}"
+               @click.prevent="setSort('{{ value }}')" :class="{ 'filter-seg-item--active': sort === '{{ value }}' }"
+               {% if current_sort == value %}aria-current="true"{% endif %}>{{ label }}</a>
+            {% endfor %}
+        </div>
+
         {# Archived sessions are a list of their own, so this swaps the list rather than narrowing it #}
         <a href="{% if current_archived %}{% querystring archived=None page=None %}{% else %}{% querystring archived='true' page=None %}{% endif %}"
            class="filter-control {% if current_archived %}filter-control--active{% endif %}"
@@ -164,6 +197,14 @@
                class="filter-chip__x" aria-label="{% translate 'Clear batch filter' %}">{% icon "x-mark" "h-3 w-3" %}</a>
         </span>
         {% endif %}
+        {% for chip in spend_chips %}
+        <span class="filter-chip" x-show="{% for param in chip.params %}!!spend.{{ param }}{% if not forloop.last %} || {% endif %}{% endfor %}" data-testid="spend-chip">
+            <span>{{ chip.label }}</span>
+            <a href="{{ chip.clear_url }}"
+               @click.prevent="clearSpend({% for param in chip.params %}'{{ param }}'{% if not forloop.last %}, {% endif %}{% endfor %})"
+               class="filter-chip__x" aria-label="{% blocktranslate with label=chip.label %}Clear {{ label }}{% endblocktranslate %}">{% icon "x-mark" "h-3 w-3" %}</a>
+        </span>
+        {% endfor %}
         <a href="{% url 'session_list' %}?scope={{ current_scope }}" @click.prevent="clearAll()"
            class="filter-clear" x-show="hasActiveFilters">{% translate "Clear all" %}</a>
     </div>

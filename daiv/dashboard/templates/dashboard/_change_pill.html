@@ -1,0 +1,22 @@
+{% load i18n %}
+{% comment %}
+A change since the previous period: a pill coloured by its tone, with its relative amount beside it when it has one.
+
+Context:
+- change: a dict from ``dashboard.insights._change`` (direction, amount, tone; optional relative), or None to render
+  nothing.
+{% endcomment %}
+{% if change %}
+<span class="inline-flex items-center gap-2">
+    <span class="change-badge change-badge--{{ change.tone }}">
+        {% if change.direction == "up" %}
+        <span aria-hidden="true">▲</span><span class="sr-only">{% translate "Up" %}</span> {{ change.amount }}
+        {% elif change.direction == "down" %}
+        <span aria-hidden="true">▼</span><span class="sr-only">{% translate "Down" %}</span> {{ change.amount }}
+        {% else %}
+        {% translate "No change" %}
+        {% endif %}
+    </span>
+    {% if change.relative %}<span class="text-text-faint">{{ change.relative }}</span>{% endif %}
+</span>
+{% endif %}

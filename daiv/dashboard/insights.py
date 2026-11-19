@@ -12,9 +12,21 @@ from __future__ import annotations
 
 import dataclasses
 from datetime import date, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
-from django.db.models import Avg, Count, DateField, DurationField, Exists, ExpressionWrapper, F, OuterRef, Q, Sum
+from django.db.models import (
+    Aggregate,
+    Avg,
+    Count,
+    DateField,
+    DurationField,
+    Exists,
+    ExpressionWrapper,
+    F,
+    OuterRef,
+    Q,
+    Sum,
+)
 from django.db.models.functions import Trunc
 from django.urls import reverse
 from django.utils import timezone
@@ -30,6 +42,7 @@ from codebase.models import MergeMetric
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from decimal import Decimal
 
     from django.db.models import QuerySet
 
@@ -137,7 +150,7 @@ def session_list_url(params: dict[str, str], scope: str = SCOPE_ALL) -> str:
     return f"{reverse('session_list')}?{urlencode({'scope': scope, **params})}"
 
 
-def pct(numerator: int, denominator: int) -> int | None:
+def pct(numerator: int | Decimal, denominator: int | Decimal) -> int | None:
     return round(numerator / denominator * 100) if denominator else None
 
 
@@ -145,30 +158,62 @@ def format_pct(percentage: int | None) -> str:
     return f"{percentage}%" if percentage is not None else "—"
 
 
-def _change(current, previous, *, text=str, unit: str = "", was_unit: str | None = None) -> dict | None:
+def _change(
+    current,
+    previous,
+    *,
+    text=str,
+    unit: str = "",
+    was_unit: str | None = None,
+    better: Literal["up", "down"] | None = None,
+) -> dict | None:
     """How ``current`` moved from ``previous``, for the line under a number; None when there is nothing to compare.
 
     ``was_unit`` defaults to ``unit``; a rate differs, its change is in points and its earlier value a percentage.
+    ``tone`` is ``good`` when the move goes the ``better`` way, ``bad`` when it goes the other, and ``neutral`` when
+    flat or when no way is better.
     """
     if current is None or previous is None:
         return None
     delta = current - previous
     direction = "up" if delta > 0 else "down" if delta < 0 else "flat"
     was_unit = unit if was_unit is None else was_unit
-    return {"direction": direction, "amount": f"{text(abs(delta))}{unit}", "was": f"{text(previous)}{was_unit}"}
+    tone = "neutral" if better is None or direction == "flat" else "good" if direction == better else "bad"
+    return {
+        "direction": direction,
+        "amount": f"{text(abs(delta))}{unit}",
+        "was": f"{text(previous)}{was_unit}",
+        "tone": tone,
+    }
 
 
-def _count_change(current: int, previous: int | None) -> dict | None:
-    """``_change`` plus the signed percentage a table row shows beside it."""
-    if (change := _change(current, previous)) is not None:
-        change["pct"] = _signed_pct(current, previous)
+def _relative_amount(current, previous) -> str:
+    """How far ``current`` moved from a non-zero ``previous``: a multiple ("24×") once it has at least tripled, a
+    percentage below that."""
+    if current >= 3 * previous:
+        ratio = current / previous
+        return f"{ratio:.0f}×" if ratio >= 10 else f"{ratio:.1f}".removesuffix(".0") + "×"
+    return f"{pct(abs(current - previous), previous)}%"
+
+
+def _relative_change(current, previous, *, text=str, better: Literal["up", "down"] | None = None) -> dict | None:
+    """``_change`` with the move as its ``_relative_amount`` whenever ``previous`` is non-zero."""
+    change = _change(current, previous, text=text, better=better)
+    if change is not None and previous:
+        change["amount"] = _relative_amount(current, previous)
     return change
 
 
-def _signed_pct(current: int, previous: int | None) -> str:
-    if not previous or current == previous:
-        return ""
-    return f"{'+' if current > previous else '−'}{pct(abs(current - previous), previous)}%"
+def _rate_change(current, previous, *, better: Literal["up", "down"] | None = None) -> dict | None:
+    """``_change`` of a percentage: the move in points, the earlier figure a percentage."""
+    return _change(current, previous, unit=" pts", was_unit="%", better=better)
+
+
+def _count_change(current: int, previous: int | None) -> dict | None:
+    """``_change`` of a session count, where more is better, with its ``relative`` amount for the table row."""
+    if (change := _change(current, previous, better="up")) is not None:
+        change["relative"] = _relative_amount(current, previous) if previous and current != previous else ""
+    return change
 
 
 def _run_stats(runs: QuerySet[Run]) -> dict:
@@ -203,18 +248,18 @@ def activity(user: User, window: Window, previous: Window | None) -> dict:
     current = _run_stats(runs.filter(window.date_q("created_at")))
     before = _run_stats(runs.filter(previous.date_q("created_at"))) if previous is not None else None
 
-    def change(key, **kwargs):
-        return _change(current[key], before[key] if before else None, **kwargs)
+    def change(key, how=_relative_change, **kwargs):
+        return how(current[key], before[key] if before else None, **kwargs)
 
     return {
         "total": current["total"],
-        "total_change": change("total"),
+        "total_change": change("total", better="up"),
         "success_rate": format_pct(current["success_rate"]),
         "success_rate_css": success_rate_css(current["success_rate"]),
-        "success_rate_change": change("success_rate", unit=" pts", was_unit="%"),
+        "success_rate_change": change("success_rate", _rate_change, better="up"),
         "code_changes": current["code_changes"],
         "code_changes_pct": format_pct(pct(current["code_changes"], current["successful"])),
-        "code_changes_change": change("code_changes"),
+        "code_changes_change": change("code_changes", better="up"),
         "avg_duration_s": current["avg_duration_s"],
         "avg_duration_change": change("avg_duration_s", text=duration),
         "chart": _runs_chart(runs, window),
@@ -258,8 +303,19 @@ def _bucket_label(bucket_start: date, window: Window) -> str:
     return date_format(bucket_start, fmt)
 
 
-def _grouped(rows: QuerySet, field: str, window: Window, kinds: list) -> dict[date, dict[str, int]]:
-    counts = {key: Count("pk", filter=q) for key, _label, _css, q in kinds}
+def _count(q: Q) -> Aggregate:
+    return Count("pk", filter=q)
+
+
+def _grouped(
+    rows: QuerySet,
+    field: str,
+    window: Window,
+    kinds: list,
+    measure: Callable[[Q], Aggregate] = _count,
+    extra: dict[str, Aggregate] | None = None,
+) -> dict[date, dict[str, int]]:
+    counts = {key: measure(q) for key, _label, _css, q in kinds} | (extra or {})
     grouped = (
         rows
         .filter(window.date_q(field))
@@ -272,20 +328,33 @@ def _grouped(rows: QuerySet, field: str, window: Window, kinds: list) -> dict[da
 
 
 def stacked_chart(
-    rows: QuerySet, field: str, window: Window, kinds: list, url_for: Callable[[Window], str] | None = None
+    rows: QuerySet,
+    field: str,
+    window: Window,
+    kinds: list,
+    url_for: Callable[[Window], str] | None = None,
+    *,
+    measure: Callable[[Q], Aggregate] = _count,
+    text: Callable = str,
+    extra: dict[str, Aggregate] | None = None,
 ) -> dict | None:
-    """Columns of stacked segments, worst kind on top, sized to the tallest column; None for a one-column window."""
+    """Columns of stacked segments, worst kind on top, sized to the tallest column; None for a one-column window.
+
+    Each kind's ``measure`` defaults to counting its rows; ``text`` formats a column's total and a legend's figure.
+    ``extra`` aggregates are computed per bucket in the same query and handed to each column as ``extra``.
+    """
     if window.days == 1:
         return None
-    by_bucket = _grouped(rows, field, window, kinds)
+    by_bucket = _grouped(rows, field, window, kinds, measure, extra)
     starts = _bucket_starts(window, min(by_bucket, default=None))
     if len(starts) < 2:
         return None
-    tallest = max((sum(counts.values()) for counts in by_bucket.values()), default=0) or 1
+    keys = [key for key, _label, _css, _q in kinds]
+    tallest = max((sum(row[key] or 0 for key in keys) for row in by_bucket.values()), default=0) or 1
     columns = []
     for start in starts:
         counts = by_bucket.get(start, {})
-        total = sum(counts.values())
+        total = sum(counts.get(key) or 0 for key in keys)
         segments = [
             {"css": css, "count": counts[key], "label": label}
             for key, label, css, _q in reversed(kinds)
@@ -295,15 +364,17 @@ def stacked_chart(
         columns.append({
             "label": label,
             "total": total,
+            "total_text": text(total),
             "height_px": round(total / tallest * CHART_HEIGHT_PX),
             "segments": segments,
-            "title": ", ".join([f"{label}: {total}", *(f"{s['label']} {s['count']}" for s in segments)]),
+            "title": ", ".join([f"{label}: {text(total)}", *(f"{s['label']} {text(s['count'])}" for s in segments)]),
             "url": url_for(_bucket_window(start, window)) if url_for else "",
+            "extra": {name: counts.get(name) for name in extra or {}},
         })
-    legend = [
-        {"label": label, "css": css, "count": sum(c.get(key, 0) for c in by_bucket.values())}
-        for key, label, css, _q in kinds
-    ]
+    legend = []
+    for key, label, css, _q in kinds:
+        count = sum(c.get(key) or 0 for c in by_bucket.values())
+        legend.append({"label": label, "css": css, "count": count, "count_text": text(count)})
     return {
         "columns": columns,
         "legend": legend,

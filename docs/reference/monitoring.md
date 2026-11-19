@@ -110,9 +110,11 @@ To compare models, group a chart by the `model` metadata field. To see who start
 
 ## Usage and cost
 
-DAIV records the token usage and an estimated cost for every agent run in its own database, without a LangSmith account.
+DAIV records the token usage and an estimated cost of every model call it makes in its own database, without a LangSmith account.
 
-DAIV counts the tokens of every model call in the run, including fallback models, models that tools call, and subagents, and prices each call on its own. For a call through OpenRouter, the cost is the charge OpenRouter reports, which depends on the provider it routed the call to. For any other call, DAIV estimates it from the model's list price in [genai-prices](https://github.com/pydantic/genai-prices). DAIV then totals the tokens and cost per model, and stores the totals on the run.
+DAIV counts the tokens of every model call in a run, including fallback models, models that tools call, and subagents, and prices each call on its own. For a call through OpenRouter, the cost is the charge OpenRouter reports, which depends on the provider it routed the call to. For any other call, DAIV estimates it from the model's list price in [genai-prices](https://github.com/pydantic/genai-prices). DAIV writes the figures as each call finishes, so a run that fails, is stopped or loses its worker keeps the spend of every call that finished, and a running run shows its spend so far. DAIV also records which configured provider served each call.
+
+DAIV counts the model calls it makes outside runs too, as background spend: session titles, run classification, and repository memory extraction and consolidation. Background spend shows on the [Spend](../features/spend.md) page, not on a session's **Spend** section.
 
 A run records:
 
@@ -126,10 +128,12 @@ A run records:
 
 Two limits apply:
 
-- For a call DAIV prices from list prices, the cost is empty when genai-prices does not list the model, and a run's cost is empty when any of its calls has no price. The tokens are still recorded, and DAIV logs a warning naming the model.
-- A cost priced from list prices is an estimate. Your provider's bill can differ.
+- For a call DAIV prices from list prices, the cost is empty when genai-prices does not list the model, and a run's cost is empty when any of its calls has no price. The tokens are still recorded, and DAIV logs a warning naming the model. The [Spend](../features/spend.md) page keeps the priced part and counts the rest as unpriced tokens, marking the total as a floor.
+- A cost priced from list prices is an estimate. Your provider's bill can differ: providers bill by their own tiers, discounts and rounding, and a model's list price can change after DAIV recorded the call.
 
-You see the figures in three places. A row in the sessions list shows the session's cost, the **Spend** section of a session's **Overview** shows what the session cost, and a run's downloaded Markdown result holds `total_tokens` and `cost_usd` in its front matter. [Sessions](../features/sessions.md) describes the pages.
+The prompt cache hit rate is the share of input tokens the provider served from its prompt cache: cache-read tokens over all input tokens, weighted by tokens rather than by calls. DAIV counts it only over calls whose provider reported a cache-read count, so a provider that reports none shows the rate as not reported, never as 0%. The cache saving is an estimate too: for each call, its cache-read tokens times the difference between the model's list input price and its list cache-read price. It is worked out from list prices even when OpenRouter reported the charge, and cache reads of a model with no list price leave the saving as a floor.
+
+You see the figures in four places. A row in the sessions list shows the session's run spend, the **Spend** section of a session's **Overview** shows what the session cost, a run's downloaded Markdown result holds `total_tokens` and `cost_usd` in its front matter, and **Insights → Spend** adds them up across sessions. [Sessions](../features/sessions.md) and [Spend](../features/spend.md) describe the pages.
 
 ## Export session archives
 

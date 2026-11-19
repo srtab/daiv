@@ -142,3 +142,39 @@ async def test_finalize_chat_run_keeps_the_usage_of_a_reaped_run(django_user_mod
     assert (run.status, run.result_summary) == (RunStatus.FAILED, "")
     assert (run.input_tokens, run.total_tokens, run.cost_usd) == (10, 12, Decimal("0.5"))
     assert f"run={run.pk} finished before its stream did" in caplog.text
+
+
+@pytest.mark.parametrize("reaped", [False, True])
+async def test_finalize_chat_run_keeps_the_figures_the_spend_recorder_wrote(django_user_model, reaped):
+    user = await _mk_user(django_user_model)
+    session = await _mk_chat_session(user)
+    run = await start_chat_run(session_id=session.thread_id, user_id=user.pk, prompt="hi", repo_id="g/r", ref="main")
+    recorded = {"input_tokens": 40, "output_tokens": 2, "total_tokens": 42, "cost_usd": Decimal("0.9")}
+    await Run.objects.filter(pk=run.pk).aupdate(**recorded)
+    if reaped:
+        await Run.objects.filter(pk=run.pk).aupdate(status=RunStatus.FAILED)
+
+    await finalize_chat_run(
+        run, success=True, usage={"input_tokens": 10, "total_tokens": 12, "cost_usd": "0.5"}, response_text="done"
+    )
+
+    assert (run.input_tokens, run.total_tokens, run.cost_usd) == (40, 42, Decimal("0.9"))
+    await run.arefresh_from_db()
+    assert (run.input_tokens, run.total_tokens, run.cost_usd) == (40, 42, Decimal("0.9"))
+
+
+@pytest.mark.parametrize("reaped", [False, True])
+async def test_finalize_chat_run_replaces_a_partial_snapshot_the_spend_recorder_wrote(django_user_model, reaped):
+    user = await _mk_user(django_user_model)
+    session = await _mk_chat_session(user)
+    run = await start_chat_run(session_id=session.thread_id, user_id=user.pk, prompt="hi", repo_id="g/r", ref="main")
+    await Run.objects.filter(pk=run.pk).aupdate(input_tokens=4, total_tokens=5, cost_usd=Decimal("0.1"))
+    if reaped:
+        await Run.objects.filter(pk=run.pk).aupdate(status=RunStatus.FAILED)
+
+    await finalize_chat_run(
+        run, success=True, usage={"input_tokens": 10, "total_tokens": 12, "cost_usd": "0.5"}, response_text="done"
+    )
+
+    await run.arefresh_from_db()
+    assert (run.input_tokens, run.total_tokens, run.cost_usd) == (10, 12, Decimal("0.5"))

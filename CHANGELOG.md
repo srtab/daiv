@@ -46,6 +46,7 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 
 ### Added
 
+- Add an **Insights → Spend** page with what DAIV spent on models by person, repository, trigger, model and provider, the prompt cache hit rate, the costliest sessions and background spend, plus a cost sort and spend filters on the sessions list, a CSV export and `GET /api/spend/records` ([#1849](https://github.com/srtab/daiv/pull/1849))
 - Add a headless browser the agent can use beside its sandbox, turned on per sandbox environment and site-wide, whose screenshots taken for you show under the agent's reply; it needs daiv-sandbox 0.6.0 or later ([#1836](https://github.com/srtab/daiv/pull/1836))
 - Add a web dashboard, signed in with a GitLab or GitHub account, an emailed code or a passkey, with admin and member roles ([#993](https://github.com/srtab/daiv/pull/993), [#1559](https://github.com/srtab/daiv/pull/1559))
 - Add sessions: every run, whether started from chat, a webhook, the Jobs API, MCP or a schedule, is a session you can watch live, continue, retry, stop and archive in the dashboard ([#1374](https://github.com/srtab/daiv/pull/1374), [#1691](https://github.com/srtab/daiv/pull/1691))
@@ -108,6 +109,7 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 
 ### Fixed
 
+- Fix runs that fail, are stopped or lose their worker recording no tokens or cost: DAIV now records spend as each model call finishes ([#1849](https://github.com/srtab/daiv/pull/1849))
 - Fix a worker restart leaving its agent run spinning for about 30 minutes: the worker now stops the run cleanly, and **Stop** ends a run whose worker is gone; give the worker `stop_grace_period: 2m` so a deploy doesn't kill it mid-run ([#1842](https://github.com/srtab/daiv/pull/1842))
 - Refuse agent file-tool writes under `.git`, and run DAIV's host-side git without hooks, fsmonitor or external diff, closing a prompt-injection path to the worker ([#1676](https://github.com/srtab/daiv/pull/1676))
 - Fix `web_fetch` following unlimited same-host redirects without checking SSRF protection again; it now follows at most 5 and checks each one ([#971](https://github.com/srtab/daiv/pull/971))

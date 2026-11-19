@@ -513,6 +513,127 @@ html {
   }
 }
 
+/* An (i) button whose tooltip opens on hover, focus or tap. */
+@layer components {
+  .info-tip {
+    position: relative;
+    display: inline-flex;
+  }
+
+  .info-tip__btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    padding: 0;
+    border: 1px solid var(--color-text-faint);
+    border-radius: 9999px;
+    background: none;
+    font: 600 9px/1 Georgia, serif;
+    color: var(--color-text-faint);
+    cursor: help;
+  }
+
+  .info-tip__btn:hover,
+  .info-tip__btn[aria-expanded="true"] {
+    border-color: var(--color-text-muted);
+    color: var(--color-text);
+  }
+
+  .info-tip__btn:focus-visible {
+    outline: 2px solid rgba(147, 197, 253, 0.5);
+    outline-offset: 2px;
+  }
+
+  .info-tip__panel {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 50%;
+    z-index: 20;
+    width: min(260px, 80vw);
+    padding: 8px 10px;
+    transform: translateX(-50%);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background: var(--color-surface-2);
+    box-shadow: 0 6px 20px rgb(0 0 0 / 0.45);
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--color-text);
+  }
+
+  /* Spans the nearest positioned ancestor instead of centring on the button, for a tip beside a card's title. */
+  .info-tip--wide {
+    position: static;
+  }
+
+  .info-tip--wide .info-tip__panel {
+    right: 0;
+    left: 0;
+    width: auto;
+    transform: none;
+  }
+}
+
+/* Insights: tiles, change badges, split bars, cache tags, the Spend page's "Behind the totals" panels and its chart's
+   hover card. A badge's and a tag's tone says whether the figure is good, not only which way it moved. */
+@layer components {
+  .stat-tile {
+    @apply rounded-xl border border-border bg-surface-1 px-5 py-4;
+  }
+  .stat-tile .stat-value {
+    @apply text-[28px];
+  }
+
+  .change-badge {
+    @apply inline-flex items-center gap-1 rounded-md px-2 py-0.5 font-semibold;
+  }
+  .change-badge--good {
+    @apply bg-status-clear/15 text-status-clear;
+  }
+  .change-badge--bad {
+    @apply bg-status-fail/15 text-status-fail;
+  }
+  .change-badge--neutral {
+    @apply bg-text-muted/15 text-text-muted;
+  }
+
+  .cache-tag {
+    @apply inline-flex shrink-0 items-center rounded-[5px] px-1.5 font-mono text-[11px];
+  }
+  .cache-tag--good {
+    @apply bg-status-clear/15 text-status-clear;
+  }
+  .cache-tag--fair {
+    @apply bg-text-muted/15 text-text-muted;
+  }
+  .cache-tag--attention {
+    @apply bg-status-found/15 text-status-found;
+  }
+  .cache-tag--unreported {
+    @apply text-text-faint;
+  }
+
+  .split-bar {
+    @apply mt-3.5 flex h-3.5 gap-0.5 overflow-hidden rounded-full bg-surface-3;
+  }
+  .spend-split__part {
+    @apply flex items-start gap-2.5;
+  }
+
+  .chart-card {
+    @apply pointer-events-none absolute top-0 z-10 w-60 rounded-xl border border-border bg-surface-3 px-3.5 py-3
+      text-left shadow-[0_12px_32px_rgba(0,0,0,0.45)];
+  }
+  .chart-card--left {
+    left: calc(100% + 0.5rem);
+  }
+  .chart-card--right {
+    right: calc(100% + 0.5rem);
+  }
+}
+
 /* A fold of reference material, e.g. Home's Ways to use DAIV. Unfilled and dashed so it never
    reads as one of the data cards around it. */
 @layer components {
@@ -1272,6 +1393,9 @@ html {
   .segmented-nav__item[aria-current] {
     @apply bg-surface-3 text-text-strong hover:text-text-strong;
   }
+  .segmented-nav__item--icon {
+    @apply inline-flex items-center gap-1.5;
+  }
   .segmented-nav__count {
     @apply ml-1 font-mono text-[12px] tabular-nums text-text-faint;
   }
@@ -2016,54 +2140,6 @@ html {
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--color-text-muted);
-  }
-
-  .up-next__info {
-    position: relative;
-    display: inline-flex;
-  }
-
-  .up-next__info-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 15px;
-    height: 15px;
-    padding: 0;
-    border: 1px solid var(--color-text-faint);
-    border-radius: 9999px;
-    background: none;
-    font: 600 9px/1 Georgia, serif;
-    color: var(--color-text-faint);
-    cursor: help;
-  }
-
-  .up-next__info-btn:hover,
-  .up-next__info-btn[aria-expanded="true"] {
-    border-color: var(--color-text-muted);
-    color: var(--color-text);
-  }
-
-  .up-next__info-btn:focus-visible {
-    outline: 2px solid rgba(147, 197, 253, 0.5);
-    outline-offset: 2px;
-  }
-
-  .up-next__tip {
-    position: absolute;
-    top: calc(100% + 6px);
-    left: 50%;
-    z-index: 20;
-    width: min(260px, 80vw);
-    padding: 8px 10px;
-    transform: translateX(-50%);
-    border: 1px solid var(--color-border);
-    border-radius: 8px;
-    background: var(--color-surface-2);
-    box-shadow: 0 6px 20px rgb(0 0 0 / 0.45);
-    font-size: 12px;
-    line-height: 1.45;
-    color: var(--color-text);
   }
 
   .up-next__heading {

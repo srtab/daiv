@@ -31,6 +31,7 @@ from sessions.inbox.ownership import Ownerships
 from sessions.models import PublishStatus, Run, RunStatus, publish_field_updates
 from sessions.multi_repo import aload_extra_repos, apersist_extra_repo_state
 from sessions.services import aget_session_ref, apersist_session_ref, areset_session_ref
+from sessions.spend_recording import RunSpendRecorder
 from sessions.tool_media import RunToolMediaStore
 
 if TYPE_CHECKING:
@@ -483,30 +484,32 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
             if archiving and not reset:
                 await arestore_thread(agent, checkpointer, config)
             with track_usage_metadata() as usage, record_publish_result() as publish, bind_active_run(spec.run_id):
-                run = AgentRun(
-                    ctx=ctx,
-                    agent=agent,
-                    config=config,
-                    usage=usage,
-                    thread_id=thread_id,
-                    workspace=workspace,
-                    settings=settings,
-                    session_links=session_links,
-                    publish=publish,
-                    fast_forward=fast_forward,
-                )
-                try:
-                    yield run
-                except SessionLockLostError:
-                    archiving = False
-                    handed_over = await _handed_over(run)
-                    raise
-                finally:
-                    await _record_publish_result(
-                        spec.run_id, publish.payload, recovery.draft, siblings=list(publish.siblings.values())
+                recording = RunSpendRecorder(spec.run_id, usage) if spec.run_id is not None else nullcontext()
+                async with recording:
+                    run = AgentRun(
+                        ctx=ctx,
+                        agent=agent,
+                        config=config,
+                        usage=usage,
+                        thread_id=thread_id,
+                        workspace=workspace,
+                        settings=settings,
+                        session_links=session_links,
+                        publish=publish,
+                        fast_forward=fast_forward,
                     )
-                    if archiving:
-                        await _archive_thread(checkpointer, thread_id, reset=reset)
+                    try:
+                        yield run
+                    except SessionLockLostError:
+                        archiving = False
+                        handed_over = await _handed_over(run)
+                        raise
+                    finally:
+                        await _record_publish_result(
+                            spec.run_id, publish.payload, recovery.draft, siblings=list(publish.siblings.values())
+                        )
+                        if archiving:
+                            await _archive_thread(checkpointer, thread_id, reset=reset)
         finally:
             try:
                 try:

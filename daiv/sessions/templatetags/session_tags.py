@@ -162,10 +162,3 @@ def session_merge_request(session) -> dict | None:
     """``linked_merge_request`` with its ``state``, from ``attach_merge_request_states``."""
     merge_request = linked_merge_request(session)
     return merge_request and {**merge_request, "state": session.merge_request_state}
-
-
-@register.simple_tag
-def session_cost(session) -> str:
-    """Sum cost_usd across a session's runs (uses the prefetch cache), formatted."""
-    total = sum((r.cost_usd for r in session.runs.all() if r.cost_usd is not None), Decimal("0"))
-    return format_cost(total) if total > 0 else ""

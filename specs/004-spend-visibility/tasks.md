@@ -32,7 +32,7 @@ description: "Task list for spend visibility"
 
 - [X] T001 Record the maintainer's approval of plan.md, refinements SR1–SR6 and the mockup review in the **Status** line of specs/004-spend-visibility/plan.md (done 2026-11-19).
 - [X] T002 Apply refinements SR1–SR6 from specs/004-spend-visibility/research.md to specs/004-spend-visibility/spec.md (done 2026-11-19).
-- [ ] T003 Confirm the next free migration numbers in daiv/sessions/migrations/ (0037 and 0038 when this was planned; renumber the data model's names if `main` has moved). Run `make test` once before any change and note pre-existing failures, so that later failures can be told apart.
+- [X] T003 Confirm the next free migration numbers in daiv/sessions/migrations/ (0037 and 0038 when this was planned; renumber the data model's names if `main` has moved). Run `make test` once before any change and note pre-existing failures, so that later failures can be told apart.
 
 ---
 
@@ -44,8 +44,8 @@ description: "Task list for spend visibility"
 
 ### The ledger
 
-- [ ] T004 Add `SpendTask(models.TextChoices)` to daiv/sessions/models.py: `TITLE = "title", _("Session titles")`, `RUN_CLASSIFICATION = "run_classification", _("Run classification")`, `MEMORY_EXTRACTION = "memory_extraction", _("Memory extraction")`, `MEMORY_CONSOLIDATION = "memory_consolidation", _("Memory consolidation")`.
-- [ ] T005 Add `SpendRecord` to daiv/sessions/models.py with every field of data-model.md, verbatim:
+- [X] T004 Add `SpendTask(models.TextChoices)` to daiv/sessions/models.py: `TITLE = "title", _("Session titles")`, `RUN_CLASSIFICATION = "run_classification", _("Run classification")`, `MEMORY_EXTRACTION = "memory_extraction", _("Memory extraction")`, `MEMORY_CONSOLIDATION = "memory_consolidation", _("Memory consolidation")`.
+- [X] T005 Add `SpendRecord` to daiv/sessions/models.py with every field of data-model.md, verbatim:
   - **Time and links**: `occurred_at` `DateTimeField` indexed; `run` FK `Run` `SET_NULL`, null, `related_name="spend_records"`; `session` FK `Session` `SET_NULL`, null, `related_name="spend_records"`.
   - **Dimensions**: `repo_id` `CharField(255)` blank; `trigger_type` `CharField(20)` with `SessionOrigin` choices, blank; `task` `CharField(24)` with `SpendTask` choices, blank.
   - **Person**: `user` FK `settings.AUTH_USER_MODEL` `SET_NULL`, null, `related_name="spend_records"`; `external_provider` `CharField(32)`; `external_uid` `CharField(191)`; `external_username` `CharField(255)`; `person_name` `CharField(255)`; all four blank.
@@ -58,7 +58,7 @@ description: "Task list for spend visibility"
     - `UniqueConstraint(fields=["run", "provider_slug", "model"], condition=Q(task="", run__isnull=False), name="spend_run_model_uniq")`;
     - `CheckConstraint(condition=Q(task="") ^ Q(trigger_type=""), name="spend_kind_check")`;
     - indexes `spend_occurred_idx (occurred_at)`, `spend_user_occurred_idx (user, occurred_at)`, `spend_repo_occurred_idx (repo_id, occurred_at)`, `spend_session_occurred_idx (session, occurred_at)`.
-- [ ] T006 Add `SpendRecordQuerySet` to daiv/sessions/managers.py and attach it as `SpendRecord.objects`:
+- [X] T006 Add `SpendRecordQuerySet` to daiv/sessions/managers.py and attach it as `SpendRecord.objects`:
   - `visible_to(user)`: all rows for admins; otherwise `_started_by_q(user) | Q(session__scheduled_job__in=user.subscribed_schedules.values("pk")) | _readable_repos_q(user, "session_id")`, the run-visibility predicate (research R6), SYNC ONLY like its siblings;
   - `started_by(user)`: `_started_by_q(user)`;
   - `in_window(window)`: `window.date_q("occurred_at")`;
@@ -66,8 +66,8 @@ description: "Task list for spend visibility"
   - `background()`: `task` not blank.
 
   Tests in tests/unit_tests/sessions/test_managers.py: a member sees their own rows, rows on a readable repository and rows of a subscribed schedule's session. They never see a row on an unreadable repository, nor a row whose session also has an unreadable extra repository. A session-less row on a readable repository is visible; a session-less row with no repository is visible to its person and admins only.
-- [ ] T007 Generate the schema migration daiv/sessions/migrations/0037_spendrecord.py with `uv run python daiv/manage.py makemigrations agent_sessions` (app label `agent_sessions`), and check it holds both constraints and all four indexes.
-- [ ] T008 Write the data migration daiv/sessions/migrations/0038_backfill_spendrecord.py (research R7, data-model "Migrations"). For every `Run` with `usage_by_model`, in `iterator(chunk_size=1000)` batches with `bulk_create`, create one record per model:
+- [X] T007 Generate the schema migration daiv/sessions/migrations/0037_spendrecord.py with `uv run python daiv/manage.py makemigrations agent_sessions` (app label `agent_sessions`), and check it holds both constraints and all four indexes.
+- [X] T008 Write the data migration daiv/sessions/migrations/0038_backfill_spendrecord.py (research R7, data-model "Migrations"). For every `Run` with `usage_by_model`, in `iterator(chunk_size=1000)` batches with `bulk_create`, create one record per model:
   - **Figures**: tokens from the model's entry (cache read = `input_token_details.cache_read`; cache write = `cache_creation + ephemeral_5m_input_tokens + ephemeral_1h_input_tokens`; reasoning = `output_token_details.reasoning`); `cost_usd` = the model's `cost_usd`, or 0; `reported_cost_usd = None`; `unpriced_tokens` = the model's `total_tokens` when its `cost_usd` is null.
   - **Cache**: `cache_reported` = whether `input_token_details` has a `cache_read` key; `cache_unpriced_tokens` = its cache-read tokens; `cache_saving_usd = 0`.
   - **Dimensions**: `occurred_at = run.created_at`; person, `repo_id`, `trigger_type` and `session` copied from the run; the provider slug parsed from `run.agent_model` (`slug:model`) when the record's model equals that spec's model, else blank.
@@ -77,8 +77,8 @@ description: "Task list for spend visibility"
 
 ### Accounting by provider, and recording as calls finish
 
-- [ ] T009 [P] In daiv/automation/agent/base.py, make `get_model` pass `metadata={"daiv_provider_slug": resolved.row.slug, "daiv_provider_name": resolved.row.display_name}` into the model kwargs, merged with any `metadata` the caller gave, for both `ChatOpenRouter` and `init_chat_model`. Test in tests/unit_tests/automation/agent/test_base.py that the built model's `metadata` carries both keys for an Anthropic and an OpenRouter `Provider` row.
-- [ ] T010 Extend `CostAwareUsageMetadataCallbackHandler` in daiv/automation/agent/usage_tracking.py (research R2, R3, R14, R15; data-model "In-memory accounting"):
+- [X] T009 [P] In daiv/automation/agent/base.py, make `get_model` pass `metadata={"daiv_provider_slug": resolved.row.slug, "daiv_provider_name": resolved.row.display_name}` into the model kwargs, merged with any `metadata` the caller gave, for both `ChatOpenRouter` and `init_chat_model`. Test in tests/unit_tests/automation/agent/test_base.py that the built model's `metadata` carries both keys for an Anthropic and an OpenRouter `Provider` row.
+- [X] T010 Extend `CostAwareUsageMetadataCallbackHandler` in daiv/automation/agent/usage_tracking.py (research R2, R3, R14, R15; data-model "In-memory accounting"):
   - **Provider of a call**: `on_chat_model_start` stores `run_id → (metadata["daiv_provider_slug"], metadata["daiv_provider_name"])`, falling back to `("", "")`. `on_llm_end` pops it.
   - **Ledger entry per `(provider_slug, model)`**: provider name; input, cache read, cache write, output, reasoning and total tokens; `reported_cost`; `estimated_cost`; `unpriced_tokens`; `cache_reported` (true once any call's `input_token_details` had a `cache_read` key); `cache_saving`; `cache_unpriced_tokens`.
   - **Cost per call**: the reported charge goes to `reported_cost`, a list-price cost to `estimated_cost`, and a call with neither adds its tokens to `unpriced_tokens`.
@@ -95,7 +95,7 @@ description: "Task list for spend visibility"
   - `cache_reported` stays false for calls with no `cache_read` key;
   - `on_update` fires once per call;
   - `build_usage_summary` output is unchanged.
-- [ ] T011 Write `RunSpendRecorder` in daiv/sessions/spend_recording.py (research R2). It is built with the run id and the handler, and opens with `async with`.
+- [X] T011 Write `RunSpendRecorder` in daiv/sessions/spend_recording.py (research R2). It is built with the run id and the handler, and opens with `async with`.
   - **On enter**: it captures the running loop, sets the handler's `on_update` to `loop.call_soon_threadsafe(event.set)`, and starts one writer task.
   - **Each write**: the writer waits on the event, clears it, and snapshots the ledger and `build_usage_summary`. In one transaction it `aupdate_or_create`s each `(run, provider_slug, model)` record with absolute values. Each record copies `occurred_at`, person, `repo_id`, `trigger_type` and `session` from the `Run` row, read once on enter. The same transaction updates the `Run` fields with `usage_field_updates`.
   - **On exit**, by any path including `CancelledError`: a final `asyncio.shield`ed write, then the writer stops.
@@ -107,12 +107,12 @@ description: "Task list for spend visibility"
   - a block that raises after one call keeps that call's spend;
   - a cancelled block runs the final write;
   - a write that raises is logged at ERROR and not re-raised.
-- [ ] T012 In `_agent_run`, daiv/sessions/executor/run.py (line 485), pass the handler from `track_usage_metadata()` into `RunSpendRecorder(spec.run_id, usage)` and enter it inside the same `with`, so every exit path closes it. Skip the recorder when `spec.run_id` is None. Test in tests/unit_tests/sessions/executor/test_run.py: a run whose agent raises after two fake model calls ends FAILED with its `SpendRecord` rows and `Run.total_tokens` set.
-- [ ] T013 [P] In `finalize_chat_run`, daiv/chat/api/streaming.py, write the usage fields only while the run's `input_tokens` is null, as `Run.sync_from_task_result` already does. Test in tests/unit_tests/chat/api/test_streaming.py that finalizing a run the recorder already wrote leaves its figures unchanged.
+- [X] T012 In `_agent_run`, daiv/sessions/executor/run.py (line 485), pass the handler from `track_usage_metadata()` into `RunSpendRecorder(spec.run_id, usage)` and enter it inside the same `with`, so every exit path closes it. Skip the recorder when `spec.run_id` is None. Test in tests/unit_tests/sessions/executor/test_run.py: a run whose agent raises after two fake model calls ends FAILED with its `SpendRecord` rows and `Run.total_tokens` set.
+- [X] T013 [P] In `finalize_chat_run`, daiv/chat/api/streaming.py, write the usage fields only while the run's `input_tokens` is null, as `Run.sync_from_task_result` already does. Test in tests/unit_tests/chat/api/test_streaming.py that finalizing a run the recorder already wrote leaves its figures unchanged.
 
 ### Shared reading helpers
 
-- [ ] T014 Write `SpendLedger` in daiv/sessions/spend_ledger.py:
+- [X] T014 Write `SpendLedger` in daiv/sessions/spend_ledger.py:
   - **Person keys** (research R9): `person_key(record_or_values)` → `u<id>`, `x<provider>:<uid>` or `daiv`; `person_filter(key)` → the matching `Q`; `person_label(values)`, which returns a deleted user's `person_name` and marks it deleted.
   - **Rows**: `rows(user, scope, start, end)` returns `visible_to(user)` (narrowed by `started_by` for `scope="mine"`) between local midnight of `start` and local midnight after `end`, ordered by `("occurred_at", "id")`.
   - **Cursor**: `encode_cursor(occurred_at, id)` and `decode_cursor(text)`, opaque URL-safe base64 JSON. A malformed cursor raises `ValueError`.
@@ -129,8 +129,8 @@ description: "Task list for spend visibility"
 
 **Independent Test**: seed runs across three people, two repositories, three trigger types, two models and two providers over 60 days. Open the page for 30 days as an admin. Every figure equals the hand-computed sum, every breakdown adds up to the total, and every linked row opens the sessions behind it.
 
-- [ ] T015 [P] [US1] In daiv/dashboard/insights.py, give `_change` a keyword `better: Literal["up", "down"] | None = None` and add `tone` to its result: `"good"` when the move matches `better`, `"bad"` when it opposes it, `"neutral"` when flat or when `better` is None (research R16). Existing callers stay unchanged. Add daiv/dashboard/templates/dashboard/_change_badge.html: a pill with the arrow and amount coloured by tone (good `status-clear`, bad `status-fail`, neutral `text-muted`, each on a weak tint), then `· was …` in `text-faint`. Tests in tests/unit_tests/dashboard/test_insights.py cover each tone, and that `better=None` keeps today's output.
-- [ ] T016 [US1] Write `SpendReport` in daiv/dashboard/spend.py, built with `(user, window, previous, scope)` over `SpendRecord.objects.visible_to(user)`, narrowed for `scope="mine"`. Add `totals()` for the window and the previous window, in one aggregate query each. It returns:
+- [X] T015 [P] [US1] In daiv/dashboard/insights.py, give `_change` a keyword `better: Literal["up", "down"] | None = None` and add `tone` to its result: `"good"` when the move matches `better`, `"bad"` when it opposes it, `"neutral"` when flat or when `better` is None (research R16). Existing callers stay unchanged. Add daiv/dashboard/templates/dashboard/_change_badge.html: a pill with the arrow and amount coloured by tone (good `status-clear`, bad `status-fail`, neutral `text-muted`, each on a weak tint), then `· was …` in `text-faint`. Tests in tests/unit_tests/dashboard/test_insights.py cover each tone, and that `better=None` keeps today's output.
+- [X] T016 [US1] Write `SpendReport` in daiv/dashboard/spend.py, built with `(user, window, previous, scope)` over `SpendRecord.objects.visible_to(user)`, narrowed for `scope="mine"`. Add `totals()` for the window and the previous window, in one aggregate query each. It returns:
   - cost; tokens by kind (uncached input = input − cache read − cache write);
   - the prompt cache hit rate over records with `cache_reported`, or None for "not reported";
   - the cache saving, plus a floor flag when `cache_unpriced_tokens > 0`;
@@ -139,13 +139,13 @@ description: "Task list for spend visibility"
   - reported, estimated and unknown-source cost, and unpriced tokens.
 
   The changes use `_change(better=…)`: cost, tokens and both averages `"down"`, hit rate `"up"`, runs None. Tests in tests/unit_tests/dashboard/test_spend.py check every figure against seeded rows, the previous-window comparison, and the floor flags.
-- [ ] T017 [US1] Add `chart()` to `SpendReport`. One query groups the window by `window.trunc("occurred_at")` and model; the five costliest models in the window get segments and the rest becomes **Other**, built with `insights.stacked_chart`. A second query groups by bucket, with `Count("run", distinct=True)` and the cache sums, for each column's hover card (R18).
+- [X] T017 [US1] Add `chart()` to `SpendReport`. One query groups the window by `window.trunc("occurred_at")` and model; the five costliest models in the window get segments and the rest becomes **Other**, built with `insights.stacked_chart`. A second query groups by bucket, with `Count("run", distinct=True)` and the cache sums, for each column's hover card (R18).
   - **Card content**: the label, the total, per-model lines in legend order (name, swatch, cost, share), runs, the hit rate, and `side` (`left` for columns in the first half, `right` for the rest).
   - **Today**: no chart.
   - **Links**: each column links with `spend_from`/`spend_to`.
 
   Tests: bucket totals add up to the window's cost; the top-five and **Other** folding; hover lines add up to the column; the side placement.
-- [ ] T018 [US1] Add `breakdowns()` to `SpendReport` (FR-007, R19). There are five of them: person (by person key), repository, **Started by** (`trigger_type`, then **Background** with one sub-row per `SpendTask`), model and provider (by `provider_slug`, showing the stored `provider_name`, with blank as **Unknown provider**).
+- [X] T018 [US1] Add `breakdowns()` to `SpendReport` (FR-007, R19). There are five of them: person (by person key), repository, **Started by** (`trigger_type`, then **Background** with one sub-row per `SpendTask`), model and provider (by `provider_slug`, showing the stored `provider_name`, with blank as **Unknown provider**).
   - **Query**: one per breakdown, ranked by cost, limited to 101 rows, with cache sums.
   - **Row**: cost, tokens, share, distinct runs, and the hit rate with its tone: `≥ 85` good, `70–84` neutral, `< 70` attention. These are module constants `CACHE_GOOD = 85` and `CACHE_FAIR = 70`. With no reported records the tone is "not reported".
   - **Folding**: the top 5 rows plus a **Rest** row equal to the total minus those five; rows 6–100 marked hidden; a `more_than_shown` count when a 101st row exists. **Started by** is never folded.
@@ -153,14 +153,14 @@ description: "Task list for spend visibility"
   - **Links**: each row links with `scope=all`, the window and its `spend_*` param. **Rest**, the **DAIV** person row, the `memory_consolidation` sub-row, a batch-title row (a title record with no session) and **Unknown provider** get no link, and a `why` text.
 
   Tests: each breakdown sums to the total; the threshold boundaries 85 and 70; "not reported"; the **Rest** arithmetic; the 101-row cap; links and no-link reasons.
-- [ ] T019 [US1] Add `coverage()` to `SpendReport`: runs in the window with no `SpendRecord`, runs RUNNING now, and the names of models with `unpriced_tokens > 0`. Test it, then add a test that the whole report with all five breakdowns runs in at most 11 queries (`django_assert_max_num_queries(11)`, research R8).
-- [ ] T020 [US1] Add `InsightsSpendView(LoginRequiredMixin, TemplateView)` to daiv/dashboard/views.py and `path("insights/spend/", …, name="insights_spend")` to daiv/dashboard/urls.py.
+- [X] T019 [US1] Add `coverage()` to `SpendReport`: runs in the window with no `SpendRecord`, runs RUNNING now, and the names of models with `unpriced_tokens > 0`. Test it, then add a test that the whole report with all five breakdowns runs in at most 11 queries (`django_assert_max_num_queries(11)`, research R8).
+- [X] T020 [US1] Add `InsightsSpendView(LoginRequiredMixin, TemplateView)` to daiv/dashboard/views.py and `path("insights/spend/", …, name="insights_spend")` to daiv/dashboard/urls.py.
   - **Period**: defaults to `30d` through `insights.PERIOD_DAYS`, falling back on an invalid value.
   - **Scope**: `all` for admins and `mine` for members by default, falling back on an invalid value.
   - **Nav**: in daiv/dashboard/context_processors.py, add `insights_spend` to the `insights` section of `_MAIN_SECTION_URL_NAMES`.
 
   Tests in tests/unit_tests/dashboard/test_views.py: anonymous users are redirected; the defaults per role; the invalid-param fallbacks; the section highlight.
-- [ ] T021 [US1] Templates in daiv/dashboard/templates/dashboard/, following DESIGN.md and the mockup:
+- [X] T021 [US1] Templates in daiv/dashboard/templates/dashboard/, following DESIGN.md and the mockup:
   - **daiv/dashboard/templates/dashboard/_insights_nav.html**: a segmented nav, **Activity** (`insights`) and **Spend** (`insights_spend`), with `aria-current` on the current one. Include it in insights.html's header too.
   - **daiv/dashboard/templates/dashboard/insights_spend.html**: the header and nav; the toolbar (period and scope segmented navs); six tiles, three per row, using `_change_badge.html`; the floor `+`; the saving line under the hit rate; the comparison note; **Behind the totals**; the chart; five breakdowns; the cache-tag legend line; the coverage note. When the window is empty it shows "Nothing was spent in this period" alone.
   - **daiv/dashboard/templates/dashboard/_spend_split.html**: one **Behind the totals** panel, with its title, total, one-sentence explanation, split bar, and a row per part with swatch, label, amount, share and meaning. The cost panel adds its amber unpriced note.
@@ -168,8 +168,8 @@ description: "Task list for spend visibility"
   - **daiv/dashboard/templates/dashboard/_stacked_bars.html**: an optional hover card per column, rendered only when the column carries `lines`, so **Activity**'s chart output is unchanged. The card is server-rendered with `role="tooltip"` and `aria-describedby` on the column link, and is shown by Alpine on `mouseenter`/`focus` and hidden on `mouseleave`/`blur`.
 
   Use `{% comment %}` for multi-line template comments. Run `uv run --only-group=dev djade --target-version 6.0` on each new template.
-- [ ] T022 [P] [US1] Add reusable classes to daiv/static_src/css/input.css, not long Tailwind chains, using the semantic tokens: `.change-badge` with `--good`/`--bad`/`--neutral`; `.cache-tag` with `--good`/`--fair`/`--attention`/`--unreported`; `.spend-split__bar` and `.spend-split__part`; `.chart-card`.
-- [ ] T023 [US1] Rendering tests in tests/unit_tests/dashboard/test_views.py for `insights_spend` as an admin:
+- [X] T022 [P] [US1] Add reusable classes to daiv/static_src/css/input.css, not long Tailwind chains, using the semantic tokens: `.change-badge` with `--good`/`--bad`/`--neutral`; `.cache-tag` with `--good`/`--fair`/`--attention`/`--unreported`; `.split-bar` and `.spend-split__part`; `.chart-card`.
+- [X] T023 [US1] Rendering tests in tests/unit_tests/dashboard/test_views.py for `insights_spend` as an admin:
   - the six tiles and their badge tones;
   - both panels;
   - the hover card markup on columns, and none on **Activity**;
@@ -187,8 +187,8 @@ description: "Task list for spend visibility"
 
 **Independent Test**: two members, one shared and one private repository. The first member opens on **Mine** with only their runs. **Everyone** adds the shared repository and nothing from the private one.
 
-- [ ] T024 [US2] In daiv/dashboard/templates/dashboard/insights_spend.html, under **Mine**, add a line saying the figures cover only the runs you started and the background work that served them (User Story 2, scenario 1). Rename the subtitle for **Everyone** to "What DAIV spent across the repositories you can see."
-- [ ] T025 [US2] Visibility tests in tests/unit_tests/dashboard/test_spend.py and tests/unit_tests/dashboard/test_views.py, as a member under both scopes. No figure, breakdown row, person name, repository name, hover-card line or coverage-note model comes from the private repository (FR-013, SC-006). **Mine** equals `started_by`, and **Everyone** equals `visible_to`.
+- [X] T024 [US2] In daiv/dashboard/templates/dashboard/insights_spend.html, under **Mine**, add a line saying the figures cover only the runs you started and the background work that served them (User Story 2, scenario 1). Rename the subtitle for **Everyone** to "What DAIV spent across the repositories you can see."
+- [X] T025 [US2] Visibility tests in tests/unit_tests/dashboard/test_spend.py and tests/unit_tests/dashboard/test_views.py, as a member under both scopes. No figure, breakdown row, person name, repository name, hover-card line or coverage-note model comes from the private repository (FR-013, SC-006). **Mine** equals `started_by`, and **Everyone** equals `visible_to`.
 
 **Checkpoint**: both P1 stories work; this is the MVP.
 
@@ -200,8 +200,8 @@ description: "Task list for spend visibility"
 
 **Independent Test**: seeded sessions with known costs. The page's ten are the ten costliest visible sessions in order, and sorting the list by cost gives the same order.
 
-- [ ] T026 [US3] Add `top_sessions()` to `SpendReport`. One query groups the window's run-spend records (`task=""`, the visible set, session-less rows excluded) by session. It returns the ten largest by run spend (FR-009, research R9), with each session's title, origin, repository, owner, models and distinct runs in the window. Add the **Most expensive sessions** section to insights_spend.html. Each row links to `session_detail`, and "Sort sessions by cost" links to `session_list` with `sort=cost`, `scope=all` and the window's `spend_from`/`spend_to`. Tests in tests/unit_tests/dashboard/test_spend.py check the order, the window limit, the exclusion of background spend, and visibility. The query budget stays at 11 (T019).
-- [ ] T027 [P] [US3] In daiv/sessions/filters.py, add the `SessionFilter` filters `spend_from`, `spend_to` (DateFilter), `spend_person`, `spend_repo`, `spend_model`, `spend_provider` (CharFilter), `spend_trigger` (`SessionOrigin` choices) and `spend_task` (`SpendTask` choices).
+- [X] T026 [US3] Add `top_sessions()` to `SpendReport`. One query groups the window's run-spend records (`task=""`, the visible set, session-less rows excluded) by session. It returns the ten largest by run spend (FR-009, research R9), with each session's title, origin, repository, owner, models and distinct runs in the window. Add the **Most expensive sessions** section to insights_spend.html. Each row links to `session_detail`, and "Sort sessions by cost" links to `session_list` with `sort=cost`, `scope=all` and the window's `spend_from`/`spend_to`. Tests in tests/unit_tests/dashboard/test_spend.py check the order, the window limit, the exclusion of background spend, and visibility. The query budget stays at 11 (T019).
+- [X] T027 [P] [US3] In daiv/sessions/filters.py, add the `SessionFilter` filters `spend_from`, `spend_to` (DateFilter), `spend_person`, `spend_repo`, `spend_model`, `spend_provider` (CharFilter), `spend_trigger` (`SessionOrigin` choices) and `spend_task` (`SpendTask` choices).
   - **Combining them**: in `filter_queryset`, when any `spend_*` value is present, combine them into one `Exists(SpendRecord.objects.filter(session=OuterRef("pk"), …))`, with `spend_person` going through `SpendLedger.person_filter`.
   - **Scope**: add the eight names to `DEEP_LINK_PARAMS`.
   - **Sort**: add `sort` (`recent`, `cost`).
@@ -211,7 +211,7 @@ description: "Task list for spend visibility"
   - each param alone;
   - an invalid value is dropped (`strict=False`);
   - a spend param makes the scope default to `all`.
-- [ ] T028 [US3] In `SessionListView`, daiv/sessions/views.py:
+- [X] T028 [US3] In `SessionListView`, daiv/sessions/views.py:
   - **Session cost**: always annotate `run_spend`, a `Subquery` summing `cost_usd` over the session's `SpendRecord` rows with `task=""`, limited to `spend_from`/`spend_to` when the list carries them (research R9).
     - Each row's cost shows `run_spend`. Replace `session_tags.session_cost`, which summed `Run.cost_usd`, in the row template, and delete the tag if nothing else uses it.
     - `sort=cost` orders by `F("run_spend").desc(nulls_last=True)`, then `-last_active_at`. `recent` keeps today's order.
@@ -238,17 +238,17 @@ description: "Task list for spend visibility"
 
 **Independent Test**: complete a session so its title, classification and memory extraction run. **Started by → Background** shows one entry per task, attributed to the session's repository and person. The session's own **Spend** section is unchanged.
 
-- [ ] T029 [US4] Add `BackgroundSpend` to daiv/sessions/spend_recording.py, a context manager with sync (`with`) and async (`async with`) forms. It is built with `task`, and optional `run`, `session`, `repo_id` and a person (user and external fields, or a `Run`/`Session` to copy them from).
+- [X] T029 [US4] Add `BackgroundSpend` to daiv/sessions/spend_recording.py, a context manager with sync (`with`) and async (`async with`) forms. It is built with `task`, and optional `run`, `session`, `repo_id` and a person (user and external fields, or a `Run`/`Session` to copy them from).
   - **On enter**: it opens its own `track_usage_metadata()`.
   - **On exit**, by any path including an exception in the block: it inserts one `SpendRecord` per ledger entry, with `occurred_at=timezone.now()`, `trigger_type=""` and `task` set, and lets the block's exception propagate. It never upserts.
   - **On a failed write**: `logger.exception`, and the work continues (FR-002).
 
   Tests in tests/unit_tests/sessions/test_spend_recording.py: one record per provider and model; the block raising after one call still writes it; a write failure is logged and swallowed while the block's own exception still propagates.
-- [ ] T030 [P] [US4] Wrap the titling call in `generate_title_task` in daiv/sessions/tasks.py with `BackgroundSpend(task=SpendTask.TITLE, session=…, repo_id=repo_id)`, with the person copied from the session. Wrap `generate_batch_title_task` with the batch's first run's person, no session and a blank repository. Tests in tests/unit_tests/sessions/test_tasks.py.
-- [ ] T031 [P] [US4] Wrap `classify_response_text` in `classify_run_task`, daiv/notifications/tasks.py, with `BackgroundSpend(task=SpendTask.RUN_CLASSIFICATION, run=run)`, which copies the run's session, repository and person. Test in tests/unit_tests/notifications/test_tasks.py.
-- [ ] T032 [P] [US4] Wrap the extraction call in `extract_observations_task`, daiv/memory/tasks.py, with `BackgroundSpend(task=SpendTask.MEMORY_EXTRACTION, run=run)`. Test in tests/unit_tests/memory/test_extraction_task.py.
-- [ ] T033 [P] [US4] Wrap the model call in `run_consolidation_round`, daiv/memory/consolidation.py, with `BackgroundSpend(task=SpendTask.MEMORY_CONSOLIDATION, repo_id=repo_id)`, which has no person and so lands on the **DAIV** row. Test in tests/unit_tests/memory/test_consolidation.py.
-- [ ] T034 [US4] Page test in tests/unit_tests/dashboard/test_spend.py: background records appear under **Started by → Background** split by task, and in each person's row. Consolidation lands on **DAIV**. Every breakdown still adds up to the total. `build_session_spend` for the session is unchanged.
+- [X] T030 [P] [US4] Wrap the titling call in `generate_title_task` in daiv/sessions/tasks.py with `BackgroundSpend(task=SpendTask.TITLE, session=…, repo_id=repo_id)`, with the person copied from the session. Wrap `generate_batch_title_task` with the batch's first run's person, no session and a blank repository. Tests in tests/unit_tests/sessions/test_tasks.py.
+- [X] T031 [P] [US4] Wrap `classify_response_text` in `classify_run_task`, daiv/notifications/tasks.py, with `BackgroundSpend(task=SpendTask.RUN_CLASSIFICATION, run=run)`, which copies the run's session, repository and person. Test in tests/unit_tests/notifications/test_tasks.py.
+- [X] T032 [P] [US4] Wrap the extraction call in `extract_observations_task`, daiv/memory/tasks.py, with `BackgroundSpend(task=SpendTask.MEMORY_EXTRACTION, run=run)`. Test in tests/unit_tests/memory/test_extraction_task.py.
+- [X] T033 [P] [US4] Wrap the model call in `run_consolidation_round`, daiv/memory/consolidation.py, with `BackgroundSpend(task=SpendTask.MEMORY_CONSOLIDATION, repo_id=repo_id)`, which has no person and so lands on the **DAIV** row. Test in tests/unit_tests/memory/test_consolidation.py.
+- [X] T034 [US4] Page test in tests/unit_tests/dashboard/test_spend.py: background records appear under **Started by → Background** split by task, and in each person's row. Consolidation lands on **DAIV**. Every breakdown still adds up to the total. `build_session_spend` for the session is unchanged.
 
 **Checkpoint**: DAIV's totals include every model call it makes.
 
@@ -260,8 +260,8 @@ description: "Task list for spend visibility"
 
 **Independent Test**: export a seeded period: one row per record, and the `cost_usd` column sums to the page's total. The API with the same range and the same user gives the same rows.
 
-- [ ] T035 [P] [US5] Add `SpendRateThrottle(AuthRateThrottle)` to daiv/core/api/throttling.py, fixed at `"60/m"` with the bucket keyed on `user.pk`, as `JobsRateThrottle.get_cache_key` does. Test in tests/unit_tests/core/api/test_throttling.py, clearing the cache first.
-- [ ] T036 [US5] Add `SpendRowSchema` and `SpendPageSchema{items, next_cursor}` to daiv/sessions/api/schemas.py, with exactly the contract's keys:
+- [X] T035 [P] [US5] Add `SpendRateThrottle(AuthRateThrottle)` to daiv/core/api/throttling.py, fixed at `"60/m"` with the bucket keyed on `user.pk`, as `JobsRateThrottle.get_cache_key` does. Test in tests/unit_tests/core/api/test_throttling.py, clearing the cache first.
+- [X] T036 [US5] Add `SpendRowSchema` and `SpendPageSchema{items, next_cursor}` to daiv/sessions/api/schemas.py, with exactly the contract's keys:
   - **Identity**: `occurred_at`, `kind`, `task`, `trigger_type`, `person`, `person_kind`, `repo_id`, `session_id`, `run_id`, `schedule_id`, `model`, `provider`, `provider_name`.
   - **Tokens**: `input_tokens`, `cache_read_tokens`, `cache_write_tokens`, `output_tokens`, `reasoning_tokens`, `total_tokens`.
   - **Cost**: `cost_usd`, `reported_cost_usd`, `unpriced_tokens`, `cost_source`.
@@ -276,7 +276,7 @@ description: "Task list for spend visibility"
   - **Async**: the route is async. `SpendLedger.rows` builds its queryset through `visible_to`, which is SYNC ONLY, so build it inside `sync_to_async`. Then read the page with `[row async for row in qs[:501]]`, where row 501 only tells whether a next page exists.
 
   Tests in tests/unit_tests/sessions/test_api.py: 401 with no credentials; each 400 case; paging until `next_cursor` is null, stable while a record is rewritten; a member's key sees only visible rows.
-- [ ] T037 [US5] Add `SpendExportView(LoginRequiredMixin, View)` to daiv/dashboard/views.py, with `path("insights/spend/export.csv", …, name="insights_spend_export")`.
+- [X] T037 [US5] Add `SpendExportView(LoginRequiredMixin, View)` to daiv/dashboard/views.py, with `path("insights/spend/export.csv", …, name="insights_spend_export")`.
   - **Response**: `StreamingHttpResponse` over `SpendLedger.rows`, for the page's `period` and `scope`, with a header row in the contract's column order, `text/csv; charset=utf-8`, and `Content-Disposition: attachment; filename="daiv-spend-<start>-<end>.csv"`.
   - **Async streaming**: DAIV runs under ASGI, so stream from an async generator over the queryset's `aiterator(chunk_size=2000)`. Build the queryset inside `sync_to_async`, because `visible_to` is SYNC ONLY. A sync iterator would make Django buffer the response and warn.
   - **Page links**: in insights_spend.html, add **Download CSV** to the toolbar. Replace T018's "N more not shown" with "N more in the CSV export", linked here.
@@ -291,25 +291,25 @@ description: "Task list for spend visibility"
 
 **Docs ship with the change** (constitution VII, `patterns/user-docs.md` rule 1). T038–T041 below are done in parts: each part lands in the pull request of the delivery it describes, as listed under "Incremental delivery". With a single pull request, all parts land together.
 
-- [ ] T038 [P] Write docs/features/spend.md, with a front-matter `description`, and add it to the `mkdocs.yml` `nav` and `llmstxt` sections. Follow `patterns/user-docs.md`: second person, sentence-case headings, no dated words. The parts, by delivery:
+- [X] T038 [P] Write docs/features/spend.md, with a front-matter `description`, and add it to the `mkdocs.yml` `nav` and `llmstxt` sections. Follow `patterns/user-docs.md`: second person, sentence-case headings, no dated words. The parts, by delivery:
   - **US1 + US2**: what the page shows, section by section; how to read the badges, cache tags and coverage note; **Mine** and **Everyone**; **Show all**.
   - **US3**: the most expensive sessions, and the link to the cost-sorted list.
   - **US4**: the **Background** row and its four tasks.
   - **US5**: the export, and `GET /api/spend/records` with its params, paging, limits and errors.
-- [ ] T039 [P] Update docs/reference/monitoring.md, *Usage and cost*, the one home for what figures mean. Keep the `#usage-and-cost` anchor that daiv/dashboard/landing.py links to. The parts, by delivery:
+- [X] T039 [P] Update docs/reference/monitoring.md, *Usage and cost*, the one home for what figures mean. Keep the `#usage-and-cost` anchor that daiv/dashboard/landing.py links to. The parts, by delivery:
   - **Phase 2**: spend is recorded as each call finishes, so failed, cancelled and killed runs keep it; the provider is recorded with each call.
   - **US1 + US2**: the prompt cache hit rate (by tokens), the estimated cache saving, and how far estimates can be from a bill.
   - **US4**: background spend and its four tasks.
-- [ ] T040 [P] Update docs/features/sessions.md. Its *Insights* section links to docs/features/spend.md rather than repeating it. The parts, by delivery:
+- [X] T040 [P] Update docs/features/sessions.md. Its *Insights* section links to docs/features/spend.md rather than repeating it. The parts, by delivery:
   - **US1 + US2**: **Insights** has **Activity** and **Spend** tabs.
   - **US3**: the sessions list gains the **Person**, **Model** and **Provider** filters, the spend deep-link params, and the cost sort. Each row's cost is now the session's run spend (research R9).
-- [ ] T041 Add one line per delivery under `Unreleased` in CHANGELOG.md, in Common Changelog form, each linking its pull request:
+- [X] T041 Add one line per delivery under `Unreleased` in CHANGELOG.md, in Common Changelog form, each linking its pull request:
   - **Phase 2**: Fixed, failed and cancelled runs keep their spend.
   - **US1 + US2**: Added, the Spend page.
   - **US3, US4, US5**: each amends that Added line, since the page was added since the last release.
-- [ ] T042 [P] Add **Spend record**, **Run spend**, **Background spend**, **Prompt cache hit rate** and **Cache saving** to constitutions/glossary/README.md, one row each, using the spec's Terms. This is a MINOR amendment to a companion document, so state it in the pull request with its impact line for the maintainer's approval (constitution, Governance). Land it with Phase 2, the first delivery to use the words.
-- [ ] T043 Hand-add the new strings to daiv/dashboard/locale/pt/LC_MESSAGES/django.po and daiv/sessions/locale/pt/LC_MESSAGES/django.po. If `makemessages` is used, revert its changes to other apps' `.po` files.
-- [ ] T044 Run the gates and record the commands and results:
+- [X] T042 [P] Add **Spend record**, **Run spend**, **Background spend**, **Prompt cache hit rate** and **Cache saving** to constitutions/glossary/README.md, one row each, using the spec's Terms. This is a MINOR amendment to a companion document, so state it in the pull request with its impact line for the maintainer's approval (constitution, Governance). Land it with Phase 2, the first delivery to use the words.
+- [X] T043 Hand-add the new strings to daiv/dashboard/locale/pt/LC_MESSAGES/django.po and daiv/sessions/locale/pt/LC_MESSAGES/django.po. If `makemessages` is used, revert its changes to other apps' `.po` files.
+- [X] T044 Run the gates and record the commands and results:
   - `uv run --only-group=dev ruff check --fix` and `ruff format`, scoped to the changed paths (repo-wide `make lint-fix` can mangle untracked work);
   - djade on the new templates;
   - `make lint`, `make lint-typing` and `make test`;

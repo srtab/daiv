@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 from importlib import import_module
 
 import pytest
@@ -101,3 +102,136 @@ def test_a_session_its_owner_archived_stays_archived_and_other_archives_are_drop
     rows = Session.objects.in_bulk([archived.pk, kept.pk, untouched.pk])
     assert (rows[archived.pk].archived_at, rows[archived.pk].archive_pending) == (owners, False)
     assert (rows[kept.pk].archived_at, rows[untouched.pk].archived_at) == (merged, None)
+
+
+backfill_spend_migration = import_module("sessions.migrations.0038_backfill_spendrecord")
+
+
+def _spent_run(member_user, **fields):
+    session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="g/r")
+    return Run.objects.create(
+        session=session,
+        trigger_type=SessionOrigin.CHAT,
+        repo_id="g/r",
+        status=RunStatus.SUCCESSFUL,
+        user=member_user,
+        agent_model="anthropic:claude-sonnet-4-6",
+        **fields,
+    )
+
+
+@pytest.mark.django_db
+class TestBackfillSpendRecords:
+    def _backfill(self):
+        from django.apps import apps as global_apps
+
+        from sessions.models import SpendRecord
+
+        backfill_spend_migration.backfill(global_apps, None)
+        return {record.model: record for record in SpendRecord.objects.order_by("model")}
+
+    def test_a_two_model_run_makes_two_rows_with_the_main_model_on_its_provider(self, member_user):
+        run = _spent_run(
+            member_user,
+            input_tokens=1_500,
+            usage_by_model={
+                "claude-sonnet-4-6": {
+                    "input_tokens": 1_000,
+                    "output_tokens": 100,
+                    "total_tokens": 1_100,
+                    "input_token_details": {"cache_read": 400, "cache_creation": 10, "ephemeral_1h_input_tokens": 5},
+                    "output_token_details": {"reasoning": 20},
+                    "cost_usd": "0.012",
+                },
+                "claude-haiku-4-5": {
+                    "input_tokens": 500,
+                    "output_tokens": 50,
+                    "total_tokens": 550,
+                    "cost_usd": "0.001",
+                },
+            },
+        )
+
+        records = self._backfill()
+
+        main, other = records["claude-sonnet-4-6"], records["claude-haiku-4-5"]
+        assert (main.provider_slug, main.provider_name, other.provider_slug) == ("anthropic", "Anthropic", "")
+        assert (main.cache_read_tokens, main.cache_write_tokens, main.reasoning_tokens) == (400, 15, 20)
+        assert (main.cost_usd, main.reported_cost_usd, main.unpriced_tokens) == (Decimal("0.012"), None, 0)
+        assert (main.cache_reported, main.cache_unpriced_tokens, main.cache_saving_usd) == (True, 400, 0)
+        assert other.cache_reported is False
+        assert (main.run_id, main.session_id, main.user_id, main.trigger_type) == (
+            run.pk,
+            run.session_id,
+            member_user.pk,
+            SessionOrigin.CHAT,
+        )
+        assert main.occurred_at == run.created_at
+
+    def test_an_unpriced_model_counts_its_tokens_as_unpriced(self, member_user):
+        _spent_run(member_user, input_tokens=10, usage_by_model={"acme/x": {"input_tokens": 10, "total_tokens": 12}})
+
+        record = self._backfill()["acme/x"]
+
+        assert (record.cost_usd, record.unpriced_tokens) == (0, 12)
+
+    def test_a_doubled_model_name_is_repaired_and_merged(self, member_user):
+        _spent_run(
+            member_user,
+            input_tokens=30,
+            usage_by_model={
+                "claude-sonnet-4-6claude-sonnet-4-6": {"input_tokens": 10, "total_tokens": 10, "cost_usd": "0.1"},
+                "claude-sonnet-4-6": {"input_tokens": 20, "total_tokens": 20, "cost_usd": "0.2"},
+            },
+        )
+
+        records = self._backfill()
+
+        assert list(records) == ["claude-sonnet-4-6"]
+        assert (records["claude-sonnet-4-6"].input_tokens, records["claude-sonnet-4-6"].cost_usd) == (
+            30,
+            Decimal("0.3"),
+        )
+
+    def test_a_run_with_totals_and_no_split_makes_one_unknown_row(self, member_user):
+        _spent_run(member_user, input_tokens=7, output_tokens=3, total_tokens=10, cost_usd=None)
+
+        record = self._backfill()["unknown"]
+
+        assert (record.total_tokens, record.unpriced_tokens, record.provider_slug) == (10, 10, "")
+
+    def test_a_run_without_usage_and_a_run_already_recorded_are_skipped(self, member_user):
+        from sessions.models import SpendRecord
+
+        _spent_run(member_user)
+        recorded = _spent_run(
+            member_user, input_tokens=1, usage_by_model={"claude-sonnet-4-6": {"input_tokens": 1, "total_tokens": 1}}
+        )
+        SpendRecord.objects.create(
+            run=recorded,
+            occurred_at=recorded.created_at,
+            trigger_type=SessionOrigin.CHAT,
+            model="claude-sonnet-4-6",
+            provider_slug="anthropic",
+        )
+
+        self._backfill()
+
+        assert SpendRecord.objects.count() == 1
+
+    def test_the_reverse_deletes_only_backfilled_run_spend(self, member_user):
+        from django.apps import apps as global_apps
+
+        from sessions.models import SpendRecord, SpendTask
+
+        run = _spent_run(member_user)
+        shared = {"run": run, "occurred_at": run.created_at, "model": "m"}
+        SpendRecord.objects.create(**shared, trigger_type=SessionOrigin.CHAT)
+        live = SpendRecord.objects.create(
+            **shared, trigger_type=SessionOrigin.CHAT, provider_slug="p", reported_cost_usd=0
+        )
+        background = SpendRecord.objects.create(**shared, task=SpendTask.TITLE)
+
+        backfill_spend_migration.unbackfill(global_apps, None)
+
+        assert set(SpendRecord.objects.values_list("pk", flat=True)) == {live.pk, background.pk}

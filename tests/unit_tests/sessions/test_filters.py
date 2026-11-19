@@ -8,7 +8,16 @@ from django.utils import timezone
 import pytest
 from sessions.artifacts import ArtifactKind, content_types_for_kind
 from sessions.filters import STATUS_CHOICES, ArtifactFilter, SessionFilter, resolve_scope
-from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin, SessionRepository
+from sessions.models import (
+    Run,
+    RunArtifact,
+    RunStatus,
+    Session,
+    SessionOrigin,
+    SessionRepository,
+    SpendRecord,
+    SpendTask,
+)
 
 from accounts.models import User
 from schedules.models import Frequency, ScheduledJob
@@ -472,3 +481,78 @@ class TestArtifactFilter:
         )
         assert here.pk in pks
         assert elsewhere.pk not in pks
+
+
+def _spend(session: Session, *, days_ago: int = 0, **fields) -> SpendRecord:
+    fields.setdefault("trigger_type", SessionOrigin.CHAT)
+    return SpendRecord.objects.create(
+        session=session,
+        occurred_at=timezone.now() - timedelta(days=days_ago),
+        model=fields.pop("model", "a"),
+        repo_id=fields.pop("repo_id", session.repo_id),
+        **fields,
+    )
+
+
+def _spend_pks(params: dict) -> set[str]:
+    return set(SessionFilter(params, queryset=_qs()).qs.values_list("pk", flat=True))
+
+
+@pytest.mark.django_db
+class TestSpendFilters:
+    def test_every_spend_param_must_match_one_record(self, user):
+        session = _create_session()
+        _spend(session, model="a", days_ago=0)
+        _spend(session, model="b", days_ago=10)
+        today = timezone.localdate()
+
+        params = {"spend_from": (today - timedelta(days=1)).isoformat(), "spend_to": today.isoformat()}
+
+        assert _spend_pks({**params, "spend_model": "b"}) == set()
+        assert _spend_pks({**params, "spend_model": "a"}) == {session.pk}
+
+    @pytest.mark.parametrize(
+        ("param", "value", "matching"),
+        [
+            ("spend_repo", "g/a", {"repo_id": "g/a"}),
+            ("spend_trigger", SessionOrigin.SCHEDULE, {"trigger_type": SessionOrigin.SCHEDULE}),
+            ("spend_task", SpendTask.TITLE, {"task": SpendTask.TITLE, "trigger_type": ""}),
+            ("spend_model", "m", {"model": "m"}),
+            ("spend_provider", "openrouter", {"provider_slug": "openrouter"}),
+            ("spend_person", "xgitlab:7", {"external_provider": "gitlab", "external_uid": "7"}),
+            ("spend_person", "daiv", {}),
+        ],
+    )
+    def test_each_param_alone(self, user, param, value, matching):
+        hit, miss = _create_session(), _create_session()
+        _spend(hit, **matching)
+        _spend(miss, repo_id="g/other", trigger_type=SessionOrigin.API_JOB, model="other", user=user)
+
+        assert _spend_pks({param: value}) == {hit.pk}
+
+    def test_the_person_of_a_user(self, user):
+        hit, miss = _create_session(), _create_session()
+        _spend(hit, user=user)
+        _spend(miss)
+
+        assert _spend_pks({"spend_person": f"u{user.pk}"}) == {hit.pk}
+
+    @pytest.mark.parametrize(
+        "params", [{"spend_trigger": "bogus"}, {"spend_task": "bogus"}, {"spend_from": "x"}, {"spend_person": "zz"}]
+    )
+    def test_an_invalid_value_is_dropped(self, user, params):
+        spent, unspent = _create_session(), _create_session()
+        _spend(spent)
+
+        assert _spend_pks(params) == {spent.pk, unspent.pk}
+
+    def test_an_invalid_person_still_keeps_the_other_spend_params(self, user):
+        hit, miss = _create_session(), _create_session()
+        _spend(hit, model="m")
+        _spend(miss)
+
+        assert _spend_pks({"spend_person": "zz", "spend_model": "m"}) == {hit.pk}
+
+    @pytest.mark.parametrize("param", ["spend_model", "spend_from", "spend_person"])
+    def test_a_spend_param_opens_on_everyone(self, param):
+        assert resolve_scope({param: "x"}) == "all"

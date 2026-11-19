@@ -11,6 +11,7 @@ from django.urls import reverse
 
 import pytest
 from langchain_core.callbacks.manager import adispatch_custom_event
+from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableLambda
 from langgraph.checkpoint.memory import InMemorySaver
@@ -23,7 +24,7 @@ from sessions.executor.lock import Held, NoLock, SessionLockLostError, SessionLo
 from sessions.executor.run import RunStoppedError, _record_publish_result, _until_stopped, execute_run, stream_run
 from sessions.executor.spec import RunHooks
 from sessions.inbox.ownership import Ownerships
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import Run, RunStatus, Session, SessionOrigin, SpendRecord
 
 from automation.agent.agent_settings import RunOverrides, resolve_agent_settings
 from automation.agent.events import PUBLISH_RESULT_EVENT, publish_result_payload, repo_publish_payload
@@ -742,6 +743,34 @@ async def test_a_run_records_the_model_it_resolved_on_the_run_only(error):
     await run.arefresh_from_db()
     assert (session.agent_model, session.agent_thinking_level) == ("", "")
     assert (run.agent_model, run.agent_thinking_level) == ("claude-4-7-opus", "medium")
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_run_whose_agent_raises_keeps_the_spend_of_the_calls_it_made():
+    session, run = await _job_run()
+    usage = {"input_tokens": 100, "output_tokens": 10, "total_tokens": 110}
+    model = GenericFakeChatModel(
+        messages=iter([
+            AIMessage(content="a", usage_metadata=usage, response_metadata={"model_name": "claude-sonnet-4-6"}),
+            AIMessage(content="b", usage_metadata=usage, response_metadata={"model_name": "claude-sonnet-4-6"}),
+        ]),
+        metadata={"daiv_provider_slug": "anthropic", "daiv_provider_name": "Anthropic"},
+    )
+
+    async def _invoke(*_args, **_kwargs):
+        await model.ainvoke("first")
+        await model.ainvoke("second")
+        raise RuntimeError("agent blew up")
+
+    agent = _agent()
+    agent.ainvoke = AsyncMock(side_effect=_invoke)
+    with agent_stack(agent), pytest.raises(RuntimeError, match="agent blew up"):
+        await execute_run(make_spec(thread_id=session.thread_id, run_id=str(run.pk)))
+
+    await run.arefresh_from_db()
+    record = await SpendRecord.objects.aget(run=run)
+    assert (record.provider_slug, record.input_tokens, record.total_tokens) == ("anthropic", 200, 220)
+    assert run.total_tokens == 220
 
 
 @pytest.mark.django_db(transaction=True)

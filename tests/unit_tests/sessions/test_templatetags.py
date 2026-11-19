@@ -24,7 +24,6 @@ from sessions.templatetags.session_tags import (
     format_tokens,
     linked_merge_request,
     origin_icon,
-    session_cost,
     session_merge_request,
     session_title,
     short_timestamp,
@@ -171,17 +170,6 @@ def test_origin_icon(origin, expected):
     assert origin_icon(origin) == expected
 
 
-def test_session_cost_sums_runs():
-    runs = [types.SimpleNamespace(cost_usd=Decimal("0.30")), types.SimpleNamespace(cost_usd=Decimal("0.08"))]
-    session = types.SimpleNamespace(runs=_Runs(runs))
-    assert session_cost(session) == "$0.38"
-
-
-def test_session_cost_empty_when_zero():
-    session = types.SimpleNamespace(runs=_Runs([types.SimpleNamespace(cost_usd=None)]))
-    assert session_cost(session) == ""
-
-
 def _mr_run(iid=None, url=""):
     return types.SimpleNamespace(merge_request_iid=iid, merge_request_web_url=url)
 
@@ -215,10 +203,3 @@ def test_session_merge_request_carries_the_attached_state():
 def test_session_merge_request_none_when_nothing_published():
     session = types.SimpleNamespace(merge_request_iid=None, runs=_Runs([_mr_run()]), merge_request_state=None)
     assert session_merge_request(session) is None
-
-
-def test_session_cost_skips_null_costs():
-    # A run with cost_usd=None must be skipped (the `is not None` guard), not coerce a TypeError.
-    runs = [types.SimpleNamespace(cost_usd=None), types.SimpleNamespace(cost_usd=Decimal("0.30"))]
-    session = types.SimpleNamespace(runs=_Runs(runs))
-    assert session_cost(session) == "$0.30"

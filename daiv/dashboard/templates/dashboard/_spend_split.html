@@ -1,0 +1,47 @@
+{% load i18n icon_tags %}
+{% comment %}
+One "Behind the totals" panel: a split bar, then a row per part with its amount, share and meaning.
+
+Context:
+- title, lede: the panel's heading and the explanation its (i) tooltip shows.
+- split: a dict from ``dashboard.spend.SpendReport`` (total, parts).
+- note: optional text for the amber note under the rows.
+{% endcomment %}
+<div class="stat-tile" data-testid="spend-split">
+    <div class="relative flex flex-wrap items-center justify-between gap-2">
+        <div class="flex items-center gap-2">
+            <h3 class="text-sm font-semibold text-text">{{ title }}</h3>
+            {% blocktranslate asvar about %}About {{ title }}{% endblocktranslate %}
+            {% include "core/_info_tip.html" with label=about text=lede wide=True %}
+        </div>
+        <span class="font-mono text-sm font-semibold tabular-nums text-text-strong">{{ split.total }}</span>
+    </div>
+    <div class="split-bar" role="img" aria-label="{% for part in split.parts %}{{ part.label }} {{ part.share }}{% if not forloop.last %}, {% endif %}{% endfor %}">
+        {% for part in split.parts %}
+        <span class="{{ part.css }}" style="width: {{ part.width }}%"></span>
+        {% endfor %}
+    </div>
+    <ul class="mt-3.5 flex flex-col gap-2.5">
+        {% for part in split.parts %}
+        <li class="spend-split__part">
+            <span class="mt-1 inline-block h-2.5 w-2.5 shrink-0 rounded-[3px] {{ part.css }}" aria-hidden="true"></span>
+            <div class="min-w-0 flex-1">
+                <div class="flex justify-between gap-3 text-sm">
+                    <span class="text-text">{{ part.label }}</span>
+                    <span class="whitespace-nowrap font-mono">
+                        <span class="font-semibold text-text">{{ part.value }}</span>
+                        <span class="inline-block min-w-12 text-right text-text-faint">{{ part.share }}</span>
+                    </span>
+                </div>
+                <p class="mt-0.5 text-[12px] text-text-faint">{{ part.meaning }}</p>
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+    {% if note %}
+    <p class="mt-3.5 flex items-start gap-2.5 border-t border-border pt-3 text-[13px] text-text-muted" data-testid="unpriced-note">
+        {% icon "exclamation-triangle" "mt-0.5 h-4 w-4 shrink-0 text-status-found" %}
+        <span>{{ note }}</span>
+    </p>
+    {% endif %}
+</div>

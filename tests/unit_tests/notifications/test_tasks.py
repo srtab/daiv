@@ -21,11 +21,11 @@ from notifications.tasks import (
     redrive_missing_notifications_cron_task,
 )
 from sessions.legs import NOT_RUN_CLOSED, NOT_RUN_MERGED
-from sessions.models import EventKind, EventState, Run, RunStatus, Session, SessionOrigin
+from sessions.models import EventKind, EventState, Run, RunStatus, Session, SessionOrigin, SpendRecord, SpendTask
 
 from accounts.models import User
 from schedules.models import Frequency, Intent, ScheduledJob
-from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD
+from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, aspending
 from tests.unit_tests.sessions.inbox.conftest import amake_event, make_event
 
 
@@ -989,3 +989,22 @@ async def test_any_other_failed_run_is_still_failed():
     await classify_run_task.func(str(run.pk))
 
     assert (await RunEnvelope.objects.aget(run=run)).status == EnvelopeStatus.FAILED
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_classification_records_its_spend_for_the_run():
+    run = await _make_scheduled_run()
+    classification = RunClassification(status="all-clear", summary="Fine.", actionable=[])
+    llm = _llm_returning(classification)
+    llm.with_config.return_value.ainvoke = AsyncMock(side_effect=aspending(classification))
+
+    with patch("notifications.classification.llm._build_structured_llm", return_value=llm):
+        await classify_run_task.func(str(run.pk))
+
+    record = await SpendRecord.objects.aget()
+    assert (record.task, record.run_id, record.session_id, record.repo_id) == (
+        SpendTask.RUN_CLASSIFICATION,
+        run.pk,
+        run.session_id,
+        run.repo_id,
+    )

@@ -31,6 +31,7 @@ One model's spend for one run, or for one background task call.
 | `total_tokens` | `PositiveBigIntegerField`, default 0 | Input plus output |
 | `cost_usd` | `DecimalField(12, 6)`, default 0 | The priced part: reported plus estimated |
 | `reported_cost_usd` | `DecimalField(12, 6)`, null | The part the provider reported. `NULL` = split unknown (backfilled rows only) |
+| `cost_reported` | `BooleanField`, default False | True when any of the row's calls carried a reported charge, $0 included |
 | `unpriced_tokens` | `PositiveBigIntegerField`, default 0 | Tokens of calls with no price; they add nothing to `cost_usd` |
 | `cache_reported` | `BooleanField`, default False | True when any of the row's calls reported a cache-read count, zero included (R15) |
 | `cache_saving_usd` | `DecimalField(12, 6)`, default 0 | Estimated cost the cache hits avoided, from list prices at write time (R15) |

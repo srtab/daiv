@@ -6,6 +6,17 @@
  * only #session-results via the shared swapResults().
  */
 
+const SPEND_PARAMS = [
+    "spend_from",
+    "spend_to",
+    "spend_person",
+    "spend_repo",
+    "spend_trigger",
+    "spend_task",
+    "spend_model",
+    "spend_provider",
+];
+
 const { swapResults } = window.createResultsSwap("session-results", {
     errorMessage: "Couldn't update the session list — check your connection and try again.",
     onUrlChanged: () => window.dispatchEvent(new CustomEvent("sessions:url-changed")),
@@ -27,6 +38,9 @@ document.addEventListener("alpine:init", () => {
         schedule: "",
         batch: "",
         archived: "",
+        sort: "",
+        // The Spend page's drill-down params, keyed by their URL names.
+        spend: Object.fromEntries(SPEND_PARAMS.map((name) => [name, ""])),
 
         init() {
             this._readUrl();
@@ -51,6 +65,8 @@ document.addEventListener("alpine:init", () => {
             this.batch = p.get("batch") || "";
             const archived = p.get("archived");
             this.archived = archived === "true" || archived === "all" ? archived : "";
+            this.sort = p.get("sort") || "";
+            SPEND_PARAMS.forEach((name) => (this.spend[name] = p.get(name) || ""));
         },
 
         _labelFor(kind, value) {
@@ -82,6 +98,8 @@ document.addEventListener("alpine:init", () => {
             set("schedule", this.schedule);
             set("batch", this.batch);
             set("archived", this.archived);
+            SPEND_PARAMS.forEach((name) => set(name, this.spend[name]));
+            set("sort", this.sort);
             const qs = params.toString();
             swapResults(window.location.pathname + (qs ? "?" + qs : ""));
             this.open = null;
@@ -133,6 +151,14 @@ document.addEventListener("alpine:init", () => {
             keys.forEach((key) => (this[key] = ""));
             this._apply();
         },
+        clearSpend(...names) {
+            names.forEach((name) => (this.spend[name] = ""));
+            this._apply();
+        },
+        setSort(value) {
+            this.sort = value;
+            this._apply();
+        },
         clearAll() {
             this.q = "";
             this.status = "";
@@ -146,6 +172,7 @@ document.addEventListener("alpine:init", () => {
             this.schedule = "";
             this.batch = "";
             this.archived = "";
+            SPEND_PARAMS.forEach((name) => (this.spend[name] = ""));
             this._apply();
         },
 
@@ -179,7 +206,8 @@ document.addEventListener("alpine:init", () => {
                 this.ranOn ||
                 this.schedule ||
                 this.batch ||
-                this.archived
+                this.archived ||
+                SPEND_PARAMS.some((name) => this.spend[name])
             );
         },
     }));

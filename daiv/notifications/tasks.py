@@ -158,6 +158,9 @@ async def classify_run_task(run_id: str) -> None:
     unclassified ("classifying…"). An unrecoverable method error propagates (task FAILED, no partial
     envelope written).
     """
+    from sessions.models import SpendTask
+    from sessions.spend_recording import BackgroundSpend
+
     from notifications.classification.llm import classify_response_text
 
     run = (
@@ -247,7 +250,8 @@ async def classify_run_task(run_id: str) -> None:
         await _persist(status=EnvelopeStatus.ALL_CLEAR, summary="", actionable=[])
         return
 
-    draft = await classify_response_text(text, intent=intent, model_names=model_names, task=run.prompt)
+    async with BackgroundSpend(SpendTask.RUN_CLASSIFICATION, run=run):
+        draft = await classify_response_text(text, intent=intent, model_names=model_names, task=run.prompt)
 
     # Apply the load-bearing invariants in code (never delegated to the method), speaking the
     # ``EnvelopeStatus`` enum rather than raw strings so the vocabulary has a single source of truth:

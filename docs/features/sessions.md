@@ -36,7 +36,7 @@ Each session carries the origin that created it:
 | **API Run** | [Jobs API](jobs-api.md) `POST /api/jobs` | A CI pipeline or script submits a prompt |
 | **MCP Run** | [MCP endpoint](mcp-endpoint.md) `submit_job` tool | Claude Code or Cursor delegates a task |
 | **Scheduled Run** | [Scheduled jobs](scheduled-jobs.md) dispatch | A weekly dependency audit fires on Monday |
-| **UI Run** | The dashboard's [background run](#start-a-background-run) form | You start a run from the dashboard |
+| **Background Run** | The dashboard's [background run](#start-a-background-run) form | You start a run from the dashboard |
 | **Issue Webhook** | A GitLab or GitHub issue event | An issue is labelled `daiv` |
 | **MR/PR Webhook** | A GitLab or GitHub merge request event | A reviewer mentions `@daiv` on a merge request |
 | **Pipeline Webhook** | A CI result that DAIV's [pipeline watch](pipeline-watch.md) acts on | DAIV starts a run to fix a failed pipeline on a merge request it published |
@@ -75,7 +75,7 @@ Team statistics are on **Insights**, linked as **Team insights** at the top of H
 
 ## Insights
 
-**Insights** (`/dashboard/insights/`) shows how DAIV is used across the repositories you can see. Choose a period: **Today**, **7 days** (the default), **30 days**, **90 days** or **All time**.
+**Insights** has two tabs. **Activity** (`/dashboard/insights/`) shows how DAIV is used across the repositories you can see, and **Spend** shows what it spent; [Spend](spend.md) describes that tab. On **Activity**, choose a period: **Today**, **7 days** (the default), **30 days**, **90 days** or **All time**.
 
 - **Agent activity**: runs, success rate, runs that changed code and average duration, each compared with the period of the same length immediately before, up to the same time of day (the page names both periods). **Running now** is live and not compared.
 - **Runs over time**: a column per day (per week for 30 and 90 days, per month for all time), stacked by outcome: changed code, done without changes, needs input, failed. A column opens the sessions active in its days. The chart is hidden for **Today**.
@@ -90,11 +90,13 @@ Team statistics are on **Insights**, linked as **Team insights** at the top of H
 - The title, generated from the first prompt or the issue or merge request subject.
 - The repository, the branch, and the merge request when there is one.
 - An icon for the session's [origin](#session-origins).
-- The latest run's model, its duration and the session's cost, then the owner and when the session was last active.
+- The latest run's model, its duration and the session's run spend, then the owner and when the session was last active. Run spend is the priced cost of the session's runs, the figure its **Spend** section totals; background spend is left out.
 
 An API or MCP job that continues a busy session does not start at once. It joins the session's next run for its branch, shown as **Queued**, which starts when the current run ends ([The session inbox](#the-session-inbox) describes how).
 
-The list shows your own sessions (**Mine**) or everyone's you can see (**Everyone**). A link that carries a repository, merge request, schedule or batch filter opens on **Everyone**.
+The list shows your own sessions (**Mine**) or everyone's you can see (**Everyone**). A link that carries a repository, merge request, schedule, batch or spend filter opens on **Everyone**.
+
+**Sort** orders the list by **Most recent** activity (the default) or by **Cost**, the session's run spend, costliest first, with sessions that have no priced spend last. With a spend period from the [Spend](spend.md) page, the cost counts only the spend in that period.
 
 ### Filter the list
 
@@ -105,6 +107,7 @@ The list shows your own sessions (**Mine**) or everyone's you can see (**Everyon
 | **Type** | One [origin](#session-origins), or **All types** |
 | **Time** | **All time** (the default), **Today**, **Last 2 days**, **Last 7 days**, **Last 30 days**, or a **Custom range** of two dates |
 | **Archived** | Swaps the list for the [archived sessions](#archived-sessions) |
+| **Person**, **Model**, **Provider** | Sessions with spend by that person, on that model or through that provider. The choices are those in the spend records you can see |
 
 Six more filters have no control. They appear as chips when you arrive from a link, and each chip has a button that clears it:
 
@@ -116,6 +119,8 @@ Six more filters have no control. They appear as chips when you arrive from a li
 | **Schedule** | The run count on a scheduled job |
 | **Batch** | A multi-repository submission: one prompt sent to several repositories shares a batch |
 | **Including archived** | A link that must show sessions whatever their state: the **view sessions** link in a merge request description, **Other sessions on !N** in a repository card's menu, a day in **Your week** on **Home** and its link to more merge requests, and a column in **Runs over time** or a count in **Sessions by origin** on **Insights**. The list then includes [archived sessions](#archived-sessions) |
+
+A row or chart column on the [Spend](spend.md) page opens the list with spend filters, shown as chips: a spend period, a person, a repository, a trigger type, a background task, a model or a provider. Together they match the sessions with one spend record that fits them all, so the list holds exactly the sessions behind the figure that linked there.
 
 Filters combine, and they are in the URL, so you can bookmark or share a filtered list.
 
@@ -350,7 +355,7 @@ A background run hands a task to the agent without a chat: you describe the task
 4. Optional: set the [fields below the message box](#background-run-fields).
 5. Select **Start run**.
 
-You land on the **Sessions** list filtered to the run's batch, where each repository's new session has its own row. Runs started this way have the **UI Run** origin.
+You land on the **Sessions** list filtered to the run's batch, where each repository's new session has its own row. Runs started this way have the **Background Run** origin.
 
 ### Background run fields
 

@@ -13,6 +13,7 @@ from django.conf import settings
 from django.contrib import messages as messages_module
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, SuspiciousOperation
+from django.db.models import F, Max
 from django.http import Http404, HttpResponse, HttpResponseBase
 from django.shortcuts import redirect
 from django.urls import reverse
@@ -47,17 +48,22 @@ from sessions.filters import (
     RANGE_CHOICES,
     SCOPE_CHOICES,
     SCOPE_MINE,
+    SORT_CHOICES,
+    SORT_COST,
+    SORT_RECENT,
+    SPEND_PARAMS,
     STATUS_CHOICES,
     ArtifactFilter,
     SessionFilter,
     resolve_scope,
 )
 from sessions.forms import AgentRunCreateForm
-from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin, ToolResultMedia
+from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin, SpendRecord, SpendTask, ToolResultMedia
 from sessions.multi_repo import MAX_REPOS_PER_SESSION
 from sessions.page_state import aload_session_state
 from sessions.services import RepoTarget, submit_batch_runs
 from sessions.spend import build_session_spend
+from sessions.spend_ledger import SpendLedger
 from sessions.templatetags.session_tags import attach_merge_request_states
 from sessions.titling import MAX_TITLE_LENGTH
 from sessions.transcript_labels import transcript_icons, transcript_labels
@@ -167,11 +173,27 @@ class SessionListView(LoginRequiredMixin, FilterView):
             return ["sessions/_session_results.html"]
         return ["sessions/session_list.html"]
 
+    sort = SORT_RECENT
+
     def get_queryset(self) -> QuerySet[Session]:
         # ``latest_run_status`` (annotation) still drives the status FILTER. Row DISPLAY
-        # (latest status/duration/MR/cost, run count) reads the prefetched runs, which also
+        # (latest status/duration/MR, run count) reads the prefetched runs, which also
         # gives the SSE dot the real ``Run.id`` to key live updates on.
         return self._listed(archived=self.archived).with_row_runs()
+
+    def get_filterset(self, filterset_class):
+        """The filterset over sessions carrying their run spend in the spend period, in the chosen order."""
+        filterset = super().get_filterset(filterset_class)
+        cleaned = {}
+        if filterset.is_bound:
+            filterset.form.is_valid()
+            cleaned = filterset.form.cleaned_data
+        self.sort = cleaned.get("sort") or SORT_RECENT
+        sessions = filterset.queryset.with_run_spend(cleaned.get("spend_from"), cleaned.get("spend_to"))
+        if self.sort == SORT_COST:
+            sessions = sessions.order_by(F("run_spend").desc(nulls_last=True), "-last_active_at")
+        filterset.queryset = sessions
+        return filterset
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -196,7 +218,11 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["current_to"] = self.request.GET.get("date_to", "")
         context["current_archived"] = self.archived is True
         context["current_archived_included"] = self.archived is None
+        context["current_sort"] = self.sort
+        context["sorts"] = SORT_CHOICES
+        context.update(self._spend_context(cleaned))
         context["has_active_filters"] = any([
+            context["has_spend_filters"],
             context["current_q"],
             context["current_status"],
             context["current_trigger"],
@@ -235,6 +261,69 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["in_flight_ids"] = ",".join(str(rid) for rid in in_flight.values_list("id", flat=True))
 
         return context
+
+    def _spend_context(self, cleaned: dict[str, Any]) -> dict[str, Any]:
+        """The Person, Model and Provider choices, from the records the user may see, and the spend params' chips.
+
+        A results swap leaves the filter bar in place, so it gets only the flags the results read.
+        """
+        current = {name: self.request.GET.get(name, "") if cleaned.get(name) else "" for name in SPEND_PARAMS}
+        if is_htmx(self.request):
+            return {"current_spend": current, "has_spend_filters": any(current.values())}
+        records = SpendRecord.objects.visible_to(self.request.user)
+        people = {}
+        for values in records.order_by().values(*SpendLedger.PERSON_VALUES).distinct():
+            person = SpendLedger.person(values)
+            people.setdefault(person.key, person.name)
+        pairs = list(
+            records
+            .order_by("provider_slug", "model")
+            .values_list("provider_slug", "model")
+            .annotate(Max("provider_name"))
+        )
+        providers = {slug: name for slug, _model, name in pairs if slug}
+        chips = []
+        if current["spend_from"] or current["spend_to"]:
+            chips.append({
+                "params": ("spend_from", "spend_to"),
+                "label": _("Spend %(start)s – %(end)s")
+                % {"start": current["spend_from"] or "…", "end": current["spend_to"] or "…"},
+            })
+        values = {
+            "spend_person": people.get(current["spend_person"], current["spend_person"]),
+            "spend_repo": current["spend_repo"],
+            "spend_trigger": SessionOrigin(cleaned["spend_trigger"]).label if current["spend_trigger"] else "",
+            "spend_task": SpendTask(cleaned["spend_task"]).label if current["spend_task"] else "",
+            "spend_model": current["spend_model"],
+            "spend_provider": providers.get(current["spend_provider"], current["spend_provider"]),
+        }
+        formats = {
+            "spend_person": _("Person: %(value)s"),
+            "spend_repo": _("Spend on %(value)s"),
+            "spend_trigger": _("Started by: %(value)s"),
+            "spend_task": _("Background: %(value)s"),
+            "spend_model": _("Model: %(value)s"),
+            "spend_provider": _("Provider: %(value)s"),
+        }
+        chips.extend(
+            {"params": (name,), "label": formats[name] % {"value": value}}
+            for name, value in values.items()
+            if current[name]
+        )
+        for chip in chips:
+            query = self.request.GET.copy()
+            for name in (*chip["params"], "page"):
+                query.pop(name, None)
+            query["scope"] = self.scope
+            chip["clear_url"] = f"{self.request.path}?{query.urlencode()}"
+        return {
+            "spend_people": sorted(people.items(), key=lambda item: item[1].lower()),
+            "spend_models": sorted({model for _slug, model, _name in pairs}),
+            "spend_providers": list(providers.items()),
+            "current_spend": current,
+            "spend_chips": chips,
+            "has_spend_filters": any(current.values()),
+        }
 
 
 class SessionMergeRequestRedirectView(LoginRequiredMixin, View):
@@ -625,7 +714,7 @@ class AgentRunCreateView(LoginRequiredMixin, BreadcrumbMixin, FormView):
             return self.form_invalid(form)
         except Exception:
             logger.exception(
-                "Failed to submit UI run",
+                "Failed to submit background run",
                 extra={"user_pk": self.request.user.pk, "repos": form.cleaned_data.get("repos")},
             )
             form.add_error(None, _("Failed to submit the run. Please try again in a moment."))

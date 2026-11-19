@@ -25,6 +25,7 @@ from sessions.managers import (
     RunArtifactManager,
     RunManager,
     SessionManager,
+    SpendRecordManager,
     ToolResultMediaManager,
 )
 
@@ -86,7 +87,7 @@ class SessionOrigin(models.TextChoices):
     API_JOB = "api_job", _("API Run")
     MCP_JOB = "mcp_job", _("MCP Run")
     SCHEDULE = "schedule", _("Scheduled Run")
-    UI_JOB = "ui_job", _("UI Run")
+    UI_JOB = "ui_job", _("Background Run")
     ISSUE_WEBHOOK = "issue_webhook", _("Issue Webhook")
     MR_WEBHOOK = "mr_webhook", _("MR/PR Webhook")
     PIPELINE_WEBHOOK = "pipeline_webhook", _("Pipeline Webhook")
@@ -315,6 +316,17 @@ def usage_field_updates(usage: dict, *, run_ref: object) -> dict[str, Any]:
     if usage.get("by_model") is not None:
         updates["usage_by_model"] = usage["by_model"]
     return updates
+
+
+def usage_supersedes(stored_total: int | None, usage_fields: dict[str, Any]) -> bool:
+    """Whether ``usage_fields`` cover more calls than a run's stored figures. Every writer reads one run's usage
+    handler, so the larger total is the later snapshot."""
+    return stored_total is None or (usage_fields.get("total_tokens") or 0) > stored_total
+
+
+def stored_usage_superseded_q(usage_fields: dict[str, Any]) -> models.Q:
+    """``usage_supersedes`` as a filter on ``Run`` rows, for a write that must not lose a later snapshot."""
+    return models.Q(total_tokens__isnull=True) | models.Q(total_tokens__lt=usage_fields.get("total_tokens") or 0)
 
 
 def agent_result_field_updates(result: AgentResult) -> dict[str, Any]:
@@ -687,8 +699,9 @@ class Run(models.Model):
                 self.question = question
                 changed.append("question")
 
-            if (usage := parsed["usage"]) and self.input_tokens is None:
-                for field, value in usage_field_updates(usage, run_ref=self.pk).items():
+            usage_fields = usage_field_updates(parsed["usage"], run_ref=self.pk) if parsed["usage"] else {}
+            if usage_fields and usage_supersedes(self.total_tokens, usage_fields):
+                for field, value in usage_fields.items():
                     setattr(self, field, value)
                     changed.append(field)
 
@@ -1072,3 +1085,93 @@ class InboxEvent(models.Model):
             f"{prefix}repo_id": "",
             f"{prefix}session__repo_id": repo_id,
         })
+
+
+class SpendTask(models.TextChoices):
+    """The model calls DAIV makes outside a run, on behalf of a session or repository."""
+
+    TITLE = "title", _("Session titles")
+    RUN_CLASSIFICATION = "run_classification", _("Run classification")
+    MEMORY_EXTRACTION = "memory_extraction", _("Memory extraction")
+    MEMORY_CONSOLIDATION = "memory_consolidation", _("Memory consolidation")
+
+
+class SpendRecord(models.Model):
+    """One model's spend through one provider, for one run (run spend) or one background task call.
+
+    Run spend carries the run's ``trigger_type`` and is rewritten as each call finishes; background spend
+    carries a ``task`` and is written once. The person is ``user``, else the git platform account in the
+    ``external_*`` fields, else DAIV. Rows outlive their run and session, so past totals never move.
+    """
+
+    occurred_at = models.DateTimeField(_("occurred at"))
+    run = models.ForeignKey(
+        Run, on_delete=models.SET_NULL, null=True, blank=True, related_name="spend_records", verbose_name=_("run")
+    )
+    session = models.ForeignKey(
+        Session,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="spend_records",
+        verbose_name=_("session"),
+    )
+    repo_id = models.CharField(_("repository"), max_length=255, blank=True, default="")
+    trigger_type = models.CharField(
+        _("trigger type"), max_length=20, choices=SessionOrigin.choices, blank=True, default=""
+    )
+    task = models.CharField(_("background task"), max_length=24, choices=SpendTask.choices, blank=True, default="")
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="spend_records",
+        verbose_name=_("user"),
+    )
+    external_provider = models.CharField(_("external provider"), max_length=32, blank=True, default="")
+    external_uid = models.CharField(_("external account ID"), max_length=191, blank=True, default="")
+    external_username = models.CharField(_("external username"), max_length=255, blank=True, default="")
+    person_name = models.CharField(_("person name"), max_length=255, blank=True, default="")
+    model = models.CharField(_("model"), max_length=255)
+    provider_slug = models.CharField(_("provider"), max_length=32, blank=True, default="")
+    provider_name = models.CharField(_("provider name"), max_length=64, blank=True, default="")
+    input_tokens = models.PositiveBigIntegerField(_("input tokens"), default=0)
+    cache_read_tokens = models.PositiveBigIntegerField(_("cache read tokens"), default=0)
+    cache_write_tokens = models.PositiveBigIntegerField(_("cache write tokens"), default=0)
+    output_tokens = models.PositiveBigIntegerField(_("output tokens"), default=0)
+    reasoning_tokens = models.PositiveBigIntegerField(_("reasoning tokens"), default=0)
+    total_tokens = models.PositiveBigIntegerField(_("total tokens"), default=0)
+    cost_usd = models.DecimalField(_("cost (USD)"), max_digits=12, decimal_places=6, default=Decimal(0))
+    reported_cost_usd = models.DecimalField(
+        _("reported cost (USD)"), max_digits=12, decimal_places=6, null=True, blank=True
+    )
+    cost_reported = models.BooleanField(_("cost reported"), default=False)
+    unpriced_tokens = models.PositiveBigIntegerField(_("unpriced tokens"), default=0)
+    cache_reported = models.BooleanField(_("cache reported"), default=False)
+    cache_saving_usd = models.DecimalField(_("cache saving (USD)"), max_digits=12, decimal_places=6, default=Decimal(0))
+    cache_unpriced_tokens = models.PositiveBigIntegerField(_("cache unpriced tokens"), default=0)
+    updated_at = models.DateTimeField(_("updated at"), auto_now=True)
+
+    objects = SpendRecordManager()
+
+    class Meta:
+        verbose_name = _("Spend record")
+        verbose_name_plural = _("Spend records")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["run", "provider_slug", "model"],
+                condition=models.Q(task="", run__isnull=False),
+                name="spend_run_model_uniq",
+            ),
+            models.CheckConstraint(condition=models.Q(task="") ^ models.Q(trigger_type=""), name="spend_kind_check"),
+        ]
+        indexes = [
+            models.Index(fields=["occurred_at"], name="spend_occurred_idx"),
+            models.Index(fields=["user", "occurred_at"], name="spend_user_occurred_idx"),
+            models.Index(fields=["repo_id", "occurred_at"], name="spend_repo_occurred_idx"),
+            models.Index(fields=["session", "occurred_at"], name="spend_session_occurred_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.model} {self.cost_usd} ({self.task or self.trigger_type})"

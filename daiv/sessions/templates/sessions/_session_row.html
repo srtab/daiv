@@ -50,8 +50,7 @@ Context:
     <div class="flex shrink-0 items-center gap-3">
         {% if latest.agent_model %}<span class="meta-pill hidden lg:inline-flex">{{ latest.agent_model }}</span>{% endif %}
         {% if latest.duration %}<span class="session-num hidden md:inline">{{ latest.duration|duration }}</span>{% endif %}
-        {% session_cost session as cost %}
-        {% if cost %}<span class="session-num hidden lg:inline">{{ cost }}</span>{% endif %}
+        {% if session.run_spend %}<span class="session-num hidden lg:inline" data-testid="session-cost">{{ session.run_spend|format_cost }}</span>{% endif %}
         {% if session.user %}
         <span class="hidden sm:inline">{% include "accounts/_avatar.html" with user=session.user label="Owner" %}</span>
         {% elif session.external_username %}

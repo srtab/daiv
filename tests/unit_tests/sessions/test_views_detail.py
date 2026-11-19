@@ -1326,7 +1326,7 @@ def test_detail_top_bar_sits_outside_the_scrolling_main(member_client, member_us
     ("origin", "started_by"),
     [
         (SessionOrigin.CHAT, "Chat"),
-        (SessionOrigin.UI_JOB, "UI Run"),
+        (SessionOrigin.UI_JOB, "Background Run"),
         (SessionOrigin.MR_WEBHOOK, "MR/PR Webhook"),
         (SessionOrigin.PIPELINE_WEBHOOK, "Pipeline Webhook"),
     ],

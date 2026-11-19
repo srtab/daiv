@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import timedelta
+from decimal import Decimal
 
 from django.db import connection
 from django.test import Client
@@ -10,7 +12,19 @@ from django.urls import reverse
 from django.utils import timezone
 
 import pytest
-from sessions.models import MergeRequestOwnership, MergeRequestState, Run, RunStatus, Session, SessionOrigin
+from bs4 import BeautifulSoup
+from dashboard.insights import window_for
+from dashboard.spend import SpendReport
+from sessions.models import (
+    MergeRequestOwnership,
+    MergeRequestState,
+    Run,
+    RunStatus,
+    Session,
+    SessionOrigin,
+    SpendRecord,
+    SpendTask,
+)
 
 from accounts.models import User
 from schedules.models import Frequency, ScheduledJob
@@ -668,3 +682,109 @@ def test_pagination_partial_swap_marker_is_opt_in(rf):
 
     assert "data-page-swap" not in _render()  # default: plain links
     assert "data-page-swap" in _render(paginate_swap=True)  # opt-in flag turns it on
+
+
+def _spend(session: Session, cost: str, *, days_ago: int = 0, **fields) -> SpendRecord:
+    fields.setdefault("trigger_type", SessionOrigin.CHAT)
+    fields.setdefault("model", f"m-{uuid.uuid4().hex[:6]}")
+    return SpendRecord.objects.create(
+        session=session,
+        repo_id=session.repo_id,
+        occurred_at=timezone.now() - timedelta(days=days_ago),
+        cost_usd=Decimal(cost),
+        **fields,
+    )
+
+
+def _listed(client, **params) -> list[str]:
+    return [session.pk for session in client.get(reverse("session_list"), params).context["sessions"]]
+
+
+@pytest.mark.django_db
+class TestSessionListSpend:
+    def test_cost_sort_puts_the_costliest_first_and_unpriced_sessions_last(self, logged_in_client, user):
+        cheap, dear, unpriced = (_create_session(user=user) for _ in range(3))
+        _spend(cheap, "1")
+        _spend(dear, "2")
+        _spend(dear, "3")
+
+        assert _listed(logged_in_client, sort="cost") == [dear.pk, cheap.pk, unpriced.pk]
+
+    def test_a_spend_period_counts_only_its_spend_and_matches_the_spend_pages_ranking(
+        self, logged_in_client, user, admin_user
+    ):
+        old, recent = _create_session(user=user), _create_session(user=user)
+        _spend(old, "50", days_ago=20)
+        _spend(old, "1")
+        _spend(recent, "5")
+        window = window_for("7d")
+        params = {"sort": "cost", "spend_from": window.start.isoformat(), "spend_to": window.end.isoformat()}
+
+        listed = _listed(logged_in_client, **params)
+
+        assert listed == [recent.pk, old.pk]
+        top = SpendReport(admin_user, window, None, "all").top_sessions()
+        assert [row["thread_id"] for row in top] == listed
+
+    def test_each_row_shows_its_run_spend_with_priced_parts_and_without_background(self, logged_in_client, user):
+        session = _create_session(user=user, title="Spent")
+        _spend(session, "0.25", unpriced_tokens=10)
+        _spend(session, "9", task=SpendTask.TITLE, trigger_type="")
+
+        soup = BeautifulSoup(logged_in_client.get(reverse("session_list")).content, "html.parser")
+
+        assert soup.select_one("[data-testid=session-cost]").get_text(strip=True) == "$0.25"
+
+    def test_the_widgets_offer_only_what_the_user_may_see(self, logged_in_client, user, other_user):
+        mine = _create_session(user=user)
+        _spend(mine, "1", model="visible-model", provider_slug="anthropic", provider_name="Anthropic", user=user)
+        secret = _create_session(user=other_user, repo_id="acme/secret")
+        _spend(secret, "1", model="secret-model", provider_slug="secret", provider_name="Secret", user=other_user)
+
+        context = logged_in_client.get(reverse("session_list")).context
+
+        assert context["spend_models"] == ["visible-model"]
+        assert context["spend_providers"] == [("anthropic", "Anthropic")]
+        assert context["spend_people"] == [(f"u{user.pk}", user.username)]
+
+    def test_spend_params_show_as_clearable_chips(self, logged_in_client, user):
+        session = _create_session(user=user)
+        _spend(session, "1", provider_slug="openrouter", provider_name="OpenRouter", user=user, model="m1")
+
+        response = logged_in_client.get(
+            reverse("session_list"),
+            {"scope": "mine", "spend_provider": "openrouter", "spend_person": f"u{user.pk}", "spend_model": "m1"},
+        )
+
+        chips = {chip["label"]: chip["clear_url"] for chip in response.context["spend_chips"]}
+        assert set(chips) == {f"Person: {user.username}", "Model: m1", "Provider: OpenRouter"}
+        assert "spend_provider" not in chips["Provider: OpenRouter"]
+        assert "spend_model=m1" in chips["Provider: OpenRouter"]
+        assert response.context["has_active_filters"] is True
+
+    def test_an_invalid_person_is_dropped_with_no_chip(self, logged_in_client, user):
+        response = logged_in_client.get(reverse("session_list"), {"scope": "mine", "spend_person": "zz"})
+
+        assert response.context["spend_chips"] == []
+        assert response.context["has_spend_filters"] is False
+
+    def test_a_results_swap_reads_no_spend_choices(self, logged_in_client, user):
+        session = _create_session(user=user)
+        _spend(session, "1", model="m1", user=user)
+
+        response = logged_in_client.get(
+            reverse("session_list"), {"scope": "mine", "spend_model": "m1"}, HTTP_HX_REQUEST="true"
+        )
+
+        assert "spend_models" not in response.context
+        assert response.context["has_active_filters"] is True
+        assert [s.pk for s in response.context["sessions"]] == [session.pk]
+
+    def test_pagination_keeps_the_sort(self, logged_in_client, user):
+        for _ in range(26):
+            _create_session(user=user)
+
+        soup = BeautifulSoup(logged_in_client.get(reverse("session_list"), {"sort": "cost"}).content, "html.parser")
+
+        next_link = next(a for a in soup.select("a[href*='page=2']"))
+        assert "sort=cost" in next_link["href"]

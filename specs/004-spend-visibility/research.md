@@ -243,7 +243,7 @@ These come from the review of the [Spend page mockup](https://claude.ai/artifact
 
 **Decision**: `insights._change` gains `better: "up" | "down" | None`, and with it returns `tone`: `good`, `bad` or `neutral`.
 - **Badge.** A new `_change_badge.html` renders the tone as a pill in `status-clear`, `status-fail` or `text-muted` on a weak tint. The Spend tiles use it.
-- **Insights.** Its existing callers keep `_change.html` and pass no `better`, so **Activity** looks the same.
+- **Activity.** Its tiles and its sessions by origin use the same badge: runs, success rate, runs that changed code and session counts are better when they go up; average duration is neutral.
 - **Direction per tile.** Cost, tokens and average cost per run are worse when they go up. Cost per run that changed code is better when it goes down. The cache hit rate is better when it goes up. Runs with spend are neutral.
 
 ### R17. "Behind the totals" (FR-005a)

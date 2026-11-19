@@ -1,0 +1,155 @@
+{% extends "dashboard/insights_base.html" %}
+{% load i18n icon_tags session_tags %}
+
+{% block title %}{% translate "Spend" %} — {% translate "Insights" %} — DAIV{% endblock %}
+
+{% block insights_subtitle %}{% if current_scope == "mine" %}{% translate "What your work with DAIV cost." %}{% else %}{% translate "What DAIV spent across the repositories you can see." %}{% endif %}{% endblock %}
+
+{% block insights_filters %}
+<nav aria-label="{% translate 'Scope' %}" class="segmented-nav">
+    {% for s in scopes %}
+    <a href="{% querystring scope=s.key %}" class="segmented-nav__item"{% if s.key == current_scope %} aria-current="true"{% endif %}>{{ s.label }}</a>
+    {% endfor %}
+</nav>
+{% endblock insights_filters %}
+
+{% block insights_actions %}
+<a href="{{ export_url }}" class="btn-secondary inline-flex min-h-10 items-center gap-2" data-testid="download-csv">
+    {% icon "arrow-down-tray" "h-4 w-4 shrink-0" %}{% translate "Download CSV" %}
+</a>
+{% endblock insights_actions %}
+
+{% block insights_content %}
+{% if current_scope == "mine" %}
+<p class="mt-3 text-[13px] text-text-faint" data-testid="mine-note">{% translate "These figures cover only the runs you started and the background work that served them." %}</p>
+{% endif %}
+
+{% if totals.empty %}
+<p class="mt-8 rounded-2xl border border-border bg-surface-2 px-6 py-12 text-center text-sm text-text-muted" data-testid="spend-empty">
+    {% translate "Nothing was spent in this period" %}
+</p>
+{% else %}
+<section aria-labelledby="spend-heading" data-testid="spend-summary"
+         class="animate-fade-up mt-6 rounded-2xl border border-border bg-surface-2 p-6" style="animation-delay: 50ms">
+    <div class="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 id="spend-heading" class="text-[15px] font-semibold tracking-tight text-text">{% translate "Spend" %}</h2>
+        <a href="{% url 'session_list' %}?scope=all" class="text-sm text-text-muted transition-colors hover:text-text">{% translate "All sessions" %} &rarr;</a>
+    </div>
+
+    <div class="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div class="stat-tile" data-testid="tile-cost">
+            <p class="stat-value text-text-strong">{{ totals.cost_text }}{% if cost_floor %}<span class="text-status-found" title="{% translate 'A floor: some tokens have no price, or some runs recorded nothing' %}">+</span>{% endif %}</p>
+            <p class="mt-2 text-sm text-text-muted">{% translate "total cost" %}</p>
+            {% include "dashboard/_change_badge.html" with change=totals.cost_change %}
+        </div>
+        <div class="stat-tile" data-testid="tile-tokens">
+            <p class="stat-value text-text-strong">{{ totals.tokens|format_tokens|default:"0" }}</p>
+            <p class="mt-2 text-sm text-text-muted">{% translate "tokens" %}</p>
+            {% include "dashboard/_change_badge.html" with change=totals.tokens_change %}
+        </div>
+        <div class="stat-tile" data-testid="tile-cache">
+            <p class="stat-value text-text-strong">{% if totals.hit_rate is not None %}{{ totals.hit_rate }}%{% else %}—{% endif %}</p>
+            <p class="mt-2 text-sm text-text-muted">{% if totals.hit_rate is not None %}{% translate "prompt cache hit rate" %}{% else %}{% translate "prompt cache hit rate not reported" %}{% endif %}</p>
+            {% if totals.cache_saving %}
+            <p class="mt-1 text-[12px] text-status-clear" data-testid="cache-saving">{% blocktranslate with saving=totals.cache_saving|format_cost floor=totals.cache_saving_floor|yesno:"+," %}saved about {{ saving }}{{ floor }} against no caching{% endblocktranslate %}</p>
+            {% endif %}
+            {% include "dashboard/_change_badge.html" with change=totals.hit_rate_change %}
+        </div>
+        <div class="stat-tile" data-testid="tile-runs">
+            <p class="stat-value text-text-strong">{{ totals.runs }}</p>
+            <p class="mt-2 text-sm text-text-muted">{% translate "runs with spend" %}</p>
+            {% include "dashboard/_change_badge.html" with change=totals.runs_change %}
+        </div>
+        <div class="stat-tile" data-testid="tile-avg">
+            <p class="stat-value text-text-strong">{{ totals.avg_per_run|format_cost|default:"—" }}</p>
+            <p class="mt-2 text-sm text-text-muted">{% translate "average per run" %}</p>
+            {% include "dashboard/_change_badge.html" with change=totals.avg_per_run_change %}
+        </div>
+        <div class="stat-tile" data-testid="tile-avg-changed">
+            <p class="stat-value text-text-strong">{{ totals.avg_per_changed_run|format_cost|default:"—" }}</p>
+            <p class="mt-2 text-sm text-text-muted">{% translate "per run that changed code" %}</p>
+            {% include "dashboard/_change_badge.html" with change=totals.avg_per_changed_run_change %}
+        </div>
+    </div>
+
+    <h3 class="mt-6 text-[13px] font-semibold text-text-muted">{% translate "Behind the totals" %}</h3>
+    <div class="mt-2.5 grid gap-4 lg:grid-cols-2">
+        {% translate "Tokens by kind" as tokens_title %}
+        {% translate "Providers price tokens by kind: reading from the prompt cache costs a fraction of fresh input, and output costs several times more. The bigger the cache share, the cheaper the same work." as tokens_lede %}
+        {% include "dashboard/_spend_split.html" with title=tokens_title lede=tokens_lede split=totals.token_split note="" %}
+        {% translate "How the cost was worked out" as cost_title %}
+        {% translate "How far to trust the total. Part of it may be the exact charge the provider reported; DAIV worked out the rest from public list prices, so your invoice can differ." as cost_lede %}
+        {% if totals.unpriced_tokens %}
+        {% blocktranslate with tokens=totals.unpriced_tokens|format_tokens models=coverage.unpriced_models|join:", " asvar unpriced_note %}{{ tokens }} tokens from {{ models }} have no price, so they add nothing to the total.{% endblocktranslate %}
+        {% endif %}
+        {% include "dashboard/_spend_split.html" with title=cost_title lede=cost_lede split=totals.cost_split note=unpriced_note %}
+    </div>
+
+    {% include "dashboard/_compare_note.html" %}
+</section>
+
+{% if chart and not chart.empty %}
+<section aria-labelledby="spend-time-heading" data-testid="spend-chart-section"
+         class="animate-fade-up mt-6 rounded-2xl border border-border bg-surface-2 p-6" style="animation-delay: 100ms">
+    <div class="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 id="spend-time-heading" class="text-[15px] font-semibold tracking-tight text-text">{% translate "Spend over time" %}</h2>
+        <span class="text-[12px] text-text-faint">{% translate "A column opens its sessions" %}</span>
+    </div>
+    {% include "dashboard/_stacked_bars.html" with chart=chart testid="spend-chart" %}
+</section>
+{% endif %}
+
+<div class="mt-6 grid gap-6 lg:grid-cols-2">
+    {% for table in breakdowns %}
+    {% include "dashboard/_spend_breakdown.html" with table=table export_url=export_url %}
+    {% endfor %}
+</div>
+<p class="mt-3 text-[12px] text-text-faint" data-testid="cache-legend">
+    {% blocktranslate with good=cache_good fair=cache_fair %}"Cache hits" is the prompt cache hit rate: the share of the input tokens the provider served from its cache instead of reading them again at full price. <span class="text-status-clear">Green</span> is {{ good }}% or more, grey {{ fair }}% or more, <span class="text-status-found">amber</span> under {{ fair }}%.{% endblocktranslate %}
+</p>
+
+{% if top_sessions %}
+<section aria-labelledby="spend-top-heading" data-testid="top-sessions"
+         class="mt-6 rounded-2xl border border-border bg-surface-2 px-6 py-5">
+    <div class="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 id="spend-top-heading" class="text-[15px] font-semibold tracking-tight text-text">{% translate "Most expensive sessions" %}</h2>
+        <a href="{{ sessions_by_cost_url }}" class="text-sm text-text-muted transition-colors hover:text-text" data-testid="sort-by-cost">{% translate "Sort sessions by cost" %} &rarr;</a>
+    </div>
+    <ul>
+        {% for session in top_sessions %}
+        <li class="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border py-3">
+            <span class="min-w-16 shrink-0 rounded-full border border-border bg-surface-3 px-2 py-0.5 text-center text-[11px] text-text-muted">{{ session.origin }}</span>
+            <div class="min-w-0 flex-[999_1_20rem]">
+                <a href="{% url 'session_detail' thread_id=session.thread_id %}" class="text-sm font-medium text-accent-bright hover:text-accent">{{ session.title }}</a>
+                <p class="mt-1 text-[12px] text-text-faint">
+                    <span class="font-mono">{{ session.repo_id }}</span> · {{ session.owner }} · {{ session.models }} · {% blocktranslate count counter=session.runs %}{{ counter }} run{% plural %}{{ counter }} runs{% endblocktranslate %}
+                </p>
+            </div>
+            <span class="shrink-0 font-mono text-sm font-semibold tabular-nums text-text">{{ session.cost_text }}</span>
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+{% endif %}
+
+{% if coverage.unpriced_models or coverage.unrecorded_runs or coverage.running_runs %}
+<section aria-labelledby="spend-coverage-heading" data-testid="coverage"
+         class="mt-6 flex items-start gap-3.5 rounded-2xl border border-border bg-surface-2 px-6 py-5">
+    {% icon "exclamation-triangle" "mt-0.5 h-5 w-5 shrink-0 text-status-found" %}
+    <div class="text-sm leading-relaxed text-text-muted">
+        <h2 id="spend-coverage-heading" class="mb-1 text-sm font-semibold text-text">{% translate "What these figures leave out" %}</h2>
+        {% if coverage.unpriced_models %}
+        <p>{% blocktranslate with models=coverage.unpriced_models|join:", " %}The total is a floor: tokens from {{ models }} have no price.{% endblocktranslate %}</p>
+        {% endif %}
+        {% if coverage.unrecorded_runs %}
+        <p>{% blocktranslate count counter=coverage.unrecorded_runs %}{{ counter }} run in this period recorded no spend.{% plural %}{{ counter }} runs in this period recorded no spend.{% endblocktranslate %}</p>
+        {% endif %}
+        {% if coverage.running_runs %}
+        <p>{% blocktranslate count counter=coverage.running_runs %}{{ counter }} run is still running; its spend so far is included.{% plural %}{{ counter }} runs are still running; their spend so far is included.{% endblocktranslate %}</p>
+        {% endif %}
+        <p class="mt-1.5 text-[12px] text-text-faint">{% translate "Costs are estimates from list prices unless the provider reported what it charged." %} <a href="{{ counting_docs_url }}" class="text-accent-bright hover:text-accent">{% translate "How DAIV counts spend" %}</a></p>
+    </div>
+</section>
+{% endif %}
+{% endif %}
+{% endblock insights_content %}
