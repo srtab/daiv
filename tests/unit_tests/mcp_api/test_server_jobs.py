@@ -338,25 +338,6 @@ async def test_submit_job_gives_a_repository_its_own_prompt(_default_mcp_user):
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_strips_slashes_around_the_repo_id(_default_mcp_user):
-    from mcp_api.server import submit_job
-    from sessions.services import BatchSubmitResult
-
-    run = await _run(await _session(user=_default_mcp_user, repo_id="a/b"))
-
-    with (
-        patch("mcp_api.server._allow_job_submission", return_value=True),
-        patch(
-            "sessions.multi_repo.asubmit_batch_runs",
-            new=AsyncMock(return_value=BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[run])),
-        ) as submit,
-    ):
-        await submit_job(repos=[{"repo_id": "/a/b/", "ref": None}], prompt="batch")
-
-    assert [target.repo_id for target in submit.call_args.kwargs["repos"]] == ["a/b"]
-
-
-@pytest.mark.django_db(transaction=True)
 async def test_two_follow_ups_to_a_busy_session_share_its_next_run(_default_mcp_user):
     from mcp_api.server import submit_job
 

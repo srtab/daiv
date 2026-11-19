@@ -231,6 +231,15 @@ async def test_submit_job_forwards_muted_at_batch_boundary():
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_submit_job_strips_slashes_around_the_repo_id():
+    captured: dict = {}
+    with _capture_asubmit_batch_runs(captured):
+        await submit_job(repos=[{"repo_id": "/group/project/", "ref": None}], prompt="p")
+
+    assert [target.repo_id for target in captured["repos"]] == ["group/project"]
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_submit_job_forwards_muted_to_runs():
     """End-to-end: MCP submit tool threads ``muted`` through asubmit_batch_runs into ``acreate_run``."""
     with patch("sessions.queue.run_job_task") as mock_task, _patch_acreate() as mock_create:

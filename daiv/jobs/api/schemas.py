@@ -13,7 +13,7 @@ from core.models import ThinkingLevelChoices  # noqa: TC001 - required at runtim
 
 
 class RepoSubmitItem(Schema):
-    repo_id: RepoId = Field(min_length=1)
+    repo_id: RepoId
     ref: str | None = None
     prompt: str | None = Field(
         default=None,

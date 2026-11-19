@@ -116,28 +116,10 @@ async def test_submit_job_oversized_repos(authenticated_client: TestAsyncClient)
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_empty_repo_id(authenticated_client: TestAsyncClient):
-    response = await authenticated_client.post(
-        "/jobs", json={"repos": [{"repo_id": "", "ref": None}], "prompt": "hello"}
-    )
+@pytest.mark.parametrize("repo_id", ["", " / "])
+async def test_submit_job_empty_repo_id(authenticated_client: TestAsyncClient, repo_id):
+    response = await authenticated_client.post("/jobs", json=_single_repo_body(repos=[{"repo_id": repo_id}]))
     assert response.status_code == 422
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_submit_job_refuses_a_repo_id_of_only_slashes(authenticated_client: TestAsyncClient):
-    response = await authenticated_client.post("/jobs", json=_single_repo_body(repos=[{"repo_id": " / "}]))
-    assert response.status_code == 422
-
-
-@pytest.mark.django_db(transaction=True)
-async def test_submit_job_strips_slashes_around_the_repo_id(authenticated_client: TestAsyncClient):
-    captured: dict = {}
-    body = _single_repo_body(repos=[{"repo_id": "/group/project/"}])
-    with patch("sessions.multi_repo.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)):
-        response = await authenticated_client.post("/jobs", json=body)
-
-    assert response.status_code == 202
-    assert [target.repo_id for target in captured["repos"]] == ["group/project"]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -287,6 +269,17 @@ async def test_submit_job_gives_a_repository_its_own_prompt(authenticated_client
     assert response.status_code == 202
     assert captured["prompt"] == "batch"
     assert [(target.repo_id, target.prompt) for target in captured["repos"]] == [("group/project", "only here")]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_strips_slashes_around_the_repo_id(authenticated_client: TestAsyncClient):
+    captured: dict = {}
+    body = _single_repo_body(repos=[{"repo_id": "/group/project/"}])
+    with patch("sessions.multi_repo.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)):
+        response = await authenticated_client.post("/jobs", json=body)
+
+    assert response.status_code == 202
+    assert [target.repo_id for target in captured["repos"]] == ["group/project"]
 
 
 @pytest.mark.django_db(transaction=True)
