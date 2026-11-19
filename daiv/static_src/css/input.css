@@ -5066,6 +5066,12 @@ html {
   }
   .filter-menu-item--active { @apply bg-surface-3 text-text; }
   .filter-menu-item__lead { @apply inline-flex shrink-0 items-center text-text-faint; }
+  .filter-menu__section { @apply -mx-1 mt-1 border-t border-border px-3.5 pb-1.5 pt-2; }
+  .filter-menu__label { @apply mb-1.5 text-[11px] uppercase tracking-wider text-text-faint; }
+  .filter-date { @apply rounded-lg border border-border bg-ground px-2 py-1 text-[12px] text-text; }
+  .filter-apply {
+    @apply rounded-lg bg-surface-3 px-2.5 py-1 text-[12px] text-text transition-colors hover:text-text-strong;
+  }
   .filter-chip {
     @apply inline-flex items-center gap-1 rounded-full border border-border bg-surface-3 py-1 pl-3 pr-1 text-[13px]
       font-medium text-text;
@@ -5074,7 +5080,9 @@ html {
     @apply inline-flex h-5 w-5 items-center justify-center rounded-full text-text-muted hover:bg-border
       hover:text-text-strong;
   }
-  .filter-clear { @apply h-10.5 px-1.5 text-[13px] text-text-muted transition-colors hover:text-text; }
+  .filter-clear {
+    @apply inline-flex h-10.5 items-center px-1.5 text-[13px] text-text-muted transition-colors hover:text-text;
+  }
   .filter-context {
     @apply flex items-center gap-3 rounded-xl border border-border bg-surface-2 py-2 pl-2.5 pr-2 text-[13.5px]
       text-text-muted;

@@ -165,9 +165,10 @@ class TestSessionListView:
         assert list(response.context["sessions"]) == []
 
     def test_filter_bar_renders_the_scope_toggle(self, logged_in_client, user):
-        html = logged_in_client.get(reverse("session_list")).content.decode()
-        assert "setScope('mine')" in html
-        assert "setScope('all')" in html
+        soup = BeautifulSoup(logged_in_client.get(reverse("session_list")).content, "html.parser")
+
+        items = soup.select("nav.segmented-nav .segmented-nav__item")
+        assert [item["@click.prevent"] for item in items] == ["setScope('mine')", "setScope('all')"]
 
     def test_search_and_date_inputs_have_aria_labels(self, logged_in_client, user):
         html = logged_in_client.get(reverse("session_list")).content.decode()
@@ -282,7 +283,10 @@ class TestSessionListView:
     def test_status_filter_renders_needs_input_and_failed_first(self, logged_in_client, user):
         response = logged_in_client.get(reverse("session_list"))
         html = response.content.decode()
-        positions = [html.index(f"setStatus('{status}')") for status in ("WAITING_INPUT", "FAILED", "SUCCESSFUL")]
+        positions = [
+            html.index(f'data-filter-key="status" data-value="{status}"')
+            for status in ("WAITING_INPUT", "FAILED", "SUCCESSFUL")
+        ]
         assert positions == sorted(positions)
 
     def test_date_param_names_are_date_from_and_date_to(self, logged_in_client, user):
@@ -812,3 +816,56 @@ class TestSessionListSpend:
 
         next_link = next(a for a in soup.select("a[href*='page=2']"))
         assert "sort=cost" in next_link["href"]
+
+
+@pytest.mark.django_db
+class TestSessionListFilterBar:
+    def _soup(self, client, params=None) -> BeautifulSoup:
+        return BeautifulSoup(client.get(reverse("session_list"), params or {}).content, "html.parser")
+
+    def test_the_bar_has_no_native_selects_and_names_its_dropdowns(self, logged_in_client, user):
+        _spend(_create_session(user=user), "1", user=user, model="m1", provider_slug="p", provider_name="P")
+
+        soup = self._soup(logged_in_client)
+
+        assert soup.select("select") == []
+        names = [toggle.get_text(" ", strip=True) for toggle in soup.select(".filter-control__toggle")]
+        assert names[:6] == ["Status", "Type", "Active", "Spent by", "Model", "Provider"]
+
+    def test_sort_shows_most_recent_without_a_sort_param(self, logged_in_client, user):
+        toggle = self._soup(logged_in_client).select_one("[data-testid=filter-sort]")
+
+        assert toggle.get_text(" ", strip=True) == "Sort: Most recent"
+
+    def test_the_spend_drill_down_reads_as_one_sentence(self, logged_in_client, user):
+        params = {"scope": "all", "spend_from": "2026-08-22", "spend_to": "2026-11-19", "spend_repo": "srtab/daiv"}
+
+        soup = self._soup(logged_in_client, params)
+
+        assert " ".join(soup.select_one(".filter-context__text").get_text(" ").split()) == (
+            "From Spend · Sessions with spend between 22 Aug 2026 and 19 Nov 2026 on srtab/daiv"
+        )
+        assert soup.select(".filter-chip") == []
+
+    def test_an_open_ended_spend_period_reads_since(self, logged_in_client, user):
+        soup = self._soup(logged_in_client, {"spend_from": "2026-08-22"})
+
+        assert " ".join(soup.select_one(".filter-context__text").get_text(" ").split()) == (
+            "From Spend · Sessions with spend since 22 Aug 2026"
+        )
+
+    def test_a_set_model_with_slashes_shows_in_its_control(self, logged_in_client, user):
+        model = "openrouter:z-ai/glm-5.2"
+        _spend(_create_session(user=user), "1", user=user, model=model)
+
+        soup = self._soup(logged_in_client, {"spend_model": model})
+
+        control = soup.select_one("[data-testid=filter-spend_model]").find_parent(class_="filter-control")
+        assert "filter-control--active" in control["class"]
+        assert control.select_one(".filter-control__value").get_text(strip=True) == model
+
+    def test_deep_link_chips_keep_their_own_row(self, logged_in_client, user):
+        soup = self._soup(logged_in_client, {"repo": "group/project", "mr": "7"})
+
+        assert len(soup.select(".filter-chip")) == 2
+        assert soup.select_one(".filter-clear").get_text(strip=True) == "Clear all"

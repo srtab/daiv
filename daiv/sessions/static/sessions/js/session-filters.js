@@ -16,6 +16,8 @@ const SPEND_PARAMS = [
     "spend_model",
     "spend_provider",
 ];
+// The Spend page's params with no control in the bar: they show as one banner.
+const SPEND_BANNER_PARAMS = ["spend_from", "spend_to", "spend_repo", "spend_trigger", "spend_task"];
 
 const { swapResults } = window.createResultsSwap("session-results", {
     errorMessage: "Couldn't update the session list — check your connection and try again.",
@@ -38,7 +40,7 @@ document.addEventListener("alpine:init", () => {
         schedule: "",
         batch: "",
         archived: "",
-        sort: "",
+        sort: "recent",
         // The Spend page's drill-down params, keyed by their URL names.
         spend: Object.fromEntries(SPEND_PARAMS.map((name) => [name, ""])),
 
@@ -65,7 +67,7 @@ document.addEventListener("alpine:init", () => {
             this.batch = p.get("batch") || "";
             const archived = p.get("archived");
             this.archived = archived === "true" || archived === "all" ? archived : "";
-            this.sort = p.get("sort") || "";
+            this.sort = p.get("sort") || "recent";
             SPEND_PARAMS.forEach((name) => (this.spend[name] = p.get(name) || ""));
         },
 
@@ -99,7 +101,7 @@ document.addEventListener("alpine:init", () => {
             set("batch", this.batch);
             set("archived", this.archived);
             SPEND_PARAMS.forEach((name) => set(name, this.spend[name]));
-            set("sort", this.sort);
+            set("sort", this.sort === "recent" ? "" : this.sort);
             const qs = params.toString();
             swapResults(window.location.pathname + (qs ? "?" + qs : ""));
             this.open = null;
@@ -113,17 +115,20 @@ document.addEventListener("alpine:init", () => {
             this.scope = value;
             this._apply();
         },
-        setStatus(value) {
-            this.status = value;
+        // The contract sessions/_filter_dropdown.html binds to.
+        value(key) {
+            return key.startsWith("spend_") ? this.spend[key] : this[key];
+        },
+        pick(key, value) {
+            if (key.startsWith("spend_")) this.spend[key] = value;
+            else this[key] = value;
             this._apply();
         },
-        setTrigger(value) {
-            this.trigger = value;
-            this._apply();
-        },
-        clearTrigger() {
-            this.trigger = "";
-            this._apply();
+        labelFor(key) {
+            const value = this.value(key);
+            if (!value) return "";
+            const el = this.$root.querySelector(`[data-filter-key="${key}"][data-value="${CSS.escape(value)}"]`);
+            return el ? el.dataset.label : value;
         },
         setRange(value) {
             this.range = value;
@@ -155,10 +160,6 @@ document.addEventListener("alpine:init", () => {
             names.forEach((name) => (this.spend[name] = ""));
             this._apply();
         },
-        setSort(value) {
-            this.sort = value;
-            this._apply();
-        },
         clearAll() {
             this.q = "";
             this.status = "";
@@ -178,9 +179,6 @@ document.addEventListener("alpine:init", () => {
 
         // Button labels are derived from the rendered menu items (single source of truth =
         // the template), so they never need to be stored or cleared alongside the value.
-        get triggerLabel() {
-            return this._labelFor("trigger", this.trigger);
-        },
         get rangeLabel() {
             return this._labelFor("range", this.range);
         },
@@ -192,6 +190,12 @@ document.addEventListener("alpine:init", () => {
         },
         get timeActive() {
             return !!(this.range || this.from || this.to);
+        },
+        get hasChips() {
+            return !!(this.repo || this.mr || this.archived === "all" || this.ranOn || this.schedule || this.batch);
+        },
+        get hasSpendBanner() {
+            return SPEND_BANNER_PARAMS.some((name) => this.spend[name]);
         },
         get hasActiveFilters() {
             return !!(

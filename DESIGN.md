@@ -558,9 +558,10 @@ controls are conditional.
 
 ### Segmented Nav
 
-Links to a page's views, each its own URL: a skill page's tabs, the Insights periods. The current
-link carries `aria-current`, which puts it on `surface-3` in `text-strong`; a count beside a label
-goes in `.segmented-nav__count`. Tabs that switch in place without a URL use `.details-tabs`
+Links to a page's views, each its own URL: a skill page's tabs, the Insights periods, and a list's
+always-set filter choice of four options or fewer (Mine/Everyone, Memory's status, §Filter bar). The
+current link carries `aria-current`, which puts it on `surface-3` in `text-strong`; a count beside a
+label goes in `.segmented-nav__count`. Tabs that switch in place without a URL use `.details-tabs`
 (§Session sidebar) instead.
 
 ```html
@@ -568,6 +569,32 @@ goes in `.segmented-nav__count`. Tabs that switch in place without a URL use `.d
     <a href="…" class="segmented-nav__item" aria-current="page">SKILL.md</a>
     <a href="…" class="segmented-nav__item">Files<span class="segmented-nav__count">7</span></a>
 </nav>
+```
+
+### Filter bar
+
+The bar above a list (Sessions, Artifacts, Memory). Every control is 42px (`h-10.5`), the height of
+`segmented-nav`, and the rows wrap rather than switch at a breakpoint.
+
+- **Row 1**: `.filter-search` first, growing; then a segmented nav for a scope choice.
+- **Row 2**: one dropdown per filter, then **Clear all** (`.filter-clear`, shown while any filter is
+  set), then — pushed right — **Sort** (always shows its value, never styled active) and view
+  switches that swap the list rather than narrow it (Archived, `aria-pressed`).
+- **Segment or dropdown**: an always-set choice of four options or fewer is a segmented nav;
+  anything with more options, or usually unset, is a dropdown.
+- **One place per param**: a param with a control shows only in that control — set, the control
+  reads `Name: value` on `surface-3` with an × beside it. Chips (`.filter-chip`, a third row) are
+  for deep-link params with no control (repository, merge request, schedule, batch).
+- **Context banner** (`.filter-context`): params another page links in with and no control here
+  (the Spend drill-down) read as one sentence with one ×.
+- Controls never use a status colour or the accent; menus are `.filter-menu` surfaces.
+
+Dropdowns render through `sessions/_filter_dropdown.html`, against an Alpine component that
+provides `open`, `toggle(key)`, `value(key)`, `pick(key, value)` and `labelFor(key)`:
+
+```django
+{% translate "Model" as model_label %}{% translate "Any model" as any_model %}
+{% include "sessions/_filter_dropdown.html" with key="spend_model" label=model_label icon="cpu-chip" all_label=any_model options=spend_models current=current_spend.spend_model %}
 ```
 
 ### Badges / Pills

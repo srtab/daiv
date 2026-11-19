@@ -263,9 +263,6 @@ msgstr "Todos"
 msgid "Type"
 msgstr "Tipo"
 
-msgid "Clear type filter"
-msgstr "Limpar filtro de tipo"
-
 msgid "All types"
 msgstr "Todos os tipos"
 
@@ -1487,39 +1484,8 @@ msgstr "Registo de gasto"
 msgid "Spend records"
 msgstr "Registos de gasto"
 
-#, python-format
-msgid "Spend %(start)s – %(end)s"
-msgstr "Gastos de %(start)s a %(end)s"
-
-#, python-format
-msgid "Person: %(value)s"
-msgstr "Pessoa: %(value)s"
-
-#, python-format
-msgid "Spend on %(value)s"
-msgstr "Gastos em %(value)s"
-
-#, python-format
-msgid "Started by: %(value)s"
-msgstr "Iniciado por: %(value)s"
-
-#, python-format
-msgid "Background: %(value)s"
-msgstr "Segundo plano: %(value)s"
-
-#, python-format
-msgid "Model: %(value)s"
-msgstr "Modelo: %(value)s"
-
-#, python-format
-msgid "Provider: %(value)s"
-msgstr "Fornecedor: %(value)s"
-
 msgid "Person"
 msgstr "Pessoa"
-
-msgid "Any person"
-msgstr "Qualquer pessoa"
 
 msgid "Model"
 msgstr "Modelo"
@@ -1536,12 +1502,64 @@ msgstr "Qualquer fornecedor"
 msgid "Sort"
 msgstr "Ordenar"
 
-#, python-format
-msgid "Clear %(label)s"
-msgstr "Limpar %(label)s"
-
 msgid "failure kind"
 msgstr "tipo de falha"
 
 msgid "failure provider"
 msgstr "fornecedor da falha"
+
+msgid "Any status"
+msgstr "Qualquer estado"
+
+msgctxt "sessions last active"
+msgid "Active"
+msgstr "Atividade"
+
+msgid "Any time"
+msgstr "Qualquer altura"
+
+msgid "Spent by"
+msgstr "Gasto por"
+
+msgid "Anyone"
+msgstr "Qualquer pessoa"
+
+msgid "Sort:"
+msgstr "Ordenar:"
+
+msgid "From Spend"
+msgstr "De Gastos"
+
+msgid "Sessions with spend"
+msgstr "Sessões com gastos"
+
+#, python-format
+msgid "between <b>%(start)s</b> and <b>%(end)s</b>"
+msgstr "entre <b>%(start)s</b> e <b>%(end)s</b>"
+
+#, python-format
+msgid "since <b>%(start)s</b>"
+msgstr "desde <b>%(start)s</b>"
+
+#, python-format
+msgid "until <b>%(end)s</b>"
+msgstr "até <b>%(end)s</b>"
+
+#, python-format
+msgid "on <span class=\"font-mono\">%(repo)s</span>"
+msgstr "em <span class=\"font-mono\">%(repo)s</span>"
+
+#, python-format
+msgid "started by %(trigger)s"
+msgstr "iniciadas por %(trigger)s"
+
+#, python-format
+msgid "background work: %(task)s"
+msgstr "trabalho em segundo plano: %(task)s"
+
+msgid "Leave the Spend view"
+msgstr "Sair da vista de Gastos"
+
+#, python-format
+msgid "Clear %(label)s filter"
+msgstr "Limpar filtro %(label)s"

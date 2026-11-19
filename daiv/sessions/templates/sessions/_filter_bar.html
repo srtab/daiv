@@ -1,20 +1,9 @@
 {% load i18n icon_tags session_tags %}
-<div class="animate-fade-up relative z-10 mt-8 flex flex-col gap-3" style="animation-delay: 50ms"
+<div class="animate-fade-up relative z-10 mt-8 flex flex-col gap-2.5" style="animation-delay: 50ms"
      x-data="filterBar()" data-scope="{{ current_scope }}">
-    <div class="flex flex-wrap items-center gap-3">
-        <div class="filter-seg" role="group" aria-label="{% translate 'Whose sessions' %}">
-            {% for value, label in scopes %}
-            <a href="{% querystring scope=value page=None %}"
-               class="filter-seg-item {% if current_scope == value %}filter-seg-item--active{% endif %}"
-               @click.prevent="setScope('{{ value }}')" :class="{ 'filter-seg-item--active': scope === '{{ value }}' }"
-               :aria-current="scope === '{{ value }}' ? 'true' : null"
-               {% if current_scope == value %}aria-current="true"{% endif %}>{{ label }}</a>
-            {% endfor %}
-        </div>
-
-        {# Search (title or repo) — replaces the repo picker #}
+    <div class="flex flex-wrap items-center gap-2">
         <div class="relative min-w-[240px] flex-1">
-            <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
+            <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-faint">
                 {% icon "magnifying-glass" "h-4 w-4" %}
             </span>
             {# The sidebar's Sessions search icon and its `/` shortcut land here as #search. #}
@@ -24,137 +13,108 @@
                    placeholder="{% translate 'Search by title or repository' %}" aria-label="{% translate 'Search by title or repository' %}"
                    @input.debounce.350ms="_apply()" @keydown.enter.prevent="_apply()">
         </div>
-
-        {# Status segmented control #}
-        <div class="filter-seg">
-            <a href="{% querystring status=None page=None %}"
-               class="filter-seg-item {% if not current_status %}filter-seg-item--active{% endif %}"
-               @click.prevent="setStatus('')" :class="{ 'filter-seg-item--active': status === '' }">{% translate "All" %}</a>
-            {% for value, label in statuses %}
-            <a href="{% querystring status=value page=None %}"
-               class="filter-seg-item {% if current_status == value %}filter-seg-item--active{% endif %}"
-               @click.prevent="setStatus('{{ value }}')" :class="{ 'filter-seg-item--active': status === '{{ value }}' }">
-                <span class="status-dot status-dot-{{ value|status_variant }}"></span>{{ label }}
-            </a>
+        <nav class="segmented-nav" aria-label="{% translate 'Whose sessions' %}">
+            {% for value, label in scopes %}
+            <a href="{% querystring scope=value page=None %}" class="segmented-nav__item"
+               @click.prevent="setScope('{{ value }}')" :aria-current="scope === '{{ value }}' ? 'true' : null"
+               {% if current_scope == value %}aria-current="true"{% endif %}>{{ label }}</a>
             {% endfor %}
-        </div>
+        </nav>
+    </div>
 
-        {# Type dropdown #}
-        {% querystring trigger=None page=None as clear_trigger_url %}
-        <div class="relative" @click.outside="if (open === 'type') open = null">
-            <button type="button" class="filter-control {% if current_trigger %}filter-control--active{% endif %}"
-                    :class="{ 'filter-control--active': !!trigger }" @click="toggle('type')">
-                {% icon "bars-3" "h-4 w-4" %}
-                <span x-text="triggerLabel || $el.dataset.defaultLabel" data-default-label="{% translate 'Type' %}">{% if current_trigger %}{{ current_trigger_label }}{% else %}{% translate "Type" %}{% endif %}</span>
-                <a href="{{ clear_trigger_url }}" @click.stop.prevent="clearTrigger()"
-                   x-show="!!trigger" style="{% if not current_trigger %}display:none{% endif %}"
-                   class="ml-1 text-gray-500 hover:text-white" aria-label="{% translate 'Clear type filter' %}">{% icon "x-mark" "h-3.5 w-3.5" %}</a>
-                <span x-show="!trigger" style="{% if current_trigger %}display:none{% endif %}">{% icon "chevron-down" "h-3.5 w-3.5 text-gray-500" %}</span>
-            </button>
-            <div data-surface class="filter-menu" x-show="open === 'type'" x-cloak>
-                <a href="{{ clear_trigger_url }}"
-                   class="filter-menu-item {% if not current_trigger %}filter-menu-item--active{% endif %}"
-                   @click.prevent="clearTrigger()" :class="{ 'filter-menu-item--active': !trigger }">{% translate "All types" %}</a>
-                {% for value, label in origins %}
-                <a href="{% querystring trigger=value page=None %}"
-                   class="filter-menu-item {% if current_trigger == value %}filter-menu-item--active{% endif %}"
-                   data-trigger-value="{{ value }}" data-label="{{ label }}"
-                   @click.prevent="setTrigger('{{ value }}')"
-                   :class="{ 'filter-menu-item--active': trigger === '{{ value }}' }">
-                    {% icon value|origin_icon "h-4 w-4 text-gray-500" %}{{ label }}
-                </a>
-                {% endfor %}
-            </div>
-        </div>
+    <div class="flex flex-wrap items-center gap-2">
+        {% translate "Status" as status_label %}{% translate "Any status" as any_status %}
+        {% include "sessions/_filter_dropdown.html" with key="status" label=status_label icon="check-circle" all_label=any_status options=statuses current=current_status lead="status" %}
+        {% translate "Type" as type_label %}{% translate "All types" as all_types %}
+        {% include "sessions/_filter_dropdown.html" with key="trigger" label=type_label icon="bars-3" all_label=all_types options=origins current=current_trigger lead="origin" %}
 
-        {# Time dropdown #}
         {% querystring range=None date_from=None date_to=None page=None as clear_time_url %}
-        <div class="relative" @click.outside="if (open === 'time') open = null">
-            <button type="button" class="filter-control {% if current_range or current_from or current_to %}filter-control--active{% endif %}"
-                    :class="{ 'filter-control--active': timeActive }" @click="toggle('time')">
-                {% icon "calendar" "h-4 w-4" %}
-                <span x-text="timeLabel || $el.dataset.defaultLabel" data-default-label="{% translate 'Time' %}">
-                    {% if current_range_label %}{{ current_range_label }}
-                    {% elif current_from or current_to %}{{ current_from|default:"…" }} – {{ current_to|default:"…" }}
-                    {% else %}{% translate "Time" %}{% endif %}
-                </span>
-                <a href="{{ clear_time_url }}" @click.stop.prevent="clearTime()"
-                   x-show="timeActive" style="{% if not current_range and not current_from and not current_to %}display:none{% endif %}"
-                   class="ml-1 text-gray-500 hover:text-white" aria-label="{% translate 'Clear time filter' %}">{% icon "x-mark" "h-3.5 w-3.5" %}</a>
-                <span x-show="!timeActive" style="{% if current_range or current_from or current_to %}display:none{% endif %}">{% icon "chevron-down" "h-3.5 w-3.5 text-gray-500" %}</span>
-            </button>
-            <div data-surface class="filter-menu" x-show="open === 'time'" x-cloak>
-                <a href="{{ clear_time_url }}"
-                   class="filter-menu-item {% if not current_range and not current_from and not current_to %}filter-menu-item--active{% endif %}"
-                   @click.prevent="clearTime()" :class="{ 'filter-menu-item--active': !range && !from && !to }">{% translate "All time" %}</a>
+        <div class="relative" @click.outside="if (open === 'time') open = null" @keydown.escape="if (open === 'time') open = null">
+            <div class="filter-control{% if current_range or current_from or current_to %} filter-control--active{% endif %}"
+                 :class="{ 'filter-control--active': timeActive }">
+                <button type="button" class="filter-control__toggle" @click="toggle('time')" data-testid="filter-time"
+                        aria-haspopup="menu" aria-expanded="false" :aria-expanded="(open === 'time').toString()">
+                    <span class="filter-control__lead">{% icon "calendar" "h-4 w-4" %}</span>
+                    <span class="filter-control__key">{% translate "Active" context "sessions last active" %}</span>
+                    <span class="filter-control__value" x-show="timeActive" x-text="timeLabel"
+                          {% if not current_range and not current_from and not current_to %}style="display:none"{% endif %}>{% if current_range_label %}{{ current_range_label }}{% elif current_from or current_to %}{{ current_from|default:"…" }} – {{ current_to|default:"…" }}{% endif %}</span>
+                    <span class="filter-control__lead" x-show="!timeActive"
+                          {% if current_range or current_from or current_to %}style="display:none"{% endif %}>{% icon "chevron-down" "h-3.5 w-3.5" %}</span>
+                </button>
+                <a href="{{ clear_time_url }}" class="filter-control__clear" @click.prevent="clearTime()" x-show="timeActive"
+                   {% if not current_range and not current_from and not current_to %}style="display:none"{% endif %}
+                   aria-label="{% translate 'Clear time filter' %}">{% icon "x-mark" "h-3.5 w-3.5" %}</a>
+            </div>
+            <div data-surface class="filter-menu" role="menu" x-show="open === 'time'" x-cloak>
+                <a href="{{ clear_time_url }}" role="menuitem"
+                   class="filter-menu-item{% if not current_range and not current_from and not current_to %} filter-menu-item--active{% endif %}"
+                   @click.prevent="clearTime()" :class="{ 'filter-menu-item--active': !timeActive }">{% translate "Any time" %}</a>
                 {% for value, label in ranges %}
-                <a href="{% querystring range=value date_from=None date_to=None page=None %}"
-                   class="filter-menu-item {% if current_range == value %}filter-menu-item--active{% endif %}"
+                <a href="{% querystring range=value date_from=None date_to=None page=None %}" role="menuitem"
+                   class="filter-menu-item{% if current_range == value %} filter-menu-item--active{% endif %}"
                    data-range-value="{{ value }}" data-label="{{ label }}"
-                   @click.prevent="setRange('{{ value }}')"
-                   :class="{ 'filter-menu-item--active': range === '{{ value }}' }">{{ label }}</a>
+                   @click.prevent="setRange('{{ value }}')" :class="{ 'filter-menu-item--active': range === '{{ value }}' }">{{ label }}</a>
                 {% endfor %}
-                <div class="mt-1 border-t border-white/[0.06] px-2.5 pb-1 pt-2">
-                    <p class="mb-1.5 text-[11px] uppercase tracking-wider text-gray-500">{% translate "Custom range" %}</p>
+                <div class="filter-menu__section">
+                    <p class="filter-menu__label">{% translate "Custom range" %}</p>
                     <div class="flex items-center gap-2" x-data="{ from: '{{ current_from|escapejs }}', to: '{{ current_to|escapejs }}' }"
                          @sessions:url-changed.window="const p = new URLSearchParams(location.search); from = p.get('date_from') || ''; to = p.get('date_to') || ''">
-                        <input type="date" x-model="from" aria-label="{% translate 'From date' %}" class="rounded-lg border border-white/[0.06] bg-[#0b1018] px-2 py-1 text-[12px] text-gray-300">
-                        <span class="text-gray-500">–</span>
-                        <input type="date" x-model="to" aria-label="{% translate 'To date' %}" class="rounded-lg border border-white/[0.06] bg-[#0b1018] px-2 py-1 text-[12px] text-gray-300">
-                        <button type="button" class="rounded-lg bg-white/[0.1] px-2.5 py-1 text-[12px] text-white hover:bg-white/[0.15]"
-                                @click="setCustomRange(from, to)">{% translate "Apply" %}</button>
+                        <input type="date" x-model="from" aria-label="{% translate 'From date' %}" class="filter-date">
+                        <span class="text-text-faint">–</span>
+                        <input type="date" x-model="to" aria-label="{% translate 'To date' %}" class="filter-date">
+                        <button type="button" class="filter-apply" @click="setCustomRange(from, to)">{% translate "Apply" %}</button>
                     </div>
                 </div>
             </div>
         </div>
 
         {% if spend_people or spend_models or spend_providers %}
-        <label class="sr-only" for="filter-spend-person">{% translate "Person" %}</label>
-        <select id="filter-spend-person" class="filter-control" x-model="spend.spend_person" @change="_apply()" data-testid="filter-spend-person">
-            <option value="">{% translate "Any person" %}</option>
-            {% for key, name in spend_people %}
-            <option value="{{ key }}"{% if current_spend.spend_person == key %} selected{% endif %}>{{ name }}</option>
-            {% endfor %}
-        </select>
-        <label class="sr-only" for="filter-spend-model">{% translate "Model" %}</label>
-        <select id="filter-spend-model" class="filter-control" x-model="spend.spend_model" @change="_apply()" data-testid="filter-spend-model">
-            <option value="">{% translate "Any model" %}</option>
-            {% for model, label in spend_models %}
-            <option value="{{ model }}"{% if current_spend.spend_model == model %} selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-        </select>
-        <label class="sr-only" for="filter-spend-provider">{% translate "Provider" %}</label>
-        <select id="filter-spend-provider" class="filter-control" x-model="spend.spend_provider" @change="_apply()" data-testid="filter-spend-provider">
-            <option value="">{% translate "Any provider" %}</option>
-            {% for slug, name in spend_providers %}
-            <option value="{{ slug }}"{% if current_spend.spend_provider == slug %} selected{% endif %}>{{ name }}</option>
-            {% endfor %}
-        </select>
+        {% translate "Spent by" as person_label %}{% translate "Anyone" as anyone %}
+        {% include "sessions/_filter_dropdown.html" with key="spend_person" label=person_label icon="users" all_label=anyone options=spend_people current=current_spend.spend_person %}
+        {% translate "Model" as model_label %}{% translate "Any model" as any_model %}
+        {% include "sessions/_filter_dropdown.html" with key="spend_model" label=model_label icon="cpu-chip" all_label=any_model options=spend_models current=current_spend.spend_model %}
+        {% translate "Provider" as provider_label %}{% translate "Any provider" as any_provider %}
+        {% include "sessions/_filter_dropdown.html" with key="spend_provider" label=provider_label icon="providers" all_label=any_provider options=spend_providers current=current_spend.spend_provider %}
         {% endif %}
 
-        <div class="filter-seg" role="group" aria-label="{% translate 'Sort' %}" data-testid="filter-sort">
-            {% for value, label in sorts %}
-            <a href="{% querystring sort=value page=None %}"
-               class="filter-seg-item {% if current_sort == value %}filter-seg-item--active{% endif %}"
-               @click.prevent="setSort('{{ value }}')" :class="{ 'filter-seg-item--active': sort === '{{ value }}' }"
-               {% if current_sort == value %}aria-current="true"{% endif %}>{{ label }}</a>
-            {% endfor %}
-        </div>
+        <a href="{% url 'session_list' %}?scope={{ current_scope }}" class="filter-clear" @click.prevent="clearAll()"
+           x-show="hasActiveFilters" {% if not has_active_filters %}style="display:none"{% endif %}>{% translate "Clear all" %}</a>
 
-        {# Archived sessions are a list of their own, so this swaps the list rather than narrowing it #}
-        <a href="{% if current_archived %}{% querystring archived=None page=None %}{% else %}{% querystring archived='true' page=None %}{% endif %}"
-           class="filter-control {% if current_archived %}filter-control--active{% endif %}"
-           :class="{ 'filter-control--active': archived === 'true' }"
-           @click.prevent="toggleArchived()"
-           :aria-pressed="(archived === 'true').toString()" aria-pressed="{{ current_archived|yesno:'true,false' }}"
-           role="button" data-testid="filter-archived">
-            {% icon "archive-box" "h-4 w-4" %}{% translate "Archived" %}
-        </a>
+        <div class="ml-auto flex flex-wrap items-center gap-2">
+            <div class="relative" @click.outside="if (open === 'sort') open = null" @keydown.escape="if (open === 'sort') open = null">
+                <div class="filter-control">
+                    <button type="button" class="filter-control__toggle" @click="toggle('sort')" data-testid="filter-sort"
+                            aria-haspopup="menu" aria-expanded="false" :aria-expanded="(open === 'sort').toString()">
+                        <span class="filter-control__lead">{% icon "chevron-up-down" "h-4 w-4" %}</span>
+                        <span>{% translate "Sort:" %}</span>
+                        <span class="filter-control__value text-text" x-text="labelFor('sort')">{{ sorts|option_label:current_sort }}</span>
+                        <span class="filter-control__lead">{% icon "chevron-down" "h-3.5 w-3.5" %}</span>
+                    </button>
+                </div>
+                <div data-surface class="filter-menu filter-menu--end" role="menu" x-show="open === 'sort'" x-cloak>
+                    {% for value, label in sorts %}
+                    <a href="{% querystring sort=value page=None %}" role="menuitem" data-filter-key="sort" data-value="{{ value }}" data-label="{{ label }}"
+                       class="filter-menu-item{% if current_sort == value %} filter-menu-item--active{% endif %}"
+                       @click.prevent="pick('sort', $el.dataset.value)" :class="{ 'filter-menu-item--active': sort === $el.dataset.value }">{{ label }}</a>
+                    {% endfor %}
+                </div>
+            </div>
+
+            {# Archived sessions are a list of their own, so this swaps the list rather than narrowing it #}
+            <a href="{% if current_archived %}{% querystring archived=None page=None %}{% else %}{% querystring archived='true' page=None %}{% endif %}"
+               class="filter-control filter-control__toggle{% if current_archived %} filter-control--active{% endif %}"
+               :class="{ 'filter-control--active': archived === 'true' }"
+               @click.prevent="toggleArchived()"
+               :aria-pressed="(archived === 'true').toString()" aria-pressed="{{ current_archived|yesno:'true,false' }}"
+               role="button" data-testid="filter-archived">
+                {% icon "archive-box" "h-4 w-4" %}{% translate "Archived" %}
+            </a>
+        </div>
     </div>
 
-    {# Deep-link filters (no control) + Clear all — visibility driven by client state #}
-    <div class="flex flex-wrap items-center gap-2"
-         x-show="hasActiveFilters" style="{% if not has_active_filters %}display:none{% endif %}">
+    {# Deep-link filters, which have no control of their own #}
+    <div class="flex flex-wrap items-center gap-2" x-show="hasChips"
+         {% if not current_repo and not current_mr and not current_archived_included and not current_ran_on and not current_schedule and not current_batch %}style="display:none"{% endif %}>
         {% if current_repo %}
         <span class="filter-chip" x-show="!!repo">
             <span>{% blocktranslate with name=current_repo %}Repository: {{ name }}{% endblocktranslate %}</span>
@@ -197,15 +157,26 @@
                class="filter-chip__x" aria-label="{% translate 'Clear batch filter' %}">{% icon "x-mark" "h-3 w-3" %}</a>
         </span>
         {% endif %}
-        {% for chip in spend_chips %}
-        <span class="filter-chip" x-show="{% for param in chip.params %}!!spend.{{ param }}{% if not forloop.last %} || {% endif %}{% endfor %}" data-testid="spend-chip">
-            <span>{{ chip.label }}</span>
-            <a href="{{ chip.clear_url }}"
-               @click.prevent="clearSpend({% for param in chip.params %}'{{ param }}'{% if not forloop.last %}, {% endif %}{% endfor %})"
-               class="filter-chip__x" aria-label="{% blocktranslate with label=chip.label %}Clear {{ label }}{% endblocktranslate %}">{% icon "x-mark" "h-3 w-3" %}</a>
-        </span>
-        {% endfor %}
-        <a href="{% url 'session_list' %}?scope={{ current_scope }}" @click.prevent="clearAll()"
-           class="filter-clear" x-show="hasActiveFilters">{% translate "Clear all" %}</a>
     </div>
+
+    {% if spend_banner %}
+    <div class="filter-context" role="status" x-show="hasSpendBanner" data-testid="spend-banner">
+        <span class="filter-context__icon">{% icon "currency-dollar" "h-4 w-4" %}</span>
+        <p class="filter-context__text">
+            <a href="{% url 'insights_spend' %}?scope={{ current_scope }}">{% translate "From Spend" %}</a> ·
+            {% translate "Sessions with spend" %}
+            {% with start=spend_banner.start|date:"j M Y" end=spend_banner.end|date:"j M Y" %}
+            {% if start and end %}{% blocktranslate %}between <b>{{ start }}</b> and <b>{{ end }}</b>{% endblocktranslate %}
+            {% elif start %}{% blocktranslate %}since <b>{{ start }}</b>{% endblocktranslate %}
+            {% elif end %}{% blocktranslate %}until <b>{{ end }}</b>{% endblocktranslate %}{% endif %}
+            {% endwith %}
+            {% if spend_banner.repo %}{% blocktranslate with repo=spend_banner.repo %}on <span class="font-mono">{{ repo }}</span>{% endblocktranslate %}{% endif %}
+            {% if spend_banner.trigger %}· {% blocktranslate with trigger=spend_banner.trigger %}started by {{ trigger }}{% endblocktranslate %}{% endif %}
+            {% if spend_banner.task %}· {% blocktranslate with task=spend_banner.task %}background work: {{ task }}{% endblocktranslate %}{% endif %}
+        </p>
+        <a href="{{ spend_banner.clear_url }}" class="filter-context__clear"
+           @click.prevent="clearSpend('spend_from', 'spend_to', 'spend_repo', 'spend_trigger', 'spend_task')"
+           aria-label="{% translate 'Leave the Spend view' %}">{% icon "x-mark" "h-4 w-4" %}</a>
+    </div>
+    {% endif %}
 </div>
