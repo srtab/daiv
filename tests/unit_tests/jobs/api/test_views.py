@@ -15,6 +15,7 @@ from sessions.services import BatchSubmitResult
 
 from accounts.models import APIKey, User
 from core.models import Provider, ProviderType
+from core.provider_failures import failure_message
 from core.site_settings import site_settings
 from daiv.api import api
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD
@@ -976,3 +977,22 @@ async def test_get_job_status_still_answers_when_artifacts_cannot_be_listed(auth
     assert data["result"] == "done"
     assert data["artifacts"] == []
     assert "could not be listed" in data["artifacts_error"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_status_failed_by_a_provider_says_why(authenticated_client: TestAsyncClient):
+    user = await User.objects.aget(username="testuser")
+    run = await _create_run_row(user, status="FAILED", error_message="Traceback: raw")
+    await Run.objects.filter(pk=run.pk).aupdate(failure_kind="out_of_credits", failure_provider="openrouter")
+    response = await authenticated_client.get(f"/jobs/{run.id}")
+
+    assert response.json()["error"] == failure_message("out_of_credits", "openrouter")
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_status_failed_otherwise_keeps_the_generic_error(authenticated_client: TestAsyncClient):
+    user = await User.objects.aget(username="testuser")
+    run = await _create_run_row(user, status="FAILED", error_message="Traceback: raw")
+    response = await authenticated_client.get(f"/jobs/{run.id}")
+
+    assert response.json()["error"] == "Job execution failed"
