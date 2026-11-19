@@ -869,3 +869,17 @@ class TestSessionListFilterBar:
 
         assert len(soup.select(".filter-chip")) == 2
         assert soup.select_one(".filter-clear").get_text(strip=True) == "Clear all"
+
+    def test_a_cost_sorted_list_has_no_date_headers(self, logged_in_client, user):
+        _spend(_create_session(user=user), "1")
+        _spend(_create_session(user=user, archived_at=timezone.now()), "1")
+
+        for params in ({"sort": "cost"}, {"sort": "cost", "archived": "true"}):
+            for headers in ({}, {"HTTP_HX_REQUEST": "true"}):
+                html = logged_in_client.get(reverse("session_list"), params, **headers).content.decode()
+                assert "session-group-header" not in html, (params, headers)
+
+    def test_a_recent_list_keeps_its_date_headers(self, logged_in_client, user):
+        _create_session(user=user)
+
+        assert "session-group-header" in logged_in_client.get(reverse("session_list")).content.decode()

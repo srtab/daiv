@@ -16,8 +16,8 @@
      @htmx:after-swap.window="if ($event.detail.target && $event.detail.target.id === 'session-results') reconnect()">
     <div class="animate-fade-up page-header">
         <div class="page-header__title">
-            <h1 class="text-2xl font-bold tracking-tight">{% translate "Agent sessions" %}</h1>
-            <p class="mt-1.5 text-[15px] font-light text-gray-400">
+            <h1 class="text-2xl font-bold tracking-tight text-text-strong">{% translate "Agent sessions" %}</h1>
+            <p class="mt-1.5 text-[15px] font-light text-text-muted">
                 {% translate "Every agent thread across jobs, schedules, webhooks, and chat." %}
             </p>
         </div>

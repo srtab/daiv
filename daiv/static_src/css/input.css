@@ -986,8 +986,8 @@ html {
      model + thinking-effort override) next to a heading or in dense lists.
      Neutral palette — competes less for attention than `.status-badge*`. */
   .meta-pill {
-    @apply inline-flex shrink-0 items-center gap-1 rounded-full border border-white/[0.08]
-      bg-white/[0.02] px-2 py-0.5 text-[11px] text-gray-300;
+    @apply inline-flex shrink-0 items-center gap-1 rounded-full border border-border
+      bg-surface-2 px-2 py-0.5 text-[11px] text-text;
   }
 }
 
@@ -5014,14 +5014,14 @@ html {
   }
 
   .empty-state {
-    @apply rounded-2xl border border-white/[0.06] bg-white/[0.02] p-12 text-center;
+    @apply rounded-2xl border border-border bg-surface-2 p-12 text-center;
   }
   .empty-state__icon {
-    @apply mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-white/[0.08]
-      bg-white/[0.03];
+    @apply mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-border
+      bg-surface-3;
   }
-  .empty-state__title { @apply text-[16px] font-semibold text-white; }
-  .empty-state__body { @apply mx-auto mt-1.5 max-w-sm text-[14px] font-light text-gray-400; }
+  .empty-state__title { @apply text-[16px] font-semibold text-text-strong; }
+  .empty-state__body { @apply mx-auto mt-1.5 max-w-sm text-[14px] font-light text-text-muted; }
 }
 
 /* -- Session list & filter bar ------------------------------------------- */
@@ -5099,16 +5099,16 @@ html {
   }
 
   .session-group-header {
-    @apply flex items-center gap-2 border-t border-white/[0.06] bg-white/[0.01] px-5 pb-2 pt-3.5
-      text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500 first:border-t-0;
+    @apply flex items-center gap-2 border-t border-border px-5 pb-2 pt-3.5
+      text-[11px] font-semibold uppercase tracking-[0.14em] text-text-faint first:border-t-0;
   }
   .session-row {
-    @apply relative flex items-center gap-3 border-t border-white/[0.06] px-4 py-2.5
-      transition-colors hover:bg-white/[0.03];
+    @apply relative flex items-center gap-3 border-t border-border px-4 py-2.5
+      transition-colors hover:bg-surface-3;
   }
   .session-row--failed { @apply bg-red-500/[0.03]; }
-  .session-repo { @apply inline-flex items-center gap-1 font-mono text-[11.5px] text-gray-400; }
-  .session-branch { @apply inline-flex items-center gap-1 font-mono text-[11.5px] text-gray-400; }
+  .session-repo { @apply inline-flex items-center gap-1 font-mono text-[11.5px] text-text-muted; }
+  .session-branch { @apply inline-flex items-center gap-1 font-mono text-[11.5px] text-text-muted; }
   .mr-pill {
     @apply inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-900/30
       px-2 py-0.5 text-[11px] font-medium text-emerald-300;
@@ -5119,7 +5119,7 @@ html {
   .mr-pill--closed {
     @apply border-red-500/30 bg-red-900/30 text-red-300;
   }
-  .session-num { @apply font-mono text-[12px] tabular-nums text-gray-400; }
+  .session-num { @apply font-mono text-[12px] tabular-nums text-text-muted; }
   .results--loading {
     @apply pointer-events-none opacity-50 transition-opacity duration-150;
   }
