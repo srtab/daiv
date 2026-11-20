@@ -367,19 +367,19 @@
     @apply relative;
   }
 
-  /* Sits over the row's end on hover; shares the hover background so a long title ends cleanly beneath it. */
+  /* Sits in the row's right padding, which widens while it shows so the merge request icon moves left of it. */
   .nav-session__trigger {
     @apply absolute top-1/2 right-1.5 hidden h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md
-      bg-surface-3 text-text-faint transition-colors hover:text-text;
+      text-text-faint transition-colors hover:text-text;
   }
 
   @media (hover: hover) {
-    .nav-session:is(:hover, :focus-within, .nav-session--open) .nav-session__trigger {
-      @apply flex;
+    .nav-session:is(:hover, :focus-within, .nav-session--open) > .nav-row {
+      @apply pr-9;
     }
 
-    .nav-session:is(:hover, :focus-within, .nav-session--open) .nav-row__mr {
-      @apply invisible;
+    .nav-session:is(:hover, :focus-within, .nav-session--open) .nav-session__trigger {
+      @apply flex;
     }
   }
 
@@ -397,7 +397,7 @@
     }
 
     .nav-session__trigger {
-      @apply flex bg-transparent;
+      @apply flex;
     }
   }
 
