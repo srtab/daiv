@@ -19,6 +19,55 @@
   --daiv-status-found: #d6a036;
   --daiv-status-attn: #38bdf8;
   --daiv-status-fail: #f8564e;
+
+  --md-text-font: "Geist";
+  --md-code-font: "Geist Mono";
+}
+
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("fonts/geist-latin-wght-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("fonts/geist-mono-latin-wght-normal.woff2") format("woff2");
+}
+
+[data-md-color-scheme="slate"] {
+  --md-default-bg-color: var(--daiv-ground);
+  --md-default-fg-color: var(--daiv-text);
+  --md-default-fg-color--light: var(--daiv-text-muted);
+  --md-default-fg-color--lighter: var(--daiv-text-faint);
+  --md-default-fg-color--lightest: var(--daiv-border);
+
+  --md-primary-fg-color: var(--daiv-ground);
+  --md-primary-fg-color--light: var(--daiv-surface-1);
+  --md-primary-fg-color--dark: var(--daiv-ground);
+  --md-primary-bg-color: var(--daiv-text-strong);
+  --md-primary-bg-color--light: var(--daiv-text-muted);
+  --md-accent-fg-color: var(--daiv-accent-bright);
+
+  --md-typeset-color: var(--daiv-text);
+  --md-typeset-a-color: var(--daiv-accent);
+  --md-typeset-mark-color: var(--daiv-surface-3);
+  --md-typeset-table-color: var(--daiv-border);
+
+  --md-code-bg-color: var(--daiv-surface-2);
+  --md-code-fg-color: var(--daiv-text);
+
+  --md-footer-bg-color: var(--daiv-ground);
+  --md-footer-bg-color--dark: var(--daiv-surface-1);
+
+  --md-shadow-z1: none;
+  --md-shadow-z2: none;
+  --md-shadow-z3: none;
 }
 
 .md-header__topic {
