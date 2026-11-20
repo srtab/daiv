@@ -373,12 +373,14 @@
       bg-surface-3 text-text-faint transition-colors hover:text-text;
   }
 
-  .nav-session:is(:hover, :focus-within, .nav-session--open) .nav-session__trigger {
-    @apply flex;
-  }
+  @media (hover: hover) {
+    .nav-session:is(:hover, :focus-within, .nav-session--open) .nav-session__trigger {
+      @apply flex;
+    }
 
-  .nav-session:is(:hover, :focus-within, .nav-session--open) .nav-row__mr {
-    @apply invisible;
+    .nav-session:is(:hover, :focus-within, .nav-session--open) .nav-row__mr {
+      @apply invisible;
+    }
   }
 
   .nav-session__menu {
@@ -394,12 +396,8 @@
       @apply pr-9;
     }
 
-    .nav-session .nav-session__trigger {
+    .nav-session__trigger {
       @apply flex bg-transparent;
-    }
-
-    .nav-session .nav-row__mr {
-      @apply visible;
     }
   }
 
