@@ -1,3 +1,26 @@
+/* Copies of input.css's @theme colours, which own them; change those first.
+   tests/unit_tests/test_docs_theme.py fails when the two drift. */
+:root {
+  --daiv-ground: #0d1117;
+  --daiv-surface-1: #10151d;
+  --daiv-surface-2: #161c26;
+  --daiv-surface-3: #1e2733;
+  --daiv-border: #232b36;
+  --daiv-text: #e6edf3;
+  --daiv-text-strong: #ffffff;
+  --daiv-text-muted: #9aa4b0;
+  --daiv-text-faint: #878f9c;
+  --daiv-brand: #8b5cf6;
+  --daiv-brand-bright: #a78bfa;
+  --daiv-accent: #2dd4bf;
+  --daiv-accent-bright: #5fe6d4;
+  --daiv-focus: #5fe6d4;
+  --daiv-status-clear: #3fb950;
+  --daiv-status-found: #d6a036;
+  --daiv-status-attn: #38bdf8;
+  --daiv-status-fail: #f8564e;
+}
+
 .md-header__topic {
   display: none;
 }
