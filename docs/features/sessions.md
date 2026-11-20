@@ -90,7 +90,7 @@ Team statistics are on **Insights**, linked as **Team insights** at the top of H
 - The title, generated from the first prompt or the issue or merge request subject, and beside it the merge request when there is one.
 - Under the title, the repository and the branch.
 - An icon for the session's [origin](#session-origins).
-- The latest run's model, its duration and the session's run spend, then the owner and how long ago the session was last active, such as `5m`, `3h`, `13d` or `3w`. Hover over it for the date and time. Run spend is the priced cost of the session's runs, the figure its **Spend** section totals; background spend is left out.
+- The latest run's model and the session's run spend, then how long ago the session was last active, such as `5m`, `3h`, `13d` or `3w`, and the owner. Hover over the model for its provider, over the time for the date and time, and over the owner for their name. The run's duration is on the session's page. Run spend is the priced cost of the session's runs, the figure its **Spend** section totals; background spend is left out.
 
 An API or MCP job that continues a busy session does not start at once. It joins the session's next run for its branch, shown as **Queued**, which starts when the current run ends ([The session inbox](#the-session-inbox) describes how).
 
@@ -132,7 +132,7 @@ Filters combine, and they are in the URL, so you can bookmark or share a filtere
 - **Sort by**: **Most recent** activity, or **Cost**, the session's run spend, costliest first, with sessions that have no priced spend last. With a spend period from the [Spend](spend.md) page, the cost counts only the spend in that period.
 - **Show archived** swaps the list for the [archived sessions](#archived-sessions), and an **Archived sessions** chip says so.
 
-Sessions with a run in flight (**Queued**, **Pending** or **Running**) update in place, status dot, red edge and timing included, without a reload. Grouped by status, a session moves to its new group when its status changes.
+Sessions with a run in flight (**Queued**, **Pending** or **Running**) update their status dot and red edge in place, without a reload. Grouped by status, a session moves to its new group when its status changes.
 
 ### Archived sessions
 

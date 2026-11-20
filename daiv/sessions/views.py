@@ -125,26 +125,15 @@ class SessionStreamView(View):
         visible = await sync_to_async(Run.objects.visible_to)(user)
         tracking: set[uuid.UUID] = {rid async for rid in visible.filter(id__in=run_ids).values_list("id", flat=True)}
         start = time.monotonic()
-        last_emitted: dict[uuid.UUID, tuple[str, str | None, str | None]] = {}
+        last_emitted: dict[uuid.UUID, str] = {}
 
         while tracking and (time.monotonic() - start) < STREAM_MAX_DURATION_S:
             await asyncio.sleep(POLL_INTERVAL)
 
-            runs = Run.objects.filter(id__in=tracking).only("id", "status", "started_at", "finished_at")
-
-            async for run in runs:
-                started_iso = run.started_at.isoformat() if run.started_at else None
-                finished_iso = run.finished_at.isoformat() if run.finished_at else None
-                current_state = (run.status, started_iso, finished_iso)
-
-                if last_emitted.get(run.id) != current_state:
-                    last_emitted[run.id] = current_state
-                    yield data_frame({
-                        "id": str(run.id),
-                        "status": run.status,
-                        "started_at": started_iso,
-                        "finished_at": finished_iso,
-                    })
+            async for run in Run.objects.filter(id__in=tracking).only("id", "status"):
+                if last_emitted.get(run.id) != run.status:
+                    last_emitted[run.id] = run.status
+                    yield data_frame({"id": str(run.id), "status": run.status})
 
                 if run.status in terminal:
                     tracking.discard(run.id)
@@ -189,7 +178,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
 
     def get_queryset(self) -> QuerySet[Session]:
         # ``latest_run_status`` (annotation) still drives the status FILTER. Row DISPLAY
-        # (latest status/duration/MR, run count) reads the prefetched runs, which also
+        # (latest status and MR) reads the prefetched runs, which also
         # gives the SSE dot the real ``Run.id`` to key live updates on.
         return self._listed(archived=self.archived).with_row_runs()
 

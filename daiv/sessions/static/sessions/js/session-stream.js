@@ -2,9 +2,8 @@
  * Alpine.js component for real-time session/run status updates via SSE.
  *
  * sessionStream (list page) — tracks multiple runs in place:
- *   dotClass(id, fallback)    → object toggling status-dot-{variant} classes, invisible unless running or waiting
+ *   dotClass(id, fallback)    → object toggling status-dot-{variant} classes, hidden unless running or waiting
  *   rowClass(id, fallback)    → object toggling the row's session-row--failed edge
- *   statusClass(id, fallback) → object toggling status-badge-{variant} classes
  *   statusLabel(id, fallback) → human-readable label
  *
  * A frame that changes the status a row shows dispatches `sessions:status-changed` on window.
@@ -111,12 +110,9 @@ document.addEventListener("alpine:init", () => {
                 }
             };
         },
-        statusClass(id, fallback) {
-            return variantClassMap("status-badge-", statusVariantFor(this.updates[id]?.status || fallback));
-        },
         dotClass(id, fallback) {
             const variant = statusVariantFor(this.updates[id]?.status || fallback);
-            return { ...variantClassMap("status-dot-", variant), invisible: variant !== "running" && variant !== "waiting" };
+            return { ...variantClassMap("status-dot-", variant), hidden: variant !== "running" && variant !== "waiting" };
         },
         rowClass(id, fallback) {
             return { "session-row--failed": (this.updates[id]?.status || fallback) === "FAILED" };

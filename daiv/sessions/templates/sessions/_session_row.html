@@ -1,4 +1,4 @@
-{% load i18n icon_tags session_tags %}
+{% load agent_tags i18n icon_tags l10n session_tags %}
 {% comment %}
 Context:
 - session: the row's session, with its runs prefetched newest first.
@@ -11,16 +11,14 @@ Context:
     <a href="{% url 'session_detail' thread_id=session.thread_id %}" class="absolute inset-0"
        aria-label="{% translate 'View session' %}"></a>
 
-    <span class="session-dot-slot">
-        <span class="status-dot status-dot-{{ variant }}{% if variant != 'running' and variant != 'waiting' %} invisible{% endif %}"
-              {% if latest %}:class="dotClass('{{ latest.id }}', '{{ latest.status }}')"{% endif %}></span>
-    </span>
+    <span class="status-dot status-dot-{{ variant }}{% if variant != 'running' and variant != 'waiting' %} hidden{% endif %}"
+          {% if latest %}:class="dotClass('{{ latest.id }}', '{{ latest.status }}')"{% endif %}></span>
     <span class="sr-only"
           {% if latest %}x-text="statusLabel('{{ latest.id }}', '{{ latest.get_status_display }}')"{% endif %}>
         {{ latest.get_status_display }}
     </span>
 
-    <span class="shrink-0 text-text-faint" title="{{ session.get_origin_display }}">
+    <span class="session-row__hint shrink-0 text-text-faint" title="{{ session.get_origin_display }}">
         {% icon session.origin|origin_icon "h-4 w-4" %}
     </span>
 
@@ -33,36 +31,35 @@ Context:
             {% if merge_request %}
                 {% if merge_request.url %}
                 <a href="{{ merge_request.url }}" target="_blank" rel="noopener" title="{{ merge_request.state.label }}"
-                   class="mr-pill mr-pill--{{ merge_request.state }} relative z-10 shrink-0">{% icon "merge-request" "h-3 w-3" %}!{{ merge_request.iid }}</a>
+                   class="mr-pill mr-pill--{{ merge_request.state }} session-row__hint shrink-0">{% icon "merge-request" "h-3 w-3" %}!{{ merge_request.iid|unlocalize }}</a>
                 {% else %}
-                <span class="mr-pill mr-pill--{{ merge_request.state }} shrink-0" title="{{ merge_request.state.label }}">{% icon "merge-request" "h-3 w-3" %}!{{ merge_request.iid }}</span>
+                <span class="mr-pill mr-pill--{{ merge_request.state }} session-row__hint shrink-0" title="{{ merge_request.state.label }}">{% icon "merge-request" "h-3 w-3" %}!{{ merge_request.iid|unlocalize }}</span>
                 {% endif %}
             {% endif %}
         </div>
         {% if session.repo_id or session.ref %}
         <div class="session-row__meta">
             {% if session.repo_id %}
-            <span class="session-repo shrink-0" title="{{ session.repo_id }}">
+            <span class="session-repo session-row__hint shrink-0" title="{{ session.repo_id }}">
                 {% icon "repo" "h-3 w-3 shrink-0" %}<span class="max-w-[120px] truncate sm:max-w-[220px]">{{ session.repo_id }}</span>
             </span>
             {% endif %}
             {% if session.ref %}
-            <span class="session-branch min-w-0" title="{{ session.ref }}">{% icon "branch" "h-3 w-3 shrink-0" %}<span class="truncate">{{ session.ref }}</span></span>
+            <span class="session-branch session-row__hint min-w-0" title="{{ session.ref }}">{% icon "branch" "h-3 w-3 shrink-0" %}<span class="truncate">{{ session.ref }}</span></span>
             {% endif %}
         </div>
         {% endif %}
     </div>
 
     <div class="flex shrink-0 items-center gap-3">
-        {% if latest.agent_model %}<span class="meta-pill hidden lg:inline-flex">{{ latest.agent_model }}</span>{% endif %}
-        {% if latest.duration %}<span class="session-num hidden md:inline">{{ latest.duration|duration }}</span>{% endif %}
+        {% if latest.agent_model %}<span class="session-row__hint hidden lg:flex">{% agent_model_pill latest.agent_model %}</span>{% endif %}
         {% if session.run_spend or session.run_spend_floor %}<span class="session-num hidden lg:inline" data-testid="session-cost">{% cost_text session.run_spend session.run_spend_floor %}</span>{% endif %}
+        <span class="session-num session-age session-row__hint" title="{{ session.last_active_at|date:'DATETIME_FORMAT' }}">{{ session.last_active_at|short_age }}</span>
         {% if session.user %}
-        <span class="hidden sm:inline">{% include "accounts/_avatar.html" with user=session.user label="Owner" %}</span>
+        <span class="session-row__hint hidden sm:flex">{% include "accounts/_avatar.html" with user=session.user label="Owner" %}</span>
         {% elif session.external_username %}
         <span class="hidden text-[12px] text-text-faint sm:inline">{{ session.external_username }}</span>
         {% endif %}
-        <span class="session-age" title="{{ session.last_active_at|date:'DATETIME_FORMAT' }}">{{ session.last_active_at|short_age }}</span>
         {% icon "chevron-right" "h-3.5 w-3.5 text-text-faint transition-colors group-hover:text-text-muted" %}
     </div>
 </div>

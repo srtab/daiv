@@ -113,7 +113,6 @@ PAGE_CLASSES = {
         "session-repo",
         "session-branch",
         "session-num",
-        "session-dot-slot",
         "session-row__title",
         "session-row__meta",
         "session-age",

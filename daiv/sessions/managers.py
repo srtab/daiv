@@ -217,15 +217,7 @@ class SessionQuerySet(models.QuerySet["Session"]):
         from sessions.models import Run
 
         runs = Run.objects.only(
-            "id",
-            "session_id",
-            "status",
-            "started_at",
-            "finished_at",
-            "merge_request_iid",
-            "merge_request_web_url",
-            "agent_model",
-            "created_at",
+            "id", "session_id", "status", "merge_request_iid", "merge_request_web_url", "agent_model", "created_at"
         ).order_by(*_NEWEST_FIRST)
         return self.select_related("user", "scheduled_job").prefetch_related(models.Prefetch("runs", queryset=runs))
 

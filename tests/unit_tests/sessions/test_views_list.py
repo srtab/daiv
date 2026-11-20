@@ -454,6 +454,14 @@ class TestSessionListView:
 
         assert re.search(r'<a href="https://git\.example/mr/31"[^>]*class="mr-pill[^"]*">.*?!31</a>', html, re.DOTALL)
 
+    def test_row_pill_number_has_no_thousand_separator(self, logged_in_client, user):
+        session = _create_session(user=user, origin=SessionOrigin.API_JOB)
+        _create_run(session, merge_request_iid=1234, merge_request_web_url="https://git.example/mr/1234")
+
+        html = logged_in_client.get(reverse("session_list")).content.decode()
+
+        assert re.search(r'class="mr-pill[^"]*">.*?!1234</a>', html, re.DOTALL)
+
     @pytest.mark.parametrize("state", MergeRequestState)
     def test_row_pill_shows_the_merge_request_state(self, logged_in_client, user, state):
         session = _create_session(user=user, origin=SessionOrigin.API_JOB)
@@ -488,7 +496,7 @@ class TestSessionListView:
 
         html = logged_in_client.get(reverse("session_list")).content.decode()
 
-        assert re.search(r'<span class="meta-pill[^"]*">openrouter:z-ai/glm-5\.2</span>', html)
+        assert re.search(r'<span class="meta-pill" title="openrouter:z-ai/glm-5\.2">glm-5\.2</span>', html)
 
     def test_more_rows_cost_no_more_queries(self, logged_in_client, user, django_assert_num_queries):
         """A run field the row reads but ``.only()`` leaves out costs a query per row."""
@@ -543,7 +551,7 @@ class TestSessionListView:
         quiet = {
             status
             for status, session in sessions.items()
-            if "invisible" in _row(soup, session).select_one(".session-dot-slot .status-dot")["class"]
+            if "hidden" in _row(soup, session).select_one(".status-dot")["class"]
         }
         assert quiet == {RunStatus.SUCCESSFUL, RunStatus.FAILED, RunStatus.QUEUED, None}
 
