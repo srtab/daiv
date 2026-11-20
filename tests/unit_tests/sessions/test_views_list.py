@@ -18,6 +18,7 @@ import pytest
 from bs4 import BeautifulSoup
 from dashboard.insights import window_for
 from dashboard.spend import SpendReport
+from sessions import views as session_views
 from sessions.models import (
     MergeRequestOwnership,
     MergeRequestState,
@@ -837,6 +838,40 @@ class TestSessionListSpend:
         offered = [(item["data-value"], item["data-label"]) for item in items]
         assert offered == (expected or [(f"u{user.pk}", user.username)])
 
+    def _choices(self, client, key: str, params=None) -> list[tuple[str, str]]:
+        response = client.get(reverse("session_spend_choices", args=[key]), params or {})
+        items = BeautifulSoup(response.content, "html.parser").select(f"[data-filter-key={key}]")
+        return [(item["data-value"], item["data-label"]) for item in items]
+
+    def test_spend_choices_put_the_latest_spend_first_and_find_any(self, logged_in_client, user):
+        session = _create_session(user=user)
+        for days_ago, model in ((5, "claude-old"), (1, "claude-new"), (0, "gpt-x")):
+            _spend(session, "1", model=model, days_ago=days_ago, user=user)
+
+        assert [value for value, _ in self._choices(logged_in_client, "spend_model")] == [
+            "gpt-x",
+            "claude-new",
+            "claude-old",
+        ]
+        assert [value for value, _ in self._choices(logged_in_client, "spend_model", {"find": "CLAUDE"})] == [
+            "claude-new",
+            "claude-old",
+        ]
+
+    def test_people_are_found_by_name(self, admin_client, user):
+        session = _create_session(user=user)
+        _spend(session, "1", user=user, days_ago=2)
+        _spend(session, "1")
+
+        assert self._choices(admin_client, "spend_person") == [("daiv", "DAIV"), (f"u{user.pk}", user.username)]
+        assert self._choices(admin_client, "spend_person", {"find": "ALI"}) == [(f"u{user.pk}", user.username)]
+        assert self._choices(admin_client, "spend_person", {"find": "daiv"}) == [("daiv", "DAIV")]
+
+    def test_a_current_person_outside_the_list_keeps_its_value(self, logged_in_client, user):
+        assert self._choices(logged_in_client, "spend_person", {"spend_person": "not-a-key"}) == [
+            ("not-a-key", "not-a-key")
+        ]
+
     def test_a_full_load_lists_no_spend_choices_and_names_the_current_one(self, logged_in_client, user):
         _spend(_create_session(user=user), "1", model="m1", user=user)
         _spend(_create_session(user=user), "1", model="m2", user=user)
@@ -981,6 +1016,8 @@ class TestSessionListToolbar:
         cleared = QueryDict(urlsplit(soup.select_one("[data-chip=repo] .filter-chip__x")["href"]).query)
         assert "repo" not in cleared
         assert "mr" not in cleared
+        assert soup.select_one("[data-chip=repo] .filter-chip__x")["@click.prevent"] == "pick('repo', '')"
+        assert soup.select_one("[data-clears]")["data-clears"] == '{"repo": ["mr"]}'
         assert soup.select_one("[data-chip=mr] .filter-chip__open") is None
         assert soup.select_one(".filter-clear").get_text(strip=True) == "Clear all"
 
@@ -1096,8 +1133,7 @@ class TestSessionListToolbar:
 
     def test_a_search_has_its_own_clear(self, logged_in_client, user):
         def clear(params):
-            soup = BeautifulSoup(logged_in_client.get(reverse("session_list"), params).content, "html.parser")
-            return soup.select_one("[data-testid=search-clear]")
+            return self._soup(logged_in_client, params).select_one("[data-testid=search-clear]")
 
         searched = clear({"q": "fix", "status": "FAILED"})
 
@@ -1200,6 +1236,10 @@ class TestSessionRepoChoices:
         soup = BeautifulSoup(response.content, "html.parser")
         return [item["data-value"] for item in soup.select("[data-filter-key=repo]")]
 
+    def _repo(self, user, repo_id: str, *, hours_ago: int = 0) -> None:
+        session = _create_session(user=user, repo_id=repo_id)
+        Session.objects.filter(pk=session.pk).update(last_active_at=timezone.now() - timedelta(hours=hours_ago))
+
     def test_repo_choices_follow_the_scope(self, logged_in_client, admin_client, user, other_user):
         _create_session(user=user, repo_id="a/one")
         _create_session(user=user, repo_id="a/two")
@@ -1208,8 +1248,36 @@ class TestSessionRepoChoices:
         _create_session(user=other_user, repo_id="b/three")
         url = reverse("session_repo_choices")
 
-        assert self._values(logged_in_client.get(url, {"scope": "mine"})) == ["a/one", "a/two"]
-        assert self._values(admin_client.get(url, {"scope": "all"})) == ["a/one", "a/two", "b/three"]
+        assert sorted(self._values(logged_in_client.get(url, {"scope": "mine"}))) == ["a/one", "a/two"]
+        assert sorted(self._values(admin_client.get(url, {"scope": "all"}))) == ["a/one", "a/two", "b/three"]
+
+    def test_repo_choices_list_the_most_recently_active_first(self, logged_in_client, user):
+        self._repo(user, "a/one", hours_ago=9)
+        self._repo(user, "a/two", hours_ago=1)
+        self._repo(user, "a/one", hours_ago=0)
+
+        assert self._values(logged_in_client.get(reverse("session_repo_choices"))) == ["a/one", "a/two"]
+
+    def test_a_search_finds_any_repository_or_says_none_match(self, logged_in_client, user):
+        for repo in ("group/api", "group/web", "other/api-docs"):
+            self._repo(user, repo)
+        url = reverse("session_repo_choices")
+
+        assert sorted(self._values(logged_in_client.get(url, {"find": " API "}))) == ["group/api", "other/api-docs"]
+        assert "No matches." in logged_in_client.get(url, {"find": "nothing"}).content.decode()
+
+    def test_a_long_list_shows_the_most_recent_and_keeps_the_current_one(self, logged_in_client, user, monkeypatch):
+        monkeypatch.setattr(session_views, "CHOICES_LIMIT", 2)
+        for hours, repo in enumerate(("a/1", "a/2", "a/3")):
+            self._repo(user, repo, hours_ago=hours)
+        url = reverse("session_repo_choices")
+
+        listed = logged_in_client.get(url, {"repo": "a/3"})
+        searched = logged_in_client.get(url, {"repo": "a/3", "find": "a/"})
+
+        assert self._values(listed) == ["a/3", "a/1", "a/2"]
+        assert "Showing the 2 most recent." in listed.content.decode()
+        assert self._values(searched) == ["a/1", "a/2"]
 
     def test_repo_choices_keep_the_list_query_and_mark_the_current_one(self, logged_in_client, user):
         _create_session(user=user, repo_id="a/one")
@@ -1236,7 +1304,10 @@ class TestSessionRepoChoices:
 
         assert self._values(logged_in_client.get(url, {"scope": "mine"})) == ["a/live"]
         assert self._values(logged_in_client.get(url, {"scope": "mine", "archived": "true"})) == ["a/shelved"]
-        assert self._values(logged_in_client.get(url, {"scope": "mine", "archived": "all"})) == ["a/live", "a/shelved"]
+        assert sorted(self._values(logged_in_client.get(url, {"scope": "mine", "archived": "all"}))) == [
+            "a/live",
+            "a/shelved",
+        ]
 
     def test_picking_another_repository_drops_the_merge_request(self, logged_in_client, user):
         _create_session(user=user, repo_id="a/one")

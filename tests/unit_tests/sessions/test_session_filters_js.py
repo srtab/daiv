@@ -82,7 +82,10 @@ const runTimers = () => {
 };
 
 const bar = registry.filterBar();
-bar.$root = el({ dataset: { scope: "mine", defaultSort: "recent" }, rect: { left: 0, width: 930 } });
+bar.$root = el({
+  dataset: { scope: "mine", defaultSort: "recent", clears: '{"repo": ["mr"]}' },
+  rect: { left: 0, width: 930 },
+});
 bar.$refs = { filterMenu: el(), filterButton: el() };
 bar.$nextTick = (fn) => fn();
 const result = await (async () => { BODY })();
@@ -141,6 +144,7 @@ def test_drilling_reloads_only_the_choices_whose_params_changed():
 
 def test_picking_another_repository_drops_the_merge_request():
     out = _run("""
+        bar.init();
         Object.assign(bar, { scope: "all", repo: "a/one", mr: "12" });
         bar.pick("status", "FAILED");
         const kept = bar.mr;
@@ -152,20 +156,23 @@ def test_picking_another_repository_drops_the_merge_request():
     assert out["calls"]["swaps"][-1]["url"] == "/dashboard/sessions/?scope=all&status=FAILED&repo=b%2Ftwo"
 
 
-def test_drilling_clears_an_earlier_value_search():
+def test_a_value_search_asks_the_server_and_drilling_again_starts_over():
     out = _run("""
-        const items = [
-          el({ dataset: { label: "a/one" }, hidden: true }),
-          el({ dataset: { label: "b/two" }, hidden: false }),
-        ];
-        const panel = el({ querySelectorAll: () => items });
-        bar.$root.querySelector = (selector) => (selector.includes("data-filter-panel") ? panel : null);
-        bar.valueQuery = "two";
+        const box = el({ dataset: { choicesUrl: "/choices/" } });
+        bar.$root.querySelector = (selector) => (selector.includes("data-filter-choices") ? box : null);
         bar.drill("repo");
-        return items.map((item) => item.hidden);
+        bar.valueQuery = " api ";
+        bar.findChoices();
+        bar.findChoices();
+        bar.back();
+        bar.drill("repo");
     """)
 
-    assert out["result"] == [False, False]
+    assert [call["url"] for call in out["calls"]["ajax"]] == [
+        "/choices/?scope=mine",
+        "/choices/?scope=mine&find=api",
+        "/choices/?scope=mine",
+    ]
 
 
 def test_a_live_refresh_waits_for_a_swap_in_flight_and_keeps_the_bars_state():

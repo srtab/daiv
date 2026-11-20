@@ -152,7 +152,6 @@ _AGE_UNITS = (
     (14 * _DAY, _DAY, gettext_lazy("%(count)dd")),
     (60 * _DAY, 7 * _DAY, gettext_lazy("%(count)dw")),
     (365 * _DAY, 30 * _DAY, gettext_lazy("%(count)dmo")),
-    (float("inf"), 365 * _DAY, gettext_lazy("%(count)dy")),
 )
 
 
@@ -164,12 +163,15 @@ def short_age(dt) -> str:
     seconds = (timezone.now() - dt).total_seconds()
     if seconds < 60:
         return gettext("now")
-    return next(label % {"count": seconds // unit} for below, unit, label in _AGE_UNITS if seconds < below)
+    for below, unit, label in _AGE_UNITS:
+        if seconds < below:
+            return label % {"count": seconds // unit}
+    return gettext("%(count)dy") % {"count": seconds // (365 * _DAY)}
 
 
 @register.filter
-def option_param(key: str, value: str) -> dict[str, str | None]:
-    """``{key: value}`` for a filter option's ``{% querystring %}``, clearing the params that hang on ``key``."""
+def option_param(key: str, value: str | None = None) -> dict[str, str | None]:
+    """``{key: value}`` for a filter's ``{% querystring %}``, clearing the params that hang on ``key``."""
     return {key: value} | dict.fromkeys(CLEARED_WITH.get(key, ()))
 
 

@@ -1,6 +1,6 @@
 {% load i18n icon_tags query_tags session_tags %}
 <div class="animate-fade-up relative z-10 mt-8 flex flex-col gap-2.5" style="animation-delay: 50ms"
-     x-data="filterBar()" data-scope="{{ current_scope }}" data-default-sort="{{ default_sort }}"
+     x-data="filterBar()" data-scope="{{ current_scope }}" data-default-sort="{{ default_sort }}" data-clears="{{ cleared_with }}"
      @keydown.window="onKey($event)">
     <div class="filter-toolbar">
         <div class="relative min-w-[200px] flex-1">
@@ -60,8 +60,8 @@
         {% include "sessions/_filter_chip.html" with key="time" name=time_name icon="calendar" value=current_time_label shown=current_time_label show="timeActive" clear_url=clear_time clear="clearTime()" settable=True alpine_value="timeLabel" %}
 
         {% translate "Repository" as repo_name %}
-        {% querystring repo=None mr=None page=None scope=current_scope as clear_repo %}
-        {% include "sessions/_filter_chip.html" with key="repo" name=repo_name icon="repo" value=current_repo shown=current_repo show="!!repo" clear_url=clear_repo clear="clearParam('repo', 'mr')" settable=True alpine_value="labelFor('repo')" %}
+        {% querystring request.GET "repo"|option_param page=None scope=current_scope as clear_repo %}
+        {% include "sessions/_filter_chip.html" with key="repo" name=repo_name icon="repo" value=current_repo shown=current_repo show="!!repo" clear_url=clear_repo clear="pick('repo', '')" settable=True alpine_value="labelFor('repo')" %}
 
         {% translate "Merge request" as mr_name %}
         {% querystring mr=None page=None scope=current_scope as clear_mr %}

@@ -7,7 +7,8 @@
  *
  * The Filter menu (sessions/_filter_menu.html) lists the filters by name and drills into one
  * (`property`) in place; a filter whose values come from the server loads them on that first
- * drill, again whenever a param in its `data-reload-on` changes. Applied filters show as chips (sessions/_filter_chip.html).
+ * drill, again whenever its search or a param in its `data-reload-on` changes. Applied filters show
+ * as chips (sessions/_filter_chip.html).
  */
 
 // The Spend page's params: those with no control in the bar show as one banner.
@@ -46,11 +47,12 @@ document.addEventListener("alpine:init", () => {
         archived: "",
         sort: "",
         group: "",
-        _clears: { repo: ["mr"] }, // as sessions.filters.CLEARED_WITH
+        _clears: {},
         _refreshTimer: null,
         ...Object.fromEntries(SPEND_PARAMS.map((name) => [name, ""])),
 
         init() {
+            this._clears = JSON.parse(this.$root.dataset.clears || "{}");
             this._readUrl();
             // Re-sync on back/forward (popstate handler dispatches this).
             window.addEventListener("sessions:url-changed", () => this._readUrl());
@@ -210,19 +212,26 @@ document.addEventListener("alpine:init", () => {
         drill(key) {
             this.property = key;
             this.valueQuery = "";
-            const panel = this.$root.querySelector(`[data-filter-panel="${key}"]`);
-            if (panel) this.filterValues(panel);
-            const box = this.$root.querySelector(`[data-filter-choices="${key}"]`);
-            const loadKey = (box?.dataset.reloadOn || "").split(" ").filter(Boolean).map((name) => this[name]).join("|");
-            if (box && box.dataset.loadedFor !== loadKey) {
-                box.dataset.loadedFor = loadKey;
-                htmx.ajax("GET", box.dataset.choicesUrl + "?" + this._params().toString(), {
-                    source: box,
-                    target: box,
-                    swap: "innerHTML",
-                }).catch(() => {});
-            }
+            this.findChoices();
             this.$nextTick(() => this._focusMenu());
+        },
+        findChoices() {
+            const box = this.$root.querySelector(`[data-filter-choices="${this.property}"]`);
+            if (box) this._loadChoices(box);
+        },
+        _loadChoices(box) {
+            const params = this._params();
+            const find = this.valueQuery.trim();
+            if (find) params.set("find", find);
+            const names = [...(box.dataset.reloadOn ?? "").split(" "), "find"];
+            const loadKey = names.map((name) => params.get(name)).join("|");
+            if (box.dataset.loadedFor === loadKey) return;
+            box.dataset.loadedFor = loadKey;
+            htmx.ajax("GET", box.dataset.choicesUrl + "?" + params.toString(), {
+                source: box,
+                target: box,
+                swap: "innerHTML",
+            }).catch(() => {});
         },
         back() {
             this.property = null;
@@ -234,11 +243,6 @@ document.addEventListener("alpine:init", () => {
             message.className = "filter-menu__label filter-menu__loading";
             message.textContent = box.dataset.errorMessage;
             box.replaceChildren(message);
-        },
-        filterValues(panel) {
-            panel.querySelectorAll("[data-filter-key]").forEach((item) => {
-                item.hidden = !this.matches(item.dataset.label, this.valueQuery);
-            });
         },
         matches(text, query) {
             return (text || "").toLowerCase().includes(query.trim().toLowerCase());

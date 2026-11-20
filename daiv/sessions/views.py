@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -13,7 +14,7 @@ from django.conf import settings
 from django.contrib import messages as messages_module
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, SuspiciousOperation
-from django.db.models import Count, F, Max
+from django.db.models import Count, F, Max, Q
 from django.http import Http404, HttpResponse, HttpResponseBase
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -46,6 +47,7 @@ from sessions.conf import settings as sessions_settings
 from sessions.delegation import LegRun
 from sessions.filters import (
     ARCHIVED_INCLUDED,
+    CLEARED_WITH,
     GROUP_CHOICES,
     GROUP_DATE,
     GROUP_STATUS,
@@ -70,7 +72,7 @@ from sessions.multi_repo import MAX_REPOS_PER_SESSION
 from sessions.page_state import aload_session_state
 from sessions.services import RepoTarget, submit_batch_runs
 from sessions.spend import build_session_spend
-from sessions.spend_ledger import SpendLedger
+from sessions.spend_ledger import DAIV_LABEL, DAIV_PERSON, SpendLedger
 from sessions.templatetags.session_tags import attach_merge_request_states
 from sessions.titling import MAX_TITLE_LENGTH
 from sessions.transcript_labels import transcript_icons, transcript_labels
@@ -79,6 +81,8 @@ from slash_commands.composer import composer_command_rows
 logger = logging.getLogger("daiv.sessions")
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from django.db.models import QuerySet
 
 
@@ -232,6 +236,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["current_archived_included"] = self.archived is None
         context["current_sort"] = self.sort
         context["default_sort"] = SORT_RECENT
+        context["cleared_with"] = json.dumps(CLEARED_WITH)
         context["current_group"] = self.group
         context["group_by_day"] = self.sort == SORT_RECENT and self.group == GROUP_DATE
         context["group_by_status"] = self.group == GROUP_STATUS
@@ -416,57 +421,98 @@ class SessionListView(LoginRequiredMixin, FilterView):
         }
 
 
+CHOICES_LIMIT = 50
+
+
+def _render_choices(
+    request, key: str, options: list[tuple[str, str]], label: Callable[[str], str], *, lead: str = ""
+) -> HttpResponse:
+    """A lazily loaded filter's menu items: the first ``CHOICES_LIMIT`` of ``options``, which holds one more when there
+    are more, and the current choice (named by ``label``) when an unsearched list leaves it out."""
+    current = request.GET.get(key, "")
+    more = len(options) > CHOICES_LIMIT
+    options = options[:CHOICES_LIMIT]
+    if current and not request.GET.get("find") and current not in dict(options):
+        options = [(current, label(current)), *options]
+    context = {
+        "key": key,
+        "lead": lead,
+        "options": options,
+        "current": current,
+        "current_scope": resolve_scope(request.GET),
+        "more": more,
+        "limit": CHOICES_LIMIT,
+    }
+    return render(request, "sessions/_filter_choices.html", context)
+
+
 class SessionSpendChoicesView(LoginRequiredMixin, View):
-    """The choices of one of the sessions list's spend controls, from the records the user may see, as menu items."""
+    """The choices of one of the sessions list's spend controls, from the records the user may see, as menu items:
+    those matching ``find``, most recently spent first."""
 
     def get(self, request, key: str):
         choices = {"spend_person": self.people, "spend_model": self.models, "spend_provider": self.providers}
         if key not in choices:
             raise Http404
         records = SpendRecord.objects.visible_to(request.user).order_by()
-        context = {
-            "key": key,
-            "options": choices[key](records),
-            "current": request.GET.get(key, ""),
-            "current_scope": resolve_scope(request.GET),
-        }
-        return render(request, "sessions/_filter_options.html", context)
+        options = choices[key](records, find=request.GET.get("find", "").strip(), limit=CHOICES_LIMIT + 1)
+
+        def label(value: str) -> str:
+            try:
+                return SessionListView._spend_label(records, key, value)
+            except ValueError:
+                return value
+
+        return _render_choices(request, key, options, label)
 
     @staticmethod
-    def people(records: QuerySet[SpendRecord]) -> list[tuple[str, str]]:
+    def people(records: QuerySet[SpendRecord], *, find: str = "", limit: int | None = None) -> list[tuple[str, str]]:
+        if find:
+            named = Q(user__name__icontains=find) | Q(user__username__icontains=find) | Q(person_name__icontains=find)
+            named |= Q(external_username__icontains=find) | Q(external_uid__icontains=find)
+            if find.lower() in DAIV_LABEL.lower():
+                named |= SpendLedger.person_filter(DAIV_PERSON)
+            records = records.filter(named)
         people = {}
-        for values in records.values(*SpendLedger.PERSON_VALUES).distinct():
+        rows = records.values(*SpendLedger.PERSON_VALUES).annotate(last=Max("occurred_at")).order_by("-last")
+        for values in rows.iterator():
             person = SpendLedger.person(values)
-            people.setdefault(person.key, person.name)
-        return sorted(people.items(), key=lambda item: item[1].lower())
+            if find.lower() in str(person.name).lower():
+                people.setdefault(person.key, person.name)
+            if len(people) == limit:
+                break
+        return list(people.items())
 
     @staticmethod
-    def models(records: QuerySet[SpendRecord]) -> list[tuple[str, str]]:
-        return [(model, model) for model in records.values_list("model", flat=True).distinct().order_by("model")]
+    def models(records: QuerySet[SpendRecord], *, find: str = "", limit: int | None = None) -> list[tuple[str, str]]:
+        if find:
+            records = records.filter(model__icontains=find)
+        rows = records.values_list("model").annotate(last=Max("occurred_at")).order_by("-last", "model")[:limit]
+        return [(model, model) for model, _last in rows]
 
     @staticmethod
-    def providers(records: QuerySet[SpendRecord]) -> list[tuple[str, str]]:
-        rows = records.exclude(provider_slug="").values_list("provider_slug").annotate(Max("provider_name"))
-        return list(rows.order_by("provider_slug"))
+    def providers(records: QuerySet[SpendRecord], *, find: str = "", limit: int | None = None) -> list[tuple[str, str]]:
+        records = records.exclude(provider_slug="")
+        if find:
+            records = records.filter(Q(provider_slug__icontains=find) | Q(provider_name__icontains=find))
+        rows = records.values_list("provider_slug").annotate(name=Max("provider_name"), last=Max("occurred_at"))
+        return [(slug, name) for slug, name, _last in rows.order_by("-last", "provider_slug")[:limit]]
 
 
 class SessionRepoChoicesView(LoginRequiredMixin, View):
-    """The repositories the sessions list's Repository filter offers: those of the sessions in the request's scope."""
+    """The repositories the sessions list's Repository filter offers: those of the sessions in the request's scope
+    matching ``find``, most recently active first."""
 
     def get(self, request):
-        scope = resolve_scope(request.GET)
         sessions = Session.objects.listed_for(
-            request.user, mine=scope == SCOPE_MINE, archived=resolve_archived(request.GET)
+            request.user, mine=resolve_scope(request.GET) == SCOPE_MINE, archived=resolve_archived(request.GET)
         )
-        repos = sessions.exclude(repo_id="").order_by("repo_id").values_list("repo_id", flat=True).distinct()
-        context = {
-            "key": "repo",
-            "lead": "repo",
-            "options": [(repo, repo) for repo in repos],
-            "current": request.GET.get("repo", ""),
-            "current_scope": scope,
-        }
-        return render(request, "sessions/_filter_options.html", context)
+        repos = sessions.exclude(repo_id="")
+        if find := request.GET.get("find", "").strip():
+            repos = repos.filter(repo_id__icontains=find)
+        rows = repos.values_list("repo_id").annotate(last=Max("last_active_at")).order_by("-last", "repo_id")
+        options = [(repo, repo) for repo, _last in rows[: CHOICES_LIMIT + 1]]
+        return _render_choices(request, "repo", options, str, lead="repo")
 
 
 class SessionMergeRequestRedirectView(LoginRequiredMixin, View):

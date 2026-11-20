@@ -1664,3 +1664,10 @@ msgstr "%(count)d a"
 
 msgid "Clear search"
 msgstr "Limpar pesquisa"
+
+msgid "No matches."
+msgstr "Sem resultados."
+
+#, python-format
+msgid "Showing the %(limit)s most recent. Type to find others."
+msgstr "A mostrar os %(limit)s mais recentes. Escreva para encontrar outros."

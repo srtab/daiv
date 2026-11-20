@@ -98,7 +98,7 @@ The list shows your own sessions (**Mine**) or everyone's you can see (**Everyon
 
 ### Filter the list
 
-Search matches a session's title or repository. **Filter** (or the `F` key) opens the list of filters; pick one to see its values, and pick a value to apply it. Type in the box at the top of the menu to find a filter, or a value in a long list.
+Search matches a session's title or repository. **Filter** (or the `F` key) opens the list of filters; pick one to see its values, and pick a value to apply it. Type in the box at the top of the menu to find a filter. **Repository**, **Spent by**, **Model** and **Provider** list their 50 most recently used values; type to find any other.
 
 | Filter | What it does |
 |--------|--------------|

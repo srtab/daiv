@@ -5095,6 +5095,7 @@ html {
   .filter-menu__section { @apply -mx-1 mt-1 border-t border-border px-3.5 pb-1.5 pt-2; }
   .filter-menu__label { @apply mb-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text-faint; }
   .filter-menu__loading { @apply mb-0 px-2.5 py-1.5; }
+  .filter-menu__note { @apply px-2.5 py-1.5 text-[12px] text-text-faint; }
   .filter-range { @apply flex flex-wrap items-center gap-2; }
   .filter-date { @apply rounded-lg border border-border bg-ground px-2 py-1 text-[12px] text-text; }
   .filter-apply {
