@@ -17,6 +17,7 @@ from sessions.management.commands.sync_stuck_runs import NEVER_QUEUED_AFTER
 from sessions.models import EventState, Run, RunStatus, Session, SessionArchive, SessionOrigin
 from sessions.queue import ENQUEUE_FAILED_PREFIX
 
+from core import worker_liveness
 from tests.unit_tests.sessions.conftest import create_archive
 from tests.unit_tests.sessions.inbox.conftest import make_event
 
@@ -217,6 +218,64 @@ class TestSyncStuckRunsCommand:
         run.refresh_from_db()
         task.refresh_from_db()
         assert (run.status, task.status) == (status, status)
+
+    def test_a_stale_run_whose_worker_is_still_alive_is_left_to_it(self, create_db_task_result):
+        stale = timezone.now() - timedelta(hours=1)
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.SCHEDULE, repo_id="group/project", last_active_at=stale
+        )
+        worker_id = str(uuid.uuid4())
+        task = create_db_task_result(status="RUNNING", started_at=stale, worker_ids=[worker_id])
+        run = Run.objects.create(
+            session=session,
+            trigger_type=SessionOrigin.SCHEDULE,
+            repo_id="group/project",
+            status=RunStatus.RUNNING,
+            started_at=stale,
+            task_result=task,
+        )
+        worker_liveness.refresh(worker_id)
+
+        call_command("sync_stuck_runs")
+
+        run.refresh_from_db()
+        task.refresh_from_db()
+        assert (run.status, task.status) == (RunStatus.RUNNING, "RUNNING")
+
+    @pytest.mark.parametrize(
+        ("run_status", "worker_alive", "task_status"),
+        [
+            (None, False, "FAILED"),
+            (None, True, "RUNNING"),
+            (RunStatus.FAILED, False, "FAILED"),
+            (RunStatus.RUNNING, False, "RUNNING"),
+        ],
+        ids=["unlinked-dead-worker", "unlinked-live-worker", "finished-run-dead-worker", "unfinished-run"],
+    )
+    def test_a_running_task_whose_worker_is_gone_is_failed_unless_an_unfinished_run_stands_for_it(
+        self, caplog, create_db_task_result, run_status, worker_alive, task_status
+    ):
+        worker_id = str(uuid.uuid4())
+        task = create_db_task_result(status="RUNNING", started_at=timezone.now(), worker_ids=[worker_id])
+        if run_status is not None:
+            Run.objects.create(
+                session=_make_session(),
+                trigger_type=SessionOrigin.ISSUE_WEBHOOK,
+                repo_id="group/project",
+                status=run_status,
+                started_at=timezone.now(),
+                task_result=task,
+            )
+        if worker_alive:
+            worker_liveness.refresh(worker_id)
+
+        with caplog.at_level("INFO", logger="daiv.sessions"):
+            call_command("sync_stuck_runs")
+
+        task.refresh_from_db()
+        assert task.status == task_status
+        failed = int(task_status == "FAILED")
+        assert any(f"dead-worker tasks failed: {failed}" in rec.message for rec in caplog.records)
 
     def test_a_dead_runs_task_finished_meanwhile_keeps_its_outcome(self, create_db_task_result):
         stale = timezone.now() - timedelta(hours=1)

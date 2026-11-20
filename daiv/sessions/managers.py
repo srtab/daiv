@@ -418,11 +418,11 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
             session_changed(run.session_id)
             run.refresh_from_db(fields=["status"])
             return run.status not in RunStatus.terminal()
-        DBTaskResult.objects.filter(run=run, status=TaskResultStatus.READY).update(
-            status=TaskResultStatus.FAILED,
-            finished_at=now,
-            exception_class_path=f"{RunStoppedError.__module__}.{RunStoppedError.__qualname__}",
-            traceback=message,
+        fail_tasks(
+            DBTaskResult.objects.filter(run=run, status=TaskResultStatus.READY),
+            error=RunStoppedError,
+            message=message,
+            now=now,
         )
         return True
 
@@ -433,32 +433,31 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
         whose run cannot heartbeat still reads it. Returns whether this call finished it.
         """
         from core import worker_liveness
-        from sessions.executor.lock import TASK_HOLDER_DEAD_AFTER
+        from sessions.executor.lock import TASK_HOLDER_DEAD_AFTER, RunStoppedError
         from sessions.models import RunStatus, Session
 
         silent = Session.objects.filter(active_run_id=str(run.pk), last_active_at__lt=now - TASK_HOLDER_DEAD_AFTER)
         dead = models.Q(status=RunStatus.RUNNING, task_result__isnull=False, session_id__in=silent.values("pk"))
         worker_ids = self.filter(dead, pk=run.pk).values_list("task_result__worker_ids", flat=True).first()
-        if worker_ids is None or (worker_ids and worker_liveness.alive(worker_ids[-1])):
+        if worker_ids is None or worker_liveness.claimant_alive(worker_ids):
             return False
-        return self.finish_dead(run, where=dead, message=message, now=now)
+        return self.finish_dead(run, where=dead, error=RunStoppedError, message=message, now=now)
 
-    def finish_dead(self, run: Run, *, where: models.Q, message: str, now: datetime) -> bool:
-        """Finish ``run`` FAILED with ``message`` under ``where`` because its worker died, and fail its task too, which
-        no worker will end: the DBTaskResult sync would report it RUNNING for good, and a RUNNING dedup task
-        (``webhooks.tasks``) stands in for any repeat of its trigger. The task fails only while it is still RUNNING, so
-        an outcome its worker wrote meanwhile stands. Returns whether this call finished the run.
+    def finish_dead(
+        self, run: Run, *, where: models.Q, error: type[BaseException], message: str, now: datetime
+    ) -> bool:
+        """Finish ``run`` FAILED with ``message`` under ``where`` because its worker died, and fail its task with
+        ``error`` too, which no worker will end: the DBTaskResult sync would report it RUNNING for good, and a RUNNING
+        dedup task (``webhooks.tasks``) stands in for any repeat of its trigger. The task fails only while it is still
+        RUNNING, so an outcome its worker wrote meanwhile stands; one left RUNNING by a crash between the two writes is
+        failed by ``sync_stuck_runs``. Returns whether this call finished the run.
         """
-        from sessions.executor.lock import DeadWorkerError
         from sessions.models import RunStatus
 
         if not self.finish(run, RunStatus.FAILED, where=where, error_message=message, finished_at=now):
             return False
-        DBTaskResult.objects.filter(run=run, status=TaskResultStatus.RUNNING).update(
-            status=TaskResultStatus.FAILED,
-            finished_at=now,
-            exception_class_path=f"{DeadWorkerError.__module__}.{DeadWorkerError.__qualname__}",
-            traceback=message,
+        fail_tasks(
+            DBTaskResult.objects.filter(run=run, status=TaskResultStatus.RUNNING), error=error, message=message, now=now
         )
         return True
 
@@ -516,6 +515,17 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
         if run.trigger_type == SessionOrigin.CHAT:
             return
         run_finished.send_robust(sender=type(run), run=run, **flags)
+
+
+def fail_tasks(tasks: models.QuerySet[DBTaskResult], *, error: type[BaseException], message: str, now: datetime) -> int:
+    """Fail ``tasks`` with ``error`` and ``message`` in place of a worker; a worker that finishes one later overwrites
+    it. Returns how many were failed."""
+    return tasks.update(
+        status=TaskResultStatus.FAILED,
+        finished_at=now,
+        exception_class_path=f"{error.__module__}.{error.__qualname__}",
+        traceback=message,
+    )
 
 
 def _require_terminal(status: str) -> None:
