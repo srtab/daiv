@@ -51,6 +51,11 @@ SORT_RECENT = "recent"
 SORT_COST = "cost"
 SORT_CHOICES: list[tuple[str, str]] = [(SORT_RECENT, _("Most recent")), (SORT_COST, _("Cost"))]
 
+GROUP_DATE = ""
+GROUP_STATUS = "status"
+GROUP_NONE = "none"
+GROUP_CHOICES: list[tuple[str, str]] = [(GROUP_STATUS, _("Status")), (GROUP_NONE, _("None"))]
+
 
 def resolve_scope(data) -> str:
     """The scope a request's query params select: an explicit valid ``scope``, else ``all`` for a deep link."""
@@ -102,6 +107,7 @@ class SessionFilter(django_filters.FilterSet):
     spend_model = django_filters.CharFilter(method="keep")
     spend_provider = django_filters.CharFilter(method="keep")
     sort = django_filters.ChoiceFilter(choices=SORT_CHOICES, method="keep")
+    group = django_filters.ChoiceFilter(choices=GROUP_CHOICES, method="keep")
 
     class Meta:
         model = Session

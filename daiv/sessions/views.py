@@ -13,7 +13,7 @@ from django.conf import settings
 from django.contrib import messages as messages_module
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, SuspiciousOperation
-from django.db.models import F, Max
+from django.db.models import Count, F, Max
 from django.http import Http404, HttpResponse, HttpResponseBase
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -46,6 +46,8 @@ from sessions.delegation import LegRun
 from sessions.filters import (
     ARCHIVED_INCLUDED,
     ARCHIVED_ONLY,
+    GROUP_DATE,
+    GROUP_STATUS,
     RANGE_CHOICES,
     SCOPE_CHOICES,
     SCOPE_MINE,
@@ -178,6 +180,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
         return ["sessions/session_list.html"]
 
     sort = SORT_RECENT
+    group = GROUP_DATE
 
     def get_queryset(self) -> QuerySet[Session]:
         # ``latest_run_status`` (annotation) still drives the status FILTER. Row DISPLAY
@@ -193,10 +196,14 @@ class SessionListView(LoginRequiredMixin, FilterView):
             filterset.form.is_valid()
             cleaned = filterset.form.cleaned_data
         self.sort = cleaned.get("sort") or SORT_RECENT
+        self.group = cleaned.get("group") or GROUP_DATE
         sessions = filterset.queryset.with_run_spend(cleaned.get("spend_from"), cleaned.get("spend_to"))
-        if self.sort == SORT_COST:
-            sessions = sessions.order_by(F("run_spend").desc(nulls_last=True), "-last_active_at")
-        filterset.queryset = sessions
+        ordering = [F("run_spend").desc(nulls_last=True)] if self.sort == SORT_COST else []
+        ordering.append("-last_active_at")
+        if self.group == GROUP_STATUS:
+            sessions = sessions.with_status_rank()
+            ordering.insert(0, "status_rank")
+        filterset.queryset = sessions.order_by(*ordering)
         return filterset
 
     def get_context_data(self, **kwargs):
@@ -222,9 +229,14 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["current_archived_included"] = self.archived is None
         context["current_sort"] = self.sort
         context["default_sort"] = SORT_RECENT
-        context["group_by_day"] = self.sort == SORT_RECENT
+        context["current_group"] = self.group
+        context["group_by_day"] = self.sort == SORT_RECENT and self.group == GROUP_DATE
+        context["group_by_status"] = self.group == GROUP_STATUS
+        if context["group_by_status"]:
+            context["status_groups"] = self._status_groups(context["filter"].qs)
         context["sorts"] = SORT_CHOICES
         clear_all = {"scope": self.scope} | ({"sort": self.sort} if self.sort != SORT_RECENT else {})
+        clear_all |= {"group": self.group} if self.group != GROUP_DATE else {}
         context["clear_all_url"] = f"{self.request.path}?{urlencode(clear_all)}"
         context.update(self._spend_context(cleaned))
         context["has_active_filters"] = any([
@@ -267,6 +279,14 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["in_flight_ids"] = ",".join(str(rid) for rid in in_flight.values_list("id", flat=True))
 
         return context
+
+    @staticmethod
+    def _status_groups(sessions: QuerySet[Session]) -> list[tuple[str | None, str, int]]:
+        """Each status present in the filtered list, in attention order, with its label and its total across pages."""
+        totals = dict(sessions.order_by().values_list("latest_run_status").annotate(total=Count("pk")))
+        groups = [(status, RunStatus(status).label, totals.get(status, 0)) for status in RunStatus.attention_order()]
+        groups.append((None, _("No runs"), totals.get(None, 0)))
+        return [group for group in groups if group[2]]
 
     def _spend_context(self, cleaned: dict[str, Any]) -> dict[str, Any]:
         """The Spent by, Model and Provider controls and the Spend banner.

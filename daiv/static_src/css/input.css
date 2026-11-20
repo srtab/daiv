@@ -5108,6 +5108,7 @@ html {
     @apply flex items-center gap-2 border-t border-border px-5 pb-2 pt-3.5
       text-[11px] font-semibold uppercase tracking-[0.14em] text-text-faint first:border-t-0;
   }
+  .session-group-header__count { @apply ml-1.5 tracking-normal text-text-faint; }
   .session-row {
     @apply relative flex items-center gap-3 border-t border-border px-4 py-2.5
       transition-colors hover:bg-surface-3;

@@ -990,10 +990,10 @@ class TestSessionListFilterBar:
         assert soup.select_one(".filter-clear").get_text(strip=True) == "Clear all"
 
     def test_clear_all_keeps_the_scope_and_a_chosen_sort(self, logged_in_client, user):
-        soup = self._soup(logged_in_client, {"scope": "all", "status": "FAILED", "sort": "cost"})
+        soup = self._soup(logged_in_client, {"scope": "all", "status": "FAILED", "sort": "cost", "group": "status"})
 
         url = soup.select_one(".filter-clear")["href"]
-        assert dict(QueryDict(urlsplit(url).query).items()) == {"scope": "all", "sort": "cost"}
+        assert dict(QueryDict(urlsplit(url).query).items()) == {"scope": "all", "sort": "cost", "group": "status"}
         empty_state_url = soup.select_one("#session-results a[href*='sort=cost']")["href"]
         assert empty_state_url == url
 
@@ -1016,3 +1016,81 @@ class TestSessionListFilterBar:
         _create_session(user=user)
 
         assert "session-group-header" in logged_in_client.get(reverse("session_list")).content.decode()
+
+
+def _headers(response) -> list[str]:
+    soup = BeautifulSoup(response.content, "html.parser")
+    return [" ".join(header.get_text(" ").split()) for header in soup.select(".session-group-header")]
+
+
+@pytest.mark.django_db
+class TestSessionListGrouping:
+    def _with_latest(self, user, status, *, hours_ago: int = 0, **fields) -> Session:
+        session = _create_session(user=user, **fields)
+        if status is not None:
+            _create_run(session, status=status)
+        Session.objects.filter(pk=session.pk).update(last_active_at=timezone.now() - timedelta(hours=hours_ago))
+        return session
+
+    def test_group_by_status_puts_attention_first_then_recency(self, logged_in_client, user):
+        no_run = self._with_latest(user, None)
+        older_done = self._with_latest(user, RunStatus.SUCCESSFUL, hours_ago=5)
+        newer_done = self._with_latest(user, RunStatus.SUCCESSFUL, hours_ago=1)
+        failed = self._with_latest(user, RunStatus.FAILED)
+        running = self._with_latest(user, RunStatus.RUNNING, hours_ago=9)
+        waiting = self._with_latest(user, RunStatus.WAITING_INPUT, hours_ago=9)
+
+        listed = _listed(logged_in_client, group="status")
+
+        assert listed == [s.pk for s in (waiting, running, failed, newer_done, older_done, no_run)]
+
+    def test_status_headers_count_the_whole_filtered_list(self, logged_in_client, user):
+        for _ in range(26):
+            self._with_latest(user, RunStatus.SUCCESSFUL, repo_id="group/project")
+        self._with_latest(user, RunStatus.FAILED, repo_id="group/project")
+        for _ in range(3):
+            self._with_latest(user, RunStatus.SUCCESSFUL, repo_id="group/other")
+        params = {"scope": "mine", "group": "status", "repo": "group/project"}
+
+        first = logged_in_client.get(reverse("session_list"), params)
+        second = logged_in_client.get(reverse("session_list"), {**params, "page": 2})
+
+        assert _headers(first) == ["Failed 1", "Done 26"]
+        assert _headers(second) == ["Done 26"]
+
+    def test_no_run_sessions_head_their_own_group(self, logged_in_client, user):
+        self._with_latest(user, None)
+
+        assert _headers(logged_in_client.get(reverse("session_list"), {"group": "status"})) == ["No runs 1"]
+
+    def test_group_none_has_no_headers(self, logged_in_client, user):
+        self._with_latest(user, RunStatus.SUCCESSFUL)
+
+        assert _headers(logged_in_client.get(reverse("session_list"), {"group": "none"})) == []
+
+    def test_an_unknown_group_keeps_date_headers(self, logged_in_client, user):
+        self._with_latest(user, RunStatus.SUCCESSFUL)
+
+        response = logged_in_client.get(reverse("session_list"), {"group": "bogus"})
+
+        assert response.status_code == 200
+        assert response.context["current_group"] == ""
+        assert _headers(response) == ["Today"]
+
+    def test_cost_sort_grouped_by_status_orders_by_cost_inside_each_group(self, logged_in_client, user):
+        cheap = self._with_latest(user, RunStatus.FAILED)
+        dear = self._with_latest(user, RunStatus.FAILED, hours_ago=3)
+        _spend(cheap, "1")
+        _spend(dear, "5")
+
+        response = logged_in_client.get(reverse("session_list"), {"sort": "cost", "group": "status"})
+
+        assert [s.pk for s in response.context["sessions"]] == [dear.pk, cheap.pk]
+        assert _headers(response) == ["Failed 2"]
+
+    def test_status_headers_render_in_the_results_fragment(self, logged_in_client, user):
+        self._with_latest(user, RunStatus.RUNNING)
+
+        response = logged_in_client.get(reverse("session_list"), {"group": "status"}, HTTP_HX_REQUEST="true")
+
+        assert _headers(response) == ["Running 1"]

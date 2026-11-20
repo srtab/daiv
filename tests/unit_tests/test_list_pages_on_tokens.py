@@ -99,6 +99,7 @@ PAGE_CLASSES = {
         "session-row__title",
         "session-row__meta",
         "session-age",
+        "session-group-header__count",
         "meta-pill",
         "empty-state",
         "empty-state__icon",
