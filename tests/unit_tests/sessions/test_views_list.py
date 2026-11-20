@@ -1093,6 +1093,17 @@ class TestSessionListToolbar:
 
         assert "session-group-header" in logged_in_client.get(reverse("session_list")).content.decode()
 
+    def test_a_search_has_its_own_clear(self, logged_in_client, user):
+        def clear(params):
+            soup = BeautifulSoup(logged_in_client.get(reverse("session_list"), params).content, "html.parser")
+            return soup.select_one("[data-testid=search-clear]")
+
+        searched = clear({"q": "fix", "status": "FAILED"})
+
+        assert "display:none" not in searched.get("style", "")
+        assert dict(QueryDict(urlsplit(searched["href"]).query).items()) == {"scope": "mine", "status": "FAILED"}
+        assert "display:none" in clear({}).get("style", "")
+
 
 def _headers(response) -> list[str]:
     soup = BeautifulSoup(response.content, "html.parser")
@@ -1164,6 +1175,16 @@ class TestSessionListGrouping:
         assert [s.pk for s in response.context["sessions"]] == [dear.pk, cheap.pk]
         assert _headers(response) == ["Failed 2"]
 
+    def test_status_headers_count_a_session_once_with_several_runs_in_the_batch(self, logged_in_client, user):
+        batch_id = uuid.uuid4()
+        session = self._with_latest(user, None)
+        _create_run(session, batch_id=batch_id)
+        _create_run(session, batch_id=batch_id)
+
+        response = logged_in_client.get(reverse("session_list"), {"group": "status", "batch": str(batch_id)})
+
+        assert _headers(response) == ["Done 1"]
+
     def test_status_headers_render_in_the_results_fragment(self, logged_in_client, user):
         self._with_latest(user, RunStatus.RUNNING)
 
@@ -1205,6 +1226,24 @@ class TestSessionRepoChoices:
             "status": "FAILED",
             "repo": "a/one",
         }
+
+    def test_repo_choices_match_the_archived_view_and_skip_watch_placeholders(self, logged_in_client, user):
+        _create_session(user=user, repo_id="a/live")
+        _create_session(user=user, repo_id="a/shelved", archived_at=timezone.now())
+        _create_session(user=user, repo_id="a/watch", origin=SessionOrigin.PIPELINE_WEBHOOK)
+        url = reverse("session_repo_choices")
+
+        assert self._values(logged_in_client.get(url, {"scope": "mine"})) == ["a/live"]
+        assert self._values(logged_in_client.get(url, {"scope": "mine", "archived": "true"})) == ["a/shelved"]
+        assert self._values(logged_in_client.get(url, {"scope": "mine", "archived": "all"})) == ["a/live", "a/shelved"]
+
+    def test_picking_another_repository_drops_the_merge_request(self, logged_in_client, user):
+        _create_session(user=user, repo_id="a/one")
+
+        response = logged_in_client.get(reverse("session_repo_choices"), {"scope": "all", "repo": "a/two", "mr": "12"})
+
+        item = BeautifulSoup(response.content, "html.parser").select_one("[data-value='a/one']")
+        assert dict(QueryDict(urlsplit(item["href"]).query).items()) == {"scope": "all", "repo": "a/one"}
 
     def test_repo_choices_need_sign_in(self, client):
         response = client.get(reverse("session_repo_choices"))

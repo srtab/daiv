@@ -1,7 +1,8 @@
 /**
  * Shared results-only swap core for filtered list views (sessions, memory).
  *
- * createResultsSwap(containerId, { errorMessage, onUrlChanged }) returns { swapResults }.
+ * createResultsSwap(containerId, { errorMessage, onUrlChanged }) returns { swapResults }; a `quiet` swap
+ * fails without the error toast.
  * The filter bar lives OUTSIDE the swapped container, so it never jumps. History is
  * manual: swapResults() pushState()s the new URL only after the results actually swap
  * in, so the address bar can never describe results the user isn't seeing.
@@ -12,7 +13,7 @@ window.createResultsSwap = function createResultsSwap(containerId, { errorMessag
     // can't have a stale one win.
     let swapSeq = 0;
 
-    function swapResults(url, { push = true } = {}) {
+    function swapResults(url, { push = true, quiet = false } = {}) {
         const box = document.getElementById(containerId);
         if (!box) return;
         const seq = ++swapSeq;
@@ -36,7 +37,7 @@ window.createResultsSwap = function createResultsSwap(containerId, { errorMessag
                 box.classList.remove("results--loading");
                 if (swapped) {
                     if (push) window.history.pushState({}, "", url);
-                } else {
+                } else if (!quiet) {
                     window.showToast(errorMessage, "error");
                 }
             });

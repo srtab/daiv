@@ -7,7 +7,7 @@
  *   statusClass(id, fallback) → object toggling status-badge-{variant} classes
  *   statusLabel(id, fallback) → human-readable label
  *
- * A frame that changes a run's status from what its row showed dispatches `sessions:status-changed` on window.
+ * A frame that changes the status a row shows dispatches `sessions:status-changed` on window.
  *
  * Object class maps (rather than a single string) are required so Alpine
  * removes the previously rendered variant class when the status transitions —
@@ -58,6 +58,7 @@ document.addEventListener("alpine:init", () => {
             // already show the correct status (server-rendered fallback), so this only
             // restores LIVE updates for the new page. Ids are read from the swapped fragment.
             const el = document.getElementById("session-in-flight");
+            this.updates = {};
             if (this._source) this._source.close();
             this._source = null;
             // Reset the reconnect budget: `_maxReconnects` caps stream-timeout retries WITHIN
@@ -98,7 +99,7 @@ document.addEventListener("alpine:init", () => {
                 const row = document.querySelector(`[data-run-id="${data.id}"]`);
                 const before = this.updates[data.id]?.status ?? row?.dataset.runStatus;
                 this.updates[data.id] = data;
-                if (before && before !== data.status) {
+                if (row && before !== data.status) {
                     window.dispatchEvent(new CustomEvent("sessions:status-changed", { detail: { id: data.id, status: data.status } }));
                 }
             };

@@ -59,7 +59,9 @@ const sandbox = {
   addEventListener: () => {},
   dispatchEvent: () => {},
   CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init?.detail; } },
-  createResultsSwap: () => ({ swapResults: (url, opts) => calls.swaps.push({ url, push: opts?.push ?? true }) }),
+  createResultsSwap: () => ({
+    swapResults: (url, opts) => calls.swaps.push({ url, push: opts?.push ?? true, quiet: opts?.quiet ?? false }),
+  }),
   document: {
     addEventListener: (name, fn) => { listeners[name] = fn; },
     getElementById: (id) => elements[id] ?? null,
@@ -118,6 +120,35 @@ def test_drilling_into_a_lazy_list_loads_it_as_its_own_request():
     ]
 
 
+def test_drilling_reloads_the_choices_when_the_archived_view_changes():
+    out = _run("""
+        const box = el({ id: "choices", dataset: { choicesUrl: "/dashboard/sessions/repo-choices/" } });
+        bar.$root.querySelector = (selector) => (selector.includes("data-filter-choices") ? box : null);
+        bar.drill("repo");
+        bar.drill("repo");
+        bar.archived = "true";
+        bar.drill("repo");
+    """)
+
+    assert [call["url"] for call in out["calls"]["ajax"]] == [
+        "/dashboard/sessions/repo-choices/?scope=mine",
+        "/dashboard/sessions/repo-choices/?scope=mine&archived=true",
+    ]
+
+
+def test_picking_another_repository_drops_the_merge_request():
+    out = _run("""
+        Object.assign(bar, { scope: "all", repo: "a/one", mr: "12" });
+        bar.pick("repo", "a/one");
+        const kept = bar.mr;
+        bar.pick("repo", "b/two");
+        return kept;
+    """)
+
+    assert out["result"] == "12"
+    assert out["calls"]["swaps"][-1]["url"] == "/dashboard/sessions/?scope=all&repo=b%2Ftwo"
+
+
 def test_drilling_clears_an_earlier_value_search():
     out = _run("""
         const items = [
@@ -152,7 +183,7 @@ def test_a_live_refresh_waits_for_a_swap_in_flight_and_keeps_the_bars_state():
 
     assert out["result"] == 0
     assert out["calls"]["swaps"] == [
-        {"url": "/dashboard/sessions/?scope=all&status=FAILED&group=status&page=2", "push": False}
+        {"url": "/dashboard/sessions/?scope=all&status=FAILED&group=status&page=2", "push": False, "quiet": True}
     ]
 
 

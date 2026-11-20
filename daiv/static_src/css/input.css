@@ -5043,6 +5043,10 @@ html {
     @apply h-10.5 w-full rounded-xl border border-border bg-surface-2 pl-9 pr-3 text-sm text-text
       placeholder:text-text-faint;
   }
+  .filter-search__clear {
+    @apply absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md
+      text-text-faint transition-colors hover:bg-surface-3 hover:text-text;
+  }
   .filter-toolbar { @apply flex flex-wrap items-center gap-2; }
   .filter-badge {
     @apply inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-text px-1.5 text-[11px] font-semibold

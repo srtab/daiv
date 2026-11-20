@@ -46,7 +46,6 @@ from sessions.conf import settings as sessions_settings
 from sessions.delegation import LegRun
 from sessions.filters import (
     ARCHIVED_INCLUDED,
-    ARCHIVED_ONLY,
     GROUP_CHOICES,
     GROUP_DATE,
     GROUP_STATUS,
@@ -62,6 +61,7 @@ from sessions.filters import (
     STATUS_CHOICES,
     ArtifactFilter,
     SessionFilter,
+    resolve_archived,
     resolve_scope,
 )
 from sessions.forms import AgentRunCreateForm
@@ -168,8 +168,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
 
     @cached_property
     def archived(self) -> bool | None:
-        """Only archived sessions (``True``), archived ones with the rest (``None``), or none of them (``False``)."""
-        return {ARCHIVED_ONLY: True, ARCHIVED_INCLUDED: None}.get(self.request.GET.get("archived", ""), False)
+        return resolve_archived(self.request.GET)
 
     def _listed(self, *, archived: bool | None) -> QuerySet[Session]:
         return Session.objects.listed_for(self.request.user, mine=self.scope == SCOPE_MINE, archived=archived)
@@ -355,7 +354,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
     @staticmethod
     def _status_groups(sessions: QuerySet[Session]) -> list[tuple[str | None, str, int]]:
         """Each status present in the filtered list, in attention order, with its label and its total across pages."""
-        totals = dict(sessions.order_by().values_list("latest_run_status").annotate(total=Count("pk")))
+        totals = dict(sessions.order_by().values_list("latest_run_status").annotate(total=Count("pk", distinct=True)))
         groups = [(status, RunStatus(status).label, totals.get(status, 0)) for status in RunStatus.attention_order()]
         groups.append((None, _("No runs"), totals.get(None, 0)))
         return [group for group in groups if group[2]]
@@ -455,8 +454,8 @@ class SessionRepoChoicesView(LoginRequiredMixin, View):
 
     def get(self, request):
         scope = resolve_scope(request.GET)
-        sessions = (
-            Session.objects.owned_by(request.user) if scope == SCOPE_MINE else Session.objects.visible_to(request.user)
+        sessions = Session.objects.listed_for(
+            request.user, mine=scope == SCOPE_MINE, archived=resolve_archived(request.GET)
         )
         repos = sessions.exclude(repo_id="").order_by("repo_id").values_list("repo_id", flat=True).distinct()
         context = {

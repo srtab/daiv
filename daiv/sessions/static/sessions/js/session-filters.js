@@ -7,7 +7,7 @@
  *
  * The Filter menu (sessions/_filter_menu.html) lists the filters by name and drills into one
  * (`property`) in place; a filter whose values come from the server loads them on that first
- * drill, once per scope. Applied filters show as chips (sessions/_filter_chip.html).
+ * drill, again whenever the scope or archived view changes. Applied filters show as chips (sessions/_filter_chip.html).
  */
 
 // The Spend page's params: those with no control in the bar show as one banner.
@@ -132,7 +132,7 @@ document.addEventListener("alpine:init", () => {
                 const params = this._params();
                 const page = new URLSearchParams(window.location.search).get("page");
                 if (page) params.set("page", page);
-                swapResults(window.location.pathname + "?" + params.toString(), { push: false });
+                swapResults(window.location.pathname + "?" + params.toString(), { push: false, quiet: true });
             }, 1000);
         },
         toggleDisplay(wrapper) {
@@ -147,6 +147,12 @@ document.addEventListener("alpine:init", () => {
             this.open = "display";
         },
         ...window.filterDropdown,
+        pick(key, value) {
+            // An MR number only means something within its repository.
+            if (key === "repo" && value !== this.repo) this.mr = "";
+            this[key] = value;
+            this._apply();
+        },
         setRange(value) {
             this.range = value;
             this.from = "";
@@ -212,8 +218,9 @@ document.addEventListener("alpine:init", () => {
             const panel = this.$root.querySelector(`[data-filter-panel="${key}"]`);
             if (panel) this.filterValues(panel);
             const box = this.$root.querySelector(`[data-filter-choices="${key}"]`);
-            if (box && box.dataset.loadedFor !== this.scope) {
-                box.dataset.loadedFor = this.scope;
+            const loadKey = `${this.scope}|${this.archived}`;
+            if (box && box.dataset.loadedFor !== loadKey) {
+                box.dataset.loadedFor = loadKey;
                 htmx.ajax("GET", box.dataset.choicesUrl + "?" + this._params().toString(), {
                     source: box,
                     target: box,

@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from django import template
 from django.contrib.humanize.templatetags.humanize import naturaltime
 from django.utils import formats, timezone
-from django.utils.translation import gettext
+from django.utils.translation import gettext, pgettext
 
 from sessions.models import MergeRequestOwnership
 
@@ -150,19 +150,19 @@ def short_age(dt) -> str:
         return ""
     seconds = (timezone.now() - dt).total_seconds()
     if seconds < 60:
-        return "now"
+        return pgettext("short age", "now")
     if seconds < 3600:
-        return f"{int(seconds // 60)}m"
+        return pgettext("short age", "%(count)dm") % {"count": seconds // 60}
     if seconds < 86400:
-        return f"{int(seconds // 3600)}h"
+        return pgettext("short age", "%(count)dh") % {"count": seconds // 3600}
     days = int(seconds // 86400)
     if days < 14:
-        return f"{days}d"
+        return pgettext("short age", "%(count)dd") % {"count": days}
     if days < 60:
-        return f"{days // 7}w"
+        return pgettext("short age", "%(count)dw") % {"count": days // 7}
     if days < 365:
-        return f"{days // 30}mo"
-    return f"{days // 365}y"
+        return pgettext("short age", "%(count)dmo") % {"count": days // 30}
+    return pgettext("short age", "%(count)dy") % {"count": days // 365}
 
 
 _ARTIFACT_ICONS = {"markdown": "document-text", "html": "code-bracket", "image": "photo", "text": "document"}

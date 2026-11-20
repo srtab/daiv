@@ -65,6 +65,11 @@ def resolve_scope(data) -> str:
     return SCOPE_ALL if any(data.get(param) for param in DEEP_LINK_PARAMS) else SCOPE_MINE
 
 
+def resolve_archived(data) -> bool | None:
+    """Only archived sessions (``True``), archived ones with the rest (``None``), or none of them (``False``)."""
+    return {ARCHIVED_ONLY: True, ARCHIVED_INCLUDED: None}.get(data.get("archived", ""), False)
+
+
 # Rolling-window size per range token; "today" is special-cased to local calendar midnight.
 _RANGE_WINDOWS: dict[str, timedelta] = {"2d": timedelta(days=2), "7d": timedelta(days=7), "30d": timedelta(days=30)}
 
@@ -88,7 +93,7 @@ class SessionFilter(django_filters.FilterSet):
     q = django_filters.CharFilter(method="filter_q")
     status = django_filters.ChoiceFilter(choices=STATUS_CHOICES, method="filter_status")
     trigger = django_filters.ChoiceFilter(field_name="origin", choices=SessionOrigin.choices)
-    repo = django_filters.CharFilter(method="filter_repo")  # deep-link back-compat: clearable chip, no widget to set it
+    repo = django_filters.CharFilter(method="filter_repo")
     mr = django_filters.NumberFilter(method="filter_mr")
     schedule = django_filters.NumberFilter(field_name="scheduled_job_id")
     batch = django_filters.UUIDFilter(method="filter_batch")
