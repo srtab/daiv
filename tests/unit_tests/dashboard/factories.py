@@ -36,7 +36,7 @@ def make_session(user, *, minutes_ago=0, title="A session", scheduled_job=None, 
     )
 
 
-def make_run(session, status, *, minutes_ago=0, trigger_type=None, batch_id=None) -> Run:
+def make_run(session, status, *, minutes_ago=0, trigger_type=None, batch_id=None, **fields) -> Run:
     run = Run.objects.create(
         session=session,
         status=status,
@@ -44,6 +44,7 @@ def make_run(session, status, *, minutes_ago=0, trigger_type=None, batch_id=None
         repo_id=session.repo_id,
         user=session.user,
         batch_id=batch_id,
+        **fields,
     )
     Run.objects.filter(pk=run.pk).update(created_at=timezone.now() - timedelta(minutes=minutes_ago))
     return run

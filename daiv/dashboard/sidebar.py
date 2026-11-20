@@ -8,10 +8,11 @@ from operator import attrgetter, or_
 from typing import TYPE_CHECKING, Any
 
 from django.db.models import F, OuterRef, Q, QuerySet, Subquery
+from django.db.models.functions import Coalesce
 from django.urls import reverse
 from django.utils import timezone
 
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import MergeRequestOwnership, MergeRequestState, Run, RunStatus, Session, SessionOrigin
 from sessions.validators import MAX_REPOS_PER_BATCH
 
 from schedules.models import ScheduledJob
@@ -35,9 +36,17 @@ WORST_FIRST = (
     RunStatus.SUCCESSFUL,
 )
 _OPENS_SCHEDULE = frozenset({RunStatus.FAILED, RunStatus.WAITING_INPUT})
+_BLOCKS_ARCHIVE = frozenset({RunStatus.RUNNING, RunStatus.QUEUED})
 NEWEST_SESSIONS = FIRINGS_PER_SCHEDULE * MAX_REPOS_PER_BATCH
 
-_SESSION_FIELDS = ("thread_id", "title", "last_active_at", "latest_run_status")
+_SESSION_FIELDS = ("thread_id", "title", "last_active_at", "latest_run_status", "repo_id", "mr_iid", "mr_url")
+
+
+@dataclass(frozen=True, slots=True)
+class SidebarMergeRequest:
+    iid: int
+    url: str
+    state: MergeRequestState
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,10 +56,15 @@ class SessionRow:
     status: str
     last_active_at: datetime
     active: bool
+    merge_request: SidebarMergeRequest | None = None
 
     @property
     def shows_state(self) -> bool:
         return self.status in STATE_WORD_STATUSES
+
+    @property
+    def archivable(self) -> bool:
+        return self.status not in _BLOCKS_ARCHIVE
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,10 +153,13 @@ class Sidebar:
         """
         sessions = list(self._own_sessions()[: limit + 1])
         has_more = len(sessions) > limit
-        rows = [self._session_row(session) for session in sessions[:limit]]
-        if self.viewing and not any(row.active for row in rows):
-            rows.extend(self._session_row(session) for session in self._own_sessions().filter(thread_id=self.viewing))
-        return tuple(rows), has_more
+        sessions = sessions[:limit]
+        if self.viewing and not any(session["thread_id"] == self.viewing for session in sessions):
+            sessions.extend(self._own_sessions().filter(thread_id=self.viewing))
+        states = MergeRequestOwnership.states_of(
+            (session["repo_id"], session["mr_iid"]) for session in sessions if session["mr_iid"] is not None
+        )
+        return tuple(self._session_row(session, states) for session in sessions), has_more
 
     def schedule_rows(self) -> tuple[ScheduleRow, ...]:
         """The schedules the user owns or subscribes to that are enabled or fired lately, each with its newest firings.
@@ -156,21 +173,33 @@ class Sidebar:
         return tuple(self._schedule_row(schedule, firings.get(schedule["pk"], [])) for schedule in schedules)
 
     def _own_sessions(self) -> QuerySet[Session, dict[str, Any]]:
+        """The rows ``session_rows`` reads, each with the merge request it links as ``linked_merge_request`` picks it:
+        the session's own, else the newest one on its runs."""
+        runs = Run.objects.filter(session=OuterRef("pk")).order_by("-created_at", "-id")
+        run_iid = runs.filter(merge_request_iid__isnull=False).values("merge_request_iid")[:1]
+        url = runs.filter(merge_request_iid=OuterRef("mr_iid")).exclude(merge_request_web_url="")
         return (
             Session.objects
             .listed_for(self.user, mine=True)
             .filter(scheduled_job__isnull=True)
+            .annotate(mr_iid=Coalesce("merge_request_iid", Subquery(run_iid)))
+            .annotate(mr_url=Subquery(url.values("merge_request_web_url")[:1]))
             .order_by("-last_active_at")
             .values(*_SESSION_FIELDS)
         )
 
-    def _session_row(self, session: dict[str, Any]) -> SessionRow:
+    def _session_row(self, session: dict[str, Any], states: dict[tuple[str, int], MergeRequestState]) -> SessionRow:
+        iid = session["mr_iid"]
+        merge_request = None
+        if iid is not None:
+            merge_request = SidebarMergeRequest(iid, session["mr_url"] or "", states[session["repo_id"], iid])
         return SessionRow(
             thread_id=session["thread_id"],
             title=session["title"],
             status=session["latest_run_status"] or "",
             last_active_at=session["last_active_at"],
             active=session["thread_id"] == self.viewing,
+            merge_request=merge_request,
         )
 
     def _schedules(self) -> list[dict[str, Any]]:
