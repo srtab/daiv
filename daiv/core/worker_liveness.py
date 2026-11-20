@@ -8,12 +8,8 @@ worker; a killed worker's key expires.
 import logging
 import threading
 import time
-from typing import TYPE_CHECKING
 
 from django.core.cache import cache
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
 
 logger = logging.getLogger("daiv.core")
 
@@ -39,9 +35,8 @@ def alive(worker_id: str) -> bool:
         return True
 
 
-def claimant_alive(worker_ids: Sequence[str]) -> bool:
-    """Whether the worker that last claimed a task, the last of its ``worker_ids``, is alive; a task no worker claimed
-    has none."""
+def claimant_alive(worker_ids: list[str]) -> bool:
+    """Whether the worker that last claimed a task is alive; a task no worker claimed has none."""
     return bool(worker_ids) and alive(worker_ids[-1])
 
 

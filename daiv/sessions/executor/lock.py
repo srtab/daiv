@@ -298,7 +298,7 @@ class RunStoppedError(Exception):
 
 
 class DeadWorkerError(Exception):
-    """The worker running a run's task died; ``RunManager.finish_dead`` failed the task in its place."""
+    """A task's worker died, and DAIV failed the task in its place."""
 
 
 @asynccontextmanager

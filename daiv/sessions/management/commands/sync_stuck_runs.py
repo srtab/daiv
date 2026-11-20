@@ -101,13 +101,11 @@ class Command(BaseCommand):
         return reaped
 
     def _reap_dead_task_runs(self) -> int:
-        """Fail task-backed runs a hard worker crash left RUNNING, and their tasks (``RunManager.finish_dead``), which
-        the DBTaskResult sync never ends: it reports the task RUNNING for good.
+        """Fail task-backed runs a hard worker crash left RUNNING, and their tasks (``RunManager.finish_dead``).
 
         Left alone, a job run keeps its session's one active job place (``run_one_active_per_session``) and a run the
-        inbox started never settles the events it took. The finish emits ``run_ended``, which settles the events the
-        run took, frees the slot if it still holds it and drains the session
-        (:meth:`sessions.inbox.complete.RunEnd.on_run_ended`).
+        inbox started never settles the events it took; the finish's ``run_ended`` settles them, frees the slot and
+        drains the session (:meth:`sessions.inbox.complete.RunEnd.on_run_ended`).
 
         Every task-backed run, whatever its trigger, holds its session's slot and heartbeats it
         (:func:`sessions.executor.lock.hold_session_lock`): a job or schedule under its pk, a webhook run under an id
@@ -132,16 +130,15 @@ class Command(BaseCommand):
 
     def _fail_dead_worker_tasks(self) -> int:
         """Fail RUNNING tasks whose worker is gone (:mod:`core.worker_liveness`) that no unfinished run stands for: a
-        task no run is linked to, or one a crash kept :meth:`RunManager.finish_dead` from failing after its run. Nothing
-        else ends them, and a RUNNING dedup task stands in for any repeat of its trigger. An unfinished run's task is
-        left to :meth:`_reap_dead_task_runs`, which also asks for the run's heartbeat to be stale.
+        task no run is linked to, or one a crash kept ``RunManager.finish_dead`` from failing after its run. An
+        unfinished run's task is left to :meth:`_reap_dead_task_runs`, which also asks for a stale heartbeat.
         """
         orphaned = Q(run__isnull=True) | Q(run__status__in=list(RunStatus.terminal()))
         running = DBTaskResult.objects.filter(orphaned, status=TaskResultStatus.RUNNING)
-        workers = running.values_list("pk", "worker_ids")
+        workers = running.order_by().values_list("pk", "worker_ids")
         dead = [pk for pk, worker_ids in workers if not worker_liveness.claimant_alive(worker_ids)]
         failed = fail_tasks(
-            DBTaskResult.objects.filter(pk__in=dead, status=TaskResultStatus.RUNNING),
+            running.filter(pk__in=dead),
             error=DeadWorkerError,
             message="Dead task: its worker is gone; failed by sync_stuck_runs.",
             now=timezone.now(),

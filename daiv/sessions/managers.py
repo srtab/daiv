@@ -395,7 +395,7 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
         task left to check, so it finishes FAILED here with its task, on a repeated call too
         (:meth:`_finish_dead_holder`).
         """
-        from sessions.executor.run import RunStoppedError
+        from sessions.executor.lock import RunStoppedError
         from sessions.models import RunStatus
 
         now = timezone.now()
