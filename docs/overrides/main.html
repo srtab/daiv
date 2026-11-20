@@ -10,6 +10,7 @@
 
 {% block extrahead %}
   <meta name="theme-color" content="#0d1117">
+  <link rel="preload" href="{{ 'assets/fonts/geist-latin-wght-normal.woff2' | url }}" as="font" type="font/woff2" crossorigin>
   {% if config.extra.noindex %}
     <meta name="robots" content="noindex">
   {% endif %}
