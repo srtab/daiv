@@ -22,6 +22,7 @@ from automation.agent.questions import render_questions
 from automation.agent.synthetic import SYNTHETIC_KWARG, is_synthetic
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, Issue, MergeRequest, Scope, User
+from codebase.exceptions import CloneCredentialUnavailableError
 from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL
 from core.provider_failures import ProviderFailure
@@ -291,12 +292,10 @@ class TestIssueAfterRunMatrix:
         [note] = captured_client.create_issue_comment.call_args_list
         assert "To avoid losing progress" in note.args[2]
 
-    async def test_a_missing_model_says_it_cannot_run_yet_and_re_raises(self, captured_client):
+    @pytest.mark.parametrize("error_cls", [AgentConfigurationError, CloneCredentialUnavailableError])
+    async def test_a_configuration_refusal_says_it_cannot_run_yet_and_re_raises(self, captured_client, error_cls):
         """Re-raised like the merge request addressor's, so the task and its Run end FAILED, not an empty success."""
-        with (
-            addressor_run(addressor_agent(), kwargs_error=AgentConfigurationError("no model")) as run,
-            pytest.raises(AgentConfigurationError),
-        ):
+        with addressor_run(addressor_agent(), kwargs_error=error_cls("no model")) as run, pytest.raises(error_cls):
             await _address(**_mention(captured_client))
 
         run.create_agent.assert_not_awaited()

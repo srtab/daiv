@@ -12,7 +12,6 @@ from sessions.executor.spec import RunHooks, RunSpec
 
 from automation.agent.provider_errors import provider_failure_of
 from automation.agent.utils import repo_relative_text
-from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, MergeRequest, Scope
 from codebase.clients.base import CommentThread
 from codebase.exceptions import CloneRefNotFoundError
@@ -135,12 +134,7 @@ class CommentsAddressorManager(BaseManager):
     async def _on_failure(self, exc: Exception, *, draft_published: bool, snapshot: StateSnapshot | None) -> None:
         if isinstance(exc, CloneRefNotFoundError):
             return
-        if isinstance(exc, AgentConfigurationError):
-            logger.warning("review_addressor: %s", exc)
-            if self._claim_unable_note():
-                self._leave_comment(
-                    f"@{self.merge_request.author.username} I can't run yet: {exc}", reply_to_id=self.reply_to_id
-                )
+        if self._said_cannot_run_yet(exc, author=self.merge_request.author.username):
             return
         failure = provider_failure_of(exc)
         self._add_unable_to_address_review_note(

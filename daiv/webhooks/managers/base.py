@@ -1,3 +1,4 @@
+import logging
 import uuid
 from typing import TYPE_CHECKING
 
@@ -5,12 +6,18 @@ from django.template.loader import render_to_string
 
 from sessions.executor.lock import wait_for_slot
 
+from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
+from codebase.exceptions import CloneCredentialUnavailableError
 
 if TYPE_CHECKING:
     from sessions.executor.lock import LockPolicy
     from sessions.executor.spec import RunOutcome
+
+logger = logging.getLogger("daiv.managers")
+
+_CANNOT_RUN_YET_ERRORS = (AgentConfigurationError, CloneCredentialUnavailableError)
 
 
 class BaseManager:
@@ -69,6 +76,19 @@ class BaseManager:
         if self._unable_note_posted:
             return False
         self._unable_note_posted = True
+        return True
+
+    def _leave_comment(self, body: str, reply_to_id: str | None = None) -> None:
+        raise NotImplementedError
+
+    def _said_cannot_run_yet(self, exc: Exception, *, author: str) -> bool:
+        """Answer a run refused for its configuration (no agent model, no clone credential) with "I can't run
+        yet"; ``False`` for any other failure, which the caller reports itself."""
+        if not isinstance(exc, _CANNOT_RUN_YET_ERRORS):
+            return False
+        logger.warning("%s: %s", type(self).__name__, exc)
+        if self._claim_unable_note():
+            self._leave_comment(f"@{author} I can't run yet: {exc}", reply_to_id=self.reply_to_id)
         return True
 
     def _lock_policy(self) -> LockPolicy:

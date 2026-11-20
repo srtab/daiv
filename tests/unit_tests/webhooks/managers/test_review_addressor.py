@@ -16,7 +16,7 @@ from automation.agent.questions import render_questions
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, MergeRequest, Scope, User
 from codebase.clients.base import CommentThread
-from codebase.exceptions import CloneRefNotFoundError
+from codebase.exceptions import CloneCredentialUnavailableError, CloneRefNotFoundError
 from core.site_settings import site_settings
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD, ask_user_question_messages, site_snapshot
 from tests.unit_tests.sessions.conftest import active_holder
@@ -261,11 +261,9 @@ class TestReviewAfterRunMatrix:
         assert "committed the changes done so far" in note.args[2]
         assert "(!200)" in note.args[2]
 
-    async def test_a_missing_model_says_it_cannot_run_yet_and_re_raises(self, mention):
-        with (
-            addressor_run(addressor_agent(), ctx=_ctx(), kwargs_error=AgentConfigurationError("no model")),
-            pytest.raises(AgentConfigurationError),
-        ):
+    @pytest.mark.parametrize("error_cls", [AgentConfigurationError, CloneCredentialUnavailableError])
+    async def test_a_configuration_refusal_says_it_cannot_run_yet_and_re_raises(self, mention, error_cls):
+        with addressor_run(addressor_agent(), ctx=_ctx(), kwargs_error=error_cls("no model")), pytest.raises(error_cls):
             await _address()
 
         [note] = mention.create_merge_request_comment.call_args_list
