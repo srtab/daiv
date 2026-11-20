@@ -224,6 +224,9 @@ class TestCancel:
         assert (run.status, run.error_message) == (RunStatus.FAILED, CANCELLED_BY_COORDINATOR_MESSAGE)
         assert run.is_cancelled and run.finished_at is not None
         assert run_finished_spy.call_args.kwargs["never_started"] is False
+        task_result = DBTaskResult.objects.get(run=run)
+        assert task_result.status == "FAILED"
+        assert task_result.exception_class_path == "sessions.executor.lock.DeadWorkerError"
 
     def test_a_repeated_cancel_finishes_a_run_whose_worker_stopped_heartbeating_since(self, run_finished_spy, badge):
         run = _create_run(status=RunStatus.RUNNING)

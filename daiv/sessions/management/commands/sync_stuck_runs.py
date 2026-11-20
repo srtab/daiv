@@ -5,10 +5,7 @@ from datetime import timedelta
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db.models import Q
-from django.tasks import TaskResultStatus
 from django.utils import timezone
-
-from django_tasks_db.models import DBTaskResult
 
 from sessions.executor.lock import stale_cutoff
 from sessions.models import Run, RunStatus, Session, SessionOrigin
@@ -17,10 +14,6 @@ from sessions.queue import ENQUEUE_FAILED_PREFIX
 logger = logging.getLogger("daiv.sessions")
 
 NEVER_QUEUED_AFTER = timedelta(minutes=10)
-
-
-class DeadWorkerError(Exception):
-    """The worker running a task died; ``sync_stuck_runs`` failed the task in its place."""
 
 
 class Command(BaseCommand):
@@ -100,15 +93,13 @@ class Command(BaseCommand):
         return reaped
 
     def _reap_dead_task_runs(self) -> int:
-        """Fail task-backed runs a hard worker crash left RUNNING, and their tasks, which the DBTaskResult sync never
-        ends: it reports the task RUNNING for good.
+        """Fail task-backed runs a hard worker crash left RUNNING, and their tasks (``RunManager.finish_dead``), which
+        the DBTaskResult sync never ends: it reports the task RUNNING for good.
 
-        Left alone, a job run keeps its session's one active job place (``run_one_active_per_session``), a run the
-        inbox started never settles the events it took, every such run shows RUNNING for good, and a dedup task
-        (``webhooks.tasks``) stands in for any repeat of its trigger. The finish emits ``run_ended``, which settles the
-        events the run took, frees the slot if it still holds it and drains the session
-        (:meth:`sessions.inbox.complete.RunEnd.on_run_ended`). The task fails only while it is still RUNNING, so an
-        outcome its worker wrote meanwhile stands.
+        Left alone, a job run keeps its session's one active job place (``run_one_active_per_session``) and a run the
+        inbox started never settles the events it took. The finish emits ``run_ended``, which settles the events the
+        run took, frees the slot if it still holds it and drains the session
+        (:meth:`sessions.inbox.complete.RunEnd.on_run_ended`).
 
         Every task-backed run, whatever its trigger, holds its session's slot and heartbeats it
         (:func:`sessions.executor.lock.hold_session_lock`): a job or schedule under its pk, a webhook run under an id
@@ -120,17 +111,10 @@ class Command(BaseCommand):
         stale_sessions = Session.objects.filter(last_active_at__lt=cutoff).values("pk")
         dead = Q(status=RunStatus.RUNNING, started_at__lt=cutoff, session_id__in=stale_sessions)
         message = "Dead run: its worker stopped heartbeating (crash); reaped by sync_stuck_runs."
-        reaped = 0
-        for run in Run.objects.filter(dead, task_result__isnull=False):
-            if not Run.objects.finish(run, RunStatus.FAILED, where=dead, finished_at=now, error_message=message):
-                continue
-            reaped += 1
-            DBTaskResult.objects.filter(pk=run.task_result_id, status=TaskResultStatus.RUNNING).update(
-                status=TaskResultStatus.FAILED,
-                finished_at=now,
-                exception_class_path=f"{DeadWorkerError.__module__}.{DeadWorkerError.__qualname__}",
-                traceback=message,
-            )
+        reaped = sum(
+            Run.objects.finish_dead(run, where=dead, message=message, now=now)
+            for run in Run.objects.filter(dead, task_result__isnull=False)
+        )
         if reaped:
             logger.warning("sync_stuck_runs: reaped %d dead task-backed run(s) stuck in RUNNING", reaped)
         return reaped

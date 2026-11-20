@@ -12,7 +12,8 @@ from django.utils import timezone
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
-from sessions.management.commands.sync_stuck_runs import NEVER_QUEUED_AFTER, DeadWorkerError
+from sessions.executor.lock import DeadWorkerError
+from sessions.management.commands.sync_stuck_runs import NEVER_QUEUED_AFTER
 from sessions.models import EventState, Run, RunStatus, Session, SessionArchive, SessionOrigin
 from sessions.queue import ENQUEUE_FAILED_PREFIX
 
