@@ -244,13 +244,6 @@ class TestSessionListView:
         assert "archived_matches" not in unfiltered.context
         assert "archived_matches" not in archived.context
 
-    def test_filter_bar_renders_the_archived_toggle(self, logged_in_client, user):
-        html = logged_in_client.get(reverse("session_list"), {"archived": "true"}).content.decode()
-        control = html[html.index('data-testid="filter-archived"') - 400 : html.index('data-testid="filter-archived"')]
-
-        assert 'aria-pressed="true"' in control
-        assert "toggleArchived()" in control
-
     def test_hides_ci_watch_placeholder_until_a_run_lands(self, logged_in_client, user):
         placeholder = _create_session(user=user, origin=SessionOrigin.PIPELINE_WEBHOOK, merge_request_iid=7)
         fixed = _create_session(user=user, origin=SessionOrigin.PIPELINE_WEBHOOK, merge_request_iid=8)
@@ -1011,11 +1004,6 @@ class TestSessionListToolbar:
         assert loader["data-choices-url"] == reverse("session_repo_choices")
         assert [item["data-value"] for item in loader.select("[data-filter-key=repo]")] == ["group/project"]
 
-    def test_sort_shows_most_recent_without_a_sort_param(self, logged_in_client, user):
-        toggle = self._soup(logged_in_client).select_one("[data-testid=filter-sort]")
-
-        assert toggle.get_text(" ", strip=True) == "Sort: Most recent"
-
     def test_the_spend_drill_down_reads_as_one_sentence(self, logged_in_client, user):
         params = {"scope": "all", "spend_from": "2026-08-22", "spend_to": "2026-11-19", "spend_repo": "srtab/daiv"}
 
@@ -1042,13 +1030,6 @@ class TestSessionListToolbar:
         assert _shown_chips(soup) == ["spend_model"]
         assert _chip_value(soup, "spend_model") == model
 
-    def test_archived_is_a_toggle_inside_its_own_control(self, logged_in_client, user):
-        toggle = self._soup(logged_in_client).select_one("[data-testid=filter-archived]")
-
-        assert "filter-control__toggle" in toggle["class"]
-        assert "filter-control" not in toggle["class"]
-        assert "filter-control" in toggle.parent["class"]
-
     def test_the_custom_range_row_wraps_inside_the_time_menu(self, logged_in_client, user):
         from tests.unit_tests.test_list_pages_on_tokens import _rules_for
 
@@ -1069,6 +1050,34 @@ class TestSessionListToolbar:
         soup = self._soup(logged_in_client, {"spend_model": "gone-model"})
 
         assert _chip_value(soup, "spend_model") == "gone-model"
+
+    def test_the_display_menu_offers_grouping_sort_and_archived(self, logged_in_client, user):
+        soup = self._soup(logged_in_client)
+
+        assert [button["data-group"] for button in soup.select("[data-group]")] == ["", "status", "none"]
+        assert soup.select_one('[data-group=""]')["aria-pressed"] == "true"
+        assert soup.select_one("[data-sort=recent]")["aria-pressed"] == "true"
+        assert soup.select_one("[data-testid=display-archived]")["aria-pressed"] == "false"
+
+    def test_date_grouping_is_disabled_under_cost_sort(self, logged_in_client, user):
+        soup = self._soup(logged_in_client, {"sort": "cost", "group": "status"})
+
+        assert soup.select_one('[data-group=""]').has_attr("disabled")
+        assert soup.select_one("[data-group=status]")["aria-pressed"] == "true"
+        assert soup.select_one("[data-sort=cost]")["aria-pressed"] == "true"
+
+    def test_the_archived_switch_shows_its_state(self, logged_in_client, user):
+        switch = self._soup(logged_in_client, {"archived": "true"}).select_one("[data-testid=display-archived]")
+
+        assert switch["aria-pressed"] == "true"
+        assert switch["@click"] == "toggleArchived()"
+
+    def test_display_never_looks_active(self, logged_in_client, user):
+        params = {"status": "FAILED", "sort": "cost", "group": "status", "archived": "true"}
+
+        toggle = self._soup(logged_in_client, params).select_one("[data-testid=display-open]")
+
+        assert "filter-control--active" not in toggle.find_parent(class_="filter-control")["class"]
 
     def test_a_cost_sorted_list_has_no_date_headers(self, logged_in_client, user):
         _spend(_create_session(user=user), "1")

@@ -7,6 +7,8 @@
  *   statusClass(id, fallback) → object toggling status-badge-{variant} classes
  *   statusLabel(id, fallback) → human-readable label
  *
+ * A frame that changes a run's status from what its row showed dispatches `sessions:status-changed` on window.
+ *
  * Object class maps (rather than a single string) are required so Alpine
  * removes the previously rendered variant class when the status transitions —
  * otherwise the static server-rendered class lingers alongside the new one
@@ -93,7 +95,12 @@ document.addEventListener("alpine:init", () => {
                     }
                     return;
                 }
+                const row = document.querySelector(`[data-run-id="${data.id}"]`);
+                const before = this.updates[data.id]?.status ?? row?.dataset.runStatus;
                 this.updates[data.id] = data;
+                if (before && before !== data.status) {
+                    window.dispatchEvent(new CustomEvent("sessions:status-changed", { detail: { id: data.id, status: data.status } }));
+                }
             };
             source.onerror = () => {
                 // Let EventSource auto-reconnect on transient drops; only warn once

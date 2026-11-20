@@ -5068,6 +5068,14 @@ html {
   }
   .filter-menu--end { @apply right-0; }
   .filter-menu--drill { @apply w-72 max-w-[calc(100vw-2rem)]; }
+  .display-menu { @apply w-80 max-w-[calc(100vw-2rem)] p-1.5; }
+  .display-row { @apply flex items-center justify-between gap-3 px-2.5 py-2 text-[13px] text-text-muted; }
+  .display-seg { @apply inline-flex gap-0.5 rounded-lg border border-border bg-ground p-0.5; }
+  .display-seg__item {
+    @apply rounded-md px-2.5 py-1 text-[12.5px] text-text-muted transition-colors hover:text-text
+      disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-text-muted;
+  }
+  .display-seg__item[aria-pressed="true"] { @apply bg-surface-3 text-text-strong; }
   .filter-menu__search {
     @apply mb-1 h-8 w-full rounded-lg border border-border bg-ground px-2.5 text-[13px] text-text
       placeholder:text-text-faint;

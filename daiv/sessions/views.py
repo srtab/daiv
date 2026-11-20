@@ -47,6 +47,7 @@ from sessions.delegation import LegRun
 from sessions.filters import (
     ARCHIVED_INCLUDED,
     ARCHIVED_ONLY,
+    GROUP_CHOICES,
     GROUP_DATE,
     GROUP_STATUS,
     RANGE_CHOICES,
@@ -238,6 +239,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
         if context["group_by_status"]:
             context["status_groups"] = self._status_groups(context["filter"].qs)
         context["sorts"] = SORT_CHOICES
+        context["group_options"] = [(GROUP_DATE, _("Date")), *GROUP_CHOICES]
         clear_all = {"scope": self.scope} | ({"sort": self.sort} if self.sort != SORT_RECENT else {})
         clear_all |= {"group": self.group} if self.group != GROUP_DATE else {}
         context["clear_all_url"] = f"{self.request.path}?{urlencode(clear_all)}"

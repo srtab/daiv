@@ -43,12 +43,18 @@ document.addEventListener("alpine:init", () => {
         batch: "",
         archived: "",
         sort: "",
+        group: "",
+        _refreshTimer: null,
         ...Object.fromEntries(SPEND_PARAMS.map((name) => [name, ""])),
 
         init() {
             this._readUrl();
             // Re-sync on back/forward (popstate handler dispatches this).
             window.addEventListener("sessions:url-changed", () => this._readUrl());
+            // Grouped by status, a row whose status changed belongs under another header.
+            window.addEventListener("sessions:status-changed", () => {
+                if (this.group === "status") this._refresh();
+            });
         },
 
         _readUrl() {
@@ -69,6 +75,7 @@ document.addEventListener("alpine:init", () => {
             const archived = p.get("archived");
             this.archived = archived === "true" || archived === "all" ? archived : "";
             this.sort = p.get("sort") || this.$root.dataset.defaultSort;
+            this.group = p.get("group") || "";
             SPEND_PARAMS.forEach((name) => (this[name] = p.get(name) || ""));
         },
 
@@ -93,6 +100,7 @@ document.addEventListener("alpine:init", () => {
             set("archived", this.archived);
             SPEND_PARAMS.forEach((name) => set(name, this[name]));
             set("sort", this.sort === this.$root.dataset.defaultSort ? "" : this.sort);
+            set("group", this.group);
             return params;
         },
 
@@ -106,6 +114,17 @@ document.addEventListener("alpine:init", () => {
         setScope(value) {
             this.scope = value;
             this._apply();
+        },
+        setGroup(value) {
+            this.group = value;
+            this._apply();
+        },
+        _refresh() {
+            clearTimeout(this._refreshTimer);
+            this._refreshTimer = setTimeout(
+                () => swapResults(window.location.pathname + window.location.search, { push: false }),
+                1000,
+            );
         },
         ...window.filterDropdown,
         setRange(value) {

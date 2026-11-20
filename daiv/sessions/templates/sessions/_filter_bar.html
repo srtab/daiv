@@ -33,35 +33,7 @@
             {% endfor %}
         </nav>
         <div class="flex items-center gap-2" data-testid="toolbar-end">
-            <div class="relative" @click.outside="close('sort')" @keydown.escape="close('sort', $el)">
-                <div class="filter-control">
-                    <button type="button" class="filter-control__toggle" @click="toggle('sort')" data-testid="filter-sort"
-                            aria-expanded="false" :aria-expanded="(open === 'sort').toString()">
-                        <span class="filter-control__lead">{% icon "chevron-up-down" "h-4 w-4" %}</span>
-                        <span>{% translate "Sort:" %}</span>
-                        <span class="filter-control__value text-text" x-text="labelFor('sort')">{{ sorts|option_label:current_sort }}</span>
-                        <span class="filter-control__lead">{% icon "chevron-down" "h-3.5 w-3.5" %}</span>
-                    </button>
-                </div>
-                <div data-surface class="filter-menu filter-menu--end" x-show="open === 'sort'" x-cloak>
-                    {% for value, label in sorts %}
-                    <a href="{% querystring sort=value page=None %}" data-filter-key="sort" data-value="{{ value }}" data-label="{{ label }}"
-                       class="filter-menu-item{% if current_sort == value %} filter-menu-item--active{% endif %}"
-                       @click.prevent="pick('sort', $el.dataset.value)" :class="{ 'filter-menu-item--active': sort === $el.dataset.value }">{{ label }}</a>
-                    {% endfor %}
-                </div>
-            </div>
-
-            {# Archived sessions are a list of their own, so this swaps the list rather than narrowing it #}
-            <div class="filter-control{% if current_archived %} filter-control--active{% endif %}"
-                 :class="{ 'filter-control--active': archived === 'true' }">
-                <a href="{% if current_archived %}{% querystring archived=None page=None %}{% else %}{% querystring archived='true' page=None %}{% endif %}"
-                   class="filter-control__toggle" @click.prevent="toggleArchived()"
-                   :aria-pressed="(archived === 'true').toString()" aria-pressed="{{ current_archived|yesno:'true,false' }}"
-                   role="button" data-testid="filter-archived">
-                    {% icon "archive-box" "h-4 w-4" %}{% translate "Archived" %}
-                </a>
-            </div>
+            {% include "sessions/_display_menu.html" %}
         </div>
     </div>
 
