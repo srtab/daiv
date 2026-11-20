@@ -51,6 +51,14 @@ SORT_RECENT = "recent"
 SORT_COST = "cost"
 SORT_CHOICES: list[tuple[str, str]] = [(SORT_RECENT, _("Most recent")), (SORT_COST, _("Cost"))]
 
+GROUP_DATE = ""
+GROUP_STATUS = "status"
+GROUP_NONE = "none"
+GROUP_CHOICES: list[tuple[str, str]] = [(GROUP_STATUS, _("Status")), (GROUP_NONE, _("None"))]
+
+
+CLEARED_WITH: dict[str, tuple[str, ...]] = {"repo": ("mr",)}
+
 
 def resolve_scope(data) -> str:
     """The scope a request's query params select: an explicit valid ``scope``, else ``all`` for a deep link."""
@@ -58,6 +66,11 @@ def resolve_scope(data) -> str:
     if scope in dict(SCOPE_CHOICES):
         return scope
     return SCOPE_ALL if any(data.get(param) for param in DEEP_LINK_PARAMS) else SCOPE_MINE
+
+
+def resolve_archived(data) -> bool | None:
+    """Only archived sessions (``True``), archived ones with the rest (``None``), or none of them (``False``)."""
+    return {ARCHIVED_ONLY: True, ARCHIVED_INCLUDED: None}.get(data.get("archived", ""), False)
 
 
 # Rolling-window size per range token; "today" is special-cased to local calendar midnight.
@@ -83,7 +96,7 @@ class SessionFilter(django_filters.FilterSet):
     q = django_filters.CharFilter(method="filter_q")
     status = django_filters.ChoiceFilter(choices=STATUS_CHOICES, method="filter_status")
     trigger = django_filters.ChoiceFilter(field_name="origin", choices=SessionOrigin.choices)
-    repo = django_filters.CharFilter(method="filter_repo")  # deep-link back-compat: clearable chip, no widget to set it
+    repo = django_filters.CharFilter(method="filter_repo")
     mr = django_filters.NumberFilter(method="filter_mr")
     schedule = django_filters.NumberFilter(field_name="scheduled_job_id")
     batch = django_filters.UUIDFilter(method="filter_batch")
@@ -102,6 +115,7 @@ class SessionFilter(django_filters.FilterSet):
     spend_model = django_filters.CharFilter(method="keep")
     spend_provider = django_filters.CharFilter(method="keep")
     sort = django_filters.ChoiceFilter(choices=SORT_CHOICES, method="keep")
+    group = django_filters.ChoiceFilter(choices=GROUP_CHOICES, method="keep")
 
     class Meta:
         model = Session
@@ -146,7 +160,7 @@ class SessionFilter(django_filters.FilterSet):
         return queryset.filter(latest_run_status=value)
 
     def filter_batch(self, queryset, name, value):
-        return queryset.filter(runs__batch_id=value).distinct()
+        return queryset.filter(pk__in=Run.objects.filter(batch_id=value).values("session_id"))
 
     def filter_repo(self, queryset, name, value):
         # With ``mr`` too, filter_mr matches the request on any of a session's repositories, not just its main one.

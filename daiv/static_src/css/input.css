@@ -5043,6 +5043,11 @@ html {
     @apply h-10.5 w-full rounded-xl border border-border bg-surface-2 pl-9 pr-3 text-sm text-text
       placeholder:text-text-faint;
   }
+  .filter-toolbar { @apply flex flex-wrap items-center gap-2; }
+  .filter-badge {
+    @apply inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-text px-1.5 text-[11px] font-semibold
+      text-ground;
+  }
   .filter-control {
     @apply inline-flex h-10.5 max-w-full items-center rounded-xl border border-border bg-surface-2 text-[13px]
       text-text-muted transition-colors hover:text-text;
@@ -5057,32 +5062,60 @@ html {
     @apply -ml-1 mr-1.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-text-muted
       hover:bg-border hover:text-text-strong;
   }
+  .filter-search__clear { @apply absolute right-2 top-1/2 m-0 -translate-y-1/2; }
   .filter-menu {
     @apply absolute z-20 mt-1.5 max-h-80 min-w-[13rem] max-w-[22rem] overflow-y-auto rounded-xl border border-border
       bg-surface-2 p-1 shadow-overlay;
   }
   .filter-menu--end { @apply right-0; }
+  .filter-menu--drill { @apply w-72 max-w-[calc(100vw-2rem)]; }
+  .display-menu { @apply w-80 max-w-[calc(100vw-2rem)] p-1.5; }
+  .display-row { @apply flex items-center justify-between gap-3 px-2.5 py-2 text-[13px] text-text-muted; }
+  .display-seg { @apply inline-flex gap-0.5 rounded-lg border border-border bg-ground p-0.5; }
+  .display-seg__item {
+    @apply rounded-md px-2.5 py-1 text-[12.5px] text-text-muted transition-colors hover:text-text
+      disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-text-muted;
+  }
+  .display-seg__item[aria-pressed="true"] { @apply bg-surface-3 text-text-strong; }
+  .filter-menu__search {
+    @apply mb-1 h-8 w-full rounded-lg border border-border bg-ground px-2.5 text-[13px] text-text
+      placeholder:text-text-faint;
+  }
+  .filter-menu__back {
+    @apply mb-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12px] font-semibold text-text-muted
+      transition-colors hover:bg-surface-3 hover:text-text;
+  }
   .filter-menu-item {
     @apply flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] text-text-muted transition-colors
       hover:bg-surface-3 hover:text-text;
   }
   .filter-menu-item--active { @apply bg-surface-3 text-text; }
   .filter-menu-item__lead { @apply inline-flex shrink-0 items-center text-text-faint; }
+  .filter-menu-item__end { @apply ml-auto inline-flex max-w-[9rem] min-w-0 items-center text-text-faint; }
   .filter-menu__section { @apply -mx-1 mt-1 border-t border-border px-3.5 pb-1.5 pt-2; }
   .filter-menu__label { @apply mb-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text-faint; }
   .filter-menu__loading { @apply mb-0 px-2.5 py-1.5; }
+  .filter-menu__note { @apply px-2.5 py-1.5 text-[12px] text-text-faint; }
   .filter-range { @apply flex flex-wrap items-center gap-2; }
   .filter-date { @apply rounded-lg border border-border bg-ground px-2 py-1 text-[12px] text-text; }
   .filter-apply {
     @apply rounded-lg bg-surface-3 px-2.5 py-1 text-[12px] text-text transition-colors hover:text-text-strong;
   }
+  .filter-chips { @apply flex flex-wrap items-center gap-2; }
   .filter-chip {
-    @apply inline-flex items-center gap-1 rounded-full border border-border bg-surface-3 py-1 pl-3 pr-1 text-[13px]
-      font-medium text-text;
+    @apply inline-flex h-7 max-w-full items-center gap-1 rounded-lg border border-border bg-surface-2 pl-2.5 pr-1
+      text-[12.5px] text-text;
   }
+  .filter-chip__open { @apply inline-flex min-w-0 items-center gap-1.5 hover:text-text-strong; }
+  .filter-chip__name { @apply inline-flex shrink-0 items-center gap-1.5 text-text-muted; }
+  .filter-chip__value { @apply max-w-[16rem] truncate font-medium text-text-strong; }
   .filter-chip__x {
-    @apply inline-flex h-5 w-5 items-center justify-center rounded-full text-text-muted hover:bg-border
+    @apply inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-border
       hover:text-text-strong;
+  }
+  .filter-add {
+    @apply inline-flex h-7 items-center gap-1.5 rounded-lg px-2 text-[12.5px] text-text-faint transition-colors
+      hover:bg-surface-2 hover:text-text;
   }
   .filter-clear {
     @apply inline-flex h-10.5 items-center px-1.5 text-[13px] text-text-muted transition-colors hover:text-text;
@@ -5108,23 +5141,29 @@ html {
     @apply flex items-center gap-2 border-t border-border px-5 pb-2 pt-3.5
       text-[11px] font-semibold uppercase tracking-[0.14em] text-text-faint first:border-t-0;
   }
+  .session-group-header__count { @apply ml-1.5 tracking-normal text-text-faint; }
   .session-row {
-    @apply relative flex items-center gap-3 border-t border-border px-4 py-2.5
+    @apply relative isolate flex items-center gap-3 border-t border-border px-5 py-2.5
       transition-colors hover:bg-surface-3;
   }
   .session-row--failed { box-shadow: inset 2px 0 0 var(--color-status-fail); }
+  .session-row__title { @apply flex min-w-0 items-center gap-2; }
+  .session-row__meta { @apply mt-0.5 flex min-w-0 items-center gap-2.5 overflow-hidden; }
+  /* Above the row's stretched link so its title shows; `core/js/row-hints.js` forwards the click. */
+  .session-row__hint { @apply relative z-10 cursor-pointer; }
   .session-repo { @apply inline-flex items-center gap-1 font-mono text-[11.5px] text-text-muted; }
   .session-branch { @apply inline-flex items-center gap-1 font-mono text-[11.5px] text-text-muted; }
-  /* Neutral, as a link may be: the state colours only the leading icon. */
   .mr-pill {
-    @apply inline-flex items-center gap-1 rounded-full border border-border bg-surface-3 px-2 py-0.5 text-[11px]
-      font-medium text-text;
+    @apply inline-flex items-center gap-1 rounded-full border bg-surface-3 px-2 py-0.5 text-[11px] font-medium
+      text-text;
     --mr-state: var(--color-status-clear);
+    border-color: color-mix(in srgb, var(--mr-state) 45%, transparent);
   }
   .mr-pill > span:first-child { color: var(--mr-state); }
   .mr-pill--merged { --mr-state: var(--color-text-muted); }
   .mr-pill--closed { --mr-state: var(--color-status-fail); }
   .session-num { @apply font-mono text-[12px] tabular-nums text-text-muted; }
+  .session-age { @apply text-text-faint; }
   .results--loading {
     @apply pointer-events-none opacity-50 transition-opacity duration-150;
   }

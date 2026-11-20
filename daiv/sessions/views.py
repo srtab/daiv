@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -13,13 +14,14 @@ from django.conf import settings
 from django.contrib import messages as messages_module
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, SuspiciousOperation
-from django.db.models import F, Max
+from django.db.models import Count, F, Max, Q
 from django.http import Http404, HttpResponse, HttpResponseBase
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import pgettext_lazy
 from django.views import View
 from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.vary import vary_on_headers
@@ -45,7 +47,10 @@ from sessions.conf import settings as sessions_settings
 from sessions.delegation import LegRun
 from sessions.filters import (
     ARCHIVED_INCLUDED,
-    ARCHIVED_ONLY,
+    CLEARED_WITH,
+    GROUP_CHOICES,
+    GROUP_DATE,
+    GROUP_STATUS,
     RANGE_CHOICES,
     SCOPE_CHOICES,
     SCOPE_MINE,
@@ -58,6 +63,7 @@ from sessions.filters import (
     STATUS_CHOICES,
     ArtifactFilter,
     SessionFilter,
+    resolve_archived,
     resolve_scope,
 )
 from sessions.forms import AgentRunCreateForm
@@ -66,7 +72,7 @@ from sessions.multi_repo import MAX_REPOS_PER_SESSION
 from sessions.page_state import aload_session_state
 from sessions.services import RepoTarget, submit_batch_runs
 from sessions.spend import build_session_spend
-from sessions.spend_ledger import SpendLedger
+from sessions.spend_ledger import DAIV_LABEL, DAIV_PERSON, SpendLedger
 from sessions.templatetags.session_tags import attach_merge_request_states
 from sessions.titling import MAX_TITLE_LENGTH
 from sessions.transcript_labels import transcript_icons, transcript_labels
@@ -75,6 +81,8 @@ from slash_commands.composer import composer_command_rows
 logger = logging.getLogger("daiv.sessions")
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from django.db.models import QuerySet
 
 
@@ -117,26 +125,15 @@ class SessionStreamView(View):
         visible = await sync_to_async(Run.objects.visible_to)(user)
         tracking: set[uuid.UUID] = {rid async for rid in visible.filter(id__in=run_ids).values_list("id", flat=True)}
         start = time.monotonic()
-        last_emitted: dict[uuid.UUID, tuple[str, str | None, str | None]] = {}
+        last_emitted: dict[uuid.UUID, str] = {}
 
         while tracking and (time.monotonic() - start) < STREAM_MAX_DURATION_S:
             await asyncio.sleep(POLL_INTERVAL)
 
-            runs = Run.objects.filter(id__in=tracking).only("id", "status", "started_at", "finished_at")
-
-            async for run in runs:
-                started_iso = run.started_at.isoformat() if run.started_at else None
-                finished_iso = run.finished_at.isoformat() if run.finished_at else None
-                current_state = (run.status, started_iso, finished_iso)
-
-                if last_emitted.get(run.id) != current_state:
-                    last_emitted[run.id] = current_state
-                    yield data_frame({
-                        "id": str(run.id),
-                        "status": run.status,
-                        "started_at": started_iso,
-                        "finished_at": finished_iso,
-                    })
+            async for run in Run.objects.filter(id__in=tracking).only("id", "status"):
+                if last_emitted.get(run.id) != run.status:
+                    last_emitted[run.id] = run.status
+                    yield data_frame({"id": str(run.id), "status": run.status})
 
                 if run.status in terminal:
                     tracking.discard(run.id)
@@ -164,8 +161,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
 
     @cached_property
     def archived(self) -> bool | None:
-        """Only archived sessions (``True``), archived ones with the rest (``None``), or none of them (``False``)."""
-        return {ARCHIVED_ONLY: True, ARCHIVED_INCLUDED: None}.get(self.request.GET.get("archived", ""), False)
+        return resolve_archived(self.request.GET)
 
     def _listed(self, *, archived: bool | None) -> QuerySet[Session]:
         return Session.objects.listed_for(self.request.user, mine=self.scope == SCOPE_MINE, archived=archived)
@@ -178,10 +174,11 @@ class SessionListView(LoginRequiredMixin, FilterView):
         return ["sessions/session_list.html"]
 
     sort = SORT_RECENT
+    group = GROUP_DATE
 
     def get_queryset(self) -> QuerySet[Session]:
         # ``latest_run_status`` (annotation) still drives the status FILTER. Row DISPLAY
-        # (latest status/duration/MR, run count) reads the prefetched runs, which also
+        # (latest status and MR) reads the prefetched runs, which also
         # gives the SSE dot the real ``Run.id`` to key live updates on.
         return self._listed(archived=self.archived).with_row_runs()
 
@@ -193,10 +190,14 @@ class SessionListView(LoginRequiredMixin, FilterView):
             filterset.form.is_valid()
             cleaned = filterset.form.cleaned_data
         self.sort = cleaned.get("sort") or SORT_RECENT
+        self.group = cleaned.get("group") or GROUP_DATE
         sessions = filterset.queryset.with_run_spend(cleaned.get("spend_from"), cleaned.get("spend_to"))
-        if self.sort == SORT_COST:
-            sessions = sessions.order_by(F("run_spend").desc(nulls_last=True), "-last_active_at")
-        filterset.queryset = sessions
+        ordering = [F("run_spend").desc(nulls_last=True)] if self.sort == SORT_COST else []
+        ordering.append("-last_active_at")
+        if self.group == GROUP_STATUS:
+            sessions = sessions.with_status_rank()
+            ordering.insert(0, "status_rank")
+        filterset.queryset = sessions.order_by(*ordering)
         return filterset
 
     def get_context_data(self, **kwargs):
@@ -218,13 +219,22 @@ class SessionListView(LoginRequiredMixin, FilterView):
         # HTML `<input type="date">` needs the original ISO string to round-trip.
         context["current_from"] = self.request.GET.get("date_from", "")
         context["current_to"] = self.request.GET.get("date_to", "")
+        context["current_time_label"] = self._time_label(context)
+        context["current_mr_label"] = f"!{context['current_mr']}" if context["current_mr"] else ""
         context["current_archived"] = self.archived is True
         context["current_archived_included"] = self.archived is None
         context["current_sort"] = self.sort
         context["default_sort"] = SORT_RECENT
-        context["group_by_day"] = self.sort == SORT_RECENT
+        context["cleared_with"] = json.dumps(CLEARED_WITH)
+        context["current_group"] = self.group
+        context["group_by_day"] = self.sort == SORT_RECENT and self.group == GROUP_DATE
+        context["group_by_status"] = self.group == GROUP_STATUS
+        if context["group_by_status"]:
+            context["status_groups"] = self._status_groups(context["filter"].qs)
         context["sorts"] = SORT_CHOICES
+        context["group_options"] = [(GROUP_DATE, _("Date")), *GROUP_CHOICES]
         clear_all = {"scope": self.scope} | ({"sort": self.sort} if self.sort != SORT_RECENT else {})
+        clear_all |= {"group": self.group} if self.group != GROUP_DATE else {}
         context["clear_all_url"] = f"{self.request.path}?{urlencode(clear_all)}"
         context.update(self._spend_context(cleaned))
         context["has_active_filters"] = any([
@@ -243,6 +253,8 @@ class SessionListView(LoginRequiredMixin, FilterView):
             context["current_archived"],
             context["current_archived_included"],
         ])
+        context["active_filter_count"] = self._active_filter_count(context)
+        context["filter_properties"] = self._filter_properties(context)
         if context["has_active_filters"] and self.archived is False:
             archived = SessionFilter(self.request.GET, queryset=self._listed(archived=True))
             context["archived_matches"] = archived.qs.count()
@@ -267,6 +279,80 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["in_flight_ids"] = ",".join(str(rid) for rid in in_flight.values_list("id", flat=True))
 
         return context
+
+    @staticmethod
+    def _time_label(context: dict[str, Any]) -> str:
+        """The Active filter's label: its range, or its custom dates with an open end as an ellipsis."""
+        if context["current_range"]:
+            return str(dict(RANGE_CHOICES)[context["current_range"]])
+        if context["current_from"] or context["current_to"]:
+            return f"{context['current_from'] or '…'} – {context['current_to'] or '…'}"
+        return ""
+
+    def _active_filter_count(self, context: dict[str, Any]) -> int:
+        """How many chips the filter bar shows: the filters set, deep links and the archived view included."""
+        spend = context["current_spend"]
+        return sum(
+            map(
+                bool,
+                [
+                    context["current_status"],
+                    context["current_trigger"],
+                    context["current_range"] or context["current_from"] or context["current_to"],
+                    context["current_repo"],
+                    context["current_mr"],
+                    spend["spend_person"],
+                    spend["spend_model"],
+                    spend["spend_provider"],
+                    context["current_schedule"],
+                    context["current_batch"],
+                    context["current_ran_on"],
+                    self.archived is not False,
+                ],
+            )
+        )
+
+    def _filter_properties(self, context: dict[str, Any]) -> list[dict[str, Any]]:
+        """The Filter menu's filters, in order: ``key``, ``name``, ``icon``, the ``lead`` its values show and, for those
+        whose values load when first opened, ``choices`` (the ``url`` they load from, the ``options`` known now and the
+        ``current`` value). The spend filters come only when the viewer can see spend."""
+        repo = context["current_repo"]
+        properties = [
+            {"key": "status", "name": _("Status"), "icon": "check-circle"},
+            {"key": "trigger", "name": _("Type"), "icon": "bars-3"},
+            {"key": "time", "name": pgettext_lazy("sessions last active", "Active"), "icon": "calendar"},
+            {
+                "key": "repo",
+                "name": _("Repository"),
+                "icon": "repo",
+                "lead": "repo",
+                "choices": {
+                    "url": reverse("session_repo_choices"),
+                    "reload_on": "scope archived",
+                    "options": [(repo, repo)] if repo else [],
+                    "current": repo,
+                },
+            },
+        ]
+        spend_controls = context.get("spend_controls") or {}
+        names = {
+            "spend_person": (_("Spent by"), "users"),
+            "spend_model": (_("Model"), "cpu-chip"),
+            "spend_provider": (_("Provider"), "providers"),
+        }
+        for key, control in spend_controls.items():
+            name, icon = names[key]
+            choices = {**control, "current": context["current_spend"][key]}
+            properties.append({"key": key, "name": name, "icon": icon, "choices": choices})
+        return properties
+
+    @staticmethod
+    def _status_groups(sessions: QuerySet[Session]) -> list[tuple[str | None, str, int]]:
+        """Each status present in the filtered list, in attention order, with its label and its total across pages."""
+        totals = dict(sessions.order_by().values_list("latest_run_status").annotate(total=Count("pk")))
+        groups = [(status, RunStatus(status).label, totals.get(status, 0)) for status in RunStatus.attention_order()]
+        groups.append((None, _("No runs"), totals.get(None, 0)))
+        return [group for group in groups if group[2]]
 
     def _spend_context(self, cleaned: dict[str, Any]) -> dict[str, Any]:
         """The Spent by, Model and Provider controls and the Spend banner.
@@ -324,38 +410,98 @@ class SessionListView(LoginRequiredMixin, FilterView):
         }
 
 
+CHOICES_LIMIT = 50
+
+
+def _render_choices(
+    request, key: str, options: list[tuple[str, str]], label: Callable[[str], str], *, lead: str = ""
+) -> HttpResponse:
+    """A lazily loaded filter's menu items: the first ``CHOICES_LIMIT`` of ``options``, which holds one more when there
+    are more, and the current choice (named by ``label``) when an unsearched list leaves it out."""
+    current = request.GET.get(key, "")
+    more = len(options) > CHOICES_LIMIT
+    options = options[:CHOICES_LIMIT]
+    if current and not request.GET.get("find") and current not in dict(options):
+        options = [(current, label(current)), *options]
+    context = {
+        "key": key,
+        "lead": lead,
+        "options": options,
+        "current": current,
+        "current_scope": resolve_scope(request.GET),
+        "more": more,
+        "limit": CHOICES_LIMIT,
+    }
+    return render(request, "sessions/_filter_choices.html", context)
+
+
 class SessionSpendChoicesView(LoginRequiredMixin, View):
-    """The choices of one of the sessions list's spend controls, from the records the user may see, as menu items."""
+    """The choices of one of the sessions list's spend controls, from the records the user may see, as menu items:
+    those matching ``find``, most recently spent first."""
 
     def get(self, request, key: str):
         choices = {"spend_person": self.people, "spend_model": self.models, "spend_provider": self.providers}
         if key not in choices:
             raise Http404
         records = SpendRecord.objects.visible_to(request.user).order_by()
-        context = {
-            "key": key,
-            "options": choices[key](records),
-            "current": request.GET.get(key, ""),
-            "current_scope": resolve_scope(request.GET),
-        }
-        return render(request, "sessions/_filter_options.html", context)
+        options = choices[key](records, find=request.GET.get("find", "").strip(), limit=CHOICES_LIMIT + 1)
+
+        def label(value: str) -> str:
+            try:
+                return SessionListView._spend_label(records, key, value)
+            except ValueError:
+                return value
+
+        return _render_choices(request, key, options, label)
 
     @staticmethod
-    def people(records: QuerySet[SpendRecord]) -> list[tuple[str, str]]:
+    def people(records: QuerySet[SpendRecord], *, find: str = "", limit: int | None = None) -> list[tuple[str, str]]:
+        if find:
+            named = Q(user__name__icontains=find) | Q(user__username__icontains=find) | Q(person_name__icontains=find)
+            named |= Q(external_username__icontains=find) | Q(external_uid__icontains=find)
+            if find.lower() in DAIV_LABEL.lower():
+                named |= SpendLedger.person_filter(DAIV_PERSON)
+            records = records.filter(named)
         people = {}
-        for values in records.values(*SpendLedger.PERSON_VALUES).distinct():
+        rows = records.values(*SpendLedger.PERSON_VALUES).annotate(last=Max("occurred_at")).order_by("-last")
+        for values in rows.iterator():
             person = SpendLedger.person(values)
-            people.setdefault(person.key, person.name)
-        return sorted(people.items(), key=lambda item: item[1].lower())
+            if find.lower() in str(person.name).lower():
+                people.setdefault(person.key, person.name)
+            if len(people) == limit:
+                break
+        return list(people.items())
 
     @staticmethod
-    def models(records: QuerySet[SpendRecord]) -> list[tuple[str, str]]:
-        return [(model, model) for model in records.values_list("model", flat=True).distinct().order_by("model")]
+    def models(records: QuerySet[SpendRecord], *, find: str = "", limit: int | None = None) -> list[tuple[str, str]]:
+        if find:
+            records = records.filter(model__icontains=find)
+        rows = records.values_list("model").annotate(last=Max("occurred_at")).order_by("-last", "model")[:limit]
+        return [(model, model) for model, _last in rows]
 
     @staticmethod
-    def providers(records: QuerySet[SpendRecord]) -> list[tuple[str, str]]:
-        rows = records.exclude(provider_slug="").values_list("provider_slug").annotate(Max("provider_name"))
-        return list(rows.order_by("provider_slug"))
+    def providers(records: QuerySet[SpendRecord], *, find: str = "", limit: int | None = None) -> list[tuple[str, str]]:
+        records = records.exclude(provider_slug="")
+        if find:
+            records = records.filter(Q(provider_slug__icontains=find) | Q(provider_name__icontains=find))
+        rows = records.values_list("provider_slug").annotate(name=Max("provider_name"), last=Max("occurred_at"))
+        return [(slug, name) for slug, name, _last in rows.order_by("-last", "provider_slug")[:limit]]
+
+
+class SessionRepoChoicesView(LoginRequiredMixin, View):
+    """The repositories the sessions list's Repository filter offers: those of the sessions in the request's scope
+    matching ``find``, most recently active first."""
+
+    def get(self, request):
+        sessions = Session.objects.listed_for(
+            request.user, mine=resolve_scope(request.GET) == SCOPE_MINE, archived=resolve_archived(request.GET)
+        )
+        repos = sessions.exclude(repo_id="")
+        if find := request.GET.get("find", "").strip():
+            repos = repos.filter(repo_id__icontains=find)
+        rows = repos.values_list("repo_id").annotate(last=Max("last_active_at")).order_by("-last", "repo_id")
+        options = [(repo, repo) for repo, _last in rows[: CHOICES_LIMIT + 1]]
+        return _render_choices(request, "repo", options, str, lead="repo")
 
 
 class SessionMergeRequestRedirectView(LoginRequiredMixin, View):

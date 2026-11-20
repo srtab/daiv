@@ -18,6 +18,7 @@ import pytest
 from bs4 import BeautifulSoup
 from dashboard.insights import window_for
 from dashboard.spend import SpendReport
+from sessions import views as session_views
 from sessions.models import (
     MergeRequestOwnership,
     MergeRequestState,
@@ -91,6 +92,21 @@ def _own(session: Session, iid: int, state: str = MergeRequestState.OPEN, *, rep
         merged=state == MergeRequestState.MERGED,
         closed_at=None if state == MergeRequestState.OPEN else timezone.now(),
     )
+
+
+def _row(soup: BeautifulSoup, session: Session):
+    """The list row of ``session``, found by its stretched link to the session page."""
+    href = reverse("session_detail", kwargs={"thread_id": session.thread_id})
+    return soup.select_one(f'#session-results a[href="{href}"]').find_parent(class_="session-row")
+
+
+def _shown_chips(soup: BeautifulSoup) -> list[str]:
+    """The keys of the filter chips a first paint shows, in order."""
+    return [chip["data-chip"] for chip in soup.select("[data-chip]") if "display:none" not in chip.get("style", "")]
+
+
+def _chip_value(soup: BeautifulSoup, key: str) -> str:
+    return soup.select_one(f"[data-chip={key}] .filter-chip__value").get_text(" ", strip=True)
 
 
 @pytest.mark.django_db
@@ -229,13 +245,6 @@ class TestSessionListView:
         assert "archived_matches" not in unfiltered.context
         assert "archived_matches" not in archived.context
 
-    def test_filter_bar_renders_the_archived_toggle(self, logged_in_client, user):
-        html = logged_in_client.get(reverse("session_list"), {"archived": "true"}).content.decode()
-        control = html[html.index('data-testid="filter-archived"') - 400 : html.index('data-testid="filter-archived"')]
-
-        assert 'aria-pressed="true"' in control
-        assert "toggleArchived()" in control
-
     def test_hides_ci_watch_placeholder_until_a_run_lands(self, logged_in_client, user):
         placeholder = _create_session(user=user, origin=SessionOrigin.PIPELINE_WEBHOOK, merge_request_iid=7)
         fixed = _create_session(user=user, origin=SessionOrigin.PIPELINE_WEBHOOK, merge_request_iid=8)
@@ -371,10 +380,7 @@ class TestSessionListView:
         assert response.status_code == 200
         assert response.context["current_q"] == "hello"
         assert response.context["current_range"] == "7d"
-        assert (
-            "Last 7 days"
-            in BeautifulSoup(response.content, "html.parser").select_one("[data-testid=filter-time]").get_text()
-        )
+        assert _chip_value(BeautifulSoup(response.content, "html.parser"), "time") == "Last 7 days"
         assert response.context["has_active_filters"] is True
 
     def test_has_active_filters_true_when_q_set(self, logged_in_client, user):
@@ -391,7 +397,9 @@ class TestSessionListView:
 
         assert response.context["current_mr"] == 42
         assert response.context["has_active_filters"] is True
-        assert "Merge request !42" in response.content.decode()
+        soup = BeautifulSoup(response.content, "html.parser")
+        assert _shown_chips(soup) == ["mr"]
+        assert _chip_value(soup, "mr") == "!42"
 
     def test_schedule_filter_chip_names_the_schedule(self, logged_in_client, user):
         schedule = _create_schedule(user, "Nightly audit")
@@ -400,7 +408,7 @@ class TestSessionListView:
         response = logged_in_client.get(reverse("session_list"), {"schedule": str(schedule.pk)})
 
         assert response.context["schedule_name"] == "Nightly audit"
-        assert "Schedule: Nightly audit" in response.content.decode()
+        assert _chip_value(BeautifulSoup(response.content, "html.parser"), "schedule") == "Nightly audit"
 
     def test_schedule_filter_chip_hides_another_users_schedule_name(self, logged_in_client, other_user):
         schedule = _create_schedule(other_user, "Secret audit", repo_id="other/secret")
@@ -446,6 +454,14 @@ class TestSessionListView:
 
         assert re.search(r'<a href="https://git\.example/mr/31"[^>]*class="mr-pill[^"]*">.*?!31</a>', html, re.DOTALL)
 
+    def test_row_pill_number_has_no_thousand_separator(self, logged_in_client, user):
+        session = _create_session(user=user, origin=SessionOrigin.API_JOB)
+        _create_run(session, merge_request_iid=1234, merge_request_web_url="https://git.example/mr/1234")
+
+        html = logged_in_client.get(reverse("session_list")).content.decode()
+
+        assert re.search(r'class="mr-pill[^"]*">.*?!1234</a>', html, re.DOTALL)
+
     @pytest.mark.parametrize("state", MergeRequestState)
     def test_row_pill_shows_the_merge_request_state(self, logged_in_client, user, state):
         session = _create_session(user=user, origin=SessionOrigin.API_JOB)
@@ -480,7 +496,7 @@ class TestSessionListView:
 
         html = logged_in_client.get(reverse("session_list")).content.decode()
 
-        assert re.search(r'<span class="meta-pill[^"]*">openrouter:z-ai/glm-5\.2</span>', html)
+        assert re.search(r'<span class="meta-pill" title="openrouter:z-ai/glm-5\.2">glm-5\.2</span>', html)
 
     def test_more_rows_cost_no_more_queries(self, logged_in_client, user, django_assert_num_queries):
         """A run field the row reads but ``.only()`` leaves out costs a query per row."""
@@ -516,6 +532,68 @@ class TestSessionListView:
     def test_filter_bar_has_search_input(self, logged_in_client, user):
         response = logged_in_client.get(reverse("session_list"))
         assert 'x-model="q"' in response.content.decode()
+
+    def test_row_dot_shows_only_while_running_or_needing_input(self, logged_in_client, user):
+        sessions = {}
+        for status in (
+            RunStatus.RUNNING,
+            RunStatus.WAITING_INPUT,
+            RunStatus.SUCCESSFUL,
+            RunStatus.FAILED,
+            RunStatus.QUEUED,
+        ):
+            sessions[status] = _create_session(user=user)
+            _create_run(sessions[status], status=status)
+        sessions[None] = _create_session(user=user)
+
+        soup = BeautifulSoup(logged_in_client.get(reverse("session_list")).content, "html.parser")
+
+        quiet = {
+            status
+            for status, session in sessions.items()
+            if "hidden" in _row(soup, session).select_one(".status-dot")["class"]
+        }
+        assert quiet == {RunStatus.SUCCESSFUL, RunStatus.FAILED, RunStatus.QUEUED, None}
+
+    def test_a_failed_row_keeps_its_edge_and_carries_its_run(self, logged_in_client, user):
+        failed = _create_session(user=user)
+        run = _create_run(failed, status=RunStatus.FAILED)
+        idle = _create_session(user=user)
+
+        soup = BeautifulSoup(logged_in_client.get(reverse("session_list")).content, "html.parser")
+
+        row = _row(soup, failed)
+        assert "session-row--failed" in row["class"]
+        assert (row["data-run-id"], row["data-run-status"]) == (str(run.id), "FAILED")
+        assert not _row(soup, idle).has_attr("data-run-id")
+        assert not _row(soup, idle).has_attr("data-run-status")
+
+    def test_row_puts_repo_and_branch_under_the_title(self, logged_in_client, user):
+        session = _create_session(user=user, title="Do the thing", repo_id="group/project", ref="main")
+        _create_run(session, merge_request_iid=7, merge_request_web_url="https://git.example/mr/7")
+        _own(session, 7)
+        bare = _create_session(user=user, title="Just chat", repo_id="", ref="")
+
+        soup = BeautifulSoup(logged_in_client.get(reverse("session_list")).content, "html.parser")
+
+        title = _row(soup, session).select_one(".session-row__title")
+        assert "Do the thing" in title.get_text()
+        assert title.select_one(".mr-pill") is not None
+        meta = _row(soup, session).select_one(".session-row__meta")
+        assert "group/project" in meta.get_text()
+        assert "main" in meta.get_text()
+        assert _row(soup, bare).select_one(".session-row__meta") is None
+
+    def test_row_age_is_short_with_the_full_date_in_its_title(self, logged_in_client, user):
+        session = _create_session(user=user)
+        then = timezone.now() - timedelta(days=21)
+        Session.objects.filter(pk=session.pk).update(last_active_at=then)
+
+        soup = BeautifulSoup(logged_in_client.get(reverse("session_list")).content, "html.parser")
+
+        age = _row(soup, session).select_one(".session-age")
+        assert age.get_text(strip=True) == "3w"
+        assert str(then.year) in age["title"]
 
     def test_row_shows_branch_and_day_group(self, logged_in_client, user):
         session = _create_session(user=user, ref="feat/x", title="Do the thing")
@@ -768,6 +846,40 @@ class TestSessionListSpend:
         offered = [(item["data-value"], item["data-label"]) for item in items]
         assert offered == (expected or [(f"u{user.pk}", user.username)])
 
+    def _choices(self, client, key: str, params=None) -> list[tuple[str, str]]:
+        response = client.get(reverse("session_spend_choices", args=[key]), params or {})
+        items = BeautifulSoup(response.content, "html.parser").select(f"[data-filter-key={key}]")
+        return [(item["data-value"], item["data-label"]) for item in items]
+
+    def test_spend_choices_put_the_latest_spend_first_and_find_any(self, logged_in_client, user):
+        session = _create_session(user=user)
+        for days_ago, model in ((5, "claude-old"), (1, "claude-new"), (0, "gpt-x")):
+            _spend(session, "1", model=model, days_ago=days_ago, user=user)
+
+        assert [value for value, _ in self._choices(logged_in_client, "spend_model")] == [
+            "gpt-x",
+            "claude-new",
+            "claude-old",
+        ]
+        assert [value for value, _ in self._choices(logged_in_client, "spend_model", {"find": "CLAUDE"})] == [
+            "claude-new",
+            "claude-old",
+        ]
+
+    def test_people_are_found_by_name(self, admin_client, user):
+        session = _create_session(user=user)
+        _spend(session, "1", user=user, days_ago=2)
+        _spend(session, "1")
+
+        assert self._choices(admin_client, "spend_person") == [("daiv", "DAIV"), (f"u{user.pk}", user.username)]
+        assert self._choices(admin_client, "spend_person", {"find": "ALI"}) == [(f"u{user.pk}", user.username)]
+        assert self._choices(admin_client, "spend_person", {"find": "daiv"}) == [("daiv", "DAIV")]
+
+    def test_a_current_person_outside_the_list_keeps_its_value(self, logged_in_client, user):
+        assert self._choices(logged_in_client, "spend_person", {"spend_person": "not-a-key"}) == [
+            ("not-a-key", "not-a-key")
+        ]
+
     def test_a_full_load_lists_no_spend_choices_and_names_the_current_one(self, logged_in_client, user):
         _spend(_create_session(user=user), "1", model="m1", user=user)
         _spend(_create_session(user=user), "1", model="m2", user=user)
@@ -775,16 +887,15 @@ class TestSessionListSpend:
         response = logged_in_client.get(reverse("session_list"), {"spend_person": f"u{user.pk}"})
 
         soup = BeautifulSoup(response.content, "html.parser")
-        assert [item["data-value"] for item in soup.select("[data-filter-key=spend_model]")] == [""]
-        person = soup.select_one("[data-testid=filter-spend_person]")
-        assert person.select_one(".filter-control__value").get_text(strip=True) == user.username
-        loader = soup.select_one(f"[hx-get^='{reverse('session_spend_choices', args=['spend_model'])}']")
-        assert loader["hx-trigger"] == "intersect once"
+        assert soup.select("[data-filter-key=spend_model]") == []
+        assert _chip_value(soup, "spend_person") == user.username
+        loader = soup.select_one("[data-filter-choices=spend_model]")
+        assert loader["data-choices-url"] == reverse("session_spend_choices", args=["spend_model"])
 
     def test_no_spend_anywhere_shows_no_spend_controls(self, logged_in_client, user):
         soup = BeautifulSoup(logged_in_client.get(reverse("session_list")).content, "html.parser")
 
-        assert soup.select("[data-testid^=filter-spend_]") == []
+        assert soup.select("[data-filter-property^=spend_]") == []
 
     def test_an_unknown_choice_list_is_not_found(self, logged_in_client, user):
         assert logged_in_client.get(reverse("session_spend_choices", args=["status"])).status_code == 404
@@ -855,23 +966,89 @@ class TestSessionListSpend:
 
 
 @pytest.mark.django_db
-class TestSessionListFilterBar:
+class TestSessionListToolbar:
     def _soup(self, client, params=None) -> BeautifulSoup:
         return BeautifulSoup(client.get(reverse("session_list"), params or {}).content, "html.parser")
 
-    def test_the_bar_has_no_native_selects_and_names_its_dropdowns(self, logged_in_client, user):
-        _spend(_create_session(user=user), "1", user=user, model="m1", provider_slug="p", provider_name="P")
-
+    def test_the_toolbar_is_one_row_of_search_filter_scope_and_end(self, logged_in_client, user):
         soup = self._soup(logged_in_client)
 
+        row = soup.select_one(".filter-toolbar")
+        markers = row.select("#search, [data-testid=filter-open], nav.segmented-nav, [data-testid=toolbar-end]")
+        assert [m.get("id") or m.get("data-testid") or "scope" for m in markers] == [
+            "search",
+            "filter-open",
+            "scope",
+            "toolbar-end",
+        ]
         assert soup.select("select") == []
-        names = [toggle.get_text(" ", strip=True) for toggle in soup.select(".filter-control__toggle")]
-        assert names[:6] == ["Status", "Type", "Active", "Spent by", "Model", "Provider"]
 
-    def test_sort_shows_most_recent_without_a_sort_param(self, logged_in_client, user):
-        toggle = self._soup(logged_in_client).select_one("[data-testid=filter-sort]")
+    def test_the_filter_menu_lists_every_filter_in_order(self, logged_in_client, user):
+        names = [item["data-name"] for item in self._soup(logged_in_client).select("[data-filter-property]")]
+        _spend(_create_session(user=user), "1", user=user, model="m1", provider_slug="p", provider_name="P")
+        with_spend = [item["data-name"] for item in self._soup(logged_in_client).select("[data-filter-property]")]
 
-        assert toggle.get_text(" ", strip=True) == "Sort: Most recent"
+        assert names == ["Status", "Type", "Active", "Repository"]
+        assert with_spend == ["Status", "Type", "Active", "Repository", "Spent by", "Model", "Provider"]
+
+    def test_nothing_set_shows_no_chips(self, logged_in_client, user):
+        response = logged_in_client.get(reverse("session_list"))
+
+        assert _shown_chips(BeautifulSoup(response.content, "html.parser")) == []
+        assert response.context["active_filter_count"] == 0
+
+    def test_each_set_filter_shows_one_chip_with_its_value(self, logged_in_client, user):
+        _spend(_create_session(user=user), "1", user=user, model="m1")
+        params = {"status": "FAILED", "trigger": "chat", "range": "7d", "repo": "group/project", "spend_model": "m1"}
+
+        response = logged_in_client.get(reverse("session_list"), params)
+
+        soup = BeautifulSoup(response.content, "html.parser")
+        assert _shown_chips(soup) == ["status", "trigger", "time", "repo", "spend_model"]
+        values = [_chip_value(soup, key) for key in _shown_chips(soup)]
+        assert values == ["Failed", str(SessionOrigin.CHAT.label), "Last 7 days", "group/project", "m1"]
+        assert response.context["active_filter_count"] == 5
+        assert soup.select_one("[data-testid=filter-open] .filter-badge").get_text(strip=True) == "5"
+
+    def test_a_spent_by_chip_names_the_person(self, logged_in_client, user):
+        _spend(_create_session(user=user), "1", user=user)
+
+        soup = self._soup(logged_in_client, {"spend_person": f"u{user.pk}"})
+
+        assert _chip_value(soup, "spend_person") == user.username
+
+    def test_deep_link_chips_join_the_chip_row(self, logged_in_client, user):
+        soup = self._soup(logged_in_client, {"repo": "group/project", "mr": "7"})
+
+        assert _shown_chips(soup) == ["repo", "mr"]
+        cleared = QueryDict(urlsplit(soup.select_one("[data-chip=repo] .filter-chip__x")["href"]).query)
+        assert "repo" not in cleared
+        assert "mr" not in cleared
+        assert soup.select_one("[data-chip=repo] .filter-chip__x")["@click.prevent"] == "pick('repo', '')"
+        assert soup.select_one("[data-clears]")["data-clears"] == '{"repo": ["mr"]}'
+        assert soup.select_one("[data-chip=mr] .filter-chip__open") is None
+        assert soup.select_one(".filter-clear").get_text(strip=True) == "Clear all"
+
+    def test_the_archived_list_says_so_with_a_chip(self, logged_in_client, user):
+        archived = self._soup(logged_in_client, {"archived": "true"})
+        included = self._soup(logged_in_client, {"archived": "all"})
+
+        assert _shown_chips(archived) == ["archived"]
+        assert "Archived sessions" in archived.select_one("[data-chip=archived]").get_text()
+        assert _shown_chips(included) == ["archived_included"]
+
+    def test_settable_chips_reopen_their_filter(self, logged_in_client, user):
+        soup = self._soup(logged_in_client, {"status": "FAILED"})
+
+        assert soup.select_one("[data-chip=status] .filter-chip__open")["@click"] == "openFilter('status', $el)"
+
+    def test_the_repository_panel_loads_its_choices_when_opened(self, logged_in_client, user):
+        soup = self._soup(logged_in_client, {"repo": "group/project"})
+
+        loader = soup.select_one("[data-filter-panel=repo] [data-filter-choices=repo]")
+        assert loader["data-choices-url"] == reverse("session_repo_choices")
+        assert loader["data-reload-on"] == "scope archived"
+        assert [item["data-value"] for item in loader.select("[data-filter-key=repo]")] == ["group/project"]
 
     def test_the_spend_drill_down_reads_as_one_sentence(self, logged_in_client, user):
         params = {"scope": "all", "spend_from": "2026-08-22", "spend_to": "2026-11-19", "spend_repo": "srtab/daiv"}
@@ -881,7 +1058,7 @@ class TestSessionListFilterBar:
         assert " ".join(soup.select_one(".filter-context__text").get_text(" ").split()) == (
             "From Spend · Sessions with spend between 22 Aug 2026 and 19 Nov 2026 on srtab/daiv"
         )
-        assert soup.select(".filter-chip") == []
+        assert _shown_chips(soup) == []
 
     def test_an_open_ended_spend_period_reads_since(self, logged_in_client, user):
         soup = self._soup(logged_in_client, {"spend_from": "2026-08-22"})
@@ -890,22 +1067,14 @@ class TestSessionListFilterBar:
             "From Spend · Sessions with spend since 22 Aug 2026"
         )
 
-    def test_a_set_model_with_slashes_shows_in_its_control(self, logged_in_client, user):
+    def test_a_set_model_with_slashes_shows_in_its_chip(self, logged_in_client, user):
         model = "openrouter:z-ai/glm-5.2"
         _spend(_create_session(user=user), "1", user=user, model=model)
 
         soup = self._soup(logged_in_client, {"spend_model": model})
 
-        control = soup.select_one("[data-testid=filter-spend_model]").find_parent(class_="filter-control")
-        assert "filter-control--active" in control["class"]
-        assert control.select_one(".filter-control__value").get_text(strip=True) == model
-
-    def test_archived_is_a_toggle_inside_its_own_control(self, logged_in_client, user):
-        toggle = self._soup(logged_in_client).select_one("[data-testid=filter-archived]")
-
-        assert "filter-control__toggle" in toggle["class"]
-        assert "filter-control" not in toggle["class"]
-        assert "filter-control" in toggle.parent["class"]
+        assert _shown_chips(soup) == ["spend_model"]
+        assert _chip_value(soup, "spend_model") == model
 
     def test_the_custom_range_row_wraps_inside_the_time_menu(self, logged_in_client, user):
         from tests.unit_tests.test_list_pages_on_tokens import _rules_for
@@ -915,25 +1084,46 @@ class TestSessionListFilterBar:
         assert "filter-range" in row["class"]
         assert any("flex-wrap" in body for body in _rules_for("filter-range"))
 
-    def test_deep_link_chips_keep_their_own_row(self, logged_in_client, user):
-        soup = self._soup(logged_in_client, {"repo": "group/project", "mr": "7"})
-
-        assert len(soup.select(".filter-chip")) == 2
-        assert soup.select_one(".filter-clear").get_text(strip=True) == "Clear all"
-
     def test_clear_all_keeps_the_scope_and_a_chosen_sort(self, logged_in_client, user):
-        soup = self._soup(logged_in_client, {"scope": "all", "status": "FAILED", "sort": "cost"})
+        soup = self._soup(logged_in_client, {"scope": "all", "status": "FAILED", "sort": "cost", "group": "status"})
 
         url = soup.select_one(".filter-clear")["href"]
-        assert dict(QueryDict(urlsplit(url).query).items()) == {"scope": "all", "sort": "cost"}
+        assert dict(QueryDict(urlsplit(url).query).items()) == {"scope": "all", "sort": "cost", "group": "status"}
         empty_state_url = soup.select_one("#session-results a[href*='sort=cost']")["href"]
         assert empty_state_url == url
 
-    def test_a_set_spend_filter_keeps_its_control_without_visible_spend(self, logged_in_client, user):
+    def test_a_set_spend_filter_keeps_its_chip_without_visible_spend(self, logged_in_client, user):
         soup = self._soup(logged_in_client, {"spend_model": "gone-model"})
 
-        control = soup.select_one("[data-testid=filter-spend_model]").find_parent(class_="filter-control")
-        assert control.select_one(".filter-control__value").get_text(strip=True) == "gone-model"
+        assert _chip_value(soup, "spend_model") == "gone-model"
+
+    def test_the_display_menu_offers_grouping_sort_and_archived(self, logged_in_client, user):
+        soup = self._soup(logged_in_client)
+
+        assert [button["data-group"] for button in soup.select("[data-group]")] == ["", "status", "none"]
+        assert soup.select_one('[data-group=""]')["aria-pressed"] == "true"
+        assert soup.select_one("[data-sort=recent]")["aria-pressed"] == "true"
+        assert soup.select_one("[data-testid=display-archived]")["aria-pressed"] == "false"
+
+    def test_date_grouping_is_disabled_under_cost_sort(self, logged_in_client, user):
+        soup = self._soup(logged_in_client, {"sort": "cost", "group": "status"})
+
+        assert soup.select_one('[data-group=""]').has_attr("disabled")
+        assert soup.select_one("[data-group=status]")["aria-pressed"] == "true"
+        assert soup.select_one("[data-sort=cost]")["aria-pressed"] == "true"
+
+    def test_the_archived_switch_shows_its_state(self, logged_in_client, user):
+        switch = self._soup(logged_in_client, {"archived": "true"}).select_one("[data-testid=display-archived]")
+
+        assert switch["aria-pressed"] == "true"
+        assert switch["@click"] == "toggleArchived()"
+
+    def test_display_never_looks_active(self, logged_in_client, user):
+        params = {"status": "FAILED", "sort": "cost", "group": "status", "archived": "true"}
+
+        toggle = self._soup(logged_in_client, params).select_one("[data-testid=display-open]")
+
+        assert "filter-control--active" not in toggle.find_parent(class_="filter-control")["class"]
 
     def test_a_cost_sorted_list_has_no_date_headers(self, logged_in_client, user):
         _spend(_create_session(user=user), "1")
@@ -948,3 +1138,195 @@ class TestSessionListFilterBar:
         _create_session(user=user)
 
         assert "session-group-header" in logged_in_client.get(reverse("session_list")).content.decode()
+
+    def test_a_search_has_its_own_clear(self, logged_in_client, user):
+        def clear(params):
+            return self._soup(logged_in_client, params).select_one("[data-testid=search-clear]")
+
+        searched = clear({"q": "fix", "status": "FAILED"})
+
+        assert "display:none" not in searched.get("style", "")
+        assert dict(QueryDict(urlsplit(searched["href"]).query).items()) == {"scope": "mine", "status": "FAILED"}
+        assert "display:none" in clear({}).get("style", "")
+
+
+def _headers(response) -> list[str]:
+    soup = BeautifulSoup(response.content, "html.parser")
+    return [" ".join(header.get_text(" ").split()) for header in soup.select(".session-group-header")]
+
+
+@pytest.mark.django_db
+class TestSessionListGrouping:
+    def _with_latest(self, user, status, *, hours_ago: int = 0, **fields) -> Session:
+        session = _create_session(user=user, **fields)
+        if status is not None:
+            _create_run(session, status=status)
+        Session.objects.filter(pk=session.pk).update(last_active_at=timezone.now() - timedelta(hours=hours_ago))
+        return session
+
+    def test_group_by_status_puts_attention_first_then_recency(self, logged_in_client, user):
+        no_run = self._with_latest(user, None)
+        older_done = self._with_latest(user, RunStatus.SUCCESSFUL, hours_ago=5)
+        newer_done = self._with_latest(user, RunStatus.SUCCESSFUL, hours_ago=1)
+        failed = self._with_latest(user, RunStatus.FAILED)
+        running = self._with_latest(user, RunStatus.RUNNING, hours_ago=9)
+        waiting = self._with_latest(user, RunStatus.WAITING_INPUT, hours_ago=9)
+
+        listed = _listed(logged_in_client, group="status")
+
+        assert listed == [s.pk for s in (waiting, running, failed, newer_done, older_done, no_run)]
+
+    def test_status_headers_count_the_whole_filtered_list(self, logged_in_client, user):
+        for _ in range(26):
+            self._with_latest(user, RunStatus.SUCCESSFUL, repo_id="group/project")
+        self._with_latest(user, RunStatus.FAILED, repo_id="group/project")
+        for _ in range(3):
+            self._with_latest(user, RunStatus.SUCCESSFUL, repo_id="group/other")
+        params = {"scope": "mine", "group": "status", "repo": "group/project"}
+
+        first = logged_in_client.get(reverse("session_list"), params)
+        second = logged_in_client.get(reverse("session_list"), {**params, "page": 2})
+
+        assert _headers(first) == ["Failed 1", "Done 26"]
+        assert _headers(second) == ["Done 26"]
+
+    def test_no_run_sessions_head_their_own_group(self, logged_in_client, user):
+        self._with_latest(user, None)
+
+        assert _headers(logged_in_client.get(reverse("session_list"), {"group": "status"})) == ["No runs 1"]
+
+    def test_group_none_has_no_headers(self, logged_in_client, user):
+        self._with_latest(user, RunStatus.SUCCESSFUL)
+
+        assert _headers(logged_in_client.get(reverse("session_list"), {"group": "none"})) == []
+
+    def test_an_unknown_group_keeps_date_headers(self, logged_in_client, user):
+        self._with_latest(user, RunStatus.SUCCESSFUL)
+
+        response = logged_in_client.get(reverse("session_list"), {"group": "bogus"})
+
+        assert response.status_code == 200
+        assert response.context["current_group"] == ""
+        assert _headers(response) == ["Today"]
+
+    def test_cost_sort_grouped_by_status_orders_by_cost_inside_each_group(self, logged_in_client, user):
+        cheap = self._with_latest(user, RunStatus.FAILED)
+        dear = self._with_latest(user, RunStatus.FAILED, hours_ago=3)
+        _spend(cheap, "1")
+        _spend(dear, "5")
+
+        response = logged_in_client.get(reverse("session_list"), {"sort": "cost", "group": "status"})
+
+        assert [s.pk for s in response.context["sessions"]] == [dear.pk, cheap.pk]
+        assert _headers(response) == ["Failed 2"]
+
+    def test_status_headers_count_a_session_once_with_several_runs_in_the_batch(self, logged_in_client, user):
+        batch_id = uuid.uuid4()
+        session = self._with_latest(user, None)
+        _create_run(session, batch_id=batch_id)
+        _create_run(session, batch_id=batch_id)
+
+        response = logged_in_client.get(reverse("session_list"), {"group": "status", "batch": str(batch_id)})
+
+        assert _headers(response) == ["Done 1"]
+
+    def test_status_headers_render_in_the_results_fragment(self, logged_in_client, user):
+        self._with_latest(user, RunStatus.RUNNING)
+
+        response = logged_in_client.get(reverse("session_list"), {"group": "status"}, HTTP_HX_REQUEST="true")
+
+        assert _headers(response) == ["Running 1"]
+
+
+@pytest.mark.django_db
+class TestSessionRepoChoices:
+    def _values(self, response) -> list[str]:
+        soup = BeautifulSoup(response.content, "html.parser")
+        return [item["data-value"] for item in soup.select("[data-filter-key=repo]")]
+
+    def _repo(self, user, repo_id: str, *, hours_ago: int = 0) -> None:
+        session = _create_session(user=user, repo_id=repo_id)
+        Session.objects.filter(pk=session.pk).update(last_active_at=timezone.now() - timedelta(hours=hours_ago))
+
+    def test_repo_choices_follow_the_scope(self, logged_in_client, admin_client, user, other_user):
+        _create_session(user=user, repo_id="a/one")
+        _create_session(user=user, repo_id="a/two")
+        _create_session(user=user, repo_id="a/two", archived_at=timezone.now())
+        _create_session(user=user, repo_id="")
+        _create_session(user=other_user, repo_id="b/three")
+        url = reverse("session_repo_choices")
+
+        assert sorted(self._values(logged_in_client.get(url, {"scope": "mine"}))) == ["a/one", "a/two"]
+        assert sorted(self._values(admin_client.get(url, {"scope": "all"}))) == ["a/one", "a/two", "b/three"]
+
+    def test_repo_choices_list_the_most_recently_active_first(self, logged_in_client, user):
+        self._repo(user, "a/one", hours_ago=9)
+        self._repo(user, "a/two", hours_ago=1)
+        self._repo(user, "a/one", hours_ago=0)
+
+        assert self._values(logged_in_client.get(reverse("session_repo_choices"))) == ["a/one", "a/two"]
+
+    def test_a_search_finds_any_repository_or_says_none_match(self, logged_in_client, user):
+        for repo in ("group/api", "group/web", "other/api-docs"):
+            self._repo(user, repo)
+        url = reverse("session_repo_choices")
+
+        assert sorted(self._values(logged_in_client.get(url, {"find": " API "}))) == ["group/api", "other/api-docs"]
+        assert "No matches." in logged_in_client.get(url, {"find": "nothing"}).content.decode()
+
+    def test_a_long_list_shows_the_most_recent_and_keeps_the_current_one(self, logged_in_client, user, monkeypatch):
+        monkeypatch.setattr(session_views, "CHOICES_LIMIT", 2)
+        for hours, repo in enumerate(("a/1", "a/2", "a/3")):
+            self._repo(user, repo, hours_ago=hours)
+        url = reverse("session_repo_choices")
+
+        listed = logged_in_client.get(url, {"repo": "a/3"})
+        searched = logged_in_client.get(url, {"repo": "a/3", "find": "a/"})
+
+        assert self._values(listed) == ["a/3", "a/1", "a/2"]
+        assert "Showing the 2 most recent." in listed.content.decode()
+        assert self._values(searched) == ["a/1", "a/2"]
+
+    def test_repo_choices_keep_the_list_query_and_mark_the_current_one(self, logged_in_client, user):
+        _create_session(user=user, repo_id="a/one")
+        _create_session(user=user, repo_id="a/two")
+
+        response = logged_in_client.get(
+            reverse("session_repo_choices"), {"scope": "all", "status": "FAILED", "repo": "a/two"}
+        )
+
+        soup = BeautifulSoup(response.content, "html.parser")
+        item = soup.select_one("[data-filter-key=repo][data-value='a/one']")
+        assert "filter-menu-item--active" in soup.select_one("[data-value='a/two']")["class"]
+        assert dict(QueryDict(urlsplit(item["href"]).query).items()) == {
+            "scope": "all",
+            "status": "FAILED",
+            "repo": "a/one",
+        }
+
+    def test_repo_choices_match_the_archived_view_and_skip_watch_placeholders(self, logged_in_client, user):
+        _create_session(user=user, repo_id="a/live")
+        _create_session(user=user, repo_id="a/shelved", archived_at=timezone.now())
+        _create_session(user=user, repo_id="a/watch", origin=SessionOrigin.PIPELINE_WEBHOOK)
+        url = reverse("session_repo_choices")
+
+        assert self._values(logged_in_client.get(url, {"scope": "mine"})) == ["a/live"]
+        assert self._values(logged_in_client.get(url, {"scope": "mine", "archived": "true"})) == ["a/shelved"]
+        assert sorted(self._values(logged_in_client.get(url, {"scope": "mine", "archived": "all"}))) == [
+            "a/live",
+            "a/shelved",
+        ]
+
+    def test_picking_another_repository_drops_the_merge_request(self, logged_in_client, user):
+        _create_session(user=user, repo_id="a/one")
+
+        response = logged_in_client.get(reverse("session_repo_choices"), {"scope": "all", "repo": "a/two", "mr": "12"})
+
+        item = BeautifulSoup(response.content, "html.parser").select_one("[data-value='a/one']")
+        assert dict(QueryDict(urlsplit(item["href"]).query).items()) == {"scope": "all", "repo": "a/one"}
+
+    def test_repo_choices_need_sign_in(self, client):
+        response = client.get(reverse("session_repo_choices"))
+
+        assert response.status_code == 302
+        assert "/accounts/login/" in response["Location"]

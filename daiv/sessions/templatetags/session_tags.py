@@ -4,8 +4,9 @@ from typing import TYPE_CHECKING
 from django import template
 from django.contrib.humanize.templatetags.humanize import naturaltime
 from django.utils import formats, timezone
-from django.utils.translation import gettext
+from django.utils.translation import gettext, gettext_lazy
 
+from sessions.filters import CLEARED_WITH
 from sessions.models import MergeRequestOwnership
 
 if TYPE_CHECKING:
@@ -141,6 +142,37 @@ def short_timestamp(dt) -> str:
     if _local_days_ago(dt) <= 0:
         return naturaltime(dt)
     return formats.date_format(timezone.localtime(dt), "M j")
+
+
+_DAY = 86400
+# (below this many seconds, seconds per unit, label); the m/h/d labels are the sidebar's ``compact_time`` ones.
+_AGE_UNITS = (
+    (3600, 60, gettext_lazy("%(count)dm")),
+    (_DAY, 3600, gettext_lazy("%(count)dh")),
+    (14 * _DAY, _DAY, gettext_lazy("%(count)dd")),
+    (60 * _DAY, 7 * _DAY, gettext_lazy("%(count)dw")),
+    (365 * _DAY, 30 * _DAY, gettext_lazy("%(count)dmo")),
+)
+
+
+@register.filter
+def short_age(dt) -> str:
+    """How long ago ``dt`` was, in one compact unit: ``now``, ``5m``, ``3h``, ``13d``, ``3w``, ``4mo``, ``1y``."""
+    if dt is None:
+        return ""
+    seconds = (timezone.now() - dt).total_seconds()
+    if seconds < 60:
+        return gettext("now")
+    for below, unit, label in _AGE_UNITS:
+        if seconds < below:
+            return label % {"count": seconds // unit}
+    return gettext("%(count)dy") % {"count": seconds // (365 * _DAY)}
+
+
+@register.filter
+def option_param(key: str, value: str | None = None) -> dict[str, str | None]:
+    """``{key: value}`` for a filter's ``{% querystring %}``, clearing the params that hang on ``key``."""
+    return {key: value} | dict.fromkeys(CLEARED_WITH.get(key, ()))
 
 
 _ARTIFACT_ICONS = {"markdown": "document-text", "html": "code-bracket", "image": "photo", "text": "document"}

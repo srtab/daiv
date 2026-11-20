@@ -1,4 +1,7 @@
-/** The contract sessions/_filter_dropdown.html binds to, spread into a filter bar that has `open` and `_apply()`. */
+/**
+ * The contract sessions/_filter_dropdown.html binds to, spread into a filter bar that has `open` and `_apply()`,
+ * and optionally `_clears`: per key, the params a pick of it empties.
+ */
 window.filterDropdown = {
     _item(key) {
         const value = this[key];
@@ -14,6 +17,7 @@ window.filterDropdown = {
         wrapper?.querySelector(".filter-control__toggle").focus();
     },
     pick(key, value) {
+        (this._clears?.[key] ?? []).forEach((name) => (this[name] = ""));
         this[key] = value;
         this._apply();
     },

@@ -9,6 +9,14 @@
             <span>{{ session.last_active_at|date_bucket }}</span>
         </div>
         {% endifchanged %}
+        {% elif group_by_status %}
+        {% ifchanged session.latest_run_status %}
+        {% for status, label, total in status_groups %}{% if status == session.latest_run_status %}
+        <div class="session-group-header">
+            <span>{{ label }}<span class="session-group-header__count">{{ total }}</span></span>
+        </div>
+        {% endif %}{% endfor %}
+        {% endifchanged %}
         {% endif %}
         {% include "sessions/_session_row.html" with session=session %}
     {% endfor %}

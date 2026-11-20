@@ -605,26 +605,45 @@ label goes in `.segmented-nav__count`. Tabs that switch in place without a URL u
 
 ### Filter bar
 
-The bar above a list (Sessions, Artifacts, Memory). Every control is 42px (`h-10.5`), the height of
-`segmented-nav`, and the rows wrap rather than switch at a breakpoint.
+The bar above a list. Every control is 42px (`h-10.5`), the height of `segmented-nav`, and rows
+wrap rather than switch at a breakpoint. A list with three filters or fewer (Artifacts, Memory)
+gives each its own dropdown; a list with more (Sessions) puts them behind one Filter button.
 
-- **Row 1**: `.filter-search` first, growing; then a segmented nav for a scope choice.
-- **Row 2**: one dropdown per filter, then **Clear all** (`.filter-clear`, shown while any filter is
-  set), then — pushed right — **Sort** (always shows its value, never styled active) and view
-  switches that swap the list rather than narrow it (Archived, `aria-pressed`).
 - **Segment or dropdown**: an always-set choice of four options or fewer is a segmented nav;
-  anything with more options, or usually unset, is a dropdown.
-- **One place per param**: a param with a control shows only in that control — set, the control
-  reads `Name: value` on `surface-3` with an × beside it. Chips (`.filter-chip`, a third row) are
-  for deep-link params with no control (repository, merge request, schedule, batch).
+  anything with more options, or usually unset, is a dropdown or a Filter-menu entry.
+- **Controls never use a status colour or the accent** for their own state; menus are
+  `.filter-menu` surfaces. An option may lead with its status dot, as the Status values do.
 - **Context banner** (`.filter-context`): params another page links in with and no control here
   (the Spend drill-down) read as one sentence with one ×.
-- Controls never use a status colour or the accent for their own state; menus are `.filter-menu`
-  surfaces. An option may lead with its status dot, as the Status menu's do.
+
+**Three filters or fewer** (`sessions/_filter_dropdown.html`):
+
+- **Row 1**: `.filter-search` first, growing; then a segmented nav for a scope choice.
+- **Row 2**: one dropdown per filter, then **Clear all** (`.filter-clear`, shown while any filter
+  is set), then — pushed right — sort and view switches (`aria-pressed`).
+- **One place per param**: a set param shows only in its control, which reads `Name: value` on
+  `surface-3` with an × beside it. Chips (`.filter-chip`) are for deep-link params with no control.
 
 Dropdowns render through `sessions/_filter_dropdown.html`, against an Alpine component that has
-`open` and `_apply()` and spreads `filterDropdown` (`sessions/js/filter-dropdown.js`). They are
-disclosures, not ARIA menus: a toggle with `aria-expanded` over plain links that Tab reaches.
+`open` and `_apply()` and spreads `filterDropdown` (`sessions/js/filter-dropdown.js`).
+
+**More than three filters** (`sessions/_filter_bar.html`):
+
+- **One toolbar row**: `.filter-toolbar` holds the search, the **Filter** button (`.filter-badge`
+  counts the chips; active while any are set), the scope segment and a **Display** button.
+  Nothing in it grows as filters are set.
+- **Filter menu** (`sessions/_filter_menu.html`, `.filter-menu--drill`): a "Filter by…" box over
+  the filters by name; picking one shows its values in place, with a back row. Long value lists
+  load from the server when first opened. `F` opens it when focus is not in a field.
+- **Chip row** (`.filter-chips`, `sessions/_filter_chip.html`): every applied filter, deep links
+  and the archived view included, as `Name value ×`, in a fixed order, then **+ Filter** and
+  **Clear all**. A chip a menu can set reopens that filter's values; a param shows only as its chip.
+- **Display menu** (`sessions/_display_menu.html`): grouping, sort and the archived view, as
+  segments and an `aria-pressed` item. It shapes the list rather than narrowing it, so its button
+  is never styled active.
+
+Menus are disclosures, not ARIA menus: a toggle with `aria-expanded` over plain links and buttons
+that Tab reaches.
 
 ```django
 {% translate "Model" as model_label %}{% translate "Any model" as any_model %}

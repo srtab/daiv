@@ -198,6 +198,17 @@ class SessionQuerySet(models.QuerySet["Session"]):
         latest = _session_runs_newest_first(models.OuterRef("pk"))
         return self.annotate(latest_run_status=models.Subquery(latest.values("status")[:1]))
 
+    def with_status_rank(self) -> models.QuerySet[Session]:
+        """Annotate ``status_rank``: where ``latest_run_status`` falls in ``RunStatus.attention_order()``, sessions with
+        no run last. Needs ``with_latest_status()``."""
+        from sessions.models import RunStatus
+
+        order = RunStatus.attention_order()
+        whens = [models.When(latest_run_status=status, then=models.Value(rank)) for rank, status in enumerate(order)]
+        return self.annotate(
+            status_rank=models.Case(*whens, default=models.Value(len(order)), output_field=models.IntegerField())
+        )
+
     def with_row_runs(self) -> models.QuerySet[Session]:
         """Prefetch each session's runs, newest first, with only the columns a session row reads.
 
@@ -206,15 +217,7 @@ class SessionQuerySet(models.QuerySet["Session"]):
         from sessions.models import Run
 
         runs = Run.objects.only(
-            "id",
-            "session_id",
-            "status",
-            "started_at",
-            "finished_at",
-            "merge_request_iid",
-            "merge_request_web_url",
-            "agent_model",
-            "created_at",
+            "id", "session_id", "status", "merge_request_iid", "merge_request_web_url", "agent_model", "created_at"
         ).order_by(*_NEWEST_FIRST)
         return self.select_related("user", "scheduled_job").prefetch_related(models.Prefetch("runs", queryset=runs))
 

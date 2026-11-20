@@ -1581,3 +1581,93 @@ msgstr "Tipo"
 
 msgid "All kinds"
 msgstr "Todos os tipos"
+
+msgid "Filter"
+msgstr "Filtrar"
+
+msgid "Filter by…"
+msgstr "Filtrar por…"
+
+msgid "Filter by"
+msgstr "Filtrar por"
+
+msgid "Find…"
+msgstr "Procurar…"
+
+#, python-format
+msgid "Find a %(name)s"
+msgstr "Procurar %(name)s"
+
+#, python-format
+msgid "Clear %(name)s filter"
+msgstr "Limpar filtro %(name)s"
+
+msgid "Archived sessions"
+msgstr "Sessões arquivadas"
+
+msgid "Schedule"
+msgstr "Agendamento"
+
+msgid "Batch"
+msgstr "Lote"
+
+msgid "Ran on"
+msgstr "Executada em"
+
+msgid "Including archived"
+msgstr "Incluindo arquivadas"
+
+msgid "Display"
+msgstr "Apresentação"
+
+msgid "Group by"
+msgstr "Agrupar por"
+
+msgid "Sort by"
+msgstr "Ordenar por"
+
+msgid "Show archived"
+msgstr "Mostrar arquivadas"
+
+msgid "Date"
+msgstr "Data"
+
+msgid "No runs"
+msgstr "Sem execuções"
+
+msgid "now"
+msgstr "agora"
+
+#, python-format
+msgid "%(count)dm"
+msgstr "%(count)d min"
+
+#, python-format
+msgid "%(count)dh"
+msgstr "%(count)d h"
+
+#, python-format
+msgid "%(count)dd"
+msgstr "%(count)d d"
+
+#, python-format
+msgid "%(count)dw"
+msgstr "%(count)d sem"
+
+#, python-format
+msgid "%(count)dmo"
+msgstr "%(count)d meses"
+
+#, python-format
+msgid "%(count)dy"
+msgstr "%(count)d a"
+
+msgid "Clear search"
+msgstr "Limpar pesquisa"
+
+msgid "No matches."
+msgstr "Sem resultados."
+
+#, python-format
+msgid "Showing the %(limit)s most recent. Type to find others."
+msgstr "A mostrar os %(limit)s mais recentes. Escreva para encontrar outros."

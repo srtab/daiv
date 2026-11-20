@@ -1,4 +1,4 @@
-{% load i18n icon_tags session_tags %}
+{% load i18n icon_tags l10n session_tags %}
 {% comment %}
 Must sit inside ``sessionPage`` inside ``chat({…})``: status and the repository summary read state the stream and turns fetches update.
 ``can_act`` (run access to the repository) shows rename, Archive and Unarchive, which act for everyone.
@@ -83,7 +83,7 @@ Must sit inside ``sessionPage`` inside ``chat({…})``: status and the repositor
         {% if header.issue.url %}
           <a role="menuitem" tabindex="-1" class="session-menu__item"
              href="{{ header.issue.url }}" target="_blank" rel="noopener noreferrer">
-            {% icon "exclamation-circle" "session-menu__icon" %}<span class="flex-1">{% blocktranslate with iid=header.issue.iid %}Open issue #{{ iid }}{% endblocktranslate %}</span>
+            {% icon "exclamation-circle" "session-menu__icon" %}<span class="flex-1">{% blocktranslate with iid=header.issue.iid|unlocalize %}Open issue #{{ iid }}{% endblocktranslate %}</span>
             {% icon "arrow-top-right-on-square" "h-3.5 w-3.5 text-text-faint" %}
           </a>
         {% endif %}

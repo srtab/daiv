@@ -58,6 +58,11 @@ class RunStatus(models.TextChoices):
     def terminal(cls) -> frozenset[str]:
         return frozenset({cls.SUCCESSFUL, cls.WAITING_INPUT, cls.FAILED})
 
+    @classmethod
+    def attention_order(cls) -> tuple[str, ...]:
+        """Statuses ordered by how much they need a person: waiting on them first, done last."""
+        return (cls.WAITING_INPUT, cls.RUNNING, cls.READY, cls.QUEUED, cls.FAILED, cls.SUCCESSFUL)
+
 
 class PublishStatus(models.TextChoices):
     OPENED = "opened", _("Opened")
