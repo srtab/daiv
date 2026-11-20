@@ -4,10 +4,11 @@ Every cell about another tool cites the vendor's own public docs it was taken fr
 """
 
 from dataclasses import dataclass
+from datetime import date
 
 from dashboard.landing import DEPLOYMENT_URL, DOCS_ROOT
 
-CHECKED = "November 2026"
+CHECKED = date(2026, 11, 11)
 
 ASPECTS = (
     ("hosting", "Where it runs"),

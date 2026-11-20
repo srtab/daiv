@@ -3,12 +3,14 @@ from datetime import UTC, datetime, time
 from django.contrib.syndication.views import Feed
 from django.http import Http404
 
+from dashboard.landing import CANONICAL_ORIGIN
+
 from blog import posts
 
 
 class BlogFeed(Feed):
     title = "DAIV blog"
-    link = f"{posts.CANONICAL_ORIGIN}/blog/"
+    link = f"{CANONICAL_ORIGIN}/blog/"
     description = "Open-source, self-hosted SWE agents for GitLab & GitHub"
 
     def get_object(self, request, *args, **kwargs) -> tuple[posts.Post, ...]:

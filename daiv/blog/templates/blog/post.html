@@ -5,8 +5,6 @@
 
 {% block meta_description %}<meta name="description" content="{{ post.summary }}">{% endblock %}
 
-{% block canonical %}<link rel="canonical" href="{{ post.canonical_url }}">{% endblock %}
-
 {% block open_graph %}
     <meta property="og:type" content="article">
     <meta property="og:url" content="{{ post.canonical_url }}">
@@ -31,6 +29,7 @@
   "headline": "{{ post.title|escapejs }}",
   "description": "{{ post.summary|escapejs }}",
   "datePublished": "{{ post.date|date:'Y-m-d' }}",
+  {% if post.updated %}"dateModified": "{{ post.updated|date:'Y-m-d' }}",{% endif %}
   "url": "{{ post.canonical_url|escapejs }}",
   "mainEntityOfPage": "{{ post.canonical_url|escapejs }}",
   {% if post.image %}"image": "{{ post.absolute_image_url|escapejs }}",{% endif %}

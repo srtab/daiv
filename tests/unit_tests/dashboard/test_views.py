@@ -16,7 +16,7 @@ import pytest
 from asgiref.sync import async_to_sync
 from bs4 import BeautifulSoup
 from dashboard import landing
-from dashboard.comparisons import COMPARISONS
+from dashboard.comparisons import CHECKED, COMPARISONS
 from dashboard.conf import DashboardSettings
 from dashboard.conf import settings as dashboard_settings
 from dashboard.home import INBOX_LIMIT
@@ -96,6 +96,12 @@ class TestHomepage:
         app = next(data for data in map(json.loads, blocks) if data["@type"] == "SoftwareApplication")
         assert app["sameAs"] == [link.url for link in landing.SOCIAL_LINKS]
 
+    def test_canonical_points_at_daivagent_com_on_any_host(self):
+        content = Client(HTTP_HOST="daiv.internal.example").get("/?utm_source=x").content.decode()
+
+        assert '<link rel="canonical" href="https://daivagent.com/">' in content
+        assert '<meta property="og:url" content="https://daivagent.com/">' in content
+
     def test_hero_deploy_link_is_the_quickstart(self):
         content = Client().get(reverse("homepage")).content.decode()
 
@@ -129,6 +135,12 @@ class TestComparison:
             for source in (*row.daiv.sources, *row.theirs.sources):
                 assert f'href="{source}"' in content
 
+    def test_canonical_points_at_daivagent_com_on_any_host(self):
+        path = reverse("comparison", args=[COMPARISONS[0].slug])
+        content = Client(HTTP_HOST="daiv.internal.example").get(path).content.decode()
+
+        assert f'<link rel="canonical" href="https://daivagent.com{path}">' in content
+
     def test_unknown_comparison_is_not_found(self):
         assert Client().get("/compare/nothing-like-this/").status_code == 404
 
@@ -143,6 +155,21 @@ class TestComparison:
 
         for comparison in COMPARISONS:
             assert reverse("comparison", args=[comparison.slug]) in content
+        assert f"<lastmod>{CHECKED:%Y-%m-%d}</lastmod>" in content
+
+    def test_page_says_when_it_was_checked(self):
+        content = Client().get(reverse("comparison", args=[COMPARISONS[0].slug])).content.decode()
+
+        assert f"as of {CHECKED:%B %Y}." in content
+
+
+@pytest.mark.django_db
+def test_sitemap_lists_urls_at_daivagent_com_on_any_host():
+    content = Client(HTTP_HOST="daiv.internal.example").get(reverse("sitemap")).content.decode()
+
+    locations = re.findall(r"<loc>(.*?)</loc>", content)
+    assert locations
+    assert all(location.startswith("https://daivagent.com/") for location in locations)
 
 
 UMAMI_WEBSITE_ID = uuid.UUID("0b6bd0c4-5d6c-4f2e-9a43-1d2e3f4a5b6c")

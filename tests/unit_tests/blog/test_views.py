@@ -51,8 +51,10 @@ def test_debug_previews_unpublished_posts_with_a_marker(write_post, settings):
 
 def test_canonical_points_at_daivagent_com_on_any_host(write_post):
     write_post()
-    content = Client(HTTP_HOST="daiv.internal.example").get("/blog/egress/").content.decode()
-    assert '<link rel="canonical" href="https://daivagent.com/blog/egress/">' in content
+    for path in ("/blog/", "/blog/egress/"):
+        content = Client(HTTP_HOST="daiv.internal.example").get(path).content.decode()
+        assert content.count('rel="canonical"') == 1
+        assert f'<link rel="canonical" href="https://daivagent.com{path}">' in content
 
 
 def test_share_tags_without_an_image(write_post):
@@ -89,6 +91,14 @@ def test_json_ld_describes_the_post(write_post):
         "https://daivagent.com/blog/egress/",
         "Sandro Rodrigues",
     )
+    assert "dateModified" not in data
+
+
+def test_json_ld_carries_the_update_date(write_post):
+    write_post(updated=date(2026, 12, 15))
+    content = Client().get("/blog/egress/").content.decode()
+    data = json.loads(re.search(r'<script type="application/ld\+json">(.*?)</script>', content, re.DOTALL)[1])
+    assert data["dateModified"] == "2026-12-15"
 
 
 def test_signed_in_user_can_read_a_post(write_post, member_client):

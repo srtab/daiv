@@ -24,6 +24,7 @@ from dashboard.skill_usage import RECENT_RUNS, match_runs, skill_usage
 class LandingPageView(TemplateView):
     def get_context_data(self, **kwargs):
         return super().get_context_data(
+            canonical_url=landing.CANONICAL_ORIGIN + self.request.path,
             quickstart_url=landing.QUICKSTART_URL,
             deployment_url=landing.DEPLOYMENT_URL,
             social_links=landing.SOCIAL_LINKS,

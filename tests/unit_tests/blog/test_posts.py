@@ -14,7 +14,7 @@ def test_parses_front_matter_and_renders_the_body(write_post):
         "How egress works.",
         "Sandro Rodrigues",
     )
-    assert post.image is None and post.draft is False
+    assert post.image is None and post.draft is False and post.updated is None
     assert "<p>Hello.</p>" in post.html
 
 

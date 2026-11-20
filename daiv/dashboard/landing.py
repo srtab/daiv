@@ -4,6 +4,9 @@ from dataclasses import dataclass
 
 from daiv import DOCS_URL
 
+# Every install serves the public pages, so their canonicals and the sitemap all name DAIV's own site.
+CANONICAL_ORIGIN = "https://daivagent.com"
+
 DOCS_ROOT = DOCS_URL.rstrip("/")
 QUICKSTART_URL = f"{DOCS_ROOT}/getting-started/quickstart/"
 DEPLOYMENT_URL = f"{DOCS_ROOT}/getting-started/deployment/"

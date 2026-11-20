@@ -53,6 +53,13 @@ def test_sitemap_lists_the_index_and_published_posts(write_post):
     assert "/blog/draft/" not in content
 
 
+def test_sitemap_lastmod_is_the_update_date_when_a_post_has_one(write_post):
+    write_post(updated=date(2026, 12, 15))
+    content = Client().get(reverse("sitemap")).content.decode()
+    assert "<lastmod>2026-12-15</lastmod>" in content
+    assert "<lastmod>2026-12-14</lastmod>" not in content
+
+
 def test_sitemap_has_no_blog_without_visible_posts(posts_dir):
     assert "/blog/" not in Client().get(reverse("sitemap")).content.decode()
 
