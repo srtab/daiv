@@ -114,6 +114,7 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 ### Fixed
 
 - Fix runs started with a repository such as `/group/project` failing with "404 Project Not Found": the jobs API, MCP, chat API, scheduled jobs and delegated jobs now ignore slashes around it ([#1851](https://github.com/srtab/daiv/pull/1851))
+- Fix a scheduled, background or issue run whose worker crashed showing as running for good; the 5-minute sweep now fails it with its task, whatever started it ([#1858](https://github.com/srtab/daiv/pull/1858))
 - Fix a worker restart leaving its agent run spinning for about 30 minutes: the worker now stops the run cleanly, and **Stop** ends a run whose worker is gone; give the worker `stop_grace_period: 2m` so a deploy doesn't kill it mid-run ([#1842](https://github.com/srtab/daiv/pull/1842))
 - Refuse agent file-tool writes under `.git`, and run DAIV's host-side git without hooks, fsmonitor or external diff, closing a prompt-injection path to the worker ([#1676](https://github.com/srtab/daiv/pull/1676))
 - Fix `web_fetch` following unlimited same-host redirects without checking SSRF protection again; it now follows at most 5 and checks each one ([#971](https://github.com/srtab/daiv/pull/971))
