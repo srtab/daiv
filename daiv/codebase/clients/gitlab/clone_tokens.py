@@ -88,7 +88,6 @@ def _create_token(client: Gitlab, project_pk: int) -> tuple[str | None, int]:
             "expires_at": expires_at,
         })
     except GitlabAuthenticationError as e:
-        # The PAT fallback, when enabled, uses the very credential GitLab just rejected — name it.
         logger.warning(
             "GitLab rejected the configured PAT while provisioning a clone token for project %s "
             "(is the PAT revoked or expired?): %s",

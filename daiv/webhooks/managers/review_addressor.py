@@ -17,7 +17,7 @@ from codebase.clients.base import CommentThread
 from codebase.exceptions import CloneRefNotFoundError
 from core.constants import BOT_NAME
 
-from .base import CANNOT_RUN_YET_ERRORS, BaseManager
+from .base import BaseManager
 
 if TYPE_CHECKING:
     from langgraph.types import StateSnapshot
@@ -134,12 +134,7 @@ class CommentsAddressorManager(BaseManager):
     async def _on_failure(self, exc: Exception, *, draft_published: bool, snapshot: StateSnapshot | None) -> None:
         if isinstance(exc, CloneRefNotFoundError):
             return
-        if isinstance(exc, CANNOT_RUN_YET_ERRORS):
-            logger.warning("review_addressor: %s", exc)
-            if self._claim_unable_note():
-                self._leave_comment(
-                    f"@{self.merge_request.author.username} I can't run yet: {exc}", reply_to_id=self.reply_to_id
-                )
+        if self._said_cannot_run_yet(exc, author=self.merge_request.author.username):
             return
         failure = provider_failure_of(exc)
         self._add_unable_to_address_review_note(

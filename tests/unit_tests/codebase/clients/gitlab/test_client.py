@@ -195,26 +195,15 @@ class TestGitLabClient:
         assert clone_from.call_args.kwargs["env"] == _expected_clone_env("pat-token")
         assert "with the configured PAT" in caplog.text
 
-    def test_load_repo_raises_when_pat_is_missing(self, gitlab_client, clone_setup):
-        """No ephemeral token and no PAT must fail with a named config error, not an oauth2:None@ URL."""
-        repository, clone_from, _ = clone_setup
-        gitlab_client.client.private_token = None
-
-        with (
-            patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None),
-            pytest.raises(CloneCredentialUnavailableError),
-            gitlab_client.load_repo(repository, "main"),
-        ):
-            pass
-
-        clone_from.assert_not_called()
-
-    @pytest.mark.parametrize("pat", ["pat-token", None])
-    def test_load_repo_raises_when_pat_fallback_disabled(self, gitlab_client, clone_setup, monkeypatch, pat):
-        """With the fallback off, a missing ephemeral token fails the clone instead of using the PAT."""
+    @pytest.mark.parametrize(
+        ("pat", "fallback"),
+        [pytest.param(None, True, id="no-pat"), pytest.param("pat-token", False, id="fallback-off")],
+    )
+    def test_load_repo_raises_without_a_clone_credential(self, gitlab_client, clone_setup, monkeypatch, pat, fallback):
+        """No ephemeral token and no usable PAT fails with a named error, not an oauth2:None@ URL or the PAT."""
         repository, clone_from, _ = clone_setup
         gitlab_client.client.private_token = pat
-        monkeypatch.setattr(codebase_settings, "GITLAB_PAT_FALLBACK", False)
+        monkeypatch.setattr(codebase_settings, "GITLAB_PAT_FALLBACK", fallback)
 
         with (
             patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None),
@@ -403,12 +392,17 @@ class TestGitLabClient:
 
         assert auth_env == GitAuthEnv.for_token(_CLONE_URL, "glpat-eph")
 
-    def test_get_git_auth_env_none_when_no_token(self, gitlab_client, clone_setup, caplog):
-        """No token at all (no ephemeral, no PAT) means nothing to authenticate with — callers
-        get None instead of a bogus header, and a debug line records it so a provisioning failure
-        is distinguishable from a genuinely credential-less (public-repo) platform."""
+    @pytest.mark.parametrize(
+        ("pat", "fallback"),
+        [pytest.param(None, True, id="no-pat"), pytest.param("pat-token", False, id="fallback-off")],
+    )
+    def test_get_git_auth_env_none_when_no_token(self, gitlab_client, clone_setup, caplog, monkeypatch, pat, fallback):
+        """No usable token (no ephemeral, and no PAT or the fallback off) means nothing to authenticate
+        with — callers get None instead of a bogus header, and a debug line records it so a provisioning
+        failure is distinguishable from a genuinely credential-less (public-repo) platform."""
         repository, _, _ = clone_setup
-        gitlab_client.client.private_token = None
+        gitlab_client.client.private_token = pat
+        monkeypatch.setattr(codebase_settings, "GITLAB_PAT_FALLBACK", fallback)
 
         with (
             patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None),
@@ -417,13 +411,6 @@ class TestGitLabClient:
             assert gitlab_client.get_git_auth_env(repository) is None
 
         assert "No git credential resolved for group/repo" in caplog.text
-
-    def test_get_git_auth_env_skips_pat_when_fallback_disabled(self, gitlab_client, clone_setup, monkeypatch):
-        repository, _, _ = clone_setup
-        monkeypatch.setattr(codebase_settings, "GITLAB_PAT_FALLBACK", False)
-
-        with patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None):
-            assert gitlab_client.get_git_auth_env(repository) is None
 
     def test_load_repo_does_not_retry_non_auth_clone_failures(self, gitlab_client, clone_setup):
         """A missing branch (or any non-auth 128) won't be fixed by a fresh credential, so it must

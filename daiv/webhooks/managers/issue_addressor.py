@@ -18,7 +18,7 @@ from automation.agent.utils import repo_relative_text
 from codebase.base import GitPlatform, Scope
 from core.constants import BOT_NAME, has_auto_label
 
-from .base import CANNOT_RUN_YET_ERRORS, BaseManager
+from .base import BaseManager
 
 if TYPE_CHECKING:
     from langgraph.types import StateSnapshot
@@ -212,12 +212,7 @@ class IssueAddressorManager(BaseManager):
             self._add_unable_to_address_issue_note()
 
     async def _on_failure(self, exc: Exception, *, draft_published: bool, snapshot: StateSnapshot | None) -> None:
-        if isinstance(exc, CANNOT_RUN_YET_ERRORS):
-            logger.warning("issue_addressor: %s", exc)
-            if self._claim_unable_note():
-                self._leave_comment(
-                    f"@{self.issue.author.username} I can't run yet: {exc}", reply_to_id=self.reply_to_id
-                )
+        if self._said_cannot_run_yet(exc, author=self.issue.author.username):
             return
         failure = provider_failure_of(exc)
         self._add_unable_to_address_issue_note(
