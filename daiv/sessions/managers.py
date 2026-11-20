@@ -221,6 +221,18 @@ class SessionQuerySet(models.QuerySet["Session"]):
         ).order_by(*_NEWEST_FIRST)
         return self.select_related("user", "scheduled_job").prefetch_related(models.Prefetch("runs", queryset=runs))
 
+    def with_merge_request_runs(self) -> models.QuerySet[Session]:
+        """Prefetch, newest first, only the runs that reached a merge request, for ``linked_merge_request`` alone."""
+        from sessions.models import Run
+
+        runs = (
+            Run.objects
+            .filter(merge_request_iid__isnull=False)
+            .only("id", "session_id", "merge_request_iid", "merge_request_web_url", "created_at")
+            .order_by(*_NEWEST_FIRST)
+        )
+        return self.prefetch_related(models.Prefetch("runs", queryset=runs))
+
 
 # ``by_owner``/``visible_to``/``with_latest_status`` live on the QuerySet so they chain
 # (``Session.objects.visible_to(user).with_latest_status()``); the manager re-exports

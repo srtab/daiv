@@ -12,8 +12,10 @@ from django.urls import reverse
 from django.utils import timezone
 
 from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.templatetags.session_tags import attach_merge_request_states, session_merge_request
 from sessions.validators import MAX_REPOS_PER_BATCH
 
+from codebase.authorization import runnable_repo_ids
 from schedules.models import ScheduledJob
 
 if TYPE_CHECKING:
@@ -37,7 +39,7 @@ WORST_FIRST = (
 _OPENS_SCHEDULE = frozenset({RunStatus.FAILED, RunStatus.WAITING_INPUT})
 NEWEST_SESSIONS = FIRINGS_PER_SCHEDULE * MAX_REPOS_PER_BATCH
 
-_SESSION_FIELDS = ("thread_id", "title", "last_active_at", "latest_run_status")
+_SESSION_FIELDS = ("thread_id", "title", "last_active_at", "repo_id", "merge_request_iid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,10 +49,8 @@ class SessionRow:
     status: str
     last_active_at: datetime
     active: bool
-
-    @property
-    def shows_state(self) -> bool:
-        return self.status in STATE_WORD_STATUSES
+    merge_request: dict[str, Any] | None = None
+    can_archive: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,10 +139,12 @@ class Sidebar:
         """
         sessions = list(self._own_sessions()[: limit + 1])
         has_more = len(sessions) > limit
-        rows = [self._session_row(session) for session in sessions[:limit]]
-        if self.viewing and not any(row.active for row in rows):
-            rows.extend(self._session_row(session) for session in self._own_sessions().filter(thread_id=self.viewing))
-        return tuple(rows), has_more
+        sessions = sessions[:limit]
+        if self.viewing and not any(session.thread_id == self.viewing for session in sessions):
+            sessions.extend(self._own_sessions().filter(thread_id=self.viewing))
+        attach_merge_request_states(sessions)
+        runnable = runnable_repo_ids(self.user, {session.repo_id for session in sessions}) if sessions else set()
+        return tuple(self._session_row(session, runnable) for session in sessions), has_more
 
     def schedule_rows(self) -> tuple[ScheduleRow, ...]:
         """The schedules the user owns or subscribes to that are enabled or fired lately, each with its newest firings.
@@ -155,22 +157,25 @@ class Sidebar:
         firings = self._firings(schedules)
         return tuple(self._schedule_row(schedule, firings.get(schedule["pk"], [])) for schedule in schedules)
 
-    def _own_sessions(self) -> QuerySet[Session, dict[str, Any]]:
+    def _own_sessions(self) -> QuerySet[Session]:
         return (
             Session.objects
             .listed_for(self.user, mine=True)
             .filter(scheduled_job__isnull=True)
+            .only(*_SESSION_FIELDS)
+            .with_merge_request_runs()
             .order_by("-last_active_at")
-            .values(*_SESSION_FIELDS)
         )
 
-    def _session_row(self, session: dict[str, Any]) -> SessionRow:
+    def _session_row(self, session: Session, runnable: set[str]) -> SessionRow:
         return SessionRow(
-            thread_id=session["thread_id"],
-            title=session["title"],
-            status=session["latest_run_status"] or "",
-            last_active_at=session["last_active_at"],
-            active=session["thread_id"] == self.viewing,
+            thread_id=session.thread_id,
+            title=session.title,
+            status=session.latest_run_status or "",  # ty: ignore[missing-attribute]
+            last_active_at=session.last_active_at,
+            active=session.thread_id == self.viewing,
+            merge_request=session_merge_request(session),
+            can_archive=session.repo_id in runnable,
         )
 
     def _schedules(self) -> list[dict[str, Any]]:

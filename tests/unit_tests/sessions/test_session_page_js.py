@@ -16,6 +16,7 @@ from tests.unit_tests.test_template_comments import DAIV_DIR
 pytestmark = requires_node
 
 SESSION_PAGE_JS = DAIV_DIR / "sessions/static/sessions/js/session-page.js"
+SESSION_ACTIONS_JS = DAIV_DIR / "core/static/core/js/session-actions.js"
 TRANSCRIPT_LABELS_JS = DAIV_DIR / "chat/static/chat/js/transcript-labels.js"
 
 HARNESS = """
@@ -23,8 +24,8 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
 const {
-  src, labelsSrc, initial, watch, delegations, repositories, thread, wide, storedTab, storedFolds, storageBlocked,
-  archived, steps,
+  src, labelsSrc, actionsSrc, initial, watch, delegations, repositories, thread, wide, storedTab, storedFolds,
+  storageBlocked, archived, steps,
 } = JSON.parse(readFileSync(0, "utf8"));
 const SECTIONS = ["repositories", "environment", "context", "spend", "outputs", "references"];
 const components = {};
@@ -51,6 +52,7 @@ const sandbox = {
     addEventListener: (name, cb) => { if (name === "alpine:init") cb(); },
     getElementById: (id) => {
       if (id === "session-details-context") return section;
+      if (id === "session-archive-dialog") return { dataset: { csrfToken: "tok" }, showModal() {} };
       return id in json ? { textContent: JSON.stringify(json[id]) } : null;
     },
   },
@@ -75,12 +77,18 @@ sandbox.document.title = "Old — DAIV Sessions";
 sandbox.navigator = { clipboard: { writeText: async (text) => { copied.push(text); } } };
 sandbox.window = {
   location: { href: "https://daiv.test/sessions/t-1/" },
+  showToast() {},
   matchMedia: () => ({ matches: wide, addEventListener: (_, cb) => { onMedia = cb; }, removeEventListener() {} }),
 };
 sandbox.URL = URL;
-sandbox.Alpine = { data: (name, factory) => { components[name] = factory; } };
+const stores = {};
+sandbox.Alpine = {
+  data: (name, factory) => { components[name] = factory; },
+  store: (name, value) => (value === undefined ? stores[name] : (stores[name] = value)),
+};
 vm.createContext(sandbox);
 vm.runInContext(readFileSync(labelsSrc, "utf8"), sandbox);
+vm.runInContext(readFileSync(actionsSrc, "utf8"), sandbox);
 vm.runInContext(readFileSync(src, "utf8"), sandbox);
 
 const labels = {
@@ -94,7 +102,7 @@ const page = components.sessionPage({
 });
 const focused = [];
 Object.assign(page, {
-  streaming: false, resuming: false, waiting: false, archived, thread, csrfToken: "tok", $nextTick: (cb) => cb(),
+  streaming: false, resuming: false, waiting: false, archived, thread, $nextTick: (cb) => cb(),
   $watch: (expression, callback) => { watchers[expression] = callback; },
   $refs: {
     titleInput: { focus: () => focused.push("input"), select() {} },
@@ -205,6 +213,7 @@ def _run(
     payload = {
         "src": str(SESSION_PAGE_JS),
         "labelsSrc": str(TRANSCRIPT_LABELS_JS),
+        "actionsSrc": str(SESSION_ACTIONS_JS),
         "initial": initial,
         "watch": watch,
         "delegations": delegations,

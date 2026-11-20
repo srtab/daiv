@@ -100,17 +100,3 @@ Must sit inside ``sessionPage`` inside ``chat({…})``: status and the repositor
     </div>
   </div>
 </header>
-{% if can_act %}
-<dialog id="session-archive-dialog" class="confirm-dialog" aria-labelledby="session-archive-dialog-title"
-        aria-describedby="session-archive-dialog-body" data-testid="session-archive-dialog">
-  <h2 id="session-archive-dialog-title" class="confirm-dialog__title">{% translate "Archive this session?" %}</h2>
-  <p id="session-archive-dialog-body" class="confirm-dialog__body">
-    {% translate "It leaves the session list and Home for everyone, and takes no follow-ups, from chat or the git platform, until someone unarchives it. The Archived filter still finds it." %}
-  </p>
-  <form method="dialog" class="confirm-dialog__actions">
-    <button type="submit" value="cancel" class="confirm-dialog__button" autofocus>{% translate "Cancel" %}</button>
-    <button type="button" class="confirm-dialog__button confirm-dialog__button--danger"
-            @click="$el.closest('dialog').close(); setArchived(true)">{% translate "Archive" %}</button>
-  </form>
-</dialog>
-{% endif %}

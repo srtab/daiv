@@ -302,12 +302,8 @@ document.addEventListener("alpine:init", () => {
       const jobs = item.status === "failing" ? (item.failed_jobs ?? []) : [];
       return [item.label, jobs.join(", ")].filter(Boolean).join(" · ");
     },
-    async _send(url, method, body) {
-      return fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json", Accept: "application/json", "X-CSRFToken": this.csrfToken },
-        body: JSON.stringify(body),
-      });
+    _send(url, method, body) {
+      return Alpine.store("sessionActions").send(url, method, body);
     },
     // The input takes the title's width, so the bar does not jump when it swaps in.
     startRename() {
@@ -378,7 +374,7 @@ document.addEventListener("alpine:init", () => {
       }
     },
     askArchive() {
-      document.getElementById("session-archive-dialog")?.showModal();
+      Alpine.store("sessionActions").askArchive(() => this.setArchived(true));
     },
     // A toggle while one is in flight is ignored, as the CI watch toggle is.
     async setArchived(archived) {
@@ -395,15 +391,11 @@ document.addEventListener("alpine:init", () => {
         this._archivedAt = performance.now();
       }
     },
-    async copyText(text) {
-      try {
-        await navigator.clipboard.writeText(text);
-      } catch {
-        // Clipboard access denied: the text stays on the page for a manual copy.
-      }
+    copyText(text) {
+      return Alpine.store("sessionActions").copyText(text);
     },
     copyLink(url) {
-      return this.copyText(new URL(url, window.location.href).href);
+      return Alpine.store("sessionActions").copyLink(url);
     },
   }));
 });

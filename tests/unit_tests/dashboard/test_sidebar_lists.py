@@ -1,5 +1,6 @@
 import uuid
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.urls import reverse
 from django.utils import timezone
@@ -14,7 +15,7 @@ from dashboard.sidebar import (
     Sidebar,
     SidebarLists,
 )
-from sessions.models import RunStatus, Session, SessionOrigin
+from sessions.models import MergeRequestOwnership, MergeRequestState, RunStatus, Session, SessionOrigin
 from sessions.validators import MAX_REPOS_PER_BATCH
 
 from tests.unit_tests.dashboard.factories import make_firing, make_run, make_schedule, make_session
@@ -69,14 +70,6 @@ class TestSessionRows:
         (row,), _ = Sidebar(member_user).session_rows()
 
         assert row.status == RunStatus.FAILED
-        assert row.shows_state is True
-
-    def test_successful_run_shows_no_state(self, member_user):
-        make_run(make_session(member_user), RunStatus.SUCCESSFUL)
-
-        (row,), _ = Sidebar(member_user).session_rows()
-
-        assert row.shows_state is False
 
     def test_session_without_runs_has_blank_status(self, member_user):
         make_session(member_user, title="")
@@ -85,7 +78,6 @@ class TestSessionRows:
 
         assert row.status == ""
         assert row.title == ""
-        assert row.shows_state is False
 
     def test_viewed_session_is_marked_active(self, member_user):
         viewed = make_session(member_user, minutes_ago=5)
@@ -117,15 +109,75 @@ class TestSessionRows:
         assert len(rows) == 8
         assert not any(row.active for row in rows)
 
-    @pytest.mark.parametrize("count", [3, 9])
-    def test_query_count_is_fixed(self, member_user, django_assert_max_num_queries, count):
-        sessions = [make_session(member_user, minutes_ago=minutes_ago) for minutes_ago in range(count)]
-        for session in sessions:
-            make_run(session, RunStatus.RUNNING)
+    def test_merge_request_from_the_session(self, member_user):
+        session = make_session(member_user)
+        Session.objects.filter(pk=session.pk).update(merge_request_iid=7)
+        make_run(session, RunStatus.SUCCESSFUL, merge_request_iid=7, merge_request_web_url="https://git/mr/7")
 
-        with django_assert_max_num_queries(1):
+        (row,), _ = Sidebar(member_user).session_rows()
+
+        assert row.merge_request == {"iid": 7, "url": "https://git/mr/7", "state": MergeRequestState.OPEN}
+
+    def test_merge_request_from_an_older_run(self, member_user):
+        session = make_session(member_user)
+        make_run(
+            session, RunStatus.SUCCESSFUL, minutes_ago=5, merge_request_iid=3, merge_request_web_url="https://git/3"
+        )
+        make_run(session, RunStatus.SUCCESSFUL, minutes_ago=1)
+
+        (row,), _ = Sidebar(member_user).session_rows()
+
+        assert row.merge_request == {"iid": 3, "url": "https://git/3", "state": MergeRequestState.OPEN}
+
+    def test_merge_request_without_url(self, member_user):
+        session = make_session(member_user)
+        Session.objects.filter(pk=session.pk).update(merge_request_iid=5)
+
+        (row,), _ = Sidebar(member_user).session_rows()
+
+        assert row.merge_request == {"iid": 5, "url": "", "state": MergeRequestState.OPEN}
+
+    def test_merge_request_state_from_ownership(self, member_user):
+        session = make_session(member_user)
+        Session.objects.filter(pk=session.pk).update(merge_request_iid=7)
+        MergeRequestOwnership.objects.create(
+            repo_id="daiv/test", merge_request_iid=7, source_branch="fix", merged=True, closed_at=timezone.now()
+        )
+
+        (row,), _ = Sidebar(member_user).session_rows()
+
+        assert row.merge_request["state"] == MergeRequestState.MERGED
+
+    def test_no_merge_request(self, member_user):
+        make_run(make_session(member_user), RunStatus.SUCCESSFUL)
+
+        (row,), _ = Sidebar(member_user).session_rows()
+
+        assert row.merge_request is None
+
+    @pytest.mark.parametrize(("runnable", "can_archive"), [(True, True), (False, False)])
+    def test_can_archive_follows_run_access(self, member_user, runnable, can_archive):
+        session = make_session(member_user)
+        make_run(session, RunStatus.RUNNING)
+
+        with patch("dashboard.sidebar.runnable_repo_ids", return_value={session.repo_id} if runnable else set()):
+            (row,), _ = Sidebar(member_user).session_rows()
+
+        assert row.can_archive is can_archive
+
+    @pytest.mark.parametrize("count", [3, 9])
+    @pytest.mark.parametrize(("with_merge_requests", "page_queries"), [(False, 2), (True, 3)])
+    def test_query_count_is_fixed(
+        self, member_user, django_assert_max_num_queries, count, with_merge_requests, page_queries
+    ):
+        sessions = [make_session(member_user, minutes_ago=minutes_ago) for minutes_ago in range(count)]
+        for iid, session in enumerate(sessions, start=1):
+            merge_request = {"merge_request_iid": iid, "merge_request_web_url": f"https://git/{iid}"}
+            make_run(session, RunStatus.SUCCESSFUL, **(merge_request if with_merge_requests else {}))
+
+        with django_assert_max_num_queries(page_queries):
             Sidebar(member_user).session_rows()
-        with django_assert_max_num_queries(2):
+        with django_assert_max_num_queries(page_queries + 2):
             Sidebar(member_user, viewing=sessions[-1].thread_id).session_rows()
 
 

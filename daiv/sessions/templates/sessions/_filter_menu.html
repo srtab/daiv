@@ -5,7 +5,7 @@ bar's Alpine component (sessions/js/session-filters.js), which places it under w
 `choices` loads its values from `choices.url` when first opened and as its search changes, showing only its current
 value until then.
 {% endcomment %}
-<div data-surface class="filter-menu filter-menu--drill" x-ref="filterMenu" x-show="open === 'filter'" x-cloak
+<div data-surface class="filter-menu filter-menu--drill scrollbar-thin" x-ref="filterMenu" x-show="open === 'filter'" x-cloak
      :style="anchor && `left: ${anchor.left}px; top: ${anchor.top}px`"
      @click.outside="$event.target.closest('[data-filter-opener]') || closeFilter(false)"
      @keydown.escape.stop="closeFilter()">

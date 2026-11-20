@@ -350,6 +350,48 @@
     @apply transition-transform;
   }
 
+  .nav-row__mr {
+    @apply flex shrink-0 items-center;
+    color: var(--mr-state);
+  }
+
+  .nav-session {
+    @apply relative;
+  }
+
+  /* Transparent, never `hidden`: the archive dialog hands focus back to it after the row lost focus-within.
+     It sits in the row's right padding, which widens while it shows so the merge request icon moves left of it. */
+  .nav-session__trigger {
+    @apply absolute top-1/2 right-1.5 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md
+      text-text-faint opacity-0 transition-colors hover:text-text;
+  }
+
+  .nav-session:is(:hover, :focus-within, .nav-session--open) > .nav-row {
+    @apply pr-9;
+  }
+
+  .nav-session:is(:hover, :focus-within, .nav-session--open) .nav-session__trigger {
+    @apply opacity-100;
+  }
+
+  .nav-session__menu {
+    @apply top-full right-0 mt-1 w-56;
+  }
+
+  .nav-session__menu--up {
+    @apply top-auto bottom-full mt-0 mb-1;
+  }
+
+  @media (hover: none) {
+    .nav-session > .nav-row {
+      @apply pr-9;
+    }
+
+    .nav-session__trigger {
+      @apply opacity-100;
+    }
+  }
+
   [aria-expanded="true"] > .nav-row__chevron {
     @apply rotate-90;
   }
@@ -382,7 +424,8 @@
   }
 
   .sidebar__account-menu,
-  .session-menu {
+  .session-menu,
+  .nav-session__menu {
     @apply absolute z-40 rounded-xl border border-border bg-surface-2 p-1 shadow-overlay;
   }
 
@@ -5063,6 +5106,7 @@ html {
       hover:bg-border hover:text-text-strong;
   }
   .filter-search__clear { @apply absolute right-2 top-1/2 m-0 -translate-y-1/2; }
+  .filter-search__icon { @apply pointer-events-none absolute left-3 top-1/2 flex -translate-y-1/2 text-text-faint; }
   .filter-menu {
     @apply absolute z-20 mt-1.5 max-h-80 min-w-[13rem] max-w-[22rem] overflow-y-auto rounded-xl border border-border
       bg-surface-2 p-1 shadow-overlay;
@@ -5146,7 +5190,7 @@ html {
     @apply relative isolate flex items-center gap-3 border-t border-border px-5 py-2.5
       transition-colors hover:bg-surface-3;
   }
-  .session-row--failed { box-shadow: inset 2px 0 0 var(--color-status-fail); }
+  .session-row--failed, .nav-row--failed { box-shadow: inset 2px 0 0 var(--color-status-fail); }
   .session-row__title { @apply flex min-w-0 items-center gap-2; }
   .session-row__meta { @apply mt-0.5 flex min-w-0 items-center gap-2.5 overflow-hidden; }
   /* Above the row's stretched link so its title shows; `core/js/row-hints.js` forwards the click. */
@@ -5156,12 +5200,12 @@ html {
   .mr-pill {
     @apply inline-flex items-center gap-1 rounded-full border bg-surface-3 px-2 py-0.5 text-[11px] font-medium
       text-text;
-    --mr-state: var(--color-status-clear);
     border-color: color-mix(in srgb, var(--mr-state) 45%, transparent);
   }
   .mr-pill > span:first-child { color: var(--mr-state); }
-  .mr-pill--merged { --mr-state: var(--color-text-muted); }
-  .mr-pill--closed { --mr-state: var(--color-status-fail); }
+  .mr-pill, .nav-row__mr { --mr-state: var(--color-status-clear); }
+  .mr-pill--merged, .nav-row__mr--merged { --mr-state: var(--color-text-muted); }
+  .mr-pill--closed, .nav-row__mr--closed { --mr-state: var(--color-status-fail); }
   .session-num { @apply font-mono text-[12px] tabular-nums text-text-muted; }
   .session-age { @apply text-text-faint; }
   .results--loading {

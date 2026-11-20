@@ -1726,7 +1726,6 @@ def test_detail_offers_no_actions_to_a_viewer_who_cannot_run(member_client, memb
     assert 'title="Fix the login redirect">Fix the login redirect</h1>' in topbar
     for testid in ("session-rename", "session-title-input", "session-ci-toggle", "session-archive"):
         assert f'data-testid="{testid}"' not in topbar
-    assert b'data-testid="session-archive-dialog"' not in resp.content
 
 
 @pytest.mark.django_db

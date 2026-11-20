@@ -741,10 +741,18 @@ wordmark and a teal New chat `+`) that is the only nav entry point on a phone.
   (`.nav-group-action`). **Sessions**: search (the sessions page's search box, `#search`;
   shortcut `/`) and a teal `+` for New chat; the user's own sessions outside any
   schedule, newest first, 8 at a time with "Show more" (up to 80, then it links the
-  sessions page), a status dot, the state word while
-  running, waiting or failed and a short relative time otherwise, with the state word kept
-  for screen readers (`sr-only`) so no status is colour alone; the session being viewed
-  is marked and appended when off the page. **Scheduled**: up to 10 schedules the user owns
+  sessions page), marked as the sessions list marks them: the pulsing dot while running,
+  the diamond while waiting, a red left edge (`.nav-row--failed`) when failed and nothing
+  otherwise, the state word kept for screen readers (`sr-only`). In place of a time, a
+  merge-request icon (`.nav-row__mr`) coloured by its MR's state as `.mr-pill` is; the
+  last-active date moves into the row's `title`. Each row's ⋯ (`.nav-session__trigger`,
+  transparent but focusable until hover or focus, always shown on touch) opens a `menuButton`
+  menu — open the merge request, copy link, open in new tab, Archive (with run access to the
+  repository, as on the session page) — and while it shows the row's right padding widens so the MR
+  icon sits left of it. Archive asks in the one `dashboard/_session_archive_dialog.html` the session
+  page shares; the
+  menu opens upward only when it overflows the scroller below and fits above
+  (`[data-menu-bounds]`). The session being viewed is marked and appended when off the page. **Scheduled**: up to 10 schedules the user owns
   or subscribes to that are enabled or fired in the last 14 days, each expanding to its 3
   newest firings (one row per dispatch, worst status of its sessions, a repository count
   past one) and "All runs". Its heading takes the `schedules` section's active state;

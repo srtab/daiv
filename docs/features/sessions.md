@@ -47,7 +47,7 @@ Each session carries the origin that created it:
 
 The sidebar lists your sessions, so any of them is one click away from every page:
 
-- **Sessions**: your own sessions, most recently active first, 8 at a time. **Show more** adds 8, up to 80; past that it opens the sessions list. Each has a status dot and, while it is running, waiting for your input or failed, that state; otherwise how long ago it was active. The session you are viewing is always in the list. Sessions a schedule started are listed under their schedule instead. Beside the heading, the search icon (shortcut `/`) opens the sessions list with its search box focused, and **+** starts a chat.
+- **Sessions**: your own sessions, most recently active first, 8 at a time. **Show more** adds 8, up to 80; past that it opens the sessions list. A pulsing dot marks a running session, a diamond one waiting for your input, and a red edge one that failed; other sessions have no mark. An icon on the right shows that the session has a merge request: green while it is open, grey once merged, red if closed. Hover a row to see when the session was last active and to show its **⋯** menu (on a touch screen **⋯** is always there): open the merge request, copy the session's link, open it in a new tab, or archive it. The session you are viewing is always in the list. Sessions a schedule started are listed under their schedule instead. Beside the heading, the search icon (shortcut `/`) opens the sessions list with its search box focused, and **+** starts a chat.
 - **Scheduled**: up to 10 schedules you own or subscribe to that are enabled or ran in the last 14 days, each with its next run. Expand one for its 3 latest runs: one row per run of the schedule, with the worst status across its repositories and, past one, how many repositories it ran on. A run on one repository opens its session; a wider one opens the sessions it started. **All runs** lists every session of the schedule, and the list icon beside the heading opens the schedules page. A schedule whose latest run failed or is waiting for input starts expanded; otherwise this browser remembers whether you expanded it.
 - **Settings**, the cog beside your account, slides in the pages you set up once (**Sandbox environments**, **MCP servers** and **Memory**, under **Agent setup**, and for admins **Users**, **Configuration**, **Schedule templates**, **Skills** and **Global MCP servers**, under **Admin**) along with the documentation links. Nothing changes on the page until you pick one. **Back** (or Escape) slides your sessions back in.
 
@@ -161,9 +161,8 @@ An archived session refuses new work:
 
 You need to be able to run agents on the session's repository. Archiving hides the session for everyone else, so check that nobody needs it first.
 
-1. Open the session.
-2. Select **⋯** → **Archive**.
-3. In **Archive this session?**, select **Archive**.
+1. Open the session and select **⋯** → **Archive**, or in the sidebar, select the session's **⋯** → **Archive**.
+2. In **Archive this session?**, select **Archive**.
 
 #### Unarchive a session
 
