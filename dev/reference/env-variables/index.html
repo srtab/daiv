@@ -3325,11 +3325,17 @@
 <td style="text-align: center;"><em>(none)</em></td>
 <td><code>random-webhook-secret</code></td>
 </tr>
+<tr>
+<td><code>CODEBASE_GITLAB_PAT_FALLBACK</code></td>
+<td>Use <code>CODEBASE_GITLAB_AUTH_TOKEN</code> for <code>git clone</code> and <code>git push</code> when a per-project clone token can't be created</td>
+<td style="text-align: center;"><code>true</code></td>
+<td><code>false</code></td>
+</tr>
 </tbody>
 </table>
 <p><code>CODEBASE_GITLAB_AUTH_TOKEN</code> is a personal access token with the <code>api</code> scope.</p>
 <p>For <code>git clone</code> and <code>git push</code>, DAIV does not put this token in the repository workspace. It creates a short-lived project access token for each repository instead: named <code>daiv-clone</code>, with the <code>write_repository</code> scope and the Developer access level, and valid for 48 to 72 hours. DAIV reuses a repository's token for up to 24 hours, so expect a few <code>daiv-clone</code> bot members on a project at a time. GitLab removes expired ones.</p>
-<p>Creating these tokens needs the token's user to hold at least the Maintainer role on each project and, on GitLab.com, the Premium or Ultimate tier. Self-managed instances accept any tier. When DAIV cannot create a token, it logs a warning and falls back to the personal access token.</p>
+<p>Creating these tokens needs the token's user to hold at least the Maintainer role on each project and, on GitLab.com, the Premium or Ultimate tier. Self-managed instances accept any tier. When DAIV cannot create a token, it logs a warning and falls back to the personal access token. To keep the personal access token out of the workspace entirely, set <code>CODEBASE_GITLAB_PAT_FALLBACK</code> to <code>false</code>: the run then fails with an error instead of falling back. DAIV remembers a failed token creation and retries it after up to an hour, or 5 minutes after a transient GitLab error, so runs on that project keep failing for that long after you fix the cause. To retry sooner, run <code>docker compose exec app django-admin shell -c "from codebase.clients.gitlab.clone_tokens import invalidate_clone_token; invalidate_clone_token(&lt;project-id&gt;)"</code>.</p>
 <p>The project access token pushes at the Developer level. If a branch protection rule matches the branches DAIV pushes to, for example a wildcard pattern that limits pushes to Maintainers, allow Developers to push on that pattern, or pushes fail.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
@@ -4046,7 +4052,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 14, 2026 16:12:59 UTC">November 14, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 20, 2026 00:02:28 UTC">November 20, 2026</span>
   </span>
 
     
