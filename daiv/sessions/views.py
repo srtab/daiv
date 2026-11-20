@@ -20,6 +20,7 @@ from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
+from django.utils.translation import pgettext_lazy
 from django.views import View
 from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.vary import vary_on_headers
@@ -225,6 +226,8 @@ class SessionListView(LoginRequiredMixin, FilterView):
         # HTML `<input type="date">` needs the original ISO string to round-trip.
         context["current_from"] = self.request.GET.get("date_from", "")
         context["current_to"] = self.request.GET.get("date_to", "")
+        context["current_time_label"] = self._time_label(context)
+        context["current_mr_label"] = f"!{context['current_mr']}" if context["current_mr"] else ""
         context["current_archived"] = self.archived is True
         context["current_archived_included"] = self.archived is None
         context["current_sort"] = self.sort
@@ -255,6 +258,8 @@ class SessionListView(LoginRequiredMixin, FilterView):
             context["current_archived"],
             context["current_archived_included"],
         ])
+        context["active_filter_count"] = self._active_filter_count(context)
+        context["filter_properties"] = self._filter_properties(context)
         if context["has_active_filters"] and self.archived is False:
             archived = SessionFilter(self.request.GET, queryset=self._listed(archived=True))
             context["archived_matches"] = archived.qs.count()
@@ -279,6 +284,71 @@ class SessionListView(LoginRequiredMixin, FilterView):
         context["in_flight_ids"] = ",".join(str(rid) for rid in in_flight.values_list("id", flat=True))
 
         return context
+
+    @staticmethod
+    def _time_label(context: dict[str, Any]) -> str:
+        """The Active filter's label: its range, or its custom dates with an open end as an ellipsis."""
+        if context["current_range"]:
+            return str(dict(RANGE_CHOICES)[context["current_range"]])
+        if context["current_from"] or context["current_to"]:
+            return f"{context['current_from'] or '…'} – {context['current_to'] or '…'}"
+        return ""
+
+    def _active_filter_count(self, context: dict[str, Any]) -> int:
+        """How many chips the filter bar shows: the filters set, deep links and the archived view included."""
+        spend = context["current_spend"]
+        return sum(
+            map(
+                bool,
+                [
+                    context["current_status"],
+                    context["current_trigger"],
+                    context["current_range"] or context["current_from"] or context["current_to"],
+                    context["current_repo"],
+                    context["current_mr"],
+                    spend["spend_person"],
+                    spend["spend_model"],
+                    spend["spend_provider"],
+                    context["current_schedule"],
+                    context["current_batch"],
+                    context["current_ran_on"],
+                    self.archived is not False,
+                ],
+            )
+        )
+
+    def _filter_properties(self, context: dict[str, Any]) -> list[dict[str, Any]]:
+        """The Filter menu's filters, in order: ``key``, ``name``, ``icon``, the ``lead`` its values show and, for those
+        whose values load when first opened, ``choices`` (the ``url`` they load from, the ``options`` known now and the
+        ``current`` value). The spend filters come only when the viewer can see spend."""
+        repo = context["current_repo"]
+        properties = [
+            {"key": "status", "name": _("Status"), "icon": "check-circle"},
+            {"key": "trigger", "name": _("Type"), "icon": "bars-3"},
+            {"key": "time", "name": pgettext_lazy("sessions last active", "Active"), "icon": "calendar"},
+            {
+                "key": "repo",
+                "name": _("Repository"),
+                "icon": "repo",
+                "lead": "repo",
+                "choices": {
+                    "url": reverse("session_repo_choices"),
+                    "options": [(repo, repo)] if repo else [],
+                    "current": repo,
+                },
+            },
+        ]
+        spend_controls = context.get("spend_controls") or {}
+        names = {
+            "spend_person": (_("Spent by"), "users"),
+            "spend_model": (_("Model"), "cpu-chip"),
+            "spend_provider": (_("Provider"), "providers"),
+        }
+        for key, control in spend_controls.items():
+            name, icon = names[key]
+            choices = {**control, "current": context["current_spend"][key]}
+            properties.append({"key": key, "name": name, "icon": icon, "choices": choices})
+        return properties
 
     @staticmethod
     def _status_groups(sessions: QuerySet[Session]) -> list[tuple[str | None, str, int]]:

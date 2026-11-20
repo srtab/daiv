@@ -4,11 +4,18 @@
  * The swap core lives in core/js/results-swap.js; this file owns only the Alpine
  * filterBar() component, which holds filter state initialized FROM THE URL and swaps
  * only #session-results via the shared swapResults().
+ *
+ * The Filter menu (sessions/_filter_menu.html) lists the filters by name and drills into one
+ * (`property`) in place; a filter whose values come from the server loads them on that first
+ * drill, once per scope. Applied filters show as chips (sessions/_filter_chip.html).
  */
 
 // The Spend page's params: those with no control in the bar show as one banner.
 const SPEND_BANNER_PARAMS = ["spend_from", "spend_to", "spend_repo", "spend_trigger", "spend_task"];
 const SPEND_PARAMS = [...SPEND_BANNER_PARAMS, "spend_person", "spend_model", "spend_provider"];
+const CHIP_KEYS = ["status", "trigger", "repo", "mr", "spend_person", "spend_model", "spend_provider", "schedule", "batch", "ranOn"];
+const TYPING = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
+const MENU_WIDTH = 288;
 
 const { swapResults } = window.createResultsSwap("session-results", {
     errorMessage: "Couldn't update the session list — check your connection and try again.",
@@ -17,7 +24,11 @@ const { swapResults } = window.createResultsSwap("session-results", {
 
 document.addEventListener("alpine:init", () => {
     Alpine.data("filterBar", () => ({
-        open: null, // id of the open dropdown, or null
+        open: null, // id of the open menu, or null
+        property: null, // the filter the Filter menu has drilled into, or null for the list of filters
+        propertyQuery: "",
+        valueQuery: "",
+        anchor: null, // where the Filter menu opens, relative to the bar
         scope: "mine",
         q: "",
         status: "",
@@ -61,7 +72,7 @@ document.addEventListener("alpine:init", () => {
             SPEND_PARAMS.forEach((name) => (this[name] = p.get(name) || ""));
         },
 
-        _apply() {
+        _params() {
             const params = new URLSearchParams();
             const set = (k, v) => {
                 if (v) params.set(k, v);
@@ -82,9 +93,14 @@ document.addEventListener("alpine:init", () => {
             set("archived", this.archived);
             SPEND_PARAMS.forEach((name) => set(name, this[name]));
             set("sort", this.sort === this.$root.dataset.defaultSort ? "" : this.sort);
-            const qs = params.toString();
+            return params;
+        },
+
+        _apply() {
+            const qs = this._params().toString();
             swapResults(window.location.pathname + (qs ? "?" + qs : ""));
             this.open = null;
+            this.property = null;
         },
 
         setScope(value) {
@@ -135,6 +151,85 @@ document.addEventListener("alpine:init", () => {
             this._apply();
         },
 
+        openFilter(key = null, anchorEl = null) {
+            this.anchor = this._anchorTo(anchorEl || this.$refs.filterButton);
+            this.propertyQuery = "";
+            this.open = "filter";
+            if (key) this.drill(key);
+            else {
+                this.property = null;
+                this.$nextTick(() => this._focusMenu());
+            }
+        },
+        closeFilter(refocus = true) {
+            if (this.open !== "filter") return;
+            this.open = null;
+            this.property = null;
+            if (refocus) this.$refs.filterButton.focus();
+        },
+        drill(key) {
+            this.property = key;
+            this.valueQuery = "";
+            const box = this.$root.querySelector(`[data-filter-choices="${key}"]`);
+            if (box && box.dataset.loadedFor !== this.scope) {
+                box.dataset.loadedFor = this.scope;
+                htmx.ajax("GET", box.dataset.choicesUrl + "?" + this._params().toString(), {
+                    target: box,
+                    swap: "innerHTML",
+                }).catch(() => {});
+            }
+            this.$nextTick(() => this._focusMenu());
+        },
+        back() {
+            this.property = null;
+            this.$nextTick(() => this._focusMenu());
+        },
+        choicesFailed(box) {
+            delete box.dataset.loadedFor;
+            const message = document.createElement("p");
+            message.className = "filter-menu__label filter-menu__loading";
+            message.textContent = box.dataset.errorMessage;
+            box.replaceChildren(message);
+        },
+        filterValues(panel) {
+            panel.querySelectorAll("[data-filter-key]").forEach((item) => {
+                item.hidden = !this.matches(item.dataset.label, this.valueQuery);
+            });
+        },
+        matches(text, query) {
+            return (text || "").toLowerCase().includes(query.trim().toLowerCase());
+        },
+        isSet(key) {
+            return key === "time" ? this.timeActive : !!this[key];
+        },
+        valueLabel(key) {
+            return key === "time" ? this.timeLabel : this.labelFor(key);
+        },
+        onKey(event) {
+            if (event.key.toLowerCase() !== "f" || event.repeat || event.defaultPrevented) return;
+            if (event.ctrlKey || event.metaKey || event.altKey) return;
+            if (event.target?.isContentEditable || event.target?.closest?.(TYPING) || this.open !== null) return;
+            event.preventDefault();
+            this.openFilter();
+        },
+        _anchorTo(el) {
+            const root = this.$root.getBoundingClientRect();
+            const box = el.getBoundingClientRect();
+            const width = Math.min(MENU_WIDTH, window.innerWidth - 32);
+            const left = Math.max(0, Math.min(box.left - root.left, root.width - width));
+            return { left, top: box.bottom - root.top + 6 };
+        },
+        _focusMenu() {
+            const view = this.property
+                ? this.$refs.filterMenu.querySelector(`[data-filter-panel="${this.property}"]`)
+                : this.$refs.filterMenu.firstElementChild;
+            (view?.querySelector("[data-filter-focus]") || view?.querySelector("a, button:not(.filter-menu__back)"))?.focus();
+        },
+
+        get activeCount() {
+            const time = this.range || this.from || this.to ? 1 : 0;
+            return CHIP_KEYS.filter((key) => this[key]).length + time + (this.archived ? 1 : 0);
+        },
         get timeLabel() {
             if (this.range) return this.labelFor("range");
             if (this.from || this.to) return (this.from || "…") + " – " + (this.to || "…");
@@ -143,28 +238,8 @@ document.addEventListener("alpine:init", () => {
         get timeActive() {
             return !!(this.range || this.from || this.to);
         },
-        get hasChips() {
-            return !!(this.repo || this.mr || this.archived === "all" || this.ranOn || this.schedule || this.batch);
-        },
         get hasSpendBanner() {
             return SPEND_BANNER_PARAMS.some((name) => this[name]);
-        },
-        get hasActiveFilters() {
-            return !!(
-                this.q ||
-                this.status ||
-                this.trigger ||
-                this.range ||
-                this.from ||
-                this.to ||
-                this.repo ||
-                this.mr ||
-                this.ranOn ||
-                this.schedule ||
-                this.batch ||
-                this.archived ||
-                SPEND_PARAMS.some((name) => this[name])
-            );
         },
     }));
 });

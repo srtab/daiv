@@ -5043,6 +5043,11 @@ html {
     @apply h-10.5 w-full rounded-xl border border-border bg-surface-2 pl-9 pr-3 text-sm text-text
       placeholder:text-text-faint;
   }
+  .filter-toolbar { @apply flex flex-wrap items-center gap-2; }
+  .filter-badge {
+    @apply inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-text px-1.5 text-[11px] font-semibold
+      text-ground;
+  }
   .filter-control {
     @apply inline-flex h-10.5 max-w-full items-center rounded-xl border border-border bg-surface-2 text-[13px]
       text-text-muted transition-colors hover:text-text;
@@ -5062,12 +5067,22 @@ html {
       bg-surface-2 p-1 shadow-overlay;
   }
   .filter-menu--end { @apply right-0; }
+  .filter-menu--drill { @apply w-72 max-w-[calc(100vw-2rem)]; }
+  .filter-menu__search {
+    @apply mb-1 h-8 w-full rounded-lg border border-border bg-ground px-2.5 text-[13px] text-text
+      placeholder:text-text-faint;
+  }
+  .filter-menu__back {
+    @apply mb-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12px] font-semibold text-text-muted
+      transition-colors hover:bg-surface-3 hover:text-text;
+  }
   .filter-menu-item {
     @apply flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] text-text-muted transition-colors
       hover:bg-surface-3 hover:text-text;
   }
   .filter-menu-item--active { @apply bg-surface-3 text-text; }
   .filter-menu-item__lead { @apply inline-flex shrink-0 items-center text-text-faint; }
+  .filter-menu-item__end { @apply ml-auto inline-flex max-w-[9rem] min-w-0 items-center text-text-faint; }
   .filter-menu__section { @apply -mx-1 mt-1 border-t border-border px-3.5 pb-1.5 pt-2; }
   .filter-menu__label { @apply mb-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text-faint; }
   .filter-menu__loading { @apply mb-0 px-2.5 py-1.5; }
@@ -5076,13 +5091,21 @@ html {
   .filter-apply {
     @apply rounded-lg bg-surface-3 px-2.5 py-1 text-[12px] text-text transition-colors hover:text-text-strong;
   }
+  .filter-chips { @apply flex flex-wrap items-center gap-2; }
   .filter-chip {
-    @apply inline-flex items-center gap-1 rounded-full border border-border bg-surface-3 py-1 pl-3 pr-1 text-[13px]
-      font-medium text-text;
+    @apply inline-flex h-7 max-w-full items-center gap-1 rounded-lg border border-border bg-surface-2 pl-2.5 pr-1
+      text-[12.5px] text-text;
   }
+  .filter-chip__open { @apply inline-flex min-w-0 items-center gap-1.5 hover:text-text-strong; }
+  .filter-chip__name { @apply inline-flex shrink-0 items-center gap-1.5 text-text-muted; }
+  .filter-chip__value { @apply max-w-[16rem] truncate font-medium text-text-strong; }
   .filter-chip__x {
-    @apply inline-flex h-5 w-5 items-center justify-center rounded-full text-text-muted hover:bg-border
+    @apply inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-border
       hover:text-text-strong;
+  }
+  .filter-add {
+    @apply inline-flex h-7 items-center gap-1.5 rounded-lg px-2 text-[12.5px] text-text-faint transition-colors
+      hover:bg-surface-2 hover:text-text;
   }
   .filter-clear {
     @apply inline-flex h-10.5 items-center px-1.5 text-[13px] text-text-muted transition-colors hover:text-text;

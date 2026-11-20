@@ -1,7 +1,8 @@
-{% load i18n icon_tags session_tags %}
+{% load i18n icon_tags query_tags session_tags %}
 <div class="animate-fade-up relative z-10 mt-8 flex flex-col gap-2.5" style="animation-delay: 50ms"
-     x-data="filterBar()" data-scope="{{ current_scope }}" data-default-sort="{{ default_sort }}">
-    <div class="flex flex-wrap items-center gap-2">
+     x-data="filterBar()" data-scope="{{ current_scope }}" data-default-sort="{{ default_sort }}"
+     @keydown.window="onKey($event)">
+    <div class="filter-toolbar">
         <div class="relative min-w-[240px] flex-1">
             <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-faint">
                 {% icon "magnifying-glass" "h-4 w-4" %}
@@ -13,6 +14,17 @@
                    placeholder="{% translate 'Search by title or repository' %}" aria-label="{% translate 'Search by title or repository' %}"
                    @input.debounce.350ms="_apply()" @keydown.enter.prevent="_apply()">
         </div>
+        <div class="filter-control{% if active_filter_count %} filter-control--active{% endif %}"
+             :class="{ 'filter-control--active': activeCount > 0 }">
+            <button type="button" class="filter-control__toggle" data-testid="filter-open" data-filter-opener x-ref="filterButton"
+                    @click="open === 'filter' ? closeFilter() : openFilter()"
+                    aria-expanded="false" :aria-expanded="(open === 'filter').toString()">
+                <span class="filter-control__lead">{% icon "funnel" "h-4 w-4" %}</span>
+                <span>{% translate "Filter" %}</span>
+                <span class="filter-badge" x-text="activeCount" x-show="activeCount > 0"
+                      {% if not active_filter_count %}style="display:none"{% endif %}>{{ active_filter_count }}</span>
+            </button>
+        </div>
         <nav class="segmented-nav" aria-label="{% translate 'Whose sessions' %}">
             {% for value, label in scopes %}
             <a href="{% querystring scope=value page=None %}" class="segmented-nav__item"
@@ -20,65 +32,7 @@
                {% if current_scope == value %}aria-current="true"{% endif %}>{{ label }}</a>
             {% endfor %}
         </nav>
-    </div>
-
-    <div class="flex flex-wrap items-center gap-2">
-        {% translate "Status" as status_label %}{% translate "Any status" as any_status %}
-        {% include "sessions/_filter_dropdown.html" with key="status" label=status_label icon="check-circle" all_label=any_status options=statuses current=current_status lead="status" %}
-        {% translate "Type" as type_label %}{% translate "All types" as all_types %}
-        {% include "sessions/_filter_dropdown.html" with key="trigger" label=type_label icon="bars-3" all_label=all_types options=origins current=current_trigger lead="origin" %}
-
-        {% querystring range=None date_from=None date_to=None page=None as clear_time_url %}
-        <div class="relative" @click.outside="close('time')" @keydown.escape="close('time', $el)">
-            <div class="filter-control{% if current_range or current_from or current_to %} filter-control--active{% endif %}"
-                 :class="{ 'filter-control--active': timeActive }">
-                <button type="button" class="filter-control__toggle" @click="toggle('time')" data-testid="filter-time"
-                        aria-expanded="false" :aria-expanded="(open === 'time').toString()">
-                    <span class="filter-control__lead">{% icon "calendar" "h-4 w-4" %}</span>
-                    <span class="filter-control__key">{% translate "Active" context "sessions last active" %}</span>
-                    <span class="filter-control__value" x-show="timeActive" x-text="timeLabel"
-                          {% if not current_range and not current_from and not current_to %}style="display:none"{% endif %}>{% if current_range %}{{ ranges|option_label:current_range }}{% elif current_from or current_to %}{{ current_from|default:"…" }} – {{ current_to|default:"…" }}{% endif %}</span>
-                    <span class="filter-control__lead" x-show="!timeActive"
-                          {% if current_range or current_from or current_to %}style="display:none"{% endif %}>{% icon "chevron-down" "h-3.5 w-3.5" %}</span>
-                </button>
-                <a href="{{ clear_time_url }}" class="filter-control__clear" @click.prevent="clearTime()" x-show="timeActive"
-                   {% if not current_range and not current_from and not current_to %}style="display:none"{% endif %}
-                   aria-label="{% translate 'Clear time filter' %}">{% icon "x-mark" "h-3.5 w-3.5" %}</a>
-            </div>
-            <div data-surface class="filter-menu" x-show="open === 'time'" x-cloak>
-                <a href="{{ clear_time_url }}"
-                   class="filter-menu-item{% if not current_range and not current_from and not current_to %} filter-menu-item--active{% endif %}"
-                   @click.prevent="clearTime()" :class="{ 'filter-menu-item--active': !timeActive }">{% translate "Any time" %}</a>
-                {% for value, label in ranges %}
-                <a href="{% querystring range=value date_from=None date_to=None page=None %}"
-                   class="filter-menu-item{% if current_range == value %} filter-menu-item--active{% endif %}"
-                   data-filter-key="range" data-value="{{ value }}" data-label="{{ label }}"
-                   @click.prevent="setRange('{{ value }}')" :class="{ 'filter-menu-item--active': range === '{{ value }}' }">{{ label }}</a>
-                {% endfor %}
-                <div class="filter-menu__section">
-                    <p class="filter-menu__label">{% translate "Custom range" %}</p>
-                    <div class="filter-range" x-data="{ from: '{{ current_from|escapejs }}', to: '{{ current_to|escapejs }}' }"
-                         @sessions:url-changed.window="const p = new URLSearchParams(location.search); from = p.get('date_from') || ''; to = p.get('date_to') || ''">
-                        <input type="date" x-model="from" aria-label="{% translate 'From date' %}" class="filter-date">
-                        <span class="text-text-faint">–</span>
-                        <input type="date" x-model="to" aria-label="{% translate 'To date' %}" class="filter-date">
-                        <button type="button" class="filter-apply" @click="setCustomRange(from, to)">{% translate "Apply" %}</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        {% translate "Spent by" as person_label %}{% translate "Anyone" as anyone %}
-        {% include "sessions/_filter_dropdown.html" with key="spend_person" label=person_label icon="users" all_label=anyone options=spend_controls.spend_person.options current=current_spend.spend_person options_url=spend_controls.spend_person.url %}
-        {% translate "Model" as model_label %}{% translate "Any model" as any_model %}
-        {% include "sessions/_filter_dropdown.html" with key="spend_model" label=model_label icon="cpu-chip" all_label=any_model options=spend_controls.spend_model.options current=current_spend.spend_model options_url=spend_controls.spend_model.url %}
-        {% translate "Provider" as provider_label %}{% translate "Any provider" as any_provider %}
-        {% include "sessions/_filter_dropdown.html" with key="spend_provider" label=provider_label icon="providers" all_label=any_provider options=spend_controls.spend_provider.options current=current_spend.spend_provider options_url=spend_controls.spend_provider.url %}
-
-        <a href="{{ clear_all_url }}" class="filter-clear" @click.prevent="clearAll()"
-           x-show="hasActiveFilters" {% if not has_active_filters %}style="display:none"{% endif %}>{% translate "Clear all" %}</a>
-
-        <div class="ml-auto flex flex-wrap items-center gap-2">
+        <div class="flex items-center gap-2" data-testid="toolbar-end">
             <div class="relative" @click.outside="close('sort')" @keydown.escape="close('sort', $el)">
                 <div class="filter-control">
                     <button type="button" class="filter-control__toggle" @click="toggle('sort')" data-testid="filter-sort"
@@ -111,51 +65,59 @@
         </div>
     </div>
 
-    {# Deep-link filters, which have no control of their own #}
-    <div class="flex flex-wrap items-center gap-2" x-show="hasChips"
-         {% if not current_repo and not current_mr and not current_archived_included and not current_ran_on and not current_schedule and not current_batch %}style="display:none"{% endif %}>
-        {% if current_repo %}
-        <span class="filter-chip" x-show="!!repo">
-            <span>{% blocktranslate with name=current_repo %}Repository: {{ name }}{% endblocktranslate %}</span>
-            <a href="{% querystring repo=None mr=None page=None scope=current_scope %}" @click.prevent="clearParam('repo', 'mr')"
-               class="filter-chip__x" aria-label="{% translate 'Clear repository filter' %}">{% icon "x-mark" "h-3 w-3" %}</a>
-        </span>
-        {% endif %}
-        {% if current_mr %}
-        <span class="filter-chip" x-show="!!mr">
-            <span>{% blocktranslate with iid=current_mr %}Merge request !{{ iid }}{% endblocktranslate %}</span>
-            <a href="{% querystring mr=None page=None scope=current_scope %}" @click.prevent="clearParam('mr')"
-               class="filter-chip__x" aria-label="{% translate 'Clear merge request filter' %}">{% icon "x-mark" "h-3 w-3" %}</a>
-        </span>
-        {% endif %}
-        {% if current_archived_included %}
-        <span class="filter-chip" x-show="archived === 'all'" data-testid="filter-archived-included">
-            <span>{% translate "Including archived" %}</span>
-            <a href="{% querystring archived=None page=None scope=current_scope %}" @click.prevent="clearParam('archived')"
-               class="filter-chip__x" aria-label="{% translate 'Leave out archived sessions' %}">{% icon "x-mark" "h-3 w-3" %}</a>
-        </span>
-        {% endif %}
-        {% if current_ran_on %}
-        <span class="filter-chip" x-show="!!ranOn">
-            <span>{% blocktranslate with day=current_ran_on %}Ran on {{ day }}{% endblocktranslate %}</span>
-            <a href="{% querystring ran_on=None page=None scope=current_scope %}" @click.prevent="clearParam('ranOn')"
-               class="filter-chip__x" aria-label="{% translate 'Clear run day filter' %}">{% icon "x-mark" "h-3 w-3" %}</a>
-        </span>
-        {% endif %}
-        {% if current_schedule %}
-        <span class="filter-chip" x-show="!!schedule">
-            <span>{% blocktranslate with name=schedule_name %}Schedule: {{ name }}{% endblocktranslate %}</span>
-            <a href="{% querystring schedule=None page=None scope=current_scope %}" @click.prevent="clearParam('schedule')"
-               class="filter-chip__x" aria-label="{% translate 'Clear schedule filter' %}">{% icon "x-mark" "h-3 w-3" %}</a>
-        </span>
-        {% endif %}
-        {% if current_batch %}
-        <span class="filter-chip" x-show="!!batch">
-            <span>{% blocktranslate with id=current_batch_short %}Batch {{ id }}{% endblocktranslate %}</span>
-            <a href="{% querystring batch=None page=None scope=current_scope %}" @click.prevent="clearParam('batch')"
-               class="filter-chip__x" aria-label="{% translate 'Clear batch filter' %}">{% icon "x-mark" "h-3 w-3" %}</a>
-        </span>
-        {% endif %}
+    {% include "sessions/_filter_menu.html" %}
+
+    <div class="filter-chips" x-show="activeCount > 0" {% if not active_filter_count %}style="display:none"{% endif %}>
+        {% translate "Archived sessions" as archived_name %}
+        {% querystring archived=None page=None scope=current_scope as clear_archived %}
+        {% include "sessions/_filter_chip.html" with key="archived" name=archived_name icon="archive-box" shown=current_archived show="archived === 'true'" clear_url=clear_archived clear="clearParam('archived')" %}
+
+        {% translate "Status" as status_name %}
+        {% querystring status=None page=None scope=current_scope as clear_status %}
+        {% include "sessions/_filter_chip.html" with key="status" name=status_name icon="check-circle" value=statuses|option_label:current_status shown=current_status show="!!status" clear_url=clear_status clear="pick('status', '')" settable=True alpine_value="labelFor('status')" %}
+
+        {% translate "Type" as type_name %}
+        {% querystring trigger=None page=None scope=current_scope as clear_trigger %}
+        {% include "sessions/_filter_chip.html" with key="trigger" name=type_name icon="bars-3" value=origins|option_label:current_trigger shown=current_trigger show="!!trigger" clear_url=clear_trigger clear="pick('trigger', '')" settable=True alpine_value="labelFor('trigger')" %}
+
+        {% translate "Active" context "sessions last active" as time_name %}
+        {% querystring range=None date_from=None date_to=None page=None scope=current_scope as clear_time %}
+        {% include "sessions/_filter_chip.html" with key="time" name=time_name icon="calendar" value=current_time_label shown=current_time_label show="timeActive" clear_url=clear_time clear="clearTime()" settable=True alpine_value="timeLabel" %}
+
+        {% translate "Repository" as repo_name %}
+        {% querystring repo=None mr=None page=None scope=current_scope as clear_repo %}
+        {% include "sessions/_filter_chip.html" with key="repo" name=repo_name icon="repo" value=current_repo shown=current_repo show="!!repo" clear_url=clear_repo clear="clearParam('repo', 'mr')" settable=True alpine_value="labelFor('repo')" %}
+
+        {% translate "Merge request" as mr_name %}
+        {% querystring mr=None page=None scope=current_scope as clear_mr %}
+        {% include "sessions/_filter_chip.html" with key="mr" name=mr_name icon="merge-request" value=current_mr_label shown=current_mr show="!!mr" clear_url=clear_mr clear="clearParam('mr')" %}
+
+        {% for property in filter_properties %}{% if property.key|slice:":6" == "spend_" %}
+        {% querystring request.GET property.key|query_param page=None scope=current_scope as clear_spend %}
+        {% with clear_expression="pick('"|add:property.key|add:"', '')" label_expression="labelFor('"|add:property.key|add:"')" show_expression="!!"|add:property.key %}
+        {% include "sessions/_filter_chip.html" with key=property.key name=property.name icon=property.icon value=property.choices.options|option_label:property.choices.current shown=property.choices.current show=show_expression clear_url=clear_spend clear=clear_expression settable=True alpine_value=label_expression %}
+        {% endwith %}
+        {% endif %}{% endfor %}
+
+        {% translate "Schedule" as schedule_label %}
+        {% querystring schedule=None page=None scope=current_scope as clear_schedule %}
+        {% include "sessions/_filter_chip.html" with key="schedule" name=schedule_label icon="clock" value=schedule_name shown=current_schedule show="!!schedule" clear_url=clear_schedule clear="clearParam('schedule')" %}
+
+        {% translate "Batch" as batch_name %}
+        {% querystring batch=None page=None scope=current_scope as clear_batch %}
+        {% include "sessions/_filter_chip.html" with key="batch" name=batch_name icon="squares-2x2" value=current_batch_short shown=current_batch show="!!batch" clear_url=clear_batch clear="clearParam('batch')" %}
+
+        {% translate "Ran on" as ran_on_name %}
+        {% querystring ran_on=None page=None scope=current_scope as clear_ran_on %}
+        {% include "sessions/_filter_chip.html" with key="ran_on" name=ran_on_name icon="calendar" value=current_ran_on shown=current_ran_on show="!!ranOn" clear_url=clear_ran_on clear="clearParam('ranOn')" %}
+
+        {% translate "Including archived" as included_name %}
+        {% include "sessions/_filter_chip.html" with key="archived_included" name=included_name icon="archive-box" shown=current_archived_included show="archived === 'all'" clear_url=clear_archived clear="clearParam('archived')" testid="filter-archived-included" %}
+
+        <button type="button" class="filter-add" data-testid="filter-add" data-filter-opener @click="openFilter(null, $el)">
+            {% icon "plus" "h-3.5 w-3.5" %}{% translate "Filter" %}
+        </button>
+        <a href="{{ clear_all_url }}" class="filter-clear ml-auto" @click.prevent="clearAll()">{% translate "Clear all" %}</a>
     </div>
 
     {% if spend_banner %}
