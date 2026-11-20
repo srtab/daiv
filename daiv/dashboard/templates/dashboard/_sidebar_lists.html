@@ -27,8 +27,11 @@ response of the `sidebar_lists` endpoint, which the sidebar swaps in when runs s
   <ul>
     {% for row in lists.sessions %}
     {% with variant=row.status|status_variant label=row.status|run_status_label %}
-    <li>
-      <a href="{% url 'session_detail' thread_id=row.thread_id %}"
+    {% url 'session_detail' thread_id=row.thread_id as session_url %}
+    <li class="nav-session" x-data="menuButton" x-id="['nav-session-menu']"
+        :class="{ 'nav-session--open': open }"
+        @keydown.escape="onEscape($event)" @click.outside="close()">
+      <a href="{{ session_url }}"
          data-testid="nav-session-row"
          data-row-key="s:{{ row.thread_id }}"
          title="{% if row.title %}{{ row.title }}{% else %}{% translate 'generating title…' %}{% endif %} · {{ row.last_active_at|date:'DATETIME_FORMAT' }}"
@@ -44,6 +47,46 @@ response of the `sidebar_lists` endpoint, which the sidebar swaps in when runs s
         {% endif %}
         {% endwith %}
       </a>
+      {% translate "Session actions" as actions_label %}
+      <button type="button"
+              x-ref="trigger"
+              data-testid="nav-session-menu"
+              @click="toggle()"
+              @keydown.arrow-down.prevent="show(0)"
+              @keydown.arrow-up.prevent="show(-1)"
+              aria-haspopup="menu"
+              aria-expanded="false"
+              :aria-expanded="open.toString()"
+              :aria-controls="$id('nav-session-menu')"
+              aria-label="{{ actions_label }}"
+              title="{{ actions_label }}"
+              class="nav-session__trigger">{% icon "ellipsis-horizontal" "h-4 w-4" %}</button>
+      <div x-ref="menu" role="menu" :id="$id('nav-session-menu')" x-show="open" x-cloak data-surface
+           data-testid="nav-session-menu-items"
+           @keydown="onMenuKey($event)"
+           :class="{ 'nav-session__menu--up': up }"
+           class="nav-session__menu">
+        {% if row.merge_request.url %}
+        <a role="menuitem" tabindex="-1" class="session-menu__item" href="{{ row.merge_request.url }}" target="_blank" rel="noopener noreferrer">
+          {% icon "merge-request" "session-menu__icon" %}{% blocktranslate with iid=row.merge_request.iid|unlocalize %}Open merge request !{{ iid }}{% endblocktranslate %}
+        </a>
+        {% endif %}
+        <button type="button" role="menuitem" tabindex="-1" class="session-menu__item"
+                @click="close(true); $store.sidebarRowActions.copyLink('{{ session_url }}')">
+          {% icon "link" "session-menu__icon" %}{% translate "Copy link" %}
+        </button>
+        <a role="menuitem" tabindex="-1" class="session-menu__item" href="{{ session_url }}" target="_blank" rel="noopener">
+          {% icon "arrow-top-right-on-square" "session-menu__icon" %}{% translate "Open in new tab" %}
+        </a>
+        {% if row.archivable %}
+        <div class="session-menu__divider" role="separator"></div>
+        <button type="button" role="menuitem" tabindex="-1" class="session-menu__item session-menu__item--danger"
+                data-testid="nav-session-archive"
+                @click="close(); $store.sidebarRowActions.askArchive('{% url 'api:session_archive' row.thread_id %}')">
+          {% icon "archive-box" "session-menu__icon" %}{% translate "Archive" %}
+        </button>
+        {% endif %}
+      </div>
     </li>
     {% endwith %}
     {% empty %}

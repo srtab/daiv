@@ -816,3 +816,37 @@ msgstr "Execuções recentes"
 
 msgid "No run has invoked this skill yet."
 msgstr "Nenhuma execução invocou ainda esta competência."
+
+msgid "Session actions"
+msgstr "Ações da sessão"
+
+#, python-format
+msgid "Open merge request !%(iid)s"
+msgstr "Abrir merge request !%(iid)s"
+
+msgid "Open in new tab"
+msgstr "Abrir num novo separador"
+
+msgid "Session archived"
+msgstr "Sessão arquivada"
+
+msgid "Couldn't archive the session."
+msgstr "Não foi possível arquivar a sessão."
+
+msgid "Link copied"
+msgstr "Ligação copiada"
+
+msgid "Archive this session?"
+msgstr "Arquivar esta sessão?"
+
+msgid ""
+"It leaves the session list and Home for everyone, and takes no follow-ups, "
+"from chat or the git platform, until someone unarchives it. The Archived "
+"filter still finds it."
+msgstr ""
+"Sai da lista de sessões e da página inicial para todos, e não recebe "
+"seguimentos, do chat ou da plataforma git, até alguém a desarquivar. O "
+"filtro Arquivadas continua a encontrá-la."
+
+msgid "Archive"
+msgstr "Arquivar"

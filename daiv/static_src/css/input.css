@@ -363,6 +363,46 @@
   .nav-row__mr--merged { --mr-state: var(--color-text-muted); }
   .nav-row__mr--closed { --mr-state: var(--color-status-fail); }
 
+  .nav-session {
+    @apply relative;
+  }
+
+  /* Sits over the row's end on hover; shares the hover background so a long title ends cleanly beneath it. */
+  .nav-session__trigger {
+    @apply absolute top-1/2 right-1.5 hidden h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md
+      bg-surface-3 text-text-faint transition-colors hover:text-text;
+  }
+
+  .nav-session:is(:hover, :focus-within, .nav-session--open) .nav-session__trigger {
+    @apply flex;
+  }
+
+  .nav-session:is(:hover, :focus-within, .nav-session--open) .nav-row__mr {
+    @apply invisible;
+  }
+
+  .nav-session__menu {
+    @apply absolute top-full right-0 z-40 mt-1 w-56 rounded-xl border border-border bg-surface-2 p-1 shadow-overlay;
+  }
+
+  .nav-session__menu--up {
+    @apply top-auto bottom-full mt-0 mb-1;
+  }
+
+  @media (hover: none) {
+    .nav-session > .nav-row {
+      @apply pr-9;
+    }
+
+    .nav-session .nav-session__trigger {
+      @apply flex bg-transparent;
+    }
+
+    .nav-session .nav-row__mr {
+      @apply visible;
+    }
+  }
+
   [aria-expanded="true"] > .nav-row__chevron {
     @apply rotate-90;
   }

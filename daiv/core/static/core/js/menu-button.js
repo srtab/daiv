@@ -12,10 +12,13 @@
  *
  * Escape stops propagating only while the menu is open, so a menu inside the mobile nav
  * sheet closes itself first and the sheet's own window-level Escape closes it next time.
+ * Inside a `[data-menu-bounds]` box, `up` says the menu's component sits in its lower half,
+ * so the menu can open upward instead of past the box's bottom edge.
  */
 document.addEventListener("alpine:init", () => {
   Alpine.data("menuButton", () => ({
     open: false,
+    up: false,
 
     items() {
       return [...this.$refs.menu.querySelectorAll('[role^="menuitem"]')];
@@ -27,6 +30,7 @@ document.addEventListener("alpine:init", () => {
     },
 
     show(index) {
+      this.up = this.opensUp();
       this.open = true;
       this.$nextTick(() => this.focusAt(index));
     },
@@ -34,6 +38,13 @@ document.addEventListener("alpine:init", () => {
     toggle() {
       if (this.open) this.close();
       else this.show(0);
+    },
+
+    opensUp() {
+      const bounds = this.$root.closest("[data-menu-bounds]")?.getBoundingClientRect();
+      if (!bounds) return false;
+      const root = this.$root.getBoundingClientRect();
+      return root.top + root.height / 2 > bounds.top + bounds.height / 2;
     },
 
     close(refocus = false) {

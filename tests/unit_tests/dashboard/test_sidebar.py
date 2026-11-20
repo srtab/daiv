@@ -389,6 +389,72 @@ class TestSidebarSessionsGroup:
 
 
 @pytest.mark.django_db
+class TestSidebarSessionMenu:
+    def _menu(self, client):
+        (item,) = _sidebar(client).select('[data-testid="nav-session-menu-items"]')
+        return item
+
+    def _with_merge_request(self, user, url="https://git/mr/102"):
+        session = make_session(user)
+        make_run(session, RunStatus.SUCCESSFUL, merge_request_iid=102, merge_request_web_url=url)
+        return session
+
+    def test_menu_items_in_order(self, member_user, member_client):
+        session = self._with_merge_request(member_user)
+        session_url = reverse("session_detail", kwargs={"thread_id": session.thread_id})
+
+        items = self._menu(member_client).select('[role="menuitem"]')
+
+        assert [item.get_text(" ", strip=True) for item in items] == [
+            "Open merge request !102",
+            "Copy link",
+            "Open in new tab",
+            "Archive",
+        ]
+        assert (items[0]["href"], items[0]["target"]) == ("https://git/mr/102", "_blank")
+        assert (items[2]["href"], items[2]["target"]) == (session_url, "_blank")
+
+    def test_no_open_mr_item_without_url(self, member_user, member_client):
+        self._with_merge_request(member_user, url="")
+
+        texts = [item.get_text(strip=True) for item in self._menu(member_client).select('[role="menuitem"]')]
+
+        assert texts == ["Copy link", "Open in new tab", "Archive"]
+
+    @pytest.mark.parametrize("status", [RunStatus.RUNNING, RunStatus.QUEUED])
+    def test_archive_hidden_while_running_or_queued(self, member_user, member_client, status):
+        make_run(make_session(member_user), status)
+
+        assert not self._menu(member_client).select('[data-testid="nav-session-archive"]')
+
+    def test_archive_asks_with_the_session_archive_url(self, member_user, member_client):
+        session = make_session(member_user)
+
+        (archive,) = self._menu(member_client).select('[data-testid="nav-session-archive"]')
+
+        assert reverse("api:session_archive", kwargs={"thread_id": session.thread_id}) in archive["@click"]
+
+    def test_menu_button_is_not_inside_the_row_link(self, member_user, member_client):
+        make_session(member_user)
+
+        sidebar = _sidebar(member_client)
+
+        (row,) = sidebar.select('[data-testid="nav-session-row"]')
+        assert not row.select('[data-testid="nav-session-menu"]')
+        (trigger,) = sidebar.select('[data-testid="nav-session-menu"]')
+        assert trigger["aria-haspopup"] == "menu"
+
+    def test_archive_dialog_rendered_once(self, member_user, member_client):
+        make_session(member_user)
+
+        page = _soup(member_client, "dashboard")
+
+        (dialog,) = page.select('[data-testid="sidebar-archive-dialog"]')
+        assert dialog.select_one("h2").get_text(strip=True) == "Archive this session?"
+        assert dialog.select_one('[data-testid="sidebar-archive-confirm"]')
+
+
+@pytest.mark.django_db
 class TestSidebarScheduledGroup:
     def test_schedule_row_shows_name_and_next_run(self, member_user, member_client):
         schedule = make_schedule(member_user, name="Weekly dependency audit")
