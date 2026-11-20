@@ -378,6 +378,25 @@ class SessionSpendChoicesView(LoginRequiredMixin, View):
         return list(rows.order_by("provider_slug"))
 
 
+class SessionRepoChoicesView(LoginRequiredMixin, View):
+    """The repositories the sessions list's Repository filter offers: those of the sessions in the request's scope."""
+
+    def get(self, request):
+        scope = resolve_scope(request.GET)
+        sessions = (
+            Session.objects.owned_by(request.user) if scope == SCOPE_MINE else Session.objects.visible_to(request.user)
+        )
+        repos = sessions.exclude(repo_id="").order_by("repo_id").values_list("repo_id", flat=True).distinct()
+        context = {
+            "key": "repo",
+            "lead": "repo",
+            "options": [(repo, repo) for repo in repos],
+            "current": request.GET.get("repo", ""),
+            "current_scope": scope,
+        }
+        return render(request, "sessions/_filter_options.html", context)
+
+
 class SessionMergeRequestRedirectView(LoginRequiredMixin, View):
     """Target of the session link DAIV writes into merge request descriptions.
 

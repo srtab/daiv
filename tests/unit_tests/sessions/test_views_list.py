@@ -1094,3 +1094,44 @@ class TestSessionListGrouping:
         response = logged_in_client.get(reverse("session_list"), {"group": "status"}, HTTP_HX_REQUEST="true")
 
         assert _headers(response) == ["Running 1"]
+
+
+@pytest.mark.django_db
+class TestSessionRepoChoices:
+    def _values(self, response) -> list[str]:
+        soup = BeautifulSoup(response.content, "html.parser")
+        return [item["data-value"] for item in soup.select("[data-filter-key=repo]")]
+
+    def test_repo_choices_follow_the_scope(self, logged_in_client, admin_client, user, other_user):
+        _create_session(user=user, repo_id="a/one")
+        _create_session(user=user, repo_id="a/two")
+        _create_session(user=user, repo_id="a/two", archived_at=timezone.now())
+        _create_session(user=user, repo_id="")
+        _create_session(user=other_user, repo_id="b/three")
+        url = reverse("session_repo_choices")
+
+        assert self._values(logged_in_client.get(url, {"scope": "mine"})) == ["a/one", "a/two"]
+        assert self._values(admin_client.get(url, {"scope": "all"})) == ["a/one", "a/two", "b/three"]
+
+    def test_repo_choices_keep_the_list_query_and_mark_the_current_one(self, logged_in_client, user):
+        _create_session(user=user, repo_id="a/one")
+        _create_session(user=user, repo_id="a/two")
+
+        response = logged_in_client.get(
+            reverse("session_repo_choices"), {"scope": "all", "status": "FAILED", "repo": "a/two"}
+        )
+
+        soup = BeautifulSoup(response.content, "html.parser")
+        item = soup.select_one("[data-filter-key=repo][data-value='a/one']")
+        assert "filter-menu-item--active" in soup.select_one("[data-value='a/two']")["class"]
+        assert dict(QueryDict(urlsplit(item["href"]).query).items()) == {
+            "scope": "all",
+            "status": "FAILED",
+            "repo": "a/one",
+        }
+
+    def test_repo_choices_need_sign_in(self, client):
+        response = client.get(reverse("session_repo_choices"))
+
+        assert response.status_code == 302
+        assert "/accounts/login/" in response["Location"]
