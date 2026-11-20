@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 from django.urls import reverse
 
-from dashboard.sitemaps import CanonicalSitemap
+from dashboard.sitemaps import CanonicalSitemap, StaticSitemap
 
 from blog import posts
 
@@ -10,14 +10,9 @@ if TYPE_CHECKING:
     from datetime import date
 
 
-class BlogIndexSitemap(CanonicalSitemap):
-    changefreq = "weekly"
-
+class BlogIndexSitemap(StaticSitemap):
     def items(self) -> list[str]:
         return ["blog:index"] if posts.visible_posts() else []
-
-    def location(self, item: str) -> str:
-        return reverse(item)
 
 
 class BlogPostSitemap(CanonicalSitemap):

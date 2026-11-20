@@ -3,9 +3,8 @@ from datetime import UTC, datetime, time
 from django.contrib.syndication.views import Feed
 from django.http import Http404
 
-from dashboard.landing import CANONICAL_ORIGIN
-
 from blog import posts
+from daiv import CANONICAL_ORIGIN
 
 
 class BlogFeed(Feed):

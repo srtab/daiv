@@ -96,12 +96,6 @@ class TestHomepage:
         app = next(data for data in map(json.loads, blocks) if data["@type"] == "SoftwareApplication")
         assert app["sameAs"] == [link.url for link in landing.SOCIAL_LINKS]
 
-    def test_canonical_points_at_daivagent_com_on_any_host(self):
-        content = Client(HTTP_HOST="daiv.internal.example").get("/?utm_source=x").content.decode()
-
-        assert '<link rel="canonical" href="https://daivagent.com/">' in content
-        assert '<meta property="og:url" content="https://daivagent.com/">' in content
-
     def test_hero_deploy_link_is_the_quickstart(self):
         content = Client().get(reverse("homepage")).content.decode()
 
@@ -135,12 +129,6 @@ class TestComparison:
             for source in (*row.daiv.sources, *row.theirs.sources):
                 assert f'href="{source}"' in content
 
-    def test_canonical_points_at_daivagent_com_on_any_host(self):
-        path = reverse("comparison", args=[COMPARISONS[0].slug])
-        content = Client(HTTP_HOST="daiv.internal.example").get(path).content.decode()
-
-        assert f'<link rel="canonical" href="https://daivagent.com{path}">' in content
-
     def test_unknown_comparison_is_not_found(self):
         assert Client().get("/compare/nothing-like-this/").status_code == 404
 
@@ -161,6 +149,21 @@ class TestComparison:
         content = Client().get(reverse("comparison", args=[COMPARISONS[0].slug])).content.decode()
 
         assert f"as of {CHECKED:%B %Y}." in content
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("path", "canonical"),
+    [
+        ("/?utm_source=x", "https://daivagent.com/"),
+        (f"/compare/{COMPARISONS[0].slug}/", f"https://daivagent.com/compare/{COMPARISONS[0].slug}/"),
+    ],
+)
+def test_canonical_points_at_daivagent_com_on_any_host(path, canonical):
+    content = Client(HTTP_HOST="daiv.internal.example").get(path).content.decode()
+
+    assert f'<link rel="canonical" href="{canonical}">' in content
+    assert f'<meta property="og:url" content="{canonical}">' in content
 
 
 @pytest.mark.django_db

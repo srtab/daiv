@@ -11,9 +11,9 @@ from django.templatetags.static import static
 from django.urls import reverse
 
 import yaml
-from dashboard.landing import CANONICAL_ORIGIN
 
 from blog.rendering import render_body, static_path
+from daiv import CANONICAL_ORIGIN
 
 if TYPE_CHECKING:
     from collections.abc import Iterable

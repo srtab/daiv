@@ -4,12 +4,10 @@ from urllib.parse import urlsplit
 from django.contrib.sitemaps import Sitemap
 from django.urls import reverse
 
+from daiv import CANONICAL_ORIGIN
 from dashboard.comparisons import CHECKED, COMPARISONS
-from dashboard.landing import CANONICAL_ORIGIN
 
 if TYPE_CHECKING:
-    from datetime import date
-
     from dashboard.comparisons import Comparison
 
 _CANONICAL = urlsplit(CANONICAL_ORIGIN)
@@ -36,12 +34,10 @@ class StaticSitemap(CanonicalSitemap):
 
 class ComparisonSitemap(CanonicalSitemap):
     changefreq = "monthly"
+    lastmod = CHECKED
 
     def items(self) -> tuple[Comparison, ...]:
         return COMPARISONS
 
     def location(self, item: Comparison) -> str:
         return reverse("comparison", args=[item.slug])
-
-    def lastmod(self, item: Comparison) -> date:
-        return CHECKED

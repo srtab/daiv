@@ -7,7 +7,7 @@
 
 {% block open_graph %}
     <meta property="og:type" content="article">
-    <meta property="og:url" content="{{ post.canonical_url }}">
+    <meta property="og:url" content="{{ canonical_url }}">
     <meta property="og:title" content="{{ post.title }}">
     <meta property="og:description" content="{{ post.summary }}">
     <meta property="og:site_name" content="DAIV">
@@ -30,8 +30,8 @@
   "description": "{{ post.summary|escapejs }}",
   "datePublished": "{{ post.date|date:'Y-m-d' }}",
   {% if post.updated %}"dateModified": "{{ post.updated|date:'Y-m-d' }}",{% endif %}
-  "url": "{{ post.canonical_url|escapejs }}",
-  "mainEntityOfPage": "{{ post.canonical_url|escapejs }}",
+  "url": "{{ canonical_url|escapejs }}",
+  "mainEntityOfPage": "{{ canonical_url|escapejs }}",
   {% if post.image %}"image": "{{ post.absolute_image_url|escapejs }}",{% endif %}
   "author": {"@type": "Person", "name": "{{ post.author|escapejs }}"},
   "publisher": {"@type": "Organization", "name": "DAIV", "url": "https://daivagent.com/"}
