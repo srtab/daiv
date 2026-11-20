@@ -47,6 +47,7 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 
 ### Added
 
+- Add a menu to each session in the sidebar to open its merge request, copy its link, open it in a new tab or archive it; the rows mark running, waiting and failed sessions as the sessions list does and show a merge request icon instead of the date
 - Add `CODEBASE_GITLAB_PAT_FALLBACK`: set it to `false` to fail GitLab runs instead of cloning and pushing with the personal access token when a short-lived project access token can't be created ([#1852](https://github.com/srtab/daiv/pull/1852))
 - Add an **Insights → Spend** page with what DAIV spent on models by person, repository, trigger, model and provider, the prompt cache hit rate, the costliest sessions and background spend, plus a cost sort and spend filters on the sessions list, a CSV export and `GET /api/spend/records` ([#1849](https://github.com/srtab/daiv/pull/1849))
 - Say which provider stopped a run — out of credits, spending limit, rejected key, rate limit or outage — on every failure surface, and warn admins with a banner while a provider needs them ([#1850](https://github.com/srtab/daiv/pull/1850))
