@@ -1581,3 +1581,56 @@ msgstr "Tipo"
 
 msgid "All kinds"
 msgstr "Todos os tipos"
+
+msgid "Filter"
+msgstr "Filtrar"
+
+msgid "Filter by…"
+msgstr "Filtrar por…"
+
+msgid "Filter by"
+msgstr "Filtrar por"
+
+msgid "Find…"
+msgstr "Procurar…"
+
+#, python-format
+msgid "Find a %(name)s"
+msgstr "Procurar %(name)s"
+
+#, python-format
+msgid "Clear %(name)s filter"
+msgstr "Limpar filtro %(name)s"
+
+msgid "Archived sessions"
+msgstr "Sessões arquivadas"
+
+msgid "Schedule"
+msgstr "Agendamento"
+
+msgid "Batch"
+msgstr "Lote"
+
+msgid "Ran on"
+msgstr "Executada em"
+
+msgid "Including archived"
+msgstr "Incluindo arquivadas"
+
+msgid "Display"
+msgstr "Apresentação"
+
+msgid "Group by"
+msgstr "Agrupar por"
+
+msgid "Sort by"
+msgstr "Ordenar por"
+
+msgid "Show archived"
+msgstr "Mostrar arquivadas"
+
+msgid "Date"
+msgstr "Data"
+
+msgid "No runs"
+msgstr "Sem execuções"
