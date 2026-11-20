@@ -36,7 +36,7 @@ WORST_FIRST = (
     RunStatus.SUCCESSFUL,
 )
 _OPENS_SCHEDULE = frozenset({RunStatus.FAILED, RunStatus.WAITING_INPUT})
-_BLOCKS_ARCHIVE = frozenset({RunStatus.RUNNING, RunStatus.QUEUED})
+_BLOCKS_ARCHIVE = frozenset({RunStatus.RUNNING, RunStatus.QUEUED, RunStatus.READY})
 NEWEST_SESSIONS = FIRINGS_PER_SCHEDULE * MAX_REPOS_PER_BATCH
 
 _SESSION_FIELDS = ("thread_id", "title", "last_active_at", "latest_run_status", "repo_id", "mr_iid", "mr_url")

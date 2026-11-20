@@ -160,6 +160,7 @@ class TestSessionRows:
         [
             (RunStatus.RUNNING, False),
             (RunStatus.QUEUED, False),
+            (RunStatus.READY, False),
             (RunStatus.SUCCESSFUL, True),
             (RunStatus.FAILED, True),
             (RunStatus.WAITING_INPUT, True),
