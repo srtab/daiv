@@ -41,264 +41,313 @@
   src: url("fonts/geist-mono-latin-wght-normal.woff2") format("woff2");
 }
 
-[data-md-color-scheme="slate"] {
-  --md-default-bg-color: var(--daiv-ground);
-  --md-default-fg-color: var(--daiv-text);
-  --md-default-fg-color--light: var(--daiv-text-muted);
-  --md-default-fg-color--lighter: var(--daiv-text-faint);
-  --md-default-fg-color--lightest: var(--daiv-border);
-
-  --md-primary-fg-color: var(--daiv-ground);
-  --md-primary-fg-color--light: var(--daiv-surface-1);
-  --md-primary-fg-color--dark: var(--daiv-ground);
-  --md-primary-bg-color: var(--daiv-text-strong);
-  --md-primary-bg-color--light: var(--daiv-text-muted);
-  --md-accent-fg-color: var(--daiv-accent-bright);
-
-  --md-typeset-color: var(--daiv-text);
-  --md-typeset-a-color: var(--daiv-accent);
-  --md-typeset-mark-color: var(--daiv-surface-3);
-  --md-typeset-table-color: var(--daiv-border);
-
-  --md-code-bg-color: var(--daiv-surface-2);
-  --md-code-fg-color: var(--daiv-text);
-
-  --md-footer-bg-color: var(--daiv-ground);
-  --md-footer-bg-color--dark: var(--daiv-surface-1);
-
-  --md-accent-fg-color--transparent: color-mix(in srgb, var(--daiv-accent) 10%, transparent);
-  --md-accent-bg-color: var(--daiv-accent-ink);
-  --md-typeset-table-color--light: var(--daiv-surface-1);
-  --md-code-bg-color--light: var(--daiv-surface-2);
-  --md-code-bg-color--lighter: var(--daiv-surface-2);
-
-  --md-mermaid-font-family: "Geist", sans-serif;
-  --md-mermaid-node-bg-color: var(--daiv-surface-3);
-  --md-mermaid-node-fg-color: var(--daiv-text-muted);
-  --md-mermaid-edge-color: var(--daiv-text-faint);
-  --md-mermaid-label-bg-color: var(--daiv-surface-2);
-  --md-mermaid-label-fg-color: var(--daiv-text);
-
-  --md-shadow-z1: none;
-  --md-shadow-z2: none;
-  --md-shadow-z3: none;
-  --daiv-shadow-overlay: 0 16px 40px -24px rgba(0, 0, 0, 0.85);
-}
-
 :focus-visible {
   outline: 2px solid var(--daiv-focus);
   outline-offset: 2px;
 }
 
-/* Header — the blur sits on a pseudo-element: backdrop-filter on .md-header itself would
-   trap the phone search panel, which is position: fixed, inside the 48px bar. */
-.md-header {
-  background-color: transparent;
-  border-bottom: 1px solid var(--daiv-border);
-}
+/* Screen only: Material scopes slate to screen, so print keeps its light scheme. */
+@media screen {
+  :root {
+    color-scheme: dark;
+  }
 
-.md-header::before {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  content: "";
-  background-color: color-mix(in srgb, var(--daiv-ground) 80%, transparent);
-  backdrop-filter: blur(12px);
-}
+  [data-md-color-scheme="slate"] {
+    --md-default-bg-color: var(--daiv-ground);
+    --md-default-fg-color: var(--daiv-text);
+    --md-default-fg-color--light: var(--daiv-text-muted);
+    --md-default-fg-color--lighter: var(--daiv-text-faint);
+    --md-default-fg-color--lightest: var(--daiv-border);
 
-.md-header--shadow {
-  box-shadow: none;
-}
+    --md-primary-fg-color: var(--daiv-ground);
+    --md-primary-fg-color--light: var(--daiv-surface-1);
+    --md-primary-fg-color--dark: var(--daiv-ground);
+    --md-primary-bg-color: var(--daiv-text-strong);
+    --md-primary-bg-color--light: var(--daiv-text-muted);
+    --md-accent-fg-color: var(--daiv-accent-bright);
 
-.md-header__topic:first-child {
-  font-size: 17px;
-  font-weight: 700;
-  letter-spacing: -0.025em;
-  color: var(--daiv-text-strong);
-}
+    --md-typeset-color: var(--daiv-text);
+    --md-typeset-a-color: var(--daiv-accent);
+    --md-typeset-mark-color: var(--daiv-surface-3);
+    --md-typeset-table-color: var(--daiv-border);
 
-@media screen and (min-width: 60em) {
-  .md-search__form,
-  [data-md-toggle="search"]:checked ~ .md-header .md-search__form {
-    background-color: var(--daiv-surface-2);
-    border: 1px solid var(--daiv-border);
-    border-radius: 8px;
+    --md-code-bg-color: var(--daiv-surface-2);
+    --md-code-fg-color: var(--daiv-text);
+
+    --md-footer-bg-color: var(--daiv-ground);
+    --md-footer-bg-color--dark: var(--daiv-surface-1);
+
+    --md-accent-fg-color--transparent: color-mix(in srgb, var(--daiv-accent) 10%, transparent);
+    --md-accent-bg-color: var(--daiv-accent-ink);
+    --md-typeset-table-color--light: var(--daiv-surface-1);
+    --md-code-bg-color--light: var(--daiv-surface-2);
+    --md-code-bg-color--lighter: var(--daiv-surface-2);
+
+    --md-mermaid-font-family: "Geist", sans-serif;
+    --md-mermaid-node-bg-color: var(--daiv-surface-3);
+    --md-mermaid-node-fg-color: var(--daiv-text-muted);
+    --md-mermaid-edge-color: var(--daiv-text-faint);
+    --md-mermaid-label-bg-color: var(--daiv-surface-2);
+    --md-mermaid-label-fg-color: var(--daiv-text);
+
+    --md-shadow-z1: none;
+    --md-shadow-z2: none;
+    --md-shadow-z3: none;
+    --daiv-shadow-overlay: 0 16px 40px -24px rgba(0, 0, 0, 0.85);
+  }
+
+  /* Header — the blur sits on a pseudo-element: backdrop-filter on .md-header itself would
+     trap the phone search panel, which is position: fixed, inside the 48px bar. */
+  .md-header {
+    background-color: transparent;
+    border-bottom: 1px solid var(--daiv-border);
+  }
+
+  .md-header::before {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    content: "";
+    background-color: color-mix(in srgb, var(--daiv-ground) 80%, transparent);
+    backdrop-filter: blur(12px);
+  }
+
+  .md-header--shadow {
     box-shadow: none;
   }
 
-  [data-md-toggle="search"]:checked ~ .md-header .md-search__form {
-    border-radius: 8px 8px 0 0;
+  .md-header__topic:first-child {
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    color: var(--daiv-text-strong);
   }
 
-  [data-md-toggle="search"]:checked ~ .md-header .md-search__output {
+  @media (min-width: 60em) {
+    .md-search__form,
+    [data-md-toggle="search"]:checked ~ .md-header .md-search__form {
+      background-color: var(--daiv-surface-2);
+      border: 1px solid var(--daiv-border);
+      border-radius: 8px;
+      box-shadow: none;
+    }
+
+    [data-md-toggle="search"]:checked ~ .md-header .md-search__form {
+      border-radius: 8px 8px 0 0;
+    }
+
+    [data-md-toggle="search"]:checked ~ .md-header .md-search__output {
+      border: 1px solid var(--daiv-border);
+      border-top: none;
+      border-radius: 0 0 8px 8px;
+      box-shadow: var(--daiv-shadow-overlay);
+    }
+  }
+
+  .md-search__scrollwrap {
+    background-color: var(--daiv-surface-2);
+  }
+
+  .md-version__list {
+    background-color: var(--daiv-surface-2);
     border: 1px solid var(--daiv-border);
-    border-top: none;
-    border-radius: 0 0 8px 8px;
+    border-radius: 8px;
     box-shadow: var(--daiv-shadow-overlay);
   }
-}
 
-.md-search__scrollwrap {
-  background-color: var(--daiv-surface-2);
-}
+  .md-tooltip,
+  .md-tooltip2 {
+    --md-default-bg-color: var(--daiv-surface-2);
+  }
 
-.md-version__list {
-  background-color: var(--daiv-surface-2);
-  border: 1px solid var(--daiv-border);
-  border-radius: 8px;
-  box-shadow: var(--daiv-shadow-overlay);
-}
+  .md-tooltip,
+  .md-tooltip2__inner,
+  .md-dialog {
+    border: 1px solid var(--daiv-border);
+    border-radius: 12px;
+    box-shadow: var(--daiv-shadow-overlay);
+  }
 
-.md-nav__link {
-  color: var(--daiv-text-muted);
-}
+  .md-dialog {
+    color: var(--daiv-text);
+    background-color: var(--daiv-surface-2);
+  }
 
-.md-nav__link[for]:is(:hover, :focus),
-.md-nav__link[href]:is(:hover, :focus) {
-  color: var(--daiv-text);
-}
+  .md-nav__link {
+    color: var(--daiv-text-muted);
+  }
 
-.md-nav--primary .md-nav__item--active > .md-nav__link {
-  color: var(--daiv-text);
-}
+  .md-nav__link[for]:is(:hover, :focus),
+  .md-nav__link[href]:is(:hover, :focus) {
+    color: var(--daiv-text);
+  }
 
-.md-nav .md-nav__item .md-nav__link--active {
-  color: var(--daiv-text-strong);
-}
+  .md-nav--primary .md-nav__item--active > .md-nav__link {
+    color: var(--daiv-text);
+  }
 
-.md-nav--primary .md-nav__link--active {
-  box-shadow: inset 3px 0 0 var(--daiv-brand);
-}
+  .md-nav .md-nav__item .md-nav__link--active {
+    color: var(--daiv-text-strong);
+  }
 
-@media screen and (min-width: 76.25em) {
   .md-nav--primary .md-nav__link--active {
-    padding-left: 0.5rem;
-    margin-left: -0.5rem;
-  }
-}
-
-.md-nav--primary .md-nav--secondary .md-nav__link--active {
-  box-shadow: none;
-}
-
-@media screen and (max-width: 76.234375em) {
-  .md-sidebar--primary {
-    --md-default-bg-color: var(--daiv-surface-1);
-    --md-primary-fg-color: var(--daiv-surface-1);
+    box-shadow: inset 3px 0 0 var(--daiv-brand);
   }
 
-  .md-nav--primary .md-nav__title {
-    background-color: var(--daiv-surface-1);
+  @media (min-width: 76.25em) {
+    .md-nav--primary .md-nav__link--active {
+      padding-left: 0.5rem;
+      margin-left: -0.5rem;
+    }
   }
-}
 
-.md-typeset {
-  line-height: 1.75;
-}
+  .md-nav--primary .md-nav--secondary .md-nav__link--active {
+    box-shadow: none;
+  }
 
-.md-typeset :is(h1, h2, h3) {
-  color: var(--daiv-text-strong);
-  letter-spacing: -0.025em;
-}
+  @media (max-width: 76.234375em) {
+    .md-sidebar--primary {
+      --md-default-bg-color: var(--daiv-surface-1);
+      --md-primary-fg-color: var(--daiv-surface-1);
+    }
 
-.md-typeset :is(h1, h2) {
-  font-weight: 700;
-}
+    .md-nav--primary .md-nav__title {
+      background-color: var(--daiv-surface-1);
+    }
+  }
 
-.md-typeset h3 {
-  font-weight: 600;
-}
+  .md-typeset {
+    line-height: 1.75;
+  }
 
-.md-typeset a:not(.headerlink, .md-content__button):hover {
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
+  .md-typeset :is(h1, h2, h3) {
+    color: var(--daiv-text-strong);
+    letter-spacing: -0.025em;
+  }
 
-.md-typeset hr {
-  border-bottom-color: var(--daiv-border);
-}
+  .md-typeset :is(h1, h2) {
+    font-weight: 700;
+  }
 
-.md-typeset :is(code, kbd, samp, pre) {
-  font-variant-ligatures: none;
-}
+  .md-typeset h3 {
+    font-weight: 600;
+  }
 
-.md-typeset :not(pre) > code {
-  color: var(--daiv-text-strong);
-  background-color: var(--daiv-surface-3);
-  border-radius: 4px;
-}
+  .md-typeset a:not(.headerlink, .md-content__button):hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
 
-.md-typeset div.highlight {
-  overflow: hidden;
-  border: 1px solid var(--daiv-border);
-  border-radius: 12px;
-}
+  .md-typeset hr {
+    border-bottom-color: var(--daiv-border);
+  }
 
-.md-typeset .highlight .filename {
-  color: var(--daiv-text-muted);
-  background-color: var(--daiv-surface-1);
-  border-bottom: 1px solid var(--daiv-border);
-}
+  .md-typeset :is(code, kbd, samp, pre) {
+    font-variant-ligatures: none;
+  }
 
-.md-typeset table:not([class]) {
-  border: 1px solid var(--daiv-border);
-  border-radius: 12px;
-}
+  .md-typeset :not(pre) > code {
+    color: var(--daiv-text-strong);
+    background-color: var(--daiv-surface-3);
+    border-radius: 4px;
+  }
 
-.md-typeset table:not([class]) th {
-  color: var(--daiv-text-strong);
-  background-color: var(--daiv-surface-2);
-}
+  .md-typeset a > code {
+    color: var(--daiv-accent);
+  }
 
-.md-typeset mark {
-  color: var(--daiv-text-strong);
-}
+  .md-typeset a:is(:hover, :focus) > code {
+    color: var(--daiv-accent-bright);
+  }
 
-/* Admonitions — status colour only on the rail and the icon, never as a fill behind text. */
-.md-typeset :is(.admonition, details) {
-  --daiv-tone: var(--daiv-status-attn);
-}
+  /* The surface is painted here, not on the pieces inside: their square corners would poke past
+     the radius, and clipping them with overflow would cut off code annotation tooltips. */
+  .md-typeset div.highlight {
+    margin-block: 1em;
+    background-color: var(--daiv-surface-2);
+    border: 1px solid var(--daiv-border);
+    border-radius: 12px;
+  }
 
-.md-typeset :is(.admonition, details):is(.warning, .caution, .attention) {
-  --daiv-tone: var(--daiv-status-found);
-}
+  .md-typeset div.highlight :is(pre, .highlighttable, span.filename) {
+    margin-top: 0;
+    margin-bottom: 0;
+  }
 
-.md-typeset :is(.admonition, details):is(.tip, .hint, .important, .success, .check, .done, .example) {
-  --daiv-tone: var(--daiv-status-clear);
-}
+  .md-typeset div.highlight :is(pre > code, .linenos, span.filename) {
+    background-color: transparent;
+  }
 
-.md-typeset :is(.admonition, details):is(.danger, .error, .failure, .fail, .missing, .bug) {
-  --daiv-tone: var(--daiv-status-fail);
-}
+  .md-typeset .highlight span.filename {
+    color: var(--daiv-text-muted);
+  }
 
-.md-typeset :is(.admonition, details)[class] {
-  font-size: 0.7rem;
-  background-color: var(--daiv-surface-2);
-  border: 1px solid var(--daiv-border);
-  border-left: 3px solid var(--daiv-tone);
-  border-radius: 12px;
-  box-shadow: none;
-}
+  .md-typeset table:not([class]) {
+    border: 1px solid var(--daiv-border);
+    border-radius: 12px;
+  }
 
-.md-typeset :is(.admonition, details)[class] > :is(.admonition-title, summary) {
-  color: var(--daiv-text-strong);
-  background-color: transparent;
-}
+  .md-typeset table:not([class]) th {
+    color: var(--daiv-text-strong);
+    background-color: var(--daiv-surface-2);
+  }
 
-.md-typeset :is(.admonition, details)[class] > :is(.admonition-title, summary)::before {
-  background-color: var(--daiv-tone);
-}
+  .md-typeset mark {
+    color: var(--daiv-text-strong);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
 
-.md-typeset :is(.admonition, details)[class] > summary::after {
-  color: var(--daiv-text-muted);
-}
+  .md-typeset a mark {
+    color: inherit;
+  }
 
-/* Grid cards are static: only the link inside one is clickable, so the card keeps no hover. */
-.md-typeset .grid.cards > ul > li,
-.md-typeset .grid.cards > ul > li:is(:hover, :focus-within) {
-  padding: 1.2rem;
-  background-color: var(--daiv-surface-2);
-  border: 1px solid var(--daiv-border);
-  border-radius: 16px;
-  box-shadow: none;
+  /* Admonitions — status colour only on the rail and the icon, never as a fill behind text. */
+  .md-typeset :is(.admonition, details) {
+    --daiv-tone: var(--daiv-status-attn);
+  }
+
+  .md-typeset :is(.admonition, details):is(.warning, .caution, .attention) {
+    --daiv-tone: var(--daiv-status-found);
+  }
+
+  .md-typeset :is(.admonition, details):is(.tip, .hint, .important, .success, .check, .done, .example) {
+    --daiv-tone: var(--daiv-status-clear);
+  }
+
+  .md-typeset :is(.admonition, details):is(.danger, .error, .failure, .fail, .missing, .bug) {
+    --daiv-tone: var(--daiv-status-fail);
+  }
+
+  .md-typeset :is(.admonition, details)[class] {
+    font-size: 0.7rem;
+    background-color: var(--daiv-surface-2);
+    border: 1px solid var(--daiv-border);
+    border-left: 3px solid var(--daiv-tone);
+    border-radius: 12px;
+    box-shadow: none;
+  }
+
+  .md-typeset :is(.admonition, details)[class] > :is(.admonition-title, summary) {
+    color: var(--daiv-text-strong);
+    background-color: transparent;
+  }
+
+  .md-typeset :is(.admonition, details)[class] > :is(.admonition-title, summary)::before {
+    background-color: var(--daiv-tone);
+  }
+
+  .md-typeset :is(.admonition, details)[class] > summary::after {
+    color: var(--daiv-text-muted);
+  }
+
+  /* Grid cards are static: only the link inside one is clickable, so the card keeps no hover. */
+  .md-typeset .grid.cards > ul > li,
+  .md-typeset .grid.cards > ul > li:is(:hover, :focus-within) {
+    padding: 1.2rem;
+    background-color: var(--daiv-surface-2);
+    border: 1px solid var(--daiv-border);
+    border-radius: 16px;
+    box-shadow: none;
+  }
 }
