@@ -2,32 +2,34 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
-from typing import TYPE_CHECKING
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db.models import Q
+from django.tasks import TaskResultStatus
 from django.utils import timezone
 
+from django_tasks_db.models import DBTaskResult
+
 from sessions.executor.lock import stale_cutoff
-from sessions.inbox.kinds import INBOX_TRIGGERS
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.queue import ENQUEUE_FAILED_PREFIX
-
-if TYPE_CHECKING:
-    from collections.abc import Iterable
 
 logger = logging.getLogger("daiv.sessions")
 
 NEVER_QUEUED_AFTER = timedelta(minutes=10)
 
 
+class DeadWorkerError(Exception):
+    """The worker running a task died; ``sync_stuck_runs`` failed the task in its place."""
+
+
 class Command(BaseCommand):
     help = (
         "Reconcile non-terminal Run rows. Task-backed runs are re-synced from their linked "
         "DBTaskResult; inline chat runs (which have no task result) that a worker crash left "
-        "stuck in RUNNING are failed once their session heartbeat goes stale, task-backed job and inbox runs a "
-        "worker crash left RUNNING are failed the same way, and READY runs whose submitter stopped before queueing "
-        "their task are failed once they are old enough."
+        "stuck in RUNNING are failed once their session heartbeat goes stale, task-backed runs a worker crash "
+        "left RUNNING are failed the same way along with their tasks, and READY runs whose submitter stopped "
+        "before queueing their task are failed once they are old enough."
     )
 
     def handle(self, *args, **options):
@@ -51,14 +53,12 @@ class Command(BaseCommand):
                 logger.exception("Failed to sync run %s", run.id)
 
         reaped = self._reap_orphaned_chat_runs()
-        dead_jobs = self._reap_dead_task_runs(SessionOrigin.one_active(), kind="job")
-        dead_inbox_runs = self._reap_dead_task_runs(INBOX_TRIGGERS - SessionOrigin.one_active(), kind="inbox")
+        dead = self._reap_dead_task_runs()
         never_queued = self._reap_never_queued_runs()
 
         summary = (
             f"Synced: {synced}, already up to date: {skipped}, errored: {len(errored_ids)}, "
-            f"chat runs reaped: {reaped}, dead job runs reaped: {dead_jobs}, "
-            f"dead inbox runs reaped: {dead_inbox_runs}, never-queued runs reaped: {never_queued}"
+            f"chat runs reaped: {reaped}, dead task runs reaped: {dead}, never-queued runs reaped: {never_queued}"
         )
         if errored_ids:
             # Fail the command run — and thus the cron task's DBTaskResult when scheduled — so
@@ -99,36 +99,40 @@ class Command(BaseCommand):
             logger.warning("sync_stuck_runs: reaped %d orphaned chat run(s) stuck in RUNNING", reaped)
         return reaped
 
-    def _reap_dead_task_runs(self, triggers: Iterable[str], *, kind: str) -> int:
-        """Fail task-backed runs of ``triggers`` a hard worker crash left RUNNING, which the DBTaskResult sync never
+    def _reap_dead_task_runs(self) -> int:
+        """Fail task-backed runs a hard worker crash left RUNNING, and their tasks, which the DBTaskResult sync never
         ends: it reports the task RUNNING for good.
 
-        A job run (``SessionOrigin.one_active``) keeps its session's one active job place
-        (``run_one_active_per_session``), so nothing the inbox holds for the session would start again. Any other run
-        the inbox starts (a chat message, a mention, a CI fix) would show RUNNING for good; a webhook run its callback
-        started is reaped with them, as it heartbeats the same slot. The finish emits ``run_ended``, which settles the
+        Left alone, a job run keeps its session's one active job place (``run_one_active_per_session``), a run the
+        inbox started never settles the events it took, every such run shows RUNNING for good, and a dedup task
+        (``webhooks.tasks``) stands in for any repeat of its trigger. The finish emits ``run_ended``, which settles the
         events the run took, frees the slot if it still holds it and drains the session
-        (:meth:`sessions.inbox.complete.RunEnd.on_run_ended`).
+        (:meth:`sessions.inbox.complete.RunEnd.on_run_ended`). The task fails only while it is still RUNNING, so an
+        outcome its worker wrote meanwhile stands.
 
-        A live run heartbeats its session's slot, so a run that started before the staleness window on a session
-        whose heartbeat went stale is dead; ``started_at`` keeps a run still setting up on an idle session.
+        Every task-backed run, whatever its trigger, holds its session's slot and heartbeats it
+        (:func:`sessions.executor.lock.hold_session_lock`): a job or schedule under its pk, a webhook run under an id
+        of its own, a run the inbox started on the slot it claimed. So a run that started before the staleness window
+        on a session whose heartbeat went stale is dead; ``started_at`` keeps a run still setting up on an idle session.
         """
-        cutoff = stale_cutoff()
+        now = timezone.now()
+        cutoff = stale_cutoff(now)
         stale_sessions = Session.objects.filter(last_active_at__lt=cutoff).values("pk")
         dead = Q(status=RunStatus.RUNNING, started_at__lt=cutoff, session_id__in=stale_sessions)
-        runs = Run.objects.filter(dead, task_result__isnull=False, trigger_type__in=triggers)
-        reaped = sum(
-            Run.objects.finish(
-                run,
-                RunStatus.FAILED,
-                where=dead,
-                finished_at=timezone.now(),
-                error_message=f"Dead {kind} run: its worker stopped heartbeating (crash); reaped by sync_stuck_runs.",
+        message = "Dead run: its worker stopped heartbeating (crash); reaped by sync_stuck_runs."
+        reaped = 0
+        for run in Run.objects.filter(dead, task_result__isnull=False):
+            if not Run.objects.finish(run, RunStatus.FAILED, where=dead, finished_at=now, error_message=message):
+                continue
+            reaped += 1
+            DBTaskResult.objects.filter(pk=run.task_result_id, status=TaskResultStatus.RUNNING).update(
+                status=TaskResultStatus.FAILED,
+                finished_at=now,
+                exception_class_path=f"{DeadWorkerError.__module__}.{DeadWorkerError.__qualname__}",
+                traceback=message,
             )
-            for run in runs
-        )
         if reaped:
-            logger.warning("sync_stuck_runs: reaped %d dead %s run(s) stuck in RUNNING", reaped, kind)
+            logger.warning("sync_stuck_runs: reaped %d dead task-backed run(s) stuck in RUNNING", reaped)
         return reaped
 
     def _reap_never_queued_runs(self) -> int:

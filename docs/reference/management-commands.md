@@ -188,7 +188,7 @@ docker compose exec app django-admin setup_webhooks --update
 Reconciles runs that are not in a terminal state:
 
 - Task-backed runs are re-synced from their linked task result.
-- Inline chat runs that a worker crash left running are failed once their session heartbeat goes stale. Task-backed job and inbox runs in the same state are failed the same way.
+- Inline chat runs that a worker crash left running are failed once their session heartbeat goes stale. Task-backed runs in the same state, whatever started them, are failed the same way, along with their task result.
 - Ready runs whose submitter stopped before queueing their task are failed once they are old enough.
 
 It runs on its own every 5 minutes, so run it by hand only to reconcile right away.
