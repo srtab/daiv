@@ -57,6 +57,9 @@ GROUP_NONE = "none"
 GROUP_CHOICES: list[tuple[str, str]] = [(GROUP_STATUS, _("Status")), (GROUP_NONE, _("None"))]
 
 
+CLEARED_WITH: dict[str, tuple[str, ...]] = {"repo": ("mr",)}
+
+
 def resolve_scope(data) -> str:
     """The scope a request's query params select: an explicit valid ``scope``, else ``all`` for a deep link."""
     scope = data.get("scope")
@@ -157,7 +160,7 @@ class SessionFilter(django_filters.FilterSet):
         return queryset.filter(latest_run_status=value)
 
     def filter_batch(self, queryset, name, value):
-        return queryset.filter(runs__batch_id=value).distinct()
+        return queryset.filter(pk__in=Run.objects.filter(batch_id=value).values("session_id"))
 
     def filter_repo(self, queryset, name, value):
         # With ``mr`` too, filter_mr matches the request on any of a session's repositories, not just its main one.

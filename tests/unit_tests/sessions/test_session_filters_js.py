@@ -120,33 +120,36 @@ def test_drilling_into_a_lazy_list_loads_it_as_its_own_request():
     ]
 
 
-def test_drilling_reloads_the_choices_when_the_archived_view_changes():
+def test_drilling_reloads_only_the_choices_whose_params_changed():
     out = _run("""
-        const box = el({ id: "choices", dataset: { choicesUrl: "/dashboard/sessions/repo-choices/" } });
-        bar.$root.querySelector = (selector) => (selector.includes("data-filter-choices") ? box : null);
-        bar.drill("repo");
-        bar.drill("repo");
-        bar.archived = "true";
-        bar.drill("repo");
+        const box = (reloadOn) => el({ dataset: { choicesUrl: "/choices/", ...(reloadOn && { reloadOn }) } });
+        const boxes = { repo: box("scope archived"), spend_model: box() };
+        bar.$root.querySelector = (selector) => boxes[selector.match(/data-filter-choices="([^"]+)"/)?.[1]] ?? null;
+        for (const archived of ["", "", "true"]) {
+          bar.archived = archived;
+          bar.drill("repo");
+          bar.drill("spend_model");
+        }
     """)
 
     assert [call["url"] for call in out["calls"]["ajax"]] == [
-        "/dashboard/sessions/repo-choices/?scope=mine",
-        "/dashboard/sessions/repo-choices/?scope=mine&archived=true",
+        "/choices/?scope=mine",
+        "/choices/?scope=mine",
+        "/choices/?scope=mine&archived=true",
     ]
 
 
 def test_picking_another_repository_drops_the_merge_request():
     out = _run("""
         Object.assign(bar, { scope: "all", repo: "a/one", mr: "12" });
-        bar.pick("repo", "a/one");
+        bar.pick("status", "FAILED");
         const kept = bar.mr;
         bar.pick("repo", "b/two");
         return kept;
     """)
 
     assert out["result"] == "12"
-    assert out["calls"]["swaps"][-1]["url"] == "/dashboard/sessions/?scope=all&repo=b%2Ftwo"
+    assert out["calls"]["swaps"][-1]["url"] == "/dashboard/sessions/?scope=all&status=FAILED&repo=b%2Ftwo"
 
 
 def test_drilling_clears_an_earlier_value_search():

@@ -54,7 +54,7 @@ bar's Alpine component (sessions/js/session-filters.js), which places it under w
         <input type="text" class="filter-menu__search" x-model="valueQuery" data-filter-focus
                @input="filterValues($el.closest('[data-filter-panel]'))"
                placeholder="{% translate 'Find…' %}" aria-label="{% blocktranslate with name=property.name %}Find a {{ name }}{% endblocktranslate %}">
-        <div data-filter-choices="{{ property.key }}" data-choices-url="{{ property.choices.url }}"
+        <div data-filter-choices="{{ property.key }}" data-choices-url="{{ property.choices.url }}" data-reload-on="{{ property.choices.reload_on }}"
              data-error-message="{% translate "Couldn't load these choices." %}"
              @htmx:after-swap="filterValues($el.closest('[data-filter-panel]'))"
              @htmx:response-error="choicesFailed($el)" @htmx:send-error="choicesFailed($el)">

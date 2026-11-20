@@ -1002,6 +1002,7 @@ class TestSessionListToolbar:
 
         loader = soup.select_one("[data-filter-panel=repo] [data-filter-choices=repo]")
         assert loader["data-choices-url"] == reverse("session_repo_choices")
+        assert loader["data-reload-on"] == "scope archived"
         assert [item["data-value"] for item in loader.select("[data-filter-key=repo]")] == ["group/project"]
 
     def test_the_spend_drill_down_reads_as_one_sentence(self, logged_in_client, user):

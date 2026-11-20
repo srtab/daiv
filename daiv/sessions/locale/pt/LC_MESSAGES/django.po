@@ -1635,39 +1635,32 @@ msgstr "Data"
 msgid "No runs"
 msgstr "Sem execuções"
 
-msgctxt "short age"
 msgid "now"
 msgstr "agora"
 
 #, python-format
-msgctxt "short age"
 msgid "%(count)dm"
-msgstr "%(count)dmin"
+msgstr "%(count)d min"
 
 #, python-format
-msgctxt "short age"
 msgid "%(count)dh"
-msgstr "%(count)dh"
+msgstr "%(count)d h"
 
 #, python-format
-msgctxt "short age"
 msgid "%(count)dd"
-msgstr "%(count)dd"
+msgstr "%(count)d d"
 
 #, python-format
-msgctxt "short age"
 msgid "%(count)dw"
-msgstr "%(count)dsem"
+msgstr "%(count)d sem"
 
 #, python-format
-msgctxt "short age"
 msgid "%(count)dmo"
-msgstr "%(count)dmês"
+msgstr "%(count)d meses"
 
 #, python-format
-msgctxt "short age"
 msgid "%(count)dy"
-msgstr "%(count)da"
+msgstr "%(count)d a"
 
 msgid "Clear search"
 msgstr "Limpar pesquisa"

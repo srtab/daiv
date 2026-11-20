@@ -334,6 +334,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
                 "lead": "repo",
                 "choices": {
                     "url": reverse("session_repo_choices"),
+                    "reload_on": "scope archived",
                     "options": [(repo, repo)] if repo else [],
                     "current": repo,
                 },
@@ -354,7 +355,7 @@ class SessionListView(LoginRequiredMixin, FilterView):
     @staticmethod
     def _status_groups(sessions: QuerySet[Session]) -> list[tuple[str | None, str, int]]:
         """Each status present in the filtered list, in attention order, with its label and its total across pages."""
-        totals = dict(sessions.order_by().values_list("latest_run_status").annotate(total=Count("pk", distinct=True)))
+        totals = dict(sessions.order_by().values_list("latest_run_status").annotate(total=Count("pk")))
         groups = [(status, RunStatus(status).label, totals.get(status, 0)) for status in RunStatus.attention_order()]
         groups.append((None, _("No runs"), totals.get(None, 0)))
         return [group for group in groups if group[2]]

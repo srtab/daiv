@@ -13,8 +13,8 @@
                    @hashchange.window="location.hash === '#search' && $el.focus()"
                    placeholder="{% translate 'Search by title or repository' %}" aria-label="{% translate 'Search by title or repository' %}"
                    @input.debounce.350ms="_apply()" @keydown.enter.prevent="_apply()">
-            <a href="{% querystring q=None page=None scope=current_scope %}" class="filter-search__clear" data-testid="search-clear"
-               @click.prevent="q = ''; _apply()" x-show="q" {% if not current_q %}style="display:none"{% endif %}
+            <a href="{% querystring q=None page=None scope=current_scope %}" class="filter-control__clear filter-search__clear" data-testid="search-clear"
+               @click.prevent="clearParam('q')" x-show="q" {% if not current_q %}style="display:none"{% endif %}
                aria-label="{% translate 'Clear search' %}">{% icon "x-mark" "h-3.5 w-3.5" %}</a>
         </div>
         <div class="filter-control{% if active_filter_count %} filter-control--active{% endif %}"

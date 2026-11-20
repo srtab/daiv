@@ -4,8 +4,9 @@ from typing import TYPE_CHECKING
 from django import template
 from django.contrib.humanize.templatetags.humanize import naturaltime
 from django.utils import formats, timezone
-from django.utils.translation import gettext, pgettext
+from django.utils.translation import gettext, gettext_lazy
 
+from sessions.filters import CLEARED_WITH
 from sessions.models import MergeRequestOwnership
 
 if TYPE_CHECKING:
@@ -143,6 +144,18 @@ def short_timestamp(dt) -> str:
     return formats.date_format(timezone.localtime(dt), "M j")
 
 
+_DAY = 86400
+# (below this many seconds, seconds per unit, label); the m/h/d labels are the sidebar's ``compact_time`` ones.
+_AGE_UNITS = (
+    (3600, 60, gettext_lazy("%(count)dm")),
+    (_DAY, 3600, gettext_lazy("%(count)dh")),
+    (14 * _DAY, _DAY, gettext_lazy("%(count)dd")),
+    (60 * _DAY, 7 * _DAY, gettext_lazy("%(count)dw")),
+    (365 * _DAY, 30 * _DAY, gettext_lazy("%(count)dmo")),
+    (float("inf"), 365 * _DAY, gettext_lazy("%(count)dy")),
+)
+
+
 @register.filter
 def short_age(dt) -> str:
     """How long ago ``dt`` was, in one compact unit: ``now``, ``5m``, ``3h``, ``13d``, ``3w``, ``4mo``, ``1y``."""
@@ -150,19 +163,14 @@ def short_age(dt) -> str:
         return ""
     seconds = (timezone.now() - dt).total_seconds()
     if seconds < 60:
-        return pgettext("short age", "now")
-    if seconds < 3600:
-        return pgettext("short age", "%(count)dm") % {"count": seconds // 60}
-    if seconds < 86400:
-        return pgettext("short age", "%(count)dh") % {"count": seconds // 3600}
-    days = int(seconds // 86400)
-    if days < 14:
-        return pgettext("short age", "%(count)dd") % {"count": days}
-    if days < 60:
-        return pgettext("short age", "%(count)dw") % {"count": days // 7}
-    if days < 365:
-        return pgettext("short age", "%(count)dmo") % {"count": days // 30}
-    return pgettext("short age", "%(count)dy") % {"count": days // 365}
+        return gettext("now")
+    return next(label % {"count": seconds // unit} for below, unit, label in _AGE_UNITS if seconds < below)
+
+
+@register.filter
+def option_param(key: str, value: str) -> dict[str, str | None]:
+    """``{key: value}`` for a filter option's ``{% querystring %}``, clearing the params that hang on ``key``."""
+    return {key: value} | dict.fromkeys(CLEARED_WITH.get(key, ()))
 
 
 _ARTIFACT_ICONS = {"markdown": "document-text", "html": "code-bracket", "image": "photo", "text": "document"}
