@@ -3,15 +3,16 @@
 The Display menu: how the list is grouped and sorted, and whether it lists archived sessions instead. These shape the
 list rather than narrow it, so its button never looks active. Inside the filter bar's Alpine component.
 {% endcomment %}
-<div class="relative" @click.outside="close('display')" @keydown.escape="close('display', $el)">
+<div class="relative" data-display @click.outside="close('display')" @keydown.escape="close('display', $el)">
     <div class="filter-control">
-        <button type="button" class="filter-control__toggle" @click="toggle('display')" data-testid="display-open"
+        <button type="button" class="filter-control__toggle" @click="toggleDisplay($el.closest('[data-display]'))" data-testid="display-open"
                 aria-expanded="false" :aria-expanded="(open === 'display').toString()">
             <span class="filter-control__lead">{% icon "adjustments-horizontal" "h-4 w-4" %}</span>
             <span>{% translate "Display" %}</span>
         </button>
     </div>
-    <div data-surface class="filter-menu filter-menu--end display-menu" x-show="open === 'display'" x-cloak>
+    <div data-surface class="filter-menu filter-menu--end display-menu" x-show="open === 'display'" x-cloak
+         :style="displayLeft !== null && `left: ${displayLeft}px; right: auto`">
         <div class="display-row">
             <span>{% translate "Group by" %}</span>
             <span class="display-seg" role="group" aria-label="{% translate 'Group by' %}">

@@ -16,6 +16,7 @@ const SPEND_PARAMS = [...SPEND_BANNER_PARAMS, "spend_person", "spend_model", "sp
 const CHIP_KEYS = ["status", "trigger", "repo", "mr", "spend_person", "spend_model", "spend_provider", "schedule", "batch", "ranOn"];
 const TYPING = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
 const MENU_WIDTH = 288;
+const DISPLAY_WIDTH = 320;
 
 const { swapResults } = window.createResultsSwap("session-results", {
     errorMessage: "Couldn't update the session list — check your connection and try again.",
@@ -29,6 +30,7 @@ document.addEventListener("alpine:init", () => {
         propertyQuery: "",
         valueQuery: "",
         anchor: null, // where the Filter menu opens, relative to the bar
+        displayLeft: null, // where the Display menu opens, relative to its button
         scope: "mine",
         q: "",
         status: "",
@@ -121,10 +123,28 @@ document.addEventListener("alpine:init", () => {
         },
         _refresh() {
             clearTimeout(this._refreshTimer);
-            this._refreshTimer = setTimeout(
-                () => swapResults(window.location.pathname + window.location.search, { push: false }),
-                1000,
-            );
+            this._refreshTimer = setTimeout(() => {
+                // A swap in flight has not pushed its URL yet; refreshing now would undo it.
+                if (document.getElementById("session-results")?.classList.contains("results--loading")) {
+                    this._refresh();
+                    return;
+                }
+                const params = this._params();
+                const page = new URLSearchParams(window.location.search).get("page");
+                if (page) params.set("page", page);
+                swapResults(window.location.pathname + "?" + params.toString(), { push: false });
+            }, 1000);
+        },
+        toggleDisplay(wrapper) {
+            if (this.open === "display") {
+                this.open = null;
+                return;
+            }
+            const box = wrapper.getBoundingClientRect();
+            const width = Math.min(DISPLAY_WIDTH, window.innerWidth - 32);
+            const preferred = Math.max(box.width - width, 16 - box.left);
+            this.displayLeft = Math.min(preferred, window.innerWidth - 16 - width - box.left);
+            this.open = "display";
         },
         ...window.filterDropdown,
         setRange(value) {
@@ -189,10 +209,13 @@ document.addEventListener("alpine:init", () => {
         drill(key) {
             this.property = key;
             this.valueQuery = "";
+            const panel = this.$root.querySelector(`[data-filter-panel="${key}"]`);
+            if (panel) this.filterValues(panel);
             const box = this.$root.querySelector(`[data-filter-choices="${key}"]`);
             if (box && box.dataset.loadedFor !== this.scope) {
                 box.dataset.loadedFor = this.scope;
                 htmx.ajax("GET", box.dataset.choicesUrl + "?" + this._params().toString(), {
+                    source: box,
                     target: box,
                     swap: "innerHTML",
                 }).catch(() => {});
