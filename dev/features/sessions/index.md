@@ -82,45 +82,53 @@ Team statistics are on **Insights**, linked as **Team insights** at the top of H
 
 **Sessions** lists sessions, most recently active first. Each row shows:
 
-- A status dot for the latest run (queued, pending, running, done, needs input or failed).
-- The title, generated from the first prompt or the issue or merge request subject.
-- The repository, the branch, and the merge request when there is one.
+- A status dot while the latest run is **Running** (it pulses) or **Needs input** (a diamond). A failed latest run marks the row with a red edge. Other states have no mark.
+- The title, generated from the first prompt or the issue or merge request subject, and beside it the merge request when there is one.
+- Under the title, the repository and the branch.
 - An icon for the session's [origin](#session-origins).
-- The latest run's model, its duration and the session's run spend, then the owner and when the session was last active. Run spend is the priced cost of the session's runs, the figure its **Spend** section totals; background spend is left out.
+- The latest run's model and the session's run spend, then how long ago the session was last active, such as `5m`, `3h`, `13d` or `3w`, and the owner. Hover over the model for its provider, over the time for the date and time, and over the owner for their name. The run's duration is on the session's page. Run spend is the priced cost of the session's runs, the figure its **Spend** section totals; background spend is left out.
 
 An API or MCP job that continues a busy session does not start at once. It joins the session's next run for its branch, shown as **Queued**, which starts when the current run ends ([The session inbox](#the-session-inbox) describes how).
 
 The list shows your own sessions (**Mine**) or everyone's you can see (**Everyone**). A link that carries a repository, merge request, schedule, batch or spend filter opens on **Everyone**.
 
-**Sort** orders the list by **Most recent** activity (the default) or by **Cost**, the session's run spend, costliest first, with sessions that have no priced spend last. With a spend period from the [Spend](https://docs.daivagent.com/dev/features/spend/index.md) page, the cost counts only the spend in that period.
-
 ### Filter the list
 
-| Filter                                | What it does                                                                                                                                                        |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Search                                | Matches a session's title or repository                                                                                                                             |
-| **Status**                            | **Any status**, **Needs input**, **Failed**, **Running**, **Queued**, **Pending** or **Done**, by the session's latest run                                          |
-| **Type**                              | One [origin](#session-origins), or **All types**                                                                                                                    |
-| **Active**                            | When the session was last active: **Any time** (the default), **Today**, **Last 2 days**, **Last 7 days**, **Last 30 days**, or a **Custom range** of two dates     |
-| **Archived**                          | Swaps the list for the [archived sessions](#archived-sessions)                                                                                                      |
-| **Spent by**, **Model**, **Provider** | Sessions with spend by that person, on that model or through that provider. The choices are those in the spend records you can see, and load when you open the menu |
+Search matches a session's title or repository. **Filter** (or the `F` key) opens the list of filters; pick one to see its values, and pick a value to apply it. Type in the box at the top of the menu to find a filter. **Repository**, **Spent by**, **Model** and **Provider** list their 50 most recently used values; type to find any other.
 
-Six more filters have no control. They appear as chips when you arrive from a link, and each chip has a button that clears it:
+| Filter                                | What it does                                                                                                                                                                       |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**                            | **Needs input**, **Failed**, **Running**, **Queued**, **Pending** or **Done**, by the session's latest run                                                                         |
+| **Type**                              | One [origin](#session-origins)                                                                                                                                                     |
+| **Active**                            | When the session was last active: **Today**, **Last 2 days**, **Last 7 days**, **Last 30 days**, or a **Custom range** of two dates                                                |
+| **Repository**                        | One repository of the sessions in **Mine** or **Everyone**; clearing it clears the merge request too                                                                               |
+| **Spent by**, **Model**, **Provider** | Sessions with spend by that person, on that model or through that provider. The choices are those in the spend records you can see. These filters show only when you can see spend |
+
+Each filter you apply shows as a chip under the toolbar, with the count on the **Filter** button. Select a chip to change its value, or its clear button to remove it; **Clear all** clears every chip, the search and a **From Spend** line, and keeps **Mine** or **Everyone**, the sort and the grouping.
+
+Five more chips come only from links:
 
 | Chip                   | Where the link comes from                                                                                                                                                                                                                                                                                                                                                                             |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Repository**         | A repository filter; clearing it clears the merge request too                                                                                                                                                                                                                                                                                                                                         |
 | **Merge request**      | The **view sessions** link in a merge request description, or a repository card's menu; always paired with a repository, since merge request numbers are per project                                                                                                                                                                                                                                  |
 | **Ran on**             | A day's column in **Your week** on **Home** or in **Runs over time** on **Insights**                                                                                                                                                                                                                                                                                                                  |
 | **Schedule**           | The run count on a scheduled job                                                                                                                                                                                                                                                                                                                                                                      |
 | **Batch**              | A multi-repository submission: one prompt sent to several repositories shares a batch                                                                                                                                                                                                                                                                                                                 |
 | **Including archived** | A link that must show sessions whatever their state: the **view sessions** link in a merge request description, **Other sessions on !N** in a repository card's menu, a day in **Your week** on **Home** and its link to more merge requests, and a column in **Runs over time** or a count in **Sessions by origin** on **Insights**. The list then includes [archived sessions](#archived-sessions) |
 
-A row or chart column on the [Spend](https://docs.daivagent.com/dev/features/spend/index.md) page opens the list with spend filters. A person, a model or a provider shows in its menu. A spend period, a repository, a trigger type or a background task reads as one **From Spend** line above the list, whose button clears them all. Together they match the sessions with one spend record that fits them all, so the list holds exactly the sessions behind the figure that linked there.
+A row or chart column on the [Spend](https://docs.daivagent.com/dev/features/spend/index.md) page opens the list with spend filters. A person, a model or a provider shows as its chip. A spend period, a repository, a trigger type or a background task reads as one **From Spend** line above the list, whose button clears them all. Together they match the sessions with one spend record that fits them all, so the list holds exactly the sessions behind the figure that linked there.
 
 Filters combine, and they are in the URL, so you can bookmark or share a filtered list.
 
-Sessions with a run in flight (**Queued**, **Pending** or **Running**) update in place, status dot and timing included, without a reload.
+### Group and sort the list
+
+**Display** sets how the list is laid out:
+
+- **Group by**: **Date** (the default) puts sessions under the day they were last active, **Status** puts them under their latest run's status with a count of each, the states that need you first (**Needs input**, **Running**, **Pending**, **Queued**, **Failed**, **Done**, then sessions with no run), and **None** shows one list. Sorted by cost, the list has no date groups.
+- **Sort by**: **Most recent** activity, or **Cost**, the session's run spend, costliest first, with sessions that have no priced spend last. With a spend period from the [Spend](https://docs.daivagent.com/dev/features/spend/index.md) page, the cost counts only the spend in that period.
+- **Show archived** swaps the list for the [archived sessions](#archived-sessions), and an **Archived sessions** chip says so.
+
+Sessions with a run in flight (**Queued**, **Pending** or **Running**) update their status dot and red edge in place, without a reload. Grouped by status, a session moves to its new group when its status changes.
 
 ### Archived sessions
 

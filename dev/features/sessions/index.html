@@ -789,6 +789,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#group-and-sort-the-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Group and sort the list
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#archived-sessions" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2003,6 +2014,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#group-and-sort-the-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Group and sort the list
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#archived-sessions" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2455,16 +2477,16 @@
 <h2 id="sessions-list">Sessions list</h2>
 <p><strong>Sessions</strong> lists sessions, most recently active first. Each row shows:</p>
 <ul>
-<li>A status dot for the latest run (queued, pending, running, done, needs input or failed).</li>
-<li>The title, generated from the first prompt or the issue or merge request subject.</li>
-<li>The repository, the branch, and the merge request when there is one.</li>
+<li>A status dot while the latest run is <strong>Running</strong> (it pulses) or <strong>Needs input</strong> (a diamond). A failed latest run marks the row with a red edge. Other states have no mark.</li>
+<li>The title, generated from the first prompt or the issue or merge request subject, and beside it the merge request when there is one.</li>
+<li>Under the title, the repository and the branch.</li>
 <li>An icon for the session's <a href="#session-origins">origin</a>.</li>
-<li>The latest run's model, its duration and the session's run spend, then the owner and when the session was last active. Run spend is the priced cost of the session's runs, the figure its <strong>Spend</strong> section totals; background spend is left out.</li>
+<li>The latest run's model and the session's run spend, then how long ago the session was last active, such as <code>5m</code>, <code>3h</code>, <code>13d</code> or <code>3w</code>, and the owner. Hover over the model for its provider, over the time for the date and time, and over the owner for their name. The run's duration is on the session's page. Run spend is the priced cost of the session's runs, the figure its <strong>Spend</strong> section totals; background spend is left out.</li>
 </ul>
 <p>An API or MCP job that continues a busy session does not start at once. It joins the session's next run for its branch, shown as <strong>Queued</strong>, which starts when the current run ends (<a href="#the-session-inbox">The session inbox</a> describes how).</p>
 <p>The list shows your own sessions (<strong>Mine</strong>) or everyone's you can see (<strong>Everyone</strong>). A link that carries a repository, merge request, schedule, batch or spend filter opens on <strong>Everyone</strong>.</p>
-<p><strong>Sort</strong> orders the list by <strong>Most recent</strong> activity (the default) or by <strong>Cost</strong>, the session's run spend, costliest first, with sessions that have no priced spend last. With a spend period from the <a href="../spend/">Spend</a> page, the cost counts only the spend in that period.</p>
 <h3 id="filter-the-list">Filter the list</h3>
+<p>Search matches a session's title or repository. <strong>Filter</strong> (or the <code>F</code> key) opens the list of filters; pick one to see its values, and pick a value to apply it. Type in the box at the top of the menu to find a filter. <strong>Repository</strong>, <strong>Spent by</strong>, <strong>Model</strong> and <strong>Provider</strong> list their 50 most recently used values; type to find any other.</p>
 <table>
 <thead>
 <tr>
@@ -2474,32 +2496,29 @@
 </thead>
 <tbody>
 <tr>
-<td>Search</td>
-<td>Matches a session's title or repository</td>
-</tr>
-<tr>
 <td><strong>Status</strong></td>
-<td><strong>Any status</strong>, <strong>Needs input</strong>, <strong>Failed</strong>, <strong>Running</strong>, <strong>Queued</strong>, <strong>Pending</strong> or <strong>Done</strong>, by the session's latest run</td>
+<td><strong>Needs input</strong>, <strong>Failed</strong>, <strong>Running</strong>, <strong>Queued</strong>, <strong>Pending</strong> or <strong>Done</strong>, by the session's latest run</td>
 </tr>
 <tr>
 <td><strong>Type</strong></td>
-<td>One <a href="#session-origins">origin</a>, or <strong>All types</strong></td>
+<td>One <a href="#session-origins">origin</a></td>
 </tr>
 <tr>
 <td><strong>Active</strong></td>
-<td>When the session was last active: <strong>Any time</strong> (the default), <strong>Today</strong>, <strong>Last 2 days</strong>, <strong>Last 7 days</strong>, <strong>Last 30 days</strong>, or a <strong>Custom range</strong> of two dates</td>
+<td>When the session was last active: <strong>Today</strong>, <strong>Last 2 days</strong>, <strong>Last 7 days</strong>, <strong>Last 30 days</strong>, or a <strong>Custom range</strong> of two dates</td>
 </tr>
 <tr>
-<td><strong>Archived</strong></td>
-<td>Swaps the list for the <a href="#archived-sessions">archived sessions</a></td>
+<td><strong>Repository</strong></td>
+<td>One repository of the sessions in <strong>Mine</strong> or <strong>Everyone</strong>; clearing it clears the merge request too</td>
 </tr>
 <tr>
 <td><strong>Spent by</strong>, <strong>Model</strong>, <strong>Provider</strong></td>
-<td>Sessions with spend by that person, on that model or through that provider. The choices are those in the spend records you can see, and load when you open the menu</td>
+<td>Sessions with spend by that person, on that model or through that provider. The choices are those in the spend records you can see. These filters show only when you can see spend</td>
 </tr>
 </tbody>
 </table>
-<p>Six more filters have no control. They appear as chips when you arrive from a link, and each chip has a button that clears it:</p>
+<p>Each filter you apply shows as a chip under the toolbar, with the count on the <strong>Filter</strong> button. Select a chip to change its value, or its clear button to remove it; <strong>Clear all</strong> clears every chip, the search and a <strong>From Spend</strong> line, and keeps <strong>Mine</strong> or <strong>Everyone</strong>, the sort and the grouping.</p>
+<p>Five more chips come only from links:</p>
 <table>
 <thead>
 <tr>
@@ -2508,10 +2527,6 @@
 </tr>
 </thead>
 <tbody>
-<tr>
-<td><strong>Repository</strong></td>
-<td>A repository filter; clearing it clears the merge request too</td>
-</tr>
 <tr>
 <td><strong>Merge request</strong></td>
 <td>The <strong>view sessions</strong> link in a merge request description, or a repository card's menu; always paired with a repository, since merge request numbers are per project</td>
@@ -2534,9 +2549,16 @@
 </tr>
 </tbody>
 </table>
-<p>A row or chart column on the <a href="../spend/">Spend</a> page opens the list with spend filters. A person, a model or a provider shows in its menu. A spend period, a repository, a trigger type or a background task reads as one <strong>From Spend</strong> line above the list, whose button clears them all. Together they match the sessions with one spend record that fits them all, so the list holds exactly the sessions behind the figure that linked there.</p>
+<p>A row or chart column on the <a href="../spend/">Spend</a> page opens the list with spend filters. A person, a model or a provider shows as its chip. A spend period, a repository, a trigger type or a background task reads as one <strong>From Spend</strong> line above the list, whose button clears them all. Together they match the sessions with one spend record that fits them all, so the list holds exactly the sessions behind the figure that linked there.</p>
 <p>Filters combine, and they are in the URL, so you can bookmark or share a filtered list.</p>
-<p>Sessions with a run in flight (<strong>Queued</strong>, <strong>Pending</strong> or <strong>Running</strong>) update in place, status dot and timing included, without a reload.</p>
+<h3 id="group-and-sort-the-list">Group and sort the list</h3>
+<p><strong>Display</strong> sets how the list is laid out:</p>
+<ul>
+<li><strong>Group by</strong>: <strong>Date</strong> (the default) puts sessions under the day they were last active, <strong>Status</strong> puts them under their latest run's status with a count of each, the states that need you first (<strong>Needs input</strong>, <strong>Running</strong>, <strong>Pending</strong>, <strong>Queued</strong>, <strong>Failed</strong>, <strong>Done</strong>, then sessions with no run), and <strong>None</strong> shows one list. Sorted by cost, the list has no date groups.</li>
+<li><strong>Sort by</strong>: <strong>Most recent</strong> activity, or <strong>Cost</strong>, the session's run spend, costliest first, with sessions that have no priced spend last. With a spend period from the <a href="../spend/">Spend</a> page, the cost counts only the spend in that period.</li>
+<li><strong>Show archived</strong> swaps the list for the <a href="#archived-sessions">archived sessions</a>, and an <strong>Archived sessions</strong> chip says so.</li>
+</ul>
+<p>Sessions with a run in flight (<strong>Queued</strong>, <strong>Pending</strong> or <strong>Running</strong>) update their status dot and red edge in place, without a reload. Grouped by status, a session moves to its new group when its status changes.</p>
 <h3 id="archived-sessions">Archived sessions</h3>
 <p>An archived session is archived for everyone, not only for the person who archived it. It leaves <strong>Sessions</strong>, the app sidebar and <strong>Needs you</strong> on <strong>Home</strong>, and it takes no follow-ups until someone unarchives it.</p>
 <p>A filtered list that hides archived sessions says how many match: select <strong>Show archived</strong> under the list to see them.</p>
@@ -2902,7 +2924,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 19, 2026 19:45:59 UTC">November 19, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 20, 2026 11:08:43 UTC">November 20, 2026</span>
   </span>
 
     
