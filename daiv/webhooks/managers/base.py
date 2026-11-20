@@ -5,12 +5,17 @@ from django.template.loader import render_to_string
 
 from sessions.executor.lock import wait_for_slot
 
+from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
+from codebase.exceptions import CloneCredentialUnavailableError
 
 if TYPE_CHECKING:
     from sessions.executor.lock import LockPolicy
     from sessions.executor.spec import RunOutcome
+
+
+CANNOT_RUN_YET_ERRORS = (AgentConfigurationError, CloneCredentialUnavailableError)
 
 
 class BaseManager:

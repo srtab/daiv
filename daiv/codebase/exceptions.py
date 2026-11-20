@@ -27,8 +27,4 @@ class CloneRefNotFoundError(RuntimeError):
 
 
 class CloneCredentialUnavailableError(RuntimeError):
-    """Raised when no ephemeral clone token could be provisioned and ``GITLAB_PAT_FALLBACK`` forbids the PAT.
-
-    Not necessarily a misconfiguration: the cached provisioning failure may be transient. Addressors tell the run's
-    author it can't run yet, as they do for a missing agent model, instead of posting a generic failure.
-    """
+    """Raised when no ephemeral clone token could be provisioned and the PAT can't stand in for it."""

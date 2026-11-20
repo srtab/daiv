@@ -27,7 +27,7 @@ CLONE_TOKEN_UNAVAILABLE_TIMEOUT = 60 * 60
 # clones without an ephemeral token for a whole hour.
 CLONE_TOKEN_TRANSIENT_UNAVAILABLE_TIMEOUT = 60 * 5
 
-CLONE_TOKEN_CACHE_KEY = "codebase:gitlab:clone-token:{project_pk}"  # noqa: S105
+_CACHE_KEY = "codebase:gitlab:clone-token:{project_pk}"
 _UNAVAILABLE = "__unavailable__"
 
 
@@ -46,7 +46,7 @@ def get_ephemeral_clone_token(client: Gitlab, project_pk: int) -> str | None:
     transient API/network error); the failure is negative-cached — for an hour when it
     looks persistent, minutes when transient — to avoid hammering the API on every clone.
     """
-    cache_key = CLONE_TOKEN_CACHE_KEY.format(project_pk=project_pk)
+    cache_key = _CACHE_KEY.format(project_pk=project_pk)
     if (cached := cache.get(cache_key)) is not None:
         return None if cached == _UNAVAILABLE else cached
 
@@ -67,7 +67,7 @@ def invalidate_clone_token(project_pk: int) -> None:
     served for the remainder of the cache window, failing every clone of the project. A
     no-op when nothing is cached.
     """
-    cache.delete(CLONE_TOKEN_CACHE_KEY.format(project_pk=project_pk))
+    cache.delete(_CACHE_KEY.format(project_pk=project_pk))
 
 
 def _create_token(client: Gitlab, project_pk: int) -> tuple[str | None, int]:

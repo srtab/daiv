@@ -9,8 +9,6 @@ from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from django.core.exceptions import ImproperlyConfigured
-
 from git import GitCommandError, Repo
 from gitlab import Gitlab, GitlabCreateError, GitlabOperationError
 from gitlab.const import AccessLevel
@@ -32,11 +30,7 @@ from codebase.base import (
     User,
 )
 from codebase.clients import RepoClient
-from codebase.clients.gitlab.clone_tokens import (
-    CLONE_TOKEN_CACHE_KEY,
-    get_ephemeral_clone_token,
-    invalidate_clone_token,
-)
+from codebase.clients.gitlab.clone_tokens import get_ephemeral_clone_token, invalidate_clone_token
 from codebase.clients.gitlab.utils import CHILD_PIPELINE_SOURCE
 from codebase.conf import settings as codebase_settings
 from codebase.exceptions import (
@@ -557,18 +551,10 @@ class GitLabClient(RepoClient):
         if pat := self._fallback_pat():
             logger.info("Cloning %s with the configured PAT (ephemeral clone token unavailable)", repository.slug)
             return pat
-        if not codebase_settings.GITLAB_PAT_FALLBACK:
-            raise CloneCredentialUnavailableError(
-                f"Cannot authenticate the git clone of {repository.slug}: no ephemeral clone token could be "
-                "provisioned and CODEBASE_GITLAB_PAT_FALLBACK is off. Usual causes: the CODEBASE_GITLAB_AUTH_TOKEN "
-                "user is below Maintainer on the project, the project is on the GitLab.com Free tier, or a transient "
-                "GitLab API error. The warning logged when the token creation failed has the specific cause. DAIV "
-                "retries the token creation after up to an hour (5 minutes after a transient error); delete the "
-                f"'{CLONE_TOKEN_CACHE_KEY.format(project_pk=repository.pk)}' cache entry to retry sooner."
-            )
-        raise ImproperlyConfigured(
-            "Cannot authenticate the git clone: no ephemeral clone token could be provisioned "
-            "and CODEBASE_GITLAB_AUTH_TOKEN is not configured."
+        raise CloneCredentialUnavailableError(
+            f"Cannot authenticate the git clone of {repository.slug}: no project access token could be created, and "
+            "the personal access token can't stand in (CODEBASE_GITLAB_PAT_FALLBACK is off, or "
+            "CODEBASE_GITLAB_AUTH_TOKEN is unset). DAIV's logs have the cause."
         )
 
     def _fallback_pat(self) -> str | None:

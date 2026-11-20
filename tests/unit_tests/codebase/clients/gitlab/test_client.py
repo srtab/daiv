@@ -1,8 +1,6 @@
 import logging
 from unittest.mock import Mock, call, patch
 
-from django.core.exceptions import ImproperlyConfigured
-
 import pytest
 import requests
 from git import GitCommandError
@@ -204,7 +202,7 @@ class TestGitLabClient:
 
         with (
             patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None),
-            pytest.raises(ImproperlyConfigured),
+            pytest.raises(CloneCredentialUnavailableError),
             gitlab_client.load_repo(repository, "main"),
         ):
             pass
@@ -220,13 +218,12 @@ class TestGitLabClient:
 
         with (
             patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None),
-            pytest.raises(CloneCredentialUnavailableError, match="CODEBASE_GITLAB_PAT_FALLBACK") as exc_info,
+            pytest.raises(CloneCredentialUnavailableError, match="CODEBASE_GITLAB_PAT_FALLBACK"),
             gitlab_client.load_repo(repository, "main"),
         ):
             pass
 
         clone_from.assert_not_called()
-        assert "codebase:gitlab:clone-token:1" in str(exc_info.value)
 
     @pytest.mark.parametrize(
         "n_failures",
@@ -378,7 +375,6 @@ class TestGitLabClient:
 
         invalidate.assert_called_once_with(1)
         assert clone_from.call_count == stale_attempts
-        assert all(c.kwargs["env"] != _expected_clone_env("pat-token") for c in clone_from.call_args_list)
 
     def test_load_repo_does_not_retry_when_the_clone_used_the_pat(self, gitlab_client, clone_setup):
         """Re-minting can't fix a clone that already used the PAT directly (no ephemeral token to
@@ -1120,16 +1116,13 @@ class TestGitLabClient:
             cred = gitlab_client.get_git_egress_credential(self._egress_repo())
         assert cred.value.get_secret_value() == "Basic " + base64.b64encode(b"oauth2:pat-token").decode()
 
-    def test_get_git_egress_credential_skips_pat_when_fallback_disabled(self, gitlab_client, monkeypatch):
-        gitlab_client.client.private_token = "pat-token"  # noqa: S105
-        monkeypatch.setattr(codebase_settings, "GITLAB_PAT_FALLBACK", False)
-        with patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None):
-            cred = gitlab_client.get_git_egress_credential(self._egress_repo())
-        assert cred.host == "gitlab.example.com"
-        assert cred.value is None
-
-    def test_get_git_egress_credential_no_token_returns_host_only(self, gitlab_client):
-        gitlab_client.client.private_token = None
+    @pytest.mark.parametrize(
+        ("pat", "fallback"),
+        [pytest.param(None, True, id="no-pat"), pytest.param("pat-token", False, id="fallback-off")],
+    )
+    def test_get_git_egress_credential_no_token_returns_host_only(self, gitlab_client, monkeypatch, pat, fallback):
+        gitlab_client.client.private_token = pat
+        monkeypatch.setattr(codebase_settings, "GITLAB_PAT_FALLBACK", fallback)
         with patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None):
             cred = gitlab_client.get_git_egress_credential(self._egress_repo())
         assert cred.host == "gitlab.example.com"

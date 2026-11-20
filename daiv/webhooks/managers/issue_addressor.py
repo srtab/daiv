@@ -15,12 +15,10 @@ from sessions.executor.spec import RunHooks, RunSpec
 from automation.agent.provider_errors import provider_failure_of
 from automation.agent.synthetic import ISSUE_CONTEXT_KIND, synthetic_message
 from automation.agent.utils import repo_relative_text
-from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform, Scope
-from codebase.exceptions import CloneCredentialUnavailableError
 from core.constants import BOT_NAME, has_auto_label
 
-from .base import BaseManager
+from .base import CANNOT_RUN_YET_ERRORS, BaseManager
 
 if TYPE_CHECKING:
     from langgraph.types import StateSnapshot
@@ -127,7 +125,7 @@ class IssueAddressorManager(BaseManager):
             acting_user_id: The DAIV user the triggering author resolved to, whom the run acts as; ``None`` for none.
 
         Returns:
-            An :class:`AgentResult`. A missing model raises ``AgentConfigurationError`` after saying so on the issue.
+            An :class:`AgentResult`. A configuration refusal re-raises after saying so on the issue.
         """
         manager = cls(
             repo_id=repo_id,
@@ -214,7 +212,7 @@ class IssueAddressorManager(BaseManager):
             self._add_unable_to_address_issue_note()
 
     async def _on_failure(self, exc: Exception, *, draft_published: bool, snapshot: StateSnapshot | None) -> None:
-        if isinstance(exc, (AgentConfigurationError, CloneCredentialUnavailableError)):
+        if isinstance(exc, CANNOT_RUN_YET_ERRORS):
             logger.warning("issue_addressor: %s", exc)
             if self._claim_unable_note():
                 self._leave_comment(
