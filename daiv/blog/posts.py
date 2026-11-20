@@ -13,11 +13,11 @@ from django.urls import reverse
 import yaml
 
 from blog.rendering import render_body, static_path
+from daiv import CANONICAL_ORIGIN
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-CANONICAL_ORIGIN = "https://daivagent.com"
 POSTS_DIR = Path(__file__).parent / "posts"
 
 logger = logging.getLogger("daiv.blog")
@@ -25,7 +25,7 @@ logger = logging.getLogger("daiv.blog")
 _SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _FRONT_MATTER = re.compile(r"\A---\n(.*?)^---$\n?(.*)\Z", re.DOTALL | re.MULTILINE)
 _REQUIRED: dict[str, type] = {"title": str, "date": date, "summary": str, "author": str}
-_OPTIONAL: dict[str, type] = {"image": str, "draft": bool}
+_OPTIONAL: dict[str, type] = {"image": str, "draft": bool, "updated": date}
 
 
 class PostError(ValueError):
@@ -41,6 +41,7 @@ class Post:
     author: str
     image: str | None
     draft: bool
+    updated: date | None
     html: str
     feed_html: str
 
@@ -115,6 +116,7 @@ def parse_post(path: Path) -> Post:
         author=meta["author"],
         image=meta.get("image"),
         draft=meta.get("draft", False),
+        updated=meta.get("updated"),
         html=html,
         feed_html=feed_html,
     )

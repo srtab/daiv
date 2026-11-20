@@ -16,7 +16,7 @@ import pytest
 from asgiref.sync import async_to_sync
 from bs4 import BeautifulSoup
 from dashboard import landing
-from dashboard.comparisons import COMPARISONS
+from dashboard.comparisons import CHECKED, COMPARISONS
 from dashboard.conf import DashboardSettings
 from dashboard.conf import settings as dashboard_settings
 from dashboard.home import INBOX_LIMIT
@@ -143,6 +143,36 @@ class TestComparison:
 
         for comparison in COMPARISONS:
             assert reverse("comparison", args=[comparison.slug]) in content
+        assert f"<lastmod>{CHECKED:%Y-%m-%d}</lastmod>" in content
+
+    def test_page_says_when_it_was_checked(self):
+        content = Client().get(reverse("comparison", args=[COMPARISONS[0].slug])).content.decode()
+
+        assert f"as of {CHECKED:%B %Y}." in content
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("path", "canonical"),
+    [
+        ("/?utm_source=x", "https://daivagent.com/"),
+        (f"/compare/{COMPARISONS[0].slug}/", f"https://daivagent.com/compare/{COMPARISONS[0].slug}/"),
+    ],
+)
+def test_canonical_points_at_daivagent_com_on_any_host(path, canonical):
+    content = Client(HTTP_HOST="daiv.internal.example").get(path).content.decode()
+
+    assert f'<link rel="canonical" href="{canonical}">' in content
+    assert f'<meta property="og:url" content="{canonical}">' in content
+
+
+@pytest.mark.django_db
+def test_sitemap_lists_urls_at_daivagent_com_on_any_host():
+    content = Client(HTTP_HOST="daiv.internal.example").get(reverse("sitemap")).content.decode()
+
+    locations = re.findall(r"<loc>(.*?)</loc>", content)
+    assert locations
+    assert all(location.startswith("https://daivagent.com/") for location in locations)
 
 
 UMAMI_WEBSITE_ID = uuid.UUID("0b6bd0c4-5d6c-4f2e-9a43-1d2e3f4a5b6c")

@@ -8,9 +8,10 @@
     <title>{% block title %}DAIV{% endblock %}</title>
     {% block meta_description %}<meta name="description" content="DAIV: open-source, self-hosted SWE agents for GitLab &amp; GitHub. Turn issues into merge requests, answer review comments, and fix failing CI on your infrastructure.">{% endblock %}
     {% block meta_robots %}{% endblock %}
-    {% block canonical %}{% endblock %}
+    {% if canonical_url %}<link rel="canonical" href="{{ canonical_url }}">{% endif %}
     {% block open_graph %}
     <meta property="og:type" content="website">
+    {% if canonical_url %}<meta property="og:url" content="{{ canonical_url }}">{% endif %}
     <meta property="og:title" content="{% block og_title %}DAIV — Open-source, self-hosted SWE agents for GitLab &amp; GitHub{% endblock %}">
     <meta property="og:description" content="{% block og_description %}Issues in. Merge requests out. On your infrastructure. DAIV turns issues into merge requests, answers review comments, and fixes failing CI, in a sandbox you control with the LLM provider you choose.{% endblock %}">
     <meta property="og:site_name" content="DAIV">

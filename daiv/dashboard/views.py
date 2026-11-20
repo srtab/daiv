@@ -14,6 +14,7 @@ from skills.pages import SkillPageMixin
 
 from core.api.throttling import SpendExportThrottle
 from core.mixins import AdminRequiredMixin
+from daiv import CANONICAL_ORIGIN
 from dashboard import home, insights, landing, spend
 from dashboard.comparisons import CHECKED, COMPARISONS, COMPARISONS_BY_SLUG
 from dashboard.conf import settings as dashboard_settings
@@ -24,6 +25,7 @@ from dashboard.skill_usage import RECENT_RUNS, match_runs, skill_usage
 class LandingPageView(TemplateView):
     def get_context_data(self, **kwargs):
         return super().get_context_data(
+            canonical_url=CANONICAL_ORIGIN + self.request.path,
             quickstart_url=landing.QUICKSTART_URL,
             deployment_url=landing.DEPLOYMENT_URL,
             social_links=landing.SOCIAL_LINKS,

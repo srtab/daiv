@@ -1,6 +1,5 @@
 from django.conf import settings
 from django.http import Http404
-from django.urls import reverse
 
 from dashboard.views import LandingPageView
 
@@ -22,11 +21,7 @@ class BlogIndexView(LandingPageView):
         visible = posts.visible_posts(include_unpublished=settings.DEBUG)
         if not visible:
             raise Http404("No blog posts yet")
-        return super().get_context_data(
-            posts=[(post, _status(post)) for post in visible],
-            canonical_url=posts.CANONICAL_ORIGIN + reverse("blog:index"),
-            **kwargs,
-        )
+        return super().get_context_data(posts=[(post, _status(post)) for post in visible], **kwargs)
 
 
 class BlogPostView(LandingPageView):

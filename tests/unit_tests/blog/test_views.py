@@ -11,6 +11,11 @@ from dashboard import landing
 pytestmark = pytest.mark.django_db
 
 
+def _json_ld(path: str) -> dict:
+    content = Client().get(path).content.decode()
+    return json.loads(re.search(r'<script type="application/ld\+json">(.*?)</script>', content, re.DOTALL)[1])
+
+
 def test_index_lists_visible_posts_newest_first(write_post):
     write_post(slug="old", title="Old", date=date(2026, 12, 1))
     write_post(slug="new", title="New", date=date(2026, 12, 10))
@@ -51,8 +56,10 @@ def test_debug_previews_unpublished_posts_with_a_marker(write_post, settings):
 
 def test_canonical_points_at_daivagent_com_on_any_host(write_post):
     write_post()
-    content = Client(HTTP_HOST="daiv.internal.example").get("/blog/egress/").content.decode()
-    assert '<link rel="canonical" href="https://daivagent.com/blog/egress/">' in content
+    for path in ("/blog/", "/blog/egress/"):
+        content = Client(HTTP_HOST="daiv.internal.example").get(path).content.decode()
+        assert content.count('rel="canonical"') == 1
+        assert f'<link rel="canonical" href="https://daivagent.com{path}">' in content
 
 
 def test_share_tags_without_an_image(write_post):
@@ -80,8 +87,7 @@ def test_share_tags_with_an_image(write_post):
 
 def test_json_ld_describes_the_post(write_post):
     write_post()
-    content = Client().get("/blog/egress/").content.decode()
-    data = json.loads(re.search(r'<script type="application/ld\+json">(.*?)</script>', content, re.DOTALL)[1])
+    data = _json_ld("/blog/egress/")
     assert data["@type"] == "BlogPosting"
     assert (data["headline"], data["datePublished"], data["url"], data["author"]["name"]) == (
         "Egress",
@@ -89,6 +95,12 @@ def test_json_ld_describes_the_post(write_post):
         "https://daivagent.com/blog/egress/",
         "Sandro Rodrigues",
     )
+    assert "dateModified" not in data
+
+
+def test_json_ld_carries_the_update_date(write_post):
+    write_post(updated=date(2026, 12, 15))
+    assert _json_ld("/blog/egress/")["dateModified"] == "2026-12-15"
 
 
 def test_signed_in_user_can_read_a_post(write_post, member_client):

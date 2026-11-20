@@ -1,7 +1,8 @@
 from typing import TYPE_CHECKING
 
-from django.contrib.sitemaps import Sitemap
 from django.urls import reverse
+
+from dashboard.sitemaps import CanonicalSitemap, StaticSitemap
 
 from blog import posts
 
@@ -9,17 +10,12 @@ if TYPE_CHECKING:
     from datetime import date
 
 
-class BlogIndexSitemap(Sitemap):
-    changefreq = "weekly"
-
+class BlogIndexSitemap(StaticSitemap):
     def items(self) -> list[str]:
         return ["blog:index"] if posts.visible_posts() else []
 
-    def location(self, item: str) -> str:
-        return reverse(item)
 
-
-class BlogPostSitemap(Sitemap):
+class BlogPostSitemap(CanonicalSitemap):
     changefreq = "monthly"
 
     def items(self) -> tuple[posts.Post, ...]:
@@ -29,4 +25,4 @@ class BlogPostSitemap(Sitemap):
         return reverse("blog:post", args=[item.slug])
 
     def lastmod(self, item: posts.Post) -> date:
-        return item.date
+        return item.updated or item.date
