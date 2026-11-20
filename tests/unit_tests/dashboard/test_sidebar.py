@@ -421,7 +421,7 @@ class TestSidebarSessionMenu:
 
         assert texts == ["Copy link", "Open in new tab", "Archive"]
 
-    @pytest.mark.parametrize("status", [RunStatus.RUNNING, RunStatus.QUEUED])
+    @pytest.mark.parametrize("status", [RunStatus.RUNNING, RunStatus.QUEUED, RunStatus.READY])
     def test_archive_hidden_while_running_or_queued(self, member_user, member_client, status):
         make_run(make_session(member_user), status)
 
@@ -433,6 +433,13 @@ class TestSidebarSessionMenu:
         (archive,) = self._menu(member_client).select('[data-testid="nav-session-archive"]')
 
         assert reverse("api:session_archive", kwargs={"thread_id": session.thread_id}) in archive["@click"]
+
+    def test_archive_returns_focus_to_the_trigger(self, member_user, member_client):
+        make_session(member_user)
+
+        (archive,) = self._menu(member_client).select('[data-testid="nav-session-archive"]')
+
+        assert archive["@click"].startswith("close(true);")
 
     def test_menu_button_is_not_inside_the_row_link(self, member_user, member_client):
         make_session(member_user)

@@ -82,7 +82,7 @@ response of the `sidebar_lists` endpoint, which the sidebar swaps in when runs s
         <div class="session-menu__divider" role="separator"></div>
         <button type="button" role="menuitem" tabindex="-1" class="session-menu__item session-menu__item--danger"
                 data-testid="nav-session-archive"
-                @click="close(); $store.sidebarRowActions.askArchive('{% url 'api:session_archive' row.thread_id %}')">
+                @click="close(true); $store.sidebarRowActions.askArchive('{% url 'api:session_archive' row.thread_id %}')">
           {% icon "archive-box" "session-menu__icon" %}{% translate "Archive" %}
         </button>
         {% endif %}

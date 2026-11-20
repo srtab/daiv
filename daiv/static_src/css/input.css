@@ -367,10 +367,11 @@
     @apply relative;
   }
 
-  /* Sits in the row's right padding, which widens while it shows so the merge request icon moves left of it. */
+  /* Transparent, never `hidden`: the archive dialog hands focus back to it after the row lost focus-within.
+     It sits in the row's right padding, which widens while it shows so the merge request icon moves left of it. */
   .nav-session__trigger {
-    @apply absolute top-1/2 right-1.5 hidden h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md
-      text-text-faint transition-colors hover:text-text;
+    @apply absolute top-1/2 right-1.5 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md
+      text-text-faint opacity-0 transition-colors hover:text-text;
   }
 
   @media (hover: hover) {
@@ -379,7 +380,7 @@
     }
 
     .nav-session:is(:hover, :focus-within, .nav-session--open) .nav-session__trigger {
-      @apply flex;
+      @apply opacity-100;
     }
   }
 
@@ -397,7 +398,7 @@
     }
 
     .nav-session__trigger {
-      @apply flex;
+      @apply opacity-100;
     }
   }
 
