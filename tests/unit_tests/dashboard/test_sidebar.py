@@ -7,13 +7,14 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.formats import date_format
 
 import pytest
 from bs4 import BeautifulSoup
 from dashboard.sidebar import SESSIONS_PAGE, Sidebar
 from notifications.models import Notification
 from sessions.hydration import HydratedThread
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
 
 from schedules.models import ScheduledJob
 from tests.unit_tests.dashboard.factories import make_firing, make_run, make_schedule, make_session
@@ -241,7 +242,7 @@ class TestSidebarSessionsGroup:
         (row,) = _sidebar(member_client).select('[data-testid="nav-session-row"]')
 
         assert row["href"] == reverse("session_detail", kwargs={"thread_id": session.thread_id})
-        assert row["title"] == "Fix the login bug"
+        assert row["title"].startswith("Fix the login bug · ")
         assert row["data-row-key"] == f"s:{session.thread_id}"
         assert "Fix the login bug" in row.get_text()
 
@@ -252,24 +253,51 @@ class TestSidebarSessionsGroup:
 
         assert "generating title…" in row.get_text()
 
-    def test_running_session_shows_its_state_word(self, member_user, member_client):
+    def test_running_session_shows_the_running_dot_and_no_word(self, member_user, member_client):
         make_run(make_session(member_user), RunStatus.RUNNING)
 
         (row,) = _sidebar(member_client).select('[data-testid="nav-session-row"]')
 
-        assert "Running" in row.get_text()
         assert row.select_one(".status-dot-running")
+        assert row.select_one(".sr-only").get_text() == "Running"
+        assert row.get_text(" ", strip=True) == "Running A session"
 
-    def test_finished_session_shows_a_relative_time_and_tells_screen_readers_its_status(
-        self, member_user, member_client
-    ):
-        make_run(make_session(member_user, minutes_ago=5), RunStatus.SUCCESSFUL)
+    def test_waiting_session_shows_the_diamond(self, member_user, member_client):
+        make_run(make_session(member_user), RunStatus.WAITING_INPUT)
 
         (row,) = _sidebar(member_client).select('[data-testid="nav-session-row"]')
 
-        meta = row.select_one(".nav-row__meta")
-        assert meta.select_one(".sr-only").get_text() == "Done"
-        assert meta.get_text(" ", strip=True) == "Done 5m"
+        assert row.select_one(".status-dot-waiting")
+
+    @pytest.mark.parametrize("status", [RunStatus.SUCCESSFUL, RunStatus.QUEUED, None])
+    def test_finished_session_has_no_dot(self, member_user, member_client, status):
+        session = make_session(member_user)
+        if status:
+            make_run(session, status)
+
+        (row,) = _sidebar(member_client).select('[data-testid="nav-session-row"]')
+
+        assert not row.select(".status-dot")
+        assert "nav-row--failed" not in row["class"]
+
+    def test_failed_session_has_the_red_edge_and_no_dot(self, member_user, member_client):
+        make_run(make_session(member_user), RunStatus.FAILED)
+
+        (row,) = _sidebar(member_client).select('[data-testid="nav-session-row"]')
+
+        assert "nav-row--failed" in row["class"]
+        assert not row.select(".status-dot")
+        assert row.select_one(".sr-only").get_text() == "Failed"
+
+    def test_date_moves_to_the_tooltip(self, member_user, member_client):
+        session = make_session(member_user, minutes_ago=5)
+        make_run(session, RunStatus.SUCCESSFUL)
+        last_active_at = Session.objects.get(pk=session.pk).last_active_at
+
+        (row,) = _sidebar(member_client).select('[data-testid="nav-session-row"]')
+
+        assert row["title"] == f"A session · {date_format(timezone.localtime(last_active_at), 'DATETIME_FORMAT')}"
+        assert row.get_text(" ", strip=True) == "Done A session"
 
     def test_session_without_runs_tells_screen_readers_nothing(self, member_user, member_client):
         make_session(member_user)
@@ -277,6 +305,27 @@ class TestSidebarSessionsGroup:
         (row,) = _sidebar(member_client).select('[data-testid="nav-session-row"]')
 
         assert not row.select(".sr-only")
+
+    def test_merge_request_icon(self, member_user, member_client):
+        session = make_session(member_user)
+        Session.objects.filter(pk=session.pk).update(merge_request_iid=102)
+        MergeRequestOwnership.objects.create(
+            repo_id="daiv/test", merge_request_iid=102, source_branch="fix", merged=True, closed_at=timezone.now()
+        )
+
+        (row,) = _sidebar(member_client).select('[data-testid="nav-session-row"]')
+
+        marker = row.select_one(".nav-row__mr")
+        assert "nav-row__mr--merged" in marker["class"]
+        assert marker["title"] == "!102 · Merged"
+        assert marker.name != "a"
+
+    def test_no_merge_request_no_icon(self, member_user, member_client):
+        make_run(make_session(member_user), RunStatus.SUCCESSFUL)
+
+        (row,) = _sidebar(member_client).select('[data-testid="nav-session-row"]')
+
+        assert not row.select(".nav-row__mr")
 
     def test_viewed_session_row_is_active(self, member_user, member_client):
         viewed = make_session(member_user, minutes_ago=5)

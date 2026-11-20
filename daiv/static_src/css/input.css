@@ -350,6 +350,19 @@
     @apply transition-transform;
   }
 
+  .nav-row--failed {
+    box-shadow: inset 2px 0 0 var(--color-status-fail);
+  }
+
+  .nav-row__mr {
+    @apply flex shrink-0 items-center;
+    --mr-state: var(--color-status-clear);
+    color: var(--mr-state);
+  }
+
+  .nav-row__mr--merged { --mr-state: var(--color-text-muted); }
+  .nav-row__mr--closed { --mr-state: var(--color-status-fail); }
+
   [aria-expanded="true"] > .nav-row__chevron {
     @apply rotate-90;
   }

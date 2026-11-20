@@ -1,4 +1,4 @@
-{% load i18n icon_tags nav_tags session_tags %}
+{% load i18n icon_tags l10n nav_tags session_tags %}
 {% comment %}
 The sidebar's two lists, from `nav_sidebar` (a `dashboard.sidebar.SidebarLists`). Also the whole
 response of the `sidebar_lists` endpoint, which the sidebar swaps in when runs start or finish.
@@ -26,27 +26,26 @@ response of the `sidebar_lists` endpoint, which the sidebar swaps in when runs s
   </div>
   <ul>
     {% for row in lists.sessions %}
+    {% with variant=row.status|status_variant label=row.status|run_status_label %}
     <li>
       <a href="{% url 'session_detail' thread_id=row.thread_id %}"
          data-testid="nav-session-row"
          data-row-key="s:{{ row.thread_id }}"
-         title="{% if row.title %}{{ row.title }}{% else %}{% translate 'generating title…' %}{% endif %}"
+         title="{% if row.title %}{{ row.title }}{% else %}{% translate 'generating title…' %}{% endif %} · {{ row.last_active_at|date:'DATETIME_FORMAT' }}"
          {% if row.active %}aria-current="page"{% endif %}
-         class="nav-row{% if row.active %} nav-row--active{% endif %}">
-        <span class="status-dot status-dot-{{ row.status|status_variant }}" aria-hidden="true"></span>
+         class="nav-row{% if row.active %} nav-row--active{% endif %}{% if row.status == 'FAILED' %} nav-row--failed{% endif %}">
+        {% if variant == "running" or variant == "waiting" %}<span class="status-dot status-dot-{{ variant }}" aria-hidden="true"></span>{% endif %}
+        {% if label %}<span class="sr-only">{{ label }}</span>{% endif %}
         <span class="nav-row__title">{% if row.title %}{{ row.title }}{% else %}<em>{% translate "generating title…" %}</em>{% endif %}</span>
-        <span class="nav-row__meta">
-          {% with label=row.status|run_status_label %}
-          {% if row.shows_state %}
-          {{ label }}
-          {% else %}
-          {% if label %}<span class="sr-only">{{ label }}</span>{% endif %}
-          {{ row.last_active_at|compact_time }}
-          {% endif %}
-          {% endwith %}
-        </span>
+        {% with merge_request=row.merge_request %}
+        {% if merge_request %}
+        <span class="nav-row__mr nav-row__mr--{{ merge_request.state }}"
+              title="!{{ merge_request.iid|unlocalize }} · {{ merge_request.state.label }}">{% icon "merge-request" "h-3.5 w-3.5" %}</span>
+        {% endif %}
+        {% endwith %}
       </a>
     </li>
+    {% endwith %}
     {% empty %}
     <li class="nav-empty">
       {% if lists.failed %}

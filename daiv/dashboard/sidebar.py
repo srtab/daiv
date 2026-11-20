@@ -59,10 +59,6 @@ class SessionRow:
     merge_request: SidebarMergeRequest | None = None
 
     @property
-    def shows_state(self) -> bool:
-        return self.status in STATE_WORD_STATUSES
-
-    @property
     def archivable(self) -> bool:
         return self.status not in _BLOCKS_ARCHIVE
 

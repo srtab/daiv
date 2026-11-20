@@ -70,14 +70,6 @@ class TestSessionRows:
         (row,), _ = Sidebar(member_user).session_rows()
 
         assert row.status == RunStatus.FAILED
-        assert row.shows_state is True
-
-    def test_successful_run_shows_no_state(self, member_user):
-        make_run(make_session(member_user), RunStatus.SUCCESSFUL)
-
-        (row,), _ = Sidebar(member_user).session_rows()
-
-        assert row.shows_state is False
 
     def test_session_without_runs_has_blank_status(self, member_user):
         make_session(member_user, title="")
@@ -86,7 +78,6 @@ class TestSessionRows:
 
         assert row.status == ""
         assert row.title == ""
-        assert row.shows_state is False
 
     def test_viewed_session_is_marked_active(self, member_user):
         viewed = make_session(member_user, minutes_ago=5)
