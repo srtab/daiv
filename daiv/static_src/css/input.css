@@ -5111,6 +5111,7 @@ html {
       hover:bg-border hover:text-text-strong;
   }
   .filter-search__clear { @apply absolute right-2 top-1/2 m-0 -translate-y-1/2; }
+  .filter-search__icon { @apply pointer-events-none absolute left-3 top-1/2 flex -translate-y-1/2 text-text-faint; }
   .filter-menu {
     @apply absolute z-20 mt-1.5 max-h-80 min-w-[13rem] max-w-[22rem] overflow-y-auto rounded-xl border border-border
       bg-surface-2 p-1 shadow-overlay;
