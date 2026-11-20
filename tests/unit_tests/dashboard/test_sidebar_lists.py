@@ -1,5 +1,6 @@
 import uuid
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.urls import reverse
 from django.utils import timezone
@@ -155,26 +156,15 @@ class TestSessionRows:
 
         assert row.merge_request is None
 
-    @pytest.mark.parametrize(
-        ("status", "archivable"),
-        [
-            (RunStatus.RUNNING, False),
-            (RunStatus.QUEUED, False),
-            (RunStatus.READY, False),
-            (RunStatus.SUCCESSFUL, True),
-            (RunStatus.FAILED, True),
-            (RunStatus.WAITING_INPUT, True),
-            (None, True),
-        ],
-    )
-    def test_archivable(self, member_user, status, archivable):
+    @pytest.mark.parametrize(("runnable", "can_archive"), [(True, True), (False, False)])
+    def test_can_archive_follows_run_access(self, member_user, runnable, can_archive):
         session = make_session(member_user)
-        if status:
-            make_run(session, status)
+        make_run(session, RunStatus.RUNNING)
 
-        (row,), _ = Sidebar(member_user).session_rows()
+        with patch("dashboard.sidebar.runnable_repo_ids", return_value={session.repo_id} if runnable else set()):
+            (row,), _ = Sidebar(member_user).session_rows()
 
-        assert row.archivable is archivable
+        assert row.can_archive is can_archive
 
     @pytest.mark.parametrize("count", [3, 9])
     def test_query_count_is_fixed(self, member_user, django_assert_max_num_queries, count):
@@ -182,9 +172,9 @@ class TestSessionRows:
         for session in sessions:
             make_run(session, RunStatus.RUNNING)
 
-        with django_assert_max_num_queries(1):
-            Sidebar(member_user).session_rows()
         with django_assert_max_num_queries(2):
+            Sidebar(member_user).session_rows()
+        with django_assert_max_num_queries(4):
             Sidebar(member_user, viewing=sessions[-1].thread_id).session_rows()
 
     @pytest.mark.parametrize("count", [3, 9])
@@ -193,9 +183,9 @@ class TestSessionRows:
         for iid, session in enumerate(sessions, start=1):
             make_run(session, RunStatus.SUCCESSFUL, merge_request_iid=iid, merge_request_web_url=f"https://git/{iid}")
 
-        with django_assert_max_num_queries(2):
-            Sidebar(member_user).session_rows()
         with django_assert_max_num_queries(3):
+            Sidebar(member_user).session_rows()
+        with django_assert_max_num_queries(5):
             Sidebar(member_user, viewing=sessions[-1].thread_id).session_rows()
 
 

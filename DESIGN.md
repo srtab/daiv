@@ -747,9 +747,10 @@ wordmark and a teal New chat `+`) that is the only nav entry point on a phone.
   merge-request icon (`.nav-row__mr`) coloured by its MR's state as `.mr-pill` is; the
   last-active date moves into the row's `title`. Each row's ⋯ (`.nav-session__trigger`,
   transparent but focusable until hover or focus, always shown on touch) opens a `menuButton`
-  menu — open the merge request, copy link, open in new tab, Archive (hidden while a run is
-  queued, pending or running) — and while it shows the row's right padding widens so the MR
-  icon sits left of it. Archive asks in the one `dashboard/_sidebar_archive_dialog.html`; the
+  menu — open the merge request, copy link, open in new tab, Archive (with run access to the
+  repository, as on the session page) — and while it shows the row's right padding widens so the MR
+  icon sits left of it. Archive asks in the one `dashboard/_session_archive_dialog.html` the session
+  page shares; the
   menu opens upward only when it overflows the scroller below and fits above
   (`[data-menu-bounds]`). The session being viewed is marked and appended when off the page. **Scheduled**: up to 10 schedules the user owns
   or subscribes to that are enabled or fired in the last 14 days, each expanding to its 3

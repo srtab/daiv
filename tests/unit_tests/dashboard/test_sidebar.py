@@ -421,11 +421,13 @@ class TestSidebarSessionMenu:
 
         assert texts == ["Copy link", "Open in new tab", "Archive"]
 
-    @pytest.mark.parametrize("status", [RunStatus.RUNNING, RunStatus.QUEUED, RunStatus.READY])
-    def test_archive_hidden_while_running_or_queued(self, member_user, member_client, status):
-        make_run(make_session(member_user), status)
+    def test_archive_hidden_without_run_access(self, member_user, member_client):
+        make_session(member_user)
 
-        assert not self._menu(member_client).select('[data-testid="nav-session-archive"]')
+        with patch("dashboard.sidebar.runnable_repo_ids", return_value=set()):
+            menu = self._menu(member_client)
+
+        assert not menu.select('[data-testid="nav-session-archive"]')
 
     def test_archive_asks_with_the_session_archive_url(self, member_user, member_client):
         session = make_session(member_user)
@@ -456,9 +458,9 @@ class TestSidebarSessionMenu:
 
         page = _soup(member_client, "dashboard")
 
-        (dialog,) = page.select('[data-testid="sidebar-archive-dialog"]')
+        (dialog,) = page.select('[data-testid="session-archive-dialog"]')
         assert dialog.select_one("h2").get_text(strip=True) == "Archive this session?"
-        assert dialog.select_one('[data-testid="sidebar-archive-confirm"]')
+        assert dialog.select_one('[data-testid="session-archive-confirm"]')
 
 
 @pytest.mark.django_db

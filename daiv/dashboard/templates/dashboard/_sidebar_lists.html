@@ -72,17 +72,17 @@ response of the `sidebar_lists` endpoint, which the sidebar swaps in when runs s
         </a>
         {% endif %}
         <button type="button" role="menuitem" tabindex="-1" class="session-menu__item"
-                @click="close(true); $store.sidebarRowActions.copyLink('{{ session_url }}')">
+                @click="close(true); $store.sessionActions.copyLink('{{ session_url }}')">
           {% icon "link" "session-menu__icon" %}{% translate "Copy link" %}
         </button>
         <a role="menuitem" tabindex="-1" class="session-menu__item" href="{{ session_url }}" target="_blank" rel="noopener">
           {% icon "arrow-top-right-on-square" "session-menu__icon" %}{% translate "Open in new tab" %}
         </a>
-        {% if row.archivable %}
+        {% if row.can_archive %}
         <div class="session-menu__divider" role="separator"></div>
         <button type="button" role="menuitem" tabindex="-1" class="session-menu__item session-menu__item--danger"
                 data-testid="nav-session-archive"
-                @click="close(true); $store.sidebarRowActions.askArchive('{% url 'api:session_archive' row.thread_id %}')">
+                @click="close(true); $store.sessionActions.askArchive(() => $store.sessionActions.archive('{% url 'api:session_archive' row.thread_id %}'))">
           {% icon "archive-box" "session-menu__icon" %}{% translate "Archive" %}
         </button>
         {% endif %}

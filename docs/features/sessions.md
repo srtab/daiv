@@ -161,7 +161,7 @@ An archived session refuses new work:
 
 You need to be able to run agents on the session's repository. Archiving hides the session for everyone else, so check that nobody needs it first.
 
-1. Open the session and select **⋯** → **Archive**, or in the sidebar, select the session's **⋯** → **Archive**. The sidebar offers it only while no run of the session is queued, pending or running.
+1. Open the session and select **⋯** → **Archive**, or in the sidebar, select the session's **⋯** → **Archive**.
 2. In **Archive this session?**, select **Archive**.
 
 #### Unarchive a session

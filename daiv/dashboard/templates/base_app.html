@@ -6,7 +6,7 @@
 <script defer src="{% static 'core/js/menu-button.js' %}"></script>
 <script defer src="{% static 'core/js/sidebar.js' %}"></script>
 <script defer src="{% static 'core/js/sidebar-lists.js' %}"></script>
-<script defer src="{% static 'core/js/sidebar-row-actions.js' %}"></script>
+<script defer src="{% static 'core/js/session-actions.js' %}"></script>
 {% endblock alpine_stores %}
 
 {% block content %}
@@ -16,7 +16,7 @@
      @keydown.window="$store.sidebar.onKey($event)"
      class="flex h-dvh bg-ground">
   {% include "dashboard/_sidebar.html" %}
-  {% include "dashboard/_sidebar_archive_dialog.html" %}
+  {% include "dashboard/_session_archive_dialog.html" %}
 
   {% comment %}
   Mobile navigation sheet (< 768px) — reuses the sidebar partial WITHOUT the

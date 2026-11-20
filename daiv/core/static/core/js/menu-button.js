@@ -32,10 +32,10 @@ document.addEventListener("alpine:init", () => {
     show(index) {
       this.up = false;
       this.open = true;
-      this.$nextTick(() => {
-        this.up = this.opensUp();
-        this.focusAt(index);
-      });
+      // x-show reveals the menu in a frame it requests while Alpine flushes `open`; requesting ours after that
+      // flush measures the menu shown and flips it before the frame paints.
+      queueMicrotask(() => requestAnimationFrame(() => (this.up = this.opensUp())));
+      this.$nextTick(() => this.focusAt(index));
     },
 
     toggle() {
