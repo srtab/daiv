@@ -350,10 +350,6 @@
     @apply transition-transform;
   }
 
-  .nav-row--failed {
-    box-shadow: inset 2px 0 0 var(--color-status-fail);
-  }
-
   .nav-row__mr {
     @apply flex shrink-0 items-center;
     color: var(--mr-state);
@@ -370,18 +366,16 @@
       text-text-faint opacity-0 transition-colors hover:text-text;
   }
 
-  @media (hover: hover) {
-    .nav-session:is(:hover, :focus-within, .nav-session--open) > .nav-row {
-      @apply pr-9;
-    }
+  .nav-session:is(:hover, :focus-within, .nav-session--open) > .nav-row {
+    @apply pr-9;
+  }
 
-    .nav-session:is(:hover, :focus-within, .nav-session--open) .nav-session__trigger {
-      @apply opacity-100;
-    }
+  .nav-session:is(:hover, :focus-within, .nav-session--open) .nav-session__trigger {
+    @apply opacity-100;
   }
 
   .nav-session__menu {
-    @apply absolute top-full right-0 z-40 mt-1 w-56 rounded-xl border border-border bg-surface-2 p-1 shadow-overlay;
+    @apply top-full right-0 mt-1 w-56;
   }
 
   .nav-session__menu--up {
@@ -430,7 +424,8 @@
   }
 
   .sidebar__account-menu,
-  .session-menu {
+  .session-menu,
+  .nav-session__menu {
     @apply absolute z-40 rounded-xl border border-border bg-surface-2 p-1 shadow-overlay;
   }
 
@@ -5195,7 +5190,7 @@ html {
     @apply relative isolate flex items-center gap-3 border-t border-border px-5 py-2.5
       transition-colors hover:bg-surface-3;
   }
-  .session-row--failed { box-shadow: inset 2px 0 0 var(--color-status-fail); }
+  .session-row--failed, .nav-row--failed { box-shadow: inset 2px 0 0 var(--color-status-fail); }
   .session-row__title { @apply flex min-w-0 items-center gap-2; }
   .session-row__meta { @apply mt-0.5 flex min-w-0 items-center gap-2.5 overflow-hidden; }
   /* Above the row's stretched link so its title shows; `core/js/row-hints.js` forwards the click. */

@@ -4,7 +4,8 @@
  *
  *     <button @click="$store.sessionActions.askArchive(() => $store.sessionActions.archive(url))">
  *
- * `askArchive` runs its callback once the dialog confirms; `archive` is the sidebar's, which refreshes its lists.
+ * `askArchive` runs its callback once the dialog confirms and drops it when the dialog closes; `archive` is the
+ * sidebar's, which refreshes its lists.
  */
 document.addEventListener("alpine:init", () => {
   const DIALOG_ID = "session-archive-dialog";
@@ -19,18 +20,23 @@ document.addEventListener("alpine:init", () => {
     send(url, method, body) {
       return fetch(url, {
         method,
-        credentials: "same-origin",
         headers: { "Content-Type": "application/json", Accept: "application/json", "X-CSRFToken": this.config().csrfToken ?? "" },
         body: JSON.stringify(body),
       });
     },
 
-    async copyLink(path) {
+    async copyText(text) {
       try {
-        await navigator.clipboard.writeText(new URL(path, window.location.href).href);
-        window.showToast(this.config().copiedLabel, "success");
+        await navigator.clipboard.writeText(text);
+        return true;
       } catch {
-        // Clipboard access denied: Open in new tab still carries the link.
+        return false;
+      }
+    },
+
+    async copyLink(path) {
+      if (await this.copyText(new URL(path, window.location.href).href)) {
+        window.showToast(this.config().copiedLabel, "success");
       }
     },
 

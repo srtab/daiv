@@ -40,12 +40,10 @@ response of the `sidebar_lists` endpoint, which the sidebar swaps in when runs s
         {% if variant == "running" or variant == "waiting" %}<span class="status-dot status-dot-{{ variant }}" aria-hidden="true"></span>{% endif %}
         {% if label %}<span class="sr-only">{{ label }}</span>{% endif %}
         <span class="nav-row__title">{% if row.title %}{{ row.title }}{% else %}<em>{% translate "generating title…" %}</em>{% endif %}</span>
-        {% with merge_request=row.merge_request %}
-        {% if merge_request %}
-        <span class="nav-row__mr nav-row__mr--{{ merge_request.state }}"
-              title="!{{ merge_request.iid|unlocalize }} · {{ merge_request.state.label }}">{% icon "merge-request" "h-3.5 w-3.5" %}</span>
+        {% if row.merge_request %}
+        <span class="nav-row__mr nav-row__mr--{{ row.merge_request.state }}"
+              title="!{{ row.merge_request.iid|unlocalize }} · {{ row.merge_request.state.label }}">{% icon "merge-request" "h-3.5 w-3.5" %}</span>
         {% endif %}
-        {% endwith %}
       </a>
       {% translate "Session actions" as actions_label %}
       <button type="button"

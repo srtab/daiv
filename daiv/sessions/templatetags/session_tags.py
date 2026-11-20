@@ -186,7 +186,7 @@ def artifact_icon(kind) -> str:
 
 def linked_merge_request(session) -> dict | None:
     """The merge request a session row links: the one the session is scoped to, else the newest one recorded on its
-    runs. Expects ``runs`` prefetched newest first, as ``with_row_runs`` does."""
+    runs. Expects ``runs`` prefetched newest first, as ``with_row_runs`` and ``with_merge_request_runs`` do."""
     runs = [r for r in session.runs.all() if r.merge_request_iid]
     iid = session.merge_request_iid or (runs[0].merge_request_iid if runs else None)
     if iid is None:

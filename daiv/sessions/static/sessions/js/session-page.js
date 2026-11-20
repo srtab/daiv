@@ -391,12 +391,8 @@ document.addEventListener("alpine:init", () => {
         this._archivedAt = performance.now();
       }
     },
-    async copyText(text) {
-      try {
-        await navigator.clipboard.writeText(text);
-      } catch {
-        // Clipboard access denied: the text stays on the page for a manual copy.
-      }
+    copyText(text) {
+      return Alpine.store("sessionActions").copyText(text);
     },
     copyLink(url) {
       return Alpine.store("sessionActions").copyLink(url);

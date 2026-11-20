@@ -8,7 +8,8 @@ Confirms archiving a session, from the session page or a sidebar row; driven by 
         data-csrf-token="{{ csrf_token }}"
         data-archived-label="{% translate 'Session archived' %}"
         data-failed-label="{% translate "Couldn't archive the session." %}"
-        data-copied-label="{% translate 'Link copied' %}">
+        data-copied-label="{% translate 'Link copied' %}"
+        @close="$store.sessionActions.onConfirm = null">
   <h2 id="session-archive-dialog-title" class="confirm-dialog__title">{% translate "Archive this session?" %}</h2>
   <p id="session-archive-dialog-body" class="confirm-dialog__body">
     {% translate "It leaves the session list and Home for everyone, and takes no follow-ups, from chat or the git platform, until someone unarchives it. The Archived filter still finds it." %}
@@ -17,6 +18,6 @@ Confirms archiving a session, from the session page or a sidebar row; driven by 
     <button type="submit" value="cancel" class="confirm-dialog__button" autofocus>{% translate "Cancel" %}</button>
     <button type="button" class="confirm-dialog__button confirm-dialog__button--danger"
             data-testid="session-archive-confirm"
-            @click="$el.closest('dialog').close(); $store.sessionActions.confirmArchive()">{% translate "Archive" %}</button>
+            @click="$store.sessionActions.confirmArchive(); $el.closest('dialog').close()">{% translate "Archive" %}</button>
   </form>
 </dialog>

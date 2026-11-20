@@ -7,11 +7,11 @@ from functools import reduce
 from operator import attrgetter, or_
 from typing import TYPE_CHECKING, Any
 
-from django.db.models import F, OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.db.models import F, OuterRef, Q, QuerySet, Subquery
 from django.urls import reverse
 from django.utils import timezone
 
-from sessions.models import MergeRequestState, Run, RunStatus, Session, SessionOrigin
+from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.templatetags.session_tags import attach_merge_request_states, session_merge_request
 from sessions.validators import MAX_REPOS_PER_BATCH
 
@@ -43,20 +43,13 @@ _SESSION_FIELDS = ("thread_id", "title", "last_active_at", "repo_id", "merge_req
 
 
 @dataclass(frozen=True, slots=True)
-class SidebarMergeRequest:
-    iid: int
-    url: str
-    state: MergeRequestState
-
-
-@dataclass(frozen=True, slots=True)
 class SessionRow:
     thread_id: str
     title: str
     status: str
     last_active_at: datetime
     active: bool
-    merge_request: SidebarMergeRequest | None = None
+    merge_request: dict[str, Any] | None = None
     can_archive: bool = False
 
 
@@ -165,32 +158,23 @@ class Sidebar:
         return tuple(self._schedule_row(schedule, firings.get(schedule["pk"], [])) for schedule in schedules)
 
     def _own_sessions(self) -> QuerySet[Session]:
-        """The sessions ``session_rows`` lists, with the runs ``linked_merge_request`` reads: only those on a merge
-        request, newest first."""
-        merge_request_runs = (
-            Run.objects
-            .filter(merge_request_iid__isnull=False)
-            .only("id", "session_id", "merge_request_iid", "merge_request_web_url", "created_at")
-            .order_by("-created_at", "-id")
-        )
         return (
             Session.objects
             .listed_for(self.user, mine=True)
             .filter(scheduled_job__isnull=True)
             .only(*_SESSION_FIELDS)
-            .prefetch_related(Prefetch("runs", queryset=merge_request_runs))
+            .with_merge_request_runs()
             .order_by("-last_active_at")
         )
 
     def _session_row(self, session: Session, runnable: set[str]) -> SessionRow:
-        linked = session_merge_request(session)
         return SessionRow(
             thread_id=session.thread_id,
             title=session.title,
             status=session.latest_run_status or "",  # ty: ignore[missing-attribute]
             last_active_at=session.last_active_at,
             active=session.thread_id == self.viewing,
-            merge_request=SidebarMergeRequest(linked["iid"], linked["url"], linked["state"]) if linked else None,
+            merge_request=session_merge_request(session),
             can_archive=session.repo_id in runnable,
         )
 

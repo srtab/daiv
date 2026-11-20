@@ -14,7 +14,6 @@ from dashboard.sidebar import (
     SESSIONS_PAGE,
     Sidebar,
     SidebarLists,
-    SidebarMergeRequest,
 )
 from sessions.models import MergeRequestOwnership, MergeRequestState, RunStatus, Session, SessionOrigin
 from sessions.validators import MAX_REPOS_PER_BATCH
@@ -117,7 +116,7 @@ class TestSessionRows:
 
         (row,), _ = Sidebar(member_user).session_rows()
 
-        assert row.merge_request == SidebarMergeRequest(7, "https://git/mr/7", MergeRequestState.OPEN)
+        assert row.merge_request == {"iid": 7, "url": "https://git/mr/7", "state": MergeRequestState.OPEN}
 
     def test_merge_request_from_an_older_run(self, member_user):
         session = make_session(member_user)
@@ -128,7 +127,7 @@ class TestSessionRows:
 
         (row,), _ = Sidebar(member_user).session_rows()
 
-        assert row.merge_request == SidebarMergeRequest(3, "https://git/3", MergeRequestState.OPEN)
+        assert row.merge_request == {"iid": 3, "url": "https://git/3", "state": MergeRequestState.OPEN}
 
     def test_merge_request_without_url(self, member_user):
         session = make_session(member_user)
@@ -136,7 +135,7 @@ class TestSessionRows:
 
         (row,), _ = Sidebar(member_user).session_rows()
 
-        assert row.merge_request == SidebarMergeRequest(5, "", MergeRequestState.OPEN)
+        assert row.merge_request == {"iid": 5, "url": "", "state": MergeRequestState.OPEN}
 
     def test_merge_request_state_from_ownership(self, member_user):
         session = make_session(member_user)
@@ -147,7 +146,7 @@ class TestSessionRows:
 
         (row,), _ = Sidebar(member_user).session_rows()
 
-        assert row.merge_request.state == MergeRequestState.MERGED
+        assert row.merge_request["state"] == MergeRequestState.MERGED
 
     def test_no_merge_request(self, member_user):
         make_run(make_session(member_user), RunStatus.SUCCESSFUL)
@@ -167,25 +166,18 @@ class TestSessionRows:
         assert row.can_archive is can_archive
 
     @pytest.mark.parametrize("count", [3, 9])
-    def test_query_count_is_fixed(self, member_user, django_assert_max_num_queries, count):
-        sessions = [make_session(member_user, minutes_ago=minutes_ago) for minutes_ago in range(count)]
-        for session in sessions:
-            make_run(session, RunStatus.RUNNING)
-
-        with django_assert_max_num_queries(2):
-            Sidebar(member_user).session_rows()
-        with django_assert_max_num_queries(4):
-            Sidebar(member_user, viewing=sessions[-1].thread_id).session_rows()
-
-    @pytest.mark.parametrize("count", [3, 9])
-    def test_query_count_with_merge_requests_is_fixed(self, member_user, django_assert_max_num_queries, count):
+    @pytest.mark.parametrize(("with_merge_requests", "page_queries"), [(False, 2), (True, 3)])
+    def test_query_count_is_fixed(
+        self, member_user, django_assert_max_num_queries, count, with_merge_requests, page_queries
+    ):
         sessions = [make_session(member_user, minutes_ago=minutes_ago) for minutes_ago in range(count)]
         for iid, session in enumerate(sessions, start=1):
-            make_run(session, RunStatus.SUCCESSFUL, merge_request_iid=iid, merge_request_web_url=f"https://git/{iid}")
+            merge_request = {"merge_request_iid": iid, "merge_request_web_url": f"https://git/{iid}"}
+            make_run(session, RunStatus.SUCCESSFUL, **(merge_request if with_merge_requests else {}))
 
-        with django_assert_max_num_queries(3):
+        with django_assert_max_num_queries(page_queries):
             Sidebar(member_user).session_rows()
-        with django_assert_max_num_queries(5):
+        with django_assert_max_num_queries(page_queries + 2):
             Sidebar(member_user, viewing=sessions[-1].thread_id).session_rows()
 
 

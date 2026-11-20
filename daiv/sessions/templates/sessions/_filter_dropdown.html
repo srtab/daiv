@@ -23,7 +23,7 @@ options_url. The Alpine component around it spreads filterDropdown from sessions
            x-show="!!{{ key }}"{% if not current %} style="display:none"{% endif %}
            aria-label="{% blocktranslate %}Clear {{ label }} filter{% endblocktranslate %}">{% icon "x-mark" "h-3.5 w-3.5" %}</a>
     </div>
-    <div data-surface class="filter-menu{% if align == 'end' %} filter-menu--end{% endif %}" x-show="open === '{{ key }}'" x-cloak>
+    <div data-surface class="filter-menu scrollbar-thin{% if align == 'end' %} filter-menu--end{% endif %}" x-show="open === '{{ key }}'" x-cloak>
         <a href="{{ clear_url }}" data-filter-key="{{ key }}" data-value="" data-label="{{ all_label }}"
            class="filter-menu-item{% if not current %} filter-menu-item--active{% endif %}"
            @click.prevent="pick('{{ key }}', '')" :class="{ 'filter-menu-item--active': !{{ key }} }">{{ all_label }}</a>
