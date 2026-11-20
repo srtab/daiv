@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote, urlencode
@@ -10,11 +10,20 @@ from urllib.parse import quote, urlencode
 from django.template.loader import render_to_string
 
 from asgiref.sync import sync_to_async
+from git import GitCommandError
 
 from accounts.utils import PlatformIdentity, aget_platform_identity
-from automation.agent.references import render_agent_context, render_commit_trailers, render_references_block
+from automation.agent.git_state import RepoPublish
+from automation.agent.publish_errors import PushRejectedError, publish_error_kind
+from automation.agent.references import (
+    PLATFORM_ISSUE_PROVIDERS,
+    render_agent_context,
+    render_commit_trailers,
+    render_references_block,
+)
 from automation.agent.utils import build_langsmith_config, repo_relative_text
 from codebase.base import GitPlatform, MergeRequest, MergeRequestDiffStats, Scope
+from codebase.clients.base import aget_open_merge_request
 from codebase.exceptions import MergeRequestBranchNotVisibleError
 from codebase.utils import diff_line_stats, redact_diff_content
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_NAME
@@ -26,9 +35,9 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from automation.agent.agent_settings import AgentSettings
-    from automation.agent.context import RuntimeCtx
+    from automation.agent.context import RepoHandle, RuntimeCtx
     from automation.agent.session_links import SessionLinks, SessionLinksResolver
-    from automation.agent.workspace.base import Workspace
+    from automation.agent.workspace.base import PublishWorkspace, Workspace
     from automation.agent.workspace.git_manager import PendingMerge
 
 
@@ -89,7 +98,11 @@ class PublishOutcome:
 
     merge_request: MergeRequest | None
     published: bool
+    created_merge_request: bool = False
     protected_branch_fallback_source: str | None = None
+    pushed_sha: str = ""
+    """The commit this publish pushed, read after the push; empty when nothing was pushed or HEAD could not be read.
+    The CI watch tells DAIV's own commits from everyone else's by it."""
     diff_stats: MergeRequestDiffStats | None = None
     """Lines added/removed and files touched by the run's work, for the composer's ``+x −y``
     pill. ``None`` only when no publish was attempted; a publish that found nothing reports
@@ -114,7 +127,7 @@ class GitChangePublisher:
     def __init__(
         self,
         ctx: RuntimeCtx,
-        workspace: Workspace,
+        workspace: PublishWorkspace,
         *,
         settings: AgentSettings,
         session_links: SessionLinksResolver | None,
@@ -235,29 +248,28 @@ class GitChangePublisher:
         suppress_bot_pipeline = not skip_ci and await sync_to_async(self.client.push_uses_ephemeral_token)(
             self.ctx.repository
         )
-        # Opening an MR triggers a pipeline of its own, as its author, so only a push to an
-        # already-open MR needs the heal — and only it needs the pushed sha.
-        will_heal = suppress_bot_pipeline and merge_request is not None
-
         # Only an existing MR's source branch may have advanced under the run (a dependabot
         # force-push, or a concurrent push) — integrate + retry there so the work isn't lost.
         # A fresh, unique branch can't, so leave integration off for new MRs.
-        await git_manager.push_head_to(
-            branch_name, integrate_on_reject=merge_request is not None, skip_ci=suppress_bot_pipeline
-        )
-        # Read after the push: an integrate-on-reject rebase or merge moves HEAD, and the heal below
-        # needs the sha that actually landed on the remote.
-        pushed_sha = None
-        if will_heal:
-            try:
-                pushed_sha = await git_manager.head_sha()
-            except Exception:
-                # The branch is already pushed (skip-ci'd): raising here would orphan it and
-                # discard the agent's reply over a sha the heal can degrade without.
-                logger.exception("Could not read HEAD after pushing '%s'; the CI heal cannot verify it", branch_name)
+        try:
+            await git_manager.push_head_to(
+                branch_name, integrate_on_reject=merge_request is not None, skip_ci=suppress_bot_pipeline
+            )
+        except GitCommandError as exc:
+            raise PushRejectedError(str(exc)) from exc
+        # Read after the push: an integrate-on-reject rebase or merge moves HEAD, and both the heal below and the CI
+        # watch need the sha that actually landed on the remote.
+        pushed_sha = ""
+        try:
+            pushed_sha = await git_manager.head_sha()
+        except Exception:
+            # The branch is already pushed: raising here would orphan it and discard the agent's reply over a sha the
+            # heal and the watch can degrade without.
+            logger.exception("Could not read HEAD after pushing '%s'; the CI heal and watch can't use it", branch_name)
 
         logger.info("Published changes to branch: '%s' [skip_ci: %s]", branch_name, skip_ci)
 
+        created_merge_request = False
         if merge_request is None:
             try:
                 merge_request = await self._create_merge_request(
@@ -289,8 +301,10 @@ class GitChangePublisher:
                     merge_request=None,
                     published=True,
                     protected_branch_fallback_source=protected_branch_fallback_source,
+                    pushed_sha=pushed_sha,
                     diff_stats=diff_stats,
                 )
+            created_merge_request = True
             logger.info(
                 "Created merge request: %s [merge_request_id: %s, draft: %r]",
                 merge_request.web_url,
@@ -310,12 +324,14 @@ class GitChangePublisher:
                     merge_request.draft,
                 )
             if suppress_bot_pipeline:
-                await self._trigger_service_account_pipeline(merge_request, pushed_sha)
+                await self._trigger_service_account_pipeline(merge_request, pushed_sha or None)
 
         return PublishOutcome(
             merge_request=merge_request,
             published=True,
+            created_merge_request=created_merge_request,
             protected_branch_fallback_source=protected_branch_fallback_source,
+            pushed_sha=pushed_sha,
             diff_stats=diff_stats,
         )
 
@@ -477,6 +493,7 @@ class GitChangePublisher:
             backend=self.workspace.backend,
             include_pr_metadata=bool(pr_metadata_diff),
             include_commit_message=commit_message_diff is not None,
+            repo_path=self.workspace.repo_path,
         )
         config = build_langsmith_config(
             self.ctx, trigger="diff_to_metadata", model=self.settings.diff_to_metadata.names[0]
@@ -522,13 +539,13 @@ class GitChangePublisher:
             source_branch=branch_name,
             target_branch=target_branch,
             labels=[BOT_LABEL],
-            title=repo_relative_text(title),
+            title=repo_relative_text(title, repo_path=self.workspace.repo_path),
             assignee_id=assignee_id,
             as_draft=as_draft,
             description=render_to_string(
                 "automation/issue_merge_request.txt",
                 {
-                    "description": repo_relative_text(description),
+                    "description": repo_relative_text(description, repo_path=self.workspace.repo_path),
                     "references_block": render_references_block(
                         self.ctx.references, repo_slug=self.ctx.repository.slug
                     ),
@@ -648,3 +665,117 @@ class GitChangePublisher:
 
         params = urlencode({"title": title, "body": body, "labels": BOT_AUTO_LABEL}, quote_via=quote)
         return f"{html_url}/issues/new?{params}"
+
+
+async def apublish_extra_repos(
+    ctx: RuntimeCtx,
+    workspace: Workspace,
+    *,
+    settings: AgentSettings,
+    session_links: SessionLinksResolver | None,
+    skip_ci: bool = False,
+    recovering: bool = False,
+) -> list[RepoPublish]:
+    """Publish each of ``ctx``'s extra repositories to its own branch and merge request, one after the other.
+
+    Each goes through its own views of ``ctx`` and ``workspace``, onto the open merge request of the branch its clone is
+    on. A repository that fails is recorded on its :class:`RepoPublish` and never raised, so it cannot stop the others
+    or the main repository. ``recovering`` is draft recovery: a new merge request opens as a draft, and a draft one
+    stays a draft. The agent's closing summary is left out: it covers the whole turn, not this repository.
+    """
+    return [
+        await _apublish_extra_repo(
+            ctx,
+            handle,
+            workspace,
+            settings=settings,
+            session_links=session_links,
+            skip_ci=skip_ci,
+            recovering=recovering,
+        )
+        for handle in ctx.extra_repos
+    ]
+
+
+async def _apublish_extra_repo(
+    ctx: RuntimeCtx,
+    handle: RepoHandle,
+    workspace: Workspace,
+    *,
+    settings: AgentSettings,
+    session_links: SessionLinksResolver | None,
+    skip_ci: bool,
+    recovering: bool,
+) -> RepoPublish:
+    slug = handle.repository.slug
+    branch = "" if handle.head_detached else handle.current_ref
+    target: MergeRequest | None = None
+    error_kind: str
+    conflicted_paths: tuple[str, ...] = ()
+    try:
+        target = await aopen_branch_merge_request(handle, strict=True)
+        publisher = GitChangePublisher(
+            _extra_repo_ctx(ctx, handle), workspace.for_repo(handle), settings=settings, session_links=session_links
+        )
+        outcome = await publisher.publish(
+            merge_request=target, skip_ci=skip_ci, as_draft=recovering and (target is None or target.draft)
+        )
+    except UnresolvedMergeConflictsError as exc:
+        logger.warning("Not publishing %s: %s", slug, exc)
+        error = str(exc)
+        error_kind = "conflicts"
+        conflicted_paths = exc.paths
+    except Exception as exc:
+        logger.exception("Publishing to %s failed", slug)
+        error = publish_failure(slug, exc)
+        error_kind = publish_error_kind(exc)
+    else:
+        return RepoPublish(
+            repo_id=handle.repo_id,
+            merge_request=outcome.merge_request,
+            published=outcome.published,
+            current_ref=branch,
+            pushed_sha=outcome.pushed_sha,
+            diff_stats=outcome.diff_stats,
+            created_merge_request=outcome.created_merge_request,
+        )
+    return RepoPublish(
+        repo_id=handle.repo_id,
+        merge_request=target,
+        published=False,
+        current_ref=branch,
+        error=error,
+        error_kind=error_kind,
+        conflicted_paths=conflicted_paths,
+    )
+
+
+def publish_failure(slug: str, exc: Exception) -> str:
+    return f"Publishing to {slug} failed ({type(exc).__name__})"
+
+
+def _extra_repo_ctx(ctx: RuntimeCtx, handle: RepoHandle) -> RuntimeCtx:
+    """``ctx`` seen through ``handle`` alone, minus the main repository's issue and the platform-issue references (in
+    ``handle``'s merge request their ``Closes`` line would name an issue of ``handle``'s repository, not the one meant)
+    and with every other reference only related: a ``Fixes`` line in each repository would close the work item when
+    the first of them merges."""
+    references = tuple(
+        ref.model_copy(update={"relation": "relates"})
+        for ref in ctx.references
+        if ref.provider not in PLATFORM_ISSUE_PROVIDERS
+    )
+    scope = Scope.GLOBAL if ctx.scope == Scope.ISSUE else ctx.scope
+    return replace(ctx, repos=(handle,), references=references, issue=None, scope=scope)
+
+
+async def aopen_branch_merge_request(handle: RepoHandle, *, strict: bool = False) -> MergeRequest | None:
+    """The open merge request from the branch ``handle``'s clone is on; ``None`` on a detached HEAD (a commit-pinned
+    run, such as a SWE-bench eval on a raw SHA) or the default branch, which no run's merge request starts from.
+    ``strict`` is :func:`~codebase.clients.base.aget_open_merge_request`'s."""
+    slug = handle.repository.slug
+    if handle.head_detached:
+        logger.debug("Skipping MR lookup for %s: detached HEAD (commit-pinned run)", slug)
+        return None
+    if not handle.current_ref or handle.current_ref == handle.config.default_branch:
+        return None
+    return await aget_open_merge_request(handle.client, slug, handle.current_ref, strict=strict)

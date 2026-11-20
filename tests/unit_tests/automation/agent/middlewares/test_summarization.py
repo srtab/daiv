@@ -9,7 +9,11 @@ from langchain.agents.middleware import ModelRequest, ModelResponse
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from automation.agent.middlewares.summarization import COMPACTION_WINDOW_FRACTION, build_summarization_middleware
+from automation.agent.middlewares.summarization import (
+    COMPACTION_WINDOW_FRACTION,
+    MAX_IMAGES_BEFORE_COMPACTION,
+    build_summarization_middleware,
+)
 from automation.agent.usage_tracking import ResolvedWindow
 
 LARGE_CONTENT = "x" * 3000
@@ -126,3 +130,57 @@ def test_the_catalog_is_looked_up_by_the_configured_model_name(attribute):
         build_summarization_middleware(model, StateBackend())
 
     lookup.assert_called_once_with("z-ai/glm-5.1")
+
+
+def _screenshots(count: int) -> list:
+    """A conversation of ``count`` small browser screenshots, each a tool call and its image result."""
+    messages = [HumanMessage("Check the page", id="h0")]
+    for i in range(count):
+        call = {"id": f"t{i}", "name": "browser_screenshot", "args": {}}
+        messages.append(AIMessage("", id=f"a{i}", tool_calls=[call]))
+        image = {"type": "image", "base64": "iVBORw0KGgo=", "mime_type": "image/png"}
+        messages.append(ToolMessage([image], tool_call_id=f"t{i}", id=f"tm{i}"))
+    return messages
+
+
+def _profiled_middleware(window: int):
+    model = FakeListChatModel(responses=["ok"], profile={"max_input_tokens": window})
+    return build_summarization_middleware(model, StateBackend())
+
+
+@pytest.mark.parametrize("window", [200_000, 1_000_000])
+def test_compaction_runs_once_the_conversation_holds_its_screenshot_budget(window):
+    middleware = _profiled_middleware(window)
+    below, at = _screenshots(MAX_IMAGES_BEFORE_COMPACTION - 10), _screenshots(MAX_IMAGES_BEFORE_COMPACTION)
+
+    assert not middleware._should_summarize(below, middleware.token_counter(below))
+    assert middleware._should_summarize(at, middleware.token_counter(at))
+
+
+@pytest.mark.parametrize("window", [200_000, 1_000_000])
+def test_what_compaction_keeps_holds_too_few_screenshots_to_compact_again(window):
+    middleware = _profiled_middleware(window)
+    messages = _screenshots(MAX_IMAGES_BEFORE_COMPACTION)
+
+    kept = messages[middleware._determine_cutoff_index(messages) :]
+
+    assert sum(isinstance(m, ToolMessage) for m in kept) < MAX_IMAGES_BEFORE_COMPACTION // 2
+
+
+async def test_screenshots_below_the_budget_reach_the_model_unchanged():
+    messages = _screenshots(MAX_IMAGES_BEFORE_COMPACTION - 10)
+    request = ModelRequest(
+        model=FakeListChatModel(responses=["ok"]),
+        messages=messages,
+        state={"messages": messages},
+        runtime=SimpleNamespace(context=None),
+    )
+    sent: list = []
+
+    async def handler(req: ModelRequest) -> ModelResponse:
+        sent.extend(req.messages)
+        return ModelResponse(result=[AIMessage("done")])
+
+    await _profiled_middleware(1_000_000).awrap_model_call(request, handler)
+
+    assert sent == messages

@@ -13,6 +13,14 @@ from redis.exceptions import LockError, LockNotOwnedError
 logger = logging.getLogger("daiv.core")
 
 
+def short_model_name(spec: str) -> str:
+    """``spec``'s model name without its ``provider:`` prefix or ``org/`` path, as compact labels show it."""
+    if not spec:
+        return ""
+    name = spec.split(":", 1)[1] if ":" in spec else spec
+    return name.rsplit("/", 1)[-1] or name
+
+
 def build_absolute_url(path: str) -> str:
     """Build an absolute https:// URL from a relative path using the current Site domain."""
     site = Site.objects.get_current()

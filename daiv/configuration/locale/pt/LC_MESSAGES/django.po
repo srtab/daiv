@@ -50,6 +50,9 @@ msgstr "O fornecedor '%(s)s' não tem chave API. Defina-a na secção Fornecedor
 msgid "Tavily requires an API key. Set the web search API key below or via environment variable."
 msgstr "O Tavily requer uma chave API. Defina a chave API de pesquisa web abaixo ou através de variável de ambiente."
 
+msgid "SearXNG requires a search endpoint URL."
+msgstr "O SearXNG requer um URL do endpoint de pesquisa."
+
 msgid "OAuth requires both a client ID and a client secret."
 msgstr "O OAuth requer um client ID e um client secret."
 

@@ -529,7 +529,7 @@ def test_validate_egress_rejects_oversized_secrets_blob():
 
 def test_validate_egress_rejects_reserved_platform_secret_name():
     """A user-defined egress secret named ``__daiv_git_platform__`` (or a rule injecting it) must be
-    rejected at save time: ``with_platform_credential`` overwrites that key at runtime, so allowing it in
+    rejected at save time: ``with_platform_credentials`` overwrites that key at runtime, so allowing it in
     stored config would let a user silently shadow DAIV's authenticated git-platform credential."""
     from django.core.exceptions import ValidationError
 
@@ -547,6 +547,19 @@ def test_validate_egress_rejects_reserved_platform_secret_name():
         env._validate_egress()
 
 
+def test_validate_egress_rejects_numbered_platform_secret_name():
+    from django.core.exceptions import ValidationError
+
+    from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME
+
+    env = _egress_env(
+        egress_policy={"default": "deny", "intercept": "all", "rules": []},
+        egress_secrets={f"{PLATFORM_EGRESS_SECRET_NAME}2": {"header": "Authorization", "value": "Bearer t"}},
+    )
+    with pytest.raises(ValidationError, match="reserved"):
+        env._validate_egress()
+
+
 @pytest.mark.django_db
 def test_summary_marks_net_when_egress_policy_present():
     on = SandboxEnvironment(
@@ -556,3 +569,25 @@ def test_summary_marks_net_when_egress_policy_present():
     assert "net" in on.summary and "net" in on.short_summary
     assert "net" not in off.summary and "net" not in off.short_summary
     assert not hasattr(off, "network_enabled")
+
+
+@pytest.mark.django_db
+def test_browser_is_off_by_default(user):
+    env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=user, name="dev", base_image="alpine:3.20")
+    assert env.browser_enabled is False
+    assert "browser" not in env.summary
+    assert "browser" not in env.short_summary
+
+
+@pytest.mark.django_db
+def test_summaries_name_the_browser_when_it_is_on(user):
+    env = SandboxEnvironment.objects.create(
+        scope=Visibility.USER,
+        user=user,
+        name="dev",
+        base_image="node:22",
+        egress_policy={"default": "allow", "intercept": "all", "rules": []},
+        browser_enabled=True,
+    )
+    assert env.summary == "node:22 · net · browser"
+    assert env.short_summary == "node:22 · net · browser"

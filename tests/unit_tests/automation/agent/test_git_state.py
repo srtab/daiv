@@ -1,6 +1,12 @@
 import pytest
 
-from automation.agent.git_state import checkpointed_merge_request, effective_merge_request
+from automation.agent.git_state import (
+    RepoPublish,
+    checkpointed_merge_request,
+    checkpointed_repo_publishes,
+    effective_merge_request,
+)
+from codebase.base import MergeRequestDiffStats
 from tests.unit_tests.automation.agent.conftest import make_merge_request
 
 
@@ -56,3 +62,58 @@ class TestCheckpointedMergeRequest:
             assert checkpointed_merge_request({"merge_request": {"source_branch": "a"}}, strict=False) is None
 
         assert "revived as dict" in caplog.text
+
+
+def test_checkpointed_repo_publishes_skips_unreadable_items(caplog):
+    readable = RepoPublish(
+        repo_id="g/mod", merge_request=make_merge_request(repo_id="g/mod"), published=True, current_ref="f"
+    ).to_state()
+    state = {
+        "repo_publishes": [
+            {"no_repo_id": True},
+            "not-a-dict",
+            readable,
+            {"repo_id": "g/bad", "merge_request": {"unexpected": 1}},
+        ]
+    }
+
+    with caplog.at_level("ERROR"):
+        publishes = checkpointed_repo_publishes(state)
+
+    assert [rp.repo_id for rp in publishes] == ["g/mod"]
+    assert "repo_id=g/bad" in caplog.text
+    assert checkpointed_repo_publishes({"repo_publishes": "nope"}) == []
+
+
+def test_a_repo_publish_round_trips_its_diff_stats():
+    stats = MergeRequestDiffStats(lines_added=12, lines_removed=3, files_changed=2)
+    rp = RepoPublish(repo_id="g/mod", merge_request=None, published=True, current_ref="b", diff_stats=stats)
+
+    assert RepoPublish.from_state(rp.to_state()).diff_stats == stats
+
+
+def test_a_repo_publish_checkpointed_before_diff_stats_reads_none():
+    state = {"repo_id": "g/mod", "merge_request": None, "published": False, "current_ref": ""}
+
+    assert RepoPublish.from_state(state).diff_stats is None
+
+
+def test_repo_publish_round_trips_outcome_fields():
+    rp = RepoPublish(
+        repo_id="srtab/daiv",
+        merge_request=None,
+        published=False,
+        current_ref="b",
+        error="x",
+        error_kind="conflicts",
+        conflicted_paths=("a.py", "b.py"),
+        created_merge_request=True,
+    )
+
+    assert RepoPublish.from_state(rp.to_state()) == rp
+
+
+def test_repo_publish_reads_a_state_without_outcome_fields():
+    rp = RepoPublish.from_state({"repo_id": "srtab/daiv", "merge_request": None, "published": True, "current_ref": "b"})
+
+    assert (rp.created_merge_request, rp.error_kind, rp.conflicted_paths) == (False, None, ())

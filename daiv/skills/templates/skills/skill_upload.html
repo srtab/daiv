@@ -24,7 +24,7 @@
     <p class="text-sm text-amber-200">
         {% blocktranslate with name=package.name %}A skill named "{{ name }}" already exists.{% endblocktranslate %}
         {% if existing and existing.uploaded_by %}
-        {% blocktranslate with by=existing.uploaded_by.username at=existing.created|date:"Y-m-d H:i" %}
+        {% blocktranslate with by=existing.uploaded_by.username at=existing.modified|date:"Y-m-d H:i" %}
         Uploaded by {{ by }} on {{ at }}.{% endblocktranslate %}
         {% endif %}
     </p>

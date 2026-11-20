@@ -9,6 +9,9 @@ from core.conf import settings
 from core.site_settings import site_settings
 
 from .schemas import (
+    BrowserStartRequest,
+    BrowserStartResponse,
+    BrowserStopResponse,
     EgressConfigRequest,
     FsEditRequest,
     FsEditResponse,
@@ -24,6 +27,7 @@ from .schemas import (
     FsWriteResponse,
     RunCommandsRequest,
     RunCommandsResponse,
+    SandboxCapabilities,
     StartSessionRequest,
 )
 
@@ -59,6 +63,16 @@ def is_transient_sandbox_error(exc: httpx.HTTPError) -> bool:
 # file descriptors ("[Errno 24] Too many open files"). An explicit cap bounds one run's sandbox sockets
 # regardless of run length while leaving headroom for the legitimate concurrent calls above.
 SANDBOX_CONNECTION_LIMITS = httpx.Limits(max_connections=32, max_keepalive_connections=16)
+
+# Covers the sandbox's wait for the session lock (30s) and its kill of a timed-out command (under 10s).
+_COMMAND_TIMEOUT_HEADROOM = 60
+
+# Asked while a run starts and while the configuration page renders, so neither waits on a service that is down.
+CAPABILITIES_TIMEOUT_SECONDS = 5
+
+
+class SandboxCapabilityError(RuntimeError):
+    """The sandbox does not support a feature the session needs."""
 
 
 class DAIVSandboxClient:
@@ -114,17 +128,26 @@ class DAIVSandboxClient:
         return response.json()["session_id"]
 
     async def seed_session(
-        self, session_id: str, repo_archive: bytes | None = None, skills_archive: bytes | None = None
+        self,
+        session_id: str,
+        repo_archive: bytes | None = None,
+        skills_archive: bytes | None = None,
+        repos_archive: bytes | None = None,
     ) -> None:
         """
-        Seed a session with the initial state of /workspace/repo and/or /workspace/skills.
+        Seed a session with the initial state of /workspace/repo, /workspace/skills and /workspace/repos.
 
         One-shot per session: a 409 from the sandbox (already seeded) is treated
-        as a no-op so retries and checkpoint replays are safe.
+        as a no-op so retries and checkpoint replays are safe. A sandbox that does not acknowledge
+        ``repos_archive`` raises ``SandboxCapabilityError``.
         """
         files = {
             name: (name, archive, "application/octet-stream")
-            for name, archive in (("repo_archive", repo_archive), ("skills_archive", skills_archive))
+            for name, archive in (
+                ("repo_archive", repo_archive),
+                ("skills_archive", skills_archive),
+                ("repos_archive", repos_archive),
+            )
             if archive is not None
         }
         if not files:
@@ -134,6 +157,20 @@ class DAIVSandboxClient:
             logger.info("Sandbox session %s already seeded; skipping", session_id)
             return
         response.raise_for_status()
+        if repos_archive is not None and not self._seeded_repos(response):
+            raise SandboxCapabilityError(
+                "The sandbox did not seed the extra repositories: multi-repository sessions need a "
+                "daiv-sandbox release with repos_archive support."
+            )
+
+    @staticmethod
+    def _seeded_repos(response: httpx.Response) -> bool:
+        if response.status_code != 200:
+            return False
+        try:
+            return "repos" in response.json()["seeded"]
+        except ValueError, KeyError, TypeError:
+            return False
 
     async def fs_ls(self, session_id: str, request: FsLsRequest) -> FsLsResponse:
         """List a directory under ``/workspace`` on the sandbox session."""
@@ -175,6 +212,9 @@ class DAIVSandboxClient:
         """
         Run commands in the sandbox.
 
+        A request with a per-command ``timeout`` waits as long as its commands may run, not the client-wide
+        ``sandbox_timeout``, so a command is never cut off by the HTTP call before the sandbox times it out.
+
         Args:
             session_id (str): The session ID.
             request (RunCommandsRequest): The request to run the commands.
@@ -182,7 +222,14 @@ class DAIVSandboxClient:
         Returns:
             RunCommandResponse: The response from running the commands.
         """
-        response = await self._client.post(f"session/{session_id}/", json=request.model_dump(mode="json"))
+        timeout = (
+            request.timeout * len(request.commands) + _COMMAND_TIMEOUT_HEADROOM
+            if request.timeout
+            else httpx.USE_CLIENT_DEFAULT
+        )
+        response = await self._client.post(
+            f"session/{session_id}/", json=request.model_dump(mode="json"), timeout=timeout
+        )
         response.raise_for_status()
         return RunCommandsResponse.model_validate(response.json())
 
@@ -223,6 +270,49 @@ class DAIVSandboxClient:
         """
         response = await self._client.put(f"session/{session_id}/egress/", json=egress.to_wire())
         response.raise_for_status()
+
+    async def get_capabilities(self) -> SandboxCapabilities:
+        """What the service can do beyond sessions; a service older than the endpoint (404) can do nothing more."""
+        response = await self._client.get("-/capabilities/", timeout=CAPABILITIES_TIMEOUT_SECONDS)
+        if response.status_code == 404:
+            return SandboxCapabilities()
+        response.raise_for_status()
+        return SandboxCapabilities.model_validate(response.json())
+
+    async def start_browser(
+        self, session_id: str, request: BrowserStartRequest, extension_archive: bytes | None
+    ) -> BrowserStartResponse:
+        """Start the session's browser container, creating it on the first call; idempotent while it runs.
+
+        ``extension_archive`` may be omitted once the service holds an archive with the same digest; it answers
+        412 when it holds none.
+        """
+        files: dict[str, tuple[str | None, bytes, str]] = {
+            "request": (None, request.model_dump_json().encode(), "application/json")
+        }
+        if extension_archive is not None:
+            files["extension_archive"] = ("extension.zip", extension_archive, "application/zip")
+        response = await self._client.post(f"session/{session_id}/browser/", files=files)
+        response.raise_for_status()
+        return BrowserStartResponse.model_validate(response.json())
+
+    async def stop_browser(self, session_id: str, *, force: bool = False) -> BrowserStopResponse:
+        """Save the browser's tabs and stop its container, keeping the profile; ``force`` removes it with the profile.
+
+        A session or browser that is already gone answers with empty values.
+        """
+        response = await self._client.delete(f"session/{session_id}/browser/", params={"force": force})
+        response.raise_for_status()
+        return BrowserStopResponse.model_validate(response.json())
+
+    def browser_cdp_url(self, session_id: str) -> str:
+        """The WebSocket URL that tunnels one TCP stream to the session browser's DevTools port."""
+        url = httpx.URL(self.url.rstrip("/") + "/").join(f"session/{session_id}/browser/cdp")
+        return str(url.copy_with(scheme="wss" if url.scheme == "https" else "ws"))
+
+    def auth_headers(self) -> dict[str, str]:
+        """The service's authentication header, for connections the HTTP client does not make."""
+        return self._get_headers()
 
     def _get_headers(self) -> dict[str, str]:
         """

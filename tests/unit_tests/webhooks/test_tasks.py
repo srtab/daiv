@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import webhooks.tasks as webhooks_tasks
+from sessions.services import TaskRun
 from webhooks.tasks import address_issue_task, address_mr_comments_task
 
 from codebase.base import MergeRequest, User
@@ -14,7 +15,7 @@ _CONTEXT = SimpleNamespace(task_result=SimpleNamespace(id="tr-1"))
 @pytest.fixture(autouse=True)
 def run_lookup():
     """The Run a webhook linked to ``_CONTEXT``'s task result, stubbed so these tests need no database."""
-    with patch("webhooks.tasks.aget_task_run_id", AsyncMock(return_value="run-1")) as lookup:
+    with patch("webhooks.tasks.aget_task_run", AsyncMock(return_value=TaskRun("run-1", 5))) as lookup:
         yield lookup
 
 
@@ -112,6 +113,7 @@ async def test_address_mr_comments_hands_the_merge_request_and_its_run_to_the_ad
         "sandbox_env_id": "e",
         "run_id": "run-1",
         "use_max": False,
+        "acting_user_id": 5,
     }
     run_lookup.assert_awaited_once_with("tr-1")
 
@@ -169,5 +171,6 @@ class TestAddressIssueTaskRef:
             "sandbox_env_id": "e",
             "run_id": "run-1",
             "use_max": False,
+            "acting_user_id": 5,
         }
         run_lookup.assert_awaited_once_with("tr-1")

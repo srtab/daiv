@@ -1,0 +1,12 @@
+{% load i18n %}
+{% comment %}
+A skill card's model entries: its own, and how many of the subagents it ships have one. Context: `skill`.
+{% endcomment %}
+{% if skill.model or skill.subagent_models %}
+<span class="mt-2 flex flex-wrap gap-1.5">
+    {% if skill.model %}<span class="meta-pill" title="{% translate 'Model entry' %}">{{ skill.model }}</span>{% endif %}
+    {% if skill.subagent_models %}
+    <span class="meta-pill" title="{% translate 'Detectors with a model entry' %}">{% blocktranslate count counter=skill.subagent_models %}{{ counter }} detector{% plural %}{{ counter }} detectors{% endblocktranslate %}</span>
+    {% endif %}
+</span>
+{% endif %}

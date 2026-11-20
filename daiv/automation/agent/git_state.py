@@ -1,19 +1,72 @@
-"""The merge request a thread's checkpoint records, read back and resolved into the one a run publishes to.
+"""The merge requests a thread's checkpoint records, read back and resolved into the one a run publishes to.
 
-Kept free of the agent stack so the sessions app can read a checkpoint's merge request at import time.
+Kept free of the agent stack so the sessions app can read a checkpoint's merge requests at import time.
 """
 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from codebase.base import MergeRequest
+from codebase.base import MergeRequest, MergeRequestDiffStats
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
 logger = logging.getLogger("daiv.tools")
+
+
+@dataclass(frozen=True)
+class RepoPublish:
+    """How one of the session's extra repositories fared at the end of a turn; kept in ``GitState.repo_publishes``.
+
+    ``current_ref`` is the branch the clone is on (``""`` on a detached HEAD). ``error`` is set when the publish failed,
+    which left that repository's work unpublished. ``pushed_sha`` is the commit the publish pushed, ``""`` when it
+    pushed none.
+    """
+
+    repo_id: str
+    merge_request: MergeRequest | None
+    published: bool
+    current_ref: str
+    error: str | None = None
+    pushed_sha: str = ""
+    diff_stats: MergeRequestDiffStats | None = None
+    created_merge_request: bool = False
+    error_kind: str | None = None
+    conflicted_paths: tuple[str, ...] = ()
+
+    def to_state(self) -> dict[str, Any]:
+        return {
+            "repo_id": self.repo_id,
+            "merge_request": self.merge_request.model_dump(mode="json") if self.merge_request is not None else None,
+            "published": self.published,
+            "current_ref": self.current_ref,
+            "error": self.error,
+            "pushed_sha": self.pushed_sha,
+            "diff_stats": self.diff_stats.model_dump() if self.diff_stats is not None else None,
+            "created_merge_request": self.created_merge_request,
+            "error_kind": self.error_kind,
+            "conflicted_paths": list(self.conflicted_paths),
+        }
+
+    @classmethod
+    def from_state(cls, data: Mapping[str, Any]) -> RepoPublish:
+        merge_request = data.get("merge_request")
+        diff_stats = data.get("diff_stats")
+        return cls(
+            repo_id=data["repo_id"],
+            merge_request=MergeRequest.model_validate(merge_request) if merge_request else None,
+            published=bool(data.get("published")),
+            current_ref=data.get("current_ref") or "",
+            error=data.get("error"),
+            pushed_sha=data.get("pushed_sha") or "",
+            diff_stats=MergeRequestDiffStats.model_validate(diff_stats) if diff_stats else None,
+            created_merge_request=bool(data.get("created_merge_request")),
+            error_kind=data.get("error_kind"),
+            conflicted_paths=tuple(data.get("conflicted_paths") or ()),
+        )
 
 
 def checkpointed_merge_request(state: Mapping[str, Any], *, strict: bool) -> MergeRequest | None:
@@ -59,3 +112,16 @@ def effective_merge_request(
     if state_mr is not None and state_mr.source_branch == current_ref:
         return state_mr
     return None
+
+
+def checkpointed_repo_publishes(state: Mapping[str, Any]) -> list[RepoPublish]:
+    """Read ``state["repo_publishes"]``, skipping (and logging) an item that doesn't parse."""
+    items = state.get("repo_publishes")
+    publishes = []
+    for item in items if isinstance(items, list) else []:
+        try:
+            publishes.append(RepoPublish.from_state(item))
+        except AttributeError, KeyError, ValueError, TypeError:
+            repo_id = item.get("repo_id") if isinstance(item, dict) else None
+            logger.exception("Skipping an unreadable sibling publish (repo_id=%s)", repo_id)
+    return publishes

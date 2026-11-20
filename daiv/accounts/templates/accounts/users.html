@@ -1,5 +1,5 @@
 {% extends "base_app.html" %}
-{% load static %}
+{% load i18n static %}
 
 {% block title %}Users — DAIV{% endblock %}
 
@@ -19,7 +19,7 @@
     <form method="get" class="flex-1 sm:max-w-sm">
         {% if current_role %}<input type="hidden" name="role" value="{{ current_role }}">{% endif %}
         <input type="text" name="q" value="{{ search_query }}"
-               placeholder="Search by name or email...">
+               placeholder="{% translate 'Search by name or email...' %}" aria-label="{% translate 'Search by name or email...' %}">
     </form>
     <div class="flex items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
         <a href="?{% if search_query %}q={{ search_query|urlencode }}{% endif %}"

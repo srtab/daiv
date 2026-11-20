@@ -13,10 +13,11 @@ from django.utils import timezone
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from sessions.management.commands.sync_stuck_runs import NEVER_QUEUED_AFTER
-from sessions.models import Run, RunStatus, Session, SessionArchive, SessionOrigin
+from sessions.models import EventState, Run, RunStatus, Session, SessionArchive, SessionOrigin
 from sessions.queue import ENQUEUE_FAILED_PREFIX
 
 from tests.unit_tests.sessions.conftest import create_archive
+from tests.unit_tests.sessions.inbox.conftest import make_event
 
 
 def _make_session(*, thread_id: str | None = None) -> Session:
@@ -117,6 +118,29 @@ class TestSyncStuckRunsCommand:
         assert run.error_message
         assert any("chat runs reaped: 1" in rec.message for rec in caplog.records)
 
+    def test_a_task_backed_chat_run_is_synced_from_its_task_not_reaped(self, caplog, create_db_task_result):
+        """A chat message queued while the session was busy runs as a task-backed ``chat`` run: its task, not the
+        session heartbeat, says how it ended."""
+        stale = timezone.now() - timedelta(hours=1)
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/project", last_active_at=stale
+        )
+        task = create_db_task_result(status="SUCCESSFUL", return_value={"response": "Done.", "code_changes": False})
+        run = Run.objects.create(
+            session=session,
+            trigger_type=SessionOrigin.CHAT,
+            repo_id="group/project",
+            status=RunStatus.RUNNING,
+            task_result=task,
+        )
+
+        with caplog.at_level("INFO", logger="daiv.sessions"):
+            call_command("sync_stuck_runs")
+
+        run.refresh_from_db()
+        assert (run.status, run.result_summary) == (RunStatus.SUCCESSFUL, "Done.")
+        assert any("Synced: 1" in rec.message and "chat runs reaped: 0" in rec.message for rec in caplog.records)
+
     def test_does_not_reap_live_chat_run(self, caplog):
         """A chat run whose session is still heartbeating (fresh last_active_at) is left alone."""
         session = Session.objects.create(
@@ -154,6 +178,78 @@ class TestSyncStuckRunsCommand:
 
         run.refresh_from_db()
         assert run.status == RunStatus.RUNNING
+
+    @pytest.mark.parametrize(
+        ("started_ago", "heartbeat_ago", "status"),
+        [
+            (timedelta(hours=1), timedelta(hours=1), RunStatus.FAILED),
+            (timedelta(hours=1), timedelta(minutes=1), RunStatus.RUNNING),
+            (timedelta(minutes=1), timedelta(hours=1), RunStatus.RUNNING),
+        ],
+        ids=["dead", "heartbeating", "just-started-on-an-idle-session"],
+    )
+    @pytest.mark.parametrize(
+        "trigger", [SessionOrigin.API_JOB, SessionOrigin.CHAT, SessionOrigin.MR_WEBHOOK, SessionOrigin.PIPELINE_WEBHOOK]
+    )
+    def test_a_task_backed_run_a_worker_crash_left_running_is_failed_once_its_heartbeat_is_stale(
+        self, create_db_task_result, trigger, started_ago, heartbeat_ago, status
+    ):
+        """Its task stays RUNNING for good: a job run keeps its session's one active job place, an inbox run shows
+        RUNNING with the events it took never settled."""
+        now = timezone.now()
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()),
+            origin=SessionOrigin.API_JOB,
+            repo_id="group/project",
+            last_active_at=now - heartbeat_ago,
+        )
+        task = create_db_task_result(status="RUNNING", started_at=now - started_ago)
+        run = Run.objects.create(
+            session=session,
+            trigger_type=trigger,
+            repo_id="group/project",
+            status=RunStatus.RUNNING,
+            started_at=now - started_ago,
+            task_result=task,
+        )
+
+        call_command("sync_stuck_runs")
+
+        run.refresh_from_db()
+        assert run.status == status
+
+    def test_a_dead_inbox_run_ends_putting_its_events_back_and_draining_its_session(
+        self, caplog, create_db_task_result
+    ):
+        stale = timezone.now() - timedelta(hours=1)
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/project", last_active_at=stale
+        )
+        dead = Run.objects.create(
+            session=session,
+            trigger_type=SessionOrigin.PIPELINE_WEBHOOK,
+            repo_id="group/project",
+            status=RunStatus.RUNNING,
+            started_at=stale,
+            task_result=create_db_task_result(status="RUNNING", started_at=stale),
+        )
+        Session.objects.filter(pk=session.pk).update(active_run_id=str(dead.pk))
+        failure = make_event(session, state=EventState.TAKEN, run=dead)
+
+        with (
+            patch("sessions.inbox.drain.aenqueue_run", new=AsyncMock(return_value=None)),
+            caplog.at_level("INFO", logger="daiv.sessions"),
+        ):
+            call_command("sync_stuck_runs")
+
+        dead.refresh_from_db()
+        failure.refresh_from_db()
+        assert dead.status == RunStatus.FAILED
+        assert failure.attempts == 1
+        rerun = Run.objects.get(session=session, status=RunStatus.READY)
+        assert (failure.state, failure.run_id) == (EventState.TAKEN, rerun.pk)
+        assert Session.objects.get(pk=session.pk).active_run_id == str(rerun.pk)
+        assert any("dead inbox runs reaped: 1" in rec.message for rec in caplog.records)
 
     def test_a_ready_run_never_queued_is_failed_and_releases_its_sessions_queue(self, create_db_task_result):
         session = _make_session()

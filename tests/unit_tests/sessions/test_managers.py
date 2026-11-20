@@ -1,17 +1,22 @@
 import uuid
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from django.db.models import Q
 from django.test import TestCase
+from django.utils import timezone
 
 import pytest
+from allauth.socialaccount.models import SocialAccount
 from asgiref.sync import sync_to_async
 from django_tasks_db.models import DBTaskResult
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import Run, RunStatus, Session, SessionOrigin, SessionRepository, SpendRecord, SpendTask
 from sessions.signal_defs import run_ended, run_finished
 
+from core import worker_liveness
 from core.constants import CANCELLED_BY_COORDINATOR_MESSAGE
-from tests.unit_tests.sessions.conftest import make_task_result
+from schedules.models import ScheduledJob
+from tests.unit_tests.sessions.conftest import grant_read_access, hold_slot, make_task_result
 
 
 def _create_run(*, status: str = RunStatus.RUNNING, trigger_type: str = SessionOrigin.PIPELINE_WEBHOOK) -> Run:
@@ -144,7 +149,7 @@ class TestCancel:
 
         task_result = DBTaskResult.objects.get(run=run)
         assert task_result.status == "FAILED"
-        assert task_result.exception_class_path == "sessions.executor.run.RunStoppedError"
+        assert task_result.exception_class_path == "sessions.executor.lock.RunStoppedError"
 
     def test_a_task_a_worker_claimed_is_left_to_it(self, run_finished_spy, badge):
         run = _create_run(status=RunStatus.READY)
@@ -208,6 +213,56 @@ class TestCancel:
         Run.objects.cancel(run)
 
         assert Run.objects.cancel(run) is False
+
+    def test_a_running_run_whose_worker_stopped_heartbeating_finishes_failed_at_once(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.RUNNING)
+        hold_slot(run, silent_for=timedelta(minutes=10))
+
+        assert Run.objects.cancel(run) is True
+
+        run.refresh_from_db()
+        assert (run.status, run.error_message) == (RunStatus.FAILED, CANCELLED_BY_COORDINATOR_MESSAGE)
+        assert run.is_cancelled and run.finished_at is not None
+        assert run_finished_spy.call_args.kwargs["never_started"] is False
+
+    def test_a_repeated_cancel_finishes_a_run_whose_worker_stopped_heartbeating_since(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.RUNNING)
+        hold_slot(run, silent_for=timedelta(seconds=30))
+        assert Run.objects.cancel(run) is True
+        assert not run_finished_spy.called
+
+        Session.objects.filter(pk=run.session_id).update(last_active_at=timezone.now() - timedelta(minutes=10))
+
+        assert Run.objects.cancel(run) is True
+        run.refresh_from_db()
+        assert run.is_cancelled
+
+    @pytest.mark.parametrize(
+        ("holder", "silent_for"),
+        [
+            pytest.param(None, timedelta(seconds=30), id="heartbeating"),
+            pytest.param("job-other", timedelta(minutes=10), id="waiting-behind-another-holder"),
+        ],
+    )
+    def test_a_running_run_not_known_dead_is_only_asked_to_stop(self, run_finished_spy, badge, holder, silent_for):
+        run = _create_run(status=RunStatus.RUNNING)
+        hold_slot(run, silent_for=silent_for, holder=holder)
+
+        assert Run.objects.cancel(run) is True
+
+        run.refresh_from_db()
+        assert run.status == RunStatus.RUNNING
+        assert not run_finished_spy.called
+
+    def test_a_silent_run_whose_worker_is_still_alive_is_only_asked_to_stop(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.RUNNING)
+        worker_liveness.refresh(hold_slot(run, silent_for=timedelta(minutes=10)))
+
+        assert Run.objects.cancel(run) is True
+
+        run.refresh_from_db()
+        assert run.status == RunStatus.RUNNING
+        assert not run_finished_spy.called
 
     def test_a_finished_run_is_left_as_it_ended(self, run_finished_spy, badge):
         run = _create_run(status=RunStatus.SUCCESSFUL)
@@ -291,3 +346,223 @@ class TestAfinish:
 
         publish.assert_not_called()
         assert not run_finished_spy.called
+
+
+@pytest.mark.django_db
+class TestMultiRepoVisibility:
+    @staticmethod
+    def _user(django_user_model, name):
+        return django_user_model.objects.create_user(username=name, email=f"{name}@x.io", password="x")  # noqa: S106
+
+    @staticmethod
+    def _session(extra=(), **kwargs):
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="g/app", **kwargs
+        )
+        for position, repo_id in enumerate(extra, start=1):
+            SessionRepository.objects.create(session=session, position=position, repo_id=repo_id)
+        run = Run.objects.create(session=session, trigger_type=SessionOrigin.API_JOB, repo_id="g/app")
+        return session, run
+
+    def test_hidden_from_user_reading_only_the_main_repository(self, django_user_model):
+        user = self._user(django_user_model, "main-only")
+        session, run = self._session(extra=["g/mod"])
+        grant_read_access(user, "g/app")
+
+        assert not Session.objects.visible_to(user).filter(pk=session.pk).exists()
+        assert not Run.objects.visible_to(user).filter(pk=run.pk).exists()
+
+    def test_visible_to_user_reading_every_repository(self, django_user_model):
+        user = self._user(django_user_model, "all-repos")
+        session, run = self._session(extra=["g/mod", "g/lib"])
+        for repo_id in ("g/app", "g/mod", "g/lib"):
+            grant_read_access(user, repo_id)
+
+        assert Session.objects.visible_to(user).filter(pk=session.pk).exists()
+        assert Run.objects.visible_to(user).filter(pk=run.pk).exists()
+
+    def test_visible_to_owner_and_admin_without_repository_access(self, django_user_model, admin_user):
+        owner = self._user(django_user_model, "owner")
+        session, run = self._session(extra=["g/mod"], user=owner)
+        run.user = owner
+        run.save()
+
+        for user in (owner, admin_user):
+            assert Session.objects.visible_to(user).filter(pk=session.pk).exists()
+            assert Run.objects.visible_to(user).filter(pk=run.pk).exists()
+
+    def test_single_repository_session_still_visible_with_main_access(self, django_user_model):
+        user = self._user(django_user_model, "single")
+        session, run = self._session()
+        grant_read_access(user, "g/app")
+
+        assert Session.objects.visible_to(user).filter(pk=session.pk).exists()
+        assert Run.objects.visible_to(user).filter(pk=run.pk).exists()
+
+
+@pytest.mark.django_db
+class TestOwnedBy:
+    def test_an_admin_gets_only_their_own_sessions(self, admin_user, other_user):
+        mine = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, user=admin_user)
+        Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, user=other_user)
+
+        assert list(Session.objects.owned_by(admin_user)) == [mine]
+
+    def test_a_run_actor_owns_the_shared_thread(self, other_user):
+        SocialAccount.objects.create(user=other_user, provider="gitlab", uid="77")
+        session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.ISSUE_WEBHOOK)
+        Run.objects.create(
+            session=session,
+            trigger_type=SessionOrigin.ISSUE_WEBHOOK,
+            repo_id="acme/api",
+            external_provider="gitlab",
+            external_uid="77",
+        )
+
+        assert list(Session.objects.owned_by(other_user)) == [session]
+
+
+def _run_at(session, created_at, **fields) -> Run:
+    run = Run.objects.create(
+        session=session, trigger_type=session.origin, repo_id=session.repo_id, user=session.user, **fields
+    )
+    Run.objects.filter(pk=run.pk).update(created_at=created_at)
+    return run
+
+
+def _session(user, origin=SessionOrigin.UI_JOB, **fields) -> Session:
+    return Session.objects.create(thread_id=str(uuid.uuid4()), origin=origin, repo_id="acme/api", user=user, **fields)
+
+
+@pytest.mark.django_db
+class TestStartedBy:
+    def test_matches_the_user_or_their_linked_account_never_the_platform_username(self, member_user, other_user):
+        SocialAccount.objects.create(user=member_user, provider="gitlab", uid="77")
+        by_user = _run_at(_session(member_user), timezone.now())
+        by_linked_account = _run_at(_session(None), timezone.now(), external_provider="gitlab", external_uid="77")
+        _run_at(_session(None), timezone.now(), external_provider="github", external_uid="77")
+        _run_at(_session(None), timezone.now(), external_username=member_user.username)
+        _run_at(_session(other_user), timezone.now())
+
+        assert set(Run.objects.started_by(member_user)) == {by_user, by_linked_account}
+
+
+@pytest.mark.django_db
+class TestLatestInSession:
+    def test_keeps_only_the_newest_run_of_each_session(self, member_user):
+        now = timezone.now()
+        session = _session(member_user)
+        _run_at(session, now - timedelta(hours=1))
+        newest = _run_at(session, now)
+        other = _run_at(_session(member_user), now - timedelta(days=1))
+
+        assert set(Run.objects.latest_in_session()) == {newest, other}
+
+    def test_a_tie_on_created_at_goes_to_the_higher_id(self, member_user):
+        now = timezone.now()
+        session = _session(member_user)
+        runs = sorted([_run_at(session, now), _run_at(session, now)], key=lambda run: run.id)
+
+        assert list(Run.objects.latest_in_session()) == [runs[-1]]
+
+
+@pytest.mark.django_db
+class TestWithRetried:
+    def _retried(self, run, user) -> bool:
+        return Run.objects.with_retried(user).get(pk=run.pk).retried
+
+    def test_a_later_run_with_the_same_prompt_and_repository_retries_it(self, member_user):
+        now = timezone.now()
+        failed = _run_at(_session(member_user), now - timedelta(hours=1), prompt="Fix it")
+        _run_at(_session(member_user), now, prompt="Fix it")
+
+        assert self._retried(failed, member_user) is True
+
+    def test_a_different_prompt_or_an_empty_one_does_not(self, member_user):
+        now = timezone.now()
+        failed = _run_at(_session(member_user), now - timedelta(hours=1), prompt="Fix it")
+        _run_at(_session(member_user), now, prompt="Something else")
+        empty = _run_at(_session(member_user), now - timedelta(hours=1))
+        _run_at(_session(member_user), now)
+
+        assert (self._retried(failed, member_user), self._retried(empty, member_user)) == (False, False)
+
+    def test_a_later_run_of_the_same_schedule_retries_it(self, member_user):
+        schedule = ScheduledJob.objects.create(
+            user=member_user, name="s", prompt="p", repos=[{"repo_id": "acme/api", "ref": ""}]
+        )
+        now = timezone.now()
+        failed = _run_at(_session(member_user, SessionOrigin.SCHEDULE, scheduled_job=schedule), now - timedelta(1))
+        _run_at(_session(member_user, SessionOrigin.SCHEDULE, scheduled_job=schedule), now)
+
+        assert self._retried(failed, member_user) is True
+
+
+@pytest.mark.django_db
+class TestArchived:
+    def _session(self, user):
+        return Session.objects.create(thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, user=user)
+
+    def test_the_list_leaves_out_archived_sessions_unless_asked_for_them(self, member_user):
+        shown = self._session(member_user)
+        archived = self._session(member_user)
+        Session.objects.filter(pk=archived.pk).update(archived_at=timezone.now())
+
+        assert list(Session.objects.listed_for(member_user, mine=True)) == [shown]
+        assert list(Session.objects.listed_for(member_user, mine=True, archived=True)) == [archived]
+        assert set(Session.objects.listed_for(member_user, mine=True, archived=None)) == {shown, archived}
+
+
+def _secret_session(user, **fields) -> Session:
+    return Session.objects.create(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.SCHEDULE, repo_id="acme/secret", user=user, **fields
+    )
+
+
+def _spend(**fields) -> SpendRecord:
+    fields.setdefault("trigger_type", SessionOrigin.CHAT)
+    return SpendRecord.objects.create(occurred_at=timezone.now(), model="m", **fields)
+
+
+@pytest.mark.django_db
+class TestSpendRecordVisibility:
+    def test_a_member_sees_their_own_readable_and_subscribed_records(self, member_user, other_user):
+        grant_read_access(member_user, "acme/api")
+        schedule = ScheduledJob.objects.create(
+            user=other_user, name="s", prompt="p", repos=[{"repo_id": "acme/secret", "ref": ""}]
+        )
+        schedule.subscribers.add(member_user)
+        own = _spend(user=member_user, repo_id="acme/secret")
+        readable = _spend(user=other_user, repo_id="acme/api", session=_session(other_user))
+        subscribed = _spend(
+            user=other_user, repo_id="acme/secret", session=_secret_session(other_user, scheduled_job=schedule)
+        )
+        _spend(user=other_user, repo_id="acme/secret", session=_secret_session(other_user))
+
+        assert set(SpendRecord.objects.visible_to(member_user)) == {own, readable, subscribed}
+
+    def test_a_session_with_an_unreadable_extra_repository_hides_its_records(self, member_user, other_user):
+        grant_read_access(member_user, "acme/api")
+        session = _session(other_user)
+        SessionRepository.objects.create(session=session, position=1, repo_id="acme/secret")
+        _spend(user=other_user, repo_id="acme/api", session=session)
+
+        assert not SpendRecord.objects.visible_to(member_user).exists()
+
+    def test_a_record_with_no_session_passes_on_its_repository_or_its_person(self, member_user, other_user, admin_user):
+        grant_read_access(member_user, "acme/api")
+        consolidation = _spend(task=SpendTask.MEMORY_CONSOLIDATION, trigger_type="", repo_id="acme/api")
+        batch_title = _spend(task=SpendTask.TITLE, trigger_type="", user=other_user)
+
+        assert set(SpendRecord.objects.visible_to(member_user)) == {consolidation}
+        assert set(SpendRecord.objects.visible_to(other_user)) == {batch_title}
+        assert set(SpendRecord.objects.visible_to(admin_user)) == {consolidation, batch_title}
+
+    def test_started_by_and_the_kind_filters(self, member_user, other_user):
+        SocialAccount.objects.create(user=member_user, provider="gitlab", uid="77")
+        mine = _spend(user=member_user)
+        linked = _spend(task=SpendTask.TITLE, trigger_type="", external_provider="gitlab", external_uid="77")
+        _spend(user=other_user)
+
+        assert set(SpendRecord.objects.started_by(member_user)) == {mine, linked}
+        assert list(SpendRecord.objects.started_by(member_user).run_spend()) == [mine]

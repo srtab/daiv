@@ -14,6 +14,7 @@ SITE_ID = 1
 LOCAL_APPS = [
     "accounts",
     "automation",
+    "blog",
     "chat",
     "codebase",
     "configuration",
@@ -85,8 +86,10 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "notifications.context_processors.unread_notification_count",
                 "dashboard.context_processors.nav",
+                "blog.context_processors.blog",
                 "codebase.context_processors.git_platform",
                 "core.context_processors.build_info",
+                "core.context_processors.provider_health",
             ]
         },
     }
@@ -122,7 +125,7 @@ SESSION_CACHE_ALIAS = "sessions"
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 SESSION_COOKIE_AGE = 60 * 60 * 24 * 30  # 30 days (sliding; refreshed on activity)
 SESSION_COOKIE_SAMESITE = "Lax"
-SESSION_COOKIE_NAME = "__Secure-sessionid"
+SESSION_COOKIE_NAME = config("DJANGO_SESSION_COOKIE_NAME", default="__Secure-sessionid")
 SESSION_COOKIE_SECURE = True
 
 

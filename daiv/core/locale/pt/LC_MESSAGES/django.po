@@ -39,6 +39,9 @@ msgstr "DuckDuckGo"
 msgid "Tavily"
 msgstr "Tavily"
 
+msgid "SearXNG"
+msgstr "SearXNG"
+
 msgid "OpenAI"
 msgstr "OpenAI"
 
@@ -108,6 +111,24 @@ msgstr "limite de recursão"
 
 msgid "Maximum recursion depth for agent loops."
 msgstr "Profundidade máxima de recursão para os ciclos do agente."
+
+msgid "model request timeout"
+msgstr "tempo limite dos pedidos ao modelo"
+
+msgid "Per-request timeout for LLM API calls, in seconds. Applies to every provider."
+msgstr ""
+"Tempo limite de cada pedido à API do LLM, em segundos. Aplica-se a todos os "
+"fornecedores."
+
+msgid "model max retries"
+msgstr "máximo de novas tentativas do modelo"
+
+msgid ""
+"Retries for a failed LLM API call before the error propagates. Applies to "
+"every provider."
+msgstr ""
+"Novas tentativas de um pedido à API do LLM que falhou antes de o erro ser "
+"propagado. Aplica-se a todos os fornecedores."
 
 msgid "Model for generating commit messages and PR descriptions from diffs."
 msgstr ""
@@ -204,8 +225,23 @@ msgstr "Número máximo de resultados devolvidos pela pesquisa web."
 msgid "web search engine"
 msgstr "motor de pesquisa web"
 
-msgid "Search engine to use. Tavily requires an API key."
-msgstr "Motor de pesquisa a usar. O Tavily requer uma chave API."
+msgid "Search engine to use. Tavily requires an API key; SearXNG requires a search URL."
+msgstr "Motor de pesquisa a usar. O Tavily requer uma chave API; o SearXNG requer um URL de pesquisa."
+
+msgid "SearXNG search URL"
+msgstr "URL de pesquisa do SearXNG"
+
+msgid "Complete SearXNG search endpoint, including /search and any path prefix. Use http or https without credentials, query parameters or a fragment. JSON output must be enabled."
+msgstr "Endpoint completo de pesquisa do SearXNG, incluindo /search e qualquer prefixo de caminho. Utilize http ou https sem credenciais, parâmetros de consulta ou fragmento. A saída JSON tem de estar ativada."
+
+msgid "SearXNG request timeout"
+msgstr "Tempo limite dos pedidos ao SearXNG"
+
+msgid "Timeout for SearXNG requests in seconds (1–120; default 15)."
+msgstr "Tempo limite dos pedidos ao SearXNG, em segundos (1–120; predefinição 15)."
+
+msgid "Use a complete http or https SearXNG URL without credentials, query parameters or a fragment."
+msgstr "Utilize um URL completo http ou https do SearXNG sem credenciais, parâmetros de consulta ou fragmento."
 
 msgid "web fetch enabled"
 msgstr "obtenção web ativada"
@@ -242,8 +278,12 @@ msgstr ""
 msgid "sandbox timeout"
 msgstr "tempo limite da sandbox"
 
-msgid "Timeout for sandbox requests, in seconds."
-msgstr "Tempo limite para pedidos à sandbox, em segundos."
+msgid ""
+"Timeout for sandbox requests, in seconds. Also the longest timeout the agent "
+"can give a bash command."
+msgstr ""
+"Tempo limite para pedidos à sandbox, em segundos. É também o tempo limite "
+"máximo que o agente pode dar a um comando bash."
 
 msgid "enable OAuth login"
 msgstr "ativar início de sessão OAuth"
@@ -454,3 +494,77 @@ msgstr "Nome de utilizador do bot do Telegram"
 
 msgid "Derived from the bot token via getMe; not editable here."
 msgstr "Obtido a partir do token do bot via getMe; não editável aqui."
+
+msgid "browser"
+msgstr "navegador"
+
+msgid "Let the agent use a headless browser in sandbox environments that turn Browser on. While it is off, no run gets a browser."
+msgstr "Permite ao agente usar um navegador sem interface nos ambientes de sandbox que ligam o Navegador. Enquanto estiver desligado, nenhuma execução recebe um navegador."
+
+msgid "browser memory"
+msgstr "memória do navegador"
+
+msgid "Memory limit of each run's browser in bytes, separate from the environment's. At least 268435456 (256 MiB)."
+msgstr "Limite de memória do navegador de cada execução em bytes, independente do limite do ambiente. Pelo menos 268435456 (256 MiB)."
+
+msgid "browser CPUs"
+msgstr "CPUs do navegador"
+
+msgid "CPU limit of each run's browser, separate from the environment's. At least 0.25."
+msgstr "Limite de CPU do navegador de cada execução, independente do limite do ambiente. Pelo menos 0,25."
+
+msgid "The sandbox service does not support the browser, so runs get no browser tools. Upgrade daiv-sandbox to 0.6.0 or later."
+msgstr "O serviço de sandbox não suporta o navegador, por isso as execuções não recebem ferramentas de navegador. Atualize o daiv-sandbox para a versão 0.6.0 ou posterior."
+
+msgid "Out of credits"
+msgstr "Sem créditos"
+
+msgid "Spending limit reached"
+msgstr "Limite de gastos atingido"
+
+msgid "Authentication failed"
+msgstr "Falha de autenticação"
+
+msgid "Rate limited"
+msgstr "Limite de pedidos atingido"
+
+msgid "Provider unavailable"
+msgstr "Fornecedor indisponível"
+
+#, python-format
+msgid "%(provider)s is out of credits, so DAIV couldn't finish this run. An admin needs to top up the %(provider)s account."
+msgstr "O fornecedor %(provider)s ficou sem créditos, por isso o DAIV não conseguiu concluir esta execução. Um administrador precisa de carregar a conta %(provider)s."
+
+#, python-format
+msgid "DAIV has reached the spending limit set on its %(provider)s key, so it couldn't finish this run. An admin needs to raise the limit or wait for it to reset."
+msgstr "O DAIV atingiu o limite de gastos definido na sua chave %(provider)s, por isso não conseguiu concluir esta execução. Um administrador precisa de aumentar o limite ou de esperar que seja reposto."
+
+#, python-format
+msgid "%(provider)s rejected DAIV's API key, so DAIV couldn't finish this run. An admin needs to update the key in the provider settings."
+msgstr "O fornecedor %(provider)s rejeitou a chave API do DAIV, por isso o DAIV não conseguiu concluir esta execução. Um administrador precisa de atualizar a chave nas definições do fornecedor."
+
+#, python-format
+msgid "%(provider)s is rate-limiting DAIV right now. Try again in a few minutes."
+msgstr "O fornecedor %(provider)s está a limitar os pedidos do DAIV neste momento. Tente novamente dentro de alguns minutos."
+
+#, python-format
+msgid "%(provider)s is having problems right now. Try again in a few minutes."
+msgstr "O fornecedor %(provider)s está com problemas neste momento. Tente novamente dentro de alguns minutos."
+
+#, python-format
+msgid "%(provider)s can't cover requests to %(model)s: out of credits since %(since)s. Runs that use it are failing, or falling back to the fallback model if one is set."
+msgstr "O fornecedor %(provider)s não consegue cobrir os pedidos a %(model)s: sem créditos desde %(since)s. As execuções que o usam estão a falhar ou a recorrer ao modelo de recurso, se estiver definido."
+
+#, python-format
+msgid "DAIV's %(provider)s key has hit its spending limit since %(since)s. Runs that use it are failing, or falling back to the fallback model if one is set."
+msgstr "A chave %(provider)s do DAIV atingiu o limite de gastos desde %(since)s. As execuções que a usam estão a falhar ou a recorrer ao modelo de recurso, se estiver definido."
+
+#, python-format
+msgid "%(provider)s has been rejecting DAIV's API key since %(since)s. Runs that use it are failing, or falling back to the fallback model if one is set."
+msgstr "O fornecedor %(provider)s rejeita a chave API do DAIV desde %(since)s. As execuções que a usam estão a falhar ou a recorrer ao modelo de recurso, se estiver definido."
+
+msgid "This clears on the provider's next successful request, when you save the provider settings, or after 24 hours without a new failure."
+msgstr "Isto desaparece no próximo pedido bem-sucedido ao fornecedor, quando guardar as definições do fornecedor, ou após 24 horas sem uma nova falha."
+
+msgid "Open provider settings"
+msgstr "Abrir definições do fornecedor"

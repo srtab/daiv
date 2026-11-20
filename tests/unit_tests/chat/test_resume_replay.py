@@ -10,8 +10,6 @@ checkpoint already painted.
 
 from __future__ import annotations
 
-import json
-
 import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 from sessions.turns import build_turns
@@ -76,8 +74,8 @@ class FakeEventSource {
 }
 """
 
-BODY = """
-const { frames, turns } = payload;
+REJOIN = """
+const { frames, turns, reason } = payload;
 
 const chat = registry.chat({ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream" });
 chat.turns = turns;
@@ -87,19 +85,22 @@ chat.scrollToBottom = () => {};
 
 const settled = chat._resumeRun("run-1");
 for (const evt of frames) opened.onmessage({ data: JSON.stringify(evt) });
-opened.listeners.end({ data: JSON.stringify({ reason: "finished" }) });
+opened.listeners.end({ data: JSON.stringify({ reason }) });
 await settled;
+"""
 
+REJOIN_SEGMENTS = """
 const turn = chat.turns.filter((t) => t.role === "assistant").pop();
-process.stdout.write(JSON.stringify(turn.segments.map((s) => ({ ...s, label: chat.thinkingLabel(s) }))));
+const label = (s) => (s.type === "thinking" ? sandbox.window.toolRow(s).phrase : null);
+process.stdout.write(JSON.stringify(turn.segments.map((s) => ({ ...s, label: label(s) }))));
 """
 
 
-def _rejoin(frames) -> list[dict]:
-    """Replay ``frames`` into a freshly rejoined turn; return its rendered segments."""
+def _rejoin(frames, *, turns=HYDRATED_TURNS, reason="finished", report=REJOIN_SEGMENTS):
+    """Replay ``frames`` into a freshly rejoined turn, end the stream with ``reason``; return what ``report`` wrote."""
     return run_chat_stream(
-        BODY,
-        {"frames": frames, "turns": HYDRATED_TURNS},
+        REJOIN + report,
+        {"frames": frames, "turns": turns, "reason": reason},
         prelude=PRELUDE,
         extra_globals="EventSource: FakeEventSource,",
     )
@@ -152,6 +153,7 @@ chat.followLiveRun({ id: "r2", stoppable: false, started_at: "2026-10-23T10:00:0
 const url = opened.url;
 const runStoppable = chat.runStoppable;
 const runStartedAt = chat.runStartedAt;
+for (const evt of payload.frames) opened.onmessage({ data: JSON.stringify(evt) });
 opened.listeners.end({ data: JSON.stringify({ reason: "finished" }) });
 await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -159,12 +161,17 @@ const ended = dispatched.filter((e) => e.type === "daiv:live-run-ended");
 process.stdout.write(JSON.stringify({ url, runStoppable, runStartedAt, ended: ended.map((e) => e.detail) }));
 """
 
-FOLLOW_PRELUDE = PRELUDE.replace("constructor() {", "constructor(url) { this.url = url;")
+FOLLOW_PRELUDE = "let constructed = 0;\n" + PRELUDE.replace(
+    "constructor() {", "constructor(url) { this.url = url; constructed += 1;"
+)
 
 
-def _follow() -> dict:
+def _follow(frames=()) -> dict:
     return run_chat_stream(
-        FOLLOW_BODY, {}, prelude=FOLLOW_PRELUDE, extra_globals="EventSource: FakeEventSource, setTimeout,"
+        FOLLOW_BODY,
+        {"frames": list(frames)},
+        prelude=FOLLOW_PRELUDE,
+        extra_globals="EventSource: FakeEventSource, setTimeout,",
     )
 
 
@@ -184,7 +191,30 @@ def test_a_followed_run_is_timed_from_its_server_start():
 def test_a_rejoined_run_announces_its_end():
     result = _follow()
 
-    assert result["ended"] == [{"runId": "r2"}]
+    assert result["ended"] == [{"runId": "r2", "reason": "finished", "own": False}]
+
+
+FOLLOW_TWICE_BODY = """
+const chat = registry.chat({ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream" });
+chat.turns = [];
+chat.thread = { thread_id: "t1", repo_id: "r", ref: "main" };
+chat.$nextTick = (cb) => cb();
+chat.scrollToBottom = () => {};
+if (payload.resuming) chat.resuming = true;
+
+chat.followLiveRun({ id: "r2", stoppable: false });
+chat.followLiveRun({ id: "r2", stoppable: false });
+process.stdout.write(JSON.stringify({ constructed }));
+"""
+
+
+@pytest.mark.parametrize(("resuming", "streams"), [(False, 1), (True, 0)], ids=["idle", "page-loaded-resuming"])
+def test_following_while_already_resuming_opens_no_second_stream(resuming, streams):
+    result = run_chat_stream(
+        FOLLOW_TWICE_BODY, {"resuming": resuming}, prelude=FOLLOW_PRELUDE, extra_globals="EventSource: FakeEventSource,"
+    )
+
+    assert result == {"constructed": streams}
 
 
 def test_polled_turns_do_not_replace_the_array_while_streaming():
@@ -202,7 +232,7 @@ process.stdout.write(JSON.stringify({ same: chat.turns === original }));
     assert result == {"same": True}
 
 
-def test_a_waiting_session_locks_the_composer_until_a_poll_says_the_run_started():
+def test_a_waiting_session_shows_its_status_until_a_poll_says_the_run_started_and_still_takes_messages():
     body = """
 const chat = registry.chat({
   endpoint: "/api/chat", streamEndpoint: "/api/chat/stream", waitingSince: "2026-10-23T10:00:00+00:00",
@@ -218,15 +248,15 @@ process.stdout.write(JSON.stringify({ waiting, started: { waiting: chat.waiting,
     result = run_chat_stream(body, {})
 
     assert result == {
-        "waiting": {"label": "Waiting in queue", "canSend": False},
+        "waiting": {"label": "Waiting in queue", "canSend": True},
         "started": {"waiting": False, "canSend": True},
     }
 
 
 def test_a_run_started_here_announces_its_end():
     body = """
-const chat = registry.chat({ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream" });
-chat.thread = { thread_id: "t1", repo_id: "r", ref: "main" };
+const thread = { thread_id: "t1", repo_id: "r", ref: "main" };
+const chat = registry.chat({ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream", thread });
 chat.draftMessage = "hello";
 chat.$nextTick = (cb) => cb();
 chat.scrollToBottom = () => {};
@@ -245,7 +275,8 @@ process.stdout.write(JSON.stringify({ streamingBeforeEnd, ended: ended.length, h
         body,
         {},
         prelude=PRELUDE,
-        extra_globals="EventSource: FakeEventSource, setTimeout, fetch: async () => ({ ok: true }),",
+        extra_globals="EventSource: FakeEventSource, setTimeout, "
+        "fetch: async () => ({ ok: true, json: async () => ({}) }),",
     )
 
     assert result == {"streamingBeforeEnd": True, "ended": 1, "hasRun": True}
@@ -264,16 +295,32 @@ process.stdout.write(JSON.stringify({ opened: opened !== null, runStoppable: cha
     assert result == {"opened": False, "runStoppable": True}
 
 
-@pytest.mark.parametrize(
-    ("state", "held"),
-    [({}, False), ({"draftMessage": "next prompt"}, True), ({"streaming": True}, True), ({"resuming": True}, True)],
+# A rejoin onto a run whose checkpoint holds ``tc-open`` unanswered, then streams ``tc-live``
+# with no result before the stream ends.
+OPEN_CALL_TURNS = build_turns(
+    [AIMessage(id="msg-1", content="", tool_calls=[{"id": "tc-open", "name": "bash", "args": {}}])], in_flight=True
 )
-def test_the_chat_holds_the_settled_reload_only_while_it_has_something_to_lose(state, held):
-    body = f"""
-const chat = registry.chat({{ endpoint: "/api/chat", streamEndpoint: "/api/chat/stream" }});
-Object.assign(chat, {json.dumps(state)});
-let prevented = false;
-chat.holdReload({{ preventDefault: () => {{ prevented = true; }} }});
-process.stdout.write(JSON.stringify({{ prevented }}));
+LIVE_CALL_FRAMES = [
+    {"type": "RUN_STARTED", "timestamp": 1000},
+    {"type": "TOOL_CALL_START", "toolCallId": "tc-live", "toolCallName": "bash", "timestamp": 1100},
+    {"type": "TOOL_CALL_END", "toolCallId": "tc-live", "timestamp": 1200},
+]
+
+
+@pytest.mark.parametrize(
+    ("tail", "reason", "status"),
+    [
+        ([], "finished", "done"),
+        ([{"type": "RUN_ERROR", "message": "boom"}], "finished", "error"),
+        ([{"type": "RUN_ERROR", "code": "run_cancelled"}], "finished", "error"),
+        ([], "stale", "error"),
+    ],
+)
+def test_calls_left_running_settle_by_how_the_run_ended(tail, reason, status):
+    report = """
+const calls = chat.turns.flatMap((t) => (t.segments || []).filter((s) => s.type === "tool_call"));
+process.stdout.write(JSON.stringify(Object.fromEntries(calls.map((s) => [s.id, s.status]))));
 """
-    assert run_chat_stream(body, {}) == {"prevented": held}
+    result = _rejoin(LIVE_CALL_FRAMES + tail, turns=OPEN_CALL_TURNS, reason=reason, report=report)
+
+    assert result == {"tc-open": status, "tc-live": status}

@@ -3,8 +3,9 @@ import io
 import json
 import os
 import tarfile
+import uuid
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -12,12 +13,16 @@ from typing import TYPE_CHECKING, Any, Literal
 from unittest.mock import DEFAULT, AsyncMock, Mock, patch
 
 from django.core.cache import cache
+from django.db import NotSupportedError
+from django.db.models.sql.compiler import SQLCompiler
+from django.db.models.sql.constants import LOUTER
 from django.test import Client
 
 import httpx
 import pytest
 from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.protocol import BackendProtocol
+from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, ToolMessage
 from pydantic import SecretStr
 from sandbox_envs.spec import SandboxSpec
@@ -25,8 +30,11 @@ from webhooks.conf import settings as webhooks_settings
 
 from accounts.models import Role
 from accounts.models import User as AccountUser
+from automation.agent import provider_health
 from automation.agent.agent_settings import AgentSettings, RunOverrides, resolve_agent_settings
 from automation.agent.artifacts import ArtifactError, ArtifactFile
+from automation.agent.constants import REPO_PATH
+from automation.agent.context import extra_repo_path
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import GitPlatform, MergeRequest, Repository, User
@@ -39,17 +47,56 @@ from core.models import (
     WEB_FETCH_AUTH_HEADERS_CACHE_KEY,
     WebFetchAuthHeader,
 )
+from core.sandbox.capabilities import CAPABILITIES_CACHE_KEY
 from core.sandbox.schemas import (
+    BrowserStartRequest,
+    BrowserStartResponse,
+    BrowserStopResponse,
     EgressConfigRequest,
     RunCommandResult,
     RunCommandsRequest,
     RunCommandsResponse,
+    SandboxCapabilities,
     StartSessionRequest,
 )
 from core.site_settings import SiteSnapshot, site_settings
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+
+SPENT_MODEL = "claude-haiku-4-5"
+
+
+def _spending_model() -> GenericFakeChatModel:
+    message = AIMessage(
+        content="",
+        usage_metadata={"input_tokens": 50, "output_tokens": 5, "total_tokens": 55},
+        response_metadata={"model_name": SPENT_MODEL},
+    )
+    return GenericFakeChatModel(
+        messages=iter([message]), metadata={"daiv_provider_slug": "anthropic", "daiv_provider_name": "Anthropic"}
+    )
+
+
+def spending(result: Any):
+    """A sync stand-in for a model-backed call: one stubbed model call that reports usage, then ``result``."""
+
+    def _call(*_args, **_kwargs):
+        _spending_model().invoke("x")
+        return result
+
+    return _call
+
+
+def aspending(result: Any):
+    """:func:`spending` for an ``ainvoke``."""
+
+    async def _call(*_args, **_kwargs):
+        await _spending_model().ainvoke("x")
+        return result
+
+    return _call
 
 
 def site_snapshot(**overrides: Any) -> SiteSnapshot:
@@ -67,8 +114,10 @@ def agent_settings(
     )
 
 
-def sandbox_spec(*, base_image: str | None = "python:3.12", egress: EgressConfigRequest | None = None) -> SandboxSpec:
-    return SandboxSpec(base_image=base_image, memory_bytes=None, cpus=None, env_vars={}, egress=egress)
+def sandbox_spec(
+    *, base_image: str | None = "python:3.12", egress: EgressConfigRequest | None = None, browser: bool = False
+) -> SandboxSpec:
+    return SandboxSpec(base_image=base_image, memory_bytes=None, cpus=None, env_vars={}, egress=egress, browser=browser)
 
 
 @contextmanager
@@ -120,6 +169,7 @@ class FakeSandboxSession:
     egress: EgressConfigRequest | None = None
     repo_files: frozenset[str] | None = None
     skills_files: frozenset[str] | None = None
+    repos_files: frozenset[str] | None = None
 
 
 class FakeSandboxClient:
@@ -148,6 +198,11 @@ class FakeSandboxClient:
         self.is_open = False
         self._failures: dict[str, Exception] = {}
         self._next_id = 0
+        self.capabilities = SandboxCapabilities()
+        self.browser_start_response = BrowserStartResponse(
+            started=True, profile="empty", devtools_port=39222, browser_ws_path="/devtools/browser/guid"
+        )
+        self.browser_stop_response = BrowserStopResponse()
 
     @classmethod
     def opened(cls, responses: dict[str, tuple[int, str]] | None = None) -> FakeSandboxClient:
@@ -217,16 +272,21 @@ class FakeSandboxClient:
         return session_id
 
     async def seed_session(
-        self, session_id: str, repo_archive: bytes | None = None, skills_archive: bytes | None = None
+        self,
+        session_id: str,
+        repo_archive: bytes | None = None,
+        skills_archive: bytes | None = None,
+        repos_archive: bytes | None = None,
     ) -> None:
-        if repo_archive is None and skills_archive is None:
-            raise ValueError("seed_session requires at least one of repo_archive or skills_archive")
+        if repo_archive is None and skills_archive is None and repos_archive is None:
+            raise ValueError("seed_session requires at least one archive")
         self._record("seed_session", session_id)
         session = self._require("seed_session", session_id)
-        if session.repo_files is not None or session.skills_files is not None:
+        if session.repo_files is not None or session.skills_files is not None or session.repos_files is not None:
             return
         session.repo_files = _archive_members(repo_archive)
         session.skills_files = _archive_members(skills_archive)
+        session.repos_files = _archive_members(repos_archive)
 
     async def session_exists(self, session_id: str) -> bool:
         try:
@@ -257,6 +317,26 @@ class FakeSandboxClient:
             raise self._status_error("update_egress", 409, "Session has no egress proxy")
         session.egress = egress
 
+    async def get_capabilities(self) -> SandboxCapabilities:
+        self._record("get_capabilities")
+        return self.capabilities
+
+    async def start_browser(
+        self, session_id: str, request: BrowserStartRequest, extension_archive: bytes | None
+    ) -> BrowserStartResponse:
+        self._record("start_browser", session_id, request, extension_archive)
+        return self.browser_start_response
+
+    async def stop_browser(self, session_id: str, *, force: bool = False) -> BrowserStopResponse:
+        self._record("stop_browser", session_id, force)
+        return self.browser_stop_response
+
+    def browser_cdp_url(self, session_id: str) -> str:
+        return f"ws://sandbox.test/session/{session_id}/browser/cdp"
+
+    def auth_headers(self) -> dict[str, str]:
+        return {"X-API-KEY": "fake-key"}
+
     async def run_commands(self, session_id: str, request: RunCommandsRequest) -> RunCommandsResponse:
         self._record("run_commands", session_id, tuple(request.commands))
         self._require("run_commands", session_id).state = "running"
@@ -277,24 +357,54 @@ class FakeSandboxClient:
 @dataclass
 class FakeWorkspace:
     """A ``Workspace`` a test assembles from parts, disk-shaped until told otherwise: no shell, no session, always
-    ready. ``authenticated_git`` hands back ``git``, and ``download_file`` reads through ``backend`` as a disk read
-    does."""
+    ready. ``authenticated_git`` hands back ``git``, ``download_file`` reads through ``backend`` as a disk read does,
+    and ``for_repo`` hands back a copy sitting at the sibling's path."""
 
     backend: Any = field(default_factory=lambda: Mock(spec=BackendProtocol))
     git: Any = field(default_factory=AsyncMock)
     bash: Any = None
     session: Any = None
+    browser: Any = None
     fs_permissions: Any = None
     provisions_skills: bool = False
     skills_provisioning_errors: Any = ()
     is_ready: bool = True
+    repo_path: str = REPO_PATH
 
     async def authenticated_git(self) -> Any:
         return self.git
 
+    async def aresolve_browser(self, site: Any) -> None:
+        return None
+
     async def download_file(self, path: str, *, max_bytes: int) -> Any:
         (response,) = await self.backend.adownload_files([path])
         return response
+
+    def for_repo(self, handle: Any) -> Any:
+        return replace(self, repo_path=extra_repo_path(handle))
+
+
+@dataclass
+class FakeToolMediaStore:
+    """A ``ToolMediaStore`` a test scripts: ``error`` makes ``astore`` raise; ``stored`` records each call. Ids are
+    UUIDs (``uuid.UUID(int=n)`` for the n-th kept block) so the media URL reverses."""
+
+    error: Exception | None = None
+    stored: list[dict[str, Any]] = field(default_factory=list)
+    max_bytes: int = 10 * 1024 * 1024
+
+    async def astore(self, *, thread_id: str, tool_call_id: str, ordinal: int, mime_type: str, content: bytes) -> str:
+        if self.error is not None:
+            raise self.error
+        self.stored.append({
+            "thread_id": thread_id,
+            "tool_call_id": tool_call_id,
+            "ordinal": ordinal,
+            "mime_type": mime_type,
+            "content": content,
+        })
+        return str(uuid.UUID(int=len(self.stored)))
 
 
 @dataclass
@@ -371,6 +481,15 @@ def write_skill(root: Path, name: str, description: str, files: dict[str, str] |
 
 
 @pytest.fixture
+def worker_shutdown():
+    """``core.worker_shutdown``, with any shutdown the test requests withdrawn after it."""
+    from core import worker_shutdown
+
+    yield worker_shutdown
+    worker_shutdown._requested.clear()
+
+
+@pytest.fixture
 def skill_roots(tmp_path, monkeypatch) -> tuple[Path, Path]:
     """Point the built-in and custom global skill roots at empty temp dirs."""
     builtin, custom = tmp_path / "builtin", tmp_path / "custom"
@@ -386,12 +505,18 @@ def _clear_model_caches():
     # Provider/WebFetchAuthHeader/SiteConfiguration invalidate via
     # transaction.on_commit; @pytest.mark.django_db tests roll back without
     # committing, so the LocMem cache would otherwise leak state between tests.
-    keys = (PROVIDERS_CACHE_KEY, SITE_CONFIGURATION_CACHE_KEY, WEB_FETCH_AUTH_HEADERS_CACHE_KEY)
+    keys = (PROVIDERS_CACHE_KEY, SITE_CONFIGURATION_CACHE_KEY, WEB_FETCH_AUTH_HEADERS_CACHE_KEY, CAPABILITIES_CACHE_KEY)
     for key in keys:
         cache.delete(key)
     yield
     for key in keys:
         cache.delete(key)
+
+
+@pytest.fixture(autouse=True)
+def _drain_provider_health_jobs():
+    yield
+    provider_health._executor.submit(lambda: None).result()
 
 
 @pytest.fixture(autouse=True)
@@ -416,7 +541,28 @@ def _clear_site_settings_overrides():
 
     site_settings.__dict__.clear()
     yield
-    site_settings.__dict__.clear()
+    # Note: no teardown clear — the setup clear at the start of the next test
+    # removes any leaked attributes. A teardown clear here ran before
+    # ``monkeypatch.undo()`` in newer pytest/plugin versions, causing the
+    # ``delattr`` in undo to fail with ``AttributeError`` because the key
+    # was already gone. The setup clear is sufficient for isolation.
+
+
+@pytest.fixture(autouse=True)
+def _postgres_row_lock_rules(monkeypatch):
+    """Refuse ``select_for_update()`` over a nullable outer join, as PostgreSQL does and SQLite (which drops
+    ``FOR UPDATE``) cannot."""
+    original = SQLCompiler.as_sql
+
+    def as_sql(self, *args, **kwargs):
+        compiled = original(self, *args, **kwargs)
+        query = self.query
+        outer = any(getattr(join, "join_type", None) == LOUTER for join in query.alias_map.values())
+        if query.select_for_update and not query.select_for_update_of and outer:
+            raise NotSupportedError("FOR UPDATE cannot be applied to the nullable side of an outer join")
+        return compiled
+
+    monkeypatch.setattr(SQLCompiler, "as_sql", as_sql)
 
 
 @pytest.fixture
@@ -632,8 +778,10 @@ def mock_repo_authorization():
     """
     with (
         patch("sessions.admission.assert_can_run", new=Mock(return_value=None)),
-        patch("sessions.views.can_run", new=Mock(return_value=True)),
+        patch("sessions.page_state.runnable_repo_ids", new=Mock(side_effect=lambda user, ids: set(ids))),
+        patch("sessions.api.views.can_run", new=Mock(return_value=True)),
         patch("codebase.views.can_view", new=Mock(return_value=True)),
+        patch("chat.api.views.can_view", new=Mock(return_value=True)),
         patch("memory.views.can_view", new=Mock(return_value=True)),
         patch("memory.views.viewable_repo_ids", new=Mock(side_effect=lambda user, ids: set(ids))),
     ):

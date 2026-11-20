@@ -310,3 +310,111 @@ async def test_record_invocation_swallows_none_config(caplog):
         await record_invocation(name="anything", skill_path="/workspace/skills/anything/SKILL.md", runtime=rt)
     assert await SkillInvocation.objects.acount() == 0
     assert any("Failed to record skill invocation" in rec.message for rec in caplog.records)
+
+
+def test_site_model_entries_counts_a_level_only_detector_entry():
+    from skills.services import site_model_entries
+
+    from core.model_choice import EMPTY_CHOICE, ModelChoice
+
+    snapshot = MagicMock(agent_skill_models={}, agent_subagent_models={"cr-tests": ModelChoice(thinking_level="low")})
+
+    assert site_model_entries("code-review", snapshot) == (EMPTY_CHOICE, 1)
+
+
+def test_declared_skill_choice_reads_the_metadata_model_and_level(tmp_path):
+    from skills.services import declared_skill_choice
+
+    from core.model_choice import ModelChoice
+
+    (tmp_path / "demo").mkdir()
+    (tmp_path / "demo" / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: d\nmetadata:\n  model: a:b\n  thinking_level: High\n---\n\n# demo\n"
+    )
+
+    assert declared_skill_choice(tmp_path / "demo") == ModelChoice("a:b", "high")
+
+
+def _write_skill_md(root, level):
+    (root / "code-review").mkdir()
+    (root / "code-review" / "SKILL.md").write_text(
+        f"---\nname: code-review\ndescription: d\nmetadata:\n  thinking_level: {level}\n---\n\n# code-review\n"
+    )
+
+
+def test_declared_skill_choice_reads_an_unquoted_off_level(tmp_path):
+    from skills.services import declared_skill_choice
+
+    from core.model_choice import ModelChoice
+
+    (tmp_path / "demo").mkdir()
+    (tmp_path / "demo" / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: Demo skill.\nmetadata:\n  thinking_level: off\n---\nBody\n"
+    )
+
+    assert declared_skill_choice(tmp_path / "demo") == ModelChoice(thinking_level="off")
+
+
+async def test_adeclared_skill_choice_reads_a_global_skill_before_the_builtin(skill_roots):
+    from skills.services import adeclared_skill_choice
+
+    from core.model_choice import ModelChoice
+
+    builtin, custom = skill_roots
+    _write_skill_md(builtin, "low")
+    _write_skill_md(custom, "high")
+
+    assert await adeclared_skill_choice("code-review") == ModelChoice(thinking_level="high")
+
+
+async def test_adeclared_skill_choice_reads_the_builtin_without_a_global_skill(skill_roots):
+    from skills.services import adeclared_skill_choice
+
+    from core.model_choice import ModelChoice
+
+    builtin, _ = skill_roots
+    _write_skill_md(builtin, "low")
+
+    assert await adeclared_skill_choice("code-review") == ModelChoice(thinking_level="low")
+
+
+async def test_adeclared_skill_choice_is_empty_for_an_unknown_skill(skill_roots):
+    from skills.services import adeclared_skill_choice
+
+    from core.model_choice import EMPTY_CHOICE
+
+    assert await adeclared_skill_choice("nosuch") == EMPTY_CHOICE
+
+
+async def test_adeclared_skill_choice_needs_no_custom_skills_path(skill_roots, monkeypatch):
+    from skills.services import adeclared_skill_choice
+
+    from core.model_choice import ModelChoice
+
+    builtin, _ = skill_roots
+    _write_skill_md(builtin, "low")
+    monkeypatch.setattr("skills.services.settings.CUSTOM_SKILLS_PATH", None)
+
+    assert await adeclared_skill_choice("code-review") == ModelChoice(thinking_level="low")
+
+
+async def test_adeclared_skill_choice_tolerates_a_missing_custom_root(skill_roots, monkeypatch, tmp_path):
+    from skills.services import adeclared_skill_choice
+
+    from core.model_choice import ModelChoice
+
+    builtin, _ = skill_roots
+    _write_skill_md(builtin, "low")
+    monkeypatch.setattr("skills.services.settings.CUSTOM_SKILLS_PATH", tmp_path / "absent")
+
+    assert await adeclared_skill_choice("code-review") == ModelChoice(thinking_level="low")
+
+
+async def test_adeclared_skill_choice_is_empty_when_the_lookup_fails(skill_roots, caplog):
+    from skills.services import adeclared_skill_choice
+
+    from core.model_choice import EMPTY_CHOICE
+
+    with patch("skills.services._global_skill_root", side_effect=OSError("boom")):
+        assert await adeclared_skill_choice("code-review") == EMPTY_CHOICE
+    assert any("code-review" in r.message and r.levelno == logging.WARNING for r in caplog.records)

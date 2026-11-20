@@ -1,0 +1,193 @@
+{
+  "pr": {
+    "repo": "https://github.com/cmik/apilix",
+    "pr_number": 12,
+    "base": "4fe23e22e3937c38cb859a3b9c00b193bb309aa1",
+    "head": "0c34439aeebedc646d76d90db6b79a5c54b4cb8f"
+  },
+  "agent": "daiv/anthropic:claude-haiku-5-5",
+  "findings": [
+    {
+      "file": "server/package.json",
+      "start_line": 17,
+      "end_line": 17,
+      "message": "PR description does not match the diff; `package.json` and the lockfile disagree\n\nThe description says this PR adds `jsonwebtoken` and `bcryptjs` to fix a startup crash in `server/team/auth.js` and `server/team/index.js`. The net change from `4fe23e2` to `0c34439` does something else:\n\n- Commit `78c946b` added both packages to `package.json`. Commit `0c34439`, later on the same branch, removed them along with `server/team/*`. The net `package.json` change adds only `simple-git`.\n- The lockfile root still lists `bcryptjs` and `jsonwebtoken` (`server/package-lock.json:13`, `:18`), so the manifest and lockfile disagree. `npm ci` checks that they agree and is expected to fail. Not run: npm is not installed in this sandbox.\n- `server/team/` does not exist at head, and nothing in the repo requires `jsonwebtoken` or `bcryptjs`. The described crash cannot occur at head.\n- Separately, `simple-git` is in `dependencies`, but `server/index.js:981-985` treats it as optional (try/catch with a 501 branch). The manifest and code disagree on whether the git feature is optional.\n\nFix: decide whether the team module lands in this PR (see Questions). If not, run `npm install` in `server/` so the lockfile matches `package.json`, and rewrite the description to match the diff. If yes, add both packages to `package.json` and include the module. Make `simple-git` either a required dependency with the guard removed, or an `optionalDependencies` entry.",
+      "producer": "daiv"
+    },
+    {
+      "file": "server/package-lock.json",
+      "start_line": 13,
+      "end_line": 13,
+      "message": "PR description does not match the diff; `package.json` and the lockfile disagree\n\nThe description says this PR adds `jsonwebtoken` and `bcryptjs` to fix a startup crash in `server/team/auth.js` and `server/team/index.js`. The net change from `4fe23e2` to `0c34439` does something else:\n\n- Commit `78c946b` added both packages to `package.json`. Commit `0c34439`, later on the same branch, removed them along with `server/team/*`. The net `package.json` change adds only `simple-git`.\n- The lockfile root still lists `bcryptjs` and `jsonwebtoken` (`server/package-lock.json:13`, `:18`), so the manifest and lockfile disagree. `npm ci` checks that they agree and is expected to fail. Not run: npm is not installed in this sandbox.\n- `server/team/` does not exist at head, and nothing in the repo requires `jsonwebtoken` or `bcryptjs`. The described crash cannot occur at head.\n- Separately, `simple-git` is in `dependencies`, but `server/index.js:981-985` treats it as optional (try/catch with a 501 branch). The manifest and code disagree on whether the git feature is optional.\n\nFix: decide whether the team module lands in this PR (see Questions). If not, run `npm install` in `server/` so the lockfile matches `package.json`, and rewrite the description to match the diff. If yes, add both packages to `package.json` and include the module. Make `simple-git` either a required dependency with the guard removed, or an `optionalDependencies` entry.",
+      "producer": "daiv"
+    },
+    {
+      "file": "server/index.js",
+      "start_line": 1037,
+      "end_line": 1037,
+      "message": "Git-sync routes let an unauthenticated caller choose the data root and run git with the host's credentials\n\nEach `/api/sync/git/*` route reads `dataDir` from `req.body` before falling back to `APILIX_DATA_DIR`, which Electron sets from userData (`electron/main.js:35`). The containment check at `:1044`, `:1083` and `:1118` is computed from the attacker-supplied base, so it confines nothing. It also lacks a path separator, so a `workspaceId` such as `../workspacesX/\u2026` passes the `startsWith` test.\n\nNo auth middleware exists. `app.use(cors())` (line 43) allows cross-origin POSTs from any web page, and `app.listen(PORT)` (line 1144) binds all interfaces. A caller can therefore:\n\n- create repos and write `workspace.json` at any writable path;\n- `pull` from a private remote into a directory it chose;\n- `push` to a remote it chose, using the host's ambient git credentials.\n\nContext: the base already exposes an unauthenticated `/api/execute` with the same CORS and bind, so this PR adds filesystem writes and credentialed git operations on top of an existing exposure. Not executed. Unverified: that ambient git credentials exist on the host. `config.remote` and `config.branch` are also passed as positional git arguments without `--`, so a leading `-` may be parsed as an option. I did not check this against the installed simple-git version.\n\nFix: ignore `req.body.dataDir` and use only `APILIX_DATA_DIR`. Validate `workspaceId` against `^[A-Za-z0-9_-]+$` and check containment with `path.relative`. Bind to `127.0.0.1` and require a per-launch secret from preload on these routes. Accept only https or ssh remotes, validate `branch`, and add `--` before positional arguments. The three routes duplicate this prelude, so extract one `resolveRepoDir()` helper.",
+      "producer": "daiv"
+    },
+    {
+      "file": "client/src/utils/snapshotEngine.ts",
+      "start_line": 43,
+      "end_line": 43,
+      "message": "Snapshot files are never deleted, so disk use grows without bound\n\nEvery debounced save (`client/src/store.tsx:647-668`) calls `createSnapshot`, which writes a full `WorkspaceData` copy to `snapshots/<id>.json` (`snapshotEngine.ts:33`). Line 43 trims only the index to 50 entries. The only file deletion in the client is the workspace file (`storageDriver.ts:124`), so older snapshot files stay on disk. `deleteWorkspace` also leaves `workspaces/<id>/` behind.\n\nThe module comment says the oldest entries are pruned, and `WORKSPACES.md` \u00a74 promises up to 50 snapshots. Neither matches the code.\n\nFix: compute `[entry, ...idx]`, delete the snapshot files past `MAX_SNAPSHOTS` (via `delete-file`), and remove the workspace's snapshot files when it is deleted. Optionally skip a snapshot whose data equals the newest one.",
+      "producer": "daiv"
+    },
+    {
+      "file": "client/src/utils/sync/s3Adapter.ts",
+      "start_line": 28,
+      "end_line": 28,
+      "message": "S3 sync fails on every call because the `getPresignedUrl` IPC is never implemented\n\n`s3Adapter` calls `api.getPresignedUrl` and throws when it is missing (lines 28-30). `electron/preload.js` does not expose it, and `electron/main.js` registers no `get-presigned-url` handler. The name appears only in `s3Adapter.ts`.\n\nThe sync tab defaults to `'s3'` (`WorkspaceManagerModal.tsx:253`), so push, pull and timestamp all fail on the default path.\n\nFix: add the `ipcMain.handle` presigner with a short expiry and expose it in preload. Alternatively, do not default to S3 until it exists.",
+      "producer": "daiv"
+    },
+    {
+      "file": "client/src/utils/sync/teamAdapter.ts",
+      "start_line": 18,
+      "end_line": 18,
+      "message": "Team sync calls `/workspaces/:id/data` endpoints that do not exist at head\n\n`teamAdapter` sends PUT, GET and HEAD requests to `${serverUrl}/workspaces/${id}/data`. `server/index.js` has no such routes. Its only sync routes are `/api/sync/git/*`, and `server/team/` was removed.\n\n`'team'` is a selectable provider (`WorkspaceManagerModal.tsx:215-220`, `:352`). Push always gets a 404. Pull maps 404 to `null` (`teamAdapter.ts:39`), so the modal shows \"Remote is empty\" and hides the missing endpoint.\n\nFix: implement the routes in this PR, or remove the team provider until they land. Do not map 404 to `null` for pull.",
+      "producer": "daiv"
+    },
+    {
+      "file": "server/index.js",
+      "start_line": 1054,
+      "end_line": 1054,
+      "message": "Git push can report success without pushing\n\nThe handler commits (line 1057) before pushing (line 1066). If the push fails, the catch returns 500, but the commit stays in the local repo. On retry with the same data, `git.status()` shows no changes, so the handler returns `{ ok: true, message: 'Nothing to commit' }` at line 1055 without pushing.\n\n`gitAdapter.push` treats any `ok` as success, so the commit never reaches origin.\n\nFix: commit only when `status.files.length > 0`, and always reach `git.push`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "client/src/utils/syncEngine.ts",
+      "start_line": 49,
+      "end_line": 49,
+      "message": "Pull can overwrite unsynced local data because conflict detection never runs\n\n`pull` and `checkConflict` compare the remote timestamp with `syncConfig.lastSynced` (`syncEngine.ts:49`, `:68`). Nothing writes `lastSynced`: its only references are the type at `types.ts:320` and these reads. The modal also builds `SyncConfig` without it (`WorkspaceManagerModal.tsx:290`, `:303`, `:325`).\n\nSo `pull` never throws `ConflictError`. Remote data is hydrated and written over the local workspace (`:306-307`) with no prompt. The conflict panel and its buttons are unreachable. The last local state is usually still in History.\n\nLatent, once `lastSynced` is wired:\n\n- Adapters return RFC 7231 `Last-Modified` strings (`httpAdapter.ts:57`, `teamAdapter.ts:57`, `s3Adapter.ts:66`). Comparing these as strings against an unspecified local format gives wrong results.\n- The keep-local branch is also wrong. `pull` returns `null` for keep-local (`syncEngine.ts:56`), which the modal reports as \"Remote is empty\" (`WorkspaceManagerModal.tsx:310`). It never pushes.\n\nFix: persist `lastSynced` after a successful push or pull, and pass it in every `SyncConfig`. Normalize timestamps with `Date.parse` in one shared helper. In keep-local, push explicitly.",
+      "producer": "daiv"
+    },
+    {
+      "file": "client/src/components/WorkspaceManagerModal.tsx",
+      "start_line": 303,
+      "end_line": 303,
+      "message": "Pull can overwrite unsynced local data because conflict detection never runs\n\n`pull` and `checkConflict` compare the remote timestamp with `syncConfig.lastSynced` (`syncEngine.ts:49`, `:68`). Nothing writes `lastSynced`: its only references are the type at `types.ts:320` and these reads. The modal also builds `SyncConfig` without it (`WorkspaceManagerModal.tsx:290`, `:303`, `:325`).\n\nSo `pull` never throws `ConflictError`. Remote data is hydrated and written over the local workspace (`:306-307`) with no prompt. The conflict panel and its buttons are unreachable. The last local state is usually still in History.\n\nLatent, once `lastSynced` is wired:\n\n- Adapters return RFC 7231 `Last-Modified` strings (`httpAdapter.ts:57`, `teamAdapter.ts:57`, `s3Adapter.ts:66`). Comparing these as strings against an unspecified local format gives wrong results.\n- The keep-local branch is also wrong. `pull` returns `null` for keep-local (`syncEngine.ts:56`), which the modal reports as \"Remote is empty\" (`WorkspaceManagerModal.tsx:310`). It never pushes.\n\nFix: persist `lastSynced` after a successful push or pull, and pass it in every `SyncConfig`. Normalize timestamps with `Date.parse` in one shared helper. In keep-local, push explicitly.",
+      "producer": "daiv"
+    },
+    {
+      "file": "client/src/store.tsx",
+      "start_line": 668,
+      "end_line": 668,
+      "message": "Switching or creating a workspace drops edits still inside the 300 ms debounce\n\nThe persistence effect (`store.tsx:647-668`) schedules a write 300 ms after a change and clears it in cleanup. Its dependencies include `activeWorkspaceId`, so `SWITCH_WORKSPACE` or `CREATE_WORKSPACE` clears the pending write for the outgoing workspace before it runs.\n\nNothing flushes it. `handleSwitch` (`WorkspaceSwitcher.tsx:46-47`, `WorkspaceManagerModal.tsx:66-68`) reads the target and dispatches. The last edits to the outgoing workspace are then lost from disk and memory. Closing the window within 300 ms has the same effect. Not reproduced at runtime.\n\nFix: keep the pending `{id, data}` in a ref and flush it in cleanup, or await `StorageDriver.writeWorkspace` for the outgoing workspace before dispatching.",
+      "producer": "daiv"
+    },
+    {
+      "file": "client/src/components/WorkspaceSwitcher.tsx",
+      "start_line": 46,
+      "end_line": 46,
+      "message": "Switching or creating a workspace drops edits still inside the 300 ms debounce\n\nThe persistence effect (`store.tsx:647-668`) schedules a write 300 ms after a change and clears it in cleanup. Its dependencies include `activeWorkspaceId`, so `SWITCH_WORKSPACE` or `CREATE_WORKSPACE` clears the pending write for the outgoing workspace before it runs.\n\nNothing flushes it. `handleSwitch` (`WorkspaceSwitcher.tsx:46-47`, `WorkspaceManagerModal.tsx:66-68`) reads the target and dispatches. The last edits to the outgoing workspace are then lost from disk and memory. Closing the window within 300 ms has the same effect. Not reproduced at runtime.\n\nFix: keep the pending `{id, data}` in a ref and flush it in cleanup, or await `StorageDriver.writeWorkspace` for the outgoing workspace before dispatching.",
+      "producer": "daiv"
+    },
+    {
+      "file": "client/src/store.tsx",
+      "start_line": 533,
+      "end_line": 533,
+      "message": "Restoring a snapshot leaves open tabs stale, and the next save writes the old request back\n\n`RESTORE_SNAPSHOT` replaces `collections` but keeps `tabs` and `activeTabId`, unlike `SWITCH_WORKSPACE`. `RequestBuilder` caches each tab's edit state by id and reloads it only when `activeTabId` changes (`RequestBuilder.tsx:597-616`). An open tab therefore keeps the pre-restore request, and saving it dispatches `UPDATE_COLLECTION` with that stale item. Not reproduced at runtime.\n\nFix: reset `tabs` and `activeTabId` in `RESTORE_SNAPSHOT`, as `SWITCH_WORKSPACE` does, or refresh open tabs from the restored data.",
+      "producer": "daiv"
+    },
+    {
+      "file": "client/src/utils/storageDriver.ts",
+      "start_line": 179,
+      "end_line": 179,
+      "message": "Sync credentials are stored in plaintext, and the sync-config store is mistyped\n\n`writeSyncConfig` writes each provider's `config` verbatim (tokens, `secretAccessKey`) to `sync-config.json` and to localStorage (`lsWrite`). `encryptValue` and `decryptValue` (`:195`, `:205`) have no callers, even though `gitAdapter.ts:11`, `types.ts:318` and the section header say credentials are encrypted. Anyone with read access to the profile or to a backup gets usable credentials.\n\n`SyncConfigStore` (`:160`) is typed `Record<string, Record<string, string>>` but holds `{ provider, config }`. That is why `readSyncConfig` and `writeSyncConfig` need `as unknown as` casts (`:174`, `:186`).\n\nFix: declare `SyncConfigEntry = { provider: string; config: Record<string, string> }` and remove the casts. Encrypt secret values with `safeStorage` on write and decrypt on read. Drop the localStorage mirror of secrets and write the file with mode 0600. If encryption is out of scope, correct the docs and the type comments.",
+      "producer": "daiv"
+    },
+    {
+      "file": "client/src/store.tsx",
+      "start_line": 577,
+      "end_line": 577,
+      "message": "An init failure leaves the app on the loading screen for the whole session\n\n`init()` has no try/catch. The first-launch and migration paths call `writeManifest` and `writeWorkspace`, which in Electron go to `fs.writeFileSync` in `electron/main.js:156` with no error handling. If a write rejects, `HYDRATE_WORKSPACE` never runs. `storageReady` stays false, and the app stays on the loading screen (`store.tsx:692`). Previously, localStorage write failures were silent.\n\nFix: wrap `init` in try/catch, log the error, and dispatch `SET_STORAGE_READY` with defaults.",
+      "producer": "daiv"
+    },
+    {
+      "file": "client/src/store.tsx",
+      "start_line": 396,
+      "end_line": 396,
+      "message": "The workspace-data mapping is hand-copied across reducers and persistence\n\nThe `WorkspaceData` \u2192 `AppState` mapping, with its `?? {}` and `?? 3002` defaults, is repeated in `HYDRATE_WORKSPACE` (396), `SWITCH_WORKSPACE` (444), `DUPLICATE_WORKSPACE` (496), `RESTORE_SNAPSHOT` (533), the init default (628-638) and the save literal (651-661). The 17-line session-reset block is repeated in CREATE, SWITCH and DUPLICATE.\n\nThe compiler checks only the save literal. A field added to `WorkspaceData` but missed in one reducer keeps the previous workspace's value across switches, with no error.\n\nFix: one `applyWorkspaceData(state, data)` helper, one `EMPTY_WORKSPACE_DATA` constant, and one `SESSION_RESET` object.",
+      "producer": "daiv"
+    },
+    {
+      "file": "client/src/components/WorkspaceManagerModal.tsx",
+      "start_line": 447,
+      "end_line": 447,
+      "message": "TeamTab keeps a second, unpersisted copy of the team config\n\nThe Sync tab persists `serverUrl`, `workspaceServerId` and `token` (`saveConfig`, `:242-246`, `:276`), and `teamAdapter` reads them. TeamTab keeps its own `serverUrl` and `token` in component state and never reads the saved config. Its \"Test connection\" probe validates that copy, so a passing test can confirm a URL and token the sync engine never uses.\n\nFix: derive TeamTab's values from the persisted team config, or move the test into the team provider so it validates the same fields that get saved.",
+      "producer": "daiv"
+    },
+    {
+      "file": "client/src/store.tsx",
+      "start_line": 662,
+      "end_line": 662,
+      "message": "Each debounced save serializes the full workspace twice on the Electron main thread\n\nEach save writes `workspace.json` through IPC (`storageDriver.ts:111`) and then writes a snapshot, which repeats the full serialization (`:241`). The Electron `writeJsonFile` handler runs `JSON.stringify(data, null, 2)` and `fs.writeFileSync` on the main process (`main.js:156`). Each save therefore blocks main for two full-workspace writes. The removed code made one synchronous `localStorage.setItem`.\n\nThe cost depends on workspace size, which the diff does not bound, so this is not measured.\n\nFix: use `fs.promises.writeFile`, serialize once and reuse the string, and skip the localStorage mirror when running in Electron.",
+      "producer": "daiv"
+    },
+    {
+      "file": "electron/main.js",
+      "start_line": 156,
+      "end_line": 156,
+      "message": "Each debounced save serializes the full workspace twice on the Electron main thread\n\nEach save writes `workspace.json` through IPC (`storageDriver.ts:111`) and then writes a snapshot, which repeats the full serialization (`:241`). The Electron `writeJsonFile` handler runs `JSON.stringify(data, null, 2)` and `fs.writeFileSync` on the main process (`main.js:156`). Each save therefore blocks main for two full-workspace writes. The removed code made one synchronous `localStorage.setItem`.\n\nThe cost depends on workspace size, which the diff does not bound, so this is not measured.\n\nFix: use `fs.promises.writeFile`, serialize once and reuse the string, and skip the localStorage mirror when running in Electron.",
+      "producer": "daiv"
+    },
+    {
+      "file": "client/src/components/ActivityBar.tsx",
+      "start_line": 22,
+      "end_line": 22,
+      "message": "`ActivityBar` mounts a Manage Workspaces modal that can never open\n\n`setManageOpen(true)` is never called in `ActivityBar`. The live modal is owned by `Sidebar.tsx:18-26`. Delete the import (`:4`), the `useState` (`:22`) and the conditional render (`:31`).",
+      "producer": "daiv"
+    },
+    {
+      "file": "WORKSPACES.md",
+      "start_line": 186,
+      "end_line": 186,
+      "message": "`WORKSPACES.md` says the git-sync repo is bare, but the code creates a working-tree repo\n\n`ensureRepo` calls `git.init()` without `--bare` and writes `workspace.json` into that directory (`server/index.js:1008-1049`). Step 2 of the same doc also commits that file, which needs a working tree. Change the wording to \"local (non-bare) git repo\".",
+      "producer": "daiv"
+    },
+    {
+      "file": "client/src/utils/sync/s3Adapter.ts",
+      "start_line": 37,
+      "end_line": 37,
+      "message": "S3 prefix: `??` leaves a cleared prefix empty, and the placeholder contradicts the docs\n\n`config.prefix ?? 'apilix/'` keeps `\"\"` when the field is cleared, so objects go to the bucket root. The docs promise `apilix/` as the default. The placeholder at `WorkspaceManagerModal.tsx:226` shows `workspaces/`. Fix: use `config.prefix || 'apilix/'` and correct the placeholder.",
+      "producer": "daiv"
+    },
+    {
+      "file": "README.md",
+      "start_line": 340,
+      "end_line": 340,
+      "message": "README and WORKSPACES.md duplicate the sync and team docs, and already disagree\n\n`README.md:340` says Apilix \"initialises a local git repo\". `WORKSPACES.md:186` says \"bare\". The new README sections restate `WORKSPACES.md` \u00a75-\u00a710. Keep one canonical document and link to it from the other.",
+      "producer": "daiv"
+    },
+    {
+      "file": "WORKSPACES.md",
+      "start_line": 186,
+      "end_line": 186,
+      "message": "README and WORKSPACES.md duplicate the sync and team docs, and already disagree\n\n`README.md:340` says Apilix \"initialises a local git repo\". `WORKSPACES.md:186` says \"bare\". The new README sections restate `WORKSPACES.md` \u00a75-\u00a710. Keep one canonical document and link to it from the other.",
+      "producer": "daiv"
+    },
+    {
+      "file": "client/src/components/WorkspaceManagerModal.tsx",
+      "start_line": 617,
+      "end_line": 617,
+      "message": "The empty `WorkspaceData` default is copied into two more components\n\n`emptyWorkspaceData()` is defined in both files. The store also has three `mockPort: 3002` defaults. Export one default from `storageDriver.ts` or `types.ts` and import it.",
+      "producer": "daiv"
+    },
+    {
+      "file": "client/src/components/WorkspaceSwitcher.tsx",
+      "start_line": 178,
+      "end_line": 178,
+      "message": "The empty `WorkspaceData` default is copied into two more components\n\n`emptyWorkspaceData()` is defined in both files. The store also has three `mockPort: 3002` defaults. Export one default from `storageDriver.ts` or `types.ts` and import it.",
+      "producer": "daiv"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 5480679,
+    "completion_tokens": 497751,
+    "total_tokens": 5978430,
+    "time_in_ms": 606959,
+    "cost_usd": 0.588819
+  }
+}

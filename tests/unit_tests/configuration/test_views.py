@@ -1,6 +1,6 @@
 import re
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.contrib.staticfiles import finders
 from django.template import TemplateDoesNotExist
@@ -8,10 +8,13 @@ from django.template.loader import get_template
 from django.urls import reverse
 
 import pytest
+from bs4 import BeautifulSoup
 from configuration.forms import WEB_FETCH_AUTH_HEADERS_FORMSET_PREFIX as PREFIX
 
 from accounts.models import Role, User
 from core.models import Provider, ProviderType, SiteConfiguration, WebFetchAuthHeader
+from core.sandbox.capabilities import NO_BROWSER_MESSAGE
+from core.sandbox.schemas import SandboxCapabilities
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[3] / "daiv" / "configuration" / "templates"
 TEMPLATE_REFERENCE = re.compile(r"""\{%\s*(?:include|extends)\s+["']([^"']+)["']""")
@@ -1042,7 +1045,7 @@ class TestAgentPickerWidget:
     def test_placeholder_shows_pydantic_default_short_name(self, db):
         """``_apply_defaults`` plumbs the Pydantic / env default into the widget
         so the unselected pill can render "Default (short-name)". This pins
-        ``_shorten_model_spec`` collapsing of provider + org/ prefixes."""
+        ``short_model_name`` collapsing of provider + org/ prefixes."""
         from configuration.forms import SiteConfigurationForm
 
         form = SiteConfigurationForm(
@@ -1065,13 +1068,13 @@ class TestAgentPickerWidget:
             ("provider:org/", "org/"),  # trailing slash falls through to the ``or name`` branch
         ],
     )
-    def test_shorten_model_spec(self, spec, expected):
-        """Pure-Python coverage of ``_shorten_model_spec``'s five branches:
+    def test_short_model_name(self, spec, expected):
+        """Pure-Python coverage of ``short_model_name``'s five branches:
         the ``or name`` fallback at the end is only reached by the trailing-slash
         case, so removing it would silently return ``""`` for that input — caught here."""
-        from configuration.forms import _shorten_model_spec
+        from core.utils import short_model_name
 
-        assert _shorten_model_spec(spec) == expected
+        assert short_model_name(spec) == expected
 
     def test_paired_widget_receives_thinking_default_and_initial(self, db):
         """Paired pickers must also carry the thinking default + the form's
@@ -1456,3 +1459,210 @@ def test_every_static_reference_is_found():
         if finders.find(name) is None
     ]
     assert not missing, "Static files not found:\n" + "\n".join(missing)
+
+
+AGENT_GROUP_URL = reverse("site_configuration", kwargs={"group_key": "agent"})
+EXPLORE_FIELD = "subagent_models-agent_subagent_models__explore"
+GENERAL_PURPOSE_FIELD = "subagent_models-agent_subagent_models__general-purpose"
+
+
+@pytest.mark.django_db
+class TestAgentGroupSubagentModels:
+    def test_the_group_shows_the_built_in_subagents_and_points_to_the_skill_pages(self, admin_client):
+        content = admin_client.get(AGENT_GROUP_URL).content.decode()
+
+        assert "Subagent models" in content
+        assert f'name="{EXPLORE_FIELD}"' in content
+        assert f'name="{GENERAL_PURPOSE_FIELD}"' in content
+        assert reverse("skills:list") in content
+
+    def test_the_built_in_rows_render_effort_dots_and_post_their_level(self, admin_client):
+        _enable_seed_provider("openai")
+        form = admin_client.get(AGENT_GROUP_URL).context["subagent_models_form"]
+
+        for name in ("explore", "general-purpose"):
+            picker = form.fields[f"agent_subagent_models__{name}"].widget.get_context("x", "", {})["widget"]["picker"]
+            assert picker["with_effort"] is True
+            assert picker["allow_off"] is True
+
+        admin_client.post(
+            AGENT_GROUP_URL, {EXPLORE_FIELD: "", GENERAL_PURPOSE_FIELD: "", f"{GENERAL_PURPOSE_FIELD}__thinking": "low"}
+        )
+
+        assert SiteConfiguration.objects.get_instance().agent_subagent_models == {
+            "general-purpose": {"thinking_level": "low"}
+        }
+
+    def test_saving_writes_the_entries_beside_the_map_s_others(self, admin_client):
+        config = SiteConfiguration.objects.get_instance()
+        config.agent_subagent_models = {"cr-security": "openai:gpt-5.4"}
+        config.save()
+        _enable_seed_provider("openai")
+
+        admin_client.post(AGENT_GROUP_URL, {EXPLORE_FIELD: "openai:gpt-5.4-mini", GENERAL_PURPOSE_FIELD: ""})
+
+        assert SiteConfiguration.objects.get_instance().agent_subagent_models == {
+            "cr-security": "openai:gpt-5.4",
+            "explore": "openai:gpt-5.4-mini",
+        }
+
+    def test_an_unknown_level_is_shown_and_saves_nothing(self, admin_client):
+        response = admin_client.post(
+            AGENT_GROUP_URL, {EXPLORE_FIELD: "", GENERAL_PURPOSE_FIELD: "", f"{EXPLORE_FIELD}__thinking": "extreme"}
+        )
+
+        assert response.status_code == 200
+        assert "Unknown thinking level: extreme." in response.content.decode()
+        assert SiteConfiguration.objects.get_instance().agent_subagent_models == {}
+
+    def test_an_entry_its_provider_cannot_serve_saves_nothing(self, admin_client):
+        response = admin_client.post(AGENT_GROUP_URL, {EXPLORE_FIELD: "nosuch:model", GENERAL_PURPOSE_FIELD: ""})
+
+        assert response.status_code == 200
+        assert "Unsupported model" in response.content.decode()
+        assert SiteConfiguration.objects.get_instance().agent_subagent_models == {}
+
+    def test_a_post_without_the_rows_leaves_the_map_alone(self, admin_client):
+        config = SiteConfiguration.objects.get_instance()
+        config.agent_subagent_models = {"explore": "openai:gpt-5.4"}
+        config.save()
+
+        admin_client.post(AGENT_GROUP_URL, {"agent_recursion_limit": 100})
+
+        assert SiteConfiguration.objects.get_instance().agent_subagent_models == {"explore": "openai:gpt-5.4"}
+
+    def test_the_environment_locks_the_rows(self, admin_client, monkeypatch):
+        from core import site_settings as ss_module
+
+        _enable_seed_provider("openai")
+        monkeypatch.setenv("DAIV_AGENT_SUBAGENT_MODELS", '{"explore": "openai:gpt-5.4-mini"}')
+        ss_module._docker_secret_cache.clear()
+
+        page = admin_client.get(AGENT_GROUP_URL).content.decode()
+        admin_client.post(AGENT_GROUP_URL, {EXPLORE_FIELD: "openai:gpt-5.4", GENERAL_PURPOSE_FIELD: ""})
+
+        assert "DAIV_AGENT_SUBAGENT_MODELS" in page
+        assert f'name="{EXPLORE_FIELD}"' not in page
+        assert SiteConfiguration.objects.get_instance().agent_subagent_models == {}
+
+    def _explore_default(self, admin_client) -> str:
+        form = admin_client.get(AGENT_GROUP_URL).context["subagent_models_form"]
+        return form.fields["agent_subagent_models__explore"].widget.placeholder
+
+    def test_explore_s_default_is_its_own_model_when_a_provider_serves_it(self, admin_client):
+        _enable_seed_provider("openrouter")
+
+        assert self._explore_default(admin_client) == "claude-haiku-5.5"
+
+    def test_explore_s_default_is_the_run_s_model_when_no_provider_serves_its_own(self, admin_client):
+        assert self._explore_default(admin_client) == "Run's model"
+
+    def test_explore_s_default_is_the_legacy_variable_s_model(self, admin_client, monkeypatch):
+        from core import site_settings as ss_module
+
+        _enable_seed_provider("openai")
+        monkeypatch.setenv("DAIV_AGENT_EXPLORE_MODEL_NAME", "openai:gpt-5.4-mini")
+        ss_module._docker_secret_cache.clear()
+
+        assert self._explore_default(admin_client) == "gpt-5.4-mini"
+
+    def test_saving_keeps_a_model_entry_saved_while_the_request_ran(self, admin_client, monkeypatch):
+        from configuration.forms import SiteConfigurationForm
+
+        is_valid = SiteConfigurationForm.is_valid
+
+        def is_valid_after_a_concurrent_save(form):
+            SiteConfiguration.objects.update(agent_skill_models={"plan": "openai:gpt-5.4"})
+            return is_valid(form)
+
+        monkeypatch.setattr(SiteConfigurationForm, "is_valid", is_valid_after_a_concurrent_save)
+
+        admin_client.post(AGENT_GROUP_URL, {"agent_recursion_limit": 100})
+
+        assert SiteConfiguration.objects.get_instance().agent_skill_models == {"plan": "openai:gpt-5.4"}
+
+    def test_entries_no_page_lists_can_be_cleared(self, admin_client):
+        config = SiteConfiguration.objects.get_instance()
+        config.agent_subagent_models = {"my-reviewer": "openai:gpt-5.4", "cr-security": "openai:gpt-5.4"}
+        config.agent_skill_models = {"repo-only": "openai:gpt-5.4", "plan": "openai:gpt-5.4"}
+        config.save()
+        reviewer = "subagent_models-agent_subagent_models__my-reviewer"
+        repo_skill = "subagent_models-agent_skill_models__repo-only"
+
+        page = admin_client.get(AGENT_GROUP_URL).content.decode()
+        admin_client.post(AGENT_GROUP_URL, {EXPLORE_FIELD: "", GENERAL_PURPOSE_FIELD: "", reviewer: "", repo_skill: ""})
+
+        assert f'name="{reviewer}"' in page
+        assert f'name="{repo_skill}"' in page
+        assert "agent_subagent_models__cr-security" not in page
+        assert "agent_skill_models__plan" not in page
+        config = SiteConfiguration.objects.get_instance()
+        assert config.agent_subagent_models == {"cr-security": "openai:gpt-5.4"}
+        assert config.agent_skill_models == {"plan": "openai:gpt-5.4"}
+
+
+@pytest.mark.django_db
+class TestSandboxBrowserWarning:
+    WARNING = NO_BROWSER_MESSAGE
+
+    def _get(self, client, admin_user, group_url, *, browser: bool | None):
+        client.force_login(admin_user)
+        capabilities = None if browser is None else SandboxCapabilities(browser=browser)
+        with patch("configuration.views.SandboxCapabilityProbe.aget", AsyncMock(return_value=capabilities)) as probe:
+            response = client.get(group_url("sandbox"))
+        return response.content.decode(), probe
+
+    def test_warns_when_the_switch_is_on_and_the_service_cannot_run_a_browser(
+        self, client, admin_user, group_url, monkeypatch
+    ):
+        monkeypatch.setenv("DAIV_SANDBOX_BROWSER_ENABLED", "true")
+
+        content, probe = self._get(client, admin_user, group_url, browser=False)
+
+        assert self.WARNING in content
+        probe.assert_awaited_once()
+
+    @pytest.mark.parametrize("browser", [True, None], ids=["capable", "unreachable"])
+    def test_no_warning_unless_the_service_says_it_has_no_browser(
+        self, client, admin_user, group_url, monkeypatch, browser
+    ):
+        monkeypatch.setenv("DAIV_SANDBOX_BROWSER_ENABLED", "true")
+
+        content, probe = self._get(client, admin_user, group_url, browser=browser)
+
+        assert self.WARNING not in content
+        probe.assert_awaited_once()
+
+    def test_the_warning_sits_in_the_form_column_not_its_own_grid_cell(
+        self, client, admin_user, group_url, monkeypatch
+    ):
+        monkeypatch.setenv("DAIV_SANDBOX_BROWSER_ENABLED", "true")
+
+        content, _ = self._get(client, admin_user, group_url, browser=False)
+
+        soup = BeautifulSoup(content, "html.parser")
+        grid = soup.find(class_=lambda classes: classes and "popover:grid-cols-[200px_minmax(0,1fr)]" in classes)
+        form = grid.find("form", attrs={"autocomplete": "off"})
+        warning = grid.find("p", string=lambda text: text and self.WARNING in text)
+        assert form.parent is not grid
+        assert form.parent in warning.parents
+
+    def test_no_warning_and_no_probe_while_the_switch_is_off(self, client, admin_user, group_url):
+        content, probe = self._get(client, admin_user, group_url, browser=False)
+
+        assert self.WARNING not in content
+        probe.assert_not_awaited()
+
+    def test_the_browser_fields_render_in_the_sandbox_group(self, client, admin_user, group_url):
+        content, _ = self._get(client, admin_user, group_url, browser=True)
+
+        for name in ("sandbox_browser_enabled", "sandbox_browser_memory_bytes", "sandbox_browser_cpus"):
+            assert f'name="{name}"' in content
+
+    def test_an_environment_variable_locks_its_browser_field(self, client, admin_user, group_url, monkeypatch):
+        monkeypatch.setenv("DAIV_SANDBOX_BROWSER_CPUS", "2")
+
+        content, _ = self._get(client, admin_user, group_url, browser=True)
+
+        cpus_input = re.search(r'<input[^>]*name="sandbox_browser_cpus"[^>]*>', content).group(0)
+        assert "disabled" in cpus_input

@@ -1,1 +1,0 @@
-@{{ asker }}, reply mentioning @{{ bot_username }} with your answer.

@@ -1,0 +1,38 @@
+{
+  "cr-correctness": {
+    "completion_tokens": 132889,
+    "cost_usd": 0.096212825,
+    "prompt_tokens": 1124678,
+    "total_tokens": 1257567
+  },
+  "cr-performance": {
+    "completion_tokens": 23529,
+    "cost_usd": 0.019304355,
+    "prompt_tokens": 229918,
+    "total_tokens": 253447
+  },
+  "cr-security": {
+    "completion_tokens": 23422,
+    "cost_usd": 0.0235115,
+    "prompt_tokens": 515885,
+    "total_tokens": 539307
+  },
+  "cr-structure": {
+    "completion_tokens": 87812,
+    "cost_usd": 0.06767008,
+    "prompt_tokens": 806146,
+    "total_tokens": 893958
+  },
+  "cr-tests": {
+    "completion_tokens": 38479,
+    "cost_usd": 0.029103025,
+    "prompt_tokens": 243131,
+    "total_tokens": 281610
+  },
+  "review": {
+    "completion_tokens": 45004,
+    "cost_usd": 0.06095158,
+    "prompt_tokens": 1298260,
+    "total_tokens": 1343264
+  }
+}

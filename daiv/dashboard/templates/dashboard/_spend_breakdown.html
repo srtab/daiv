@@ -1,0 +1,56 @@
+{% load i18n %}
+{% comment %}
+One ranked breakdown: a row per group with its cost, share bar, figures and cache tag. A foldable table shows its top
+rows and a Rest row; Show all puts the other rows in place of Rest.
+
+Context:
+- table: a dict from ``dashboard.spend.SpendReport.breakdowns``.
+- export_url: the CSV export, which holds the rows past the hundredth.
+{% endcomment %}
+<section aria-labelledby="spend-{{ table.key }}-heading" data-testid="breakdown-{{ table.key }}"
+         class="rounded-2xl border border-border bg-surface-2 px-6 py-5"{% if table.foldable %} x-data="{ open: false }"{% endif %}>
+    <h2 id="spend-{{ table.key }}-heading" class="mb-2 text-[15px] font-semibold tracking-tight text-text">{{ table.title }}</h2>
+    <ul>
+        {% for row in table.rows %}
+        <li class="border-t border-border py-2.5"{% if row.hidden %} x-show="open" x-cloak data-testid="hidden-row"{% endif %}>
+            {% include "dashboard/_spend_breakdown_row.html" %}
+            {% for sub in row.subs %}
+            <div class="flex justify-between gap-3 pl-[18px] pt-1.5 text-[13px]" data-testid="sub-row">
+                {% if sub.url %}
+                <a href="{{ sub.url }}" class="link">{{ sub.name }}</a>
+                {% else %}
+                <span class="text-text-muted" title="{{ sub.why }}" data-testid="no-link">{{ sub.name }}<span class="sr-only"> ({{ sub.why }})</span></span>
+                {% endif %}
+                <span class="font-mono tabular-nums text-text-muted">{{ sub.cost_text }}</span>
+            </div>
+            {% endfor %}
+        </li>
+        {% endfor %}
+        {% if table.rest %}
+        <li class="border-t border-border py-2.5" x-show="!open" data-testid="rest-row">
+            <div class="flex items-baseline justify-between gap-3 text-sm">
+                <span class="truncate text-text" title="{{ table.rest.why }}" data-testid="no-link">{{ table.rest.name }}<span class="sr-only"> ({{ table.rest.why }})</span></span>
+                <span class="font-mono font-semibold tabular-nums text-text">{{ table.rest.cost_text }}</span>
+            </div>
+            <div class="mt-1.5 flex items-center gap-3 font-mono text-[11px] text-text-faint">
+                <span class="h-1 flex-1 overflow-hidden rounded-sm bg-surface-3"><span class="block h-full bg-text-muted/55" style="width: {{ table.rest.share }}%"></span></span>
+                <span class="shrink-0">{{ table.rest.share_text }}</span>
+            </div>
+        </li>
+        {% endif %}
+        {% if table.not_shown %}
+        <li class="border-t border-border pt-2.5 text-[13px] text-text-muted" x-show="open" x-cloak data-testid="not-shown">
+            <a href="{{ export_url }}" class="link">
+                {% blocktranslate count counter=table.not_shown %}{{ counter }} more in the CSV export{% plural %}{{ counter }} more in the CSV export{% endblocktranslate %}
+            </a>
+        </li>
+        {% endif %}
+    </ul>
+    {% if table.foldable %}
+    <button type="button" @click="open = !open" :aria-expanded="open.toString()" aria-expanded="false" data-testid="show-all"
+            class="btn-surface mt-2.5 w-full">
+        <span x-show="!open">{{ table.show_all }}</span>
+        <span x-show="open" x-cloak>{% translate "Show the top 5 only" %}</span>
+    </button>
+    {% endif %}
+</section>

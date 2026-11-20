@@ -1,0 +1,62 @@
+[
+  {
+    "type": "human",
+    "content": "/release-notes version=v4.2.0"
+  },
+  {
+    "type": "ai",
+    "content": "",
+    "tool_calls": [
+      {
+        "name": "skill",
+        "args": {
+          "skill": "release-notes",
+          "skill_args": "version=v4.2.0"
+        }
+      }
+    ]
+  },
+  {
+    "type": "tool",
+    "name": "skill",
+    "content": "# release-notes\nDraft the release notes for one tag.\n1. Require an explicit version=<tag> argument; never guess the tag from the current branch.\n2. List the merge requests merged since the previous tag.\n3. Group them under Features, Fixes and Maintenance, using their labels.\n4. Put breaking changes first, each one marked BREAKING.\n5. End with a report turn that makes no tool calls."
+  },
+  {
+    "type": "ai",
+    "content": "Finding the previous tag.",
+    "tool_calls": [
+      {
+        "name": "bash",
+        "args": {
+          "command": "git describe --tags --abbrev=0 v4.2.0^"
+        }
+      }
+    ]
+  },
+  {
+    "type": "tool",
+    "name": "bash",
+    "content": "v4.1.3"
+  },
+  {
+    "type": "ai",
+    "content": "",
+    "tool_calls": [
+      {
+        "name": "bash",
+        "args": {
+          "command": "git log --merges --format='%s' v4.1.3..v4.2.0"
+        }
+      }
+    ]
+  },
+  {
+    "type": "tool",
+    "name": "bash",
+    "content": "Merge branch 'feat/csv-export' into 'main' [feature]\nMerge branch 'fix/login-redirect' into 'main' [bug]\nMerge branch 'chore/bump-deps' into 'main' [maintenance]\nMerge branch 'feat/drop-v1-api' into 'main' [feature, breaking]\nMerge branch 'fix/timezone-report' into 'main' [bug]"
+  },
+  {
+    "type": "ai",
+    "content": "## v4.2.0\n\n**BREAKING**: the v1 API is removed (feat/drop-v1-api).\n\n### Features\n- CSV export (feat/csv-export)\n\n### Fixes\n- Login redirect loop (fix/login-redirect)\n- Report timezone offset (fix/timezone-report)\n\n### Maintenance\n- Dependency bumps (chore/bump-deps)"
+  }
+]

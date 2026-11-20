@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 
     from automation.agent.agent_settings import RunOverrides
     from automation.agent.references import ExternalRef
+    from automation.agent.workspace.git_manager import FastForward
     from codebase.base import Issue, MergeRequest, Scope
     from sessions.executor.lock import LockPolicy
     from sessions.executor.result import AgentResult
@@ -21,13 +22,17 @@ class RunSpec:
     """What a trigger decided about one agent run.
 
     ``persist_ref`` and ``arm_watch`` are opt-in because each writes state outside the checkpoint: the
-    session's working branch, and a CI watch on the merge request. ``run_id`` names the ``Run`` row the
-    resolved model is recorded on, together with its session. ``fallback_ref_on_missing`` lets the clone
-    degrade to the default branch when ``ref`` is gone; the session is then re-pinned to where it landed.
+    session's working branch, and the session's ownership of the merge request it publishes, which brings the
+    merge request's CI results, mentions and pushes to the session. ``run_id`` names the ``Run`` row the run
+    is bound to and records on: its resolved model (never its session's), measurements and publish result.
+    ``fallback_ref_on_missing`` lets the clone degrade to the default branch when ``ref`` is gone; the session is
+    then re-pinned to where it landed.
     ``use_max`` picks the site's max model (the ``daiv-max`` label). ``recover_draft`` publishes a draft
     merge request from the checkpoint when the agent raises. ``input_messages`` is the turn's input: ``execute_run``
     sends it to the agent, while ``stream_run`` leaves sending to its stream factory and reads it only to skip the
-    sandbox for a builtin slash command that does not need one.
+    sandbox for a builtin slash command that does not need one. ``input_factory``, when set, builds the input
+    ``execute_run`` sends instead, once the workspace is ready, from what bringing the checkout up to the remote branch
+    did (``AgentRun.fast_forward``).
 
     ``thread_id=None`` is a one-shot run (evals): ``NoLock``, an in-memory checkpoint, no session switches.
     ``model_names`` is the exact chain, unresolved; ``agent_thinking_level`` then goes as given (``None``: no thinking).
@@ -65,6 +70,7 @@ class RunSpec:
     context_options: dict[str, Any] = field(default_factory=dict)
     agent_options: dict[str, Any] = field(default_factory=dict)
     ask_user_enabled: bool = True
+    input_factory: Callable[[FastForward | None], Awaitable[tuple[BaseMessage, ...]]] | None = None
 
     def __post_init__(self) -> None:
         if self.thread_id == "":
@@ -117,10 +123,8 @@ class RunHooks:
     """Trigger callbacks.
 
     ``on_context_ready(ref)`` is awaited inside the run once the clone is ready and any fallback re-pin is done,
-    before the model is resolved; ``ref`` is the ref the clone landed on. A trigger that creates its ``Run`` there,
-    rather than naming it in ``spec.run_id``, returns the row's id: the executor binds it as the active run
-    (``bind_active_run``) and records the run's measurements on it, but records the resolved model only on
-    ``spec.run_id``. An error it raises fails the run as a setup error.
+    before the model is resolved; ``ref`` is the ref the clone landed on. An error it raises fails the run as a setup
+    error.
 
     ``on_success`` and ``on_failure`` are awaited after the run's context closes and while the session slot is still
     held. ``on_failure`` sees every ``Exception`` from the lock step through closing the context (a cancellation
@@ -130,6 +134,6 @@ class RunHooks:
     reaches ``on_failure``.
     """
 
-    on_context_ready: Callable[[str], Awaitable[str | None]] | None = None
+    on_context_ready: Callable[[str], Awaitable[None]] | None = None
     on_success: Callable[[RunOutcome], Awaitable[None]] | None = None
     on_failure: FailureHook | None = None

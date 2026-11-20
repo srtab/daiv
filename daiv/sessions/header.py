@@ -1,0 +1,304 @@
+"""What the session page's top bar and details panel show beyond the session's own columns: the latest run's status
+and what its Retry sends, CI on the merge requests the session owns, and the issue an issue-webhook session
+addresses, and its external references as the details panel's cards show them.
+
+``latest_run_payload`` and ``ci_payload`` are also what the turns endpoint returns, so what the page rendered and what
+keeps it current are built by the same code.
+
+CI is reported per merge request the session owns (``MergeRequestOwnership``), named by its ``repo_id`` and iid,
+from the latest CI event of each CI subject in its inbox (one on GitLab, one per workflow on GitHub) on the newest
+one's commit: ``failing`` when any fails, else ``stopped`` (a status that needs a
+person) when any is, else ``passing``; or ``running`` while no result has arrived since DAIV last published or a run is
+looking at a failure. A failure names its failing jobs, says
+"Stopped after N attempts" when the watch ran out of them, and links the last run that looked at one
+(``explanation_run_id``), whose summary says what it found. ``watch_payload`` keeps the single-watch shape older pages
+read, from the first merge request, for one release.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
+
+from django.urls import reverse
+from django.utils.text import capfirst
+from django.utils.translation import gettext as _
+from django.utils.translation import gettext_lazy, pgettext_lazy
+
+from asgiref.sync import sync_to_async
+
+from automation.agent.references import PLATFORM_ISSUE_PROVIDERS, RefProvider
+from codebase.authorization import can_run
+from codebase.base import GitPlatform
+from codebase.clients.base import PLATFORM_ERRORS
+from codebase.conf import settings as codebase_settings
+from codebase.models import RepositoryCatalog
+from codebase.repo_config import RepositoryConfig
+from sessions.delegation import Delegations
+from sessions.inbox_display import stopped_after
+from sessions.models import EventKind, MergeRequestOwnership, QuietReason, Run, RunStatus, Session, SessionOrigin
+from sessions.pipeline_watch.policy import WatchPolicy
+from sessions.pipeline_watch.store import ci_results, latest_ci_results, on_newest_commit
+from sessions.templatetags.session_tags import session_title, status_variant
+from sessions.transcript import mark_delegations, marker_id, retry_message
+
+if TYPE_CHECKING:
+    import uuid
+    from collections.abc import Mapping
+
+    from accounts.models import User
+
+logger = logging.getLogger("daiv.sessions")
+
+GOAL_MAX_CHARS = 120
+
+_CI_STATUS_BY_KIND = {EventKind.CI_FAILED: "failing", EventKind.CI_PASSED: "passing", EventKind.CI_STOPPED: "stopped"}
+_CI_TONES = {"failing": "fail", "passing": "clear", "running": "attn", "stopped": "found"}
+
+
+def _ci_label(status: str) -> str:
+    return {
+        "failing": _("Failing"),
+        "passing": _("Passing"),
+        "running": _("Waiting for CI"),
+        "stopped": _("Needs a person"),
+    }[status]
+
+
+def retry_for(
+    session: Session, runs: list[Run], turns: list[dict[str, Any]], user: User, *, can_act: bool | None = None
+) -> str:
+    """SYNC ONLY: ``retry_message`` for a ``user`` the chat endpoint lets post to ``session``, else empty.
+
+    ``can_act`` is ``can_run`` on the session's main repository, for a caller that already has it; the chat endpoint
+    also needs it on every extra repository of a multi-repository session.
+    """
+    if not (message := retry_message(turns, runs)):
+        return ""
+    if can_act is None:
+        can_act = can_run(user, session.repo_id)
+    if not can_act or not Session.objects.by_owner(user).filter(pk=session.pk).exists():
+        return ""
+    if not all(can_run(user, repo_id) for repo_id in session.repo_ids()[1:]):
+        return ""
+    return message
+
+
+def latest_run_payload(runs: list[Run], retry: str) -> dict[str, str] | None:
+    """The newest of ``runs`` (oldest first) as the header's status pill and the Retry on its marker read it.
+
+    ``retry`` is what ``retry_for`` returned for the same runs.
+    """
+    if not runs:
+        return None
+    latest = runs[-1]
+    return {
+        "marker_id": marker_id(latest),
+        "label": str(latest.get_status_display()),
+        "variant": status_variant(latest.status),
+        "finished_at": latest.finished_at.isoformat() if latest.finished_at else "",
+        "retry": retry,
+    }
+
+
+def ci_payload(session: Session) -> list[dict[str, Any]]:
+    """SYNC ONLY: CI on each open merge request ``session`` owns, the most recently claimed first."""
+    ownerships = list(
+        MergeRequestOwnership.objects.filter(session=session, closed_at__isnull=True).order_by("-updated_at", "-pk")
+    )
+    if not ownerships:
+        return []
+    policies = {repo_id: _watch_policy(repo_id) for repo_id in dict.fromkeys(o.repo_id for o in ownerships)}
+    return [_ci_item(ownership, policies[ownership.repo_id]) for ownership in ownerships]
+
+
+def _watch_policy(repo_id: str) -> WatchPolicy:
+    try:
+        config = RepositoryConfig.get_config(repo_id)
+    except PLATFORM_ERRORS:
+        logger.exception("Failed to read the repository configuration for %s; showing CI with its defaults", repo_id)
+        config = RepositoryConfig()
+    return WatchPolicy(config)
+
+
+aci_payload = sync_to_async(ci_payload)
+
+
+def _ci_item(ownership: MergeRequestOwnership, policy: WatchPolicy) -> dict[str, Any]:
+    results = on_newest_commit(list(latest_ci_results(ownership)))
+    woke = ci_results(ownership).filter(kind=EventKind.CI_FAILED, wake=True, run__isnull=False).order_by("-created_at")
+    looking = woke.exclude(run__status__in=RunStatus.terminal()).exists()
+    if not results or results[0].created_at < ownership.updated_at or looking:
+        status = "running"
+    else:
+        found = {_CI_STATUS_BY_KIND[event.kind] for event in results}
+        status = next(status for status in ("failing", "stopped", "passing") if status in found)
+    failing = [event for event in results if event.kind == EventKind.CI_FAILED] if status == "failing" else []
+    gave_up = next((event for event in failing if event.reason == QuietReason.BUDGET_SPENT), None)
+    explanation = woke.values_list("run_id", flat=True).first()
+    if gave_up:
+        label = capfirst(stopped_after(gave_up.payload.get("attempts", ownership.attempts)))
+    else:
+        label = _ci_label(status)
+    return {
+        "repo_id": ownership.repo_id,
+        "merge_request_iid": ownership.merge_request_iid,
+        "status": status,
+        "label": label,
+        "tone": _CI_TONES[status],
+        "failed_jobs": list(dict.fromkeys(job for event in failing for job in event.payload["failed_jobs"])),
+        "attempts": ownership.attempts,
+        "max_attempts": policy.max_attempts,
+        "watch_enabled": ownership.watch_enabled and policy.enabled,
+        "explanation_run_id": str(explanation) if explanation else None,
+    }
+
+
+def watch_payload(ci: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The first merge request's CI in the single-watch shape older pages read; ``open`` while its watch is on."""
+    if not ci:
+        return None
+    first = ci[0]
+    return {"state": first["status"], "label": first["label"], "tone": first["tone"], "open": first["watch_enabled"]}
+
+
+def issue_link(session: Session, runs: list[Run]) -> dict[str, Any] | None:
+    """SYNC ONLY: the issue an issue-webhook session addresses, read off the task that started its first issue run.
+
+    The thread id is a hash of the issue, so the task's ``issue_iid`` kwarg is the only record of which one it was.
+    ``url`` is blank when the repository is not in the catalog, which is where the platform's web URL comes from.
+    """
+    if session.origin != SessionOrigin.ISSUE_WEBHOOK:
+        return None
+    run = next((r for r in runs if r.trigger_type == SessionOrigin.ISSUE_WEBHOOK and r.task_result_id), None)
+    if run is None:
+        return None
+    iid = ((run.task_result.args_kwargs or {}).get("kwargs") or {}).get("issue_iid")
+    if not iid:
+        return None
+    html_url = (
+        RepositoryCatalog.objects
+        .filter(provider=codebase_settings.CLIENT.value, slug=session.repo_id)
+        .values_list("html_url", flat=True)
+        .first()
+    )
+    if not html_url:
+        return {"iid": iid, "url": ""}
+    path = "-/issues" if codebase_settings.CLIENT == GitPlatform.GITLAB else "issues"
+    return {"iid": iid, "url": f"{html_url.rstrip('/')}/{path}/{iid}"}
+
+
+def delegations_for(turns: list[dict[str, Any]], session: Session, user: User) -> dict[str, Any] | None:
+    """SYNC ONLY: set the ``legs`` of the ``delegate_jobs`` calls in ``turns`` and return the jobs ``session``
+    delegated as ``user`` sees them, newest batch first, or ``None`` when it never delegated. A delegated session
+    cannot delegate, so it costs no query.
+
+    A batch's ``goal`` is the one its call in ``turns`` gave, else the first line of the prompt of its first leg the
+    viewer may see. A leg session that served several batches, through leg follow-ups, is listed under each and
+    counted once in ``total``.
+    """
+    if session.parent_id:
+        return None
+    delegations = Delegations.load(session.thread_id, user)
+    if not delegations.batches:
+        return None
+    called = mark_delegations(turns, delegations)
+    goals = {**_prompt_goals(delegations, called), **called}
+    batches = [
+        {
+            "goal": goals.get(batch_id, ""),
+            "created_at": legs[0].created_at.isoformat(),
+            "legs": delegations.legs[batch_id],
+        }
+        for batch_id, legs in reversed(delegations.batches.items())
+    ]
+    total = len({leg.session_id for legs in delegations.batches.values() for leg in legs})
+    return {"total": total, "batches": batches}
+
+
+def _prompt_goals(delegations: Delegations, goals: Mapping[uuid.UUID, str]) -> dict[uuid.UUID, str]:
+    """The goal of each batch ``goals`` lacks, from its first visible leg's prompt: one query, none when none lacks."""
+    firsts = {
+        batch_id: first.pk
+        for batch_id, legs in delegations.batches.items()
+        if batch_id not in goals
+        and (first := next((leg for leg in legs if leg.session_id in delegations.visible), None))
+    }
+    if not firsts:
+        return {}
+    prompts = dict(Run.objects.filter(pk__in=firsts.values()).values_list("pk", "prompt"))
+    return {
+        batch_id: (prompts.get(pk, "").strip().splitlines() or [""])[0][:GOAL_MAX_CHARS]
+        for batch_id, pk in firsts.items()
+    }
+
+
+def parent_link(session: Session, user: User) -> dict[str, str] | None:
+    """SYNC ONLY: the session that delegated ``session``, when ``user`` may see it."""
+    if not session.parent_id:
+        return None
+    parent = Session.objects.visible_to(user).filter(pk=session.parent_id).first()
+    if parent is None:
+        return None
+    return {"title": session_title(parent), "url": reverse("session_detail", kwargs={"thread_id": parent.thread_id})}
+
+
+_REF_PROVIDERS = {
+    RefProvider.GITLAB_ISSUE: ("gitlab", gettext_lazy("GitLab issue")),
+    RefProvider.GITHUB_ISSUE: ("github", gettext_lazy("GitHub issue")),
+    RefProvider.SENTRY: ("sentry", "Sentry"),
+    RefProvider.JIRA: ("jira", "Jira"),
+    RefProvider.GENERIC: ("link", ""),
+}
+_CLOSES = pgettext_lazy("an external reference the merge request closes", "closes")
+
+
+def references_payload(session: Session) -> list[dict[str, str]]:
+    """``session``'s external references as the details panel's cards show them.
+
+    ``icon`` names a ``TRANSCRIPT_ICONS`` icon: the provider's, ``link`` for ``generic`` and any provider DAIV does not
+    know. ``key`` gets a ``#`` when it is a bare platform issue number. ``source`` is the provider (none for
+    ``generic``, an unknown one as given) and the URL's host, which may truncate; ``closing`` is the "closes" note after
+    it, which never does.
+    """
+    cards = []
+    for ref in session.external_references():
+        icon, provider = _REF_PROVIDERS.get(ref.provider, ("link", ref.provider))
+        source = " · ".join(part for part in (str(provider), urlsplit(ref.url).hostname or "") if part)
+        closing = ""
+        if ref.relation == "closes":
+            closing = f"· {_CLOSES}" if source else str(_CLOSES)
+        bare_issue = ref.provider in PLATFORM_ISSUE_PROVIDERS and ref.key.isdigit()
+        cards.append({
+            "key": f"#{ref.key}" if bare_issue else ref.key,
+            "url": ref.url,
+            "icon": icon,
+            "source": source,
+            "closing": closing,
+        })
+    return cards
+
+
+def build_session_header(
+    session: Session,
+    runs: list[Run],
+    *,
+    retry: str,
+    user: User,
+    delegations: dict[str, Any] | None,
+    merge_request: dict | None = None,
+) -> dict[str, Any]:
+    """SYNC ONLY: the header's context, for ``runs`` ordered oldest first, the ``delegations`` from
+    :func:`delegations_for`, and the ``merge_request`` the page shows."""
+    ci = ci_payload(session)
+    return {
+        "latest_run": latest_run_payload(runs, retry),
+        "ci": ci,
+        "watch": watch_payload(ci),
+        "issue": issue_link(session, runs),
+        "run_count": len(runs),
+        "delegations": delegations,
+        "parent": parent_link(session, user),
+        "references": references_payload(session),
+    }

@@ -2,32 +2,46 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import math
 from collections import defaultdict
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from decimal import Decimal
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 from genai_prices import Usage, calc_price, data_snapshot
-from genai_prices.types import TieredPrices
+from genai_prices.types import ModelInfo, TieredPrices
 from langchain_core.callbacks.usage import UsageMetadataCallbackHandler
 from langchain_core.messages import AIMessage
 from langchain_core.messages.ai import add_usage
 from langchain_core.outputs import ChatGeneration
 from langchain_core.tracers.context import register_configure_hook
 
-from automation.agent.events import input_detail_tokens
+from automation.agent.events import input_detail_tokens, output_detail_tokens, reports_input_detail
 from core.models import ProviderType
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Mapping
+    from collections.abc import Callable, Generator, Mapping
+    from uuid import UUID
 
     from langchain_core.language_models.chat_models import BaseChatModel
     from langchain_core.outputs import LLMResult
 
 logger = logging.getLogger("daiv.usage")
+
+REPORTED_COST_KEY = "provider_cost_usd"
+PROVIDER_SLUG_METADATA_KEY = "daiv_provider_slug"
+PROVIDER_NAME_METADATA_KEY = "daiv_provider_name"
+
+
+def usd_amount(value: Any) -> float | None:
+    """``value`` when it is a finite, non-negative number of dollars, else None."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return value if math.isfinite(value) and value >= 0 else None
 
 
 def _resolve_mtok_rate(field_mtok: Decimal | TieredPrices | None, total_input_tokens: int) -> Decimal | None:
@@ -103,14 +117,16 @@ def resolve_window_by_name(model_name: str) -> ResolvedWindow | None:
     configuration-aware and must never be cached (see the resolver's docstring). A zero
     snapshot window normalizes to ``None`` here, once, rather than at every caller.
     """
-    try:
-        _, model_info = data_snapshot.get_snapshot().find_provider_model(
-            model_name, None, infer_provider_id(model_name), None
-        )
-    except LookupError:
-        return None
-    window = model_info.context_window
+    model_info = _list_prices(model_name)
+    window = model_info.context_window if model_info is not None else None
     return ResolvedWindow(int(window), "genai_prices") if window else None
+
+
+def chat_model_name(model: object) -> str:
+    """``model``'s name: ChatAnthropic exposes it on ``.model``, ChatOpenAI/ChatOpenRouter on ``.model_name``; "" when
+    neither is a str."""
+    name = getattr(model, "model_name", None) or getattr(model, "model", None)
+    return name if isinstance(name, str) else ""
 
 
 def resolve_context_window(model: BaseChatModel, model_name: str) -> ResolvedWindow | None:
@@ -130,16 +146,54 @@ def resolve_context_window(model: BaseChatModel, model_name: str) -> ResolvedWin
     return None
 
 
+def _cache_write_tokens(usage_metadata: Mapping[str, Any]) -> int:
+    # langchain-anthropic zeroes ``cache_creation`` whenever it has the per-TTL breakdown
+    # and stores the actual counts under the ``ephemeral_*`` keys, so sum all three.
+    input_details = usage_metadata.get("input_token_details") or {}
+    return (
+        input_detail_tokens(usage_metadata, "cache_creation")
+        + (input_details.get("ephemeral_5m_input_tokens") or 0)
+        + (input_details.get("ephemeral_1h_input_tokens") or 0)
+    )
+
+
+@lru_cache(maxsize=512)
+def _list_prices(model_name: str) -> ModelInfo | None:
+    try:
+        _, model_info = data_snapshot.get_snapshot().find_provider_model(
+            model_name, None, infer_provider_id(model_name), None
+        )
+    except LookupError:
+        return None
+    return model_info
+
+
+def _cache_saving(model_name: str, usage_metadata: Mapping[str, Any]) -> tuple[Decimal, int]:
+    """What the call's cache reads saved against its uncached input rate, from list prices, and the
+    cache-read tokens that could not be priced."""
+    cache_read = input_detail_tokens(usage_metadata, "cache_read")
+    if not cache_read:
+        return Decimal(0), 0
+    try:
+        model_info = _list_prices(model_name)
+        if model_info is None:
+            return Decimal(0), cache_read
+        prices = model_info.get_prices(datetime.now(UTC))
+        input_tokens = usage_metadata.get("input_tokens", 0)
+        input_rate = _resolve_mtok_rate(prices.input_mtok, input_tokens)
+        cache_read_rate = _resolve_mtok_rate(prices.cache_read_mtok, input_tokens)
+        if input_rate is None or cache_read_rate is None:
+            return Decimal(0), cache_read
+        return Decimal(cache_read) * (input_rate - cache_read_rate) / Decimal(1_000_000), 0
+    except ValueError, TypeError, ArithmeticError:
+        logger.warning("Cache saving calculation failed for model %r", model_name, exc_info=True)
+        return Decimal(0), cache_read
+
+
 def _calc_model_cost(model_name: str, usage_metadata: Mapping[str, Any]) -> Decimal | None:
     """Return None if the model is not in the pricing database."""
-    input_details = usage_metadata.get("input_token_details") or {}
-    # langchain-anthropic zeroes ``cache_creation`` whenever it has the per-TTL breakdown
-    # and stores the actual counts under ``ephemeral_5m_input_tokens`` /
-    # ``ephemeral_1h_input_tokens`` (see ``_create_usage_metadata`` in chat_models.py).
-    # Sum all three so we don't silently drop the cache-write portion of input.
-    ephemeral_5m = input_details.get("ephemeral_5m_input_tokens") or 0
-    ephemeral_1h = input_details.get("ephemeral_1h_input_tokens") or 0
-    cache_write_tokens = input_detail_tokens(usage_metadata, "cache_creation") + ephemeral_5m + ephemeral_1h
+    ephemeral_1h = (usage_metadata.get("input_token_details") or {}).get("ephemeral_1h_input_tokens") or 0
+    cache_write_tokens = _cache_write_tokens(usage_metadata)
 
     input_tokens = usage_metadata.get("input_tokens", 0)
     genai_usage = Usage(
@@ -188,6 +242,62 @@ def _calc_model_cost(model_name: str, usage_metadata: Mapping[str, Any]) -> Deci
     return cost
 
 
+@dataclass
+class LedgerEntry:
+    """One provider and model's spend within a handler's scope.
+
+    ``input_tokens`` includes the cache reads and writes, and ``output_tokens`` the reasoning, as
+    LangChain reports them. A call is priced by its provider's report, else by list prices, else
+    its tokens count as unpriced.
+    """
+
+    provider_name: str = ""
+    input_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    output_tokens: int = 0
+    reasoning_tokens: int = 0
+    total_tokens: int = 0
+    reported_cost: Decimal = field(default_factory=Decimal)
+    cost_reported: bool = False
+    estimated_cost: Decimal = field(default_factory=Decimal)
+    unpriced_tokens: int = 0
+    cache_reported: bool = False
+    cache_saving: Decimal = field(default_factory=Decimal)
+    cache_unpriced_tokens: int = 0
+
+    @property
+    def cost(self) -> Decimal:
+        return self.reported_cost + self.estimated_cost
+
+    def add_call(
+        self,
+        usage_metadata: Mapping[str, Any],
+        *,
+        reported: Decimal | None,
+        estimated: Decimal | None,
+        cache_saving: Decimal,
+        cache_unpriced_tokens: int,
+    ) -> None:
+        total_tokens = usage_metadata.get("total_tokens", 0)
+        self.input_tokens += usage_metadata.get("input_tokens", 0)
+        self.cache_read_tokens += input_detail_tokens(usage_metadata, "cache_read")
+        self.cache_write_tokens += _cache_write_tokens(usage_metadata)
+        self.output_tokens += usage_metadata.get("output_tokens", 0)
+        self.reasoning_tokens += output_detail_tokens(usage_metadata, "reasoning")
+        self.total_tokens += total_tokens
+        if reported is not None:
+            self.reported_cost += reported
+            self.cost_reported = True
+        elif estimated is not None:
+            self.estimated_cost += estimated
+        else:
+            self.unpriced_tokens += total_tokens
+        self.cache_reported = self.cache_reported or reports_input_detail(usage_metadata, "cache_read")
+        self.cache_saving += cache_saving
+        self.cache_unpriced_tokens += cache_unpriced_tokens
+
+
 class CostAwareUsageMetadataCallbackHandler(UsageMetadataCallbackHandler):
     """Token-usage callback that also accumulates cost **per LLM call**.
 
@@ -201,6 +311,10 @@ class CostAwareUsageMetadataCallbackHandler(UsageMetadataCallbackHandler):
     raw ``response_metadata`` read, so a streamed turn would land there under the duplicated
     model name while cost lands under the repaired one, leaving a public attribute knowingly
     wrong for every reader and the two dicts reconciling against nothing.
+
+    ``ledger`` keeps the same calls apart by the provider that served them, read from the
+    ``get_model`` metadata tag, with each call's cost split by how it was priced. ``on_update``
+    is called after every accounted call, from whichever thread LangChain runs the handler on.
     """
 
     def __init__(self) -> None:
@@ -208,8 +322,24 @@ class CostAwareUsageMetadataCallbackHandler(UsageMetadataCallbackHandler):
         self.cost_by_model: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
         # Sticky ``False`` once any call for the model yields no price (unknown model, etc.).
         self.priced_by_model: dict[str, bool] = {}
+        self.ledger: dict[tuple[str, str], LedgerEntry] = {}
+        self.on_update: Callable[[], None] | None = None
+        self._providers: dict[UUID, tuple[str, str]] = {}
+
+    def on_chat_model_start(self, serialized: Any, messages: Any, *, run_id: UUID, **kwargs: Any) -> None:
+        metadata = kwargs.get("metadata") or {}
+        provider = (metadata.get(PROVIDER_SLUG_METADATA_KEY) or "", metadata.get(PROVIDER_NAME_METADATA_KEY) or "")
+        with self._lock:
+            self._providers[run_id] = provider
+
+    def on_llm_error(self, error: BaseException, *, run_id: UUID, **kwargs: Any) -> None:
+        with self._lock:
+            self._providers.pop(run_id, None)
 
     def on_llm_end(self, response: LLMResult, **kwargs: Any) -> None:
+        with self._lock:
+            provider_slug, provider_name = self._providers.pop(kwargs.get("run_id"), ("", ""))
+
         try:
             generation = response.generations[0][0]
         except IndexError:
@@ -224,21 +354,47 @@ class CostAwareUsageMetadataCallbackHandler(UsageMetadataCallbackHandler):
         if not usage_metadata or not model_name:
             return
 
+        reported = self._reported_cost(message)
+        estimated = None
+        # Skip the pricing lookup (and its per-call warning) for models we already know are unpriced.
+        if reported is None and self.priced_by_model.get(model_name) is not False:
+            estimated = _calc_model_cost(model_name, usage_metadata)
+        cost = reported if reported is not None else estimated
+        cache_saving, cache_unpriced_tokens = _cache_saving(model_name, usage_metadata)
+
         with self._lock:
             self.usage_metadata[model_name] = add_usage(self.usage_metadata.get(model_name), usage_metadata)
-
-        # Skip the pricing lookup (and its per-call warning) for models we already know are unpriced.
-        if self.priced_by_model.get(model_name) is False:
-            return
-
-        cost = _calc_model_cost(model_name, usage_metadata)
-
-        with self._lock:
             if cost is None:
                 self.priced_by_model[model_name] = False
-                return
-            self.priced_by_model.setdefault(model_name, True)
-            self.cost_by_model[model_name] += cost
+            else:
+                self.priced_by_model.setdefault(model_name, True)
+                self.cost_by_model[model_name] += cost
+            entry = self.ledger.setdefault((provider_slug, model_name), LedgerEntry(provider_name=provider_name))
+            entry.add_call(
+                usage_metadata,
+                reported=reported,
+                estimated=estimated,
+                cache_saving=cache_saving,
+                cache_unpriced_tokens=cache_unpriced_tokens,
+            )
+
+        if self.on_update is not None:
+            try:
+                self.on_update()
+            except Exception:
+                logger.exception("Spend update callback failed for model %r", model_name)
+
+    def snapshot(self) -> tuple[dict[tuple[str, str], LedgerEntry], UsageSummary]:
+        """A consistent copy of the ledger and the run summary, safe to read while calls still finish."""
+        with self._lock:
+            ledger = {key: dataclasses.replace(entry) for key, entry in self.ledger.items()}
+            return ledger, _summarize(self)
+
+    @staticmethod
+    def _reported_cost(message: AIMessage) -> Decimal | None:
+        """What the provider billed for this call, when it said (see ``ChatOpenRouter._reported_cost``)."""
+        cost = usd_amount(message.response_metadata.get(REPORTED_COST_KEY))
+        return None if cost is None else Decimal(str(cost))
 
 
 # Registered once at import time. Upstream ``get_usage_metadata_callback`` creates a new
@@ -281,11 +437,22 @@ class UsageSummary:
 
 def build_usage_summary(handler: CostAwareUsageMetadataCallbackHandler) -> UsageSummary:
     """Build a UsageSummary from a ``CostAwareUsageMetadataCallbackHandler``."""
-    handler_data = handler.usage_metadata
-    if not handler_data:
+    if not handler.usage_metadata:
         logger.warning("Usage metadata is empty; callback hook may not have fired on any LLM call")
         return UsageSummary()
+    summary = _summarize(handler)
+    logger.info(
+        "Usage summary: input=%d output=%d total=%d cost=%s",
+        summary.input_tokens,
+        summary.output_tokens,
+        summary.total_tokens,
+        summary.cost_usd,
+    )
+    return summary
 
+
+def _summarize(handler: CostAwareUsageMetadataCallbackHandler) -> UsageSummary:
+    handler_data = handler.usage_metadata
     total_input = 0
     total_output = 0
     total_total = 0
@@ -322,9 +489,7 @@ def build_usage_summary(handler: CostAwareUsageMetadataCallbackHandler) -> Usage
 
         by_model[model_name] = model_entry
 
-    cost_usd = str(total_cost) if all_priced else None
-
-    logger.info("Usage summary: input=%d output=%d total=%d cost=%s", total_input, total_output, total_total, cost_usd)
+    cost_usd = str(total_cost) if all_priced and by_model else None
 
     return UsageSummary(
         input_tokens=total_input,

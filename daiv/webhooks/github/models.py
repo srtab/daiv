@@ -14,6 +14,14 @@ class User(BaseModel):
     username: str = Field(alias="login")
 
 
+class Pusher(BaseModel):
+    """
+    The person a GitHub push names as its pusher
+    """
+
+    name: str = ""
+
+
 class Repository(BaseModel):
     """
     GitHub Repository
@@ -88,6 +96,16 @@ class Comment(BaseModel):
     id: int
     body: str
     user: User
+    html_url: str = ""
+
+
+class ReviewComment(Comment):
+    """
+    GitHub pull request review comment, on a diff line. ``in_reply_to_id`` is the first comment of its thread, which
+    replies go under.
+    """
+
+    in_reply_to_id: int | None = None
 
 
 class Review(BaseModel):

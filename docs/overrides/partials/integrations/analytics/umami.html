@@ -1,0 +1,4 @@
+{% set analytics = config.extra.analytics %}
+{% if analytics.website_id %}
+  <script defer src="{{ analytics.script_url }}" data-website-id="{{ analytics.website_id }}" data-domains="{{ analytics.domains }}" data-do-not-track="true"></script>
+{% endif %}

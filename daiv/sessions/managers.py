@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+from datetime import timedelta
+from typing import TYPE_CHECKING, Any, Self
 
+from django.core.files.base import ContentFile
 from django.db import close_old_connections, models, transaction
 from django.tasks import TaskResultStatus
 from django.utils import timezone
@@ -11,33 +13,86 @@ from django_tasks_db.models import DBTaskResult
 
 from core import ui_events
 from core.constants import CANCELLED_BY_COORDINATOR_MESSAGE
+from sessions.artifacts import delete_stored_file
+from sessions.live.notify import publish_session_changed, session_changed
 from sessions.signal_defs import run_ended, run_finished
 
 if TYPE_CHECKING:
+    from datetime import date, datetime
+
     from accounts.models import User
-    from sessions.models import Run, RunArtifact, Session
+    from sessions.models import MergeRequestOwnership, Run, RunArtifact, Session, ToolResultMedia
+
+
+def _readable_repos_q(user: User, session_ref: str) -> models.Q:
+    """Rows on a repository ``user`` can read whose session (``session_ref``) has no extra repository they can't."""
+    # Local import: keep this module from pulling codebase.authorization
+    # (and its codebase.* / allauth graph) in at app-load time.
+    from codebase.authorization import viewable_repo_ids_subquery
+    from sessions.models import SessionRepository
+
+    viewable = viewable_repo_ids_subquery(user)
+    unreadable_extra = models.Exists(
+        SessionRepository.objects.filter(session=models.OuterRef(session_ref)).exclude(repo_id__in=viewable)
+    )
+    return models.Q(repo_id__in=viewable) & ~unreadable_extra
+
+
+_NEWEST_FIRST = ("-created_at", "-id")
+
+
+def _started_by_q(user: User) -> models.Q:
+    """Rows ``user`` started: as themselves, or through a git platform account they signed in with, matched by its id
+    and never by its username, which another person may share."""
+    from allauth.socialaccount.models import SocialAccount
+
+    linked = SocialAccount.objects.filter(
+        user=user, provider=models.OuterRef("external_provider"), uid=models.OuterRef("external_uid")
+    )
+    return models.Q(user=user) | models.Exists(linked)
+
+
+def _run_owner_q(user: User) -> models.Q:
+    """Rows of a run ``user`` owns: started it, or subscribe to its session's schedule."""
+    return _started_by_q(user) | models.Q(session__scheduled_job__in=user.subscribed_schedules.values("pk"))
+
+
+RUN_SPEND = models.Q(task="")
+
+
+def _session_runs_newest_first(session: models.OuterRef) -> models.QuerySet[Run]:
+    from sessions.models import Run
+
+    return Run.objects.filter(session=session).order_by(*_NEWEST_FIRST)
 
 
 class SessionQuerySet(models.QuerySet["Session"]):
     def _owner_q(self, user: User) -> models.Q:
         """Ownership predicate shared by ``by_owner``/``visible_to``.
 
-        A user owns a session when they own the session row, match its
-        ``external_username``, subscribe to its schedule, or acted in any of its runs
-        (user FK or external_username on the Run). The run-level match preserves
-        per-actor visibility on shared webhook threads.
+        A user owns a session when they own the session row, started it through a git
+        platform account they linked, subscribe to its schedule, or started any of its runs
+        either way. The run-level match preserves per-actor visibility on shared threads (webhook
+        threads and sessions no user owns), and only there: a person whose mention the inbox ran in
+        another person's session does not own it.
         """
-        from sessions.models import Run
+        from sessions.models import Run, SessionOrigin
 
-        run_match = Run.objects.filter(session=models.OuterRef("pk")).filter(
-            models.Q(user=user) | models.Q(external_username=user.username)
-        )
+        run_match = Run.objects.started_by(user).filter(session=models.OuterRef("pk"))
+        shared = models.Q(user__isnull=True) | models.Q(origin__in=SessionOrigin.webhooks())
         return (
-            models.Q(user=user)
-            | models.Q(external_username=user.username)
-            | models.Q(scheduled_job__subscribers=user)
-            | models.Exists(run_match)
+            _started_by_q(user)
+            | models.Q(scheduled_job__in=user.subscribed_schedules.values("pk"))
+            | (shared & models.Exists(run_match))
         )
+
+    def owned_by(self, user: User) -> models.QuerySet[Session]:
+        """Sessions the user owns, admins included: the session list's "Mine" scope.
+
+        Unlike :meth:`by_owner` this is a view filter, not a visibility boundary, so an admin's
+        "Mine" is their own sessions rather than everything they may see.
+        """
+        return self.filter(self._owner_q(user))
 
     def by_owner(self, user: User) -> models.QuerySet[Session]:
         """Sessions the user owns (ownership only).
@@ -49,7 +104,7 @@ class SessionQuerySet(models.QuerySet["Session"]):
         """
         if user.is_admin:
             return self.all()
-        return self.filter(self._owner_q(user)).distinct()
+        return self.owned_by(user)
 
     def visible_to(self, user: User) -> models.QuerySet[Session]:
         """Sessions the user may view: ownership OR a repository they can currently read.
@@ -60,42 +115,108 @@ class SessionQuerySet(models.QuerySet["Session"]):
         """
         if user.is_admin:
             return self.all()
-        # Local import: keep this module from pulling codebase.authorization
-        # (and its codebase.* / allauth graph) in at app-load time.
-        from codebase.authorization import viewable_repo_ids_subquery
+        return self.filter(self._owner_q(user) | _readable_repos_q(user, "pk"))
 
-        return self.filter(self._owner_q(user) | models.Q(repo_id__in=viewable_repo_ids_subquery(user))).distinct()
+    def on_merge_request(self, iid: int, *, repo_id: str | None = None) -> models.QuerySet[Session]:
+        """Sessions that worked on merge request ``iid`` of ``repo_id``, or of any repository when ``None``: carry its
+        IID (on their main repository or another of theirs), ran on it, or own it.
 
-    def for_merge_request(self, iid: int) -> models.QuerySet[Session]:
-        """Sessions that touched merge request ``iid``, whichever way they learned of it.
-
-        MR-scope sessions carry the IID from the webhook; an issue-scope session only learns it
-        when its run backfills at completion. A subquery rather than a ``runs`` join keeps this
-        one row per session, so ``with_latest_status``'s per-row subquery is not multiplied.
+        MR-scope sessions carry the IID from the webhook; an issue-scope session only learns it when its run backfills
+        at completion. Subqueries rather than joins keep this one row per session, so ``with_latest_status``'s per-row
+        subquery is not multiplied.
         """
-        from sessions.models import Run
+        from sessions.models import MergeRequestOwnership, Run, SessionRepository
 
+        on_it = {"merge_request_iid": iid} if repo_id is None else {"repo_id": repo_id, "merge_request_iid": iid}
         return self.filter(
-            models.Q(merge_request_iid=iid)
-            | models.Q(pk__in=Run.objects.filter(merge_request_iid=iid).values("session_id"))
+            models.Q(**on_it)
+            | models.Q(pk__in=SessionRepository.objects.filter(**on_it).values("session_id"))
+            | models.Q(pk__in=Run.objects.filter(**on_it).values("session_id"))
+            | models.Q(pk__in=MergeRequestOwnership.objects.filter(**on_it).values("session_id"))
+        )
+
+    def without_open_merge_request(self) -> models.QuerySet[Session]:
+        """Exclude sessions that own an open merge request."""
+        from sessions.models import MergeRequestOwnership
+
+        return self.exclude(models.Exists(MergeRequestOwnership.objects.open().filter(session=models.OuterRef("pk"))))
+
+    def without_live_work(self) -> models.QuerySet[Session]:
+        """Exclude sessions that own an open merge request, have an unfinished run or a waking inbox event, or
+        delegated a leg that owns an open merge request or has an unfinished run."""
+        from sessions.models import EventState, InboxEvent, MergeRequestOwnership, Run, RunStatus
+
+        unfinished = Run.objects.exclude(status__in=RunStatus.terminal())
+        waking = InboxEvent.objects.filter(session=models.OuterRef("pk"), state=EventState.PENDING, wake=True)
+        return self.without_open_merge_request().exclude(
+            models.Exists(MergeRequestOwnership.objects.open().filter(session__parent=models.OuterRef("pk")))
+            | models.Exists(unfinished.filter(session=models.OuterRef("pk")))
+            | models.Exists(unfinished.filter(session__parent=models.OuterRef("pk")))
+            | models.Exists(waking)
         )
 
     def without_watch_placeholders(self) -> models.QuerySet[Session]:
         """Exclude the MR threads a CI watch created that no run has used yet."""
-        from sessions.models import Run, SessionOrigin
+        from sessions.models import Run, Session, SessionOrigin
 
         has_run = models.Exists(Run.objects.filter(session=models.OuterRef("pk")))
-        return self.exclude(~has_run, origin=SessionOrigin.PIPELINE_WEBHOOK)
+        # From the pipeline side: a run test on every listed session makes Postgres hash the whole runs table.
+        placeholders = Session.objects.filter(origin=SessionOrigin.PIPELINE_WEBHOOK).exclude(has_run)
+        return self.exclude(pk__in=placeholders.values("pk"))
+
+    def listed_for(self, user: User, *, mine: bool = False, archived: bool | None = False) -> models.QuerySet[Session]:
+        """The rows the session list shows ``user`` before any filter: their own when ``mine``, else all visible.
+
+        ``archived`` swaps in the archived sessions, which every other list leaves out; ``None`` lists both.
+        """
+        sessions = self.owned_by(user) if mine else self.visible_to(user)
+        if archived is not None:
+            sessions = sessions.filter(archived_at__isnull=not archived)
+        return sessions.without_watch_placeholders().with_latest_status()
+
+    def archived(self) -> models.QuerySet[Session]:
+        return self.filter(archived_at__isnull=False)
+
+    def with_run_spend(self, start: date | None = None, end: date | None = None) -> models.QuerySet[Session]:
+        """Annotate ``run_spend``: the priced cost of the session's runs, from local midnight of ``start`` to the end
+        of ``end`` when given; None when nothing was priced. Background spend is not counted, as on the session page.
+        ``run_spend_floor`` says some of those tokens have no price, so the cost is a floor.
+        """
+        from sessions.models import SpendRecord
+
+        records = SpendRecord.objects.filter(session=models.OuterRef("pk")).run_spend().between(start, end)
+        total = records.order_by().values("session").annotate(total=models.Sum("cost_usd")).values("total")
+        return self.annotate(
+            run_spend=models.Subquery(total), run_spend_floor=models.Exists(records.filter(unpriced_tokens__gt=0))
+        )
 
     def with_latest_status(self) -> models.QuerySet[Session]:
         """Annotate each session with ``latest_run_status`` (status of the newest run).
 
         NULL for chat-only sessions that predate run tracking.
         """
+        latest = _session_runs_newest_first(models.OuterRef("pk"))
+        return self.annotate(latest_run_status=models.Subquery(latest.values("status")[:1]))
+
+    def with_row_runs(self) -> models.QuerySet[Session]:
+        """Prefetch each session's runs, newest first, with only the columns a session row reads.
+
+        Add a field here if ``sessions/_session_row.html`` starts reading it, or it becomes a deferred-field N+1.
+        """
         from sessions.models import Run
 
-        latest = Run.objects.filter(session=models.OuterRef("pk")).order_by("-created_at", "-id")
-        return self.annotate(latest_run_status=models.Subquery(latest.values("status")[:1]))
+        runs = Run.objects.only(
+            "id",
+            "session_id",
+            "status",
+            "started_at",
+            "finished_at",
+            "merge_request_iid",
+            "merge_request_web_url",
+            "agent_model",
+            "created_at",
+        ).order_by(*_NEWEST_FIRST)
+        return self.select_related("user", "scheduled_job").prefetch_related(models.Prefetch("runs", queryset=runs))
 
 
 # ``by_owner``/``visible_to``/``with_latest_status`` live on the QuerySet so they chain
@@ -105,14 +226,88 @@ class SessionManager(models.Manager.from_queryset(SessionQuerySet)):
     pass
 
 
-class RunManager(models.Manager["Run"]):
-    def _owner_q(self, user: User) -> models.Q:
-        return (
-            models.Q(user=user)
-            | models.Q(external_username=user.username)
-            | models.Q(session__scheduled_job__subscribers=user)
+class MergeRequestOwnershipQuerySet(models.QuerySet["MergeRequestOwnership"]):
+    def open(self) -> models.QuerySet[MergeRequestOwnership]:
+        return self.filter(closed_at__isnull=True)
+
+
+class MergeRequestOwnershipManager(models.Manager.from_queryset(MergeRequestOwnershipQuerySet)):
+    pass
+
+
+class RunQuerySet(models.QuerySet["Run"]):
+    def started_by(self, user: User) -> models.QuerySet[Run]:
+        """Runs the user started, as themselves or through a git platform account they linked; not those of a schedule
+        they subscribe to."""
+        return self.filter(_started_by_q(user))
+
+    def that_pushed(self) -> models.QuerySet[Run]:
+        """Runs that pushed a commit, to their main repository or to another of their session's repositories."""
+        return self.exclude(pushed_sha="", sibling_pushed_shas=[])
+
+    def that_published(self) -> models.QuerySet[Run]:
+        """Runs that published a merge request on their session's main repository, newest first."""
+        return self.filter(repo_id=models.F("session__repo_id"), merge_request_iid__isnull=False).order_by(
+            *_NEWEST_FIRST
         )
 
+    def delegated_by(self, thread_id: str) -> models.QuerySet[Run]:
+        """The delegated runs of the legs the session ``thread_id`` delegated: their first runs and leg follow-ups'."""
+        from sessions.models import SessionOrigin
+
+        return self.filter(trigger_type=SessionOrigin.DELEGATED_JOB, session__parent_id=thread_id)
+
+    def delegated(self) -> models.QuerySet[Run]:
+        """Delegated runs, oldest first: a leg's first run and its leg follow-ups' runs."""
+        from sessions.models import SessionOrigin
+
+        return self.filter(trigger_type=SessionOrigin.DELEGATED_JOB).order_by("created_at", "id")
+
+    def with_leg_follow_up(self) -> models.QuerySet[Run]:
+        """Annotate ``is_leg_follow_up``: the run is a leg follow-up's, whose ``leg_follow_up`` event links to it."""
+        from sessions.models import EventKind, InboxEvent
+
+        follow_up = InboxEvent.objects.filter(kind=EventKind.LEG_FOLLOW_UP, run=models.OuterRef("pk"))
+        return self.annotate(is_leg_follow_up=models.Exists(follow_up))
+
+    def with_daiv_started(self) -> models.QuerySet[Run]:
+        """Annotate ``daiv_started``: DAIV started the run itself, as a CI fix, a delegation resume or a coordinator's
+        leg follow-up. A leg's first delegated run is not one."""
+        from sessions.models import SessionOrigin
+
+        started = models.Q(trigger_type__in=SessionOrigin.daiv_authored()) | models.Q(
+            is_leg_follow_up=True, trigger_type=SessionOrigin.DELEGATED_JOB
+        )
+        return self.with_leg_follow_up().annotate(
+            daiv_started=models.ExpressionWrapper(started, output_field=models.BooleanField())
+        )
+
+    def latest_in_session(self) -> models.QuerySet[Run]:
+        """Each session's newest run, whoever started it: the run ``with_latest_status`` reads the status of."""
+        newest = _session_runs_newest_first(models.OuterRef("session")).values("pk")[:1]
+        return self.filter(pk=models.Subquery(newest))
+
+    def with_retried(self, user: User) -> models.QuerySet[Run]:
+        """Annotate ``retried``: a later run in another session took the run up again.
+
+        That is a later run of the same schedule, or a later prompt-driven run ``user`` started on the same
+        repository with the same prompt.
+        """
+        from sessions.models import SessionOrigin
+
+        later = models.Q(created_at__gt=models.OuterRef("created_at")) & ~models.Q(session=models.OuterRef("session"))
+        rerun = self.model.objects.filter(later, session__scheduled_job=models.OuterRef("session__scheduled_job"))
+        retry = (
+            self.model.objects
+            .started_by(user)
+            .filter(later, trigger_type__in=SessionOrigin.prompt_driven())
+            .filter(repo_id=models.OuterRef("repo_id"), prompt=models.OuterRef("prompt"))
+            .exclude(prompt="")
+        )
+        return self.annotate(retried=models.Exists(rerun) | models.Exists(retry))
+
+
+class RunManager(models.Manager.from_queryset(RunQuerySet)):
     def visible_to(self, user: User) -> models.QuerySet[Run]:
         """Runs the user may view: ownership OR a repository they can currently read.
 
@@ -121,11 +316,7 @@ class RunManager(models.Manager["Run"]):
         """
         if user.is_admin:
             return self.all()
-        # Local import: keep this module from pulling codebase.authorization
-        # (and its codebase.* / allauth graph) in at app-load time.
-        from codebase.authorization import viewable_repo_ids_subquery
-
-        return self.filter(self._owner_q(user) | models.Q(repo_id__in=viewable_repo_ids_subquery(user))).distinct()
+        return self.filter(_run_owner_q(user) | _readable_repos_q(user, "session_id"))
 
     def by_batch(self, batch_id) -> models.QuerySet[Run]:
         return self.filter(batch_id=batch_id)
@@ -152,7 +343,7 @@ class RunManager(models.Manager["Run"]):
         if not self._unfinished(run, where).update(status=status, **fields):
             return False
         self._apply(run, status, fields)
-        transaction.on_commit(ui_events.publisher.runs_changed)
+        self._announce_status_moved(run)
         self._emit_run_finished(run, skip_dispatch=skip_dispatch, never_started=never_started)
         return True
 
@@ -179,13 +370,14 @@ class RunManager(models.Manager["Run"]):
         await asyncio.to_thread(self._announce_finished, run, skip_dispatch=skip_dispatch, never_started=never_started)
         return True
 
-    def cancel(self, run: Run) -> bool:
+    def cancel(self, run: Run, *, message: str = CANCELLED_BY_COORDINATOR_MESSAGE) -> bool:
         """Ask an unfinished ``run`` to stop, and return whether this call did; ``run`` is left with its row's status.
 
-        A run that is not RUNNING finishes FAILED here as ``never_started``, with ``CANCELLED_BY_COORDINATOR_MESSAGE``,
-        and its task fails too unless a worker claimed it. A ``run_job_task`` running the run stops at its next
+        A run that is not RUNNING finishes FAILED here as ``never_started``, with ``message`` (who stopped it), and its
+        task fails too unless a worker claimed it. A ``run_job_task`` running the run stops at its next
         :meth:`acancel_requested` check, before the agent if it has not reached it, and a RUNNING run finishes as that
-        task does: with what it recorded, or SUCCESSFUL if it finished first.
+        task does: with what it recorded, or SUCCESSFUL if it finished first. A RUNNING run whose worker is gone has no
+        task left to check, so it finishes FAILED here, on a repeated call too (:meth:`_finish_dead_holder`).
         """
         from sessions.executor.run import RunStoppedError
         from sessions.models import RunStatus
@@ -193,27 +385,47 @@ class RunManager(models.Manager["Run"]):
         now = timezone.now()
         if not self._unfinished(run).filter(cancel_requested_at__isnull=True).update(cancel_requested_at=now):
             run.refresh_from_db(fields=["status", "cancel_requested_at"])
-            return False
+            return self._finish_dead_holder(run, message=message, now=now)
         run.cancel_requested_at = now
         finished = self.finish(
             run,
             RunStatus.FAILED,
             where=~models.Q(status=RunStatus.RUNNING),
             never_started=True,
-            error_message=CANCELLED_BY_COORDINATOR_MESSAGE,
+            error_message=message,
             finished_at=now,
             started_at=run.started_at or now,
         )
         if not finished:
+            if self._finish_dead_holder(run, message=message, now=now):
+                return True
+            session_changed(run.session_id)
             run.refresh_from_db(fields=["status"])
             return run.status not in RunStatus.terminal()
         DBTaskResult.objects.filter(run=run, status=TaskResultStatus.READY).update(
             status=TaskResultStatus.FAILED,
             finished_at=now,
             exception_class_path=f"{RunStoppedError.__module__}.{RunStoppedError.__qualname__}",
-            traceback=CANCELLED_BY_COORDINATOR_MESSAGE,
+            traceback=message,
         )
         return True
+
+    def _finish_dead_holder(self, run: Run, *, message: str, now: datetime) -> bool:
+        """Finish ``run`` FAILED with ``message`` if it is a task-backed RUNNING run holding its session's slot under
+        its pk whose heartbeat has been silent for ``TASK_HOLDER_DEAD_AFTER`` and whose worker is no longer alive
+        (:mod:`core.worker_liveness`): its worker was killed and nothing will read the stop request. A live worker
+        whose run cannot heartbeat still reads it. Returns whether this call finished it.
+        """
+        from core import worker_liveness
+        from sessions.executor.lock import TASK_HOLDER_DEAD_AFTER
+        from sessions.models import RunStatus, Session
+
+        silent = Session.objects.filter(active_run_id=str(run.pk), last_active_at__lt=now - TASK_HOLDER_DEAD_AFTER)
+        dead = models.Q(status=RunStatus.RUNNING, task_result__isnull=False, session_id__in=silent.values("pk"))
+        worker_ids = self.filter(dead, pk=run.pk).values_list("task_result__worker_ids", flat=True).first()
+        if worker_ids is None or (worker_ids and worker_liveness.alive(worker_ids[-1])):
+            return False
+        return self.finish(run, RunStatus.FAILED, where=dead, error_message=message, finished_at=now)
 
     async def acancel_requested(self, run_id: str) -> bool:
         """Whether :meth:`cancel` asked the run ``run_id`` to stop."""
@@ -231,12 +443,19 @@ class RunManager(models.Manager["Run"]):
         if not self._unfinished(run).update(**fields):
             return False
         if "status" in fields:
-            transaction.on_commit(ui_events.publisher.runs_changed)
+            self._announce_status_moved(run)
         return True
+
+    @staticmethod
+    def _announce_status_moved(run: Run) -> None:
+        """Refresh the nav badge and poke ``run``'s session page once the status write commits."""
+        transaction.on_commit(ui_events.publisher.runs_changed)
+        session_changed(run.session_id)
 
     def _announce_finished(self, run: Run, **flags: bool) -> None:
         try:
             ui_events.publisher.runs_changed()
+            publish_session_changed(run.session_id)
             self._emit_run_finished(run, **flags)
         finally:
             # Runs in an executor thread no request lifecycle closes, so its pooled connection would be held forever.
@@ -258,7 +477,7 @@ class RunManager(models.Manager["Run"]):
     def _emit_run_finished(run: Run, **flags: bool) -> None:
         from sessions.models import SessionOrigin
 
-        run_ended.send_robust(sender=type(run), run=run)
+        run_ended.send_robust(sender=type(run), run=run, **flags)
         if run.trigger_type == SessionOrigin.CHAT:
             return
         run_finished.send_robust(sender=type(run), run=run, **flags)
@@ -271,11 +490,85 @@ def _require_terminal(status: str) -> None:
         raise ValueError(f"{status!r} is not a terminal run status")
 
 
-class RunArtifactManager(models.Manager["RunArtifact"]):
-    def visible_to(self, user: User) -> models.QuerySet[RunArtifact]:
-        """Artifacts of the sessions the user may view, whose page lists every run's transcript. SYNC ONLY."""
+class SpendRecordQuerySet(models.QuerySet["SpendRecord"]):
+    def visible_to(self, user: User) -> Self:
+        """Records the user may see: everything for admins, else the rule ``RunManager.visible_to`` applies to runs.
+
+        A record with no session passes on its repository alone, and one with neither on its person alone.
+        SYNC ONLY, like the run rule; wrap in ``sync_to_async`` when used from async code.
+        """
+        if user.is_admin:
+            return self.all()
+        return self.filter(_run_owner_q(user) | _readable_repos_q(user, "session_id"))
+
+    def started_by(self, user: User) -> Self:
+        return self.filter(_started_by_q(user))
+
+    def for_scope(self, user: User, scope: str) -> Self:
+        """The records ``user`` may see; under ``scope="mine"`` only those they started. SYNC ONLY."""
+        from sessions.filters import SCOPE_MINE
+
+        records = self.visible_to(user)
+        return records.started_by(user) if scope == SCOPE_MINE else records
+
+    def between(self, start: date | None, end: date | None) -> Self:
+        """Records from local midnight of ``start`` to the end of ``end``; a None bound is left open."""
+        from sessions.filters import local_midnight
+
+        records = self
+        if start is not None:
+            records = records.filter(occurred_at__gte=local_midnight(start))
+        if end is not None:
+            records = records.filter(occurred_at__lt=local_midnight(end + timedelta(days=1)))
+        return records
+
+    def in_window(self, window: Any) -> Self:
+        """Records counted in ``window``, an Insights ``Window``."""
+        return self.filter(window.date_q("occurred_at"))
+
+    def run_spend(self) -> Self:
+        return self.filter(RUN_SPEND)
+
+
+class SpendRecordManager(models.Manager.from_queryset(SpendRecordQuerySet)):
+    pass
+
+
+class RunFileManager[T: (RunArtifact, ToolResultMedia)](models.Manager[T]):
+    """Files a run keeps for people to open: a published artifact, or an image or file a tool result carried."""
+
+    def visible_to(self, user: User) -> models.QuerySet[T]:
+        """Rows of the sessions the user may view, whose page shows every run's transcript. SYNC ONLY."""
         from sessions.models import Session
 
         if user.is_admin:
             return self.all()
         return self.filter(run__session__in=Session.objects.visible_to(user))
+
+    def save_within_run_cap(self, row: T, name: str, content: bytes, *, per_run_max: int, error: Exception) -> None:
+        """Save ``content`` as ``row``'s file and the row, unless its run already keeps ``per_run_max`` rows; then raise
+        ``error`` and leave no file behind. SYNC ONLY."""
+        from sessions.models import Run
+
+        kept = self.filter(run_id=row.run_id)
+        if kept.count() >= per_run_max:
+            raise error
+        try:
+            row.file.save(name, ContentFile(content), save=False)
+            with transaction.atomic():
+                # Parallel tool calls in one model turn store concurrently; the lock serialises the budget check.
+                Run.objects.select_for_update().only("pk").get(pk=row.run_id)
+                if kept.count() >= per_run_max:
+                    raise error
+                row.save()
+        except BaseException:
+            delete_stored_file(row.file.storage, row.file.name or row.file.field.generate_filename(row, name))
+            raise
+
+
+class RunArtifactManager(RunFileManager["RunArtifact"]):
+    pass
+
+
+class ToolResultMediaManager(RunFileManager["ToolResultMedia"]):
+    pass

@@ -103,7 +103,7 @@ class TestGetEphemeralCloneToken:
         assert gl_client.projects.get.return_value.access_tokens.create.call_count == 1
 
     def test_rejected_pat_is_named_in_the_warning(self, gl_client, caplog):
-        """A 401 means the PAT itself is dead — the warning must say so, not claim a benign fallback."""
+        """A 401 means the PAT itself is dead, so the warning names it."""
         gl_client.projects.get.return_value.access_tokens.create.side_effect = GitlabAuthenticationError(
             "401 Unauthorized"
         )

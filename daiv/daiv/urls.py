@@ -1,27 +1,28 @@
-from django.contrib.sitemaps import Sitemap
 from django.contrib.sitemaps.views import sitemap
-from django.urls import include, path, reverse
+from django.urls import include, path
 
-from dashboard.views import homepage
+from blog.sitemaps import BlogIndexSitemap, BlogPostSitemap
+from configuration.views import SkillModelsView
+from dashboard.sitemaps import ComparisonSitemap, StaticSitemap
+from dashboard.views import ComparisonView, HomepageView, SkillUsageView
 from mcp_api.oauth import oauth_metadata
 from notifications.views import UserChannelsView
+from skills import urls as skills_urls
 
 from core.views import HealthCheckView, VersionView
 from daiv.api import api
 
-
-class StaticSitemap(Sitemap):
-    changefreq = "weekly"
-
-    def items(self):
-        return ["homepage"]
-
-    def location(self, item):
-        return reverse(item)
-
+# The skill page's Models and Usage tabs join the skills namespace here: their views live in apps above skills.
+skills_patterns = [
+    *skills_urls.urlpatterns,
+    path("<slug:name>/models/", SkillModelsView.as_view(), name="models"),
+    path("<slug:name>/usage/", SkillUsageView.as_view(), name="usage"),
+]
 
 urlpatterns = [
-    path("", homepage, name="homepage"),
+    path("", HomepageView.as_view(), name="homepage"),
+    path("compare/<slug:slug>/", ComparisonView.as_view(), name="comparison"),
+    path("blog/", include("blog.urls")),
     path("accounts/", include("accounts.urls.allauth")),
     path("accounts/api-keys/", include("accounts.urls.api_keys")),
     path("accounts/channels/", UserChannelsView.as_view(), name="user_channels"),
@@ -35,7 +36,7 @@ urlpatterns = [
     path("dashboard/sandbox-envs/", include("sandbox_envs.urls", namespace="sandbox_envs")),
     path("dashboard/schedules/", include("schedules.urls")),
     path("dashboard/memory/", include("memory.urls", namespace="memory")),
-    path("dashboard/skills/", include("skills.urls", namespace="skills")),
+    path("dashboard/skills/", include((skills_patterns, skills_urls.app_name), namespace="skills")),
     path("dashboard/mcp-servers/", include("mcp_connectors.urls", namespace="mcp_connectors")),
     path("codebase/", include("codebase.urls")),
     path("api/", api.urls),
@@ -43,5 +44,17 @@ urlpatterns = [
     path(".well-known/oauth-authorization-server", oauth_metadata, name="oauth_metadata"),
     path("-/alive/", HealthCheckView.as_view(), name="health_check"),
     path("-/version/", VersionView.as_view(), name="version"),
-    path("sitemap.xml", sitemap, {"sitemaps": {"static": StaticSitemap}}, name="sitemap"),
+    path(
+        "sitemap.xml",
+        sitemap,
+        {
+            "sitemaps": {
+                "static": StaticSitemap,
+                "comparisons": ComparisonSitemap,
+                "blog": BlogIndexSitemap,
+                "blog-posts": BlogPostSitemap,
+            }
+        },
+        name="sitemap",
+    ),
 ]

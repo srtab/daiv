@@ -23,7 +23,7 @@ TEST_SUITE = "DAIV: Web Fetch"
         ),
         pytest.param(
             {
-                "url": "https://srtab.github.io/daiv/latest",
+                "url": "https://docs.daivagent.com/latest",
                 "prompt": "What project is this documentation for? Return only the project name.",
             },
             ["daiv"],

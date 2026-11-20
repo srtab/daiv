@@ -11,39 +11,44 @@
 {% endblock alpine_plugins %}
 
 {% block app_content %}
-<div class="animate-fade-up">
-  <h1 class="text-2xl font-bold tracking-tight">{% translate "Memory" %}</h1>
-  <p class="mt-1.5 text-[15px] font-light text-gray-400">
-    {% translate "Learned memory captured from finished agent runs, per repository." %}
-  </p>
+<div class="animate-fade-up page-header">
+  <div class="page-header__title">
+    <h1 class="text-2xl font-bold tracking-tight text-text-strong">{% translate "Memory" %}</h1>
+    <p class="mt-1.5 text-[15px] font-light text-text-muted">
+      {% translate "Learned memory captured from finished agent runs, per repository." %}
+    </p>
+  </div>
 </div>
 
 {% if not memory_enabled %}
-<div class="mt-4 rounded-lg border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-  {% translate "Memory capture is currently disabled site-wide. Existing data is shown below." %}
+<div class="notice-found mt-4">
+  {% icon "exclamation-triangle" "h-4 w-4 shrink-0 text-status-found" %}
+  <p>{% translate "Memory capture is currently disabled site-wide. Existing data is shown below." %}</p>
 </div>
 {% endif %}
 
-<section class="animate-fade-up mt-8" style="animation-delay: 100ms" x-data="memoryFilters()">
-  <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-    <div class="relative min-w-[240px] flex-1 sm:max-w-sm">
-      <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
+<section class="animate-fade-up relative z-10 mt-8" style="animation-delay: 100ms" x-data="memoryFilters()">
+  <div class="flex flex-wrap items-center gap-2">
+    <div class="relative min-w-[240px] flex-1">
+      <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-faint">
         {% icon "magnifying-glass" "h-4 w-4" %}
       </span>
       <input type="text" class="filter-search" x-model="q"
-             placeholder="{% translate 'Search by repository' %}"
+             placeholder="{% translate 'Search by repository' %}" aria-label="{% translate 'Search by repository' %}"
              @input.debounce.350ms="_apply()" @keydown.enter.prevent="_apply()">
     </div>
-    <div class="filter-seg">
-      <a href="{% querystring status=None page=None %}"
-         class="filter-seg-item {% if not current_status %}filter-seg-item--active{% endif %}"
-         @click.prevent="setStatus('')" :class="{ 'filter-seg-item--active': status === '' }">{% translate "All" %}</a>
+    <nav class="segmented-nav" aria-label="{% translate 'Memory status' %}">
+      <a href="{% querystring status=None page=None %}" class="segmented-nav__item"
+         @click.prevent="setStatus('')" :aria-current="status === '' ? 'true' : null"
+         {% if not current_status %}aria-current="true"{% endif %}>{% translate "All" %}</a>
       {% for value, label in statuses %}
-      <a href="{% querystring status=value page=None %}"
-         class="filter-seg-item {% if current_status == value %}filter-seg-item--active{% endif %}"
-         @click.prevent="setStatus('{{ value }}')" :class="{ 'filter-seg-item--active': status === '{{ value }}' }">{{ label }}</a>
+      <a href="{% querystring status=value page=None %}" class="segmented-nav__item"
+         @click.prevent="setStatus('{{ value }}')" :aria-current="status === '{{ value }}' ? 'true' : null"
+         {% if current_status == value %}aria-current="true"{% endif %}>{{ label }}</a>
       {% endfor %}
-    </div>
+    </nav>
+    <a href="{% url 'memory:list' %}" class="filter-clear" @click.prevent="clearAll()" x-show="q || status"
+       {% if not has_active_filters %}style="display:none"{% endif %}>{% translate "Clear all" %}</a>
   </div>
 
   <div id="memory-results" class="mt-6">

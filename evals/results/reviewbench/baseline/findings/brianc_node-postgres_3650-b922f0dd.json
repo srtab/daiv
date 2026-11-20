@@ -1,0 +1,123 @@
+{
+  "pr": {
+    "repo": "https://github.com/brianc/node-postgres",
+    "pr_number": 3650,
+    "base": "c6028a875f953eff9e8e403622b0aac127d1b4a6",
+    "head": "b922f0ddfa3914cc7b05387cd12fc606bc658dc4"
+  },
+  "agent": "daiv/anthropic:claude-haiku-5-5",
+  "findings": [
+    {
+      "file": "packages/pg-pool/index.js",
+      "start_line": 3,
+      "end_line": 3,
+      "message": "`pg-pool/diagnostics.js` is not in the published `files` list\n\n`packages/pg-pool/package.json` allowlists only `index.js` and `esm` under [`files`](https://github.com/brianc/node-postgres/blob/b922f0ddfa3914cc7b05387cd12fc606bc658dc4/packages/pg-pool/package.json#L46-L49). `index.js` requires `./diagnostics` at load, and `pg` requires `pg-pool` at load (`packages/pg/lib/index.js:8`). A published pg-pool would therefore throw `MODULE_NOT_FOUND`, which breaks `require('pg')` for anyone who gets that release. The monorepo tests pass because the file exists in the checkout.\n\nFix: add `\"diagnostics.js\"` to `files`. Add a CI check such as `npm pack --dry-run` that verifies the tarball contains every file `index.js` requires.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/pg/lib/client.js",
+      "start_line": 660,
+      "end_line": 660,
+      "message": "`query_timeout` publishes `start` but never `error` or `asyncEnd`\n\nThe read-timeout timer calls `queryCallback(error)`. That reference was captured before the tracing wrapper was installed (`client.js:726`), so the traced callback is bypassed. Timed-out queries leave an unpaired `pg:query` start, and `error` subscribers never see the timeout. The late server response is also silent, because line 664 overwrites `query.callback`. No test covers the timeout branch.\n\nFix: call `query.callback(error)` at line 660. With tracing off, that reaches the read-timeout wrapper and behaves as before.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/pg/lib/diagnostics.js",
+      "start_line": 28,
+      "end_line": 28,
+      "message": "Tracing gate treats a missing aggregate `hasSubscribers` as \"subscribed\"\n\n`hasSubscribers !== false` is true when the getter is `undefined`. The code comments say that is the case on Node 18. If so, every query, connect, and pool acquire builds its context, closures, and wrapper with zero subscribers. That contradicts the \"no overhead without subscribers\" claim.\n\nTwo further problems follow if the getter is missing:\n- If Node's `traceCallback` gates on the same getter, subscribers on those runtimes receive no events.\n- The test gate skips every diagnostics test when the getter is not a boolean. CI runs Node 18 and 20 (`.github/workflows/ci.yml`), so that path is never exercised.\n\nThe version claims also conflict: `diagnostics.js` says Node 18, while the test files say Node 19.9+/20.5+. This is unverified; I could not check the runtime here.\n\nFix: run the tests on real Node 18 and 20.x to see whether `TracingChannel.hasSubscribers` exists and whether `traceCallback` short-circuits. If the getter is missing, derive the gate from the constituent channels, after confirming those properties exist on those runtimes. Make the comments match, and run the diagnostics tests on Node 18 in CI.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/pg-pool/diagnostics.js",
+      "start_line": 32,
+      "end_line": 32,
+      "message": "Tracing gate treats a missing aggregate `hasSubscribers` as \"subscribed\"\n\n`hasSubscribers !== false` is true when the getter is `undefined`. The code comments say that is the case on Node 18. If so, every query, connect, and pool acquire builds its context, closures, and wrapper with zero subscribers. That contradicts the \"no overhead without subscribers\" claim.\n\nTwo further problems follow if the getter is missing:\n- If Node's `traceCallback` gates on the same getter, subscribers on those runtimes receive no events.\n- The test gate skips every diagnostics test when the getter is not a boolean. CI runs Node 18 and 20 (`.github/workflows/ci.yml`), so that path is never exercised.\n\nThe version claims also conflict: `diagnostics.js` says Node 18, while the test files say Node 19.9+/20.5+. This is unverified; I could not check the runtime here.\n\nFix: run the tests on real Node 18 and 20.x to see whether `TracingChannel.hasSubscribers` exists and whether `traceCallback` short-circuits. If the getter is missing, derive the gate from the constituent channels, after confirming those properties exist on those runtimes. Make the comments match, and run the diagnostics tests on Node 18 in CI.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/pg/lib/client.js",
+      "start_line": 709,
+      "end_line": 709,
+      "message": "Tracing gate treats a missing aggregate `hasSubscribers` as \"subscribed\"\n\n`hasSubscribers !== false` is true when the getter is `undefined`. The code comments say that is the case on Node 18. If so, every query, connect, and pool acquire builds its context, closures, and wrapper with zero subscribers. That contradicts the \"no overhead without subscribers\" claim.\n\nTwo further problems follow if the getter is missing:\n- If Node's `traceCallback` gates on the same getter, subscribers on those runtimes receive no events.\n- The test gate skips every diagnostics test when the getter is not a boolean. CI runs Node 18 and 20 (`.github/workflows/ci.yml`), so that path is never exercised.\n\nThe version claims also conflict: `diagnostics.js` says Node 18, while the test files say Node 19.9+/20.5+. This is unverified; I could not check the runtime here.\n\nFix: run the tests on real Node 18 and 20.x to see whether `TracingChannel.hasSubscribers` exists and whether `traceCallback` short-circuits. If the getter is missing, derive the gate from the constituent channels, after confirming those properties exist on those runtimes. Make the comments match, and run the diagnostics tests on Node 18 in CI.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/pg-pool/index.js",
+      "start_line": 204,
+      "end_line": 204,
+      "message": "Tracing gate treats a missing aggregate `hasSubscribers` as \"subscribed\"\n\n`hasSubscribers !== false` is true when the getter is `undefined`. The code comments say that is the case on Node 18. If so, every query, connect, and pool acquire builds its context, closures, and wrapper with zero subscribers. That contradicts the \"no overhead without subscribers\" claim.\n\nTwo further problems follow if the getter is missing:\n- If Node's `traceCallback` gates on the same getter, subscribers on those runtimes receive no events.\n- The test gate skips every diagnostics test when the getter is not a boolean. CI runs Node 18 and 20 (`.github/workflows/ci.yml`), so that path is never exercised.\n\nThe version claims also conflict: `diagnostics.js` says Node 18, while the test files say Node 19.9+/20.5+. This is unverified; I could not check the runtime here.\n\nFix: run the tests on real Node 18 and 20.x to see whether `TracingChannel.hasSubscribers` exists and whether `traceCallback` short-circuits. If the getter is missing, derive the gate from the constituent channels, after confirming those properties exist on those runtimes. Make the comments match, and run the diagnostics tests on Node 18 in CI.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/pg-pool/index.js",
+      "start_line": 218,
+      "end_line": 218,
+      "message": "Raw callback values reach `context.result`\n\nNode's `traceCallback` stores the callback's second argument in `context.result`. This is unverified here, since I could not run Node.\n\n- **Pool connect:** `enrichedCb` sets only `context.client`, so `asyncEnd` subscribers receive the live pg `Client` as `result`. That object has `password` as an enumerable property ([`client.js:275`](https://github.com/brianc/node-postgres/blob/b922f0ddfa3914cc7b05387cd12fc606bc658dc4/packages/pg/lib/client.js#L275)). A subscriber that logs or serializes the context would expose it. The documented payload only lists a sanitized `client`.\n- **`pg:query`:** `context.result` holds the full `Result`, including `rows`, when `asyncStart` fires. The sanitizing `enrichedCb` runs later, inside the callback. Subscribers can therefore read or mutate row data before the application's callback runs.\n\nSubscribers run in-process, so this is a contract and secret-hygiene problem rather than a remote exposure.\n\nFix: pass a sanitized value through the traced callback, and invoke the original callback with the real arguments captured in a closure. Add tests asserting that the context has no `password` and no `rows`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/pg/lib/client.js",
+      "start_line": 726,
+      "end_line": 726,
+      "message": "Raw callback values reach `context.result`\n\nNode's `traceCallback` stores the callback's second argument in `context.result`. This is unverified here, since I could not run Node.\n\n- **Pool connect:** `enrichedCb` sets only `context.client`, so `asyncEnd` subscribers receive the live pg `Client` as `result`. That object has `password` as an enumerable property ([`client.js:275`](https://github.com/brianc/node-postgres/blob/b922f0ddfa3914cc7b05387cd12fc606bc658dc4/packages/pg/lib/client.js#L275)). A subscriber that logs or serializes the context would expose it. The documented payload only lists a sanitized `client`.\n- **`pg:query`:** `context.result` holds the full `Result`, including `rows`, when `asyncStart` fires. The sanitizing `enrichedCb` runs later, inside the callback. Subscribers can therefore read or mutate row data before the application's callback runs.\n\nSubscribers run in-process, so this is a contract and secret-hygiene problem rather than a remote exposure.\n\nFix: pass a sanitized value through the traced callback, and invoke the original callback with the real arguments captured in a closure. Add tests asserting that the context has no `password` and no `rows`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/pg-pool/test/diagnostics.js",
+      "start_line": 185,
+      "end_line": 185,
+      "message": "The `pg:pool:remove` test does not exercise `release(err)`\n\n`release(err)` removes the client synchronously. The test asserts only after `pool.end()`, which also removes idle clients and publishes `pg:pool:remove`. If `release(err)` regressed to returning the client to idle, the test would still pass.\n\nFix: assert on `removeMessage` immediately after `release(...)`, before `pool.end()`, and check `pool.idleCount === 0`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/pg/lib/client.js",
+      "start_line": 689,
+      "end_line": 689,
+      "message": "Early-exit guards bypass the channels\n\nIn `Client.query`, the `_queryable` and `_ending` guards fail queries before the traced wrapper is installed at line 709. In `Pool.connect`, the `ending` guard returns before the wrapper at line 204. Those errors never reach `error` subscribers on `pg:query` or `pg:pool:connect`. No unpaired events result.\n\nFix: install the wrapper before the guards so every exit goes through it, or publish the error explicitly on those paths.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/pg-pool/index.js",
+      "start_line": 196,
+      "end_line": 196,
+      "message": "Early-exit guards bypass the channels\n\nIn `Client.query`, the `_queryable` and `_ending` guards fail queries before the traced wrapper is installed at line 709. In `Pool.connect`, the `ending` guard returns before the wrapper at line 204. Those errors never reach `error` subscribers on `pg:query` or `pg:pool:connect`. No unpaired events result.\n\nFix: install the wrapper before the guards so every exit goes through it, or publish the error explicitly on those paths.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/pg/lib/client.js",
+      "start_line": 723,
+      "end_line": 723,
+      "message": "Multi-statement queries publish `rowCount` and `command` as `undefined`\n\nFor `client.query('SELECT 1; SELECT 2')`, `query.js:142` passes an array of results to the callback. `res.rowCount` and `res.command` are then `undefined` in `asyncEnd`, which does not match the documented `{rowCount, command}` shape.\n\nFix: map each statement's result, or document the shape you chose.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/pg/test/unit/client/diagnostics-tests.js",
+      "start_line": 166,
+      "end_line": 166,
+      "message": "Promise-mode connect tracing and custom Promise support are untested\n\nEvery connect test passes a callback. Removing `traceCallback` from the promise branch of `Client.connect()` or `Pool.connect()`, or dropping the custom Promise handling, would leave the suite green. The PR explicitly claims custom Promise support.\n\nFix: add an `await client.connect()` test that subscribes to `pg:connection`. Add a pool test with a custom Promise subclass that asserts the returned instance and the emitted events.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/pg-pool/test/diagnostics.js",
+      "start_line": 36,
+      "end_line": 36,
+      "message": "Connect failures are untested for `pg:pool:connect`\n\nEvery mock calls `cb(null)`. If `enrichedCb` started turning connect errors into successes, the suite would still pass.\n\nFix: add a mock that calls `cb(new Error('boom'))`. Assert that the user callback receives the same error and that the `pg:pool:connect` `error` subscriber receives `ctx.error`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "packages/pg/test/unit/client/diagnostics-tests.js",
+      "start_line": 17,
+      "end_line": 17,
+      "message": "The nested \"group\" tests do not group\n\n`testTracing('query diagnostics channel', function () {...})` has no assertions. `Suite` runs zero-argument bodies synchronously and appends the child tests to the end of the queue. The group reports \u2714 before any of its children run.\n\nFix: register the children at top level, with the group name as a prefix in each test name.",
+      "producer": "daiv"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 2892341,
+    "completion_tokens": 269869,
+    "total_tokens": 3162210,
+    "time_in_ms": 512542,
+    "cost_usd": 0.20004201
+  }
+}

@@ -82,10 +82,29 @@ def stream_message(llm: ChatOpenAI, *, finish_chunks: int, model: str = MODEL) -
     from upstream's own chunk merge: a fixture asserting the doubled literal would keep passing
     after upstream stopped producing it.
     """
+    return stream_chunks(llm, finishing_chunks(model, finish_chunks))
+
+
+def stream_chunks(llm: ChatOpenAI, chunks: list[dict]) -> AIMessageChunk:
+    """Drive ``llm`` over ``chunks`` and merge what it yields."""
     # ``client`` is a pydantic field: assign to the instance, since
     # ``mock.patch.object(type(llm), "client")`` raises AttributeError.
-    llm.client = mock.Mock(create=lambda **_: fake_stream(finishing_chunks(model, finish_chunks)))
+    llm.client = mock.Mock(create=lambda **_: fake_stream(chunks))
     return accumulate(list(llm.stream("go")))
+
+
+def openrouter_usage(cost: float | None, *, byok: bool = False, upstream: float | None = None) -> dict:
+    """The ``usage`` object OpenRouter sends, as captured from a live streamed call."""
+    return {
+        "prompt_tokens": 6,
+        "completion_tokens": 8,
+        "total_tokens": 14,
+        "cost": cost,
+        "is_byok": byok,
+        "prompt_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
+        "cost_details": {"upstream_inference_cost": cost if upstream is None else upstream},
+        "completion_tokens_details": {"reasoning_tokens": 8},
+    }
 
 
 async def astream_message(llm: ChatOpenAI, *, finish_chunks: int, model: str = MODEL) -> AIMessageChunk:

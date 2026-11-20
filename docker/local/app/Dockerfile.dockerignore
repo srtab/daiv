@@ -19,6 +19,7 @@ Dockerfile
 docker-compose.yml
 docker/production/
 docker/local/app/config.env
+docker/local/app/config.secrets.env
 docker/local/pgadmin
 
 */static/node_modules

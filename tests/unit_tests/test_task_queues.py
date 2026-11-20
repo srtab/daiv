@@ -61,14 +61,16 @@ DECLARED_QUEUES = set(settings.TASKS["default"]["QUEUES"])
 # joining ``interactive`` hands that latency to everything already there.
 INTERACTIVE_TASKS = {
     "notifications.tasks:classify_run_task",
+    "sessions.tasks:classify_push_task",
     "notifications.tasks:deliver_notification_task",
     "sessions.tasks:evaluate_pipeline_watch_task",
     "sessions.tasks:generate_batch_title_task",
     "sessions.tasks:generate_title_task",
+    "sessions.tasks:keep_inbox_claims_alive_cron_task",
 }
 TITLING_TASKS = {"sessions.tasks:generate_title_task", "sessions.tasks:generate_batch_title_task"}
 
-QUEUE_ARGUMENT = re.compile(r"--queue-name \"\$\{1:-([^}]+)\}\"")
+QUEUE_ARGUMENT = re.compile(r"--queue-name \\?\"\$\{1:-([^}]+)\}\\?\"")
 YAML_BLOCK = re.compile(r"```yaml\n(.*?)```", re.DOTALL)
 WORKER_ENTRYPOINT = "start-worker"
 

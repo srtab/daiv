@@ -6,8 +6,10 @@ from datetime import datetime, timedelta
 
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.cache import has_vary_header
 
 import pytest
+from bs4 import BeautifulSoup
 from sessions import views as views_module
 from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
 
@@ -314,6 +316,14 @@ class TestArtifactListView:
         assert resp.status_code == 302
         assert "login" in resp["Location"].lower()
 
+    def test_varies_on_the_htmx_header(self, member_client, member_user):
+        assert has_vary_header(member_client.get(reverse("artifact_list")), "HX-Request")
+
+    def test_search_input_has_aria_label(self, member_client, member_user):
+        resp = member_client.get(reverse("artifact_list"))
+        assert resp.status_code == 200
+        assert 'aria-label="Search by title or filename"' in resp.content.decode()
+
     def test_owner_sees_own_artifact(self, member_client, member_user):
         artifact = _own_artifact(member_user)
 
@@ -385,13 +395,23 @@ class TestArtifactListView:
 
         assert "sessions/artifact_list.html" in [t.name for t in resp.templates if t.name]
 
+    def test_kind_is_a_dropdown_with_clear_all(self, member_client, member_user):
+        _own_artifact(member_user)
+
+        soup = BeautifulSoup(member_client.get(reverse("artifact_list"), {"kind": "image"}).content, "html.parser")
+
+        assert soup.select(".filter-seg") == []
+        control = soup.select_one("[data-testid=filter-kind]").find_parent(class_="filter-control")
+        assert "filter-control--active" in control["class"]
+        assert soup.select_one(".filter-clear").get_text(strip=True) == "Clear all"
+
     def test_repos_context_scoped_to_viewer(self, member_client, member_user, other_user):
         make_artifact(_create_run(_create_session(user=member_user, repo_id="mine/repo")))
         make_artifact(_create_run(_create_session(user=other_user, repo_id="theirs/repo")))
 
         resp = member_client.get(reverse("artifact_list"))
 
-        assert resp.context["repos"] == ["mine/repo"]
+        assert resp.context["repos"] == [("mine/repo", "mine/repo")]
 
     def test_repos_context_not_narrowed_by_active_filters(self, member_client, member_user):
         session = _create_session(user=member_user, repo_id="mine/repo")
@@ -401,7 +421,7 @@ class TestArtifactListView:
 
         resp = member_client.get(reverse("artifact_list"), {"kind": "markdown"})
 
-        assert resp.context["repos"] == ["mine/repo"]
+        assert resp.context["repos"] == [("mine/repo", "mine/repo")]
         assert len(resp.context["artifacts"]) == 1
 
     def test_empty_state_first_use_offers_a_new_session(self, member_client, member_user):

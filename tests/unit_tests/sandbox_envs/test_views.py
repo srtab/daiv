@@ -2,6 +2,7 @@ import json
 from types import SimpleNamespace
 
 from django.urls import reverse
+from django.utils.cache import has_vary_header
 
 import pytest
 from sandbox_envs.models import SandboxEnvironment, Visibility
@@ -606,6 +607,25 @@ def test_sheet_variant_expands_in_place_instead_of_floating():
 
 
 @pytest.mark.django_db
+def test_field_variant_is_a_select_that_floats_its_list():
+    """The Workspace card labels the env like a form field; its list floats like the pill's."""
+    html = _render_picker(variant="field")
+
+    assert "env-field" in html
+    assert POPOVER_CONTAINER.search(html)
+    assert "env-pill" not in html
+    assert "sheet-disclosure" not in html
+
+
+@pytest.mark.django_db
+def test_field_variant_names_auto_from_the_callers_expression():
+    """While Auto is picked the caller can say what it resolves to; an empty answer reads "Auto"."""
+    html = _render_picker(variant="field", auto_label_expr="autoEnvLabel")
+
+    assert "_isAutoSelected() ? (autoEnvLabel) || 'Auto' : pillLabel.name" in html
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize("selected_env", [None, SimpleNamespace(name="ci-heavy", scope="user")])
 def test_locked_sheet_variant_states_the_env_rather_than_offering_it(selected_env):
     """The lock reason rides an `sr-only` line rather than `title`, which the env name would
@@ -618,3 +638,40 @@ def test_locked_sheet_variant_states_the_env_rather_than_offering_it(selected_en
     assert "Locked for this conversation" in html
     if selected_env is not None:
         assert "ci-heavy" in html
+
+
+SITE_OFF_NOTE = "The site's Browser setting is off, so this has no effect yet."
+
+
+@pytest.mark.django_db
+def test_the_browser_radio_notes_when_the_site_switch_is_off(client, user):
+    env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=user, name="dev", base_image="x")
+    client.force_login(user)
+
+    content = client.get(reverse("sandbox_envs:edit", args=[env.id]), HTTP_HX_REQUEST="true").content.decode()
+
+    assert 'name="browser_choice"' in content
+    assert SITE_OFF_NOTE in content
+    assert 'name="browser_choice" value="on" x-model="browser" class="sr-only" disabled' not in content
+
+
+@pytest.mark.django_db
+def test_the_browser_radio_has_no_note_when_the_site_switch_is_on(client, user, monkeypatch):
+    monkeypatch.setenv("DAIV_SANDBOX_BROWSER_ENABLED", "true")
+    env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=user, name="dev", base_image="x")
+    client.force_login(user)
+
+    content = client.get(reverse("sandbox_envs:edit", args=[env.id]), HTTP_HX_REQUEST="true").content.decode()
+
+    assert 'name="browser_choice"' in content
+    assert SITE_OFF_NOTE not in content
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("url_name", ["sandbox_envs:create", "sandbox_envs:edit", "sandbox_envs:delete"])
+def test_drawer_views_vary_on_the_htmx_header(client, user, url_name):
+    env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=user, name="dev", base_image="x")
+    client.force_login(user)
+    args = [] if url_name == "sandbox_envs:create" else [env.id]
+
+    assert has_vary_header(client.get(reverse(url_name, args=args)), "HX-Request")

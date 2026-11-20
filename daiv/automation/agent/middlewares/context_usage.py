@@ -24,10 +24,10 @@ class ContextUsageMiddleware(AgentMiddleware):
 
     ``awrap_model_call`` rather than a hook: a ``before_model``/``after_model`` middleware adds a
     graph node, and a superstep, to every turn (see ``StepBudgetMiddleware.bind``).
-    Must be registered after ``ModelFallbackMiddleware``: the fallback retries the inner chain
-    with ``request.override(model=...)``, so only a middleware inside it sees the model that
-    actually served the call — listed before it, a fallback-served call would divide one model's
-    usage by another model's window.
+    Must be registered after ``ModelFallbackMiddleware`` and ``SkillModelMiddleware``: both retry or
+    serve the inner chain with ``request.override(model=...)``, so only a middleware inside them sees
+    the model that actually served the call — listed before either, such a call would divide one
+    model's usage by another model's window.
 
     A middleware and not a usage callback on purpose: the callback is ContextVar-inheritable
     (that is how cost aggregates across subagents), so its last-call state can report a

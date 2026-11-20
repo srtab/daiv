@@ -33,21 +33,19 @@ def test_reading_enabled_reaches_site_settings_for_a_repo_that_wants_the_watch()
     config = RepositoryConfig(**{"pipeline_watch": {"enabled": True}})
 
     with patch.object(SiteConfiguration, "get_cached", return_value=None) as get_cached:
-        WatchPolicy.enabled_for(config)
+        WatchPolicy(config).enabled  # noqa: B018
 
     assert get_cached.call_count >= 1
 
 
 def test_enabled_short_circuits_without_reading_site_settings():
-    """A repo with the watch off must short-circuit before ``site_settings`` is ever read: the two
-    webhook accept paths run this synchronously on the event loop, and each site-settings read
-    blocks on a thread hop. Asserting the return value alone would not catch a regression that
-    reads ``site_settings`` and then discards the result.
+    """A repo with the watch off must short-circuit before ``site_settings`` is ever read, since each
+    site-settings read blocks on a thread hop. Asserting the return value alone would not catch a
+    regression that reads ``site_settings`` and then discards the result.
     """
     config = RepositoryConfig(**{"pipeline_watch": {"enabled": False, "max_attempts": 1}})
 
     with patch.object(SiteConfiguration, "get_cached") as get_cached:
-        assert WatchPolicy.enabled_for(config) is False
         assert WatchPolicy(config).enabled is False
 
     get_cached.assert_not_called()

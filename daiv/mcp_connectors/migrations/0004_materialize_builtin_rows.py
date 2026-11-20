@@ -86,8 +86,8 @@ def materialize_builtin_rows(apps, schema_editor):
     """Rewrite ``builtin://`` placeholder rows with the *effective* legacy URL.
 
     No released version ever creates a ``builtin://`` row, so on a normal upgrade this is a
-    no-op — the ``post_migrate`` upsert seeds the full remote defaults instead (see CHANGELOG
-    upgrade note). This only matters for deployments already tracking an unreleased,
+    no-op — the ``post_migrate`` upsert seeds the full remote defaults instead (see
+    UPGRADING.md). This only matters for deployments already tracking an unreleased,
     dashboard-managed row from this same rollout (a ``builtin://`` placeholder written by an
     earlier commit on this branch): for those, it imports the effective legacy URL so they
     keep working instead of silently reverting to the remote default.

@@ -5,21 +5,21 @@ Covers only DAIV's custom behavior (per project convention): reasoning capture
 OpenRouter base-URL default. The upstream ChatOpenAI machinery is not re-tested.
 """
 
-from unittest import mock
-
+import pytest
 from langchain_core.load import dumpd, load
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 
 from automation.agent.chat_models import DETAILS_KEY, FALLBACK_KEY, FINISH_STAMPED_KEYS, ChatOpenRouter
 from automation.agent.provider_clients import OPENROUTER_BASE_URL
+from automation.agent.usage_tracking import REPORTED_COST_KEY
 from tests.unit_tests.automation.agent.openai_stream import (
     MODEL,
-    accumulate,
     astream_message,
     chunk,
-    fake_stream,
     finishing_chunks,
+    openrouter_usage,
+    stream_chunks,
     stream_message,
 )
 
@@ -404,10 +404,54 @@ class TestChatOpenRouterRestampedMetadata:
         occurrence when a later one carries it."""
         chunks = finishing_chunks(MODEL, 2)
         del chunks[1]["service_tier"]
-        llm = self._router()
-        llm.client = mock.Mock(create=lambda **_: fake_stream(chunks))
+        assert stream_chunks(self._router(), chunks).response_metadata["service_tier"] == "default"
 
-        assert accumulate(list(llm.stream("go"))).response_metadata["service_tier"] == "default"
+
+class TestChatOpenRouterReportedCost:
+    @staticmethod
+    def _streamed(*usages: dict) -> AIMessageChunk:
+        chunks = finishing_chunks(MODEL, len(usages))
+        for raw, usage in zip(chunks[1:], usages, strict=True):
+            raw["usage"] = usage
+        return stream_chunks(ChatOpenRouter(model=MODEL, api_key="test"), chunks)
+
+    def test_a_streamed_call_carries_the_billed_cost(self):
+        message = self._streamed(openrouter_usage(4.62e-7))
+
+        assert message.response_metadata[REPORTED_COST_KEY] == 4.62e-7
+
+    def test_a_byok_call_adds_the_upstream_charge_to_the_openrouter_fee(self):
+        message = self._streamed(openrouter_usage(0.0005, byok=True, upstream=0.01))
+
+        assert message.response_metadata[REPORTED_COST_KEY] == pytest.approx(0.0105)
+
+    def test_a_byok_call_without_the_upstream_charge_reports_none(self):
+        usage = openrouter_usage(0.0005, byok=True)
+        usage["cost_details"] = None
+
+        assert REPORTED_COST_KEY not in self._streamed(usage).response_metadata
+
+    @pytest.mark.parametrize("cost", [None, True, -0.01, float("nan"), float("inf"), "0.002"])
+    def test_a_cost_that_is_not_a_usd_amount_reports_none(self, cost):
+        assert REPORTED_COST_KEY not in self._streamed(openrouter_usage(cost)).response_metadata
+
+    def test_a_repeated_usage_chunk_keeps_the_first_cost_instead_of_crashing_the_merge(self):
+        message = self._streamed(openrouter_usage(0.002), openrouter_usage(0.003))
+
+        assert message.response_metadata[REPORTED_COST_KEY] == 0.002
+
+    def test_a_non_streamed_call_carries_the_billed_cost(self):
+        model = ChatOpenRouter(model=MODEL, api_key="x")
+        response = {
+            "id": "c",
+            "model": MODEL,
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": "hi"}}],
+            "usage": openrouter_usage(0.0042),
+        }
+
+        result = model._create_chat_result(response)
+
+        assert result.generations[0].message.response_metadata[REPORTED_COST_KEY] == 0.0042
 
 
 class TestChatOpenRouterDefaults:

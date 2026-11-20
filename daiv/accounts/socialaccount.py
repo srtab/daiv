@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from allauth.core import context
 from allauth.socialaccount.adapter import get_adapter
 from allauth.socialaccount.providers.gitlab.views import GitLabOAuth2Adapter
@@ -29,6 +31,28 @@ class GitLabServerAwareAdapter(GitLabOAuth2Adapter):
     @property
     def profile_url(self):
         return self._build_server_url(f"/api/{self.provider_api_version}/user")
+
+    def complete_login(self, request, app, token, **kwargs):
+        """Carry GitLab's confirmed primary email into allauth's email lookup.
+
+        The stock GitLab provider extracts the email but drops `confirmed_at`.
+        Only a valid confirmation timestamp from the authenticated profile may
+        verify that exact primary address. Missing/unconfirmed profile data does
+        not authorize automatic account linking.
+        """
+        login = super().complete_login(request, app, token, **kwargs)
+        data = login.account.extra_data
+        email = data.get("email")
+        try:
+            confirmed = datetime.fromisoformat(data.get("confirmed_at"))
+        except TypeError, ValueError:
+            return login
+        if not isinstance(email, str) or confirmed.tzinfo is None:
+            return login
+        for address in login.email_addresses:
+            if address.primary and address.email.lower() == email.lower():
+                address.verified = True
+        return login
 
 
 oauth2_login = OAuth2LoginView.adapter_view(GitLabServerAwareAdapter)

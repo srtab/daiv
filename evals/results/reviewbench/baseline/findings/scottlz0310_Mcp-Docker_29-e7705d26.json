@@ -1,0 +1,116 @@
+{
+  "pr": {
+    "repo": "https://github.com/scottlz0310/Mcp-Docker",
+    "pr_number": 29,
+    "base": "63baf3dbbc10d271710706f56150dd8425dd4b4a",
+    "head": "e7705d269ea374d49e7999bdb8bc42e9480a6b37"
+  },
+  "agent": "daiv/anthropic:claude-haiku-5-5",
+  "findings": [
+    {
+      "file": "services/copilot-review-mcp/internal/auth/session.go",
+      "start_line": 60,
+      "end_line": 60,
+      "message": "Unauthenticated `/authorize` lets any local caller grow session memory until the container is OOM-killed\n\n`SaveSession` adds an entry per request with no cap on count. `state` only needs to be non-empty. `redirect_uri` is checked for scheme, host, and fragment but not length. `MaxHeaderBytes` is not set, so Go's 1 MiB default applies, and one request can retain about 1 MiB for the 10-minute TTL. The janitor sweeps once a minute. The container limit is 256M (`docker-compose.yml:84`), so a few hundred requests are enough. The container then restarts and drops all in-flight OAuth sessions. Go maps do not shrink after deletes, so memory stays at its peak.\n\nReachability is limited to the `127.0.0.1` port publish and containers on `mcp-network`, so this is a local DoS, not a remote one. It is rated Critical because it is trivially triggered and unauthenticated against the auth service.\n\nFix: reject `state`, `redirect_uri`, and `code_challenge` above about 256 bytes. Cap the total number of sessions. Set `MaxHeaderBytes` to 8\u201316 KiB on `http.Server`. Rate-limit `/authorize`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "services/copilot-review-mcp/internal/auth/handler.go",
+      "start_line": 91,
+      "end_line": 111,
+      "message": "Unauthenticated `/authorize` lets any local caller grow session memory until the container is OOM-killed\n\n`SaveSession` adds an entry per request with no cap on count. `state` only needs to be non-empty. `redirect_uri` is checked for scheme, host, and fragment but not length. `MaxHeaderBytes` is not set, so Go's 1 MiB default applies, and one request can retain about 1 MiB for the 10-minute TTL. The janitor sweeps once a minute. The container limit is 256M (`docker-compose.yml:84`), so a few hundred requests are enough. The container then restarts and drops all in-flight OAuth sessions. Go maps do not shrink after deletes, so memory stays at its peak.\n\nReachability is limited to the `127.0.0.1` port publish and containers on `mcp-network`, so this is a local DoS, not a remote one. It is rated Critical because it is trivially triggered and unauthenticated against the auth service.\n\nFix: reject `state`, `redirect_uri`, and `code_challenge` above about 256 bytes. Cap the total number of sessions. Set `MaxHeaderBytes` to 8\u201316 KiB on `http.Server`. Rate-limit `/authorize`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "services/copilot-review-mcp/cmd/server/main.go",
+      "start_line": 58,
+      "end_line": 65,
+      "message": "Unauthenticated `/authorize` lets any local caller grow session memory until the container is OOM-killed\n\n`SaveSession` adds an entry per request with no cap on count. `state` only needs to be non-empty. `redirect_uri` is checked for scheme, host, and fragment but not length. `MaxHeaderBytes` is not set, so Go's 1 MiB default applies, and one request can retain about 1 MiB for the 10-minute TTL. The janitor sweeps once a minute. The container limit is 256M (`docker-compose.yml:84`), so a few hundred requests are enough. The container then restarts and drops all in-flight OAuth sessions. Go maps do not shrink after deletes, so memory stays at its peak.\n\nReachability is limited to the `127.0.0.1` port publish and containers on `mcp-network`, so this is a local DoS, not a remote one. It is rated Critical because it is trivially triggered and unauthenticated against the auth service.\n\nFix: reject `state`, `redirect_uri`, and `code_challenge` above about 256 bytes. Cap the total number of sessions. Set `MaxHeaderBytes` to 8\u201316 KiB on `http.Server`. Rate-limit `/authorize`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "services/copilot-review-mcp/internal/auth/handler.go",
+      "start_line": 130,
+      "end_line": 130,
+      "message": "`/callback` ignores GitHub's `error` redirect, so a denied consent never reaches the MCP client\n\nWhen the user cancels on GitHub, the browser is redirected to `/callback?error=access_denied&state=\u2026` with no `code`. `Callback` returns a plain-text 400 and never redirects to the client's `redirect_uri`. The client waits until its own timeout, and the session lives until its TTL. RFC 6749 \u00a74.1.2.1, which the file cites, expects the error to be returned to `redirect_uri`.\n\nFix: if `error` is set and `state` maps to a live session, delete the session and 302 to its `RedirectURI` with `error` and `state`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "services/copilot-review-mcp/internal/auth/handler.go",
+      "start_line": 91,
+      "end_line": 91,
+      "message": "Token issuance has no consent step and PKCE is optional, so a local process can obtain the victim's GitHub token\n\nAttack path:\n1. A local unprivileged process opens the victim's browser to `/authorize?response_type=code&state=x&redirect_uri=http://localhost:Q/cb`, with no `code_challenge`. Q is a port the process listens on.\n2. If the victim has already authorized the OAuth App, GitHub redirects without a prompt. `/callback` then sends `code=<internal>` to the attacker's listener.\n3. The attacker POSTs `/token` with that code and the same `redirect_uri`, with no verifier. `ExchangeCode` skips PKCE when `CodeChallenge` is empty and returns the raw GitHub `access_token`.\n\nImpact: the victim's GitHub token with `repo` and `user` scopes. The prerequisite is local code execution as the same user.\n\nThe any-port loopback redirect is allowed by RFC 8252. Mandatory PKCE alone would not stop this, because the attacker supplies its own verifier. The missing control is a consent step that names the requesting redirect (scheme, host, and port) before the flow is sent to GitHub.\n\nFix: show a consent page before redirecting to GitHub. Require `code_challenge_method=S256` on every `/authorize`. Bind the internal code to the consented transaction.",
+      "producer": "daiv"
+    },
+    {
+      "file": "services/copilot-review-mcp/internal/auth/session.go",
+      "start_line": 111,
+      "end_line": 111,
+      "message": "Token issuance has no consent step and PKCE is optional, so a local process can obtain the victim's GitHub token\n\nAttack path:\n1. A local unprivileged process opens the victim's browser to `/authorize?response_type=code&state=x&redirect_uri=http://localhost:Q/cb`, with no `code_challenge`. Q is a port the process listens on.\n2. If the victim has already authorized the OAuth App, GitHub redirects without a prompt. `/callback` then sends `code=<internal>` to the attacker's listener.\n3. The attacker POSTs `/token` with that code and the same `redirect_uri`, with no verifier. `ExchangeCode` skips PKCE when `CodeChallenge` is empty and returns the raw GitHub `access_token`.\n\nImpact: the victim's GitHub token with `repo` and `user` scopes. The prerequisite is local code execution as the same user.\n\nThe any-port loopback redirect is allowed by RFC 8252. Mandatory PKCE alone would not stop this, because the attacker supplies its own verifier. The missing control is a consent step that names the requesting redirect (scheme, host, and port) before the flow is sent to GitHub.\n\nFix: show a consent page before redirecting to GitHub. Require `code_challenge_method=S256` on every `/authorize`. Bind the internal code to the consented transaction.",
+      "producer": "daiv"
+    },
+    {
+      "file": "docker-compose.yml",
+      "start_line": 58,
+      "end_line": 58,
+      "message": "`BASE_URL` default ignores `COPILOT_REVIEW_MCP_PORT`\n\nIf the operator sets `COPILOT_REVIEW_MCP_PORT=9000`, `MCP_PORT` (line 60) and the host mapping (line 65) move to 9000. `BASE_URL` stays `http://localhost:8083`. Discovery then advertises port 8083, and the `redirect_uri` sent to GitHub (`services/copilot-review-mcp/internal/auth/handler.go:116`, `handler.go:259`) points at a port the container is not serving. The flow cannot complete.\n\nFix: `BASE_URL=${BASE_URL:-http://localhost:${COPILOT_REVIEW_MCP_PORT:-8083}}`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "services/copilot-review-mcp/internal/auth/session.go",
+      "start_line": 77,
+      "end_line": 94,
+      "message": "Session completion is not single-use, and the session record is aliased under two keys\n\n- `CompleteCallback` never checks whether `InternalCode` is already set, and it never removes `sessions[state]`. A second `/callback` for the same state issues a second code that is also redeemable, and the first code still resolves to the same session.\n- `ExchangeCode` deletes `sessions[sess.State]` unconditionally. If a second `/authorize` with the same state has overwritten that entry (`SaveSession`, `session.go:60`), redeeming the first code removes the second flow's record. That flow's `/callback` then fails with \"invalid state\".\n- `Callback` re-reads the session through `lookupByCode` after the lock is released (`handler.go:158`) instead of receiving it from `CompleteCallback`.\n\nFix: have `CompleteCallback` return the code and redirect URI in one locked step. Reject completion when `InternalCode` is already set, and delete `sessions[state]` at completion. In `ExchangeCode`, delete `sessions[state]` only when it still points to `sess`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "services/copilot-review-mcp/internal/auth/handler.go",
+      "start_line": 158,
+      "end_line": 158,
+      "message": "Session completion is not single-use, and the session record is aliased under two keys\n\n- `CompleteCallback` never checks whether `InternalCode` is already set, and it never removes `sessions[state]`. A second `/callback` for the same state issues a second code that is also redeemable, and the first code still resolves to the same session.\n- `ExchangeCode` deletes `sessions[sess.State]` unconditionally. If a second `/authorize` with the same state has overwritten that entry (`SaveSession`, `session.go:60`), redeeming the first code removes the second flow's record. That flow's `/callback` then fails with \"invalid state\".\n- `Callback` re-reads the session through `lookupByCode` after the lock is released (`handler.go:158`) instead of receiving it from `CompleteCallback`.\n\nFix: have `CompleteCallback` return the code and redirect URI in one locked step. Reject completion when `InternalCode` is already set, and delete `sessions[state]` at completion. In `ExchangeCode`, delete `sessions[state]` only when it still points to `sess`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "services/copilot-review-mcp/cmd/server/main.go",
+      "start_line": 36,
+      "end_line": 39,
+      "message": "Route paths and the callback URL are duplicated with no shared source\n\nThe route table, the RFC 8414 metadata, and the `/callback` URL are built from separate string literals. The `/callback` URL must match the GitHub OAuth App's registered callback in both places. Renaming one route leaves discovery pointing at a dead endpoint. Changing one callback literal breaks the token exchange with a `redirect_uri` mismatch. No test in the PR would catch either.\n\nFix: define the path constants in the `auth` package. Build the callback URL in one helper that both `Authorize` and `exchangeGitHubCode` use.",
+      "producer": "daiv"
+    },
+    {
+      "file": "services/copilot-review-mcp/internal/auth/handler.go",
+      "start_line": 62,
+      "end_line": 63,
+      "message": "Route paths and the callback URL are duplicated with no shared source\n\nThe route table, the RFC 8414 metadata, and the `/callback` URL are built from separate string literals. The `/callback` URL must match the GitHub OAuth App's registered callback in both places. Renaming one route leaves discovery pointing at a dead endpoint. Changing one callback literal breaks the token exchange with a `redirect_uri` mismatch. No test in the PR would catch either.\n\nFix: define the path constants in the `auth` package. Build the callback URL in one helper that both `Authorize` and `exchangeGitHubCode` use.",
+      "producer": "daiv"
+    },
+    {
+      "file": "services/copilot-review-mcp/internal/auth/handler.go",
+      "start_line": 216,
+      "end_line": 225,
+      "message": "Invalid bearer tokens trigger an uncached outbound GitHub call on every request\n\n`ValidateToken` caches only successful validations. Each request with a bad token misses the cache and calls `api.github.com/user`, with no concurrency cap. The shared client uses the default transport, which keeps two idle connections per host, so bursts open new TLS connections. Confidence is low: the outbound cost is real, but I did not confirm a concrete effect on GitHub rate limits.\n\nFix: add a short negative cache keyed by a hash of the token (30\u201360 s), and cap concurrent validation calls.",
+      "producer": "daiv"
+    },
+    {
+      "file": "services/copilot-review-mcp/internal/auth/handler.go",
+      "start_line": 175,
+      "end_line": 177,
+      "message": "Comment says GitHub validates the MCP client's `client_id`, but nothing checks it\n\n`Token` never reads `client_id`. `exchangeGitHubCode` sends the server's own `GitHubClientID`, so GitHub never sees the caller's value. Correct the comment, or add an explicit check if a client registry is intended.",
+      "producer": "daiv"
+    },
+    {
+      "file": "services/copilot-review-mcp/internal/auth/session.go",
+      "start_line": 52,
+      "end_line": 52,
+      "message": "Janitor goroutine has no stop path\n\n`NewStore` starts `go s.janitor()` with a ticker that is never stopped, and there is no `Close` or context. `main` has no signal handling or `Shutdown`. Each extra `NewStore`, for example in tests, leaks a goroutine. The janitor also reaches into `TokenCache.entries` directly, so cache eviction is tied to `Store`. Fix: pass a context or add `Store.Close()`, and move cache sweeping into `TokenCache` methods.",
+      "producer": "daiv"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 845621,
+    "completion_tokens": 196715,
+    "total_tokens": 1042336,
+    "time_in_ms": 453256,
+    "cost_usd": 0.13538348
+  }
+}

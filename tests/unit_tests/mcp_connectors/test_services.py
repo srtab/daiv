@@ -8,6 +8,7 @@ from mcp_connectors.models import MCPServer
 from mcp_connectors.services import build_runtime_servers
 
 from automation.agent.mcp.schemas import UserMcpServer
+from tests.unit_tests.mcp_connectors.helpers import make_server
 
 
 @pytest.fixture(autouse=True)
@@ -895,3 +896,34 @@ def test_shadow_warning_is_runtime_only(caplog, member_user):
     with caplog.at_level("WARNING", logger="daiv.mcp_connectors"):
         build_runtime_servers(member_user.pk)
     assert "shadowed by a non-disabled global" in caplog.text
+
+
+@pytest.mark.django_db
+def test_composer_rows_list_read_only_tools():
+    server = make_server(
+        "annotated",
+        discovered_tools=[
+            {"name": "search_issues", "description": "", "read_only": True},
+            {"name": "create_issue", "description": "", "read_only": False},
+            {"name": "legacy", "description": "", "read_only": None},
+        ],
+    )
+    (row,) = services.composer_server_rows([server])
+    assert row["read_only_tools"] == ["search_issues"]
+
+
+def fake_connection(*, tools, icon=None):
+    async def connection(payload):
+        return {"ok": True, "tools": tools, "icon": icon}
+
+    return connection
+
+
+@pytest.mark.django_db
+def test_sync_persists_the_server_icon(monkeypatch):
+    server = make_server("iconic")
+    monkeypatch.setattr(services, "test_connection", fake_connection(tools=[], icon="https://x.test/i.png"))
+    services.sync_discovered_tools(server)
+    server.refresh_from_db()
+    assert server.icon == "https://x.test/i.png"
+    assert services.composer_server_rows([server])[0]["icon"] == server.icon

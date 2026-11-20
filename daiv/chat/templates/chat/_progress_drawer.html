@@ -1,0 +1,77 @@
+{% load i18n icon_tags %}
+{% comment %}
+Progress drawer: a strip tucked behind the composer's top edge naming the step the run is on,
+opening upwards in place into the run's progress (its todos) and files changed. ``progressDrawer`` (chat-stream.js)
+decides whether it shows and what the bar says; open is ``sheet === 'progress'``.
+{% endcomment %}
+<div class="progress-drawer"
+     x-show="progressDrawer"
+     x-cloak
+     :class="{ ['progress-drawer--' + progressDrawer?.tone]: progressDrawer, 'progress-drawer--open': sheet === 'progress' }"
+     @click.outside="if (sheet === 'progress') closeSheet()">
+  <div id="progress-drawer-body" class="progress-drawer__body scrollbar-thin" x-show="sheet === 'progress'" x-cloak>
+    <section class="composer-sheet__group" x-show="latestTodos.length">
+      <h3 class="composer-sheet__label">{% translate "Progress" %}</h3>
+      {# Not redundant nesting: `.chat-todo` has no type of its own, `.chat-todos` supplies it. #}
+      <div class="chat-todos">
+        <template x-for="t in latestTodos" :key="t.content">
+          <div class="chat-todo" :class="`chat-todo--${(t.status||'pending').toLowerCase()}`">
+            <span class="chat-todo__icon" x-text="todoIcon(t.status)"></span>
+            <span x-text="t.content"></span>
+          </div>
+        </template>
+      </div>
+    </section>
+
+    <section class="composer-sheet__group"
+             x-show="filesTouched.length"
+             :class="{ 'progress-drawer__files--alone': !latestTodos.length }">
+      <h3 class="composer-sheet__label">
+        {% translate "Files changed" %}
+        <span x-text="`· ${filesTouched.length}`"></span>
+        {# Whole-run totals: the diff is measured once, not file by file. #}
+        <template x-if="drawerDiffStats">
+          <span class="diff-stat">·
+            <span class="diff-stat__plus" x-text="`+${drawerDiffStats.added}`"></span>
+            <span class="diff-stat__minus" x-text="`−${drawerDiffStats.removed}`"></span>
+          </span>
+        </template>
+      </h3>
+      <template x-for="f in filesTouched.slice(0, filesTouchedLimit)" :key="f.path">
+        <button type="button" class="progress-drawer__file"
+                :class="`progress-drawer__file--${f.op || 'modified'}`"
+                @click="jumpToTool(f.segmentId); closeSheet()"
+                :title="f.fromPath ? `${f.op}: ${f.fromPath} → ${f.path}` : `${f.op || 'modified'}: ${f.path}`">
+          <span class="progress-drawer__file-op" x-text="fileOpMark(f.op)"></span>
+          <span class="progress-drawer__file-path" x-text="f.path"></span>
+        </button>
+      </template>
+      <button type="button" class="progress-drawer__more"
+              x-show="filesTouched.length > filesTouchedLimit"
+              @click="filesTouchedLimit = filesTouched.length">
+        {% translate "Show all" %} (<span x-text="filesTouched.length"></span>)
+      </button>
+    </section>
+  </div>
+
+  <button type="button"
+          class="progress-drawer__bar"
+          @click.stop="toggleSheet('progress')"
+          :aria-expanded="sheet === 'progress'"
+          aria-controls="progress-drawer-body"
+          title="{% translate 'Session progress' %}">
+    <span class="progress-drawer__live" x-show="progressDrawer?.tone === 'live'" x-cloak aria-hidden="true"></span>
+    <span class="progress-drawer__step" x-show="progressDrawer?.step" x-text="progressDrawer?.step"></span>
+    <span class="progress-drawer__text" x-text="progressDrawer?.text"></span>
+    <span class="progress-drawer__meta">
+      <template x-if="progressDrawer?.diff">
+        <span class="diff-stat">
+          <span class="diff-stat__plus" x-text="`+${progressDrawer.diff.added}`"></span>
+          <span class="diff-stat__minus" x-text="`−${progressDrawer.diff.removed}`"></span>
+        </span>
+      </template>
+      <span class="progress-drawer__files" x-show="!progressDrawer?.diff" x-text="progressDrawer?.files"></span>
+      {% icon "chevron-down" "progress-drawer__chevron" %}
+    </span>
+  </button>
+</div>

@@ -223,6 +223,18 @@ async def test_row_to_override_builds_egress():
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("browser_enabled", [True, False])
+async def test_row_to_override_carries_the_browser_field(browser_enabled):
+    from sandbox_envs.services import row_to_override
+
+    env = await SandboxEnvironment.objects.acreate(
+        scope=Visibility.GLOBAL, name="b", base_image="node:22", browser_enabled=browser_enabled
+    )
+    assert row_to_override(env).browser is browser_enabled
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
 async def test_row_to_override_fails_closed_to_none_when_malformed():
     from sandbox_envs.services import row_to_override
 
@@ -288,6 +300,7 @@ def test_row_to_override_fails_closed_to_none_no_db():
         base_image="python:3.12",
         memory_bytes=None,
         cpus=None,
+        browser_enabled=False,
     )
     override = row_to_override(env)
     # The except branch (dangling inject → from_stored raises) must have been taken.

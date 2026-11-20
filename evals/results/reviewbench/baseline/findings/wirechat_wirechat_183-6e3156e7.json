@@ -1,0 +1,53 @@
+{
+  "pr": {
+    "repo": "https://github.com/wirechat/wirechat",
+    "pr_number": 183,
+    "base": "7f645146da1285f3817a9dfcb04be0a53ee50ecd",
+    "head": "6e3156e78da9b47cb4c6d596883b3ef0730b8cf8"
+  },
+  "agent": "daiv/anthropic:claude-haiku-5-5",
+  "findings": [
+    {
+      "file": "src/Livewire/Chat/Chat.php",
+      "start_line": 652,
+      "end_line": 652,
+      "message": "Appending to a non-latest window leaves a permanent gap\n\nAfter `jumpToMessage()`, `canLoadNewer` is true. An appended message lands at the end of the window and moves `newerId` to it. `canLoadNewer` then becomes false, and the skipped messages are never fetched. No shipped view calls `jumpToMessage`. The only listeners are `scroll-to-message` in the body partial and `open-attachment` at `Chat.php:110`, which has no dispatcher in the repo. So this is reachable through the public method or event, not the bundled UI. No test covers append-after-jump.\nFix: when `canLoadNewer` is true, don't append. Call `loadNewer()` until it is false, or reload the latest window.",
+      "producer": "daiv"
+    },
+    {
+      "file": "resources/views/livewire/chat/partials/body.blade.php",
+      "start_line": 224,
+      "end_line": 225,
+      "message": "Video layout changes after boot are never re-scrolled\n\nThe base code listened for `loadeddata` on video and re-scrolled at 400 ms (base `body.blade.php` lines 32 and 59\u201368). The head listens only to `load.capture` and `error.capture`, and `<video>` does not fire `load`. `initializing` clears at 220 ms, so a video whose metadata arrives later can leave the newest message below the fold.\nFix: add `x-on:loadedmetadata.capture` and `x-on:loadeddata.capture` to `<main>`. Not verified at runtime.",
+      "producer": "daiv"
+    },
+    {
+      "file": "resources/views/livewire/chat/partials/body.blade.php",
+      "start_line": 131,
+      "end_line": 131,
+      "message": "The jump lock is cleared by the jump's own scroll\n\nAfter a jump, the re-centering branch in `onAnyMediaLoad` (`:178-180`) is effectively dead. Confidence is moderate, from code reading only.\nFix: route programmatic scroll writes (`scrollToBottom`, `scrollToMessageCenter`, `restoreToAnchor`) through one helper that also updates `lastScrollTop`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/Livewire/Chat/Chat.php",
+      "start_line": 656,
+      "end_line": 656,
+      "message": "Every append runs an O(conversation) EXISTS scan\n\nEach realtime or own message now runs two EXISTS queries. An appended message is always the newest, so the `canLoadNewer` predicate matches nothing and the database must read every row in the conversation. The only index is `index(['conversation_id'])` (`database/migrations/2024_11_01_000004_create_wirechat_messages_table.php:40`). The cost is linear in conversation length and paid per receiving tab and per sender. This also contradicts the PR's stated goal of less append-path resync. Actual cost was not measured.\nFix: on append, keep only `syncCursorsFromFlat`. Recompute flags only when the window was empty, and only after fix 1 is in place.",
+      "producer": "daiv"
+    },
+    {
+      "file": "tests/Feature/ChatTest.php",
+      "start_line": 58,
+      "end_line": 58,
+      "message": "Weakened style assertion\n\nThe regex changed from the exact `style=\"contain:content; min-height: 24rem;\"` to `style=\"[^\"]*min-height: 24rem;[^\"]*\"`. The shell view `resources/views/livewire/chat/chat.blade.php:8-11` is unchanged in this PR, and the new pattern no longer requires `contain:content`. Nothing in the diff justifies the loosening.\nFix: restore a pattern that requires `contain:content;` before `min-height`.",
+      "producer": "daiv"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 5722631,
+    "completion_tokens": 503288,
+    "total_tokens": 6225919,
+    "time_in_ms": 703484,
+    "cost_usd": 0.62616525
+  }
+}

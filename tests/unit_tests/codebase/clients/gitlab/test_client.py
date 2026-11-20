@@ -1,8 +1,6 @@
 import logging
 from unittest.mock import Mock, call, patch
 
-from django.core.exceptions import ImproperlyConfigured
-
 import pytest
 import requests
 from git import GitCommandError
@@ -17,7 +15,8 @@ from codebase.clients.gitlab.client import (
     GitLabClient,
     _is_source_branch_missing_error,
 )
-from codebase.exceptions import MergeRequestBranchNotVisibleError
+from codebase.conf import settings as codebase_settings
+from codebase.exceptions import CloneCredentialUnavailableError, MergeRequestBranchNotVisibleError
 
 _CLONE_URL = "https://gitlab.com/group/repo.git"
 
@@ -196,14 +195,19 @@ class TestGitLabClient:
         assert clone_from.call_args.kwargs["env"] == _expected_clone_env("pat-token")
         assert "with the configured PAT" in caplog.text
 
-    def test_load_repo_raises_when_pat_is_missing(self, gitlab_client, clone_setup):
-        """No ephemeral token and no PAT must fail with a named config error, not an oauth2:None@ URL."""
+    @pytest.mark.parametrize(
+        ("pat", "fallback"),
+        [pytest.param(None, True, id="no-pat"), pytest.param("pat-token", False, id="fallback-off")],
+    )
+    def test_load_repo_raises_without_a_clone_credential(self, gitlab_client, clone_setup, monkeypatch, pat, fallback):
+        """No ephemeral token and no usable PAT fails with a named error, not an oauth2:None@ URL or the PAT."""
         repository, clone_from, _ = clone_setup
-        gitlab_client.client.private_token = None
+        gitlab_client.client.private_token = pat
+        monkeypatch.setattr(codebase_settings, "GITLAB_PAT_FALLBACK", fallback)
 
         with (
             patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None),
-            pytest.raises(ImproperlyConfigured),
+            pytest.raises(CloneCredentialUnavailableError, match="CODEBASE_GITLAB_PAT_FALLBACK"),
             gitlab_client.load_repo(repository, "main"),
         ):
             pass
@@ -341,6 +345,26 @@ class TestGitLabClient:
         # Only the stale token slept; the PAT attempt adds no further backoff.
         assert mock_sleep.call_args_list == [call(delay) for delay in backoff]
 
+    def test_load_repo_remint_raises_when_pat_fallback_disabled(self, gitlab_client, clone_setup, monkeypatch):
+        """If the re-mint after a stale token yields nothing, the fallback-off clone fails without trying the PAT."""
+        repository, clone_from, _ = clone_setup
+        monkeypatch.setattr(codebase_settings, "GITLAB_PAT_FALLBACK", False)
+        stale_attempts = len(CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS) + 1
+        clone_from.side_effect = GitCommandError("git clone", 128, "fatal: Authentication failed for 'https://...'")
+
+        with (
+            patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", side_effect=["glpat-stale", None]),
+            patch("codebase.clients.gitlab.client.invalidate_clone_token") as invalidate,
+            patch("codebase.clients.gitlab.client.shutil.rmtree"),
+            patch("codebase.clients.gitlab.client.time.sleep"),
+            pytest.raises(CloneCredentialUnavailableError),
+            gitlab_client.load_repo(repository, "main"),
+        ):
+            pass
+
+        invalidate.assert_called_once_with(1)
+        assert clone_from.call_count == stale_attempts
+
     def test_load_repo_does_not_retry_when_the_clone_used_the_pat(self, gitlab_client, clone_setup):
         """Re-minting can't fix a clone that already used the PAT directly (no ephemeral token to
         evict), so an auth-rejected PAT clone must surface immediately, not retry."""
@@ -368,12 +392,17 @@ class TestGitLabClient:
 
         assert auth_env == GitAuthEnv.for_token(_CLONE_URL, "glpat-eph")
 
-    def test_get_git_auth_env_none_when_no_token(self, gitlab_client, clone_setup, caplog):
-        """No token at all (no ephemeral, no PAT) means nothing to authenticate with — callers
-        get None instead of a bogus header, and a debug line records it so a provisioning failure
-        is distinguishable from a genuinely credential-less (public-repo) platform."""
+    @pytest.mark.parametrize(
+        ("pat", "fallback"),
+        [pytest.param(None, True, id="no-pat"), pytest.param("pat-token", False, id="fallback-off")],
+    )
+    def test_get_git_auth_env_none_when_no_token(self, gitlab_client, clone_setup, caplog, monkeypatch, pat, fallback):
+        """No usable token (no ephemeral, and no PAT or the fallback off) means nothing to authenticate
+        with — callers get None instead of a bogus header, and a debug line records it so a provisioning
+        failure is distinguishable from a genuinely credential-less (public-repo) platform."""
         repository, _, _ = clone_setup
-        gitlab_client.client.private_token = None
+        gitlab_client.client.private_token = pat
+        monkeypatch.setattr(codebase_settings, "GITLAB_PAT_FALLBACK", fallback)
 
         with (
             patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None),
@@ -1074,8 +1103,13 @@ class TestGitLabClient:
             cred = gitlab_client.get_git_egress_credential(self._egress_repo())
         assert cred.value.get_secret_value() == "Basic " + base64.b64encode(b"oauth2:pat-token").decode()
 
-    def test_get_git_egress_credential_no_token_returns_host_only(self, gitlab_client):
-        gitlab_client.client.private_token = None
+    @pytest.mark.parametrize(
+        ("pat", "fallback"),
+        [pytest.param(None, True, id="no-pat"), pytest.param("pat-token", False, id="fallback-off")],
+    )
+    def test_get_git_egress_credential_no_token_returns_host_only(self, gitlab_client, monkeypatch, pat, fallback):
+        gitlab_client.client.private_token = pat
+        monkeypatch.setattr(codebase_settings, "GITLAB_PAT_FALLBACK", fallback)
         with patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None):
             cred = gitlab_client.get_git_egress_credential(self._egress_repo())
         assert cred.host == "gitlab.example.com"
@@ -1194,3 +1228,54 @@ class TestGitLabClient:
         """A budget shorter than GitLab's post-receive tail silently reverts to creating the pipeline
         on the previous commit — the exact bug this poll exists for."""
         assert sum(MERGE_REQUEST_HEAD_REF_SYNC_RETRY_BACKOFF_SECONDS) >= 60
+
+    @staticmethod
+    def _listed_pipeline(pipeline_id: int, source: str) -> Mock:
+        pipeline = Mock(
+            id=pipeline_id, iid=pipeline_id, sha="abc", status="failed", source=source,
+            web_url=f"https://gitlab.com/group/repo/-/pipelines/{pipeline_id}",
+        )  # fmt: skip
+        pipeline.jobs.list.return_value = []
+        return pipeline
+
+    def test_the_latest_pipeline_of_a_branch_skips_child_pipelines(self, gitlab_client):
+        """A child pipeline runs on its parent's ref and commit with a higher id; the merge request's result is the
+        parent's."""
+        project = gitlab_client.client.projects.get.return_value
+        project.pipelines.list.return_value = [
+            self._listed_pipeline(12, "parent_pipeline"),
+            self._listed_pipeline(11, "merge_request_event"),
+        ]
+
+        pipeline = gitlab_client.get_latest_pipeline_for_ref("group/repo", "daiv/branch")
+
+        assert pipeline.id == 11
+        newest_first = {"ref": "daiv/branch", "order_by": "id", "sort": "desc"}
+        assert project.pipelines.list.call_args.kwargs.items() >= newest_first.items()
+
+    def test_a_branch_with_only_child_pipelines_has_no_latest_pipeline(self, gitlab_client):
+        project = gitlab_client.client.projects.get.return_value
+        project.pipelines.list.return_value = [self._listed_pipeline(12, "parent_pipeline")]
+
+        assert gitlab_client.get_latest_pipeline_for_ref("group/repo", "daiv/branch") is None
+
+    def test_the_latest_pipelines_of_a_branch_are_its_latest_pipeline(self, gitlab_client):
+        """A GitLab pipeline covers the whole commit, so a branch has one CI subject. The listing reads no jobs: the
+        watch reads a pipeline's jobs only to judge it."""
+        project = gitlab_client.client.projects.get.return_value
+        listed = [
+            self._listed_pipeline(12, "parent_pipeline"),
+            self._listed_pipeline(11, "push"),
+            self._listed_pipeline(10, "push"),
+        ]
+        project.pipelines.list.return_value = listed
+
+        pipelines = gitlab_client.get_latest_pipelines_for_ref("group/repo", "daiv/branch")
+
+        assert [(p.id, p.jobs) for p in pipelines] == [(11, [])]
+        listed[1].jobs.list.assert_not_called()
+
+    def test_a_branch_without_pipelines_has_no_latest_pipelines(self, gitlab_client):
+        gitlab_client.client.projects.get.return_value.pipelines.list.return_value = []
+
+        assert gitlab_client.get_latest_pipelines_for_ref("group/repo", "daiv/branch") == []

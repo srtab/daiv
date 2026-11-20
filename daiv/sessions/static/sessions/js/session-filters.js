@@ -6,6 +6,10 @@
  * only #session-results via the shared swapResults().
  */
 
+// The Spend page's params: those with no control in the bar show as one banner.
+const SPEND_BANNER_PARAMS = ["spend_from", "spend_to", "spend_repo", "spend_trigger", "spend_task"];
+const SPEND_PARAMS = [...SPEND_BANNER_PARAMS, "spend_person", "spend_model", "spend_provider"];
+
 const { swapResults } = window.createResultsSwap("session-results", {
     errorMessage: "Couldn't update the session list — check your connection and try again.",
     onUrlChanged: () => window.dispatchEvent(new CustomEvent("sessions:url-changed")),
@@ -14,6 +18,7 @@ const { swapResults } = window.createResultsSwap("session-results", {
 document.addEventListener("alpine:init", () => {
     Alpine.data("filterBar", () => ({
         open: null, // id of the open dropdown, or null
+        scope: "mine",
         q: "",
         status: "",
         trigger: "",
@@ -22,8 +27,12 @@ document.addEventListener("alpine:init", () => {
         to: "",
         repo: "",
         mr: "",
+        ranOn: "",
         schedule: "",
         batch: "",
+        archived: "",
+        sort: "",
+        ...Object.fromEntries(SPEND_PARAMS.map((name) => [name, ""])),
 
         init() {
             this._readUrl();
@@ -33,6 +42,8 @@ document.addEventListener("alpine:init", () => {
 
         _readUrl() {
             const p = new URLSearchParams(window.location.search);
+            // Only the server-rendered URL can lack a scope (_apply always sets one), so take the scope it resolved.
+            this.scope = p.get("scope") || this.$root.dataset.scope;
             this.q = p.get("q") || "";
             this.status = p.get("status") || "";
             this.trigger = p.get("trigger") || "";
@@ -41,18 +52,13 @@ document.addEventListener("alpine:init", () => {
             this.to = p.get("date_to") || "";
             this.repo = p.get("repo") || "";
             this.mr = p.get("mr") || "";
+            this.ranOn = p.get("ran_on") || "";
             this.schedule = p.get("schedule") || "";
             this.batch = p.get("batch") || "";
-        },
-
-        _labelFor(kind, value) {
-            if (!value) return "";
-            const el = this.$root.querySelector(`[data-${kind}-value="${value}"]`);
-            if (el) return el.dataset.label || el.textContent.trim();
-            // A URL value with no matching menu item (renamed/removed enum, hand-edited
-            // URL): show the raw value so the active filter stays visible, and log it.
-            console.warn(`filterBar: no menu item for ${kind}="${value}"; showing raw value`);
-            return value;
+            const archived = p.get("archived");
+            this.archived = archived === "true" || archived === "all" ? archived : "";
+            this.sort = p.get("sort") || this.$root.dataset.defaultSort;
+            SPEND_PARAMS.forEach((name) => (this[name] = p.get(name) || ""));
         },
 
         _apply() {
@@ -60,6 +66,8 @@ document.addEventListener("alpine:init", () => {
             const set = (k, v) => {
                 if (v) params.set(k, v);
             };
+            // Always explicit: clearing a deep-link chip must not silently flip "all" back to "mine".
+            set("scope", this.scope);
             set("q", this.q);
             set("status", this.status);
             set("trigger", this.trigger);
@@ -68,29 +76,22 @@ document.addEventListener("alpine:init", () => {
             set("date_to", this.to);
             set("repo", this.repo);
             set("mr", this.mr);
+            set("ran_on", this.ranOn);
             set("schedule", this.schedule);
             set("batch", this.batch);
+            set("archived", this.archived);
+            SPEND_PARAMS.forEach((name) => set(name, this[name]));
+            set("sort", this.sort === this.$root.dataset.defaultSort ? "" : this.sort);
             const qs = params.toString();
             swapResults(window.location.pathname + (qs ? "?" + qs : ""));
             this.open = null;
         },
 
-        toggle(id) {
-            this.open = this.open === id ? null : id;
-        },
-
-        setStatus(value) {
-            this.status = value;
+        setScope(value) {
+            this.scope = value;
             this._apply();
         },
-        setTrigger(value) {
-            this.trigger = value;
-            this._apply();
-        },
-        clearTrigger() {
-            this.trigger = "";
-            this._apply();
-        },
+        ...window.filterDropdown,
         setRange(value) {
             this.range = value;
             this.from = "";
@@ -109,6 +110,10 @@ document.addEventListener("alpine:init", () => {
             this.to = "";
             this._apply();
         },
+        toggleArchived() {
+            this.archived = this.archived === "true" ? "" : "true";
+            this._apply();
+        },
         clearParam(...keys) {
             keys.forEach((key) => (this[key] = ""));
             this._apply();
@@ -122,27 +127,27 @@ document.addEventListener("alpine:init", () => {
             this.to = "";
             this.repo = "";
             this.mr = "";
+            this.ranOn = "";
             this.schedule = "";
             this.batch = "";
+            this.archived = "";
+            SPEND_PARAMS.forEach((name) => (this[name] = ""));
             this._apply();
         },
 
-        // Button labels are derived from the rendered menu items (single source of truth =
-        // the template), so they never need to be stored or cleared alongside the value.
-        get triggerLabel() {
-            return this._labelFor("trigger", this.trigger);
-        },
-        get rangeLabel() {
-            return this._labelFor("range", this.range);
-        },
-
         get timeLabel() {
-            if (this.rangeLabel) return this.rangeLabel;
+            if (this.range) return this.labelFor("range");
             if (this.from || this.to) return (this.from || "…") + " – " + (this.to || "…");
             return "";
         },
         get timeActive() {
             return !!(this.range || this.from || this.to);
+        },
+        get hasChips() {
+            return !!(this.repo || this.mr || this.archived === "all" || this.ranOn || this.schedule || this.batch);
+        },
+        get hasSpendBanner() {
+            return SPEND_BANNER_PARAMS.some((name) => this[name]);
         },
         get hasActiveFilters() {
             return !!(
@@ -154,8 +159,11 @@ document.addEventListener("alpine:init", () => {
                 this.to ||
                 this.repo ||
                 this.mr ||
+                this.ranOn ||
                 this.schedule ||
-                this.batch
+                this.batch ||
+                this.archived ||
+                SPEND_PARAMS.some((name) => this[name])
             );
         },
     }));

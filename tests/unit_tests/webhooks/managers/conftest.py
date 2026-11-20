@@ -88,7 +88,10 @@ def addressor_run(
     """
     resolve = resolve or MagicMock(return_value=resolved_to("m", thinking_level="medium"), side_effect=kwargs_error)
     recovery = (
-        patch("sessions.executor.run.recover_draft", AsyncMock(return_value=draft_published))
+        patch(
+            "sessions.executor.run.recover_draft",
+            AsyncMock(return_value=SimpleNamespace(created_merge_request=False) if draft_published else None),
+        )
         if stub_recovery
         else nullcontext()
     )

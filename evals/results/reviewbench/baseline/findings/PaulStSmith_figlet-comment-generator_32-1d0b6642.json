@@ -1,0 +1,81 @@
+{
+  "pr": {
+    "repo": "https://github.com/PaulStSmith/figlet-comment-generator",
+    "pr_number": 32,
+    "base": "3750acad624b6b38b768aa8b9aa3ba1573e2f63e",
+    "head": "1d0b6642fcf5ca31fc308c3d603b19ab02ea249e"
+  },
+  "agent": "daiv/anthropic:claude-haiku-5-5",
+  "findings": [
+    {
+      "file": ".github/workflows/publish-figprint.yml",
+      "start_line": 254,
+      "end_line": 254,
+      "message": "WinGet installer manifest drops the `figprint` command alias\n\nThe old installer block declared `PortableCommandAlias: figprint` under `NestedInstallerFiles`. The rewritten block lists only `RelativeFilePath: FIGPrint.exe` for both architectures, and `PortableCommandAlias` no longer appears anywhere in the file (grep confirmed). After publishing, `winget install ByteForge.FIGPrint` would not create the `figprint` command, though the changelog says this PR keeps it.\n\nFix: add `    PortableCommandAlias: figprint` (four spaces, under the `RelativeFilePath` item) to both installer entries.",
+      "producer": "daiv"
+    },
+    {
+      "file": ".github/workflows/publish-figprint.yml",
+      "start_line": 209,
+      "end_line": 209,
+      "message": "Schema headers are malformed because PowerShell expands `$schema`\n\nThe three header lines are double-quoted PowerShell strings containing `$schema=`. Nothing assigns `$schema`, so PowerShell expands it to an empty string and writes `# yaml-language-server: =https://aka.ms/...`, which is not a schema directive. The step still succeeds and opens the winget-pkgs PR, but the header requirement this change exists to meet is not satisfied.\n\nFix: escape the dollar sign (`` `$schema= ``) or use single quotes for those three header strings.\n\nNot executed: `pwsh` is not available in this sandbox. This follows from PowerShell string-expansion rules.",
+      "producer": "daiv"
+    },
+    {
+      "file": ".github/workflows/publish-figprint.yml",
+      "start_line": 8,
+      "end_line": 8,
+      "message": "Path filters skip version files, so version-only changes no longer publish\n\nEach publish workflow takes its version from a file the new filters no longer match. For example, `publish-figprint.yml` reads and rewrites `<Version>` in `FIGPrint/FIGPrint.csproj` ([`FIGPrint/FIGPrint.csproj:12`](https://github.com/PaulStSmith/figlet-comment-generator/blob/1d0b6642fcf5ca31fc308c3d603b19ab02ea249e/FIGPrint/FIGPrint.csproj#L12)). The other components use `FIGLet/FIGLet.csproj`, `FIGLet.Python/pyproject.toml`, `FIGLet.TS/package.json`, and `FIGLet.VSCodeExtension/package.json`. A merged PR whose only change is one of these, such as a major.minor bump, no longer starts the workflow. The release then waits for an unrelated `.cs`/`.ts` change or a manual dispatch. The old filters also matched the workflow file itself, which is now dropped too. The PR description does not mention this narrowing.\n\nFix: restore the component-directory filters, or add the version files explicitly (for example `FIGPrint/FIGPrint.csproj`).",
+      "producer": "daiv"
+    },
+    {
+      "file": ".github/workflows/publish-figlet-nuget.yml",
+      "start_line": 8,
+      "end_line": 8,
+      "message": "Path filters skip version files, so version-only changes no longer publish\n\nEach publish workflow takes its version from a file the new filters no longer match. For example, `publish-figprint.yml` reads and rewrites `<Version>` in `FIGPrint/FIGPrint.csproj` ([`FIGPrint/FIGPrint.csproj:12`](https://github.com/PaulStSmith/figlet-comment-generator/blob/1d0b6642fcf5ca31fc308c3d603b19ab02ea249e/FIGPrint/FIGPrint.csproj#L12)). The other components use `FIGLet/FIGLet.csproj`, `FIGLet.Python/pyproject.toml`, `FIGLet.TS/package.json`, and `FIGLet.VSCodeExtension/package.json`. A merged PR whose only change is one of these, such as a major.minor bump, no longer starts the workflow. The release then waits for an unrelated `.cs`/`.ts` change or a manual dispatch. The old filters also matched the workflow file itself, which is now dropped too. The PR description does not mention this narrowing.\n\nFix: restore the component-directory filters, or add the version files explicitly (for example `FIGPrint/FIGPrint.csproj`).",
+      "producer": "daiv"
+    },
+    {
+      "file": ".github/workflows/publish-figlet-py.yml",
+      "start_line": 8,
+      "end_line": 8,
+      "message": "Path filters skip version files, so version-only changes no longer publish\n\nEach publish workflow takes its version from a file the new filters no longer match. For example, `publish-figprint.yml` reads and rewrites `<Version>` in `FIGPrint/FIGPrint.csproj` ([`FIGPrint/FIGPrint.csproj:12`](https://github.com/PaulStSmith/figlet-comment-generator/blob/1d0b6642fcf5ca31fc308c3d603b19ab02ea249e/FIGPrint/FIGPrint.csproj#L12)). The other components use `FIGLet/FIGLet.csproj`, `FIGLet.Python/pyproject.toml`, `FIGLet.TS/package.json`, and `FIGLet.VSCodeExtension/package.json`. A merged PR whose only change is one of these, such as a major.minor bump, no longer starts the workflow. The release then waits for an unrelated `.cs`/`.ts` change or a manual dispatch. The old filters also matched the workflow file itself, which is now dropped too. The PR description does not mention this narrowing.\n\nFix: restore the component-directory filters, or add the version files explicitly (for example `FIGPrint/FIGPrint.csproj`).",
+      "producer": "daiv"
+    },
+    {
+      "file": ".github/workflows/publish-figlet-ts.yml",
+      "start_line": 8,
+      "end_line": 9,
+      "message": "Path filters skip version files, so version-only changes no longer publish\n\nEach publish workflow takes its version from a file the new filters no longer match. For example, `publish-figprint.yml` reads and rewrites `<Version>` in `FIGPrint/FIGPrint.csproj` ([`FIGPrint/FIGPrint.csproj:12`](https://github.com/PaulStSmith/figlet-comment-generator/blob/1d0b6642fcf5ca31fc308c3d603b19ab02ea249e/FIGPrint/FIGPrint.csproj#L12)). The other components use `FIGLet/FIGLet.csproj`, `FIGLet.Python/pyproject.toml`, `FIGLet.TS/package.json`, and `FIGLet.VSCodeExtension/package.json`. A merged PR whose only change is one of these, such as a major.minor bump, no longer starts the workflow. The release then waits for an unrelated `.cs`/`.ts` change or a manual dispatch. The old filters also matched the workflow file itself, which is now dropped too. The PR description does not mention this narrowing.\n\nFix: restore the component-directory filters, or add the version files explicitly (for example `FIGPrint/FIGPrint.csproj`).",
+      "producer": "daiv"
+    },
+    {
+      "file": ".github/workflows/publish-vscode-extension.yml",
+      "start_line": 8,
+      "end_line": 9,
+      "message": "Path filters skip version files, so version-only changes no longer publish\n\nEach publish workflow takes its version from a file the new filters no longer match. For example, `publish-figprint.yml` reads and rewrites `<Version>` in `FIGPrint/FIGPrint.csproj` ([`FIGPrint/FIGPrint.csproj:12`](https://github.com/PaulStSmith/figlet-comment-generator/blob/1d0b6642fcf5ca31fc308c3d603b19ab02ea249e/FIGPrint/FIGPrint.csproj#L12)). The other components use `FIGLet/FIGLet.csproj`, `FIGLet.Python/pyproject.toml`, `FIGLet.TS/package.json`, and `FIGLet.VSCodeExtension/package.json`. A merged PR whose only change is one of these, such as a major.minor bump, no longer starts the workflow. The release then waits for an unrelated `.cs`/`.ts` change or a manual dispatch. The old filters also matched the workflow file itself, which is now dropped too. The PR description does not mention this narrowing.\n\nFix: restore the component-directory filters, or add the version files explicitly (for example `FIGPrint/FIGPrint.csproj`).",
+      "producer": "daiv"
+    },
+    {
+      "file": ".github/workflows/publish-vs-extension.yml",
+      "start_line": 8,
+      "end_line": 9,
+      "message": "Path filters skip version files, so version-only changes no longer publish\n\nEach publish workflow takes its version from a file the new filters no longer match. For example, `publish-figprint.yml` reads and rewrites `<Version>` in `FIGPrint/FIGPrint.csproj` ([`FIGPrint/FIGPrint.csproj:12`](https://github.com/PaulStSmith/figlet-comment-generator/blob/1d0b6642fcf5ca31fc308c3d603b19ab02ea249e/FIGPrint/FIGPrint.csproj#L12)). The other components use `FIGLet/FIGLet.csproj`, `FIGLet.Python/pyproject.toml`, `FIGLet.TS/package.json`, and `FIGLet.VSCodeExtension/package.json`. A merged PR whose only change is one of these, such as a major.minor bump, no longer starts the workflow. The release then waits for an unrelated `.cs`/`.ts` change or a manual dispatch. The old filters also matched the workflow file itself, which is now dropped too. The PR description does not mention this narrowing.\n\nFix: restore the component-directory filters, or add the version files explicitly (for example `FIGPrint/FIGPrint.csproj`).",
+      "producer": "daiv"
+    },
+    {
+      "file": "FIGLet.VSCodeExtension/src/BannerUtils.ts",
+      "start_line": 62,
+      "end_line": 62,
+      "message": "A non-empty selection is no longer replaced when a banner is inserted\n\nThe removed branch replaced the selection with the banner. The new code always inserts at column 0 of the active line. Selected text is kept, and the banner lands above the cursor's line, which for a multi-line selection is inside the selected range. The docstring at [`BannerUtils.ts:55`](https://github.com/PaulStSmith/figlet-comment-generator/blob/1d0b6642fcf5ca31fc308c3d603b19ab02ea249e/FIGLet.VSCodeExtension/src/BannerUtils.ts#L55) still says \"at the current cursor position\", and neither the PR description nor the changelog mentions the change.\n\nFix: if the removal is intended, document it and update the docstring. If not, restore `editBuilder.replace(editor.selection, \u2026)` for non-empty selections.",
+      "producer": "daiv"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1759989,
+    "completion_tokens": 178993,
+    "total_tokens": 1938982,
+    "time_in_ms": 551441,
+    "cost_usd": 0.18615706
+  }
+}

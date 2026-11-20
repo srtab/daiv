@@ -7,8 +7,17 @@ from django.utils import timezone
 
 import pytest
 from sessions.artifacts import ArtifactKind, content_types_for_kind
-from sessions.filters import ArtifactFilter, SessionFilter
-from sessions.models import Run, RunArtifact, RunStatus, Session, SessionOrigin
+from sessions.filters import STATUS_CHOICES, ArtifactFilter, SessionFilter, resolve_scope
+from sessions.models import (
+    Run,
+    RunArtifact,
+    RunStatus,
+    Session,
+    SessionOrigin,
+    SessionRepository,
+    SpendRecord,
+    SpendTask,
+)
 
 from accounts.models import User
 from schedules.models import Frequency, ScheduledJob
@@ -49,6 +58,41 @@ def _create_run(session: Session, **kwargs) -> Run:
 def _qs():
     """Base queryset with the annotation required by filter_status."""
     return Session.objects.with_latest_status()
+
+
+def test_status_choices_put_what_waits_on_the_developer_first():
+    assert [value for value, _label in STATUS_CHOICES] == [
+        RunStatus.WAITING_INPUT,
+        RunStatus.FAILED,
+        RunStatus.RUNNING,
+        RunStatus.QUEUED,
+        RunStatus.READY,
+        RunStatus.SUCCESSFUL,
+    ]
+
+
+def test_status_choices_cover_every_run_status():
+    assert sorted(value for value, _label in STATUS_CHOICES) == sorted(RunStatus.values)
+
+
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        ({}, "mine"),
+        ({"q": "fix", "status": "FAILED"}, "mine"),
+        ({"repo": "group/project"}, "all"),
+        ({"mr": "42"}, "all"),
+        ({"schedule": "7"}, "all"),
+        ({"batch": str(uuid.UUID(int=1))}, "all"),
+        ({"repo": ""}, "mine"),
+        ({"repo": "group/project", "scope": "mine"}, "mine"),
+        ({"scope": "all"}, "all"),
+        ({"scope": "everyone"}, "mine"),
+        ({"scope": "everyone", "repo": "group/project"}, "all"),
+    ],
+)
+def test_resolve_scope(data, expected):
+    assert resolve_scope(data) == expected
 
 
 @pytest.mark.django_db
@@ -131,6 +175,21 @@ class TestSessionFilter:
         assert inside.pk in pks
         assert before.pk not in pks
         assert after.pk not in pks
+
+    def test_ran_on_matches_a_run_that_day_not_the_last_activity(self, user):
+        day = timezone.localdate() - timedelta(days=3)
+        ran_that_day = _create_session()
+        Run.objects.filter(pk=_create_run(ran_that_day).pk).update(
+            created_at=timezone.make_aware(datetime.combine(day, time(12)))
+        )
+        other_day = _create_session()
+        Run.objects.filter(pk=_create_run(other_day).pk).update(
+            created_at=timezone.make_aware(datetime.combine(day - timedelta(days=1), time(12)))
+        )
+
+        pks = list(SessionFilter({"ran_on": day.isoformat()}, queryset=_qs()).qs.values_list("pk", flat=True))
+
+        assert pks == [ran_that_day.pk]
 
     def test_invalid_date_is_ignored(self, user):
         a = _create_session()
@@ -239,6 +298,13 @@ class TestSessionFilter:
         pks = list(SessionFilter({"mr": "42", "repo": "group/project"}, queryset=_qs()).qs.values_list("pk", flat=True))
         assert here.pk in pks
         assert elsewhere.pk not in pks
+
+    def test_mr_with_a_repository_matches_it_on_any_of_a_session_s_repositories(self, user):
+        shared = _create_session(repo_id="group/main")
+        SessionRepository.objects.create(session=shared, position=1, repo_id="group/project", merge_request_iid=42)
+
+        pks = list(SessionFilter({"mr": "42", "repo": "group/project"}, queryset=_qs()).qs.values_list("pk", flat=True))
+        assert pks == [shared.pk]
 
     def test_mr_filter_invalid_value_is_ignored(self, user):
         a = _create_session(merge_request_iid=42)
@@ -415,3 +481,78 @@ class TestArtifactFilter:
         )
         assert here.pk in pks
         assert elsewhere.pk not in pks
+
+
+def _spend(session: Session, *, days_ago: int = 0, **fields) -> SpendRecord:
+    fields.setdefault("trigger_type", SessionOrigin.CHAT)
+    return SpendRecord.objects.create(
+        session=session,
+        occurred_at=timezone.now() - timedelta(days=days_ago),
+        model=fields.pop("model", "a"),
+        repo_id=fields.pop("repo_id", session.repo_id),
+        **fields,
+    )
+
+
+def _spend_pks(params: dict) -> set[str]:
+    return set(SessionFilter(params, queryset=_qs()).qs.values_list("pk", flat=True))
+
+
+@pytest.mark.django_db
+class TestSpendFilters:
+    def test_every_spend_param_must_match_one_record(self, user):
+        session = _create_session()
+        _spend(session, model="a", days_ago=0)
+        _spend(session, model="b", days_ago=10)
+        today = timezone.localdate()
+
+        params = {"spend_from": (today - timedelta(days=1)).isoformat(), "spend_to": today.isoformat()}
+
+        assert _spend_pks({**params, "spend_model": "b"}) == set()
+        assert _spend_pks({**params, "spend_model": "a"}) == {session.pk}
+
+    @pytest.mark.parametrize(
+        ("param", "value", "matching"),
+        [
+            ("spend_repo", "g/a", {"repo_id": "g/a"}),
+            ("spend_trigger", SessionOrigin.SCHEDULE, {"trigger_type": SessionOrigin.SCHEDULE}),
+            ("spend_task", SpendTask.TITLE, {"task": SpendTask.TITLE, "trigger_type": ""}),
+            ("spend_model", "m", {"model": "m"}),
+            ("spend_provider", "openrouter", {"provider_slug": "openrouter"}),
+            ("spend_person", "xgitlab:7", {"external_provider": "gitlab", "external_uid": "7"}),
+            ("spend_person", "daiv", {}),
+        ],
+    )
+    def test_each_param_alone(self, user, param, value, matching):
+        hit, miss = _create_session(), _create_session()
+        _spend(hit, **matching)
+        _spend(miss, repo_id="g/other", trigger_type=SessionOrigin.API_JOB, model="other", user=user)
+
+        assert _spend_pks({param: value}) == {hit.pk}
+
+    def test_the_person_of_a_user(self, user):
+        hit, miss = _create_session(), _create_session()
+        _spend(hit, user=user)
+        _spend(miss)
+
+        assert _spend_pks({"spend_person": f"u{user.pk}"}) == {hit.pk}
+
+    @pytest.mark.parametrize(
+        "params", [{"spend_trigger": "bogus"}, {"spend_task": "bogus"}, {"spend_from": "x"}, {"spend_person": "zz"}]
+    )
+    def test_an_invalid_value_is_dropped(self, user, params):
+        spent, unspent = _create_session(), _create_session()
+        _spend(spent)
+
+        assert _spend_pks(params) == {spent.pk, unspent.pk}
+
+    def test_an_invalid_person_still_keeps_the_other_spend_params(self, user):
+        hit, miss = _create_session(), _create_session()
+        _spend(hit, model="m")
+        _spend(miss)
+
+        assert _spend_pks({"spend_person": "zz", "spend_model": "m"}) == {hit.pk}
+
+    @pytest.mark.parametrize("param", ["spend_model", "spend_from", "spend_person"])
+    def test_a_spend_param_opens_on_everyone(self, param):
+        assert resolve_scope({param: "x"}) == "all"

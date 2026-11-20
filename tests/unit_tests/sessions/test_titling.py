@@ -86,7 +86,7 @@ def test_user_text_includes_branch_when_informative():
     human_text = capture["messages"][-1].content
     assert "Repository: group/repo" in human_text
     assert "Branch: feat/copilotkit-chat" in human_text
-    assert "Task: add login" in human_text
+    assert "Request: add login" in human_text
 
 
 def test_user_text_omits_branch_for_generic_ref():
@@ -104,7 +104,7 @@ def test_user_text_omits_repo_and_branch_when_not_given():
     human_text = capture["messages"][-1].content
     assert "Repository:" not in human_text
     assert "Branch:" not in human_text
-    assert "Task: add login" in human_text
+    assert "Request: add login" in human_text
 
 
 def test_prompt_truncated_to_500_chars():

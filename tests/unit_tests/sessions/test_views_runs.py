@@ -1,8 +1,7 @@
-"""Tests for AgentRunCreateView (the "Start a run" / retry form at runs:agent_run_new).
+"""Tests for AgentRunCreateView (the "Start a run" form at runs:agent_run_new).
 
 Replaces the deleted activity/test_views_runs.py suite. Covers: login gating, the
-blank form, retry prefill from ``?from=<pk>``, the ownership + invalid-id guards on
-that source lookup, and the POST redirect branching (single run vs. batch/failure)
+blank form, and the POST redirect branching (single run vs. batch/failure)
 including the submit-failure re-render.
 """
 
@@ -15,28 +14,10 @@ from unittest.mock import MagicMock, patch
 from django.urls import reverse
 
 import pytest
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.models import Run
 from sessions.services import BatchSubmitFailure, BatchSubmitResult
 
 NEW_RUN_URL = reverse("runs:agent_run_new")
-
-
-def _create_run(user, **kwargs) -> Run:
-    session = Session.objects.create(
-        thread_id=str(uuid.uuid4()), origin=SessionOrigin.UI_JOB, repo_id="acme/repo", user=user
-    )
-    defaults = {
-        "session": session,
-        "trigger_type": SessionOrigin.UI_JOB,
-        "repo_id": "acme/repo",
-        "ref": "main",
-        "prompt": "original prompt",
-        "agent_model": "anthropic:claude",
-        "status": RunStatus.SUCCESSFUL,
-        "user": user,
-    }
-    defaults.update(kwargs)
-    return Run.objects.create(**defaults)
 
 
 def _post_data(repo_id="acme/repo", ref=""):
@@ -65,44 +46,8 @@ def test_get_requires_login(client):
 def test_get_blank_form_renders_with_pickers(member_client):
     resp = member_client.get(NEW_RUN_URL)
     assert resp.status_code == 200
-    assert resp.context["source_run"] is None
     assert "sandbox_envs" in resp.context
     assert not resp.context["form"].initial.get("prompt")
-
-
-@pytest.mark.django_db
-def test_get_retry_prefills_from_owned_source_run(member_client, member_user):
-    source = _create_run(member_user, prompt="retry me", agent_model="anthropic:opus")
-    resp = member_client.get(NEW_RUN_URL, {"from": str(source.pk)})
-    assert resp.status_code == 200
-    assert resp.context["source_run"].pk == source.pk
-    initial = resp.context["form"].initial
-    assert initial["prompt"] == "retry me"
-    assert initial["agent_model"] == "anthropic:opus"
-    assert initial["repos"] == [{"repo_id": "acme/repo", "ref": "main"}]
-
-
-@pytest.mark.django_db
-def test_get_retry_from_other_users_run_is_not_prefilled(member_client, other_user):
-    """by_owner scoping hides another user's run — the form falls back to blank (not a 404)."""
-    foreign = _create_run(other_user)
-    resp = member_client.get(NEW_RUN_URL, {"from": str(foreign.pk)})
-    assert resp.status_code == 200
-    assert resp.context["source_run"] is None
-    assert not resp.context["form"].initial.get("prompt")
-
-
-@pytest.mark.django_db
-def test_get_retry_with_invalid_uuid_is_404(member_client):
-    resp = member_client.get(NEW_RUN_URL, {"from": "not-a-uuid"})
-    assert resp.status_code == 404
-
-
-@pytest.mark.django_db
-def test_get_retry_with_unknown_uuid_falls_back_to_blank(member_client):
-    resp = member_client.get(NEW_RUN_URL, {"from": str(uuid.uuid4())})
-    assert resp.status_code == 200
-    assert resp.context["source_run"] is None
 
 
 # --- POST ------------------------------------------------------------------
@@ -209,29 +154,3 @@ def test_run_form_submit_passes_mcp_overrides(member_client, member_user):
         resp = member_client.post(NEW_RUN_URL, {**_post_data(), "mcp_servers": json.dumps(selected)})
     assert resp.status_code == 302
     assert captured.get("mcp_overrides") == {"b": "on"}
-
-
-@pytest.mark.django_db
-def test_retry_prefills_selection_from_source_session(member_client, member_user):
-    from mcp_connectors.models import MCPServer
-    from mcp_connectors.selection import build_selection_pool, effective_selection
-
-    MCPServer.objects.create(
-        name="b",
-        scope=MCPServer.Visibility.GLOBAL,
-        status=MCPServer.Status.ON_DEMAND,
-        transport=MCPServer.Transport.HTTP,
-        url="http://b.test/mcp",
-    )
-    source = _create_run(member_user)
-    source.session.mcp_overrides = {"b": "on"}
-    source.session.save(update_fields=["mcp_overrides"])
-
-    resp = member_client.get(NEW_RUN_URL, {"from": str(source.pk)})
-    assert resp.status_code == 200
-
-    pool = build_selection_pool(member_user.pk)
-    expected = sorted(effective_selection({"b": "on"}, pool))
-    # The form seeds the field against the pool it built, so read the value the picker renders.
-    assert resp.context["form"]["mcp_servers"].value() == expected
-    assert "b" in expected

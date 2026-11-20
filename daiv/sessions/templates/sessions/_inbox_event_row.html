@@ -1,0 +1,16 @@
+{% load i18n %}
+{# event: an Alpine expression for an ``inbox_event`` entry (``sessions.transcript.inbox_event_entry``) #}
+<div class="chat-inbox-event" :class="['chat-inbox-event--' + {{ event }}.kind, {{ event }}.failure_label ? 'chat-inbox-event--failed' : '']"
+     data-testid="inbox-event">
+  <span class="chat-inbox-event__dot" aria-hidden="true"></span>
+  <span class="chat-inbox-event__kind" x-text="inboxEventKind({{ event }})"></span>
+  <span class="chat-inbox-event__summary" :title="{{ event }}.summary" x-text="{{ event }}.summary"></span>
+  <template x-if="{{ event }}.failure_label || {{ event }}.reason_text">
+    <span class="chat-inbox-event__why" x-text="{{ event }}.failure_label || {{ event }}.reason_text"></span>
+  </template>
+  <template x-if="{{ event }}.web_url">
+    <a class="chat-inbox-event__link" :href="{{ event }}.web_url" target="_blank" rel="noopener noreferrer">{% translate "Open ↗" %}</a>
+  </template>
+  <time class="chat-inbox-event__time" :datetime="{{ event }}.created_at"
+        :title="absoluteTime({{ event }}.created_at)" x-text="relativeTime({{ event }}.created_at)"></time>
+</div>

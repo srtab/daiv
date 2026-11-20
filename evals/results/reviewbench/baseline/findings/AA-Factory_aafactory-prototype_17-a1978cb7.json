@@ -1,0 +1,53 @@
+{
+  "pr": {
+    "repo": "https://github.com/AA-Factory/aafactory-prototype",
+    "pr_number": 17,
+    "base": "e7f558c7360abac335af2df22f4ed376992b30ab",
+    "head": "a1978cb75950a879df8805e4a5f373eb6678f6f9"
+  },
+  "agent": "daiv/anthropic:claude-haiku-5-5",
+  "findings": [
+    {
+      "file": "aafactory/src/tests/test_chat/test_mock_chat.py",
+      "start_line": 35,
+      "end_line": 45,
+      "message": "The test never calls `send_request_to_llm`; it only exercises its own mocks\n\nThe test is named `test_send_request_to_llm`, but line 35 calls the patched `send_request_to_open_ai` directly. The assertions check the tuple returned by the mock's side effect (line 16) and the entry that side effect appended to `CHAT_HISTORY` (line 15). Breaking the real function, such as removing its `CHAT_HISTORY.append`, changing its return value, or dropping a voice branch, would still pass.\n\nThe mock also takes ten positional arguments, but the real `send_request_to_open_ai(messages)` takes one (`aafactory/src/aafactory/fetcher/fetching.py:7`). The `send_request_to_generate_video` mock on line 11 is never reached.\n\nFix: call `chat_interface.send_request_to_llm(...)` with its ten parameters. Make the `send_request_to_open_ai` mock return a plain string and drop its `CHAT_HISTORY.append`, since `send_request_to_llm` already appends. Also patch `send_request_to_elevenlabs` and `send_request_to_generate_video`. Assert on the returned `(\"\", CHAT_HISTORY, video)` tuple and on the awaited mock's messages argument.",
+      "producer": "daiv"
+    },
+    {
+      "file": "pyproject.toml",
+      "start_line": 25,
+      "end_line": 27,
+      "message": "`pytest-mock` and `pytest-asyncio` are not declared as dependencies\n\nThe test uses the `mocker` fixture and `@pytest.mark.asyncio`. The dev group declares only `pytest` and `pytest-cov`. `poetry.lock` mentions both plugins only inside other packages' optional extras. A clean install will not provide `mocker`, so pytest reports `fixture 'mocker' not found`. The local pass presumably comes from plugins installed outside the project's declared dependencies.\n\nFix: `poetry add --group dev pytest-mock pytest-asyncio`, which updates both `pyproject.toml` and `poetry.lock`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "aafactory/src/tests/test_chat/test_mock_chat.py",
+      "start_line": 5,
+      "end_line": 6,
+      "message": "`pytest-mock` and `pytest-asyncio` are not declared as dependencies\n\nThe test uses the `mocker` fixture and `@pytest.mark.asyncio`. The dev group declares only `pytest` and `pytest-cov`. `poetry.lock` mentions both plugins only inside other packages' optional extras. A clean install will not provide `mocker`, so pytest reports `fixture 'mocker' not found`. The local pass presumably comes from plugins installed outside the project's declared dependencies.\n\nFix: `poetry add --group dev pytest-mock pytest-asyncio`, which updates both `pyproject.toml` and `poetry.lock`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "aafactory/src/tests/test_chat/test_mock_chat.py",
+      "start_line": 2,
+      "end_line": 2,
+      "message": "The loader mock never applies, so the test reads the real TinyDB\n\nLine 2 binds `_load_avatar_infos_for_chat` by name at import time. The patch at lines 25-31 replaces only the module attribute, so line 33 still calls the real function. That function opens `TinyDB(DB_PATH)` and calls `.get` on page-settings doc 1 (`aafactory/src/aafactory/chat/interface.py:55-60`). If that document is missing, as on a fresh checkout, `None.get` raises `AttributeError`. The loader's return value is never used, because the stub ignores its arguments.\n\nFix: call `chat_interface._load_avatar_infos_for_chat()` so the patch applies, or build the ten-tuple locally and drop the loader call.",
+      "producer": "daiv"
+    },
+    {
+      "file": "aafactory/src/tests/test_chat/test_mock_chat.py",
+      "start_line": 8,
+      "end_line": 8,
+      "message": "Shared `CHAT_HISTORY` is cleared once with no teardown\n\n`CHAT_HISTORY` is a module-level global. The test clears it at the start and leaves its entry behind. No other test references it today, so nothing fails now. Once a second test exists, move the clear into an autouse fixture.",
+      "producer": "daiv"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 610292,
+    "completion_tokens": 67408,
+    "total_tokens": 677700,
+    "time_in_ms": 233711,
+    "cost_usd": 0.049515595
+  }
+}

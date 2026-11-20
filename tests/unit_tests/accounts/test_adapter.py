@@ -103,13 +103,13 @@ class TestAccountAdapterLoginStages:
 
 @pytest.mark.django_db
 class TestSocialAccountAdapterSignup:
-    def test_allows_signup_when_email_exists(self, adapter, user_in_db):
+    def test_existing_email_does_not_authorize_new_account_creation(self, adapter, user_in_db):
         sociallogin = _make_sociallogin("existing@test.com")
-        assert adapter.is_open_for_signup(Mock(), sociallogin) is True
+        assert adapter.is_open_for_signup(Mock(), sociallogin) is False
 
-    def test_allows_signup_case_insensitive(self, adapter, user_in_db):
+    def test_existing_email_case_does_not_unlock_closed_signup(self, adapter, user_in_db):
         sociallogin = _make_sociallogin("EXISTING@TEST.COM")
-        assert adapter.is_open_for_signup(Mock(), sociallogin) is True
+        assert adapter.is_open_for_signup(Mock(), sociallogin) is False
 
     def test_denies_signup_when_email_not_in_db(self, adapter, user_in_db):
         sociallogin = _make_sociallogin("unknown@test.com")
@@ -145,6 +145,12 @@ class TestSocialAccountAdapterSignup:
 
 @pytest.mark.django_db
 class TestSocialAccountAdapterSaveUser:
+    @pytest.fixture(autouse=True)
+    def _allow_signup_for_role_assignment_tests(self):
+        with patch("accounts.adapter.site_settings") as settings:
+            settings.auth_signup_open = True
+            yield
+
     def _create_user_via_save(self, adapter, email, username):
         """Helper that mocks super().save_user() to create a real user, then runs our save_user."""
         user = User(username=username, email=email)

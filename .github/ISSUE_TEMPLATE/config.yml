@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or setup help
+    url: https://github.com/srtab/daiv/discussions/categories/q-a
+    about: Ask how to deploy, configure or use DAIV.
+  - name: Idea or open-ended proposal
+    url: https://github.com/srtab/daiv/discussions/categories/ideas
+    about: Discuss a direction before it becomes a concrete feature request.
+  - name: Security vulnerability
+    url: https://github.com/srtab/daiv/security/advisories/new
+    about: Report it privately. Please don't open a public issue.

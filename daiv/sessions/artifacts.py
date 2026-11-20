@@ -192,23 +192,16 @@ def _file_fields(safe_name: str, content: bytes, title: str) -> dict[str, Any]:
 
 
 def _store_artifact(run: Run, safe_name: str, content: bytes, title: str) -> RunArtifact:
-    from sessions.models import Run, RunArtifact
+    from sessions.models import RunArtifact
 
     artifact = RunArtifact(run=run, **_file_fields(safe_name, content, title.strip() or safe_name))
-    try:
-        artifact.file.save(safe_name, ContentFile(content), save=False)
-        with transaction.atomic():
-            # Parallel tool calls in one model turn publish concurrently; the lock serialises the budget check.
-            Run.objects.select_for_update().only("pk").get(pk=run.pk)
-            if RunArtifact.objects.filter(run=run).count() >= settings.ARTIFACTS_PER_RUN_MAX:
-                raise ArtifactError(
-                    f"This run already published {settings.ARTIFACTS_PER_RUN_MAX} artifacts, the maximum."
-                )
-            artifact.save()
-    except BaseException:
-        name = artifact.file.name or artifact.file.field.generate_filename(artifact, safe_name)
-        delete_stored_file(artifact.file.storage, name)
-        raise
+    RunArtifact.objects.save_within_run_cap(
+        artifact,
+        safe_name,
+        content,
+        per_run_max=settings.ARTIFACTS_PER_RUN_MAX,
+        error=ArtifactError(f"This run already published {settings.ARTIFACTS_PER_RUN_MAX} artifacts, the maximum."),
+    )
     return artifact
 
 

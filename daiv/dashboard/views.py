@@ -1,57 +1,72 @@
-from datetime import date, timedelta
+import csv
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.db.models import Avg, Count, DurationField, ExpressionWrapper, F, Q, Sum
-from django.shortcuts import redirect, render
+from django.http import Http404, HttpResponse, StreamingHttpResponse
+from django.shortcuts import redirect
 from django.urls import reverse
-from django.utils.timezone import localdate
-from django.views.generic import TemplateView
+from django.utils.http import urlencode
+from django.views.generic import TemplateView, View
 
-from sessions.models import Run, RunStatus, SessionOrigin
+from sessions.filters import SCOPE_ALL, SCOPE_CHOICES, SCOPE_MINE
+from sessions.spend_ledger import COLUMNS, SpendLedger
+from skills.models import SkillInvocation
+from skills.pages import SkillPageMixin
 
-from accounts.models import APIKey, User
-from codebase.models import MergeMetric
-from dashboard.context_processors import running_jobs_count
-from schedules.models import ScheduledJob
-
-
-def homepage(request):
-    if request.user.is_authenticated:
-        return redirect("dashboard")
-    return render(request, "dashboard/homepage.html")
-
-
-PERIOD_CHOICES = [
-    ("today", "Today", 0),
-    ("7d", "7 days", 7),
-    ("30d", "30 days", 30),
-    ("90d", "90 days", 90),
-    ("all", "All time", None),
-]
-PERIOD_DAYS = {key: days for key, _, days in PERIOD_CHOICES}
-DEFAULT_PERIOD = "today"
+from core.api.throttling import SpendExportThrottle
+from core.mixins import AdminRequiredMixin
+from daiv import CANONICAL_ORIGIN
+from dashboard import home, insights, landing, spend
+from dashboard.comparisons import CHECKED, COMPARISONS, COMPARISONS_BY_SLUG
+from dashboard.conf import settings as dashboard_settings
+from dashboard.sidebar import SESSIONS_PAGE, Sidebar
+from dashboard.skill_usage import RECENT_RUNS, match_runs, skill_usage
 
 
-def _raw_pct(numerator: int, denominator: int) -> int | None:
-    """Return a ratio as a rounded integer percentage, or None when the denominator is zero."""
-    return round(numerator / denominator * 100) if denominator else None
+class LandingPageView(TemplateView):
+    def get_context_data(self, **kwargs):
+        return super().get_context_data(
+            canonical_url=CANONICAL_ORIGIN + self.request.path,
+            quickstart_url=landing.QUICKSTART_URL,
+            deployment_url=landing.DEPLOYMENT_URL,
+            social_links=landing.SOCIAL_LINKS,
+            umami=self.umami(),
+            **kwargs,
+        )
+
+    def umami(self) -> dict[str, str] | None:
+        """Umami's tracker settings, for a signed-out visitor on an install that set a website ID."""
+        if dashboard_settings.UMAMI_WEBSITE_ID is None or self.request.user.is_authenticated:
+            return None
+        return {
+            "script_url": str(dashboard_settings.UMAMI_SCRIPT_URL),
+            "website_id": str(dashboard_settings.UMAMI_WEBSITE_ID),
+        }
 
 
-def _format_pct(numerator: int, denominator: int) -> str:
-    """Format a ratio as a rounded percentage string, or a dash when the denominator is zero."""
-    raw = _raw_pct(numerator, denominator)
-    return f"{raw}%" if raw is not None else "—"
+class HomepageView(LandingPageView):
+    template_name = "dashboard/homepage.html"
+    extra_context = {"faqs": landing.FAQS, "comparisons": COMPARISONS}
+
+    def get(self, request, *args, **kwargs):
+        if request.user.is_authenticated:
+            return redirect("dashboard")
+        return super().get(request, *args, **kwargs)
 
 
-def _success_rate_css(pct: int | None) -> str:
-    """Tailwind text color for a success-rate percentage; plain white when there is none."""
-    if pct is None:
-        return "text-white"
-    if pct >= 90:
-        return "text-emerald-400"
-    if pct >= 75:
-        return "text-amber-400"
-    return "text-red-400"
+class ComparisonView(LandingPageView):
+    template_name = "dashboard/comparison.html"
+
+    def get_context_data(self, **kwargs):
+        try:
+            comparison = COMPARISONS_BY_SLUG[kwargs["slug"]]
+        except KeyError:
+            raise Http404("No comparison with that name") from None
+        return super().get_context_data(
+            comparison=comparison,
+            checked=CHECKED,
+            others=[other for other in COMPARISONS if other is not comparison],
+            **kwargs,
+        )
 
 
 class DashboardView(LoginRequiredMixin, TemplateView):
@@ -59,159 +74,164 @@ class DashboardView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-
-        period = self.request.GET.get("period", DEFAULT_PERIOD)
-        if period not in PERIOD_DAYS:
-            period = DEFAULT_PERIOD
-        days = PERIOD_DAYS[period]
-        cutoff_date = localdate() - timedelta(days=max(days - 1, 0)) if days is not None else None
-
         user = self.request.user
-        context["activity"] = self._get_activity_data(cutoff_date, user)
-        context["active_api_keys"] = APIKey.objects.filter(user=user, revoked=False).count()
-        context["periods"] = [{"key": key, "label": label} for key, label, _ in PERIOD_CHOICES]
-        context["current_period"] = period
-        context["velocity"] = self._get_velocity_data(cutoff_date) if user.is_admin else None
-        context["active_schedules"] = ScheduledJob.objects.filter(user=user, is_enabled=True).count()
-        if user.is_admin:
-            context["total_users"] = User.objects.count()
-
+        has_started_runs = home.has_started_runs(user)
+        context.update({
+            "inbox": home.inbox(user),
+            "has_started_runs": has_started_runs,
+            "your_week": home.your_week(user) if has_started_runs else None,
+            "ways": home.ways_to_use(),
+        })
         return context
 
-    def _get_activity_data(self, cutoff_date: date | None, user: User) -> dict:
-        visible = Run.objects.visible_to(user)
-        activities = visible.filter(created_at__date__gte=cutoff_date) if cutoff_date is not None else visible
 
-        successful = Q(status=RunStatus.SUCCESSFUL)
-        failed = Q(status=RunStatus.FAILED)
-        issue_trigger = Q(trigger_type=SessionOrigin.ISSUE_WEBHOOK)
-        mr_trigger = Q(trigger_type=SessionOrigin.MR_WEBHOOK)
-        mcp_trigger = Q(trigger_type=SessionOrigin.MCP_JOB)
-        schedule_trigger = Q(trigger_type=SessionOrigin.SCHEDULE)
-        api_trigger = Q(trigger_type=SessionOrigin.API_JOB)
-        chat_trigger = Q(trigger_type=SessionOrigin.CHAT)
-        duration_expr = ExpressionWrapper(F("finished_at") - F("started_at"), output_field=DurationField())
+def _period(request, default: str = insights.DEFAULT_PERIOD) -> str:
+    period = request.GET.get("period", default)
+    return period if period in insights.PERIOD_DAYS else default
 
-        stats = activities.aggregate(
-            total=Count("id"),
-            successful=Count("id", filter=successful),
-            failed_count=Count("id", filter=failed),
-            issues=Count("id", filter=issue_trigger & ~failed),
-            mrs=Count("id", filter=mr_trigger & ~failed),
-            mcp_jobs=Count("id", filter=mcp_trigger & ~failed),
-            scheduled=Count("id", filter=schedule_trigger & ~failed),
-            api_jobs=Count("id", filter=api_trigger & ~failed),
-            chat_jobs=Count("id", filter=chat_trigger & ~failed),
-            code_changes=Count("id", filter=successful & Q(code_changes=True)),
-            avg_duration=Avg(duration_expr, filter=successful),
-        )
 
-        # "Running now" is global (not period-filtered); share the request-memoized helper
-        # with the ``nav`` context processor so the sidebar badge and dashboard card resolve
-        # to a single query per render.
-        running_count = running_jobs_count(self.request, user)
+class InsightsView(LoginRequiredMixin, TemplateView):
+    template_name = "dashboard/insights.html"
 
-        total = stats["total"]
-        successful_count = stats["successful"]
-        failed_count = stats["failed_count"]
-        issues_count = stats["issues"]
-        mrs_count = stats["mrs"]
-        mcp_jobs_count = stats["mcp_jobs"]
-        scheduled_count = stats["scheduled"]
-        api_jobs_count = stats["api_jobs"]
-        chat_jobs_count = stats["chat_jobs"]
-        sessions_url = reverse("session_list")
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        user = self.request.user
+        period = _period(self.request)
+        window = insights.window_for(period)
+        previous = window.previous()
+        context.update({
+            "periods": [{"key": key, "label": label} for key, label, _days in insights.PERIOD_CHOICES],
+            "current_period": period,
+            "window": window,
+            "previous_window": previous,
+            "activity": insights.activity(user, window, previous),
+            "breakdown": insights.session_breakdown(user, window, previous),
+            "velocity": insights.velocity(user, window),
+        })
+        return context
 
-        # Non-overlapping segments for the breakdown bar.
-        # Trigger types are mutually exclusive, so the trigger-keyed segments never overlap.
-        # Each segment excludes failed; "Other" absorbs the remainder (e.g. UI jobs).
-        other_count = max(
-            0,
-            total
-            - issues_count
-            - mrs_count
-            - mcp_jobs_count
-            - scheduled_count
-            - api_jobs_count
-            - chat_jobs_count
-            - failed_count,
-        )
-        raw_segments = [
-            ("Issues", issues_count, "bg-amber-500/50", f"{sessions_url}?trigger={SessionOrigin.ISSUE_WEBHOOK}"),
-            ("MR/PR", mrs_count, "bg-cyan-500/50", f"{sessions_url}?trigger={SessionOrigin.MR_WEBHOOK}"),
-            ("MCP Job", mcp_jobs_count, "bg-indigo-500/50", f"{sessions_url}?trigger={SessionOrigin.MCP_JOB}"),
-            ("Scheduled", scheduled_count, "bg-violet-500/40", f"{sessions_url}?trigger={SessionOrigin.SCHEDULE}"),
-            ("API", api_jobs_count, "bg-emerald-500/50", f"{sessions_url}?trigger={SessionOrigin.API_JOB}"),
-            ("Chat", chat_jobs_count, "bg-sky-500/40", f"{sessions_url}?trigger={SessionOrigin.CHAT}"),
-            ("Other", other_count, "bg-gray-500/30", None),
-            ("Failed", failed_count, "bg-red-500/40", f"{sessions_url}?status={RunStatus.FAILED}"),
-        ]
-        segments = []
-        for label, value, css, url in raw_segments:
-            if value <= 0:
-                continue
-            segments.append({
-                "label": label,
-                "value": value,
-                "pct": round(value / total * 100, 1) if total else 0,
-                "css": css,
-                "url": url,
+
+class SpendScopeMixin:
+    """The Spend page's period and scope: administrators open on everyone's spend, members on their own."""
+
+    default_period = "30d"
+
+    def spend_period(self) -> str:
+        return _period(self.request, self.default_period)
+
+    def spend_scope(self) -> str:
+        default = SCOPE_ALL if self.request.user.is_admin else SCOPE_MINE
+        scope = self.request.GET.get("scope", default)
+        return scope if scope in dict(SCOPE_CHOICES) else default
+
+
+class InsightsSpendView(LoginRequiredMixin, SpendScopeMixin, TemplateView):
+    """What DAIV spent, by whom, where and on what; members open on their own spend."""
+
+    template_name = "dashboard/insights_spend.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        user = self.request.user
+        period = self.spend_period()
+        scope = self.spend_scope()
+        window = insights.window_for(period)
+        previous = window.previous()
+        report = spend.SpendReport(user, window, previous, scope)
+        totals = report.totals()
+        context.update({
+            "periods": [{"key": key, "label": label} for key, label, _days in insights.PERIOD_CHOICES],
+            "scopes": [{"key": key, "label": label} for key, label in SCOPE_CHOICES],
+            "current_period": period,
+            "current_scope": scope,
+            "window": window,
+            "previous_window": previous,
+            "totals": totals,
+            "export_url": f"{reverse('insights_spend_export')}?{urlencode({'period': period, 'scope': scope})}",
+            "counting_docs_url": f"{landing.DOCS_ROOT}/reference/monitoring/#usage-and-cost",
+            "cache_good": spend.CACHE_GOOD,
+            "cache_fair": spend.CACHE_FAIR,
+        })
+        if not totals["empty"]:
+            coverage = report.coverage()
+            context.update({
+                "chart": report.chart(),
+                "breakdowns": report.breakdowns(),
+                "top_sessions": report.top_sessions(),
+                "sessions_by_cost_url": report.sessions_by_cost_url(),
+                "coverage": coverage,
+                "cost_floor": bool(totals["unpriced_tokens"] or coverage["unrecorded_runs"]),
             })
+        return context
 
-        code_changes_count = stats["code_changes"]
-        avg_duration = stats["avg_duration"]
 
-        return {
-            "total": total,
-            "running": running_count,
-            "success_rate": _format_pct(successful_count, successful_count + failed_count),
-            "success_rate_css": _success_rate_css(_raw_pct(successful_count, successful_count + failed_count)),
-            "failed": failed_count,
-            "code_changes": code_changes_count,
-            "code_changes_pct": _format_pct(code_changes_count, successful_count),
-            "avg_duration_s": avg_duration.total_seconds() if avg_duration is not None else None,
-            "activity_url": sessions_url,
-            "segments": segments,
-        }
+class SpendExportView(LoginRequiredMixin, SpendScopeMixin, View):
+    """The Spend page's records as CSV, one row per record, for the page's period and scope."""
 
-    def _get_velocity_data(self, cutoff_date: date | None) -> dict | None:
-        merges = MergeMetric.objects.all()
-        if cutoff_date is not None:
-            merges = merges.filter(merged_at__date__gte=cutoff_date)
+    FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 
-        stats = merges.aggregate(
-            total=Count("id"),
-            total_added=Sum("lines_added", default=0),
-            total_removed=Sum("lines_removed", default=0),
-            daiv_merges=Count("id", filter=Q(daiv_commits__gt=0)),
-            total_commits_sum=Sum("total_commits", default=0),
-            daiv_commits_sum=Sum("daiv_commits", default=0),
+    class _Echo:
+        def write(self, value: str) -> str:
+            return value
+
+    def get(self, request, *args, **kwargs):
+        throttle = SpendExportThrottle()
+        if not throttle.allow_request(request):
+            return HttpResponse(status=429, headers={"Retry-After": str(int(throttle.wait() or 60))})
+        window = insights.window_for(self.spend_period())
+        records = SpendLedger.rows(request.user, self.spend_scope(), window.start, window.end)
+        start = window.start.isoformat() if window.start is not None else "all"
+        response = StreamingHttpResponse(self._csv_lines(records), content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = f'attachment; filename="daiv-spend-{start}-{window.end.isoformat()}.csv"'
+        return response
+
+    @classmethod
+    async def _csv_lines(cls, records):
+        writer = csv.writer(cls._Echo())
+        yield writer.writerow(COLUMNS)
+        async for record in records.aiterator(chunk_size=2000):
+            row = SpendLedger.row(record)
+            yield writer.writerow([cls._csv_value(row[column]) for column in COLUMNS])
+
+    @classmethod
+    def _csv_value(cls, value) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, str) and value.startswith(cls.FORMULA_PREFIXES):
+            # A leading quote keeps a spreadsheet from running a person's or repository's name as a formula.
+            return f"'{value}"
+        return str(value)
+
+
+class SkillUsageView(AdminRequiredMixin, SkillPageMixin, TemplateView):
+    """The skill page's Usage tab."""
+
+    template_name = "dashboard/skill_usage.html"
+    skill_tab = "usage"
+
+    def get_context_data(self, **kwargs):
+        page = self.skill_page
+        recent = list(
+            SkillInvocation.objects.filter(name=page.name, source=page.source).order_by("-created")[:RECENT_RUNS]
+        )
+        return super().get_context_data(
+            usage=skill_usage(page.name, page.source), recent_runs=match_runs(recent), **kwargs
         )
 
-        if not stats["total"]:
-            return None
 
-        total_merges = stats["total"]
-        daiv_merges = stats["daiv_merges"]
-        human_merges = total_merges - daiv_merges
-        total_commits = stats["total_commits_sum"]
-        daiv_commits = stats["daiv_commits_sum"]
-        human_commits = max(0, total_commits - daiv_commits)
-        max_lines = max(stats["total_added"], stats["total_removed"], 1)
+class SidebarListsView(LoginRequiredMixin, TemplateView):
+    """The sidebar's two lists alone, for the sidebar to swap in when runs start or finish."""
 
-        return {
-            "total_merges": total_merges,
-            "lines_added": stats["total_added"],
-            "lines_removed": stats["total_removed"],
-            "net_lines": stats["total_added"] - stats["total_removed"],
-            "daiv_merges_pct": _format_pct(daiv_merges, total_merges),
-            "daiv_merges_pct_raw": min(_raw_pct(daiv_merges, total_merges) or 0, 100),
-            "daiv_merges": daiv_merges,
-            "human_merges": human_merges,
-            "daiv_commits_pct": _format_pct(daiv_commits, total_commits),
-            "daiv_commits_pct_raw": min(_raw_pct(daiv_commits, total_commits) or 0, 100),
-            "daiv_commits": daiv_commits,
-            "human_commits": human_commits,
-            "lines_added_pct": round(stats["total_added"] / max_lines * 100, 1),
-            "lines_removed_pct": round(stats["total_removed"] / max_lines * 100, 1),
-        }
+    template_name = "dashboard/_sidebar_lists.html"
+
+    def get_context_data(self, **kwargs):
+        query = self.request.GET
+        try:
+            limit = int(query.get("limit", SESSIONS_PAGE))
+        except ValueError:
+            limit = SESSIONS_PAGE
+        lists = Sidebar(self.request.user, viewing=query.get("viewing", "")).lists(limit=limit)
+        # The page's section, not this endpoint's: the rows highlight the section the sidebar is on.
+        return super().get_context_data(nav_sidebar=lists, nav_active_section=query.get("section", ""), **kwargs)

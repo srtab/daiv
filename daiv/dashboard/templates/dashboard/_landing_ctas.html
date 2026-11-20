@@ -1,0 +1,14 @@
+{% load icon_tags %}
+<a href="{{ quickstart_url }}" rel="noopener noreferrer" class="landing-button landing-button--primary">
+    Deploy in 15 min
+</a>
+{% if deployment_guide %}
+<a href="{{ deployment_url }}" rel="noopener noreferrer" class="landing-button landing-button--secondary">
+    Deployment guide
+</a>
+{% else %}
+<a href="https://github.com/srtab/daiv" rel="noopener noreferrer" class="landing-button landing-button--secondary">
+    {% icon "github" "h-5 w-5" %}
+    Star on GitHub
+</a>
+{% endif %}

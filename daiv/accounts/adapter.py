@@ -1,6 +1,7 @@
 import logging
 
 from allauth.account.adapter import DefaultAccountAdapter
+from allauth.core.exceptions import SignupClosedException
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from allauth.socialaccount.models import SocialApp
 
@@ -54,6 +55,10 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
         """
         from accounts.models import Role, User
 
+        # Recheck at the persistence boundary too: a pending signup form must
+        # never turn an existing email into permission to create another user.
+        if not self.is_open_for_signup(request, sociallogin):
+            raise SignupClosedException()
         user = super().save_user(request, sociallogin, form)
         if not User.objects.filter(role=Role.ADMIN).exists():
             user.role = Role.ADMIN
@@ -116,10 +121,10 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
 
     def is_open_for_signup(self, request, sociallogin):
         """
-        Allow social signup on fresh install, when ``auth_signup_open`` is set, or for known emails.
+        Permit new account creation only for first-user bootstrap or open signup.
 
-        Known-email signups are safe because allauth auto-connects them to the existing user
-        via ``SOCIALACCOUNT_EMAIL_AUTHENTICATION_AUTO_CONNECT`` rather than creating a duplicate.
+        Existing accounts authenticate earlier via provider UID or verified email.
+        An existing email is never permission to create a different local account.
         """
         from accounts.models import User
 
@@ -134,8 +139,5 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
         if site_settings.auth_signup_open:
             logger.info("Social signup allowed (open signup) for %s via %s", email, provider)
             return True
-        if User.objects.filter(email__iexact=email).exists():
-            logger.info("Social signup allowed (pre-registered email) for %s via %s", email, provider)
-            return True
-        logger.info("Social signup denied for unregistered email %s via %s", email, provider)
+        logger.info("Social signup denied (registration closed) via %s", provider)
         return False

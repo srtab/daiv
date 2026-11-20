@@ -1,0 +1,93 @@
+from django.db import migrations, models
+
+
+class Migration(migrations.Migration):
+    dependencies = [("agent_sessions", "0030_tool_result_media")]
+
+    operations = [
+        migrations.RemoveConstraint(model_name="inboxevent", name="inbox_event_kind_valid"),
+        migrations.RemoveConstraint(model_name="inboxevent", name="inbox_event_failure_valid"),
+        migrations.AlterField(
+            model_name="inboxevent",
+            name="failure",
+            field=models.CharField(
+                blank=True,
+                choices=[
+                    ("access_denied", "The person it would run as can no longer run on this repository"),
+                    ("retries_exhausted", "The runs that took it kept failing"),
+                    ("session_gone", "The session no longer exists"),
+                    ("run_failed", "The run that took it failed"),
+                    ("mr_merged", "Its merge request was merged"),
+                    ("mr_closed", "Its merge request was closed"),
+                ],
+                default="",
+                max_length=32,
+                verbose_name="failure",
+            ),
+        ),
+        migrations.AlterField(
+            model_name="inboxevent",
+            name="kind",
+            field=models.CharField(
+                choices=[
+                    ("chat_message", "Chat message"),
+                    ("mention", "Mention"),
+                    ("follow_up_job", "Follow-up job"),
+                    ("delegation_finished", "Delegated jobs finished"),
+                    ("ci_failed", "CI failed"),
+                    ("ci_passed", "CI passed"),
+                    ("ci_stopped", "CI stopped"),
+                    ("branch_pushed", "Branch pushed"),
+                    ("foreign_publish", "Published by another session"),
+                    ("mr_merged", "Merge request merged"),
+                    ("mr_closed", "Merge request closed"),
+                    ("comment", "Comment"),
+                    ("delegated_ci_outcome", "Delegated session CI"),
+                    ("notice", "Notice"),
+                    ("leg_follow_up", "Leg follow-up"),
+                ],
+                max_length=32,
+                verbose_name="kind",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="inboxevent",
+            constraint=models.CheckConstraint(
+                condition=models.Q((
+                    "kind__in",
+                    [
+                        "chat_message",
+                        "mention",
+                        "follow_up_job",
+                        "delegation_finished",
+                        "ci_failed",
+                        "ci_passed",
+                        "ci_stopped",
+                        "branch_pushed",
+                        "foreign_publish",
+                        "mr_merged",
+                        "mr_closed",
+                        "comment",
+                        "delegated_ci_outcome",
+                        "notice",
+                        "leg_follow_up",
+                    ],
+                )),
+                name="inbox_event_kind_valid",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="inboxevent",
+            constraint=models.CheckConstraint(
+                condition=models.Q(
+                    ("failure", ""),
+                    (
+                        "failure__in",
+                        ["access_denied", "retries_exhausted", "session_gone", "run_failed", "mr_merged", "mr_closed"],
+                    ),
+                    _connector="OR",
+                ),
+                name="inbox_event_failure_valid",
+            ),
+        ),
+    ]

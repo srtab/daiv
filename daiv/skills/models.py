@@ -54,10 +54,9 @@ class SkillInvocation(TimeStampedModel):
     thread_id = models.UUIDField(_("thread id"))
 
     class Meta:
-        # (name, source, -created) covers every read path: the list-view
-        # GROUP BY (name, source) for counts and the detail-view filter on
-        # (name, source) + TruncDate(created) for the 30-day chart.
-        indexes = [models.Index(fields=["name", "source", "-created"])]
+        # (name, source, -created) serves the Skills pages' counts and 30-day chart; thread_id, a session
+        # transcript's skill links.
+        indexes = [models.Index(fields=["name", "source", "-created"]), models.Index(fields=["thread_id"])]
         constraints = [models.CheckConstraint(condition=Q(repo_slug__gt=""), name="skillinvocation_repo_slug_nonempty")]
 
     def __str__(self) -> str:

@@ -1,3 +1,0 @@
-Cloned issue to `{{ total_count }}` repositories:
-{% for issue_ref in cloned_issues %}
-- {{ issue_ref }}{% endfor %}

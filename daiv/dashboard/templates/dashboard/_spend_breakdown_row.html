@@ -1,0 +1,28 @@
+{% load i18n %}
+{% comment %}
+A breakdown row: its name (linked to its sessions, or saying why it has none), cost, share bar, figures and cache tag.
+
+Context:
+- row: a row of a table from ``dashboard.spend.SpendReport.breakdowns``.
+{% endcomment %}
+<div class="flex items-baseline justify-between gap-3 text-sm">
+    <span class="inline-flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap">
+        {% if row.swatch %}<span class="inline-block h-2.5 w-2.5 shrink-0 rounded-[3px] {{ row.swatch }}" aria-hidden="true"></span>{% endif %}
+        {% if row.url %}
+        <a href="{{ row.url }}" class="link truncate">{{ row.name }}</a>
+        {% else %}
+        <span class="truncate text-text" title="{{ row.why }}" data-testid="no-link">{{ row.name }}{% if row.why %}<span class="sr-only"> ({{ row.why }})</span>{% endif %}</span>
+        {% endif %}
+        {% if row.note %}<span class="text-[12px] text-text-faint">{{ row.note }}</span>{% endif %}
+    </span>
+    <span class="font-mono font-semibold tabular-nums text-text">{{ row.cost_text }}</span>
+</div>
+<div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-text-faint">
+    <span class="h-1 min-w-16 flex-1 overflow-hidden rounded-sm bg-surface-3"><span class="block h-full bg-text-muted/55" style="width: {{ row.share }}%"></span></span>
+    <span class="shrink-0">
+        {{ row.share_text }} · {% blocktranslate with tokens=row.tokens %}{{ tokens }} tok{% endblocktranslate %}{% if row.runs %} · {% blocktranslate count counter=row.runs %}{{ counter }} run{% plural %}{{ counter }} runs{% endblocktranslate %}{% endif %}{% if row.models %} · {% blocktranslate count counter=row.models %}{{ counter }} model{% plural %}{{ counter }} models{% endblocktranslate %}{% endif %}
+    </span>
+    <span class="cache-tag cache-tag--{{ row.cache }}" data-testid="cache-tag" title="{% translate 'Prompt cache hit rate: the share of the input tokens served from the cache' %}">
+        {% if row.hit_rate is not None %}{% blocktranslate with rate=row.hit_rate %}{{ rate }}% cache hits{% endblocktranslate %}{% else %}{% translate "cache not reported" %}{% endif %}
+    </span>
+</div>

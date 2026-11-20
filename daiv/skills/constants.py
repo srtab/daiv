@@ -6,6 +6,10 @@ from pathlib import Path
 
 BUILTIN_SKILLS_PATH = Path(__file__).resolve().parent.parent / "automation" / "agent" / "skills"
 
+CODE_REVIEW_SKILL = "code-review"
+# The only skill whose folder ships subagents: the agent loads these charters as the code-review detectors.
+CODE_REVIEW_AGENTS_PATH = BUILTIN_SKILLS_PATH / CODE_REVIEW_SKILL / "agents"
+
 SKILLS_PATH = "/workspace/skills"
 
 # Host directory behind ``SKILLS_PATH`` in disk mode. It can outlive a restart (``/tmp`` need not be a tmpfs), so only

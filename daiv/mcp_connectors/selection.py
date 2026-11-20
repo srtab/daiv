@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
+
+from pydantic import Field, StrictBool, StringConstraints
 
 from mcp_connectors.models import MCPServer
 
@@ -43,6 +45,12 @@ def build_selection_pool(user_id: int | None = None) -> list[PoolEntry]:
 MAX_SERVER_NAMES = 200
 MAX_SERVER_NAME_LENGTH = MCPServer._meta.get_field("name").max_length
 
+McpServerSwitches = Annotated[
+    dict[Annotated[str, StringConstraints(min_length=1, max_length=MAX_SERVER_NAME_LENGTH)], StrictBool],
+    Field(max_length=MAX_SERVER_NAMES),
+]
+"""``{server: enabled}`` as API callers send it: ``True`` adds a server to the default set, ``False`` drops one."""
+
 
 def parse_server_names(raw: object) -> list[str]:
     """Validate a raw MCP selection payload into a stripped, deduped list of server names.
@@ -63,6 +71,20 @@ def parse_server_names(raw: object) -> list[str]:
             f"mcp_servers entries must be non-empty server names of at most {MAX_SERVER_NAME_LENGTH} characters."
         )
     return list(dict.fromkeys(names))
+
+
+def overrides_from_switches(
+    switches: dict[str, bool], pool: Sequence[PoolEntry], current: dict | None = None
+) -> dict[str, str]:
+    """``current`` overrides with ``switches`` applied, as the stored deviations from ``pool``'s defaults.
+
+    Raises ``ValueError`` for a server outside ``pool``: unlike a stored selection, a request naming one is a mistake.
+    """
+    names = {entry.name for entry in pool}
+    if unknown := sorted(set(switches) - names):
+        raise ValueError(f"unknown MCP server(s) {unknown}; valid: {sorted(names)}")
+    selected = effective_selection(current or {}, pool) | {name for name, on in switches.items() if on}
+    return diff_selection(selected - {name for name, on in switches.items() if not on}, pool)
 
 
 def default_names(pool: Sequence[PoolEntry]) -> set[str]:

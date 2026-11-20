@@ -2,6 +2,8 @@ from types import SimpleNamespace
 
 import pytest
 from sessions.models import SessionOrigin
+from sessions.multi_repo import aload_extra_repos
+from sessions.services import RepoTarget
 
 from accounts.models import User
 from chat.api.threads import ChatSessionService, _extract_first_user_message
@@ -213,3 +215,26 @@ async def test_chat_session_stamps_mcp_overrides(member_user):
     )
     assert created is True
     assert session.mcp_overrides == {"x": "on"}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_extra_repos_are_written_only_when_the_session_is_created(member_user):
+    input_data = _fake_input(["hello"])
+    kwargs = {
+        "user": member_user,
+        "thread_id": "t-extra-1",
+        "repo_id": "acme/x",
+        "ref": "main",
+        "input_data": input_data,
+    }
+
+    first, created = await ChatSessionService.get_or_create_for_user(
+        **kwargs, extra_repos=[RepoTarget("a/theme", "develop")]
+    )
+    again, created_again = await ChatSessionService.get_or_create_for_user(
+        **kwargs, extra_repos=[RepoTarget("a/other")]
+    )
+
+    assert (created, created_again) == (True, False)
+    assert [(r.position, r.repo_id, r.ref) for r in await aload_extra_repos(first.pk)] == [(1, "a/theme", "develop")]
+    assert again.pk == first.pk

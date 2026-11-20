@@ -220,3 +220,53 @@ def test_unpacked_total_too_large_rejected():
     with pytest.raises(SkillValidationError) as exc:
         SkillPackage.inspect(io.BytesIO(buf.getvalue()))
     assert exc.value.code == "unpacked_too_large"
+
+
+def test_zip_too_large(build_skill_zip, monkeypatch):
+    data = build_skill_zip(skill_name="demo", description="A demo skill")
+    monkeypatch.setattr("skills.services.MAX_ZIP_BYTES", len(data) - 1)
+    with pytest.raises(SkillValidationError) as exc:
+        SkillPackage.inspect(io.BytesIO(data))
+    assert exc.value.code == "zip_too_large"
+
+
+def test_zip_at_max_size_is_accepted(build_skill_zip, monkeypatch):
+    data = build_skill_zip(skill_name="demo", description="A demo skill")
+    monkeypatch.setattr("skills.services.MAX_ZIP_BYTES", len(data))
+    assert SkillPackage.inspect(io.BytesIO(data)).name == "demo"
+
+
+def test_skill_md_at_zip_root():
+    data = _raw_zip([("SKILL.md", b"---\nname: demo\ndescription: d\n---\nbody\n")])
+    with pytest.raises(SkillValidationError) as exc:
+        SkillPackage.inspect(io.BytesIO(data))
+    assert exc.value.code == "no_top_level_dir"
+
+
+def test_frontmatter_not_a_mapping():
+    data = _raw_zip([("demo/SKILL.md", b"---\n- name: demo\n- description: d\n---\nbody\n")])
+    with pytest.raises(SkillValidationError) as exc:
+        SkillPackage.inspect(io.BytesIO(data))
+    assert exc.value.code == "bad_frontmatter_type"
+
+
+def test_frontmatter_missing_name():
+    data = _raw_zip([("demo/SKILL.md", b"---\ndescription: d\n---\nbody\n")])
+    with pytest.raises(SkillValidationError) as exc:
+        SkillPackage.inspect(io.BytesIO(data))
+    assert exc.value.code == "missing_name"
+
+
+def _skill_with_description(description: str) -> bytes:
+    return _raw_zip([("demo/SKILL.md", f"---\nname: demo\ndescription: {description}\n---\nbody\n".encode())])
+
+
+def test_description_of_1024_characters_is_accepted():
+    pkg = SkillPackage.inspect(io.BytesIO(_skill_with_description("x" * 1024)))
+    assert pkg.description == "x" * 1024
+
+
+def test_description_of_1025_characters_is_too_long():
+    with pytest.raises(SkillValidationError) as exc:
+        SkillPackage.inspect(io.BytesIO(_skill_with_description("x" * 1025)))
+    assert exc.value.code == "description_too_long"

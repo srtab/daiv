@@ -519,6 +519,14 @@ async def test_run_commands_forwards_to_client(backend, client):
     assert isinstance(sent, RunCommandsRequest)
     assert sent.commands == ["echo hi", "ls"]
     assert sent.fail_fast is False
+    assert sent.timeout is None
+
+
+async def test_run_commands_forwards_the_timeout(backend, client):
+    client.run_commands.return_value = RunCommandsResponse(results=[])
+    await backend.run_commands(["pytest"], fail_fast=True, timeout=120)
+
+    assert client.run_commands.call_args.args[1].timeout == 120
 
 
 async def test_run_commands_before_bind_raises():

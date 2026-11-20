@@ -1,34 +1,43 @@
 import inspect
+import json
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock, patch
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 from git import GitCommandError
+from gitlab.exceptions import GitlabError
 from langchain_core.runnables import RunnableLambda
 from pydantic import SecretStr
 
 from accounts.utils import PlatformIdentity
+from automation.agent.constants import REPO_PATH
+from automation.agent.context import RuntimeCtx
+from automation.agent.git_state import RepoPublish
+from automation.agent.publish_errors import PushRejectedError
 from automation.agent.publishers import (
     SESSION_TRAILER,
     GitChangePublisher,
     PublishOutcome,
     UnresolvedMergeConflictsError,
+    _extra_repo_ctx,
     append_trailer,
+    apublish_extra_repos,
     run_base_branch,
 )
 from automation.agent.references import ExternalRef
 from automation.agent.session_links import SessionLinks
-from automation.agent.workspace.git_manager import PendingMerge, RepoStatus
+from automation.agent.workspace.git_manager import GitPushPermissionError, PendingMerge, RepoStatus
+from automation.agent.workspace.repo_view import RepoWorkspace
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from codebase.base import GitPlatform, Issue, MergeRequestDiffStats, Pipeline, Scope, TriggeredPipeline, User
 from codebase.clients.base import GitEgressCredential
 from codebase.exceptions import MergeRequestBranchNotVisibleError
 from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_AUTO_LABEL, BOT_NAME
-from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, with_platform_credential
+from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, with_platform_credentials
 from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret, StartSessionRequest
-from tests.unit_tests.automation.agent.conftest import make_merge_request
+from tests.unit_tests.automation.agent.conftest import make_merge_request, make_repo_handle
 from tests.unit_tests.conftest import FakeSandboxClient, FakeWorkspace, acquired_session, agent_settings, site_snapshot
 
 if TYPE_CHECKING:
@@ -143,7 +152,7 @@ def _turn_start_egress(
 ) -> EgressConfigRequest:
     """The turn-start egress: the git-host rule layered on ``env``, credentialed when ``token`` is set."""
     credential = _platform_credential(token)
-    return with_platform_credential(env, host=credential.host, header=credential.header, token=credential.value)
+    return with_platform_credentials(env, [credential])
 
 
 class TestSuggestContextFile:
@@ -292,6 +301,18 @@ class TestCreateMergeRequestDescription:
         assert kwargs["title"] == "Fix a.py"
         assert "Touches `daiv/b.py`." in kwargs["description"]
         assert "/workspace/repo/" not in kwargs["description"]
+
+    async def test_a_sibling_repositorys_title_and_description_are_relative_to_its_own_path(self):
+        publisher = _publisher_no_issue()
+        publisher.workspace.repo_path = "/workspace/repos/g/mod"
+
+        await publisher._create_merge_request(
+            "feature", "Fix /workspace/repos/g/mod/a.py", "Touches `/workspace/repos/g/mod/b.py`.", target_branch="main"
+        )
+
+        kwargs = publisher.client.update_or_create_merge_request.call_args.kwargs
+        assert kwargs["title"] == "Fix a.py"
+        assert "Touches `b.py`." in kwargs["description"]
 
 
 _LINKS = SessionLinks(
@@ -793,7 +814,9 @@ async def _publish_on_a_live_session(
     session_id = await client.start_session(StartSessionRequest(base_image="python:3.12", egress=turn_start))
     publisher = _make_publisher()
     publisher.workspace = SandboxWorkspace(
-        acquired_session(client, session_id, egress=turn_start, credential_source=AsyncMock(side_effect=remint))
+        acquired_session(
+            client, session_id, egress=turn_start, credential_source=AsyncMock(side_effect=lambda **_: [remint()])
+        )
     )
 
     await publisher.publish(merge_request=None)
@@ -958,7 +981,13 @@ class TestPublishSuggestsContextFile:
             # Fresh branch for a brand-new MR: no remote work to integrate, so no rebase-on-reject.
             gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=False)
             mock_suggest.assert_called_once_with(mr)
-            assert result == PublishOutcome(merge_request=mr, published=True, diff_stats=_LOCAL_STATS)
+            assert result == PublishOutcome(
+                merge_request=mr,
+                published=True,
+                created_merge_request=True,
+                pushed_sha="post-push-sha",
+                diff_stats=_LOCAL_STATS,
+            )
 
     async def test_degrades_to_pending_when_branch_not_visible(self, publisher, monkeypatch, caplog):
         """A pushed branch GitLab won't open an MR for degrades to a partial publish, not a failed job.
@@ -987,7 +1016,9 @@ class TestPublishSuggestsContextFile:
         gm.commit_all.assert_awaited_once()
         gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=False)
         mock_suggest.assert_not_called()
-        assert result == PublishOutcome(merge_request=None, published=True, diff_stats=_LOCAL_STATS)
+        assert result == PublishOutcome(
+            merge_request=None, published=True, pushed_sha="post-push-sha", diff_stats=_LOCAL_STATS
+        )
         assert "MR pending" in caplog.text
 
     async def test_degrade_preserves_protected_branch_fallback_source(self, publisher, monkeypatch):
@@ -1014,7 +1045,11 @@ class TestPublishSuggestsContextFile:
             result = await publisher.publish(merge_request=existing_mr)
 
         assert result == PublishOutcome(
-            merge_request=None, published=True, protected_branch_fallback_source="dev", diff_stats=_LOCAL_STATS
+            merge_request=None,
+            published=True,
+            protected_branch_fallback_source="dev",
+            pushed_sha="post-push-sha",
+            diff_stats=_LOCAL_STATS,
         )
 
     async def test_falls_back_to_new_mr_when_source_branch_protected(self, publisher, monkeypatch):
@@ -1056,7 +1091,12 @@ class TestPublishSuggestsContextFile:
             # Fallback source is exposed on the outcome so the manager can bundle a footer onto the
             # agent's reply instead of posting a separate comment.
             assert result == PublishOutcome(
-                merge_request=new_mr, published=True, protected_branch_fallback_source="dev", diff_stats=_LOCAL_STATS
+                merge_request=new_mr,
+                published=True,
+                created_merge_request=True,
+                protected_branch_fallback_source="dev",
+                pushed_sha="post-push-sha",
+                diff_stats=_LOCAL_STATS,
             )
 
     async def test_protected_branch_fallback_is_per_call(self, publisher, monkeypatch):
@@ -1117,6 +1157,46 @@ class TestPublishSuggestsContextFile:
 
             mock_create.assert_not_called()
             mock_suggest.assert_not_called()
+
+    async def test_a_push_onto_an_existing_mr_is_not_reported_as_created(self, publisher):
+        mr = make_merge_request()
+        _use_git_manager(publisher, _fake_git_manager())
+
+        with (
+            patch.object(
+                publisher,
+                "_diff_to_metadata",
+                return_value={
+                    "pr_metadata": Mock(branch="feature", title="Title", description="Desc"),
+                    "commit_message": Mock(commit_message="commit msg"),
+                },
+            ),
+            patch.object(publisher, "_suggest_context_file"),
+        ):
+            outcome = await publisher.publish(merge_request=mr)
+
+        assert outcome.published
+        assert not outcome.created_merge_request
+
+    async def test_a_failed_push_is_raised_as_push_rejected(self, publisher):
+        gm = _fake_git_manager()
+        gm.push_head_to = AsyncMock(side_effect=GitCommandError("push", 1, stderr="remote: boom"))
+        _use_git_manager(publisher, gm)
+
+        with (
+            patch.object(
+                publisher,
+                "_diff_to_metadata",
+                return_value={
+                    "pr_metadata": Mock(branch="feature", title="Title", description="Desc"),
+                    "commit_message": Mock(commit_message="commit msg"),
+                },
+            ),
+            pytest.raises(PushRejectedError) as info,
+        ):
+            await publisher.publish(merge_request=None)
+
+        assert isinstance(info.value.__cause__, GitCommandError)
 
     async def test_does_not_suggest_on_existing_mr(self, publisher, monkeypatch):
         mr = make_merge_request()
@@ -1210,7 +1290,9 @@ class TestPublishDecision:
         assert gm.status_snapshot.await_args.kwargs["base_branch"] == "release/x"
         meta.assert_called_once()  # proceeded past the clean short-circuit
         gm.push_head_to.assert_awaited_once_with("feat/x", integrate_on_reject=True, skip_ci=False)
-        assert outcome == PublishOutcome(merge_request=mr, published=True, diff_stats=_LOCAL_STATS)
+        assert outcome == PublishOutcome(
+            merge_request=mr, published=True, pushed_sha="post-push-sha", diff_stats=_LOCAL_STATS
+        )
 
     async def test_commit_message_describes_only_the_uncommitted_work(self):
         """A later turn's commit must not be named after the earlier commits already on the branch."""
@@ -1328,6 +1410,22 @@ class TestPublishPipelineHeal:
 
         trigger.assert_awaited_once_with(mr, "post-rebase-sha")
 
+    @pytest.mark.parametrize("ephemeral", [True, False])
+    async def test_every_push_records_the_sha_that_landed(self, ephemeral):
+        """The CI watch tells DAIV's commits from everyone else's by this sha, heal or no heal."""
+        publisher = _make_publisher(git_platform=GitPlatform.GITLAB)
+        publisher.client.push_uses_ephemeral_token.return_value = ephemeral
+        gm = _fake_git_manager()
+        _use_git_manager(publisher, gm)
+
+        with (
+            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
+            patch.object(publisher, "_trigger_service_account_pipeline", AsyncMock()),
+        ):
+            outcome = await publisher.publish(merge_request=make_merge_request())
+
+        assert outcome.pushed_sha == "post-push-sha"
+
     async def test_an_unreadable_head_degrades_instead_of_orphaning_the_push(self, monkeypatch, caplog):
         """The branch is already pushed and skip-ci'd: raising here would lose the MR, the pipeline
         and the agent's reply over a sha the heal can run (unverified) without."""
@@ -1347,6 +1445,7 @@ class TestPublishPipelineHeal:
 
         assert outcome.published is True
         assert outcome.merge_request is mr
+        assert outcome.pushed_sha == ""
         trigger.assert_awaited_once_with(mr, None)
         assert any(r.levelname == "ERROR" for r in caplog.records)
 
@@ -1406,7 +1505,6 @@ class TestPublishPipelineHeal:
 
         gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=True)
         trigger.assert_not_awaited()
-        gm.head_sha.assert_not_awaited()
 
     async def test_a_push_to_an_existing_mr_still_heals(self, monkeypatch):
         """No MR-open event here, so the skip-ci push suppresses the merge-request pipeline too and
@@ -1464,7 +1562,7 @@ class TestPublishPipelineHeal:
 
 
 class TestPublishDiffStats:
-    """``+x −y`` for the composer's progress pill: counted from the snapshot the publish
+    """``+x −y`` for the composer's progress drawer: counted from the snapshot the publish
     already took, never fetched back from the platform."""
 
     async def test_counts_the_snapshot_diff(self, monkeypatch):
@@ -1516,9 +1614,10 @@ def _publisher_with_graph_capture(monkeypatch):
     publisher.ctx.config.omit_content_patterns = []
     captured = {}
 
-    def fake_create(model_names, ctx, backend, include_pr_metadata, include_commit_message):
+    def fake_create(model_names, ctx, backend, include_pr_metadata, include_commit_message, repo_path):
         graph = Mock()
         captured["graph_backend"] = backend
+        captured["graph_repo_path"] = repo_path
 
         async def ainvoke(input_data, config=None):
             captured.update(input_data)
@@ -1539,6 +1638,19 @@ async def test_the_metadata_reads_context_files_from_the_run_workspace(monkeypat
     await publisher._diff_to_metadata(commit_message_diff="diff")
 
     assert captured["graph_backend"] is publisher.workspace.backend
+    assert captured["graph_repo_path"] == REPO_PATH
+
+
+async def test_sibling_commit_metadata_reads_the_siblings_context_file(monkeypatch):
+    publisher, captured = _publisher_with_graph_capture(monkeypatch)
+    publisher.ctx.scope = None
+    run_workspace = publisher.workspace
+    publisher.workspace = RepoWorkspace(run_workspace.backend, "/workspace/repos/g/mod", AsyncMock())
+
+    await publisher._diff_to_metadata(commit_message_diff="diff")
+
+    assert captured["graph_backend"] is run_workspace.backend
+    assert captured["graph_repo_path"] == "/workspace/repos/g/mod"
 
 
 async def test_the_diff_to_metadata_chain_and_trace_label_are_the_repos():
@@ -1561,6 +1673,21 @@ async def test_the_diff_to_metadata_chain_and_trace_label_are_the_repos():
 
     assert [c.kwargs["model"] for c in get_model.call_args_list] == ["repo-model", "repo-fallback"]
     assert trace_models == ["repo-model"]
+
+
+def test_a_siblings_view_drops_the_main_repositorys_issue():
+    """Its merge request would otherwise be written as addressing an issue number of its own repository."""
+    issue = Issue(iid=12, title="Broken parser", description="d", author=User(id=1, username="u"))
+    ctx = RuntimeCtx(
+        bot_username="daiv",
+        repos=(make_repo_handle("g/app"), make_repo_handle("g/mod")),
+        scope=Scope.ISSUE,
+        issue=issue,
+    )
+
+    sibling = _extra_repo_ctx(ctx, ctx.extra_repos[0])
+
+    assert (sibling.repository.slug, sibling.scope, sibling.issue) == ("g/mod", Scope.GLOBAL, None)
 
 
 class TestDiffToMetadataExtraContext:
@@ -1763,3 +1890,230 @@ class TestDescriptionBoilerplate:
 
         assert "can make mistakes" in description
         assert "mentioning @" in description
+
+
+def _multi_repo_ctx(*extra_repos) -> RuntimeCtx:
+    return RuntimeCtx(bot_username="daiv", repos=(make_repo_handle("g/app"), *extra_repos))
+
+
+async def _publish_extras(ctx: RuntimeCtx, *, publish=None, open_mr=None, session_links=None, **kwargs):
+    """Publish ``ctx``'s extra repositories with the publisher class and the open-MR lookup stubbed; ``publish`` is
+    the stubbed ``publish``'s ``side_effect``."""
+    workspace = Mock()
+    with (
+        patch("automation.agent.publishers.GitChangePublisher") as pub_cls,
+        patch("automation.agent.publishers.aget_open_merge_request", AsyncMock(return_value=open_mr)) as lookup,
+    ):
+        pub_cls.return_value.publish = AsyncMock(
+            side_effect=publish, return_value=PublishOutcome(merge_request=None, published=False)
+        )
+        publishes = await apublish_extra_repos(
+            ctx, workspace, settings=agent_settings(), session_links=session_links, **kwargs
+        )
+    return publishes, pub_cls, lookup, workspace
+
+
+class TestPublishExtraRepos:
+    async def test_publish_extra_repos_uses_each_repos_own_view(self):
+        mod = make_repo_handle("g/mod")
+        ctx = _multi_repo_ctx(mod)
+        links = AsyncMock()
+
+        _, pub_cls, _, workspace = await _publish_extras(ctx, session_links=links)
+
+        workspace.for_repo.assert_called_once_with(mod)
+        pub_cls.assert_called_once()
+        view, publish_workspace = pub_cls.call_args.args
+        assert view.repos == (mod,)
+        assert publish_workspace is workspace.for_repo.return_value
+        assert pub_cls.call_args.kwargs["session_links"] is links
+
+    async def test_a_sibling_publish_drops_platform_issue_refs_but_keeps_the_others(self):
+        ticket = ExternalRef(key="SUP-1", provider="rt", url="https://support.example.com/SUP-1")
+        issue = ExternalRef(key="12", provider="gitlab-issue", relation="closes")
+        repos = (make_repo_handle("g/app"), make_repo_handle("g/mod"))
+        ctx = RuntimeCtx(bot_username="daiv", repos=repos, references=(issue, ticket))
+
+        _, pub_cls, _, _ = await _publish_extras(ctx)
+
+        assert pub_cls.call_args.args[0].references == (ticket,)
+
+    async def test_extra_repo_targets_the_open_mr_on_its_branch(self):
+        mod = make_repo_handle("g/mod", current_ref="fix-x")
+        open_mr = make_merge_request(repo_id="g/mod", source_branch="fix-x")
+
+        _, pub_cls, lookup, _ = await _publish_extras(_multi_repo_ctx(mod), open_mr=open_mr, skip_ci=True)
+
+        lookup.assert_awaited_once_with(mod.client, "g/mod", "fix-x", strict=True)
+        pub_cls.return_value.publish.assert_awaited_once_with(merge_request=open_mr, skip_ci=True, as_draft=False)
+
+    async def test_a_failed_lookup_records_an_error_instead_of_opening_a_second_mr(self):
+        mod = make_repo_handle("g/mod", current_ref="fix-x")
+        lookup_error = GitlabError("502 Bad Gateway")
+
+        with (
+            patch("automation.agent.publishers.aget_open_merge_request", AsyncMock(side_effect=lookup_error)),
+            patch("automation.agent.publishers.GitChangePublisher") as pub_cls,
+        ):
+            [publish] = await apublish_extra_repos(
+                _multi_repo_ctx(mod), Mock(), settings=agent_settings(), session_links=None
+            )
+
+        pub_cls.return_value.publish.assert_not_called()
+        assert publish.error == "Publishing to g/mod failed (GitlabError)"
+
+    async def test_a_failed_publish_keeps_the_repositorys_open_mr(self):
+        mod = make_repo_handle("g/mod", current_ref="fix-x")
+        open_mr = make_merge_request(repo_id="g/mod", source_branch="fix-x")
+
+        [publish], _, _, _ = await _publish_extras(
+            _multi_repo_ctx(mod), open_mr=open_mr, publish=RuntimeError("push rejected")
+        )
+
+        assert publish.merge_request == open_mr
+        assert publish.error == "Publishing to g/mod failed (RuntimeError)"
+
+    async def test_a_publish_that_opened_a_merge_request_says_so(self):
+        mr = make_merge_request(repo_id="g/mod")
+        outcome = PublishOutcome(merge_request=mr, published=True, created_merge_request=True)
+
+        [publish], _, _, _ = await _publish_extras(_multi_repo_ctx(make_repo_handle("g/mod")), publish=[outcome])
+
+        assert publish.created_merge_request is True
+
+    async def test_a_rejected_push_records_its_kind_and_keeps_the_error_text(self):
+        [publish], _, _, _ = await _publish_extras(
+            _multi_repo_ctx(make_repo_handle("g/mod")), publish=GitPushPermissionError("denied")
+        )
+
+        assert publish.error_kind == "push_rejected"
+        assert publish.error == "Publishing to g/mod failed (GitPushPermissionError)"
+
+    async def test_unresolved_conflicts_record_their_paths(self):
+        [publish], _, _, _ = await _publish_extras(
+            _multi_repo_ctx(make_repo_handle("g/mod")), publish=UnresolvedMergeConflictsError(["a.py"])
+        )
+
+        assert publish.error_kind == "conflicts"
+        assert publish.conflicted_paths == ("a.py",)
+
+    async def test_a_sibling_publish_only_relates_to_work_items_the_turn_closes(self):
+        sentry = ExternalRef(key="PROJ-1A", provider="sentry", relation="closes")
+        ctx = RuntimeCtx(
+            bot_username="daiv", repos=(make_repo_handle("g/app"), make_repo_handle("g/mod")), references=(sentry,)
+        )
+
+        _, pub_cls, _, _ = await _publish_extras(ctx)
+
+        assert [ref.relation for ref in pub_cls.call_args.args[0].references] == ["relates"]
+
+    @pytest.mark.parametrize(
+        "handle",
+        [make_repo_handle("g/mod"), make_repo_handle("g/mod", current_ref="0123abcd", head_detached=True)],
+        ids=["default-branch", "detached-head"],
+    )
+    async def test_extra_repo_on_default_branch_opens_a_fresh_mr(self, handle):
+        _, pub_cls, lookup, _ = await _publish_extras(_multi_repo_ctx(handle))
+
+        lookup.assert_not_awaited()
+        assert pub_cls.return_value.publish.await_args.kwargs["merge_request"] is None
+
+    async def test_a_failed_repository_is_recorded_and_the_next_still_publishes(self, caplog):
+        mod, web = make_repo_handle("g/mod"), make_repo_handle("g/web")
+        web_mr = make_merge_request(repo_id="g/web", source_branch="daiv/fix")
+
+        with caplog.at_level("ERROR", logger="daiv.tools"):
+            publishes, _, _, _ = await _publish_extras(
+                _multi_repo_ctx(mod, web),
+                publish=[RuntimeError("push rejected"), PublishOutcome(merge_request=web_mr, published=True)],
+            )
+
+        assert publishes == [
+            RepoPublish(
+                repo_id="g/mod",
+                merge_request=None,
+                published=False,
+                current_ref="main",
+                error="Publishing to g/mod failed (RuntimeError)",
+                error_kind="unknown",
+            ),
+            RepoPublish(repo_id="g/web", merge_request=web_mr, published=True, current_ref="main"),
+        ]
+        assert "push rejected" in caplog.text
+
+    async def test_a_sibling_publish_carries_its_outcomes_diff_stats(self):
+        stats = MergeRequestDiffStats(lines_added=4, lines_removed=9, files_changed=1)
+
+        publishes, _, _, _ = await _publish_extras(
+            _multi_repo_ctx(make_repo_handle("g/mod")),
+            publish=[PublishOutcome(merge_request=None, published=True, diff_stats=stats)],
+        )
+
+        assert publishes[0].diff_stats == stats
+
+    async def test_sibling_conflict_markers_recorded_as_error(self):
+        conflict = UnresolvedMergeConflictsError(["a.py"])
+
+        [publish], _, _, _ = await _publish_extras(_multi_repo_ctx(make_repo_handle("g/mod")), publish=conflict)
+
+        assert publish == RepoPublish(
+            repo_id="g/mod",
+            merge_request=None,
+            published=False,
+            current_ref="main",
+            error=str(conflict),
+            error_kind="conflicts",
+            conflicted_paths=("a.py",),
+        )
+
+    @pytest.mark.parametrize(
+        ("handle", "current_ref"),
+        [
+            (make_repo_handle("g/mod", current_ref="fix-x"), "fix-x"),
+            (make_repo_handle("g/mod", current_ref="0123abcd", head_detached=True), ""),
+        ],
+        ids=["branch", "detached-head"],
+    )
+    async def test_current_ref_is_the_clones_branch(self, handle, current_ref):
+        [publish], _, _, _ = await _publish_extras(_multi_repo_ctx(handle))
+
+        assert publish.current_ref == current_ref
+
+    @pytest.mark.parametrize(
+        ("open_mr", "as_draft"),
+        [
+            (None, True),
+            (make_merge_request(repo_id="g/mod", source_branch="fix-x", draft=False), False),
+            (make_merge_request(repo_id="g/mod", source_branch="fix-x", draft=True), True),
+        ],
+        ids=["new-mr", "open-mr", "draft-mr"],
+    )
+    async def test_recovering_drafts_only_a_new_mr_and_keeps_a_draft_one_a_draft(self, open_mr, as_draft):
+        mod = make_repo_handle("g/mod", current_ref="fix-x")
+
+        _, pub_cls, _, _ = await _publish_extras(_multi_repo_ctx(mod), open_mr=open_mr, recovering=True)
+
+        assert pub_cls.return_value.publish.await_args.kwargs["as_draft"] is as_draft
+
+    async def test_a_single_repo_run_publishes_nothing(self):
+        publishes, pub_cls, _, _ = await _publish_extras(_multi_repo_ctx())
+
+        assert publishes == []
+        pub_cls.assert_not_called()
+
+
+class TestRepoPublishState:
+    @pytest.mark.parametrize(
+        "publish",
+        [
+            RepoPublish(
+                repo_id="g/mod", merge_request=make_merge_request(repo_id="g/mod"), published=True, current_ref="f"
+            ),
+            RepoPublish(repo_id="g/mod", merge_request=None, published=False, current_ref="main", error="boom"),
+        ],
+        ids=["merge-request", "error"],
+    )
+    def test_round_trips_through_plain_json(self, publish):
+        state = json.loads(json.dumps(publish.to_state()))
+
+        assert RepoPublish.from_state(state) == publish

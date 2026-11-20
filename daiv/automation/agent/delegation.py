@@ -36,34 +36,39 @@ class Checkout:
 @dataclass(frozen=True)
 class DelegatedTarget:
     """One sub-job: ``ref`` blank for the repository's default branch; ``references`` are linked into its merge
-    request."""
+    request. ``thread_id`` names a leg delegated earlier to continue instead: a leg follow-up."""
 
     repo_id: str
     ref: str
     prompt: str
     references: tuple[RefIn, ...] = ()
+    thread_id: str = ""
 
 
 @dataclass(frozen=True)
 class StartedLeg:
     """``starts_after_this_turn``: the leg branches from the delegating run's own branch, so it starts once that run
-    has finished and pushed."""
+    has finished and pushed. ``leg_follow_up``: it continues a leg delegated earlier, on the branch ``ref``, and never
+    waits for this turn."""
 
     repo_id: str
     ref: str
     thread_id: str
     session_url: str
     starts_after_this_turn: bool = False
+    leg_follow_up: bool = False
 
 
 @dataclass(frozen=True)
 class FailedLeg:
-    """``still_runs``: the leg started but cannot be followed, so it may still publish while no resume reports it."""
+    """``still_runs``: the leg started but cannot be followed, so it may still publish while no resume reports it.
+    ``thread_id``: the leg a refused leg follow-up named."""
 
     repo_id: str
     ref: str
     error: str
     still_runs: bool = False
+    thread_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -78,8 +83,9 @@ class DelegationResult:
 
 @dataclass(frozen=True)
 class LegStatus:
-    """A leg as its coordinator sees it: ``branch`` is the branch it publishes to, once that is not ``ref``, and
-    ``reply`` its reply, cut short."""
+    """A leg as its coordinator sees it: ``ref`` is where it started, ``branch`` its own branch whenever it has one,
+    ``merge_request_url`` its merge request, and ``reply`` its reply, cut at a limit with a marker saying so.
+    ``leg_follow_up``: this entry is a leg follow-up's run."""
 
     repo_id: str
     ref: str
@@ -89,6 +95,7 @@ class LegStatus:
     branch: str = ""
     merge_request_url: str = ""
     reply: str = ""
+    leg_follow_up: bool = False
 
 
 @dataclass(frozen=True)
@@ -114,7 +121,8 @@ class JobDelegator(Protocol):
     async def adelegate(self, *, checkout: Checkout, goal: str, targets: Sequence[DelegatedTarget]) -> DelegationResult:
         """Start one independent job per target for the delegating run, which has ``checkout``, and return without
         waiting. Each leg publishes to a new branch and merge request of its own, and one that names ``checkout``'s
-        own branch starts once the delegating run has finished, from the branch that run's session then works on.
+        own branch starts once the delegating run has finished, from the branch that run's session then works on. A
+        target with ``thread_id`` continues that leg in its own session, branch and merge request.
 
         Once every started leg has finished, the session is resumed with a run whose prompt summarises them.
         A target that cannot start lands in ``failed`` while the others go ahead; raise :class:`DelegationError`

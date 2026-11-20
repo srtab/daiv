@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import logging
 from io import StringIO
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated, Any
 
 from django.core.cache import cache
 
 import yaml
-from pydantic import AliasChoices, BaseModel, Field, ValidationError
+from pydantic import AliasChoices, BaseModel, BeforeValidator, Field, SkipValidation, ValidationError
 from yaml.parser import ParserError
 
 from core.constants import ModelName  # noqa: TC001
+from core.model_choice import ModelChoice, parse_model_choices  # noqa: TC001
 from core.models import ThinkingLevelChoices as ThinkingLevel  # noqa: TC001
 
 if TYPE_CHECKING:
@@ -131,6 +132,13 @@ class DiffToMetadataModelConfig(BaseModel):
     )
 
 
+def _model_choice_entries(value: Any) -> dict[str, ModelChoice]:
+    return parse_model_choices(value, source=CONFIGURATION_FILE_NAME)
+
+
+ModelChoiceMap = Annotated[dict[str, SkipValidation[ModelChoice]], BeforeValidator(_model_choice_entries)]
+
+
 class Models(BaseModel):
     """
     Model configuration for all agents.
@@ -139,6 +147,20 @@ class Models(BaseModel):
     agent: AgentModelConfig = Field(default_factory=AgentModelConfig, description="Configuration for the DAIV agent.")
     diff_to_metadata: DiffToMetadataModelConfig = Field(
         default_factory=DiffToMetadataModelConfig, description="Configuration for the diff to metadata agent."
+    )
+    skills: ModelChoiceMap = Field(
+        default_factory=dict,
+        description=(
+            "Model spec, or {model, thinking_level}, per skill name, overriding the site configuration's entry. "
+            "A null or empty value leaves the site's entry in place. Checked when a run uses it, not on load."
+        ),
+    )
+    subagents: ModelChoiceMap = Field(
+        default_factory=dict,
+        description=(
+            "Model spec, or {model, thinking_level}, per subagent name, overriding the site configuration's entry. "
+            "A null or empty value leaves the site's entry in place. Checked when a run uses it, not on load."
+        ),
     )
 
 

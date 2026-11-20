@@ -121,6 +121,8 @@ class SandboxEnvironment(TimeStampedModel):
     _egress_secrets_encrypted = models.TextField(blank=True, null=True, editable=False)  # noqa: DJ001 — NULL = no secrets
     egress_secrets = EncryptedJSONFieldDescriptor("egress_secrets")
 
+    browser_enabled = models.BooleanField(_("browser"), default=False)
+
     objects = SandboxEnvironmentQuerySet.as_manager()
 
     class Meta:
@@ -175,7 +177,7 @@ class SandboxEnvironment(TimeStampedModel):
         Format: ``"<base_image> · <N> CPU · <memory> · net"`` with each
         segment omitted when its source value is missing. Memory renders
         as ``GiB`` for whole-GiB values, ``MiB`` otherwise. Network is
-        included only when an egress policy is configured."""
+        included only when an egress policy is configured, and browser only when the field is on."""
         parts: list[str] = []
         if self.base_image:
             parts.append(self.base_image)
@@ -185,18 +187,22 @@ class SandboxEnvironment(TimeStampedModel):
             parts.append(_fmt_memory(self.memory_bytes))
         if self.is_networked:
             parts.append("net")
+        if self.browser_enabled:
+            parts.append("browser")
         return " · ".join(parts)
 
     @property
     def short_summary(self) -> str:
         """Compact ``"<base_image>"`` description, with ``" · net"`` appended
-        when an egress policy is configured. Segments are omitted when their
-        source value is missing."""
+        when an egress policy is configured and ``" · browser"`` when the browser is on. Segments are omitted
+        when their source value is missing."""
         parts: list[str] = []
         if self.base_image:
             parts.append(self.base_image)
         if self.is_networked:
             parts.append("net")
+        if self.browser_enabled:
+            parts.append("browser")
         return " · ".join(parts)
 
     @property
@@ -339,12 +345,12 @@ class SandboxEnvironment(TimeStampedModel):
         except (PydanticValidationError, TypeError, ValueError) as err:
             raise ValidationError({"egress_policy": _("Invalid egress configuration: %s") % err}) from err
 
-        # Reserved: with_platform_credential overwrites this secret at runtime, so a stored one would
+        # Reserved: with_platform_credentials overwrites these secrets at runtime, so a stored one would
         # be silently displaced by DAIV's git-platform credential.
-        from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME
+        from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, is_platform_secret_name
 
-        if PLATFORM_EGRESS_SECRET_NAME in request.secrets or any(
-            rule.inject == PLATFORM_EGRESS_SECRET_NAME for rule in request.policy.rules
+        if any(is_platform_secret_name(name) for name in request.secrets) or any(
+            rule.inject is not None and is_platform_secret_name(rule.inject) for rule in request.policy.rules
         ):
             raise ValidationError({
                 "egress_secrets": _("The egress secret name '%s' is reserved for DAIV's git-platform credential.")

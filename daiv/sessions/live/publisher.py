@@ -12,6 +12,7 @@ from ag_ui.core.events import EventType, RunErrorEvent, StateSnapshotEvent
 from langchain_core.callbacks import AsyncCallbackHandler
 from langchain_core.runnables.config import merge_configs
 
+from automation.agent.provider_errors import provider_failure_of
 from core.constants import RUN_FAILED_MESSAGE
 
 from .agui import STREAMED_STATE_KEYS, RuntimeContextLangGraphAGUIAgent
@@ -22,8 +23,8 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from ag_ui.core.events import BaseEvent
-    from langchain.agents import CompiledAgent
     from langchain_core.runnables import RunnableConfig
+    from langgraph.graph.state import CompiledStateGraph
 
     from automation.agent.context import RuntimeCtx
 
@@ -31,9 +32,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("daiv.sessions")
 
-_driving_live_run: contextvars.ContextVar[_RootOutcome | None] = contextvars.ContextVar(
-    "driving_live_run", default=None
-)
+_driving_live_run: contextvars.ContextVar[RootOutcome | None] = contextvars.ContextVar("driving_live_run", default=None)
 
 
 class _DropReraisedRunFailure(logging.Filter):
@@ -54,11 +53,25 @@ class LiveRunError(Exception):
     """The live stream ended without the graph returning or raising: ag-ui failed around it, or never ran it."""
 
 
-def sanitize_run_error(event: BaseEvent) -> BaseEvent:
-    """``event``, with the generic RUN_ERROR in place of ag-ui's, whose message is the raw exception text: anyone who
-    can view the session can read its stream."""
+def run_error_event(error: BaseException | None) -> RunErrorEvent:
+    """The RUN_ERROR viewers see for a run that failed with ``error``: the provider's fixed message when a provider
+    failure is tagged on it, else the generic one, which also stands in when that message can't be built (logged).
+    Never the exception's text: anyone who can view the session can read its stream."""
+    if (failure := provider_failure_of(error)) is not None:
+        try:
+            return RunErrorEvent(type=EventType.RUN_ERROR, message=failure.message(), code=f"provider_{failure.kind}")
+        except Exception:
+            logger.exception(
+                "live: could not build the %s message for provider %s", failure.kind, failure.provider_slug
+            )
+    return RunErrorEvent(type=EventType.RUN_ERROR, message=RUN_FAILED_MESSAGE, code="run_failed")
+
+
+def sanitize_run_error(event: BaseEvent, error: BaseException | None = None) -> BaseEvent:
+    """``event``, with ``run_error_event(error)`` in place of ag-ui's RUN_ERROR, whose message is the raw exception
+    text; ``error`` is the graph's own exception, when it raised one."""
     if event.type == EventType.RUN_ERROR:
-        return RunErrorEvent(type=EventType.RUN_ERROR, message=RUN_FAILED_MESSAGE, code="run_failed")
+        return run_error_event(error)
     return event
 
 
@@ -83,7 +96,7 @@ async def publish_event(run_relay: RunRelay, event: BaseEvent) -> None:
 
 
 async def ainvoke_live(
-    agent: CompiledAgent,
+    agent: CompiledStateGraph[Any, RuntimeCtx],
     graph_input: dict[str, Any],
     *,
     config: RunnableConfig,
@@ -97,12 +110,12 @@ async def ainvoke_live(
     The graph's own outcome decides the call: its output is returned and its exception re-raised as is, though one
     that is not an ``Exception`` (the graph's run cancelled under it) raises ``LiveRunError``. Translation and the relay
     are best-effort: when ag-ui fails mid-run the graph still runs to its end, and its RUN_ERROR is published only if
-    the graph does not return. The first relay failure is logged and ends the stream, so viewers fall back to polling,
-    and the run carries on unpublished. No graph run outlives the call. A RUN_ERROR is published with the generic
-    message, since viewers other than the run's owner can read the stream. The caller ends the stream (``end_stream``)
-    once the run has settled.
+    the graph does not return. The first relay failure is logged and ends the stream, so viewers fall back to the
+    session's turns, and the run carries on unpublished. No graph run outlives the call. A RUN_ERROR is published with
+    a fixed message (``sanitize_run_error``), since viewers other than the run's owner can read the stream. The caller
+    ends the stream (``end_stream``) once the run has settled.
     """
-    outcome = _RootOutcome()
+    outcome = RootOutcome()
     publishing = await _publish(run_relay, run_relay.clear())
     agui = RuntimeContextLangGraphAGUIAgent(
         name="DAIV",
@@ -132,7 +145,7 @@ async def ainvoke_live(
                     withheld_error = event
                     continue
                 publishing = publishing and await _publish(
-                    run_relay, publish_event(run_relay, sanitize_run_error(event))
+                    run_relay, publish_event(run_relay, sanitize_run_error(event, outcome.error))
                 )
         if outcome.output is None and outcome.error is None and agui.graph_stream is not None:
             async for _ in agui.graph_stream:
@@ -142,7 +155,7 @@ async def ainvoke_live(
         if agui.graph_stream is not None:
             await close_graph_stream(agui.graph_stream, thread_id=run_relay.thread_id, run_id=run_relay.run_id)
         if withheld_error is not None and outcome.output is None and publishing:
-            await _publish(run_relay, publish_event(run_relay, sanitize_run_error(withheld_error)))
+            await _publish(run_relay, publish_event(run_relay, sanitize_run_error(withheld_error, outcome.error)))
     if isinstance(outcome.error, Exception):
         raise outcome.error
     if outcome.error is not None:
@@ -172,7 +185,7 @@ async def end_stream(run_relay: RunRelay) -> None:
 
 
 async def _publish(run_relay: RunRelay, operation: Awaitable[None]) -> bool:
-    """Run one relay write; a failure ends the stream so its viewers go back to polling the run."""
+    """Run one relay write; a failure ends the stream so its viewers go back to fetching the session's turns."""
     try:
         await operation
     except Exception:
@@ -186,7 +199,7 @@ async def _publish(run_relay: RunRelay, operation: Awaitable[None]) -> bool:
     return True
 
 
-class _RootOutcome(AsyncCallbackHandler):
+class RootOutcome(AsyncCallbackHandler):
     """The root run's output or error: ag-ui reports a failed graph only as a RUN_ERROR with the exception's text.
 
     The root is the run started with ``root_id`` as its run id; it can have a parent of its own, the caller's

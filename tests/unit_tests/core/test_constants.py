@@ -31,10 +31,12 @@ def test_chat_terminal_messages_live_in_core_constants():
     assert RUN_FAILED_MESSAGE.startswith("Run failed.")
 
 
-def test_streaming_reexports_the_same_constant_objects():
+def test_the_live_streams_use_the_same_constant_objects():
+    from sessions.live import publisher
+
     from chat.api import streaming
     from core import constants
 
     assert streaming.CANCELLED_BY_USER_MESSAGE is constants.CANCELLED_BY_USER_MESSAGE
     assert streaming.INTERRUPTED_MESSAGE is constants.INTERRUPTED_MESSAGE
-    assert streaming.RUN_FAILED_MESSAGE is constants.RUN_FAILED_MESSAGE
+    assert publisher.RUN_FAILED_MESSAGE is constants.RUN_FAILED_MESSAGE

@@ -51,6 +51,7 @@
         <div x-show="popover" x-cloak
              @click.outside="closePicker()"
              @keydown.escape.window="closePicker()"
+             data-surface
              class="picker-popover">
             {% include "core/_sheet_head.html" with title=_("Subscribers") close_expr="closePicker()" %}
             {% comment %} `hx-include` pulls in the hidden `exclude` CSV so the backend can filter out already-selected users. HTMX 2.x only sends the triggering input's value on GET by default, so without this the enclosing form's other inputs are *not* sent (which is what we want — the picker stays scoped to `q` and `exclude`). {% endcomment %}
@@ -59,7 +60,7 @@
                    x-ref="userSearch"
                    placeholder="{% translate 'Search users by name, email, or username...' %}"
                    hx-get="{{ user_picker_url }}"
-                   hx-trigger="input changed delay:200ms[this.value.length >= 2], search"
+                   hx-trigger="input[this.value.length >= 2] changed delay:200ms, search"
                    hx-include="previous input[name='exclude']"
                    hx-sync="this:abort"
                    hx-target="#user-picker-list"

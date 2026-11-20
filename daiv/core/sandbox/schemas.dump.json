@@ -1,4 +1,98 @@
 {
+  "BrowserStartRequest": {
+    "properties": {
+      "cpus": {
+        "description": "CPU limit of the browser container; at least 0.25.",
+        "minimum": 0.25,
+        "title": "Cpus",
+        "type": "number"
+      },
+      "extension_sha256": {
+        "description": "sha256 of the Stagehand extension archive; the archive is cached under this digest.",
+        "pattern": "^[0-9a-f]{64}$",
+        "title": "Extension Sha256",
+        "type": "string"
+      },
+      "memory_bytes": {
+        "description": "Memory limit of the browser container, in bytes; at least 256 MiB.",
+        "minimum": 268435456,
+        "title": "Memory Bytes",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "memory_bytes",
+      "cpus",
+      "extension_sha256"
+    ],
+    "title": "BrowserStartRequest",
+    "type": "object"
+  },
+  "BrowserStartResponse": {
+    "properties": {
+      "browser_ws_path": {
+        "description": "The browser's DevTools WebSocket path, '/devtools/browser/<guid>'.",
+        "title": "Browser Ws Path",
+        "type": "string"
+      },
+      "devtools_port": {
+        "description": "The browser-local DevTools port, for the extension's CDP URL.",
+        "title": "Devtools Port",
+        "type": "integer"
+      },
+      "profile": {
+        "description": "'empty' on the browser container's first start; 'reset' when its profile could not be read or the container was recreated after a removal the service did not initiate; 'restored' otherwise.",
+        "enum": [
+          "empty",
+          "restored",
+          "reset"
+        ],
+        "title": "Profile",
+        "type": "string"
+      },
+      "restored_urls": {
+        "description": "Tabs re-opened from the profile, in order.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Restored Urls",
+        "type": "array"
+      },
+      "started": {
+        "description": "False when the browser was already running and nothing was started.",
+        "title": "Started",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "started",
+      "profile",
+      "devtools_port",
+      "browser_ws_path"
+    ],
+    "title": "BrowserStartResponse",
+    "type": "object"
+  },
+  "BrowserStopResponse": {
+    "properties": {
+      "oom_killed": {
+        "default": false,
+        "description": "Whether the container was killed for memory before stop.",
+        "title": "Oom Killed",
+        "type": "boolean"
+      },
+      "saved_urls": {
+        "description": "Tab URLs saved to the profile, in order.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Saved Urls",
+        "type": "array"
+      }
+    },
+    "title": "BrowserStopResponse",
+    "type": "object"
+  },
   "EgressConfigRequest": {
     "$defs": {
       "EgressPolicy": {
@@ -15,7 +109,7 @@
           },
           "intercept": {
             "default": "all",
-            "description": "'all' MITMs every reachable host; 'credentialed' MITMs only hosts that inject a credential or carry a per-host methods restriction (others are tunnelled untouched).",
+            "description": "'all' MITMs every reachable host; 'credentialed' MITMs only hosts that inject a credential, restrict methods, or carry a path-scoped rule (others are tunnelled untouched).",
             "enum": [
               "all",
               "credentialed"
@@ -61,6 +155,19 @@
             },
             "title": "Methods",
             "type": "array"
+          },
+          "path_prefix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Request path prefix this rule is limited to, matched on whole path segments (e.g. '/group/app.git'); None matches every path.",
+            "title": "Path Prefix"
           }
         },
         "required": [
@@ -136,6 +243,19 @@
             },
             "title": "Methods",
             "type": "array"
+          },
+          "path_prefix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Request path prefix this rule is limited to, matched on whole path segments (e.g. '/group/app.git'); None matches every path.",
+            "title": "Path Prefix"
           }
         },
         "required": [
@@ -158,7 +278,7 @@
       },
       "intercept": {
         "default": "all",
-        "description": "'all' MITMs every reachable host; 'credentialed' MITMs only hosts that inject a credential or carry a per-host methods restriction (others are tunnelled untouched).",
+        "description": "'all' MITMs every reachable host; 'credentialed' MITMs only hosts that inject a credential, restrict methods, or carry a path-scoped rule (others are tunnelled untouched).",
         "enum": [
           "all",
           "credentialed"
@@ -204,6 +324,19 @@
         },
         "title": "Methods",
         "type": "array"
+      },
+      "path_prefix": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Request path prefix this rule is limited to, matched on whole path segments (e.g. '/group/app.git'); None matches every path.",
+        "title": "Path Prefix"
       }
     },
     "required": [
@@ -930,7 +1063,7 @@
           }
         ],
         "default": null,
-        "description": "1-indexed last *complete* source line in `content`. Text reads only. Equals the request's `offset` (an empty window) when a byte-capped page holds no complete line at all, i.e. a single line longer than the read limit \u2014 expected, not a bug.",
+        "description": "1-indexed last *complete* source line in `content`. Text reads only. Equals the request's `offset` when a byte-capped page holds no complete line at all \u2014 a single line longer than the read limit.",
         "title": "End Line"
       },
       "error": {
@@ -1083,7 +1216,7 @@
           }
         ],
         "default": null,
-        "description": "Maximum execution time in seconds for each command. Overrides the server default (DAIV_SANDBOX_COMMAND_TIMEOUT). 0 means no timeout.",
+        "description": "Maximum execution time in seconds for each command. A command that exceeds it is killed, along with every process it started, and the remaining commands are skipped. Overrides the server default (DAIV_SANDBOX_COMMAND_TIMEOUT). 0 means no timeout.",
         "title": "Timeout"
       }
     },
@@ -1111,6 +1244,12 @@
             "description": "Output of the command.",
             "title": "Output",
             "type": "string"
+          },
+          "timed_out": {
+            "default": false,
+            "description": "True when the command exceeded its timeout and was killed with every process it started. `exit_code` is then 124 and `output` holds what it printed before it was killed.",
+            "title": "Timed Out",
+            "type": "boolean"
           },
           "workdir": {
             "description": "Working directory of the command.",
@@ -1161,6 +1300,12 @@
         "title": "Output",
         "type": "string"
       },
+      "timed_out": {
+        "default": false,
+        "description": "True when the command exceeded its timeout and was killed with every process it started. `exit_code` is then 124 and `output` holds what it printed before it was killed.",
+        "title": "Timed Out",
+        "type": "boolean"
+      },
       "workdir": {
         "description": "Working directory of the command.",
         "title": "Workdir",
@@ -1174,6 +1319,18 @@
       "workdir"
     ],
     "title": "RunResult",
+    "type": "object"
+  },
+  "SandboxCapabilities": {
+    "properties": {
+      "browser": {
+        "default": false,
+        "description": "Whether the service can run a browser beside a session.",
+        "title": "Browser",
+        "type": "boolean"
+      }
+    },
+    "title": "SandboxCapabilities",
     "type": "object"
   },
   "StartSessionRequest": {
@@ -1208,7 +1365,7 @@
           },
           "intercept": {
             "default": "all",
-            "description": "'all' MITMs every reachable host; 'credentialed' MITMs only hosts that inject a credential or carry a per-host methods restriction (others are tunnelled untouched).",
+            "description": "'all' MITMs every reachable host; 'credentialed' MITMs only hosts that inject a credential, restrict methods, or carry a path-scoped rule (others are tunnelled untouched).",
             "enum": [
               "all",
               "credentialed"
@@ -1254,6 +1411,19 @@
             },
             "title": "Methods",
             "type": "array"
+          },
+          "path_prefix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Request path prefix this rule is limited to, matched on whole path segments (e.g. '/group/app.git'); None matches every path.",
+            "title": "Path Prefix"
           }
         },
         "required": [

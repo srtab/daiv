@@ -9,8 +9,6 @@ from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from django.core.exceptions import ImproperlyConfigured
-
 from git import GitCommandError, Repo
 from gitlab import Gitlab, GitlabCreateError, GitlabOperationError
 from gitlab.const import AccessLevel
@@ -33,7 +31,13 @@ from codebase.base import (
 )
 from codebase.clients import RepoClient
 from codebase.clients.gitlab.clone_tokens import get_ephemeral_clone_token, invalidate_clone_token
-from codebase.exceptions import CloneRefNotFoundError, MergeRequestBranchNotVisibleError
+from codebase.clients.gitlab.utils import CHILD_PIPELINE_SOURCE
+from codebase.conf import settings as codebase_settings
+from codebase.exceptions import (
+    CloneCredentialUnavailableError,
+    CloneRefNotFoundError,
+    MergeRequestBranchNotVisibleError,
+)
 from codebase.utils import is_git_auth_error_text, is_git_ref_not_found_text
 from core.constants import BOT_NAME
 from daiv import USER_AGENT
@@ -50,7 +54,7 @@ if TYPE_CHECKING:
         ProjectMergeRequestNote,
     )
 
-    from codebase.clients.base import Emoji, WebhookSetupResult
+    from codebase.clients.base import CommentThread, Emoji, WebhookSetupResult
 
     AwardEmojiTarget = ProjectIssue | ProjectIssueNote | ProjectMergeRequestNote
 
@@ -469,10 +473,6 @@ class GitLabClient(RepoClient):
             )
 
         def attempt(clone_token: str) -> Repo:
-            # The PAT is long-lived, so a rejection is a real misconfiguration, not a mint-propagation
-            # blip: give it a single fail-fast attempt. A freshly minted ephemeral token may just be
-            # lagging propagation, so it gets the backoff window instead. Applied to both the initial
-            # token and the re-minted one (which resolves to the PAT if provisioning has since broken).
             if clone_token == self.client.private_token:
                 return clone_with(clone_token)
             return self._clone_awaiting_token_propagation(clone_with, clone_token, repository, clone_dir)
@@ -532,7 +532,8 @@ class GitLabClient(RepoClient):
         Prefers a short-lived project-scoped access token so the credential — which also feeds
         the sandbox egress proxy's injected header — cannot reach beyond this project's
         repository. Falls back to the configured PAT when the token cannot be provisioned
-        (e.g. PAT user below Maintainer, GitLab.com Free tier). Commit identity is unaffected:
+        (e.g. PAT user below Maintainer, GitLab.com Free tier), unless
+        ``CODEBASE_GITLAB_PAT_FALLBACK`` is off, in which case the clone fails instead. Commit identity is unaffected:
         _configure_commit_identity resolves the DAIV user through the PAT-authenticated client
         either way.
 
@@ -543,18 +544,26 @@ class GitLabClient(RepoClient):
         if token := get_ephemeral_clone_token(self.client, repository.pk):
             logger.debug("Cloning %s with an ephemeral project access token", repository.slug)
             return token
-        if not self.client.private_token:
-            raise ImproperlyConfigured(
-                "Cannot authenticate the git clone: no ephemeral clone token could be provisioned "
-                "and CODEBASE_GITLAB_AUTH_TOKEN is not configured."
-            )
-        logger.info("Cloning %s with the configured PAT (ephemeral clone token unavailable)", repository.slug)
-        return self.client.private_token
+        if pat := self._fallback_pat():
+            logger.info("Cloning %s with the configured PAT (ephemeral clone token unavailable)", repository.slug)
+            return pat
+        raise CloneCredentialUnavailableError(
+            f"Cannot authenticate the git clone of {repository.slug}: no project access token could be created, and "
+            "the personal access token can't stand in (CODEBASE_GITLAB_PAT_FALLBACK is off, or "
+            "CODEBASE_GITLAB_AUTH_TOKEN is unset). DAIV's logs have the cause."
+        )
+
+    def _fallback_pat(self) -> str | None:
+        """The PAT standing in for a missing ephemeral clone token, or ``None`` when it is unset or
+        ``CODEBASE_GITLAB_PAT_FALLBACK`` forbids it."""
+        if not codebase_settings.GITLAB_PAT_FALLBACK:
+            return None
+        return self.client.private_token or None
 
     def _git_egress_token(self, repository: Repository) -> str | None:
-        """Reuse the same short-lived, project-scoped clone token as the clone (PAT fallback; see
-        :meth:`_get_clone_token`); ``None`` (host-only reachability) when neither is available."""
-        return get_ephemeral_clone_token(self.client, repository.pk) or self.client.private_token or None
+        """Same credential as the clone (see :meth:`_get_clone_token`); ``None`` (host-only
+        reachability) when there is none."""
+        return get_ephemeral_clone_token(self.client, repository.pk) or self._fallback_pat()
 
     def push_uses_ephemeral_token(self, repository: Repository) -> bool:
         # Asserts the credential *kind*, not the token value: a day-cache expiry mid-turn re-mints
@@ -880,7 +889,7 @@ class GitLabClient(RepoClient):
         return self._serialize_merge_request(repo_id, merge_request)
 
     def create_merge_request_comment(
-        self, repo_id: str, merge_request_id: int, body: str, reply_to_id: str | None = None
+        self, repo_id: str, merge_request_id: int, body: str, reply_to: CommentThread | None = None
     ) -> str | None:
         """
         Comment on a merge request.
@@ -889,11 +898,12 @@ class GitLabClient(RepoClient):
             repo_id: The repository ID.
             merge_request_id: The merge request ID.
             body: The comment body.
+            reply_to: The discussion to reply in.
         """
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
-        if reply_to_id:
-            discussion = merge_request.discussions.get(reply_to_id, lazy=True)
+        if reply_to:
+            discussion = merge_request.discussions.get(reply_to.id, lazy=True)
             return discussion.notes.create({"body": body}).id
         return merge_request.notes.create({"body": body}).id
 
@@ -967,7 +977,8 @@ class GitLabClient(RepoClient):
         )
         return False
 
-    def _to_pipeline(self, pipeline) -> Pipeline:
+    def _to_pipeline(self, pipeline, *, with_jobs: bool = True) -> Pipeline:
+        jobs = pipeline.jobs.list(all=True, per_page=100) if with_jobs else []
         return Pipeline(
             id=pipeline.id,
             iid=getattr(pipeline, "iid", None),
@@ -983,7 +994,7 @@ class GitLabClient(RepoClient):
                     allow_failure=job.allow_failure,
                     failure_reason=getattr(job, "failure_reason", None),
                 )
-                for job in pipeline.jobs.list(all=True, per_page=100)
+                for job in jobs
             ],
         )
 
@@ -999,12 +1010,22 @@ class GitLabClient(RepoClient):
             raise
 
     def get_latest_pipeline_for_ref(self, repo_id: str, ref: str) -> Pipeline | None:
-        project = self.client.projects.get(repo_id, lazy=True)
-        pipelines = project.pipelines.list(ref=ref, order_by="id", sort="desc", per_page=1, page=1)
-        if not pipelines:
-            return None
+        """The newest pipeline on ``ref`` that is not a child pipeline: a child runs on its parent's ref and commit,
+        and the merge request's result is its parent's."""
+        latest = self._latest_parent_pipeline(repo_id, ref)
         # The list entry already carries every field _to_pipeline reads, plus the jobs manager.
-        return self._to_pipeline(pipelines[0])
+        return self._to_pipeline(latest) if latest is not None else None
+
+    def get_latest_pipelines_for_ref(self, repo_id: str, ref: str) -> list[Pipeline]:
+        """A pipeline covers the whole commit, so the branch's latest pipeline is its only CI subject's; without its
+        jobs."""
+        latest = self._latest_parent_pipeline(repo_id, ref)
+        return [self._to_pipeline(latest, with_jobs=False)] if latest is not None else []
+
+    def _latest_parent_pipeline(self, repo_id: str, ref: str):
+        project = self.client.projects.get(repo_id, lazy=True)
+        pipelines = project.pipelines.list(ref=ref, order_by="id", sort="desc", per_page=20, iterator=True)
+        return next((p for p in pipelines if getattr(p, "source", None) != CHILD_PIPELINE_SOURCE), None)
 
     def get_merge_request_diff_stats(self, repo_id: str, merge_request_id: int) -> MergeRequestDiffStats:
         """
@@ -1115,7 +1136,9 @@ class GitLabClient(RepoClient):
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
         return Note.model_validate(merge_request.notes.get(note_id).attributes)
 
-    def create_merge_request_note_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int):
+    def create_merge_request_note_emoji(
+        self, repo_id: str, merge_request_id: int, emoji: Emoji, note_id: int, *, on_diff: bool = False
+    ):
         """
         Create an emoji in a note of a merge request.
 

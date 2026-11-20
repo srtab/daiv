@@ -15,8 +15,9 @@ the schema in its ``tool_search`` result.
 
 Anthropic accepts a mid-conversation system turn only before an assistant turn or at the end, and langchain-anthropic
 raises on one followed by a user turn. The declarations therefore have to be inserted after every reminder or nudge a
-middleware appends: ``InlineToolDefinitionsMiddleware`` runs after every DAIV middleware, and the deepagents tail inside
-it (skills, prompt caching, memory) appends no messages.
+middleware appends: ``InlineToolDefinitionsMiddleware`` runs after every DAIV middleware that appends messages, and the
+deepagents tail inside it (skills, prompt caching, memory, and ``ToolImageNoticeMiddleware`` in deepagents'
+unsupported-content slot) appends none.
 """
 
 from __future__ import annotations
@@ -24,7 +25,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from langchain_anthropic import ChatAnthropic
-from langchain_anthropic.chat_models import _supports_mid_conversation_system_messages
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 
@@ -42,6 +42,17 @@ LOADED_TOOLS_ARTIFACT_KEY = "loaded_tools"
 _ANTHROPIC_ROOT_COMBINATORS = ("oneOf", "anyOf", "allOf")
 
 
+def _supports_mid_conversation_system_messages(model: object) -> bool:
+    """Whether ``model`` accepts a non-leading system message mid-conversation.
+
+    langchain-anthropic 1.7.6 removed the string-based helper from ``chat_models`` and moved the
+    gate onto the model's profile (``mid_conversation_system_messages``, default ``False``). Read
+    the profile so the inline-tool optimization follows the provider's own gating instead of a
+    hard-coded model-prefix list.
+    """
+    return bool((getattr(model, "profile", {}) or {}).get("mid_conversation_system_messages"))
+
+
 def inline_block_builder(model: object) -> Callable[[ToolEntry], dict[str, Any] | None] | None:
     """How ``model`` takes a tool definition mid-conversation, or ``None`` when it doesn't.
 
@@ -53,7 +64,7 @@ def inline_block_builder(model: object) -> Callable[[ToolEntry], dict[str, Any] 
     if (
         type(model) is ChatAnthropic
         and model.model.startswith(prefixes)
-        and _supports_mid_conversation_system_messages(model.model)
+        and _supports_mid_conversation_system_messages(model)
     ):
         return _anthropic_block
     if type(model) is ChatOpenAI and model.model_name.startswith(prefixes) and _routes_to_responses_api(model):

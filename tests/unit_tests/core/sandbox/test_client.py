@@ -96,6 +96,54 @@ async def test_seed_session_treats_409_as_already_seeded(fake_settings, mock_pos
         await client.seed_session("sid-123", repo_archive=b"tar")
 
 
+async def test_seed_sends_repos_archive(fake_settings, mock_post):
+    from core.sandbox.client import DAIVSandboxClient
+
+    mock_post["json_body"] = {"seeded": ["repo", "repos"]}
+    async with DAIVSandboxClient() as client:
+        result = await client.seed_session("sid", repo_archive=b"r", repos_archive=b"x")
+
+    assert result is None
+    files = mock_post["kwargs"]["files"]
+    assert set(files) == {"repo_archive", "repos_archive"}
+    assert files["repos_archive"][1] == b"x"
+
+
+async def test_seed_raises_when_sandbox_ignored_repos_archive(fake_settings, mock_post):
+    from core.sandbox.client import DAIVSandboxClient, SandboxCapabilityError
+
+    mock_post["status"] = 204
+    async with DAIVSandboxClient() as client:
+        with pytest.raises(SandboxCapabilityError):
+            await client.seed_session("sid", repo_archive=b"r", repos_archive=b"x")
+
+
+async def test_seed_raises_when_repos_missing_from_seeded(fake_settings, mock_post):
+    from core.sandbox.client import DAIVSandboxClient, SandboxCapabilityError
+
+    mock_post["json_body"] = {"seeded": ["repo"]}
+    async with DAIVSandboxClient() as client:
+        with pytest.raises(SandboxCapabilityError):
+            await client.seed_session("sid", repo_archive=b"r", repos_archive=b"x")
+
+
+async def test_seed_without_repos_archive_accepts_204(fake_settings, mock_post):
+    from core.sandbox.client import DAIVSandboxClient
+
+    mock_post["status"] = 204
+    async with DAIVSandboxClient() as client:
+        await client.seed_session("sid", repo_archive=b"r")
+
+
+async def test_seed_409_is_still_a_noop_with_repos_archive(fake_settings, mock_post):
+    from core.sandbox.client import DAIVSandboxClient
+
+    mock_post["status"] = 409
+    mock_post["json_body"] = {"detail": "Session already seeded"}
+    async with DAIVSandboxClient() as client:
+        await client.seed_session("sid", repo_archive=b"r", repos_archive=b"x")
+
+
 async def test_connection_pool_reused_across_calls_in_one_block(fake_settings, mock_post):
     """One ``async with`` block must reuse a single httpx.AsyncClient across N calls."""
     from core.sandbox.client import DAIVSandboxClient
@@ -154,6 +202,29 @@ async def test_call_before_open_raises(fake_settings):
     client = DAIVSandboxClient()
     with pytest.raises(AttributeError):
         await client.run_commands("sid", RunCommandsRequest(commands=["echo"], fail_fast=True))
+
+
+async def test_run_commands_with_a_timeout_waits_for_every_command_to_time_out(fake_settings, mock_post):
+    """The HTTP call outlasts the commands, so the sandbox, not the client, ends a long command."""
+    from core.sandbox.client import DAIVSandboxClient
+    from core.sandbox.schemas import RunCommandsRequest
+
+    mock_post["json_body"] = {"results": []}
+    async with DAIVSandboxClient() as client:
+        await client.run_commands("sid", RunCommandsRequest(commands=["a", "b"], timeout=300))
+
+    assert mock_post["kwargs"]["timeout"] == 660
+
+
+async def test_run_commands_without_a_timeout_uses_the_client_timeout(fake_settings, mock_post):
+    from core.sandbox.client import DAIVSandboxClient
+    from core.sandbox.schemas import RunCommandsRequest
+
+    mock_post["json_body"] = {"results": []}
+    async with DAIVSandboxClient() as client:
+        await client.run_commands("sid", RunCommandsRequest(commands=["a"]))
+
+    assert mock_post["kwargs"]["timeout"] is httpx.USE_CLIENT_DEFAULT
 
 
 async def test_fs_write_posts_to_fs_write(fake_settings, mock_post):
@@ -348,7 +419,12 @@ async def test_start_session_sends_egress_with_plaintext_secret(fake_settings, h
     egress = json.loads(body)["egress"]
     assert egress["secrets"]["tok"] == {"header": "PRIVATE-TOKEN", "value": "supersecret"}
     assert egress["policy"]["default"] == "deny"
-    assert egress["policy"]["rules"][0] == {"host": "gitlab.com", "methods": ["*"], "inject": "tok"}
+    assert egress["policy"]["rules"][0] == {
+        "host": "gitlab.com",
+        "methods": ["*"],
+        "inject": "tok",
+        "path_prefix": None,
+    }
 
 
 async def test_start_session_sends_policy_only_egress_with_empty_secrets(fake_settings, httpx_mock):
@@ -417,3 +493,117 @@ async def test_update_egress_raises_on_error(fake_settings, mock_put):
     async with DAIVSandboxClient() as client:
         with pytest.raises(httpx.HTTPStatusError):
             await client.update_egress("sid", egress)
+
+
+def _response(method: str, status: int, json_body=None) -> httpx.Response:
+    return httpx.Response(status, json=json_body, request=httpx.Request(method, "http://sandbox.test/"))
+
+
+def _open_client(**calls):
+    from core.sandbox.client import DAIVSandboxClient
+
+    client = DAIVSandboxClient()
+    client._client = Mock()
+    for name, response in calls.items():
+        setattr(client._client, name, AsyncMock(return_value=response))
+    return client
+
+
+_START_BODY = {
+    "started": True,
+    "profile": "restored",
+    "restored_urls": ["http://localhost:5173/login"],
+    "devtools_port": 39222,
+    "browser_ws_path": "/devtools/browser/abc",
+}
+
+
+async def test_get_capabilities_reads_the_service_answer():
+    client = _open_client(get=_response("GET", 200, {"browser": True}))
+    capabilities = await client.get_capabilities()
+    assert capabilities.browser is True
+    client._client.get.assert_awaited_once_with("-/capabilities/", timeout=5)
+
+
+async def test_get_capabilities_treats_a_service_without_the_endpoint_as_no_browser():
+    client = _open_client(get=_response("GET", 404))
+    assert (await client.get_capabilities()).browser is False
+
+
+async def test_get_capabilities_raises_on_other_errors():
+    client = _open_client(get=_response("GET", 500))
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.get_capabilities()
+
+
+async def test_start_browser_sends_the_request_and_archive_as_multipart():
+    from core.sandbox.schemas import BrowserStartRequest
+
+    client = _open_client(post=_response("POST", 200, _START_BODY))
+    request = BrowserStartRequest(memory_bytes=256 << 20, cpus=0.5, extension_sha256="b" * 64)
+
+    response = await client.start_browser("sid", request, b"zip-bytes")
+
+    assert response.profile == "restored"
+    assert response.restored_urls == ["http://localhost:5173/login"]
+    url = client._client.post.await_args.args[0]
+    files = client._client.post.await_args.kwargs["files"]
+    assert url == "session/sid/browser/"
+    assert files["request"][0] is None
+    assert BrowserStartRequest.model_validate_json(files["request"][1]) == request
+    assert files["extension_archive"][1:] == (b"zip-bytes", "application/zip")
+
+
+async def test_start_browser_omits_the_archive_when_none_is_given():
+    from core.sandbox.schemas import BrowserStartRequest
+
+    client = _open_client(post=_response("POST", 200, _START_BODY))
+    await client.start_browser(
+        "sid", BrowserStartRequest(memory_bytes=256 << 20, cpus=1, extension_sha256="c" * 64), None
+    )
+    assert set(client._client.post.await_args.kwargs["files"]) == {"request"}
+
+
+async def test_start_browser_raises_on_a_non_2xx_answer():
+    from core.sandbox.schemas import BrowserStartRequest
+
+    client = _open_client(post=_response("POST", 503, {"detail": "browser not ready"}))
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.start_browser(
+            "sid", BrowserStartRequest(memory_bytes=256 << 20, cpus=1, extension_sha256="c" * 64), None
+        )
+
+
+@pytest.mark.parametrize("force", [False, True])
+async def test_stop_browser_passes_force_and_reads_the_answer(force):
+    client = _open_client(
+        delete=_response("DELETE", 200, {"saved_urls": ["http://localhost:3000/"], "oom_killed": True})
+    )
+
+    response = await client.stop_browser("sid", force=force)
+
+    assert response.saved_urls == ["http://localhost:3000/"]
+    assert response.oom_killed is True
+    client._client.delete.assert_awaited_once_with("session/sid/browser/", params={"force": force})
+
+
+@pytest.mark.parametrize(
+    ("base", "expected"),
+    [
+        ("http://sandbox.test/", "ws://sandbox.test/session/sid/browser/cdp"),
+        ("http://sandbox:8000", "ws://sandbox:8000/session/sid/browser/cdp"),
+        ("https://sandbox.example/api/v1/", "wss://sandbox.example/api/v1/session/sid/browser/cdp"),
+    ],
+)
+def test_browser_cdp_url_follows_the_base_url(fake_settings, base, expected):
+    from core.sandbox.client import DAIVSandboxClient
+
+    client = DAIVSandboxClient()
+    client.url = base
+    assert client.browser_cdp_url("sid") == expected
+
+
+def test_auth_headers_carry_the_api_key(fake_settings):
+    from core.sandbox.client import DAIVSandboxClient
+
+    assert DAIVSandboxClient().auth_headers() == {"X-API-KEY": "fake-key"}

@@ -59,7 +59,14 @@ CASES = [
     pytest.param(TimeoutError(), {FailureKind.TIMEOUT}, "TimeoutError", id="timeout"),
     pytest.param(OSError("no route"), {FailureKind.UNREACHABLE}, "OSError: no route", id="os-error"),
     pytest.param(
-        httpx2.ReadTimeout("slow"), {FailureKind.UNREACHABLE}, "ReadTimeout: slow", id="httpx2-transport-error"
+        status_error(503, "https://user:pw@mcp.example.com/mcp?api_key=secret#frag"),
+        {FailureKind.SERVER_ERROR},
+        f"HTTP 503 Service Unavailable for url '{URL}'",
+        id="url-credentials-and-query-dropped",
+    ),
+    pytest.param(httpx2.ReadTimeout("slow"), {FailureKind.TIMEOUT}, "ReadTimeout: slow", id="httpx2-timeout"),
+    pytest.param(
+        httpx2.ConnectError("refused"), {FailureKind.UNREACHABLE}, "ConnectError: refused", id="httpx2-transport-error"
     ),
     pytest.param(anyio.BrokenResourceError(), {FailureKind.STREAM_BROKEN}, "BrokenResourceError", id="broken-stream"),
     pytest.param(anyio.ClosedResourceError(), {FailureKind.STREAM_BROKEN}, "ClosedResourceError", id="closed-stream"),

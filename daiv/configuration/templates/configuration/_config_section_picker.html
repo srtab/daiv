@@ -35,6 +35,7 @@ Context (from `SiteConfigurationGroupView`): `all_groups`, `active_group`.
          @keydown.escape.window="close()"
          role="dialog"
          aria-label="{% translate 'Configuration section' %}"
+         data-surface
          class="picker-popover">
         {% include "core/_sheet_head.html" with title=_("Section") close_expr="close()" %}
         {% regroup all_groups by category as grouped %}

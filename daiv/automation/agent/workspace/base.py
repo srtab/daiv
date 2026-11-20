@@ -15,17 +15,34 @@ if TYPE_CHECKING:
     from deepagents.backends.protocol import BackendProtocol, FileDownloadResponse
     from deepagents.middleware.filesystem import FilesystemPermission
 
-    from automation.agent.workspace.git_manager import GitManager
+    from automation.agent.context import RepoHandle
+    from automation.agent.workspace.browser import SandboxBrowser
+    from automation.agent.workspace.git_manager import FastForward, GitManager
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
     from automation.agent.workspace.session import SandboxSession
+    from core.site_settings import SiteSnapshot
 
 
-class Workspace(Protocol):
+class PublishWorkspace(Protocol):
+    """What a publish reaches: the run's files, and git in the repository it publishes."""
+
     @property
     def backend(self) -> BackendProtocol:
         """The ``/workspace`` namespace the file tools, the skills and the subagents read and write."""
         ...
 
+    @property
+    def repo_path(self) -> str:
+        """Where, in ``/workspace``, the repository ``git`` reaches sits."""
+        ...
+
+    async def authenticated_git(self) -> GitManager:
+        """``git``, with a git-platform credential minted now for a publish's network commands (ls-remote, fetch,
+        push), so a turn that outlived its turn-start token still pushes."""
+        ...
+
+
+class Workspace(PublishWorkspace, Protocol):
     @property
     def git(self) -> GitManager:
         """Git in the repository the agent changes, for commands that need no platform credential."""
@@ -39,6 +56,12 @@ class Workspace(Protocol):
     @property
     def session(self) -> SandboxSession | None:
         """The sandbox session the run executor acquires and releases; ``None`` on disk."""
+        ...
+
+    @property
+    def browser(self) -> SandboxBrowser | None:
+        """The run's headless browser; ``None`` unless ``aresolve_browser`` gave it one, so the agent gets no browser
+        tools."""
         ...
 
     @property
@@ -65,13 +88,24 @@ class Workspace(Protocol):
         which a turn that skips the sandbox (``skips_sandbox``) or a failed acquisition never gets to."""
         ...
 
-    async def authenticated_git(self) -> GitManager:
-        """``git``, with a git-platform credential minted now for a publish's network commands (ls-remote, fetch,
-        push), so a turn that outlived its turn-start token still pushes."""
+    async def aresolve_browser(self, site: SiteSnapshot) -> None:
+        """Decide, once per run, whether the run has a browser: on a sandbox, when the site switch and the
+        environment's Browser field are on, the session is acquired, and the sandbox service can run one."""
+        ...
+
+    async def fast_forward(self, branch: str) -> FastForward:
+        """Bring the checkout up to the remote ``branch`` before the agent starts, when someone pushed to it or rewrote
+        it since the checkout was made and it holds nothing unpublished (``GitManager.fast_forward``). A disk clone is
+        fresh, so it is mostly ``"unchanged"``; a warm sandbox keeps its checkout between runs."""
         ...
 
     async def download_file(self, path: str, *, max_bytes: int) -> FileDownloadResponse:
         """Read one ``/workspace`` file to copy it out of the run. A sandbox refuses a file over ``max_bytes`` with
         ``DOWNLOAD_TOO_LARGE`` before it crosses the wire; a disk read is local and returns the file whole, leaving the
         limit to the caller."""
+        ...
+
+    def for_repo(self, handle: RepoHandle) -> PublishWorkspace:
+        """What a publish of ``handle``, one of the run's extra repositories, reaches: the run's files, and git in
+        ``handle``'s clone."""
         ...

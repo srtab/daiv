@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
 
 
 class GitPlatform(StrEnum):
@@ -11,6 +11,21 @@ class GitPlatform(StrEnum):
     GITHUB = "github"
     SWE = "swe"
     """SWE-bench evals (``evals/swe_client.py``): public repositories, no platform API. Never ``CODEBASE_CLIENT``."""
+
+
+def normalize_repo_id(value: str) -> str:
+    """``value`` without surrounding whitespace and slashes: ``/group/project/`` is ``group/project``."""
+    return value.strip().strip("/")
+
+
+def _require_repo_id(value: str) -> str:
+    if not (repo_id := normalize_repo_id(value)):
+        raise ValueError("repo_id must name a repository.")
+    return repo_id
+
+
+RepoId = Annotated[str, AfterValidator(_require_repo_id)]
+"""A repository path as a caller sends it, through :func:`normalize_repo_id`; a blank one is refused."""
 
 
 class Scope(StrEnum):
@@ -83,12 +98,17 @@ class Job(BaseModel):
 
 
 class Pipeline(BaseModel):
+    """A CI run on a commit. ``workflow_id`` and ``workflow_name`` name the GitHub Actions workflow it is a run of, one
+    of several on a commit; a GitLab pipeline covers the whole commit and names none."""
+
     id: int
     iid: int | None = None
     sha: str
     status: str
     web_url: str
     jobs: list[Job] = Field(default_factory=list)
+    workflow_id: int | None = None
+    workflow_name: str = ""
 
 
 class TriggeredPipeline(BaseModel):

@@ -23,6 +23,9 @@ class FailureKind(StrEnum):
     UNEXPECTED = "unexpected"
 
 
+SOFT_FAILURES = frozenset({FailureKind.TIMEOUT, FailureKind.SERVER_ERROR, FailureKind.STREAM_BROKEN})
+
+
 @dataclass(frozen=True, slots=True)
 class MCPFailure:
     kinds: frozenset[FailureKind]
@@ -46,13 +49,14 @@ def _leaves(exc: BaseException) -> list[BaseException]:
 
 
 def status_message(response: httpx2.Response) -> str:
-    return f"HTTP {response.status_code} {response.reason_phrase} for url '{response.request.url}'"
+    url = response.request.url.copy_with(userinfo=b"", query=None, fragment=None)
+    return f"HTTP {response.status_code} {response.reason_phrase} for url '{url}'"
 
 
 def _kind(leaf: BaseException) -> FailureKind:
     if isinstance(leaf, httpx2.HTTPStatusError):
         return FailureKind.SERVER_ERROR if leaf.response.is_server_error else FailureKind.CLIENT_ERROR
-    if isinstance(leaf, TimeoutError):
+    if isinstance(leaf, TimeoutError | httpx2.TimeoutException):
         return FailureKind.TIMEOUT
     if isinstance(leaf, anyio.BrokenResourceError | anyio.ClosedResourceError):
         return FailureKind.STREAM_BROKEN

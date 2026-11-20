@@ -19,6 +19,17 @@ lint:
   script:
     - make lint
 
+lint:design:
+  stage: static
+  interruptible: true
+  image: node:24-alpine
+  rules:
+    - changes: [DESIGN.md, Makefile]
+  before_script:
+    - apk add --no-cache make
+  script:
+    - make lint-design
+
 unit:
   stage: test
   interruptible: true

@@ -42,7 +42,8 @@ for (let i = payload.responses.length; i > 0; i--) {
 }
 process.stdout.write(JSON.stringify({
   fetches,
-  header: chat.spendHeader,
+  summary: chat.spendSummary,
+  total: chat.spendTotal,
   models: chat.spendRows.map((row) => row.model),
   rowCosts: chat.spendRows.map((row) => chat.spendRowCost(row)),
   unrecorded: chat.spendUnrecordedLine,
@@ -91,7 +92,7 @@ def test_the_aggregator_payload_renders_the_panel(member_user):
     out = _panel([{"ok": True, "spend": build_session_spend(session.runs.all())}])
 
     assert out["fetches"] == ["/api/chat/spend?thread_id=t-1"]
-    assert out["header"] == "2 turns · 330 · $0.31"
+    assert (out["summary"], out["total"]) == ("2 turns · 330", "$0.31")
     assert out["models"] == ["m1", "m2"]
     assert out["rowCosts"] == ["$0.30", "$0.01"]
 
@@ -113,7 +114,7 @@ def test_floors_render_the_plus_and_their_footnote_lines(member_user):
 
     out = _panel([{"ok": True, "spend": build_session_spend(session.runs.all())}])
 
-    assert out["header"].endswith("$0.10+")
+    assert out["total"] == "$0.10+"
     assert out["unrecorded"] == "1 turns with unrecorded usage"
     # The row's own "—" is what marks the model unpriced; there is no footnote naming it.
     mystery = out["models"].index("mystery")
@@ -136,7 +137,7 @@ def test_a_rejected_refresh_leaves_the_previous_reading_alone(member_user):
 
     assert len(out["fetches"]) == 2
     assert out["models"] == ["m1"]
-    assert out["header"] == "1 turns · 110 · $0.10"
+    assert (out["summary"], out["total"]) == ("1 turns · 110", "$0.10")
 
 
 @pytest.mark.django_db
@@ -145,7 +146,7 @@ def test_an_empty_session_payload_renders_no_panel(member_user):
     paint "0 turns · 0"."""
     out = _panel([{"ok": True, "spend": build_session_spend(create_session(member_user).runs.all())}])
 
-    assert out["header"] == ""
+    assert (out["summary"], out["total"]) == ("", "")
     assert out["models"] == []
 
 

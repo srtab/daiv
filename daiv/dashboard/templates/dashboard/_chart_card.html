@@ -1,0 +1,30 @@
+{% load i18n %}
+{% comment %}
+A chart column's hover card: the bucket's total, its cost per model, its runs and its prompt cache hit rate.
+
+Context:
+- column: the chart column, for its label and total.
+- card: the column's ``card`` from ``dashboard.spend.SpendReport.chart``.
+{% endcomment %}
+<div id="{{ card.id }}" role="tooltip" x-show="open" x-cloak data-testid="chart-card"
+     class="chart-card chart-card--{{ card.side }}">
+    <div class="flex items-baseline justify-between gap-2 text-[13px] font-semibold text-text-strong">
+        <span>{{ column.label }}</span>
+        <span class="font-mono">{{ column.total_text }}</span>
+    </div>
+    <ul class="mt-2 flex flex-col gap-1">
+        {% for line in card.lines %}
+        <li class="flex items-center gap-2 text-[12px]">
+            <span class="inline-block h-2 w-2 shrink-0 rounded-[2px] {{ line.css }}" aria-hidden="true"></span>
+            <span class="min-w-0 flex-1 truncate text-text">{{ line.name }}</span>
+            <span class="font-mono text-text">{{ line.cost }}</span>
+            <span class="w-9 text-right font-mono text-text-faint">{{ line.share }}</span>
+        </li>
+        {% endfor %}
+    </ul>
+    <p class="mt-2.5 border-t border-border pt-2 font-mono text-[11px] text-text-muted">
+        {% blocktranslate count counter=card.runs %}{{ counter }} run{% plural %}{{ counter }} runs{% endblocktranslate %} ·
+        {% if card.hit_rate is not None %}{% blocktranslate with rate=card.hit_rate %}{{ rate }}% cache hits{% endblocktranslate %}{% else %}{% translate "cache not reported" %}{% endif %}
+    </p>
+    <p class="mt-1 text-[11px] text-text-muted">{% translate "Click to open these sessions" %}</p>
+</div>

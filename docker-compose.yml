@@ -81,11 +81,12 @@ services:
       timeout: 5s
       retries: 5
     ports:
-      - "8000:8000"
+      - "${APP_HOST_PORT:-8000}:8000"
 
   worker:
     <<: *x_app_default
     command: sh /home/app/docker/start-worker default
+    stop_grace_period: 2m
     healthcheck: *x_worker_healthcheck
     ports: []
     deploy:

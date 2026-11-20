@@ -1,16 +1,19 @@
-from unittest.mock import AsyncMock
+import logging
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
 from deepagents.backends.composite import CompositeBackend
 
 from automation.agent.constants import WORKSPACE_PATH
+from automation.agent.workspace.browser import SandboxBrowser
 from automation.agent.workspace.git_runners import SandboxGitRunner
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.sandbox_backend import DOWNLOAD_TOO_LARGE, SandboxFileBackend
 from automation.agent.workspace.session import SandboxSession
-from core.sandbox.schemas import RunCommandResult, RunCommandsResponse
-from tests.unit_tests.conftest import FakeSandboxClient, acquired_session, sandbox_spec
+from core.sandbox.capabilities import NO_BROWSER_MESSAGE
+from core.sandbox.schemas import RunCommandResult, RunCommandsResponse, SandboxCapabilities
+from tests.unit_tests.conftest import FakeSandboxClient, acquired_session, sandbox_spec, site_snapshot
 
 
 def test_the_files_the_shell_and_git_all_reach_the_one_session():
@@ -56,6 +59,28 @@ async def test_authenticated_git_refreshes_the_credential_before_handing_back_gi
     session.refresh_credential.assert_awaited_once_with()
 
 
+async def test_publishes_close_together_share_one_credential_refresh():
+    session = acquired_session(FakeSandboxClient.opened())
+    session.refresh_credential = AsyncMock(return_value=True)
+    workspace = SandboxWorkspace(session)
+
+    await workspace.for_repo(MagicMock()).authenticated_git()
+    await workspace.authenticated_git()
+
+    session.refresh_credential.assert_awaited_once_with()
+
+
+async def test_a_failed_refresh_is_retried_by_the_next_publish():
+    session = acquired_session(FakeSandboxClient.opened())
+    session.refresh_credential = AsyncMock(side_effect=[httpx.ConnectError("down"), True])
+    workspace = SandboxWorkspace(session)
+
+    await workspace.authenticated_git()
+    await workspace.authenticated_git()
+
+    assert session.refresh_credential.await_count == 2
+
+
 async def test_authenticated_git_refuses_an_unacquired_session():
     session = SandboxSession(FakeSandboxClient.opened(), sandbox_spec())
     session.refresh_credential = AsyncMock()
@@ -94,3 +119,105 @@ async def test_a_sandbox_download_is_capped_inside_the_container():
     (command,) = client.run_commands.call_args.args[1].commands
     assert "-gt 1234 ]" in command
     assert response.error == DOWNLOAD_TOO_LARGE
+
+
+def test_a_sandbox_workspace_sits_at_the_main_repo_path():
+    assert SandboxWorkspace(SandboxSession(FakeSandboxClient.opened(), sandbox_spec())).repo_path == "/workspace/repo"
+
+
+async def test_for_repo_sibling_refreshes_credentials_then_returns_its_git():
+    session = acquired_session(FakeSandboxClient.opened())
+    session.refresh_credential = AsyncMock(return_value=True)
+    workspace = SandboxWorkspace(session)
+
+    handle = MagicMock()
+    handle.repository.slug = "g/mod"
+
+    view = workspace.for_repo(handle)
+    session.refresh_credential.assert_not_awaited()
+    git = await view.authenticated_git()
+
+    session.refresh_credential.assert_awaited_once_with()
+    assert view.repo_path == "/workspace/repos/g/mod"
+    assert git._runner == SandboxGitRunner(workspace.bash, repo_path="/workspace/repos/g/mod")
+    assert view.backend is workspace.backend
+
+
+async def test_fast_forward_runs_in_the_container_with_a_refreshed_credential():
+    client = FakeSandboxClient.opened({
+        "fetch origin chore/x": (0, ""),
+        "rev-parse FETCH_HEAD": (0, "a" * 40),
+        "rev-parse HEAD": (0, "a" * 40),
+    })
+    session = acquired_session(client, client.add_running_session("sess-1"))
+    session.refresh_credential = AsyncMock(return_value=True)
+
+    assert await SandboxWorkspace(session).fast_forward("chore/x") == "unchanged"
+    session.refresh_credential.assert_awaited_once_with()
+    assert client.ran("fetch origin chore/x")
+
+
+def _browser_workspace(*, field: bool = True, capability: bool = True, acquired: bool = True) -> SandboxWorkspace:
+    client = FakeSandboxClient.opened()
+    client.capabilities = SandboxCapabilities(browser=capability)
+    spec = sandbox_spec(browser=field)
+    session = acquired_session(client, spec=spec) if acquired else SandboxSession(client, spec)
+    return SandboxWorkspace(session)
+
+
+async def test_a_run_gets_the_browser_when_the_switch_the_field_and_the_service_all_allow_it():
+    workspace = _browser_workspace()
+
+    await workspace.aresolve_browser(
+        site_snapshot(sandbox_browser_enabled=True, sandbox_browser_memory_bytes=512 * 2**20, sandbox_browser_cpus=0.5)
+    )
+
+    assert isinstance(workspace.browser, SandboxBrowser)
+    assert workspace.browser.state == "idle"
+    assert workspace.browser.limits == (512 * 2**20, 0.5)
+    assert workspace.browser.session is workspace.session
+
+
+async def test_the_site_switch_off_keeps_the_browser_away_from_an_environment_that_turns_it_on():
+    workspace = _browser_workspace()
+
+    await workspace.aresolve_browser(site_snapshot(sandbox_browser_enabled=False))
+
+    assert workspace.browser is None
+    assert workspace.session.client.calls_to("get_capabilities") == []
+
+
+async def test_an_environment_with_the_browser_off_gets_none():
+    workspace = _browser_workspace(field=False)
+
+    await workspace.aresolve_browser(site_snapshot(sandbox_browser_enabled=True))
+
+    assert workspace.browser is None
+    assert workspace.session.client.calls_to("get_capabilities") == []
+
+
+async def test_a_run_that_skipped_the_sandbox_gets_no_browser():
+    workspace = _browser_workspace(acquired=False)
+
+    await workspace.aresolve_browser(site_snapshot(sandbox_browser_enabled=True))
+
+    assert workspace.browser is None
+
+
+async def test_a_service_that_cannot_be_asked_gives_no_browser():
+    workspace = _browser_workspace()
+    workspace.session.client.fail("get_capabilities", status=None)
+
+    await workspace.aresolve_browser(site_snapshot(sandbox_browser_enabled=True))
+
+    assert workspace.browser is None
+
+
+async def test_a_service_without_the_capability_gives_no_browser_and_logs_why(caplog):
+    workspace = _browser_workspace(capability=False)
+
+    with caplog.at_level(logging.ERROR, logger="daiv.sandbox"):
+        await workspace.aresolve_browser(site_snapshot(sandbox_browser_enabled=True))
+
+    assert workspace.browser is None
+    assert [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR] == [NO_BROWSER_MESSAGE]

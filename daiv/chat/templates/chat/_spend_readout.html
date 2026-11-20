@@ -1,0 +1,9 @@
+{# Inside ``chat({…})``; the surface around it gives the heading and the total (``spendTotal``). #}
+<p class="context-panel__subline" x-text="spendSummary"></p>
+<template x-for="row in spendRows" :key="row.model">
+  <p class="context-panel__model">
+    <span class="context-panel__model-name" x-text="row.model"></span>
+    <span class="context-panel__model-cost" x-text="exactTokens(row.total_tokens) + ' · ' + spendRowCost(row)"></span>
+  </p>
+</template>
+<p class="composer-sheet__empty" x-show="spendUnrecordedLine" x-text="spendUnrecordedLine"></p>

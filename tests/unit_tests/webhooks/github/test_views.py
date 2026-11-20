@@ -97,3 +97,34 @@ async def test_without_a_configured_secret_every_request_is_rejected(
     assert response.status_code == 401
     for platform_call in platform_calls:
         platform_call.assert_not_called()
+
+
+REVIEW_COMMENT_CREATED = json.dumps({
+    "action": "created",
+    "repository": {"id": 1, "full_name": "owner/repo", "default_branch": "main"},
+    "pull_request": {
+        "id": 10, "number": 42, "title": "Some PR", "state": "open",
+        "head": {"ref": "feat/x", "sha": "abc123"}, "base": {"ref": "main", "sha": "def456"},
+    },
+    "comment": {"id": 901, "body": "@daiv why?", "user": {"id": 10, "login": "alice"}, "in_reply_to_id": 900},
+    "sender": {"id": 10, "login": "alice"},
+}).encode()  # fmt: skip
+
+
+async def test_a_review_comment_does_not_parse_as_a_pull_request_event(client: TestAsyncClient):
+    from webhooks.github.callbacks import PullRequestCallback, PullRequestReviewCommentCallback
+
+    with (
+        patch.object(PullRequestReviewCommentCallback, "accept_callback", return_value=True),
+        patch.object(PullRequestReviewCommentCallback, "process_callback") as review_comment,
+        patch.object(PullRequestCallback, "process_callback") as pull_request,
+    ):
+        response = await _post(
+            client,
+            REVIEW_COMMENT_CREATED,
+            {"X-GitHub-Event": "pull_request_review_comment", "X-Hub-Signature-256": _sign(REVIEW_COMMENT_CREATED)},
+        )
+
+    assert response.status_code == 204
+    review_comment.assert_awaited_once()
+    pull_request.assert_not_called()

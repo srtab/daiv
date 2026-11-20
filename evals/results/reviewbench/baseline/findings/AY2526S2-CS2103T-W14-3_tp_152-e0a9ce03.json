@@ -1,0 +1,74 @@
+{
+  "pr": {
+    "repo": "https://github.com/AY2526S2-CS2103T-W14-3/tp",
+    "pr_number": 152,
+    "base": "a27b3e40d94f92f229b9301a8a9d5207d9a5b0bb",
+    "head": "e0a9ce03c8c1cc839eaf409e2677b9abf2017b1f"
+  },
+  "agent": "daiv/anthropic:claude-haiku-5-5",
+  "findings": [
+    {
+      "file": "docs/UserGuide.md",
+      "start_line": 335,
+      "end_line": 335,
+      "message": "UserGuide says `note` is unpersisted and not undoable, which this PR makes false\n\nLine 335 says notes \"will be persisted in future milestones\" and that `note` only \"confirms receipt\". Line 360 says `note` is not undoable. Both are now wrong: `NoteCommand.isStateMutating()` returns `true` (`src/main/java/seedu/address/logic/commands/NoteCommand.java:48`), and notes are saved to `addressbook.json`. The command lists at lines 358 and 374 also omit `note`. The PR checklist marks documentation as accurate, so this should be fixed before merge.\n\nFix: rewrite line 335 to describe saved notes shown by `plan`, delete the bullet at line 360, and add `note` to the lists at lines 358 and 374.\n\nPre-existing, not from this diff: lines 342\u2013349 and the table row at line 439 document `note d-/DATE`. `NoteCommandParser` requires `n/` and `d/`, so it rejects that input. Remove those entries or mark deletion as unavailable.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/test/java/seedu/address/model/ModelManagerTest.java",
+      "start_line": 151,
+      "end_line": 155,
+      "message": "Two new `ModelManagerTest` tests cannot fail on the behavior they name\n\n- `discardState_clearsPendingState` never changes the model between `saveState()` and `discardState()`. If `discardState()` were a no-op, `commitState()` would still record nothing, because the snapshot equals the current state. The assertion passes either way.\n- `updatePlannerLocationList_nullDate_clearsPredicate` asserts size 0 on a fresh model. The planner list is already hidden there (`src/main/java/seedu/address/model/ModelManager.java:55-56`), so removing the null branch would not fail the test.\n\nFix: for the discard test, call `setNote(...)` between save and discard, then assert `!canUndoState()` after commit. For the null-clear test, first call `updatePlannerLocationList(LocalDate.of(2026, 3, 24))` with a matching note, then call `null`, and assert both the list size and `getPlannerNoteProperty().getValue()` are cleared.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/main/java/seedu/address/model/ModelManager.java",
+      "start_line": 318,
+      "end_line": 318,
+      "message": "Note undo/redo has no automated test\n\nThe PR says `note` is fully undoable, but no changed test adds a note, undoes it, and checks the note map or planner note. The existing undo tests cover only locations and shortcuts. I read the path and it looks correct: `AddressBook.equals` includes notes, so note-only changes are recorded, and `restoreState` \u2192 `setAddressBook` \u2192 `updatePlannerNote()` refreshes the planner. That is still unverified by a test. Also, the stub at `src/test/java/seedu/address/model/AddressBookTest.java:144` always returns an empty note map, so copying notes through `resetData` is never exercised.\n\nFix: add a `ModelManagerTest` case that calls `saveState()`, `setNote(...)`, `commitState()`, then `undoState()`, asserts the note is gone, then `redoState()` and asserts it is back. Make the `AddressBookTest` stub return a non-empty map.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/main/java/seedu/address/storage/JsonSerializableAddressBook.java",
+      "start_line": 29,
+      "end_line": 29,
+      "message": "Merged-note order is lost across save and reload\n\nIn memory, `AddressBook` uses a `LinkedHashMap`, and `ModelManager.updatePlannerNote()` joins matches in iteration order (`src/main/java/seedu/address/model/ModelManager.java:267-274`). The JSON DTO stores notes in a `HashMap`, so after a restart the same `plan` output can flip order. The `ModelManagerTest` comment (\"Use LinkedHashMap in AddressBook to ensure order\") suggests order was intended.\n\nFix: change the DTO field to `LinkedHashMap`. Note that the existing round-trip tests compare with `equals`, which ignores order, so they would not catch this.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/main/java/seedu/address/model/ModelManager.java",
+      "start_line": 278,
+      "end_line": 278,
+      "message": "`NoteContent` is reused as a synthetic display value, and its invariant was widened\n\n`updatePlannerNote()` wraps the joined text in `NoteContent`. That value corresponds to no `VisitDate` key. To let it pass the constructor check, the regex was changed to DOTALL, so stored notes can now contain newlines. Nothing in the current code path breaks. The risk is later code that reads `getPlannerNoteProperty().getValue()` as \"the note for this date\" and writes it back with `setNote`, which would collapse several notes into one.\n\nFix: expose the planner value as `ObservableValue<String>`, keep `NoteContent` for stored values, and revert the DOTALL change unless multi-line notes are intended.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/main/java/seedu/address/model/location/NoteContent.java",
+      "start_line": 20,
+      "end_line": 20,
+      "message": "`NoteContent` is reused as a synthetic display value, and its invariant was widened\n\n`updatePlannerNote()` wraps the joined text in `NoteContent`. That value corresponds to no `VisitDate` key. To let it pass the constructor check, the regex was changed to DOTALL, so stored notes can now contain newlines. Nothing in the current code path breaks. The risk is later code that reads `getPlannerNoteProperty().getValue()` as \"the note for this date\" and writes it back with `setNote`, which would collapse several notes into one.\n\nFix: expose the planner value as `ObservableValue<String>`, keep `NoteContent` for stored values, and revert the DOTALL change unless multi-line notes are intended.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/main/java/seedu/address/model/AddressBook.java",
+      "start_line": 95,
+      "end_line": 95,
+      "message": "`AddressBook.removeNote` has no production caller, and the planner refresh is split across mutators\n\n`removeNote` is reachable only from `AddressBookTest`, and `Model` has no removal method. `setNote` refreshes the planner only when `date.isOn(currentPlannedDate)`, which duplicates the matching rule in `updatePlannerNote()`. When `DeleteNoteCommand` is added, a naive implementation would leave the deleted note visible in the planner.\n\nFix: when deletion is added, put `Model.removeNote(VisitDate)` in `ModelManager` and always call `updatePlannerNote()` after any note change. Until a caller exists, consider removing `AddressBook.removeNote`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "src/main/java/seedu/address/model/ModelManager.java",
+      "start_line": 288,
+      "end_line": 288,
+      "message": "`AddressBook.removeNote` has no production caller, and the planner refresh is split across mutators\n\n`removeNote` is reachable only from `AddressBookTest`, and `Model` has no removal method. `setNote` refreshes the planner only when `date.isOn(currentPlannedDate)`, which duplicates the matching rule in `updatePlannerNote()`. When `DeleteNoteCommand` is added, a naive implementation would leave the deleted note visible in the planner.\n\nFix: when deletion is added, put `Model.removeNote(VisitDate)` in `ModelManager` and always call `updatePlannerNote()` after any note change. Until a caller exists, consider removing `AddressBook.removeNote`.",
+      "producer": "daiv"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 3151565,
+    "completion_tokens": 200268,
+    "total_tokens": 3351833,
+    "time_in_ms": 451946,
+    "cost_usd": 0.167597405
+  }
+}

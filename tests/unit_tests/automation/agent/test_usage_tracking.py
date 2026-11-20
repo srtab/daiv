@@ -12,15 +12,24 @@ from langchain_core.outputs import ChatGeneration, LLMResult
 from langchain_openai import ChatOpenAI
 from langchain_openai.chat_models.base import _create_usage_metadata
 
+from automation.agent.chat_models import ChatOpenRouter
 from automation.agent.usage_tracking import (
+    REPORTED_COST_KEY,
     CostAwareUsageMetadataCallbackHandler,
     _calc_model_cost,
     build_usage_summary,
     message_model_name,
     resolve_context_window,
     resolve_window_by_name,
+    track_usage_metadata,
 )
-from tests.unit_tests.automation.agent.openai_stream import stream_message
+from tests.unit_tests.automation.agent.openai_stream import (
+    MODEL,
+    finishing_chunks,
+    openrouter_usage,
+    stream_chunks,
+    stream_message,
+)
 
 
 def _usage_metadata(
@@ -431,6 +440,43 @@ class TestServiceTierUsage:
         assert _calc_model_cost("claude-sonnet-4-6", tiered) == _calc_model_cost("claude-sonnet-4-6", untiered)
 
 
+class TestReportedCost:
+    @staticmethod
+    def _reported(model_name: str, cost: float) -> LLMResult:
+        result = _llm_result(model_name, _usage_metadata(input_tokens=100_000, output_tokens=1_000))
+        result.generations[0][0].message.response_metadata[REPORTED_COST_KEY] = cost
+        return result
+
+    def test_the_reported_cost_replaces_the_list_price_estimate(self):
+        handler = CostAwareUsageMetadataCallbackHandler()
+        handler.on_llm_end(self._reported("z-ai/glm-5.2", 0.0123))
+        handler.on_llm_end(self._reported("z-ai/glm-5.2", 0.0001))
+
+        assert build_usage_summary(handler).cost_usd == "0.0124"
+
+    def test_a_model_genai_prices_does_not_know_is_priced_from_its_report(self):
+        handler = CostAwareUsageMetadataCallbackHandler()
+        handler.on_llm_end(self._reported("acme/no-such-model", 0.05))
+
+        assert build_usage_summary(handler).cost_usd == "0.05"
+
+    @pytest.mark.parametrize("cost", [float("nan"), float("inf"), -0.05])
+    def test_a_stamped_cost_that_is_not_a_usd_amount_is_ignored(self, cost):
+        handler = CostAwareUsageMetadataCallbackHandler()
+        handler.on_llm_end(self._reported("acme/no-such-model", cost))
+
+        assert build_usage_summary(handler).cost_usd is None
+
+    def test_an_openrouter_stream_reaches_the_run_total_at_its_billed_cost(self):
+        chunks = finishing_chunks(MODEL, 1)
+        chunks[-1]["usage"] = openrouter_usage(0.0021)
+
+        with track_usage_metadata() as handler:
+            stream_chunks(ChatOpenRouter(model=MODEL, api_key="test"), chunks)
+
+        assert build_usage_summary(handler).cost_usd == "0.0021"
+
+
 class TestEmptyMetadataWarning:
     def test_empty_handler_data_logs_warning(self, caplog):
         import logging
@@ -610,3 +656,169 @@ class TestResolveContextWindow:
     def test_the_name_only_resolver_is_tier_two_with_its_label(self):
         assert resolve_window_by_name("anthropic/claude-sonnet-4.6") == (1_000_000, "genai_prices")
         assert resolve_window_by_name("model-that-does-not-exist-xyz") is None
+
+
+def _tagged_model(provider: str, *messages: AIMessage) -> GenericFakeChatModel:
+    return GenericFakeChatModel(
+        messages=iter(messages), metadata={"daiv_provider_slug": provider, "daiv_provider_name": provider.title()}
+    )
+
+
+def _call(model_name: str, *, reported: float | None = None, **usage: int) -> AIMessage:
+    response_metadata: dict[str, Any] = {"model_name": model_name}
+    if reported is not None:
+        response_metadata[REPORTED_COST_KEY] = reported
+    return AIMessage(content="ok", usage_metadata=_usage_metadata(**usage), response_metadata=response_metadata)
+
+
+class TestLedger:
+    def test_the_same_model_through_two_providers_makes_two_entries(self):
+        with track_usage_metadata() as handler:
+            _tagged_model("anthropic", _call("claude-sonnet-4-6")).invoke("hi")
+            _tagged_model("openrouter", _call("claude-sonnet-4-6")).invoke("hi")
+
+        assert set(handler.ledger) == {("anthropic", "claude-sonnet-4-6"), ("openrouter", "claude-sonnet-4-6")}
+        assert handler.ledger[("openrouter", "claude-sonnet-4-6")].provider_name == "Openrouter"
+        assert build_usage_summary(handler).by_model["claude-sonnet-4-6"]["input_tokens"] == 200
+
+    def test_a_call_with_no_provider_tag_lands_under_a_blank_provider(self):
+        with track_usage_metadata() as handler:
+            GenericFakeChatModel(messages=iter([_call("claude-sonnet-4-6")])).invoke("hi")
+
+        assert set(handler.ledger) == {("", "claude-sonnet-4-6")}
+
+    def test_reported_and_estimated_calls_of_one_model_split(self):
+        with track_usage_metadata() as handler:
+            _tagged_model("openrouter", _call("claude-sonnet-4-6", reported=0.5), _call("claude-sonnet-4-6")).batch(
+                ["a", "b"], config={"max_concurrency": 1}
+            )
+
+        entry = handler.ledger[("openrouter", "claude-sonnet-4-6")]
+        assert entry.reported_cost == Decimal("0.5")
+        assert entry.estimated_cost == _calc_model_cost("claude-sonnet-4-6", _usage_metadata())
+        assert entry.unpriced_tokens == 0
+        assert entry.cost == entry.reported_cost + entry.estimated_cost
+
+    def test_a_reported_charge_of_nothing_is_still_reported(self):
+        with track_usage_metadata() as handler:
+            _tagged_model("openrouter", _call("acme/free-1", reported=0.0)).invoke("hi")
+
+        entry = handler.ledger[("openrouter", "acme/free-1")]
+        assert (entry.cost_reported, entry.reported_cost, entry.unpriced_tokens) == (True, 0, 0)
+
+    def test_a_cache_saving_that_fails_to_price_still_counts_the_call(self):
+        with (
+            mock.patch("automation.agent.usage_tracking._list_prices", side_effect=ValueError("bad tier")),
+            track_usage_metadata() as handler,
+        ):
+            _tagged_model("anthropic", _call("claude-sonnet-4-6", cache_read=40)).invoke("hi")
+
+        entry = handler.ledger[("anthropic", "claude-sonnet-4-6")]
+        assert (entry.input_tokens, entry.cache_saving, entry.cache_unpriced_tokens) == (100, 0, 40)
+        assert handler.usage_metadata["claude-sonnet-4-6"]["input_tokens"] == 100
+
+    def test_an_unpriced_call_counts_only_its_tokens(self):
+        with track_usage_metadata() as handler:
+            _tagged_model("openrouter", _call("acme/mystery-1", reported=0.25), _call("acme/mystery-1")).batch(
+                ["a", "b"], config={"max_concurrency": 1}
+            )
+
+        entry = handler.ledger[("openrouter", "acme/mystery-1")]
+        assert (entry.reported_cost, entry.estimated_cost, entry.unpriced_tokens) == (Decimal("0.25"), 0, 150)
+        assert build_usage_summary(handler).cost_usd is None
+
+    def test_token_kinds_are_recorded(self):
+        with track_usage_metadata() as handler:
+            _tagged_model(
+                "anthropic",
+                _call(
+                    "claude-sonnet-4-6",
+                    input_tokens=1_000,
+                    output_tokens=200,
+                    cache_read=600,
+                    cache_creation=10,
+                    ephemeral_5m=20,
+                    ephemeral_1h=30,
+                    reasoning=50,
+                ),
+            ).invoke("hi")
+
+        entry = handler.ledger[("anthropic", "claude-sonnet-4-6")]
+        assert (
+            entry.input_tokens,
+            entry.cache_read_tokens,
+            entry.cache_write_tokens,
+            entry.output_tokens,
+            entry.reasoning_tokens,
+            entry.total_tokens,
+        ) == (1_000, 600, 60, 200, 50, 1_200)
+
+    def test_the_cache_saving_is_priced_from_list_rates(self):
+        """claude-sonnet-4-6 lists input at $3/Mtok and cache reads at $0.30/Mtok."""
+        with track_usage_metadata() as handler:
+            _tagged_model(
+                "openrouter", _call("claude-sonnet-4-6", reported=0.01, input_tokens=20_000, cache_read=10_000)
+            ).invoke("hi")
+
+        entry = handler.ledger[("openrouter", "claude-sonnet-4-6")]
+        assert entry.cache_saving == Decimal("10000") * Decimal("2.7") / Decimal(1_000_000)
+        assert entry.cache_unpriced_tokens == 0
+        assert entry.cache_reported is True
+
+    def test_cache_reads_of_a_model_with_no_rates_are_unpriced(self):
+        with track_usage_metadata() as handler:
+            _tagged_model("openrouter", _call("acme/mystery-1", cache_read=40)).invoke("hi")
+
+        entry = handler.ledger[("openrouter", "acme/mystery-1")]
+        assert (entry.cache_saving, entry.cache_unpriced_tokens) == (0, 40)
+
+    def test_cache_is_not_reported_when_no_call_says_so(self):
+        with track_usage_metadata() as handler:
+            _tagged_model("anthropic", _call("claude-sonnet-4-6")).invoke("hi")
+
+        assert handler.ledger[("anthropic", "claude-sonnet-4-6")].cache_reported is False
+
+    def test_service_tier_details_are_read(self):
+        message = _call("claude-sonnet-4-6")
+        message.usage_metadata["input_token_details"] = {"priority_cache_read": 30}
+        message.usage_metadata["output_token_details"] = {"priority_reasoning": 7}
+        with track_usage_metadata() as handler:
+            _tagged_model("openrouter", message).invoke("hi")
+
+        entry = handler.ledger[("openrouter", "claude-sonnet-4-6")]
+        assert (entry.cache_reported, entry.cache_read_tokens, entry.reasoning_tokens) == (True, 30, 7)
+
+    def test_a_zero_cache_read_count_is_still_reported(self):
+        message = _call("claude-sonnet-4-6")
+        message.usage_metadata["input_token_details"] = {"cache_read": 0}
+        with track_usage_metadata() as handler:
+            _tagged_model("anthropic", message).invoke("hi")
+
+        assert handler.ledger[("anthropic", "claude-sonnet-4-6")].cache_reported is True
+
+    def test_on_update_fires_once_per_accounted_call(self):
+        updates = mock.Mock()
+        with track_usage_metadata() as handler:
+            handler.on_update = updates
+            model = _tagged_model("anthropic", _call("claude-sonnet-4-6"), _call("claude-sonnet-4-6"))
+            model.invoke("a")
+            model.invoke("b")
+            handler.on_llm_end(LLMResult(generations=[[]]))
+
+        assert updates.call_count == 2
+
+    def test_a_failing_on_update_is_logged_and_the_call_still_counts(self, caplog):
+        with track_usage_metadata() as handler:
+            handler.on_update = mock.Mock(side_effect=RuntimeError("loop closed"))
+            _tagged_model("anthropic", _call("claude-sonnet-4-6")).invoke("hi")
+
+        assert handler.ledger[("anthropic", "claude-sonnet-4-6")].input_tokens == 100
+        assert any(r.levelname == "ERROR" for r in caplog.records)
+
+    def test_a_failed_call_forgets_its_provider(self):
+        handler = CostAwareUsageMetadataCallbackHandler()
+        run_id = mock.sentinel.run_id
+        handler.on_chat_model_start({}, [[]], run_id=run_id, metadata={"daiv_provider_slug": "anthropic"})
+        handler.on_llm_error(RuntimeError("boom"), run_id=run_id)
+
+        assert handler._providers == {}

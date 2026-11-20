@@ -82,6 +82,39 @@ class TestCaching:
             result = SiteConfiguration.get_cached()
         assert result is None
 
+    async def test_get_cached_rebuilds_when_cached_instance_has_deferred_fields(self, transactional_db):
+        """A cached instance carrying deferred fields must not be returned as-is.
+
+        The cache backend pickles the instance, so a field added by a later
+        migration (e.g. ``model_request_timeout_seconds``) is absent from the
+        pickled ``__dict__`` and therefore deferred after unpickling. Accessing
+        it from the event loop would trigger a blocking ``refresh_from_db``
+        (SynchronousOnlyOperation). ``get_cached`` must rebuild from the DB and
+        re-cache a fresh, fully-loaded instance instead.
+        """
+        from asgiref.sync import sync_to_async
+
+        def seed() -> None:
+            row, _ = SiteConfiguration.objects.get_or_create(pk=1)
+            row.model_request_timeout_seconds = 180
+            row.save()
+            deferred = SiteConfiguration.objects.defer("model_request_timeout_seconds").get(pk=1)
+            assert deferred.get_deferred_fields() == {"model_request_timeout_seconds"}
+            django_cache.set(SITE_CONFIGURATION_CACHE_KEY, deferred)
+
+        await sync_to_async(seed)()
+
+        result = SiteConfiguration.get_cached()
+        assert result is not None
+        # No deferred fields remain, so attribute access is safe from the event loop.
+        assert result.get_deferred_fields() == set()
+        assert result.model_request_timeout_seconds == 180
+
+        # The rebuilt instance is re-cached fully loaded.
+        recached = django_cache.get(SITE_CONFIGURATION_CACHE_KEY)
+        assert recached is not None
+        assert recached.get_deferred_fields() == set()
+
     def test_save_invalidates_cache(self, site_config, django_capture_on_commit_callbacks):
         # Invalidation is deferred via transaction.on_commit; execute=True fires
         # callbacks at the boundary so the assertion sees the real cache.delete.

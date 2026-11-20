@@ -1,0 +1,7 @@
+<p class="landing-compare__sources">
+    {% if sources|length == 1 %}
+    <a href="{{ sources.0 }}" rel="noopener noreferrer" class="landing-inline-link">Source</a>
+    {% else %}
+    Sources: {% for source in sources %}<a href="{{ source }}" rel="noopener noreferrer" class="landing-inline-link">{{ forloop.counter }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}
+    {% endif %}
+</p>

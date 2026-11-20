@@ -77,7 +77,7 @@ async def ahydrate_thread(thread_id: str) -> HydratedThread:
         context_usage = derive_context_usage(messages)
     except Exception:
         # A checkpoint shape the walk can't parse is a real bug, but it must cost the
-        # meter its seed, never the page render or the transcript poller.
+        # meter its seed, never the page render or the turns endpoint.
         logger.exception("Context-usage seed derivation failed for thread %s", thread_id)
         context_usage = None
     return HydratedThread(

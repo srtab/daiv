@@ -123,6 +123,7 @@ class Note(BaseModel):
     note: str
     system: bool
     type: Literal["DiffNote", "DiscussionNote", "Note"] | None = None
+    url: str = ""
 
 
 class Project(BaseModel):
@@ -152,6 +153,7 @@ class PipelineEvent(BaseModel):
     ref: str
     sha: str
     status: str
+    source: str | None = None
 
 
 class MergeRequestEvent(BaseModel):

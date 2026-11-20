@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import markdown
 from mkdocs.config import load_config
+from mkdocs.utils.meta import get_data
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -51,7 +52,7 @@ SKIPPED_DIR_NAMES = {
 # Untracked, developer-local scratch: absent in CI, present after a local superpowers run.
 SKIPPED_PATHS = {DOCS_DIR / "superpowers"}
 
-DOCS_URL_RE = re.compile(r"https://srtab\.github\.io/daiv(?P<rest>/[^\s\"'<>)\]]*)?")
+DOCS_URL_RE = re.compile(r"https://docs\.daivagent\.com(?P<rest>/[^\s\"'<>)\]]*)?")
 MD_LINK_RE = re.compile(r"\]\(\s*(?P<target>[^)\s]+?)\s*(?:\s+\"[^\"]*\")?\)")
 HTML_LINK_RE = re.compile(r"<a\s[^>]*?href=[\"'](?P<target>[^\"']+)[\"']", re.IGNORECASE)
 
@@ -158,6 +159,15 @@ def is_skipped(path: Path) -> bool:
     return any(skipped in path.parents for skipped in SKIPPED_PATHS)
 
 
+def docs_pages() -> list[Path]:
+    pages = [p for p in DOCS_DIR.rglob("*.md") if not is_skipped(p)]
+    assert len(pages) > 20, (
+        f"Only {len(pages)} docs pages collected — DOCS_DIR or the skip lists may have drifted "
+        f"(docs directory moved, or skip logic now matches everything)"
+    )
+    return pages
+
+
 def iter_repo_files() -> Iterator[Path]:
     """Scannable repository files, pruning skipped trees as the walk descends.
 
@@ -225,7 +235,7 @@ def test_absolute_docs_urls_resolve():
         for match in DOCS_URL_RE.finditer(content):
             rest = match.group("rest")
             if rest is None:
-                continue  # bare project URL, e.g. the OpenRouter HTTP-Referer header
+                continue  # the bare docs host, with no version or page
             rest = rest.rstrip(".,;:!?")  # a URL ending a prose sentence
             if not rest.strip("/"):
                 continue
@@ -282,7 +292,7 @@ def test_all_docs_pages_reachable():
     the case this guards. Pages that link only to each other are unreachable even
     though each has an inbound link.
     """
-    pages = [p for p in DOCS_DIR.rglob("*.md") if not is_skipped(p)]
+    pages = docs_pages()
     failures: list[str] = []
     outbound: dict[Path, set[Path]] = {}
 
@@ -312,9 +322,15 @@ def test_all_docs_pages_reachable():
                 queue.append(target)
 
     unreachable = sorted(str(p.relative_to(REPO_ROOT)) for p in pages if p.resolve() not in reached)
-    assert len(pages) > 20, (
-        f"Only {len(pages)} docs pages collected — DOCS_DIR or the skip lists may have drifted "
-        f"(docs directory moved, or skip logic now matches everything)"
-    )
     assert not failures, "Unreadable docs pages:\n" + "\n".join(failures)
     assert not unreachable, "Docs pages not reachable from docs/index.md by following links:\n" + "\n".join(unreachable)
+
+
+def test_all_docs_pages_have_description():
+    """Every docs page sets a front-matter `description`: its meta description and its llms.txt entry."""
+    missing = sorted(
+        str(page.relative_to(REPO_ROOT))
+        for page in docs_pages()
+        if not get_data(read_text(page) or "")[1].get("description")
+    )
+    assert not missing, "Docs pages without a front-matter description:\n" + "\n".join(missing)

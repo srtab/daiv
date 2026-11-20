@@ -1,16 +1,30 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING, Any
 
-from ag_ui.core.events import BaseEvent, EventType, TextMessageContentEvent, TextMessageEndEvent, TextMessageStartEvent
+from ag_ui.core.events import (
+    BaseEvent,
+    CustomEvent,
+    EventType,
+    TextMessageContentEvent,
+    TextMessageEndEvent,
+    TextMessageStartEvent,
+    ToolCallResultEvent,
+)
+from ag_ui_langgraph.utils import normalize_tool_content
 from copilotkit import LangGraphAGUIAgent
+from langchain.agents.middleware.internal_call_transformer import INTERNAL_CALL_METADATA_KEY
+from langchain_core.messages import ToolMessage
 
-from automation.agent.events import ASSISTANT_MESSAGE_EVENT, parse_assistant_message
+from automation.agent.events import ASSISTANT_MESSAGE_EVENT, TOOL_MEDIA_EVENT, parse_assistant_message
+from automation.agent.tool_media import ToolContent
+from sessions.tool_media import TranscriptMedia
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
+    from collections.abc import AsyncGenerator, AsyncIterator
 
     from ag_ui.core import RunAgentInput
     from ag_ui_langgraph.agent import PreparedStream
@@ -25,6 +39,24 @@ logger = logging.getLogger("daiv.sessions")
 STREAMED_STATE_KEYS = ("merge_request", "diff_stats")
 
 _FILTERED_DATA = {"on_chat_model_stream": "chunk", "on_chat_model_end": "output"}
+
+_ERROR_PREFIX = re.compile(r"\s*error\b", re.IGNORECASE)
+
+
+def _is_internal_model_call(event: dict[str, Any]) -> bool:
+    """A model call that is not the agent speaking: one marked internal (compaction's summary, made in the agent's own
+    model node) or any made inside a tool (``web_fetch``'s summariser), which shares the agent's namespace."""
+    metadata = event.get("metadata") or {}
+    return event.get("event", "").startswith("on_chat_model_") and (
+        INTERNAL_CALL_METADATA_KEY in metadata or metadata.get("langgraph_node") == "tools"
+    )
+
+
+async def _without_internal_model_calls(stream: AsyncIterator[dict[str, Any]]) -> AsyncGenerator[dict[str, Any]]:
+    # Never closes ``stream``: callers close or drain ``graph_stream`` themselves, even after upstream abandons this.
+    async for event in stream:
+        if not _is_internal_model_call(event):
+            yield event
 
 
 def _filter_view(event: Any) -> Any:
@@ -57,6 +89,7 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
         self._runtime_context = runtime_context
         self._graph_input = graph_input
         self.graph_stream: AsyncGenerator[Any] | None = None
+        self._answered_tool_calls: set[str] = set()
 
     async def prepare_stream(self, input: RunAgentInput, agent_state: Any, config: RunnableConfig) -> PreparedStream:  # noqa: A002
         if self._graph_input is not None:
@@ -64,6 +97,8 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
             agent_state = agent_state._replace(tasks=())
         prepared = await super().prepare_stream(input=input, agent_state=agent_state, config=config)
         self.graph_stream = prepared["stream"]
+        if self.graph_stream is not None:
+            prepared["stream"] = _without_internal_model_calls(self.graph_stream)
         return prepared
 
     def get_stream_kwargs(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
@@ -130,10 +165,53 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
             # with the inherited signature instead.
             if provenance and isinstance(agui_event, BaseEvent) and agui_event.raw_event is None:
                 agui_event.raw_event = {"metadata": provenance}
+            if isinstance(agui_event, ToolCallResultEvent):
+                if agui_event.tool_call_id in self._answered_tool_calls:
+                    continue
+                self._answered_tool_calls.add(agui_event.tool_call_id)
+                if (message := self._source_tool_message(event, agui_event.tool_call_id)) is not None:
+                    agui_event.content = self._result_text(message, agui_event.content)
+            elif isinstance(agui_event, CustomEvent) and agui_event.name == TOOL_MEDIA_EVENT:
+                agui_event.value = self._media_event_value(agui_event.value)
             yield agui_event
 
         for text_event in self._assistant_message_frames(event, provenance):
             yield text_event
+        for result_event in self._unanswered_tool_results(event, provenance):
+            yield result_event
+
+    def _unanswered_tool_results(self, event: Any, provenance: dict) -> list[BaseEvent]:
+        """TOOL_CALL_RESULT for each ToolMessage the tools node returned that upstream never sent one for.
+
+        Upstream emits RESULT only from ``on_tool_end``, which never fires for a call a middleware answers without
+        running the tool (deepagents' parallel same-file edit guard), so the chat row would spin until the run ends.
+        ``on_tool_end`` always precedes the node's ``on_chain_end``, whose output holds only that step's messages.
+        Stamped like ``_assistant_message_frames``, so the filter drops a subagent's.
+        """
+        if not isinstance(event, dict) or event.get("event") != "on_chain_end" or event.get("name") != "tools":
+            return []
+        output = (event.get("data") or {}).get("output")
+        messages = output.get("messages") if isinstance(output, dict) else None
+        results: list[BaseEvent] = []
+        for message in messages if isinstance(messages, list) else []:
+            if not isinstance(message, ToolMessage) or message.tool_call_id in self._answered_tool_calls:
+                continue
+            self._answered_tool_calls.add(message.tool_call_id)
+            content = self._result_text(message, normalize_tool_content(message.content))
+            # The event has no status: the chat UI marks a row failed only by this prefix (``ERROR_PREFIX_RE``).
+            if message.status == "error" and not _ERROR_PREFIX.match(content):
+                content = f"Error: {content}"
+            results.append(
+                ToolCallResultEvent(
+                    type=EventType.TOOL_CALL_RESULT,
+                    tool_call_id=message.tool_call_id,
+                    message_id=str(message.id or message.tool_call_id),
+                    content=content,
+                    role="tool",
+                    raw_event={"metadata": provenance},
+                )
+            )
+        return results
 
     @staticmethod
     def _assistant_message_frames(event: Any, provenance: dict) -> list[BaseEvent]:
@@ -194,3 +272,31 @@ class RuntimeContextLangGraphAGUIAgent(LangGraphAGUIAgent):
             context_keys = [f.name for f in fields(ctx_schema)]
         constant = list(self.constant_schema_keys)
         return {"input": constant, "output": [*constant, *STREAMED_STATE_KEYS], "config": [], "context": context_keys}
+
+    @staticmethod
+    def _source_tool_message(event: Any, tool_call_id: str) -> ToolMessage | None:
+        """The ``ToolMessage`` an ``on_tool_end`` event carries for ``tool_call_id``: its output, or the one a returned
+        ``Command`` holds (the only one when the public call id was remapped)."""
+        if not isinstance(event, dict):
+            return None
+        output = (event.get("data") or {}).get("output")
+        messages = [m for m in ToolContent.messages(output) if isinstance(m, ToolMessage)]
+        matching = [m for m in messages if m.tool_call_id == tool_call_id]
+        if matching:
+            return matching[0]
+        return messages[0] if len(messages) == 1 else None
+
+    @staticmethod
+    def _result_text(message: ToolMessage, content: str) -> str:
+        """The text of a result that carries media blocks, which upstream would serialize base64 and all; else
+        ``content`` unchanged."""
+        tool_content = ToolContent(message)
+        return tool_content.text if tool_content.media_blocks else content
+
+    @staticmethod
+    def _media_event_value(value: Any) -> dict[str, Any]:
+        """The ``TOOL_MEDIA_EVENT`` payload as the chat renders it: the call's media items, with URLs in place of
+        ids."""
+        value = value if isinstance(value, dict) else {}
+        media = TranscriptMedia(value.get("thread_id") or "")
+        return {"tool_call_id": value.get("tool_call_id"), "media": media.items(value.get("media") or [])}

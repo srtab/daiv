@@ -17,6 +17,7 @@ def test_chat_run_streamer_dataclass_accepts_sandbox_env_id():
         thread_id="t",
         run_id="r",
         input_data=MagicMock(thread_id="t", run_id="r"),
+        chat_run=MagicMock(ref="main"),
         sandbox_environment_id="env-uuid",
     )
     assert streamer.sandbox_environment_id == "env-uuid"
@@ -43,6 +44,7 @@ async def test_streamer_emits_resolved_env_custom_event_when_auto_resolved():
         thread_id="t",
         run_id="r",
         input_data=MagicMock(thread_id="t", run_id="r"),
+        chat_run=MagicMock(ref="main"),
         auto_resolved_env={"id": "env-uuid", "name": "Default", "scope": "global"},
     )
     with (
@@ -85,6 +87,7 @@ async def test_streamer_skips_resolved_env_emit_when_not_auto_resolved():
         thread_id="t",
         run_id="r",
         input_data=MagicMock(thread_id="t", run_id="r"),
+        chat_run=MagicMock(ref="main"),
         auto_resolved_env=None,
     )
     with (

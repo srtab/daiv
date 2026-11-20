@@ -4,6 +4,7 @@ import functools
 import json
 import logging
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from get_docker_secret import get_docker_secret
@@ -12,8 +13,9 @@ from pydantic import SecretStr
 from core.constants import ModelName
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
+    from core.model_choice import ModelChoice
     from core.models import SiteConfiguration
 
 logger = logging.getLogger("daiv.core")
@@ -59,6 +61,50 @@ def _parse_auth_headers_json(raw: str) -> dict[str, dict[str, SecretStr]]:
     }
 
 
+MODEL_MAP_FIELDS = frozenset({"agent_skill_models", "agent_subagent_models"})
+LEGACY_EXPLORE_MODEL_ENV = "DAIV_AGENT_EXPLORE_MODEL_NAME"
+
+
+def _parse_model_map_json(raw: str, env_var: str) -> dict[str, ModelChoice]:
+    """Parse a ``{name: model spec or {model, thinking_level}}`` env value; an unset entry is dropped, and malformed
+    JSON is logged and treated as ``{}``."""
+    from core.model_choice import parse_model_choices
+
+    try:
+        decoded = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.exception("%s could not be parsed as a JSON object of model choices; ignoring.", env_var)
+        return {}
+    return parse_model_choices(decoded, source=env_var)
+
+
+def _with_legacy_explore_model(subagent_models: dict[str, ModelChoice]) -> dict[str, ModelChoice]:
+    """``subagent_models`` with ``DAIV_AGENT_EXPLORE_MODEL_NAME`` as its ``explore`` entry's model when it has none, so
+    an upgrade does not silently move explore off the model the operator chose; logged at ERROR the first time it is
+    read until the operator moves it."""
+    from core.model_choice import EMPTY_CHOICE, ModelChoice
+
+    existing = subagent_models.get("explore", EMPTY_CHOICE)
+    if existing.model:
+        return subagent_models
+    first_read = LEGACY_EXPLORE_MODEL_ENV not in _docker_secret_cache
+    if not (legacy := _get_docker_secret_cached(LEGACY_EXPLORE_MODEL_ENV)):
+        return subagent_models
+    if first_read:
+        logger.error(
+            '%s is deprecated: it is read as the "explore" entry of DAIV_AGENT_SUBAGENT_MODELS until it is removed. '
+            "Move it there.",
+            LEGACY_EXPLORE_MODEL_ENV,
+        )
+    return {**subagent_models, "explore": existing.over(ModelChoice(model=legacy))}
+
+
+def legacy_explore_model() -> str:
+    """The model ``DAIV_AGENT_EXPLORE_MODEL_NAME`` gives explore while no entry names one; empty when unset."""
+    choice = _with_legacy_explore_model({}).get("explore")
+    return choice.model if choice else ""
+
+
 def _build_field_defaults() -> dict[str, Any]:
     """Build the defaults dict at first access, so importing this module never loads ``core.models``."""
     from core.models import ThinkingLevelChoices, WebSearchEngineChoices
@@ -72,9 +118,13 @@ def _build_field_defaults() -> dict[str, Any]:
         "agent_fallback_thinking_level": ThinkingLevelChoices.MEDIUM,
         "agent_max_model_name": ModelName.CLAUDE_OPUS_5_5,
         "agent_max_thinking_level": ThinkingLevelChoices.HIGH,
-        "agent_explore_model_name": ModelName.CLAUDE_HAIKU_5_5,
-        "agent_explore_fallback_model_name": ModelName.GPT_6_LUNA,
         "agent_recursion_limit": 500,
+        "agent_skill_models": {},
+        "agent_subagent_models": {},
+        "model_request_timeout_seconds": 120,
+        # Not 1: langchain-anthropic shares its httpx client process-wide, so a worker task's first call
+        # can spend a retry on a pooled connection left behind by the previous task's event loop.
+        "model_max_retries": 2,
         "suggest_context_file_enabled": True,
         "session_link_enabled": True,
         # Diff to Metadata — successors of gemini-3.7-flash and deepseek-v4-flash, which scored best on the
@@ -102,6 +152,8 @@ def _build_field_defaults() -> dict[str, Any]:
         "web_search_enabled": True,
         "web_search_max_results": 5,
         "web_search_engine": WebSearchEngineChoices.DUCKDUCKGO,
+        "web_search_searxng_url": None,
+        "web_search_searxng_timeout_seconds": 15,
         # Web Fetch
         "web_fetch_enabled": True,
         "web_fetch_model_name": ModelName.CLAUDE_HAIKU_5_5,
@@ -110,6 +162,9 @@ def _build_field_defaults() -> dict[str, Any]:
         "web_fetch_max_content_chars": 50_000,
         # Sandbox
         "sandbox_timeout": 600,
+        "sandbox_browser_enabled": False,
+        "sandbox_browser_memory_bytes": 1_073_741_824,
+        "sandbox_browser_cpus": 1.0,
         # Jobs
         "jobs_throttle_rate": "20/hour",
         # Pipeline watch
@@ -156,9 +211,11 @@ class SiteSnapshot:
     agent_fallback_thinking_level: str
     agent_max_model_name: str
     agent_max_thinking_level: str
-    agent_explore_model_name: str
-    agent_explore_fallback_model_name: str
     agent_recursion_limit: int
+    agent_skill_models: Mapping[str, ModelChoice]
+    agent_subagent_models: Mapping[str, ModelChoice]
+    model_request_timeout_seconds: int
+    model_max_retries: int
     suggest_context_file_enabled: bool
     session_link_enabled: bool
     diff_to_metadata_model_name: str
@@ -179,12 +236,17 @@ class SiteSnapshot:
     web_search_enabled: bool
     web_search_max_results: int
     web_search_engine: str
+    web_search_searxng_url: str | None
+    web_search_searxng_timeout_seconds: int
     web_fetch_enabled: bool
     web_fetch_model_name: str
     web_fetch_cache_ttl_seconds: int
     web_fetch_timeout_seconds: int
     web_fetch_max_content_chars: int
     sandbox_timeout: float
+    sandbox_browser_enabled: bool
+    sandbox_browser_memory_bytes: int
+    sandbox_browser_cpus: float
     jobs_throttle_rate: str
     pipeline_watch_enabled: bool
     pipeline_watch_max_attempts: int
@@ -274,6 +336,13 @@ class SiteSettings:
 
     def _resolve(self, name: str, get_config: Callable[[], SiteConfiguration | None]) -> Any:
         """Resolve one field; ``get_config`` is called only when no env var or Docker secret sets it."""
+        value = self._resolve_value(name, get_config)
+        if name == "agent_subagent_models":
+            value = _with_legacy_explore_model(value)
+        return MappingProxyType(dict(value)) if isinstance(value, dict) else value
+
+    def _resolve_value(self, name: str, get_config: Callable[[], SiteConfiguration | None]) -> Any:
+        from core.model_choice import parse_model_choices
         from core.models import THINKING_OFF, SiteConfiguration
 
         # 1. Docker secret / environment variable wins
@@ -284,6 +353,8 @@ class SiteSettings:
             if name in SiteConfiguration.THINKING_LEVEL_FIELDS:
                 level = env_value.strip().lower()
                 return "" if level == THINKING_OFF else level
+            if name in MODEL_MAP_FIELDS:
+                return _parse_model_map_json(env_value, self.get_env_var_name(name))
             field = SiteConfiguration._meta.get_field(name)
             return self._parse_env_value(env_value, field)
 
@@ -294,6 +365,8 @@ class SiteSettings:
             if db_value is not None and (db_value != "" or name in SiteConfiguration.THINKING_OFF_FIELDS):
                 if name in SiteConfiguration.ENCRYPTED_FIELDS:
                     return SecretStr(db_value)
+                if name in MODEL_MAP_FIELDS:
+                    return parse_model_choices(db_value, source=f"site {name}")
                 return db_value
 
         # 3. Hardcoded default

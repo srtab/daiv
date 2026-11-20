@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import fcntl
 import hashlib
 import io
@@ -8,6 +9,7 @@ import shutil
 import tempfile
 import time
 import zipfile
+from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
@@ -20,10 +22,14 @@ from django.db.utils import Error as DjangoDBError
 
 import yaml
 
+from core.model_choice import EMPTY_CHOICE, parse_model_choice
+from core.site_settings import site_settings
 from skills.conf import settings
 from skills.constants import (
     ALLOWED_SUFFIXES,
     BUILTIN_SKILLS_PATH,
+    CODE_REVIEW_AGENTS_PATH,
+    CODE_REVIEW_SKILL,
     FORBIDDEN_PATH_PARTS,
     FORBIDDEN_SUFFIXES,
     FRONTMATTER_RE,
@@ -46,6 +52,9 @@ from skills.models import GlobalSkill, SkillInvocation
 if TYPE_CHECKING:
     from deepagents.middleware.skills import SkillMetadata, SkillsState
     from langchain.tools import ToolRuntime
+
+    from core.model_choice import ModelChoice
+    from core.site_settings import SiteSettings, SiteSnapshot
 
 logger = logging.getLogger("daiv.skills")
 
@@ -186,7 +195,8 @@ def _skill_metadata(skill_dir: Path) -> SkillMetadata | None:
     return _parse_skill_metadata(content, str(skill_md), skill_dir.name)
 
 
-BUILTIN_SKILL_NAMES: frozenset[str] = frozenset(_skill_dirs(BUILTIN_SKILLS_PATH).dirs)
+BUILTIN_SKILL_DIRS: dict[str, Path] = _skill_dirs(BUILTIN_SKILLS_PATH).dirs
+BUILTIN_SKILL_NAMES: frozenset[str] = frozenset(BUILTIN_SKILL_DIRS)
 
 
 @lru_cache(maxsize=1)
@@ -208,6 +218,80 @@ def list_global_skills() -> dict[str, str]:
         if (metadata := _skill_metadata(path)) is not None
     }
     return dict(sorted(skills.items()))
+
+
+class BundledSubagent(NamedTuple):
+    """A subagent shipped in a skill's folder: its charter's ``name``, the first sentence of its ``description``, and
+    the model and thinking level it declares (empty when it declares none)."""
+
+    name: str
+    summary: str
+    choice: ModelChoice
+
+
+@lru_cache(maxsize=1)
+def _code_review_detectors() -> tuple[BundledSubagent, ...]:
+    detectors = []
+    for charter in sorted(CODE_REVIEW_AGENTS_PATH.glob("*.md")):
+        try:
+            frontmatter = SkillPackage._parse_frontmatter(charter.read_text(encoding="utf-8"))
+        except OSError, UnicodeDecodeError, SkillValidationError:
+            logger.warning("Could not read detector charter %s", charter, exc_info=True)
+            continue
+        if not (name := str(frontmatter.get("name") or "").strip()):
+            logger.warning("Detector charter %s has no name in its frontmatter", charter)
+            continue
+        summary = str(frontmatter.get("description") or "").split(". ", 1)[0].rstrip(".")
+        choice = parse_model_choice(frontmatter, source=f"detector charter {charter.name}", log_level=logging.WARNING)
+        detectors.append(BundledSubagent(name, summary, choice))
+    return tuple(detectors)
+
+
+def skill_subagents(name: str) -> tuple[BundledSubagent, ...]:
+    """The subagents skill ``name`` ships, each run on its own model; only the code-review skill ships any."""
+    return _code_review_detectors() if name == CODE_REVIEW_SKILL else ()
+
+
+def declared_skill_choice(root: Path) -> ModelChoice:
+    """The model and thinking level the SKILL.md in ``root`` declares under ``metadata``; empty when none."""
+    metadata = (_skill_metadata(root) or {}).get("metadata")
+    if not isinstance(metadata, Mapping):
+        return EMPTY_CHOICE
+    return parse_model_choice(metadata, source=f"{root.name} SKILL.md", log_level=logging.WARNING)
+
+
+def _global_skill_root(name: str) -> Path | None:
+    """The directory of the global skill ``name``: the custom one, else the built-in; ``None`` when neither exists."""
+    for base in (settings.CUSTOM_SKILLS_PATH, BUILTIN_SKILLS_PATH):
+        if base is not None and (base / name / "SKILL.md").is_file():
+            return base / name
+    return None
+
+
+def _declared_choice_of(name: str) -> ModelChoice:
+    try:
+        root = _global_skill_root(name)
+        return declared_skill_choice(root) if root is not None else EMPTY_CHOICE
+    except Exception:
+        logger.warning("Could not read the declared model of skill '%s'", name, exc_info=True)
+        return EMPTY_CHOICE
+
+
+async def adeclared_skill_choice(name: str) -> ModelChoice:
+    """The choice the skill ``name``'s SKILL.md declares: the custom global skill's, else the built-in's; empty when
+    none or unreadable. The file reads run off the event loop."""
+    return await asyncio.to_thread(_declared_choice_of, name)
+
+
+def site_model_entries(name: str, site: SiteSettings | SiteSnapshot = site_settings) -> tuple[ModelChoice, int]:
+    """Skill ``name``'s site model entry (empty when unset), and how many of the subagents it ships have one; a caller
+    that asks for several skills passes one ``site_settings.snapshot()``."""
+    subagents = skill_subagents(name)
+    subagent_models = site.agent_subagent_models if subagents else {}
+    return (
+        site.agent_skill_models.get(name, EMPTY_CHOICE),
+        sum(1 for subagent in subagents if subagent_models.get(subagent.name)),
+    )
 
 
 @dataclass(frozen=True, slots=True)

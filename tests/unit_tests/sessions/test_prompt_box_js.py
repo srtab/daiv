@@ -76,7 +76,7 @@ for (const [method, ...params] of actions) {
   } else picker[method](...params);
 }
 process.stdout.write(JSON.stringify({
-  repos: picker.repos, popover: picker.popover, editingIndex: picker.editingIndex,
+  repos: picker.repos, popover: picker.popover, editingIndex: picker.editingIndex, conflictIndex: picker.conflictIndex,
   repoLoading: picker.repoLoading, conflictMessage: picker.conflictMessage,
   query: refs.repoSearch.value, results: refs.repoPickerList.innerHTML,
   scrollTop: refs.repoPickerList.scrollTop, requests, changes, observations,
@@ -284,3 +284,73 @@ def test_branch_selection_keeps_repository_search_context_for_the_next_addition(
     assert state["query"] == "acme"
     assert state["repos"] == [{"slug": "acme/api", "ref": "feature"}]
     assert [request["picker"] for request in state["requests"]] == ["repo", "branch"]
+
+
+def test_unique_repos_refuse_the_same_repository_on_another_branch():
+    state = drive(
+        [["openRepoPicker"], ["observe", "canSelectRepo", "g/app", "develop"], ["setRepo", "g/app", "develop"]],
+        uniqueRepos=True,
+        maxRepos=5,
+        initialRepos=[{"repo_id": "g/app", "ref": "main"}],
+    )
+
+    assert state["observations"] == [False]
+    assert state["repos"] == [{"slug": "g/app", "ref": "main"}]
+    assert state["conflictIndex"] == 0
+    assert state["changes"] == []
+
+
+def test_unique_repos_still_allow_changing_the_branch_of_the_same_entry():
+    state = drive(
+        [["openBranchPicker", 0], ["setBranch", "develop"]],
+        uniqueRepos=True,
+        maxRepos=5,
+        initialRepos=[{"repo_id": "g/app", "ref": "main"}],
+    )
+
+    assert state["repos"] == [{"slug": "g/app", "ref": "develop"}]
+    assert state["conflictIndex"] is None
+
+
+def test_without_unique_repos_another_branch_is_still_allowed():
+    state = drive([["setRepo", "g/app", "develop"]], maxRepos=5, initialRepos=[{"repo_id": "g/app", "ref": "main"}])
+
+    assert state["repos"] == [{"slug": "g/app", "ref": "main"}, {"slug": "g/app", "ref": "develop"}]
+    assert state["conflictIndex"] is None
+
+
+def _three_repos():
+    return [{"repo_id": slug, "ref": "main"} for slug in ("g/a", "g/b", "g/c")]
+
+
+def test_make_main_moves_the_row_first_and_publishes_it():
+    state = drive([["makeMain", 2]], initialRepos=_three_repos())
+
+    assert [r["slug"] for r in state["repos"]] == ["g/c", "g/a", "g/b"]
+    assert state["changes"][-1]["repos"][0]["repo_id"] == "g/c"
+
+
+def test_make_main_follows_the_flagged_conflict_row():
+    state = drive([["_flagConflict", 1], ["makeMain", 2]], initialRepos=_three_repos())
+
+    assert state["conflictIndex"] == 2
+
+
+def test_make_main_follows_the_row_being_edited():
+    state = drive([["openBranchPicker", 2], ["makeMain", 2]], initialRepos=_three_repos())
+
+    assert state["editingIndex"] == 0
+    assert state["repos"][0]["slug"] == "g/c"
+
+
+def test_make_main_ignores_the_main_row():
+    state = drive([["makeMain", 0]], initialRepos=_three_repos())
+
+    assert [r["slug"] for r in state["repos"]] == ["g/a", "g/b", "g/c"]
+    assert state["changes"] == []
+
+
+def test_removing_the_main_row_promotes_the_next_one():
+    state = drive([["remove", 0]], initialRepos=[{"repo_id": "g/a", "ref": "main"}, {"repo_id": "g/b", "ref": "main"}])
+
+    assert state["changes"][-1]["repos"][0]["repo_id"] == "g/b"

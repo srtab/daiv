@@ -7,6 +7,9 @@ among them: their callbacks enqueue their own tasks. A failed enqueue or link ma
 ``run_finished`` (:func:`amark_failed_and_advance`), so the session's QUEUED siblings advance instead of waiting
 behind a row that will never finish.
 
+A session's inbox next run (a QUEUED run with inbox events linked) is not among them: ``sessions.inbox.drain`` starts
+it, claiming the session's slot for it, and every release path here leaves it alone.
+
 A QUEUED run whose ``waits_for`` run has not finished stays QUEUED, and so does every later run of its session: no
 release path starts it early, and :func:`release_runs_waiting_for` starts it once that run ends. Whichever path
 releases it, it starts from the branch the waited-for run's session is on by then, which that run may have moved
@@ -26,7 +29,9 @@ from django.utils import timezone
 from asgiref.sync import async_to_sync
 
 from sessions.executor.tasks import run_job_task
-from sessions.models import Run, RunStatus, Session, SessionOrigin
+from sessions.legs import Leg
+from sessions.live.notify import session_changed
+from sessions.models import LINK_FAILED_PREFIX, Run, RunStatus, Session, SessionOrigin
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -34,8 +39,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.sessions")
 
 ENQUEUE_FAILED_PREFIX = "enqueue_failed"
-# The agent may still push a commit or open an MR while the row shows FAILED.
-LINK_FAILED_PREFIX = "link_failed (agent task will run but its result cannot be captured)"
 
 MAX_CONSECUTIVE_DISPATCH_FAILURES = 3
 
@@ -48,8 +51,11 @@ class EnqueueFailure:
     task_enqueued: bool
 
 
-async def aenqueue_run(run: Run, *, log_context: str, skip_dispatch: bool = False) -> EnqueueFailure | None:
-    """Enqueue ``run_job_task`` for a READY ``run`` and link its task result to the row.
+async def aenqueue_run(
+    run: Run, *, log_context: str, skip_dispatch: bool = False, inbox: bool = False
+) -> EnqueueFailure | None:
+    """Enqueue ``run_job_task`` for a READY ``run`` and link its task result to the row; ``inbox`` for a run
+    ``sessions.inbox.drain`` started.
 
     Returns ``None`` once both steps land. When either fails, :func:`amark_failed_and_advance` marks the row FAILED
     unless it moved on meanwhile, and sets ``run.error_message``, which starts with ``ENQUEUE_FAILED_PREFIX`` when no
@@ -68,7 +74,8 @@ async def aenqueue_run(run: Run, *, log_context: str, skip_dispatch: bool = Fals
             run_id=str(run.pk),
             user_id=run.user_id,
             ask_user_enabled=await _acan_ask_user(run),
-            fork_branch=run.trigger_type == SessionOrigin.DELEGATED_JOB,
+            fork_branch=await _afork_branch(run),
+            inbox=inbox,
         )
     except Exception as err:  # noqa: BLE001
         logger.exception("%s: enqueue failed for run=%s repo_id=%s", log_context, run.pk, run.repo_id)
@@ -89,6 +96,15 @@ async def aenqueue_run(run: Run, *, log_context: str, skip_dispatch: bool = Fals
         )
         return EnqueueFailure(task_enqueued=True)
     return None
+
+
+async def _afork_branch(run: Run) -> bool:
+    """Whether ``run`` publishes to a new branch and merge request: a delegated run on a leg with no branch of its own
+    yet, which a leg's first run never has. A leg follow-up on a leg that published pushes to the leg's branch."""
+    if run.trigger_type != SessionOrigin.DELEGATED_JOB:
+        return False
+    session = await Session.objects.filter(pk=run.session_id).afirst()
+    return session is None or not await Leg(session).ahas_own_branch()
 
 
 async def _acan_ask_user(run: Run) -> bool:
@@ -148,6 +164,7 @@ def _claim_queued(run: Run) -> bool:
     with transaction.atomic():
         if Run.objects.filter(pk=run.pk, status=RunStatus.QUEUED).update(status=RunStatus.READY) != 1:
             return False
+        session_changed(run.session_id)
         if run.waits_for_id is not None:
             _rebase_on_waited_branch(run)
     run.refresh_from_db()
@@ -195,7 +212,12 @@ def dispatch_next_queued(session_id: str) -> None:
     """
     consecutive_failures = 0
     while True:
-        next_q = Run.objects.filter(session_id=session_id, status=RunStatus.QUEUED).order_by("created_at").first()
+        next_q = (
+            Run.objects
+            .filter(session_id=session_id, status=RunStatus.QUEUED, inbox_events__isnull=True)
+            .order_by("created_at")
+            .first()
+        )
         if next_q is None or _still_waiting(next_q):
             return
 
@@ -240,7 +262,9 @@ def release_orphan_queued_runs(session_ids: QuerySet | None = None) -> OrphanRel
     active_sessions = set(
         Run.objects.filter(status__in=[RunStatus.READY, RunStatus.RUNNING]).values_list("session_id", flat=True)
     )
-    orphans = Run.objects.filter(status=RunStatus.QUEUED).filter(~Q(session_id__in=active_sessions))
+    orphans = Run.objects.filter(status=RunStatus.QUEUED, inbox_events__isnull=True).filter(
+        ~Q(session_id__in=active_sessions)
+    )
     if session_ids is not None:
         orphans = orphans.filter(session_id__in=session_ids)
     orphans = orphans.order_by("session_id", "created_at")

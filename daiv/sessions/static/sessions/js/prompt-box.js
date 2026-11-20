@@ -14,6 +14,7 @@ document.addEventListener("alpine:init", () => {
         initialRepos = [],
         initialUseMax = false,
         maxRepos = 1,
+        uniqueRepos = false,
         repoPickerUrl = "",
         branchPickerTemplate = "",
         conflictMessageTemplate = "Repository already in the list: __LABEL__.",
@@ -22,6 +23,7 @@ document.addEventListener("alpine:init", () => {
         repos: (initialRepos || []).map(r => ({ slug: r.repo_id, ref: r.ref || "" })),
         useMax: initialUseMax,
         maxRepos,
+        uniqueRepos,
         repoPickerUrl,
         branchPickerTemplate,
         conflictMessageTemplate,
@@ -204,7 +206,21 @@ document.addEventListener("alpine:init", () => {
             this._emitChange();
         },
 
+        makeMain(index) {
+            if (index <= 0 || index >= this.repos.length) return;
+            const [entry] = this.repos.splice(index, 1);
+            this.repos.unshift(entry);
+            const shift = (current) => {
+                if (current === index) return 0;
+                return current < index ? current + 1 : current;
+            };
+            if (this.conflictIndex !== null) this.conflictIndex = shift(this.conflictIndex);
+            if (this.editingIndex !== null) this.editingIndex = shift(this.editingIndex);
+            this._emitChange();
+        },
+
         _findConflict(slug, ref, skipIndex, defaultBranch = "") {
+            if (this.uniqueRepos) return this.repos.findIndex((r, i) => i !== skipIndex && r.slug === slug);
             // Stored empty refs mean the default branch; repo rows tell us its actual name.
             return this.repos.findIndex(
                 (r, i) => i !== skipIndex && r.slug === slug && (r.ref || defaultBranch) === (ref || defaultBranch),

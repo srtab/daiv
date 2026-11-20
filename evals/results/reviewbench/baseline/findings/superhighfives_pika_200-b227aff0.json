@@ -1,0 +1,193 @@
+{
+  "pr": {
+    "repo": "https://github.com/superhighfives/pika",
+    "pr_number": 200,
+    "base": "bdda75cbeeb8cd72a2cb197f93623c3e197cf49c",
+    "head": "b227aff048155b8d2a8426b4d84bcec4504e7c01"
+  },
+  "agent": "daiv/anthropic:claude-haiku-5-5",
+  "findings": [
+    {
+      "file": "Pika/Services/Eyedroppers.swift",
+      "start_line": 284,
+      "end_line": 292,
+      "message": "`deletePalette` leaves the active tab on the wrong palette\n\nThe index is only corrected when it is past the end. `[auto, A, B]` on B, then delete A: index 2 is out of range, so the view jumps to auto-history and B is hidden. `[auto, A, B, C]` on B, then delete A: the view lands on C. Deleting the active last palette clamps to 0 without calling `restoreAutoHistorySelection()`, so `activeHistoryID` still holds the deleted chip's id. The PR says this is handled, and it is not.\nFix: capture the index before removal. If `active == index`, set 0 and call `restoreAutoHistorySelection()`. If `active > index`, set `active - 1`. The durable fix is to store the active selection by palette `id`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "Pika/Services/Eyedroppers.swift",
+      "start_line": 263,
+      "end_line": 275,
+      "message": "`savePalette` does not select the new chip, so the next swap is not saved\n\nUnlike `addCurrentToPalette`, `savePalette` never sets `activeHistoryID`. `swap()`'s palette branch (`Eyedroppers.swift:88-94`) then finds no match and returns after swapping the on-screen colors. The saved chip keeps its pre-swap orientation.\nFix: set `activeHistoryID = current.id` after the write.",
+      "producer": "daiv"
+    },
+    {
+      "file": "Pika/Services/Eyedroppers.swift",
+      "start_line": 131,
+      "end_line": 138,
+      "message": "Undo/redo on a named tab writes into auto-history and clears redo\n\nBase `applyHistoryEntry` was a plain setter. This PR routes it through `applyEntry`, which calls `recordHistory()` whenever `activePaletteIndex != 0`. Undo and redo restore via `applyRestoredSnapshot` \u2192 `applyHistoryEntry`, so on a named tab `recordHistory()` calls `pushUndo()` (which clears `redoStack`) and prepends a duplicate of the restored entry.\nRepro: on auto, delete a middle entry, switch to a named palette, press Undo. Auto-history now holds the entry twice, the undo stack has a spurious snapshot, and redo is gone.\nFix: keep restore paths on a pure setter, as in base. Only navigation and chip taps should record history.",
+      "producer": "daiv"
+    },
+    {
+      "file": "Pika/Services/Eyedroppers.swift",
+      "start_line": 82,
+      "end_line": 82,
+      "message": "`swap()` pushes an auto-history undo snapshot even when a named chip changes\n\nThe PR says this is gated on auto-history. It is not. Base also pushed unconditionally, so this is a claimed fix that was not made. On a named tab, Undo then reverts nothing: it jumps the colors to the auto head and leaves a no-op redo entry.\nFix: call `pushUndo()` only on the tab-0 path.",
+      "producer": "daiv"
+    },
+    {
+      "file": "Pika/Services/Eyedroppers.swift",
+      "start_line": 154,
+      "end_line": 163,
+      "message": "Delete on a named tab with a stale selection changes colors and writes history instead of deleting\n\nClicking a named tab only sets the index, so `activeHistoryID` keeps the auto chip's id. Pressing Delete then runs `deleteCurrentEntry`'s palette branch. `deleteChipFromPalette` removes nothing, but the code still applies the palette's first chip, and `recordHistory()` writes it into auto-history. The same path opens when the active chip is removed from its palette, because `deleteChipFromPalette` does not clear `activeHistoryID`.\nFix: have `deleteChipFromPalette` return whether it removed anything, and apply the next entry only if it did. Clear `activeHistoryID` when the removed id matches. Route tab selection through one Eyedroppers method that resets the selection.",
+      "producer": "daiv"
+    },
+    {
+      "file": "Pika/Views/ColorHistoryDrawer.swift",
+      "start_line": 167,
+      "end_line": 169,
+      "message": "Delete on a named tab with a stale selection changes colors and writes history instead of deleting\n\nClicking a named tab only sets the index, so `activeHistoryID` keeps the auto chip's id. Pressing Delete then runs `deleteCurrentEntry`'s palette branch. `deleteChipFromPalette` removes nothing, but the code still applies the palette's first chip, and `recordHistory()` writes it into auto-history. The same path opens when the active chip is removed from its palette, because `deleteChipFromPalette` does not clear `activeHistoryID`.\nFix: have `deleteChipFromPalette` return whether it removed anything, and apply the next entry only if it did. Clear `activeHistoryID` when the removed id matches. Route tab selection through one Eyedroppers method that resets the selection.",
+      "producer": "daiv"
+    },
+    {
+      "file": "Pika/Views/ColorHistoryDrawer.swift",
+      "start_line": 153,
+      "end_line": 160,
+      "message": "\"New palette\" does nothing while the drawer is hidden\n\n`.savePalette` is observed only by `PaletteTabBar`. That view exists only inside `ColorHistoryDrawer`, which is mounted only when `historyDrawerVisible` is true. The handler's \"open the drawer\" branch can therefore never run when it is needed.\nFix: observe `.savePalette` in `ContentView`, set `historyDrawerVisible = true`, and signal the tab bar (for example with an incrementing request token) to show the name field.",
+      "producer": "daiv"
+    },
+    {
+      "file": "Pika/Views/NavigationMenuItems.swift",
+      "start_line": 102,
+      "end_line": 102,
+      "message": "\"New palette\" does nothing while the drawer is hidden\n\n`.savePalette` is observed only by `PaletteTabBar`. That view exists only inside `ColorHistoryDrawer`, which is mounted only when `historyDrawerVisible` is true. The handler's \"open the drawer\" branch can therefore never run when it is needed.\nFix: observe `.savePalette` in `ContentView`, set `historyDrawerVisible = true`, and signal the tab bar (for example with an incrementing request token) to show the name field.",
+      "producer": "daiv"
+    },
+    {
+      "file": "Pika/Views/ContentView.swift",
+      "start_line": 70,
+      "end_line": 70,
+      "message": "\"New palette\" does nothing while the drawer is hidden\n\n`.savePalette` is observed only by `PaletteTabBar`. That view exists only inside `ColorHistoryDrawer`, which is mounted only when `historyDrawerVisible` is true. The handler's \"open the drawer\" branch can therefore never run when it is needed.\nFix: observe `.savePalette` in `ContentView`, set `historyDrawerVisible = true`, and signal the tab bar (for example with an incrementing request token) to show the name field.",
+      "producer": "daiv"
+    },
+    {
+      "file": "Pika/Views/ContentView.swift",
+      "start_line": 143,
+      "end_line": 152,
+      "message": "Export discards write errors and does not sanitize the filename\n\n- `try? json.write` drops every error. The repo has no `NSAlert`, so the PR's \"errors surface via NSAlert\" is not implemented.\n- The filename only lowercases and replaces spaces. A name containing `/`, `:` or `\\` reaches `nameFieldStringValue` unchanged. Combined with the silent `try?`, a name like \"Warm/Cool\" can fail with no feedback. The exact NSSavePanel behavior is unverified.\nFix: use `do/catch` with `NSAlert(error:).runModal()`, and strip `/`, `:` and `\\` from `fileName`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "Pika/Views/ColorPreview.swift",
+      "start_line": 58,
+      "end_line": 58,
+      "message": "The swap button rotates twice per click\n\nThe button action runs `onSwap(); angle -= 180`. `onSwap` routes through `AppDelegate.triggerSwap`, which posts `.triggerSwap`. The `.onReceive` added by this PR on the same view also runs `angle -= 180`. Each click turns the icon \u2212360\u00b0, so it ends where it started.\nFix: remove `angle -= 180` from the button action.",
+      "producer": "daiv"
+    },
+    {
+      "file": "Pika/Services/Eyedroppers.swift",
+      "start_line": 25,
+      "end_line": 31,
+      "message": "Auto-history and palette reads decode the whole `palettes` blob repeatedly\n\nAuto-history now lives at `palettes[0].pairs`, in the same blob as every named palette. The `autoHistory` getter and setter each decode the full array, and the setter re-encodes and writes it. A single pick therefore costs several full decodes and one encode on the main thread. Named palettes are uncapped, so the cost grows with all saved colors rather than the 20-entry history. In the drawer, `activePalette` is read inside the chip `ForEach`. If `Defaults` decodes on every read (the library is not in the workspace, so this is unverified), that adds one decode per chip. These are estimates, not measurements.\nFix: restore a separate capped `colorHistory` key for auto-history. Read `Defaults[.palettes]` once per operation, and hoist `activePalette` into a local in the drawer body.",
+      "producer": "daiv"
+    },
+    {
+      "file": "Pika/Views/ColorHistoryDrawer.swift",
+      "start_line": 236,
+      "end_line": 253,
+      "message": "Auto-history and palette reads decode the whole `palettes` blob repeatedly\n\nAuto-history now lives at `palettes[0].pairs`, in the same blob as every named palette. The `autoHistory` getter and setter each decode the full array, and the setter re-encodes and writes it. A single pick therefore costs several full decodes and one encode on the main thread. Named palettes are uncapped, so the cost grows with all saved colors rather than the 20-entry history. In the drawer, `activePalette` is read inside the chip `ForEach`. If `Defaults` decodes on every read (the library is not in the workspace, so this is unverified), that adds one decode per chip. These are estimates, not measurements.\nFix: restore a separate capped `colorHistory` key for auto-history. Read `Defaults[.palettes]` once per operation, and hoist `activePalette` into a local in the drawer body.",
+      "producer": "daiv"
+    },
+    {
+      "file": "Pika/Views/ContentView.swift",
+      "start_line": 79,
+      "end_line": 81,
+      "message": "Auto-history and palette reads decode the whole `palettes` blob repeatedly\n\nAuto-history now lives at `palettes[0].pairs`, in the same blob as every named palette. The `autoHistory` getter and setter each decode the full array, and the setter re-encodes and writes it. A single pick therefore costs several full decodes and one encode on the main thread. Named palettes are uncapped, so the cost grows with all saved colors rather than the 20-entry history. In the drawer, `activePalette` is read inside the chip `ForEach`. If `Defaults` decodes on every read (the library is not in the workspace, so this is unverified), that adds one decode per chip. These are estimates, not measurements.\nFix: restore a separate capped `colorHistory` key for auto-history. Read `Defaults[.palettes]` once per operation, and hoist `activePalette` into a local in the drawer body.",
+      "producer": "daiv"
+    },
+    {
+      "file": "Pika/AppDelegate.swift",
+      "start_line": 132,
+      "end_line": 137,
+      "message": "The migration overwrites `palettes` instead of merging\n\nThe PR says legacy `colorHistory` is merged into `palettes[0].pairs`. The code assigns `Defaults[.palettes] = [history]`, which drops all named palettes and any existing auto pairs. A normal upgrade from base is safe because `palettes` still holds the default empty auto palette. Data loss needs `colorHistory` to be non-empty while `palettes` already has content, for example after a downgrade and re-upgrade.\nFix: merge into the existing auto palette (capped at `maxHistory`), and clear `colorHistory` only after the write succeeds.",
+      "producer": "daiv"
+    },
+    {
+      "file": "Pika/Views/NavigationMenu.swift",
+      "start_line": 95,
+      "end_line": 95,
+      "message": "Typing \"h\", \"p\" or \"c\" in the palette name field may trigger global toggles\n\n`h` and `p` already existed. `c` is new in this PR. The key monitor returns events unchanged while a text field is first responder, so plain letters reach SwiftUI. Whether the hidden modifier-less `keyboardShortcut` buttons consume them before the text field is unverified and needs a manual check. If they do, typing \"Cool\" toggles compliance, and typing \"h\" closes the drawer and loses the name.\nFix: drop the modifier-less single-letter shortcuts, or gate them on the first responder not being a text view.",
+      "producer": "daiv"
+    },
+    {
+      "file": "Pika/Views/NavigationMenu.swift",
+      "start_line": 45,
+      "end_line": 45,
+      "message": "Compliance icon never changes shape\n\nBoth branches are `\"checkmark.shield\"`. `checkmark.shield.fill` appears nowhere, although the PR describes it.\nFix: `showCompliance ? \"checkmark.shield.fill\" : \"checkmark.shield\"`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "Pika/Views/ColorHistoryDrawer.swift",
+      "start_line": 43,
+      "end_line": 43,
+      "message": "Named-palette chips show \"Remove from history\"\n\n`ColorHistoryChip` always uses `textHistoryRemove`. `PikaText.textPaletteRemoveChip` (`Pika/Constants/Constants.swift:216`) is defined but used nowhere.\nFix: pass a `removeLabel` into the chip, chosen by `isAutoHistory`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "Pika/Views/ColorHistoryDrawer.swift",
+      "start_line": 109,
+      "end_line": 109,
+      "message": "Rename state is keyed by array index\n\nIf another palette is deleted while the name field is open, `renamingIndex` now points at a different palette, and submitting renames the wrong one.\nFix: key rename state by `Palette.id`.",
+      "producer": "daiv"
+    },
+    {
+      "file": "Pika/Services/Eyedroppers.swift",
+      "start_line": 271,
+      "end_line": 312,
+      "message": "`Eyedroppers` now owns palette persistence, with repeated logic\n\n`renamePalette`, `deletePalette`, `addCurrentToPalette` and `deleteChipFromPalette` each repeat the fetch, the `index > 0` guard and the write-back. The `ColorPair(...)` literal is repeated in `clearHistory`, `savePalette` and `addCurrentToPalette`.\nFix: add a `mutatePalette(at:_:)` helper. Longer term, extract a small palette store.",
+      "producer": "daiv"
+    },
+    {
+      "file": "Pika/Services/ColorPair.swift",
+      "start_line": 45,
+      "end_line": 45,
+      "message": "The auto-history rule is expressed in several ways\n\n`Palette.isAutoHistory` (`name == nil`) and `ColorHistoryDrawer.isAutoHistory` (`activePaletteIndex == 0`) share a name but mean different things. Nothing ties name-nil to index 0.\nFix: use one predicate everywhere.",
+      "producer": "daiv"
+    },
+    {
+      "file": "Pika/Views/ColorHistoryDrawer.swift",
+      "start_line": 224,
+      "end_line": 225,
+      "message": "The auto-history rule is expressed in several ways\n\n`Palette.isAutoHistory` (`name == nil`) and `ColorHistoryDrawer.isAutoHistory` (`activePaletteIndex == 0`) share a name but mean different things. Nothing ties name-nil to index 0.\nFix: use one predicate everywhere.",
+      "producer": "daiv"
+    },
+    {
+      "file": "Pika/Services/Exporter.swift",
+      "start_line": 74,
+      "end_line": 74,
+      "message": "The auto-history rule is expressed in several ways\n\n`Palette.isAutoHistory` (`name == nil`) and `ColorHistoryDrawer.isAutoHistory` (`activePaletteIndex == 0`) share a name but mean different things. Nothing ties name-nil to index 0.\nFix: use one predicate everywhere.",
+      "producer": "daiv"
+    },
+    {
+      "file": "Pika/Views/ColorHistoryDrawer.swift",
+      "start_line": 310,
+      "end_line": 310,
+      "message": "Alert buttons are hard-coded English\n\nThe title and message are localized through `PikaText`, but `\"Clear\"` and `\"Cancel\"` are literals.\nFix: add localized `PikaText` entries and use them.",
+      "producer": "daiv"
+    },
+    {
+      "file": "Pika/Services/Exporter.swift",
+      "start_line": 81,
+      "end_line": 81,
+      "message": "The date formatter is still created per pair\n\nThe PR says `ISO8601DateFormatter` was hoisted out of the `map` closure. It was not.\nFix: hoist it, or correct the PR description.",
+      "producer": "daiv"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 3683021,
+    "completion_tokens": 380457,
+    "total_tokens": 4063478,
+    "time_in_ms": 666006,
+    "cost_usd": 0.373664035
+  }
+}

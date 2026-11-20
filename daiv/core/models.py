@@ -8,14 +8,19 @@ import fnmatch
 import functools
 import logging
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from django.core.cache import cache
-from django.core.validators import MinValueValidator
-from django.db import models, transaction
+from django.core.validators import MaxValueValidator, MinValueValidator
+from django.db import connections, models, transaction
 from django.utils.translation import gettext_lazy as _
 
+from core.validators import validate_searxng_url
+
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from pydantic import SecretStr
 
 logger = logging.getLogger("daiv.core")
@@ -28,6 +33,15 @@ WEB_FETCH_AUTH_HEADERS_CACHE_TIMEOUT = 60 * 5  # 5 minutes
 
 PROVIDERS_CACHE_KEY = "providers"
 PROVIDERS_CACHE_TIMEOUT = 60 * 5  # 5 minutes
+PROVIDER_FAILURE_TTL = timedelta(hours=24)
+
+
+def close_old_connections_outside_transactions() -> None:
+    """``close_old_connections`` for the cache loaders, which may run inside a caller's transaction: closing that
+    connection hands it back to the pool mid-transaction, and the caller's next query fails."""
+    for conn in connections.all(initialized_only=True):
+        if not conn.in_atomic_block:
+            conn.close_if_unusable_or_obsolete()
 
 
 @dataclass(frozen=True)
@@ -71,6 +85,7 @@ THINKING_OFF = "off"
 class WebSearchEngineChoices(models.TextChoices):
     DUCKDUCKGO = "duckduckgo", _("DuckDuckGo")
     TAVILY = "tavily", _("Tavily")
+    SEARXNG = "searxng", _("SearXNG")
 
 
 class ProviderType(models.TextChoices):
@@ -78,6 +93,14 @@ class ProviderType(models.TextChoices):
     ANTHROPIC = "anthropic", _("Anthropic")
     GOOGLE_GENAI = "google_genai", _("Google Gemini")
     OPENROUTER = "openrouter", _("OpenRouter")
+
+
+class ProviderFailureKind(models.TextChoices):
+    OUT_OF_CREDITS = "out_of_credits", _("Out of credits")
+    SPEND_LIMIT_REACHED = "spend_limit_reached", _("Spending limit reached")
+    AUTH_FAILED = "auth_failed", _("Authentication failed")
+    RATE_LIMITED = "rate_limited", _("Rate limited")
+    PROVIDER_UNAVAILABLE = "provider_unavailable", _("Provider unavailable")
 
 
 class SingletonManager(models.Manager["SiteConfiguration"]):
@@ -240,22 +263,37 @@ class SiteConfiguration(models.Model):
             "Thinking depth for daiv-max tasks. Choose Off to disable thinking; leave unset to use the default."
         ),
     )
-    agent_explore_model_name = models.CharField(
-        _("explore model"), max_length=255, blank=True, null=True, help_text=_("Fast model for the explore subagent.")
-    )
-    agent_explore_fallback_model_name = models.CharField(
-        _("explore fallback model"),
-        max_length=255,
-        blank=True,
-        null=True,
-        help_text=_("Fallback model when the explore model fails."),
-    )
     agent_recursion_limit = models.PositiveIntegerField(
         _("recursion limit"),
         blank=True,
         null=True,
         validators=[MinValueValidator(1)],
         help_text=_("Maximum recursion depth for agent loops."),
+    )
+    agent_skill_models = models.JSONField(
+        _("skill models"),
+        default=dict,
+        blank=True,
+        help_text=_('JSON object `{skill name: model spec, or {"model", "thinking_level"}}`: what each runs on.'),
+    )
+    agent_subagent_models = models.JSONField(
+        _("subagent models"),
+        default=dict,
+        blank=True,
+        help_text=_('JSON object `{subagent name: model spec, or {"model", "thinking_level"}}`: what each runs on.'),
+    )
+    model_request_timeout_seconds = models.PositiveIntegerField(
+        _("model request timeout"),
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(1)],
+        help_text=_("Per-request timeout for LLM API calls, in seconds. Applies to every provider."),
+    )
+    model_max_retries = models.PositiveIntegerField(
+        _("model max retries"),
+        blank=True,
+        null=True,
+        help_text=_("Retries for a failed LLM API call before the error propagates. Applies to every provider."),
     )
     pipeline_watch_enabled = models.BooleanField(
         _("pipeline watch enabled"),
@@ -405,7 +443,25 @@ class SiteConfiguration(models.Model):
         blank=True,
         null=True,
         choices=WebSearchEngineChoices.choices,
-        help_text=_("Search engine to use. Tavily requires an API key."),
+        help_text=_("Search engine to use. Tavily requires an API key; SearXNG requires a search URL."),
+    )
+    web_search_searxng_url = models.CharField(
+        _("SearXNG search URL"),
+        max_length=2048,
+        blank=True,
+        null=True,
+        validators=[validate_searxng_url],
+        help_text=_(
+            "Complete SearXNG search endpoint, including /search and any path prefix. "
+            "Use http or https without credentials, query parameters or a fragment. JSON output must be enabled."
+        ),
+    )
+    web_search_searxng_timeout_seconds = models.PositiveIntegerField(
+        _("SearXNG request timeout"),
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(1), MaxValueValidator(120)],
+        help_text=_("Timeout for SearXNG requests in seconds (1–120; default 15)."),
     )
 
     # -- Web Fetch --
@@ -437,7 +493,37 @@ class SiteConfiguration(models.Model):
 
     # -- Sandbox --
     sandbox_timeout = models.FloatField(
-        _("sandbox timeout"), blank=True, null=True, help_text=_("Timeout for sandbox requests, in seconds.")
+        _("sandbox timeout"),
+        blank=True,
+        null=True,
+        help_text=_(
+            "Timeout for sandbox requests, in seconds. Also the longest timeout the agent can give a bash command."
+        ),
+    )
+    sandbox_browser_enabled = models.BooleanField(
+        _("browser"),
+        null=True,
+        help_text=_(
+            "Let the agent use a headless browser in sandbox environments that turn Browser on. "
+            "While it is off, no run gets a browser."
+        ),
+    )
+    sandbox_browser_memory_bytes = models.PositiveBigIntegerField(
+        _("browser memory"),
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(268_435_456)],
+        help_text=_(
+            "Memory limit of each run's browser in bytes, separate from the environment's. "
+            "At least 268435456 (256 MiB)."
+        ),
+    )
+    sandbox_browser_cpus = models.FloatField(
+        _("browser CPUs"),
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(0.25)],
+        help_text=_("CPU limit of each run's browser, separate from the environment's. At least 0.25."),
     )
 
     # -- Authentication --
@@ -554,8 +640,6 @@ class SiteConfiguration(models.Model):
         "agent_model_name",
         "agent_fallback_model_name",
         "agent_max_model_name",
-        "agent_explore_model_name",
-        "agent_explore_fallback_model_name",
         "diff_to_metadata_model_name",
         "diff_to_metadata_fallback_model_name",
         "titling_model_name",
@@ -584,7 +668,13 @@ class SiteConfiguration(models.Model):
         FieldGroup(
             key="agent",
             title=_("Agent"),
-            match=("agent_*", "suggest_context_file_enabled", "session_link_enabled"),
+            match=(
+                "agent_*",
+                "suggest_context_file_enabled",
+                "session_link_enabled",
+                "model_request_timeout_seconds",
+                "model_max_retries",
+            ),
             icon="agent",
             category="AI tasks",
         ),
@@ -716,20 +806,25 @@ class SiteConfiguration(models.Model):
         manage automatically).
         """
         cached = cache.get(SITE_CONFIGURATION_CACHE_KEY)
-        if cached is not None:
+        if cached is not None and not cached.get_deferred_fields():
+            # The cache backend pickles the instance, so a field added by a later
+            # migration (e.g. ``model_request_timeout_seconds``) is absent from the
+            # pickled ``__dict__`` and therefore deferred after unpickling. Accessing
+            # such a field from the event loop would trigger a blocking
+            # ``refresh_from_db`` (SynchronousOnlyOperation). Only a fully-loaded
+            # cached instance is safe to return; a stale one falls through to the DB
+            # path below, which re-caches a fresh instance.
             return cached
 
-        from django.db import close_old_connections
-
         try:
-            close_old_connections()
+            close_old_connections_outside_transactions()
             instance = cls.objects.get_instance()
         except Exception:  # noqa: BLE001 — DB/cache may fail during startup or degraded state
             logger.exception("SiteConfiguration not available; falling back to defaults")
             return None
         finally:
             with contextlib.suppress(Exception):
-                close_old_connections()
+                close_old_connections_outside_transactions()
 
         cache.set(SITE_CONFIGURATION_CACHE_KEY, instance, SITE_CONFIGURATION_CACHE_TIMEOUT)
         return instance
@@ -743,6 +838,13 @@ class SiteConfiguration(models.Model):
         from an async event loop, the entire lookup runs in a separate
         thread via a ``ThreadPoolExecutor`` to avoid
         ``SynchronousOnlyOperation``.
+
+        The returned instance is always fully loaded (no deferred fields), so
+        attribute access is safe from the event loop. ``_fetch_from_cache_or_db``
+        rejects a stale cached instance that carries deferred fields (left
+        behind when a migration adds a field after the instance was pickled)
+        and rebuilds it from the database; any fast path added here must
+        preserve that guarantee or route through ``_fetch_from_cache_or_db``.
 
         Returns ``None`` if the database is not yet available (e.g. during
         early startup or Django system checks).
@@ -902,17 +1004,15 @@ class WebFetchAuthHeader(models.Model):
         rather than crash the tool. The exception is logged so operators can
         diagnose the underlying failure.
         """
-        from django.db import close_old_connections
-
         try:
-            close_old_connections()
+            close_old_connections_outside_transactions()
             out = cls._build_from_db()
         except Exception:  # noqa: BLE001 — degrade gracefully on DB/migration/encryption errors
             logger.exception("WebFetchAuthHeader rows not available; falling back to empty dict")
             return {}
         finally:
             with contextlib.suppress(Exception):
-                close_old_connections()
+                close_old_connections_outside_transactions()
 
         cache.set(WEB_FETCH_AUTH_HEADERS_CACHE_KEY, out, WEB_FETCH_AUTH_HEADERS_CACHE_TIMEOUT)
         return out
@@ -989,6 +1089,12 @@ class Provider(models.Model):
     )
     is_locked = models.BooleanField(default=False, editable=False)
     sort_order = models.PositiveSmallIntegerField(default=0)
+    failure_kind = models.CharField(
+        max_length=32, choices=ProviderFailureKind.choices, blank=True, default="", editable=False
+    )
+    failure_model = models.CharField(max_length=255, blank=True, default="", editable=False)
+    failing_since = models.DateTimeField(null=True, editable=False)
+    last_failed_at = models.DateTimeField(null=True, editable=False)
 
     class Meta:
         verbose_name = _("provider")
@@ -1014,6 +1120,10 @@ class Provider(models.Model):
             original = type(self).objects.only("slug", "provider_type").get(pk=self.pk)
             if original.slug != self.slug or original.provider_type != self.provider_type:
                 raise ValueError(f"Provider {original.slug!r} is locked; slug and provider_type cannot change.")
+        self.failure_kind = ""
+        self.failure_model = ""
+        self.failing_since = None
+        self.last_failed_at = None
         super().save(*args, **kwargs)
         # Defer invalidation to commit so concurrent readers can't repopulate the
         # cache with pre-commit data and mask the new row for the 5-min TTL.
@@ -1058,6 +1168,17 @@ class Provider(models.Model):
         verify_ssl: bool
         is_locked: bool
         sort_order: int
+        failure_kind: str = ""
+        failure_model: str = ""
+        failing_since: datetime | None = None
+        last_failed_at: datetime | None = None
+
+        def active_failure_kind(self, now: datetime) -> str:
+            if not self.failure_kind or self.last_failed_at is None:
+                return ""
+            if now - self.last_failed_at > PROVIDER_FAILURE_TTL:
+                return ""
+            return self.failure_kind
 
     @classmethod
     def _build_from_db(cls) -> list[Provider.Cached]:
@@ -1086,23 +1207,25 @@ class Provider(models.Model):
                     verify_ssl=row.verify_ssl,
                     is_locked=row.is_locked,
                     sort_order=row.sort_order,
+                    failure_kind=row.failure_kind,
+                    failure_model=row.failure_model,
+                    failing_since=row.failing_since,
+                    last_failed_at=row.last_failed_at,
                 )
             )
         return out
 
     @classmethod
     def _load_and_cache(cls) -> list[Cached]:
-        from django.db import close_old_connections
-
         try:
-            close_old_connections()
+            close_old_connections_outside_transactions()
             out = cls._build_from_db()
         except Exception:  # noqa: BLE001
             logger.exception("Provider rows not available; falling back to empty list")
             return []
         finally:
             with contextlib.suppress(Exception):
-                close_old_connections()
+                close_old_connections_outside_transactions()
 
         cache.set(PROVIDERS_CACHE_KEY, out, PROVIDERS_CACHE_TIMEOUT)
         return out
@@ -1128,6 +1251,11 @@ class Provider(models.Model):
     @classmethod
     def get_cached_by_slug(cls) -> dict[str, Provider.Cached]:
         return {row.slug: row for row in cls.get_cached_rows()}
+
+    @classmethod
+    def display_name_for(cls, slug: str) -> str:
+        row = cls.get_cached_by_slug().get(slug)
+        return row.display_name if row else slug
 
     @classmethod
     def invalidate_cache(cls) -> None:

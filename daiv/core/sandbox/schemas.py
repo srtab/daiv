@@ -29,6 +29,11 @@ class StartSessionRequest(BaseModel):
 class RunCommandsRequest(BaseModel):
     commands: list[str] = Field(description="The commands to run in the session.")
     fail_fast: bool = Field(default=True, description="Whether to fail fast if any command fails.")
+    timeout: int | None = Field(
+        default=None,
+        ge=0,
+        description="Per-command timeout in seconds. None uses the sandbox default; 0 means no timeout.",
+    )
 
 
 class RunCommandResult(BaseModel):
@@ -46,6 +51,11 @@ class RunCommandResult(BaseModel):
         )
     )
     exit_code: int
+    timed_out: bool = Field(
+        default=False,
+        exclude=True,
+        description="True when the sandbox killed the command at its timeout; `output` then holds what it printed.",
+    )
 
 
 class RunCommandsResponse(BaseModel):
@@ -232,6 +242,42 @@ class FsDeleteResponse(BaseModel):
         return self.error is None
 
 
+# --- Browser wire schemas -----------------------------------------------------
+
+
+class SandboxCapabilities(BaseModel):
+    browser: bool = Field(default=False, description="Whether the service can run a browser beside a session.")
+
+
+class BrowserStartRequest(BaseModel):
+    memory_bytes: int = Field(
+        ge=256 << 20, description="Memory limit of the browser container, in bytes; at least 256 MiB."
+    )
+    cpus: float = Field(ge=0.25, description="CPU limit of the browser container; at least 0.25.")
+    extension_sha256: str = Field(
+        pattern=r"^[0-9a-f]{64}$",
+        description="sha256 of the Stagehand extension archive; the archive is cached under this digest.",
+    )
+
+
+class BrowserStartResponse(BaseModel):
+    started: bool = Field(description="False when the browser was already running and nothing was started.")
+    profile: Literal["empty", "restored", "reset"] = Field(
+        description=(
+            "'empty' on the browser container's first start; 'reset' when its profile could not be read or the "
+            "container was recreated after a removal the service did not initiate; 'restored' otherwise."
+        )
+    )
+    restored_urls: list[str] = Field(default_factory=list, description="Tabs re-opened from the profile, in order.")
+    devtools_port: int = Field(description="The browser-local DevTools port, for the extension's CDP URL.")
+    browser_ws_path: str = Field(description="The browser's DevTools WebSocket path, '/devtools/browser/<guid>'.")
+
+
+class BrowserStopResponse(BaseModel):
+    saved_urls: list[str] = Field(default_factory=list, description="Tab URLs saved to the profile, in order.")
+    oom_killed: bool = Field(default=False, description="Whether the container was killed for memory before stop.")
+
+
 # --- Egress proxy wire schemas -----------------------------------------------
 #
 # Mirror of the daiv-sandbox ``Egress*`` schemas; kept structurally identical so the
@@ -249,6 +295,29 @@ class EgressRule(BaseModel):
     host: str = Field(description="Destination host glob (e.g. 'github.com', '*.githubusercontent.com').")
     methods: list[str] = Field(default_factory=lambda: ["*"], description="Allowed HTTP methods, or ['*'] for any.")
     inject: str | None = Field(default=None, description="Name of the secret whose header is injected for this host.")
+    path_prefix: str | None = Field(
+        default=None,
+        description=(
+            "Request path prefix this rule is limited to, matched on whole path segments "
+            "(e.g. '/group/app.git'); None matches every path."
+        ),
+    )
+
+    @field_validator("path_prefix", mode="after")
+    @classmethod
+    def _path_prefix_safe(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        if (
+            not value.startswith("/")
+            or value.endswith("/")
+            or any(c.isspace() or ord(c) < 0x20 or c in "?#" for c in value)
+        ):
+            raise ValueError(
+                "path_prefix must start with '/', not end with '/', and contain no whitespace, "
+                "control characters, '?' or '#'"
+            )
+        return value
 
     @field_validator("methods", mode="after")
     @classmethod
@@ -260,7 +329,7 @@ class EgressRule(BaseModel):
     @field_validator("host", mode="after")
     @classmethod
     def _host_safe(cls, value: str) -> str:
-        # Enforced on the type, not just the form: from_stored() and with_platform_credential() build
+        # Enforced on the type, not just the form: from_stored() and with_platform_credentials() build
         # rules outside the form, so a blank host or a CR/LF-smuggled host must be rejected here too.
         _reject_crlf(value, "host")
         host = value.strip()
@@ -277,7 +346,7 @@ class EgressSecret(BaseModel):
     @classmethod
     def _header_safe(cls, value: str) -> str:
         # Header-injection guard at the parse boundary, covering from_stored() (drifted row) and
-        # with_platform_credential() too — not only the form's clean_egress_json.
+        # with_platform_credentials() too — not only the form's clean_egress_json.
         _reject_crlf(value, "header name")
         if not value.strip():
             raise ValueError("header name must not be blank")

@@ -5,7 +5,7 @@ from urllib.parse import quote
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import Http404, HttpResponseRedirect
+from django.http import Http404, HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
@@ -22,6 +22,7 @@ from notifications.channels.telegram import TelegramChannel
 from notifications.choices import ChannelType
 from notifications.forms import RocketChatBindingForm
 from notifications.models import Notification, UserChannelBinding
+from notifications.outcomes import attach_outcomes
 from notifications.telegram.tokens import mint_token
 from notifications.telegram_bindings import binding_state_for_pk
 
@@ -91,17 +92,16 @@ class NotificationListView(LoginRequiredMixin, ListView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx["current_filter"] = self.request.GET.get("status", "all")
+        attach_outcomes(ctx["notifications"])
         return ctx
 
 
 @method_decorator(require_POST, name="dispatch")
-class MarkNotificationReadView(LoginRequiredMixin, TemplateView):
-    template_name = "notifications/_notification_row.html"
-
+class MarkNotificationReadView(LoginRequiredMixin, View):
     def post(self, request, notification_id):
         notification = get_object_or_404(Notification, id=notification_id, recipient=request.user)
         notification.mark_as_read()
-        return self.render_to_response({"notification": notification})
+        return HttpResponse(status=204)
 
 
 @method_decorator(require_POST, name="dispatch")

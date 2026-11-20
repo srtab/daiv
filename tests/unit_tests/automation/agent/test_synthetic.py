@@ -1,6 +1,13 @@
 from langchain_core.messages import AIMessage, HumanMessage
 
-from automation.agent.synthetic import SYNTHETIC_KWARG, is_person_message, is_synthetic, synthetic_message
+from automation.agent.synthetic import (
+    PUBLISH_FAILURES_KIND,
+    SYNTHETIC_KWARG,
+    is_person_message,
+    is_synthetic,
+    synthetic_ai_message,
+    synthetic_message,
+)
 from core.checkpointer import DAIVRedisSerializer
 
 
@@ -10,6 +17,15 @@ def test_synthetic_message_is_marked_with_its_kind():
     assert isinstance(message, HumanMessage)
     assert message.content == "<system-reminder>x</system-reminder>"
     assert message.additional_kwargs == {SYNTHETIC_KWARG: "step_budget"}
+    assert is_synthetic(message)
+
+
+def test_synthetic_ai_message_is_an_assistant_message_marked_as_synthetic():
+    message = synthetic_ai_message("x", kind=PUBLISH_FAILURES_KIND)
+
+    assert isinstance(message, AIMessage)
+    assert message.id
+    assert message.additional_kwargs == {SYNTHETIC_KWARG: PUBLISH_FAILURES_KIND}
     assert is_synthetic(message)
 
 
@@ -32,6 +48,17 @@ def test_mark_survives_the_checkpoint_round_trip():
 
     restored = serde.loads_typed(serde.dumps_typed({"messages": [original]}))["messages"][0]
 
+    assert is_synthetic(restored)
+    assert restored.id == original.id
+
+
+def test_synthetic_ai_message_mark_survives_the_checkpoint_round_trip():
+    serde = DAIVRedisSerializer()
+    original = synthetic_ai_message("x", kind=PUBLISH_FAILURES_KIND)
+
+    restored = serde.loads_typed(serde.dumps_typed({"messages": [original]}))["messages"][0]
+
+    assert isinstance(restored, AIMessage)
     assert is_synthetic(restored)
     assert restored.id == original.id
 
