@@ -93,6 +93,12 @@ def _own(session: Session, iid: int, state: str = MergeRequestState.OPEN, *, rep
     )
 
 
+def _row(soup: BeautifulSoup, session: Session):
+    """The list row of ``session``, found by its stretched link to the session page."""
+    href = reverse("session_detail", kwargs={"thread_id": session.thread_id})
+    return soup.select_one(f'#session-results a[href="{href}"]').find_parent(class_="session-row")
+
+
 @pytest.mark.django_db
 class TestSessionListView:
     def test_unauthenticated_redirects_to_login(self):
@@ -516,6 +522,68 @@ class TestSessionListView:
     def test_filter_bar_has_search_input(self, logged_in_client, user):
         response = logged_in_client.get(reverse("session_list"))
         assert 'x-model="q"' in response.content.decode()
+
+    def test_row_dot_shows_only_while_running_or_needing_input(self, logged_in_client, user):
+        sessions = {}
+        for status in (
+            RunStatus.RUNNING,
+            RunStatus.WAITING_INPUT,
+            RunStatus.SUCCESSFUL,
+            RunStatus.FAILED,
+            RunStatus.QUEUED,
+        ):
+            sessions[status] = _create_session(user=user)
+            _create_run(sessions[status], status=status)
+        sessions[None] = _create_session(user=user)
+
+        soup = BeautifulSoup(logged_in_client.get(reverse("session_list")).content, "html.parser")
+
+        quiet = {
+            status
+            for status, session in sessions.items()
+            if "invisible" in _row(soup, session).select_one(".session-dot-slot .status-dot")["class"]
+        }
+        assert quiet == {RunStatus.SUCCESSFUL, RunStatus.FAILED, RunStatus.QUEUED, None}
+
+    def test_a_failed_row_keeps_its_edge_and_carries_its_run(self, logged_in_client, user):
+        failed = _create_session(user=user)
+        run = _create_run(failed, status=RunStatus.FAILED)
+        idle = _create_session(user=user)
+
+        soup = BeautifulSoup(logged_in_client.get(reverse("session_list")).content, "html.parser")
+
+        row = _row(soup, failed)
+        assert "session-row--failed" in row["class"]
+        assert (row["data-run-id"], row["data-run-status"]) == (str(run.id), "FAILED")
+        assert not _row(soup, idle).has_attr("data-run-id")
+        assert not _row(soup, idle).has_attr("data-run-status")
+
+    def test_row_puts_repo_and_branch_under_the_title(self, logged_in_client, user):
+        session = _create_session(user=user, title="Do the thing", repo_id="group/project", ref="main")
+        _create_run(session, merge_request_iid=7, merge_request_web_url="https://git.example/mr/7")
+        _own(session, 7)
+        bare = _create_session(user=user, title="Just chat", repo_id="", ref="")
+
+        soup = BeautifulSoup(logged_in_client.get(reverse("session_list")).content, "html.parser")
+
+        title = _row(soup, session).select_one(".session-row__title")
+        assert "Do the thing" in title.get_text()
+        assert title.select_one(".mr-pill") is not None
+        meta = _row(soup, session).select_one(".session-row__meta")
+        assert "group/project" in meta.get_text()
+        assert "main" in meta.get_text()
+        assert _row(soup, bare).select_one(".session-row__meta") is None
+
+    def test_row_age_is_short_with_the_full_date_in_its_title(self, logged_in_client, user):
+        session = _create_session(user=user)
+        then = timezone.now() - timedelta(days=21)
+        Session.objects.filter(pk=session.pk).update(last_active_at=then)
+
+        soup = BeautifulSoup(logged_in_client.get(reverse("session_list")).content, "html.parser")
+
+        age = _row(soup, session).select_one(".session-age")
+        assert age.get_text(strip=True) == "3w"
+        assert str(then.year) in age["title"]
 
     def test_row_shows_branch_and_day_group(self, logged_in_client, user):
         session = _create_session(user=user, ref="feat/x", title="Do the thing")

@@ -26,6 +26,7 @@ from sessions.templatetags.session_tags import (
     origin_icon,
     session_merge_request,
     session_title,
+    short_age,
     short_timestamp,
     status_variant,
 )
@@ -133,6 +134,28 @@ def test_date_bucket_none_returns_earlier():
 def test_short_timestamp_is_relative_today_and_a_date_before():
     assert short_timestamp(timezone.now()) == "now"
     assert short_timestamp(timezone.make_aware(datetime(2024, 3, 9, 12, 0))) == "Mar 9"
+
+
+@pytest.mark.parametrize(
+    ("ago", "expected"),
+    [
+        (timedelta(seconds=30), "now"),
+        (timedelta(minutes=5), "5m"),
+        (timedelta(hours=3), "3h"),
+        (timedelta(days=2), "2d"),
+        (timedelta(days=13), "13d"),
+        (timedelta(days=21), "3w"),
+        (timedelta(days=125), "4mo"),
+        (timedelta(days=400), "1y"),
+    ],
+)
+def test_short_age(ago, expected):
+    assert short_age(timezone.now() - ago) == expected
+
+
+def test_short_age_of_none_or_the_future():
+    assert short_age(None) == ""
+    assert short_age(timezone.now() + timedelta(minutes=2)) == "now"
 
 
 @pytest.mark.parametrize("kind", [*ArtifactKind.values, "unknown-kind"])

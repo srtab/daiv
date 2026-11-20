@@ -1,15 +1,20 @@
-{% load humanize i18n icon_tags session_tags %}
+{% load i18n icon_tags session_tags %}
 {% comment %}
 Context:
 - session: the row's session, with its runs prefetched newest first.
 {% endcomment %}
 {% with latest=session.runs.all|first %}
-<div class="session-row group{% if latest.status == 'FAILED' %} session-row--failed{% endif %}">
+{% with variant=latest.status|status_variant %}
+<div class="session-row group{% if latest.status == 'FAILED' %} session-row--failed{% endif %}"
+     {% if latest %}data-run-id="{{ latest.id }}" data-run-status="{{ latest.status }}"
+     :class="rowClass('{{ latest.id }}', '{{ latest.status }}')"{% endif %}>
     <a href="{% url 'session_detail' thread_id=session.thread_id %}" class="absolute inset-0"
        aria-label="{% translate 'View session' %}"></a>
 
-    <span class="status-dot status-dot-{{ latest.status|status_variant }}"
-          {% if latest %}:class="dotClass('{{ latest.id }}', '{{ latest.status }}')"{% endif %}></span>
+    <span class="session-dot-slot">
+        <span class="status-dot status-dot-{{ variant }}{% if variant != 'running' and variant != 'waiting' %} invisible{% endif %}"
+              {% if latest %}:class="dotClass('{{ latest.id }}', '{{ latest.status }}')"{% endif %}></span>
+    </span>
     <span class="sr-only"
           {% if latest %}x-text="statusLabel('{{ latest.id }}', '{{ latest.get_status_display }}')"{% endif %}>
         {{ latest.get_status_display }}
@@ -19,22 +24,12 @@ Context:
         {% icon session.origin|origin_icon "h-4 w-4" %}
     </span>
 
-    <div class="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden sm:flex-row sm:items-center sm:gap-2.5">
-        <span class="truncate text-[14px] font-medium text-text-strong">
-            {% if session.title %}{{ session.title }}{% else %}<em class="text-text-faint">{% translate "generating title…" %}</em>{% endif %}
-        </span>
-        {% session_merge_request session as merge_request %}
-        {% if session.repo_id or session.ref or merge_request %}
-        {# sm:contents dissolves this wrapper above mobile so the meta items keep shrinking against the title itself #}
-        <div class="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 overflow-hidden sm:contents">
-            {% if session.repo_id %}
-            <span class="session-repo shrink-0" title="{{ session.repo_id }}">
-                {% icon "repo" "h-3 w-3 shrink-0" %}<span class="max-w-[120px] truncate sm:max-w-[220px]">{{ session.repo_id }}</span>
+    <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <div class="session-row__title">
+            <span class="truncate text-[14px] font-medium text-text-strong">
+                {% if session.title %}{{ session.title }}{% else %}<em class="text-text-faint">{% translate "generating title…" %}</em>{% endif %}
             </span>
-            {% endif %}
-            {% if session.ref %}
-            <span class="session-branch min-w-0" title="{{ session.ref }}">{% icon "branch" "h-3 w-3 shrink-0" %}<span class="truncate">{{ session.ref }}</span></span>
-            {% endif %}
+            {% session_merge_request session as merge_request %}
             {% if merge_request %}
                 {% if merge_request.url %}
                 <a href="{{ merge_request.url }}" target="_blank" rel="noopener" title="{{ merge_request.state.label }}"
@@ -42,6 +37,17 @@ Context:
                 {% else %}
                 <span class="mr-pill mr-pill--{{ merge_request.state }} shrink-0" title="{{ merge_request.state.label }}">{% icon "merge-request" "h-3 w-3" %}!{{ merge_request.iid }}</span>
                 {% endif %}
+            {% endif %}
+        </div>
+        {% if session.repo_id or session.ref %}
+        <div class="session-row__meta">
+            {% if session.repo_id %}
+            <span class="session-repo shrink-0" title="{{ session.repo_id }}">
+                {% icon "repo" "h-3 w-3 shrink-0" %}<span class="max-w-[120px] truncate sm:max-w-[220px]">{{ session.repo_id }}</span>
+            </span>
+            {% endif %}
+            {% if session.ref %}
+            <span class="session-branch min-w-0" title="{{ session.ref }}">{% icon "branch" "h-3 w-3 shrink-0" %}<span class="truncate">{{ session.ref }}</span></span>
             {% endif %}
         </div>
         {% endif %}
@@ -56,8 +62,9 @@ Context:
         {% elif session.external_username %}
         <span class="hidden text-[12px] text-text-faint sm:inline">{{ session.external_username }}</span>
         {% endif %}
-        <span class="w-[76px] text-right text-[12.5px] tabular-nums text-text-faint">{{ session.last_active_at|naturaltime }}</span>
+        <span class="session-age" title="{{ session.last_active_at|date:'DATETIME_FORMAT' }}">{{ session.last_active_at|short_age }}</span>
         {% icon "chevron-right" "h-3.5 w-3.5 text-text-faint transition-colors group-hover:text-text-muted" %}
     </div>
 </div>
+{% endwith %}
 {% endwith %}

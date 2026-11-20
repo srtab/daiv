@@ -143,6 +143,28 @@ def short_timestamp(dt) -> str:
     return formats.date_format(timezone.localtime(dt), "M j")
 
 
+@register.filter
+def short_age(dt) -> str:
+    """How long ago ``dt`` was, in one compact unit: ``now``, ``5m``, ``3h``, ``13d``, ``3w``, ``4mo``, ``1y``."""
+    if dt is None:
+        return ""
+    seconds = (timezone.now() - dt).total_seconds()
+    if seconds < 60:
+        return "now"
+    if seconds < 3600:
+        return f"{int(seconds // 60)}m"
+    if seconds < 86400:
+        return f"{int(seconds // 3600)}h"
+    days = int(seconds // 86400)
+    if days < 14:
+        return f"{days}d"
+    if days < 60:
+        return f"{days // 7}w"
+    if days < 365:
+        return f"{days // 30}mo"
+    return f"{days // 365}y"
+
+
 _ARTIFACT_ICONS = {"markdown": "document-text", "html": "code-bracket", "image": "photo", "text": "document"}
 
 

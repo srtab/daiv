@@ -5113,6 +5113,10 @@ html {
       transition-colors hover:bg-surface-3;
   }
   .session-row--failed { box-shadow: inset 2px 0 0 var(--color-status-fail); }
+  .session-dot-slot { @apply inline-flex w-2 shrink-0 justify-center; }
+  .session-row__title { @apply flex min-w-0 items-center gap-2; }
+  .session-row__meta { @apply mt-0.5 flex min-w-0 items-center gap-2.5 overflow-hidden; }
+  .session-age { @apply w-10 shrink-0 text-right text-[12.5px] tabular-nums text-text-faint; }
   .session-repo { @apply inline-flex items-center gap-1 font-mono text-[11.5px] text-text-muted; }
   .session-branch { @apply inline-flex items-center gap-1 font-mono text-[11.5px] text-text-muted; }
   /* Neutral, as a link may be: the state colours only the leading icon. */
