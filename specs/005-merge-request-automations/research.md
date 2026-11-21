@@ -34,8 +34,14 @@ The moved task registers under a new path. `webhooks/tasks.py` re-exports it for
 **Decision**: Add `EventKind.MERGE_REQUEST_JOB` (wake) with the payload `{prompt, agent_model?, acts_as_user, source}`. It follows the leg follow-up pattern (`sessions/inbox/leg_follow_ups.py`) rather than joining the requester's next run:
 - **Posting** (`sessions/inbox/merge_request_jobs.py`, `MergeRequestJobs.post`): the event and its own `QUEUED` run are created in one transaction, with the session row locked. Under that lock, an archived session or a merge request that is no longer open refuses the post, so the job lands in `failed` (R9).
 - **Requester:** the job's caller, or the token's triggering account (R5).
-- **Trigger type:** its run is `API_JOB` or `MCP_JOB`, taken from the event's `source`, with `merge_request_iid` set.
-- **Taking:** the drain takes it alone, with the session's remembered events, and promotes its own run to `READY` (`RequestSplits.runs_alone`).
+- **Its run** carries what a direct-path run carries:
+  - the requester as its person, through `Requester.run_fields` (`user`, or `external_provider`, `external_uid` and `external_username`), so spend and token polling find it;
+  - `acts_as_user`, `muted`, the prompt and `merge_request_iid`;
+  - trigger type `API_JOB` or `MCP_JOB`, from the event's `source`;
+  - `runs_alone = True` (below).
+- **Kept apart from next runs:** a `QUEUED` run with an inbox trigger type and linked events is, to the inbox, the requester's next run for its branch. Without a marker the job's run would collide with the `run_one_next_run_per_user` and `run_one_next_run_per_account` constraints when the same person has another job or a next run on that branch. Other events would also join it, and the take could drop it. A new column, `Run.runs_alone`, marks it. Both constraints gain `runs_alone=False`, and `NextRuns.queued` leaves such runs out. Leg follow-ups don't need it, because their trigger, `delegated_job`, is not an inbox trigger.
+- **No subject:** the event has none, so the drain never supersedes one job with a newer one on the same merge request. Each job runs, as on the direct path.
+- **Taking:** the drain takes it alone, with the session's remembered events, and promotes its own run to `READY` (`RequestSplits.runs_alone`). `Drain.take`'s own-run step, written for `LEG_FOLLOW_UP` today, covers both kinds: each kind's class (`LegFollowUps`, `MergeRequestJobs`) gives its own `stop_reason`, `stop` and `settle_unstartable`.
 - **Stopping:** at take time, when its merge request was merged or closed meanwhile, or the session was archived, the drain stops it instead of running it (R9).
 - **Rendering** (`sessions/inbox/render.py`): the prompt as a request from the requester, with the same note `MENTION_REPLY_NOTE` carries: the final message is posted on the merge request.
 - **Reply** (`complete.py`): a `MERGE_REQUEST_JOB` event has no `discussion_id`, so its reply is a new top-level comment on the merge request. A failure after `MAX_EVENT_ATTEMPTS` posts the same "could not complete" note mentions get.
@@ -47,6 +53,9 @@ The moved task registers under a new path. `webhooks/tasks.py` re-exports it for
 **Alternatives rejected**:
 - *Reuse `MENTION` with empty note fields*: the reply code and the reaction both assume a comment exists.
 - *Join the requester's next run, as mentions do*: two jobs would share one `job_id`, and the drain could not fail one of them without failing the other.
+- *A trigger type of its own for the job's run, as leg follow-ups have*: it would split the "Started by" spend rows for API and MCP jobs, and lose which of the two started the run.
+- *Exclude runs with a `merge_request_iid` from the next-run constraints*: a mention's next run on an owned merge request sets it too, so mentions would lose their one-next-run rule.
+- *Tell the job's run apart by its event's kind*: the database constraints can't look at another table.
 
 ## R4. CI identity tokens are verified with PyJWT against the platform's published keys
 

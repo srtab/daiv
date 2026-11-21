@@ -1,6 +1,6 @@
 # Implementation Plan: Merge Request Automations
 
-**Branch**: `005-merge-request-automations` | **Date**: 2026-11-21 | **Spec**: [spec.md](spec.md) | **Status**: Approved by the maintainer on 2026-11-21, including the [spec refinements](research.md#spec-refinements-for-approval). Rescoped the same day to user stories 1 and 2; see *Scope*. Updated the same day for the spec's later clarifications (questions, archived sessions, merge requests closed before a run starts, single-use CI tokens, refusal logs): research [R3](research.md#r3-a-new-inbox-event-kind-for-a-job-on-an-owned-merge-request-with-a-run-of-its-own), [R9](research.md#r9-a-job-that-cannot-start) and [R10](research.md#r10-one-submission-per-ci-token-and-refusal-logs).
+**Branch**: `005-merge-request-automations` | **Date**: 2026-11-21 | **Spec**: [spec.md](spec.md) | **Status**: Approved by the maintainer on 2026-11-21, including the [spec refinements](research.md#spec-refinements-for-approval). Rescoped the same day to user stories 1 and 2; see *Scope*. Updated the same day for the spec's later clarifications (questions, archived sessions, merge requests closed before a run starts, single-use CI tokens, refusal logs): research [R3](research.md#r3-a-new-inbox-event-kind-for-a-job-on-an-owned-merge-request-with-a-run-of-its-own), [R9](research.md#r9-a-job-that-cannot-start) and [R10](research.md#r10-one-submission-per-ci-token-and-refusal-logs). The maintainer approved this updated plan on 2026-11-21, with the `/speckit-analyze` fixes C1 (`Run.runs_alone`, no event subject), H1, M1 and M2.
 
 **Input**: Feature specification from `specs/005-merge-request-automations/spec.md`
 
@@ -37,10 +37,10 @@ Today DAIV runs on a merge request only when someone mentions it there. This pla
 - **PyJWT with the `crypto` extra, which becomes a direct dependency.** It is already locked at 2.15.1 through allauth, mcp and pygithub, so this adds no new package.
 
 **Storage**: PostgreSQL. In `sessions`:
-- one new `Run` column, `acts_as_user`;
-- a changed `run_one_active_per_session` condition.
+- two new `Run` columns, `acts_as_user` and `runs_alone`;
+- changed conditions on `run_one_active_per_session` and on the two next-run constraints, `run_one_next_run_per_user` and `run_one_next_run_per_account`.
 
-That is two schema migrations in `sessions` (`0045`, `0046`) and no data migration. Detail in [data-model.md](data-model.md).
+That is two schema migrations in `sessions` (`0045`, `0046`) and no data migration. Detail in [data-model.md](data-model.md). The single-use record of CI tokens lives in the Redis cache, not in a table.
 
 **Testing**: pytest, pytest-django and pytest-asyncio.
 - **Database:** async tests that write use `django_db(transaction=True)`.
@@ -113,16 +113,16 @@ daiv/
 ├── core/conf.py                           # + JOBS_CI_IDENTITY_AUDIENCE (defaults to EXTERNAL_URL)
 ├── core/api/throttling.py                 # JobsRateThrottle keys a CIIdentity on its pk
 ├── sessions/
-│   ├── models.py                          # + Run.acts_as_user and acting_user_id, constraint condition
+│   ├── models.py                          # + Run.acts_as_user, acting_user_id and runs_alone; constraint conditions
 │   ├── merge_request_runs/                # new: moved from webhooks
 │   │   ├── starter.py                     #   RunStarter, Requester, Mention (from webhooks/dispatch.py)
 │   │   ├── service.py                     #   MergeRequestRuns: astart (owned → inbox, else direct)
 │   │   ├── base.py, addressor.py          #   moved webhooks/managers/base.py and review_addressor.py
 │   │   └── tasks.py                       #   address_merge_request_task (dedup on repo, iid, request key; not-started guards)
 │   ├── inbox/merge_request_jobs.py        # new: MergeRequestJobs (post with its own run, stop), after leg_follow_ups.py
-│   ├── inbox/kinds.py, render.py, complete.py, drain.py, splits.py   # MERGE_REQUEST_JOB; acting user
+│   ├── inbox/kinds.py, render.py, complete.py, drain.py, splits.py, next_runs.py   # MERGE_REQUEST_JOB; acting user
 │   ├── queue.py, services.py, multi_repo.py, admission.py # merge_request target, acts_as_user, CI requester
-│   └── migrations/0045_run_acts_as_user.py, 0046_run_active_constraint_merge_request.py
+│   └── migrations/0045_run_acts_as_user.py, 0046_run_runs_alone_and_constraints.py
 ├── jobs/api/schemas.py, views.py          # merge_request field; auth=[CIIdentityBearer(), AuthBearer()]; CI polling rule
 ├── mcp_api/server.py                      # merge_request on the job tool
 ├── webhooks/

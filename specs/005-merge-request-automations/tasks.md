@@ -38,7 +38,7 @@ Principle V applies: evals run before and after (T004, T048).
 
 **Purpose**: approval, the refined spec, a clean baseline and the one new direct dependency.
 
-- [X] T001 Record the maintainer's approval of plan.md and refinements SR1–SR3 in the **Status** line of specs/005-merge-request-automations/plan.md (done 2026-11-21).
+- [X] T001 Record the maintainer's approval of plan.md and refinements SR1–SR3 in the **Status** line of specs/005-merge-request-automations/plan.md (done 2026-11-21; the plan updated after clarification and analysis was approved again the same day).
 - [X] T002 Apply refinements SR1–SR3 from specs/005-merge-request-automations/research.md to specs/005-merge-request-automations/spec.md, in FR-005, FR-011 and FR-016 (done 2026-11-21).
 - [ ] T003 Confirm the next free migration number. After the rebase onto `main` on 2026-11-21 it was `daiv/sessions/migrations/0045`; renumber the migrations named below if `main` has moved again. Run `make test` once before any change, and note pre-existing failures so later ones can be told apart.
 - [ ] T004 Take the eval baseline before any code change: `make eval-prompts SUITES="inbox code_review" OUT=eval-runs/005-before.jsonl`. It needs the LLM key and GitLab credentials (AGENTS.md).
@@ -118,7 +118,9 @@ US1 starts runs through the moved service, and both stories carry `acts_as_user`
 - [ ] T018 [P] [US1] Failing tests in `tests/unit_tests/sessions/test_models.py`:
   - two `READY` `api_job` runs in one session, both with `merge_request_iid`, are allowed;
   - two without `merge_request_iid` still raise `IntegrityError`;
-  - `test_active_constraint_literals_match_enums` also asserts the `merge_request_iid__isnull=True` condition.
+  - `test_active_constraint_literals_match_enums` also asserts the `merge_request_iid__isnull=True` condition;
+  - two `QUEUED` `api_job` runs with linked events for one session, branch and person are allowed when both have `runs_alone=True`, and when one of them is that person's ordinary next run, for a linked user and for an external account alike;
+  - two ordinary next runs for one session, branch and person still raise `IntegrityError`, and the literals test also asserts the `runs_alone=False` condition of both next-run constraints.
 - [ ] T019 [P] [US1] Failing tests in `tests/unit_tests/sessions/merge_request_runs/test_service.py`. With a `Request` input on the unowned path, `astart`:
   - records `trigger_type` from `Request.source`;
   - sets `acts_as_user`, `muted` and the requester's `user` and `external_*` on the run;
@@ -136,7 +138,10 @@ US1 starts runs through the moved service, and both stories carry `acts_as_user`
   - a `Mention` on a merged merge request still gets today's note and a successful result.
 - [ ] T021 [P] [US1] Failing tests in `tests/unit_tests/sessions/inbox/test_merge_request_jobs.py`, `test_kinds.py`, `test_splits.py`, `test_render.py`, `test_complete.py` and `test_drain.py` for `MERGE_REQUEST_JOB`:
   - `MergeRequestJobs.post` creates the event and its own `QUEUED` run in one transaction, and refuses under the session lock when the session is archived or the merge request isn't open (`MergeRequestState.is_open` from `MergeRequestOwnership.states_of`, where a draft counts as open);
-  - it wakes, and the drain takes it alone with the remembered events and promotes its own run to `READY`;
+  - its run has `runs_alone=True`, the requester as its person (`user`, or `external_provider`, `external_uid` and `external_username` for an unlinked CI actor), and `acts_as_user`, `muted`, the prompt and `merge_request_iid`;
+  - the event has no subject. Two jobs from one person on one branch both post, get two runs, and both run: neither is superseded;
+  - `NextRuns.queued` leaves the job's run out. A mention or chat message from the same person while the job waits gets an ordinary next run, never the job's run, and the take never drops the job's run;
+  - it wakes, and the drain takes it alone with the remembered events and promotes its own run to `READY`. A leg follow-up still takes its own run as before;
   - at take time, a merge request whose `MergeRequestOwnership.states_of` state is merged or closed fails the event with `mr_merged` or `mr_closed`, finishes its run `FAILED` and never started, and posts the not-started note once the take commits;
   - in an archived session, a held event fails with `session_archived`, its run finishes `FAILED`, and nothing is posted;
   - its run's trigger type is `payload.source`;
@@ -148,7 +153,11 @@ US1 starts runs through the moved service, and both stories carry `acts_as_user`
 
 ### Implementation for User Story 1
 
-- [ ] T023 [US1] In `daiv/sessions/models.py`, add `merge_request_iid__isnull=True` to the condition of the `run_one_active_per_session` constraint, with migration `daiv/sessions/migrations/0046_run_active_constraint_merge_request.py`. Update the constraint's comment to say merge-request runs share deterministic sessions like webhook runs (two lines at most). T018 passes.
+- [ ] T023 [US1] In `daiv/sessions/models.py`, with migration `daiv/sessions/migrations/0046_run_runs_alone_and_constraints.py`:
+  - add `merge_request_iid__isnull=True` to the condition of the `run_one_active_per_session` constraint, and update its comment to say merge-request runs share deterministic sessions like webhook runs (two lines at most);
+  - add `runs_alone = models.BooleanField(default=False)` to `Run`, and `runs_alone=False` to the conditions of `run_one_next_run_per_user` and `run_one_next_run_per_account`.
+
+  T018 passes.
 - [ ] T024 [US1] In `daiv/jobs/api/schemas.py`, add `merge_request: int | None = Field(default=None, ge=1)` to `RepoSubmitItem`. A validator refuses `merge_request` together with `ref` or `prompt` (`422`), and a request-level check returns the `400`s of T016.
 - [ ] T025 [US1] Add the `Request` input (`prompt`, `source: SessionOrigin`, `request_key`) to `daiv/sessions/merge_request_runs/service.py`.
   - **Unowned path:** `astart` passes `trigger_type=source`, `merge_request_iid`, `acts_as_user` and `muted` through `RunStarter`, and enqueues `address_merge_request_task` with `request_key`.
@@ -158,10 +167,16 @@ US1 starts runs through the moved service, and both stories carry `acts_as_user`
   T019 passes.
 - [ ] T026 [US1] In `daiv/sessions/merge_request_runs/addressor.py` and `tasks.py`, build the agent input from a `Request` and post its answer or question as a top-level comment. Before the run starts, a `Request` checks the `merged` and `closed` flags of `get_merge_request` and the session's `archived_at`, and stops as research R9 says. T020 passes.
   - **Closed flag:** add `closed: bool = False` to the `MergeRequest` value object in `daiv/codebase/base.py`. `get_merge_request` sets it on both clients as it sets `merged`: GitLab `state == "closed"`, GitHub `state == "closed"` and not merged. Test each client in `tests/unit_tests/codebase/clients/`. T028's submission check reads it too.
-- [ ] T027 [US1] Add `EventKind.MERGE_REQUEST_JOB` in `daiv/sessions/inbox/kinds.py` (wakes; trigger type from `payload["source"]`).
-  - `daiv/sessions/inbox/merge_request_jobs.py` (new): `MergeRequestJobs.post` and `stop`, after `LegFollowUps.post` and `stop` in `leg_follow_ups.py`. `stop` posts the not-started note with `transaction.on_commit` when the merge request was merged or closed.
+- [ ] T027 [US1] Add `EventKind.MERGE_REQUEST_JOB` in `daiv/sessions/inbox/kinds.py` (wakes; no subject; trigger type from `payload["source"]`).
+  - `daiv/sessions/inbox/merge_request_jobs.py` (new): `MergeRequestJobs.post`, `stop_reason`, `stop`, `stop_held` and `settle_unstartable`, after the same methods of `LegFollowUps` in `leg_follow_ups.py`.
+    - `post` creates the run with `runs_alone=True` and the requester's fields from `Requester.run_fields`.
+    - `stop` posts the not-started note with `transaction.on_commit` when the merge request was merged or closed.
+  - `daiv/sessions/inbox/next_runs.py`: `queued` filters `runs_alone=False`.
   - `daiv/sessions/inbox/splits.py`: `runs_alone` and `takes_context` are true for it.
-  - `daiv/sessions/inbox/drain.py`: stop it at take time when its merge request was merged or closed, stop held ones in an archived session alongside `LegFollowUps.stop_held`, and read `acts_as_user`.
+  - `daiv/sessions/inbox/drain.py`:
+    - the take's own-run step, which handles `LEG_FOLLOW_UP` only today, handles both kinds, each through its own class;
+    - stop held `MERGE_REQUEST_JOB` events in an archived session alongside `LegFollowUps.stop_held`;
+    - read `acts_as_user`.
   - `daiv/sessions/inbox/render.py`: render the prompt with the mention note's wording.
   - `daiv/sessions/inbox/complete.py`: post the reply as a top-level comment when the payload has no `discussion_id`, and the failure note after `MAX_EVENT_ATTEMPTS`.
 
@@ -199,6 +214,7 @@ US1 starts runs through the moved service, and both stories carry `acts_as_user`
   - **Attribution:**
     - a linked actor gives `Run.user` set and `acts_as_user=False`;
     - an unlinked actor gives `user=None` with `external_provider`, `external_uid` and `external_username` set;
+    - an actor linked to an inactive DAIV account is attributed as an unlinked one, external;
     - `muted` defaults to `True`, and an explicit `"muted": false` gives `False`.
   - **Throttle:** keyed by `ci:{provider}:{actor_uid}` (clear the cache first).
   - **Single use:**
@@ -207,6 +223,7 @@ US1 starts runs through the moved service, and both stories carry `acts_as_user`
     - polling with a used token still answers `200`.
 - [ ] T033 [P] [US2] Failing tests in `tests/unit_tests/jobs/api/test_views.py` for polling with a token:
   - `200` for a run on the token's repository whose person is the actor, either the linked `user` or a matching `external_provider` and `external_uid`;
+  - `200` as well for a job on a merge request a DAIV session owns, whose own run (T021) carries the actor;
   - `404` for any other run.
 
 ### Implementation for User Story 2
@@ -250,8 +267,15 @@ US1 starts runs through the moved service, and both stories carry `acts_as_user`
 **Purpose**: documentation (Principle VII), the changelog, evals (Principle V) and the gates.
 
 - [ ] T039 [P] Update `docs/features/jobs-api.md`:
-  - `repos[].merge_request` in **Request fields**, with its validation and where the run goes;
+  - `repos[].merge_request` in **Request fields**, with its validation and where the run goes. On a merge request a DAIV session owns, each job gets its own `job_id` and runs as one turn of that session;
+  - what a merge request job can end with, from contracts/jobs-api.md:
+    - the result comment;
+    - a question, which leaves the job `WAITING_INPUT` until someone mentions DAIV on the merge request;
+    - the failure comment;
+    - the not-started note when the merge request merges or closes before the run starts;
+    - the `failed` entry for an archived session, with nothing posted on the merge request;
   - a "CI identity tokens" section with the GitLab `id_tokens` and GitHub Actions examples, the checks, attribution, mute default (SR2) and polling rule from contracts/jobs-api.md;
+  - one accepted job per token: a second submission with the same token gets `401`, so a CI job that sends two jobs requests two tokens (two `id_tokens` entries on GitLab, two token requests on GitHub). A refused submission doesn't use the token up, and polling with a used token still works;
   - replace the comment-posting workaround with the code-review-on-every-push example (FR-028).
 - [ ] T040 [P] Update `docs/features/pull-request-assistant.md`: under **Review reports**, link to the jobs API merge request target as the way to review every push.
 - [ ] T041 [P] Update `docs/reference/env-variables.md` with `DAIV_JOBS_CI_IDENTITY_AUDIENCE` and `CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER`, so `test_env_variables_doc.py` passes.

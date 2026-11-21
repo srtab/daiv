@@ -18,7 +18,7 @@ One service that the trigger apps call to run something on a merge request: `web
 1. **Owning session:** when `Ownerships(repo_id).afind_open(iid)` returns one:
    - an archived owner returns `StartOutcome.archived`; a `Mention` also gets the archived reply (`_reply_archived`), and a `Request` gets nothing posted (research R9);
    - a `Mention` posts `MENTION` (today's `_post_comment`);
-   - a `Request` posts `MERGE_REQUEST_JOB` with `acts_as_user` and `source` through `MergeRequestJobs.post`, which creates the event and its own `QUEUED` run under the session lock and refuses when the session is archived or the merge request isn't open (research R3). It returns that run.
+   - a `Request` posts `MERGE_REQUEST_JOB` with `acts_as_user` and `source` through `MergeRequestJobs.post`, which creates the event, with no subject, and its own `QUEUED` run under the session lock. The run has `runs_alone=True` and the requester's person fields, so it is never another event's next run. `post` refuses when the session is archived or the merge request isn't open (research R3). It returns that run.
 2. **Otherwise, the direct path:**
    - the session is `compute_thread_id(repo_id, MERGE_REQUEST, iid)`;
    - an archived session returns `StartOutcome.archived`; a `Mention` also gets the archived reply, and a `Request` gets nothing posted;

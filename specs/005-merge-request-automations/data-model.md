@@ -8,6 +8,7 @@ Phase 1 of [plan.md](plan.md), for user stories 1 and 2. Decisions behind each c
 |---|---|---|
 | `acts_as_user` | **new**, `BooleanField(default=True)` | Whether the run acts as `user`: loads their personal MCP servers and USER sandbox environments and assigns merge requests to them. `False` for runs started by a CI identity token. `user` and `external_*` still decide spend, visibility and "Mine" (R6) |
 | `merge_request_iid` | unchanged; now also set on API and MCP runs that target a merge request | Their session is the merge request's, or its owning session |
+| `runs_alone` | **new**, `BooleanField(default=False)` | Created with the one inbox event it runs, a `MERGE_REQUEST_JOB`, so it is never a next run that other events join (R3) |
 
 **Constraint `run_one_active_per_session`**: the condition gains `merge_request_iid__isnull=True` (R2):
 
@@ -19,6 +20,17 @@ AND merge_request_iid IS NULL
 
 `test_active_constraint_literals_match_enums` keeps checking the literals. A new assertion pins the null condition.
 
+**Constraints `run_one_next_run_per_user` and `run_one_next_run_per_account`**: each condition gains `runs_alone=False` (R3), so a job's own run never takes a requester's one next-run place on a branch:
+
+```text
+status = QUEUED
+AND trigger_type IN (chat, mr_webhook, api_job, mcp_job, delegation_resume, pipeline_webhook)
+AND user IS [NOT] NULL
+AND runs_alone = false
+```
+
+`NextRuns.queued` filters `runs_alone=False` as well.
+
 **Acting user**: `Run.acting_user_id` is a property: `user_id if acts_as_user else None`. Every reader that used `user_id` as the acting user switches to it: `queue.aenqueue_run`, `services.aget_task_run`, `inbox/drain.py` and `admission.py`.
 
 ## InboxEvent kind `MERGE_REQUEST_JOB` (`sessions.inbox.kinds`, new)
@@ -28,9 +40,9 @@ AND merge_request_iid IS NULL
 | Wakes | yes |
 | Requester | the job's caller (`author` = DAIV user, or `author_provider`/`author_uid`/`author_username` for a CI actor) |
 | Payload | `{prompt: str, agent_model?: str, acts_as_user: bool, source: "api_job" \| "mcp_job"}` |
-| Subject | `merge_request(iid)` |
+| Subject | none, so a newer job on the merge request never supersedes an older one |
 | Source key | `job({request_key})`, unique per session |
-| Run | its own `QUEUED` run, created with the event under the session lock (`MergeRequestJobs.post`), as a leg follow-up's is. The post is refused when the session is archived or the merge request isn't open |
+| Run | its own `QUEUED` run, created with the event under the session lock (`MergeRequestJobs.post`), as a leg follow-up's is, with `runs_alone=True`, the requester's `user` or `external_*`, `acts_as_user`, `muted`, the prompt and `merge_request_iid`. The post is refused when the session is archived or the merge request isn't open |
 | Trigger type of its run | `payload.source` |
 | Taken | alone, with the session's remembered events; its own run is promoted to `READY` |
 | Stopped at take | merge request merged or closed: failure `mr_merged` or `mr_closed`, the not-started note posted on commit, the run `FAILED` and never started. Session archived: failure `session_archived`, the run `FAILED`, nothing posted |
