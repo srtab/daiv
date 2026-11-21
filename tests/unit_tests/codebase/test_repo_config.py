@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 import pytest
+from pydantic import ValidationError
 
 from core.model_choice import ModelChoice
 from core.site_settings import site_settings
@@ -80,6 +81,40 @@ def test_pipeline_watch_a_repo_can_tighten_the_attempt_cap():
     config = RepositoryConfig(**{"pipeline_watch": {"max_attempts": 1}})
     assert config.pipeline_watch.max_attempts == 1
     assert config.pipeline_watch.enabled is True
+
+
+def test_hooks_before_publish_parses_list():
+    from codebase.repo_config import RepositoryConfig
+
+    config = RepositoryConfig.model_validate({"hooks": {"before_publish": ["make lint", " make test "]}})
+
+    assert config.hooks.before_publish == ("make lint", "make test")
+
+
+def test_hooks_before_publish_defaults_to_none():
+    from codebase.repo_config import RepositoryConfig
+
+    assert RepositoryConfig.model_validate({}).hooks.before_publish is None
+
+
+def test_hooks_before_publish_keeps_empty_list():
+    from codebase.repo_config import RepositoryConfig
+
+    assert RepositoryConfig.model_validate({"hooks": {"before_publish": []}}).hooks.before_publish == ()
+
+
+def test_hooks_before_publish_rejects_blank_command():
+    from codebase.repo_config import RepositoryConfig
+
+    with pytest.raises(ValidationError):
+        RepositoryConfig.model_validate({"hooks": {"before_publish": ["make test", "  "]}})
+
+
+def test_hooks_before_publish_rejects_more_than_ten_commands():
+    from codebase.repo_config import RepositoryConfig
+
+    with pytest.raises(ValidationError):
+        RepositoryConfig.model_validate({"hooks": {"before_publish": [f"make check-{n}" for n in range(11)]}})
 
 
 def test_skill_and_subagent_models_load_as_name_to_spec_maps_without_unset_entries():

@@ -23,6 +23,7 @@ class SandboxEnvOverride:
     cpus: float | None
     env_vars: dict[str, str]
     egress: EgressConfigRequest | None = None
+    before_publish: tuple[str, ...] | None = None
     browser: bool | None = None
 
 
@@ -35,6 +36,7 @@ class SandboxSpec:
     cpus: float | None
     env_vars: dict[str, str]
     egress: EgressConfigRequest | None = None
+    before_publish: tuple[str, ...] | None = None
     browser: bool = False
 
     @property
@@ -45,8 +47,8 @@ class SandboxSpec:
     def fingerprint(self) -> str:
         """A stable digest of what a sandbox container is built from.
 
-        Covers the base image, memory, CPUs, env vars and the egress policy. Egress secrets are left
-        out: a warm session gets their current values through ``update_egress``. ``browser`` is left out too,
+        Covers the base image, memory, CPUs, env vars and the egress policy. ``before_publish`` is left out, as are
+        egress secrets: a warm session gets their current values through ``update_egress``. ``browser`` is left out too,
         because turning the browser on or off must never replace a sandbox. Keyed on
         ``SECRET_KEY`` so a checkpoint never holds a plain hash of env var values, which may be secrets.
         """
@@ -88,6 +90,7 @@ def merge_sandbox_spec(*, per_run: SandboxEnvOverride | None, global_default: Sa
 
     return SandboxSpec(
         base_image=pick("base_image", None),
+        before_publish=pick("before_publish", None),
         memory_bytes=pick("memory_bytes", None),
         cpus=pick("cpus", None),
         env_vars={**(global_default.env_vars if global_default else {}), **(per_run.env_vars if per_run else {})},
