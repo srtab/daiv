@@ -28,6 +28,7 @@ A merge request made a draft or ready again only updates its ``draft`` flag, whi
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import timedelta
@@ -370,8 +371,7 @@ class Ownerships:
             await MergeRequestOwnership.objects.filter(pk=owned.pk, closed_at=closed_at).aupdate(closed_at=None)
             raise
         await sync_to_async(MergeArchive.settle)(owned.session.thread_id)
-        await asession_changed(owned.session_id)
-        await asidebar_changed(owned.owner_id)
+        await self._announce(owned)
         return True
 
     async def aset_draft(self, merge_request_iid: int, *, draft: bool) -> bool:
@@ -383,9 +383,20 @@ class Ownerships:
             return False
         if not await changed.filter(pk=owned.pk).aupdate(draft=draft):
             return False
-        await asession_changed(owned.session_id)
-        await asidebar_changed(owned.owner_id)
+        await self._announce(owned)
         return True
+
+    @staticmethod
+    async def _announce(owned: MergeRequestOwnership) -> None:
+        """Tell the owning session's page and its owner's sidebar that the merge request changed."""
+        await asyncio.gather(asession_changed(owned.session_id), asidebar_changed(owned.owner_id))
+
+    @staticmethod
+    def _reopened(draft: bool | None) -> dict[str, Any]:
+        fields: dict[str, Any] = {"closed_at": None}
+        if draft is not None:
+            fields["draft"] = draft
+        return fields
 
     async def areopen(self, merge_request_iid: int, *, by_username: str, draft: bool | None = None) -> bool:
         """Watch a reopened merge request again, with its ``draft`` flag when known, and tell the owning session;
@@ -398,7 +409,7 @@ class Ownerships:
         )
         if closed is None or not await MergeRequestOwnership.objects.filter(
             pk=closed.pk, closed_at=closed.closed_at
-        ).aupdate(closed_at=None, **({} if draft is None else {"draft": draft})):
+        ).aupdate(**self._reopened(draft)):
             return False
         try:
             if (owned := await self.afind_open(merge_request_iid)) is None:
@@ -422,6 +433,5 @@ class Ownerships:
                 closed_at=closed.closed_at
             )
             raise
-        await asession_changed(owned.session_id)
-        await asidebar_changed(owned.owner_id)
+        await self._announce(owned)
         return True

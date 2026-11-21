@@ -141,7 +141,7 @@ class UIEventPublisher:
         self._publish(Channel.for_user(user_id), UIEventKind.NOTIFICATIONS)
 
     def sidebar_changed(self, user_id: int | str | None) -> None:
-        """Poke one user's readers to refetch their sidebar's lists."""
+        """Poke one user's readers to refetch their sidebar's lists, after one of their merge requests changed state."""
         if user_id is None:
             return
         self._publish(Channel.for_user(user_id), UIEventKind.SIDEBAR)

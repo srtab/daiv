@@ -5,8 +5,8 @@ per tab: the first frame carries a snapshot, and thereafter a frame is sent only
 a ``core.ui_events`` poke means the snapshot actually moved. Beside the two counts it
 carries the latest running run's start, which only session pages loaded before the
 ``session`` frames existed still watch, and the same count and start over the user's own
-sessions, which the sidebar's lists refetch on, as they do on an ``event: sidebar`` frame (a merge request of the
-user's changed state). A session page subscribes with ``?session=<thread_id>``,
+sessions, which the sidebar's lists refetch on, as they do on an ``event: sidebar`` frame
+(``UIEventKind.SIDEBAR``). A session page subscribes with ``?session=<thread_id>``,
 and the same stream then also carries ``event: session`` frames with that session's
 change revision, so the page needs no connection of its own to hear that it changed.
 

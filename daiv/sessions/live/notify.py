@@ -4,7 +4,7 @@ A poke bumps the session's revision and wakes the viewers of its page, which the
 state of its own. A delegated session also pokes its parent, whose page lists it. Callers pick the variant by
 context: ``session_changed`` from sync code (it waits for the surrounding transaction to commit),
 ``asession_changed`` from async code running in autocommit. ``asidebar_changed`` tells a user's sidebar to refetch
-its lists, for what they show beyond a session's page, such as its merge request's state.
+its lists.
 """
 
 from __future__ import annotations

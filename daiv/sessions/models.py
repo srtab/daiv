@@ -859,6 +859,10 @@ class MergeRequestState(models.TextChoices):
     MERGED = "merged", _("Merged")
     CLOSED = "closed", _("Closed")
 
+    @property
+    def is_open(self) -> bool:
+        return self in (MergeRequestState.OPEN, MergeRequestState.DRAFT)
+
 
 class MergeRequestOwnership(models.Model):
     """Which session owns a merge request DAIV published, and that merge request's CI watch.
