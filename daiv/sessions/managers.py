@@ -392,9 +392,10 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
         task fails too unless a worker claimed it. A ``run_job_task`` running the run stops at its next
         :meth:`acancel_requested` check, before the agent if it has not reached it, and a RUNNING run finishes as that
         task does: with what it recorded, or SUCCESSFUL if it finished first. A RUNNING run whose worker is gone has no
-        task left to check, so it finishes FAILED here, on a repeated call too (:meth:`_finish_dead_holder`).
+        task left to check, so it finishes FAILED here with its task, on a repeated call too
+        (:meth:`_finish_dead_holder`).
         """
-        from sessions.executor.run import RunStoppedError
+        from sessions.executor.lock import RunStoppedError
         from sessions.models import RunStatus
 
         now = timezone.now()
@@ -417,30 +418,48 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
             session_changed(run.session_id)
             run.refresh_from_db(fields=["status"])
             return run.status not in RunStatus.terminal()
-        DBTaskResult.objects.filter(run=run, status=TaskResultStatus.READY).update(
-            status=TaskResultStatus.FAILED,
-            finished_at=now,
-            exception_class_path=f"{RunStoppedError.__module__}.{RunStoppedError.__qualname__}",
-            traceback=message,
+        fail_tasks(
+            DBTaskResult.objects.filter(run=run, status=TaskResultStatus.READY),
+            error=RunStoppedError,
+            message=message,
+            now=now,
         )
         return True
 
     def _finish_dead_holder(self, run: Run, *, message: str, now: datetime) -> bool:
-        """Finish ``run`` FAILED with ``message`` if it is a task-backed RUNNING run holding its session's slot under
-        its pk whose heartbeat has been silent for ``TASK_HOLDER_DEAD_AFTER`` and whose worker is no longer alive
+        """:meth:`finish_dead` ``run`` with ``message`` if it is a task-backed RUNNING run holding its session's slot
+        under its pk whose heartbeat has been silent for ``TASK_HOLDER_DEAD_AFTER`` and whose worker is no longer alive
         (:mod:`core.worker_liveness`): its worker was killed and nothing will read the stop request. A live worker
         whose run cannot heartbeat still reads it. Returns whether this call finished it.
         """
         from core import worker_liveness
-        from sessions.executor.lock import TASK_HOLDER_DEAD_AFTER
+        from sessions.executor.lock import TASK_HOLDER_DEAD_AFTER, RunStoppedError
         from sessions.models import RunStatus, Session
 
         silent = Session.objects.filter(active_run_id=str(run.pk), last_active_at__lt=now - TASK_HOLDER_DEAD_AFTER)
         dead = models.Q(status=RunStatus.RUNNING, task_result__isnull=False, session_id__in=silent.values("pk"))
         worker_ids = self.filter(dead, pk=run.pk).values_list("task_result__worker_ids", flat=True).first()
-        if worker_ids is None or (worker_ids and worker_liveness.alive(worker_ids[-1])):
+        if worker_ids is None or worker_liveness.claimant_alive(worker_ids):
             return False
-        return self.finish(run, RunStatus.FAILED, where=dead, error_message=message, finished_at=now)
+        return self.finish_dead(run, where=dead, error=RunStoppedError, message=message, now=now)
+
+    def finish_dead(
+        self, run: Run, *, where: models.Q, error: type[BaseException], message: str, now: datetime
+    ) -> bool:
+        """Finish ``run`` FAILED with ``message`` under ``where`` because its worker died, and fail its task with
+        ``error`` too, which no worker will end: the DBTaskResult sync would report it RUNNING for good, and a RUNNING
+        dedup task (``webhooks.tasks``) stands in for any repeat of its trigger. The task fails only while it is still
+        RUNNING, so an outcome its worker wrote meanwhile stands; one left RUNNING by a crash between the two writes is
+        failed by ``sync_stuck_runs``. Returns whether this call finished the run.
+        """
+        from sessions.models import RunStatus
+
+        if not self.finish(run, RunStatus.FAILED, where=where, error_message=message, finished_at=now):
+            return False
+        fail_tasks(
+            DBTaskResult.objects.filter(run=run, status=TaskResultStatus.RUNNING), error=error, message=message, now=now
+        )
+        return True
 
     async def acancel_requested(self, run_id: str) -> bool:
         """Whether :meth:`cancel` asked the run ``run_id`` to stop."""
@@ -496,6 +515,17 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
         if run.trigger_type == SessionOrigin.CHAT:
             return
         run_finished.send_robust(sender=type(run), run=run, **flags)
+
+
+def fail_tasks(tasks: models.QuerySet[DBTaskResult], *, error: type[BaseException], message: str, now: datetime) -> int:
+    """Fail ``tasks`` with ``error`` and ``message`` in place of a worker; a worker that finishes one later overwrites
+    it. Returns how many were failed."""
+    return tasks.update(
+        status=TaskResultStatus.FAILED,
+        finished_at=now,
+        exception_class_path=f"{error.__module__}.{error.__qualname__}",
+        traceback=message,
+    )
 
 
 def _require_terminal(status: str) -> None:

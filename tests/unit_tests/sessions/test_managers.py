@@ -10,6 +10,7 @@ import pytest
 from allauth.socialaccount.models import SocialAccount
 from asgiref.sync import sync_to_async
 from django_tasks_db.models import DBTaskResult
+from sessions.executor.lock import DeadWorkerError
 from sessions.models import Run, RunStatus, Session, SessionOrigin, SessionRepository, SpendRecord, SpendTask
 from sessions.signal_defs import run_ended, run_finished
 
@@ -39,6 +40,17 @@ class TestFinish:
         assert run_finished_spy.call_args.kwargs["run"] is run
         assert run_finished_spy.call_args.kwargs["skip_dispatch"] is False
         assert run_finished_spy.call_args.kwargs["never_started"] is False
+
+    def test_finish_dead_leaves_the_task_running_when_the_run_finish_is_refused(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.RUNNING)
+        hold_slot(run, silent_for=timedelta(minutes=10))
+
+        finished = Run.objects.finish_dead(
+            run, where=Q(status=RunStatus.READY), error=DeadWorkerError, message="dead", now=timezone.now()
+        )
+
+        assert finished is False
+        assert DBTaskResult.objects.get(run=run).status == "RUNNING"
 
     def test_the_badge_refresh_waits_for_the_commit(self, badge):
         run = _create_run()
@@ -224,6 +236,9 @@ class TestCancel:
         assert (run.status, run.error_message) == (RunStatus.FAILED, CANCELLED_BY_COORDINATOR_MESSAGE)
         assert run.is_cancelled and run.finished_at is not None
         assert run_finished_spy.call_args.kwargs["never_started"] is False
+        task_result = DBTaskResult.objects.get(run=run)
+        assert task_result.status == "FAILED"
+        assert task_result.exception_class_path == "sessions.executor.lock.RunStoppedError"
 
     def test_a_repeated_cancel_finishes_a_run_whose_worker_stopped_heartbeating_since(self, run_finished_spy, badge):
         run = _create_run(status=RunStatus.RUNNING)

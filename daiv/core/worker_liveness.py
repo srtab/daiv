@@ -35,6 +35,11 @@ def alive(worker_id: str) -> bool:
         return True
 
 
+def claimant_alive(worker_ids: list[str]) -> bool:
+    """Whether the worker that last claimed a task is alive; a task no worker claimed has none."""
+    return bool(worker_ids) and alive(worker_ids[-1])
+
+
 def _refresh_forever(worker_id: str) -> None:
     while True:
         try:

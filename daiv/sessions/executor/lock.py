@@ -297,6 +297,10 @@ class RunStoppedError(Exception):
     """The run was asked to stop: by its ``should_stop``, or by its worker's shutdown (``core.worker_shutdown``)."""
 
 
+class DeadWorkerError(Exception):
+    """A task's worker died, and DAIV failed the task in its place."""
+
+
 @asynccontextmanager
 async def hold_session_lock(
     policy: LockPolicy, thread_id: str, *, background_heartbeat: bool = True
