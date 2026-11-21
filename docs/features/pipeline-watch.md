@@ -151,7 +151,7 @@ A `workflow_run` event reports a single workflow, not the branch's whole CI. A r
 
 ### GitLab: child pipelines
 
-A child pipeline (`trigger: include:`) runs on its parent's branch and commit, so DAIV ignores it and judges the parent pipeline, which is the merge request's result. For a child's failure to count, trigger it with `strategy: depend`, so the parent pipeline fails with it.
+A child pipeline (`trigger: include:`) runs on its parent's branch and commit, so DAIV ignores it and judges the parent pipeline, which is the merge request's result. For a child's failure to count, trigger it with `strategy: mirror` or `strategy: depend`, so the parent pipeline fails with it.
 
 ### GitLab: merge-request pipelines and the reconciler poll
 

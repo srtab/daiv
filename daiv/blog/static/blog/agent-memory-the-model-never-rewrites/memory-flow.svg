@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="440" viewBox="0 0 1200 440" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
+  <defs>
+    <marker id="ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#5eead4"/></marker>
+  </defs>
+  <rect width="1200" height="440" fill="#16181d"/>
+
+  <text x="40" y="52" fill="#9aa4b0" font-size="18">Model</text>
+  <text x="560" y="52" fill="#9aa4b0" font-size="18">Code</text>
+  <line x1="530" y1="36" x2="530" y2="400" stroke="#3a414c" stroke-width="2" stroke-dasharray="6 6"/>
+
+  <rect x="40" y="80" width="210" height="300" rx="12" fill="#2a2f38"/>
+  <text x="60" y="118" fill="#5eead4" font-size="16" font-weight="600">1. EXTRACT</text>
+  <text x="60" y="150" fill="#e6edf3" font-size="21" font-weight="600">Observations</text>
+  <text x="60" y="186" fill="#9aa4b0" font-size="16">from a finished</text>
+  <text x="60" y="210" fill="#9aa4b0" font-size="16">run's transcript</text>
+  <text x="60" y="250" fill="#9aa4b0" font-size="16">pending until</text>
+  <text x="60" y="274" fill="#9aa4b0" font-size="16">consolidated</text>
+
+  <line x1="250" y1="230" x2="282" y2="230" stroke="#5eead4" stroke-width="3" marker-end="url(#ok)"/>
+
+  <rect x="290" y="80" width="210" height="300" rx="12" fill="#2a2f38"/>
+  <text x="310" y="118" fill="#5eead4" font-size="16" font-weight="600">2. PROPOSE</text>
+  <text x="310" y="150" fill="#e6edf3" font-size="21" font-weight="600">Operations</text>
+  <text x="310" y="190" fill="#e6edf3" font-size="16" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">ADD</text>
+  <text x="310" y="216" fill="#e6edf3" font-size="16" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">UPDATE</text>
+  <text x="400" y="216" fill="#9aa4b0" font-size="14">+ entry ids</text>
+  <text x="310" y="242" fill="#e6edf3" font-size="16" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">MERGE</text>
+  <text x="400" y="242" fill="#9aa4b0" font-size="14">+ entry ids</text>
+  <text x="310" y="268" fill="#e6edf3" font-size="16" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">CONFIRM</text>
+  <text x="400" y="268" fill="#9aa4b0" font-size="14">+ entry ids</text>
+  <text x="310" y="294" fill="#e6edf3" font-size="16" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">DISCARD</text>
+  <text x="310" y="340" fill="#9aa4b0" font-size="15">all name observation ids</text>
+
+  <line x1="500" y1="230" x2="552" y2="230" stroke="#5eead4" stroke-width="3" marker-end="url(#ok)"/>
+
+  <rect x="560" y="80" width="280" height="300" rx="12" fill="#2a2f38" stroke="#5eead4" stroke-width="2"/>
+  <text x="580" y="118" fill="#5eead4" font-size="16" font-weight="600">3. CHECK AND APPLY</text>
+  <text x="580" y="150" fill="#e6edf3" font-size="21" font-weight="600">Entries</text>
+  <text x="580" y="186" fill="#9aa4b0" font-size="16">reject what doesn't fit</text>
+  <text x="580" y="210" fill="#9aa4b0" font-size="16">the round</text>
+  <text x="580" y="250" fill="#9aa4b0" font-size="16">text never changes:</text>
+  <text x="580" y="274" fill="#9aa4b0" font-size="16">a change adds an entry</text>
+  <text x="580" y="298" fill="#9aa4b0" font-size="16">and supersedes the old</text>
+
+  <line x1="840" y1="230" x2="882" y2="230" stroke="#5eead4" stroke-width="3" marker-end="url(#ok)"/>
+
+  <rect x="890" y="80" width="270" height="300" rx="12" fill="#2a2f38"/>
+  <text x="910" y="118" fill="#5eead4" font-size="16" font-weight="600">4. RENDER</text>
+  <text x="910" y="150" fill="#e6edf3" font-size="21" font-weight="600">Document</text>
+  <text x="910" y="186" fill="#9aa4b0" font-size="16">same entries,</text>
+  <text x="910" y="210" fill="#9aa4b0" font-size="16">same document</text>
+  <text x="910" y="250" fill="#9aa4b0" font-size="16">over 200 lines or 10 KB:</text>
+  <text x="910" y="274" fill="#9aa4b0" font-size="16">the largest category drops</text>
+  <text x="910" y="298" fill="#9aa4b0" font-size="16">its least recently confirmed</text>
+  <text x="910" y="340" fill="#9aa4b0" font-size="15">read by later runs</text>
+</svg>

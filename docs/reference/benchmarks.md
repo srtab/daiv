@@ -81,7 +81,7 @@ Cost is the model usage of the review agent and its detectors, priced by DAIV's 
 
 - **25 pull requests.** The test set is a sample of the 219-pull-request full set, which DAIV has not been measured on.
 - **One pass.** Results move between identical runs. Two identical runs on the 14 smaller pull requests found 70 and 67 known issues, with single pull requests moving by up to 3.
-- **An LLM judge.** The judge model changes the scores. On the same findings, Sonnet 5.5 counted 32 false positives where Sonnet 5 counted 17.
+- **An LLM judge.** The judge model changes the scores. On the same 314 findings, Sonnet 5.5 counted 32 false positives where Sonnet 5 counted 19.
 - **Augmented recall grows with the reviewer's own findings.** Its denominator includes the reviewer's novel true positives, so ReviewBench recommends grounded recall for comparing reviewers.
 - **One reviewer configuration.** Only Claude Haiku 5.5 at `xhigh` was measured on this version of the skill. Other models will score differently.
 - **One retried pull request.** jadx took three attempts: the driver rejected the first report because it lacked the `## Code Review` heading, and the second review skipped the skill. The third is the one scored. The first two cost $0.13, which is not in the cost above.

@@ -28,7 +28,7 @@ Memory forms in three steps, none of which needs you to act.
 
 DAIV extracts observations from every finished run, failed ones included. It extracts nothing from:
 
-- A run started from the dashboard chat.
+- A run started from the dashboard chat. A later run in the same session reads the whole session, chat turns included.
 - A run in a [multi-repository session](jobs-api.md#multi-repository-sessions), whose transcript holds the other repositories' code.
 - A run whose session's working state expired before DAIV read it. [Environment variables](../reference/env-variables.md#redis) gives how long that state lives.
 - A run that failed or was cancelled before it started.
