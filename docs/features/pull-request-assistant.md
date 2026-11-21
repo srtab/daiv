@@ -90,16 +90,18 @@ DAIV keeps its context across the mentions on one pull request. Each new mention
 
 DAIV posts each review as a single comment on the pull request — findings grouped by
 severity (Critical / Important / Suggestions), open questions for the author, and, when
-there are Critical or Important findings, a short list of recommended actions. On GitLab, reviews **stack**: a re-review posts a new report
-covering only the commits since the previous one (after a force-push, the next report covers
-the full change again and says so). If a review could not cover one of its dimensions — say
-the security detector failed — the report says so, and the next review re-covers that span
-rather than treating it as done. A review requested when nothing has changed since the last
-one answers with a one-line "already reviewed" note instead of a fresh report.
+there are Critical or Important findings, a short list of recommended actions. Reviews
+**stack**: a re-review posts a new report covering only the commits since the previous one
+(after a force-push, the next report covers the full change again and says so). If a review
+could not cover one of its dimensions — say the security detector failed — the report says
+so, and the next review re-covers that span rather than treating it as done. A review
+requested when nothing has changed since the last one answers with a one-line "already
+reviewed" note instead of a fresh report.
 
-On GitHub the report carries no tracking marker: re-review scope comes from the conversation
-history on the pull request rather than from the reports themselves, so it is lost if that
-conversation is cleared — after which the next report covers the whole pull request again.
+Each report carries a hidden marker with its number and the commit it reviewed, and DAIV
+counts only the reports its own account posted. The re-review scope comes from those reports,
+not from the conversation, so `@daiv /clear` does not reset it. If you delete DAIV's earlier
+reports, the next review covers the whole pull request again.
 
 To ask about a finding or have DAIV apply a fix, reply on the pull request and mention DAIV.
 
