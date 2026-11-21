@@ -109,10 +109,11 @@ US1 starts runs through the moved service, and both stories carry `acts_as_user`
   - more than one `repos` entry → `400`;
   - a missing or other-repository merge request → a `failed` entry "Merge request !{iid} was not found in {repo_id}.";
   - a closed or merged one → "Merge request !{iid} is closed." / "Merge request !{iid} is merged.";
+  - an archived session, owning or the merge request's own → a `failed` entry "The DAIV session of merge request !{iid} is archived. Unarchive it to run jobs on it: {session URL}", with no comment posted on the merge request;
   - no write access → `404`.
 - [ ] T017 [P] [US1] Failing tests in `tests/unit_tests/jobs/api/test_views.py` for routing:
   - **Unowned merge request:** the response is `READY`. Exactly one `Run` exists with `trigger_type="api_job"`, `merge_request_iid` set, and session id `compute_thread_id(repo_id, MERGE_REQUEST, iid)`. `address_merge_request_task` is enqueued with `request_key` starting `job:`.
-  - **Owned merge request:** a `MERGE_REQUEST_JOB` inbox event is posted to the owning session, and the response is `QUEUED` while the session is busy.
+  - **Owned merge request:** a `MERGE_REQUEST_JOB` inbox event is posted to the owning session with its own run, and the response is `QUEUED` while the session is busy. Two jobs sent while it is busy get two different `job_id`s.
   - **Status:** `GET /api/jobs/{id}` returns `merge_request_url` for the merge request.
 - [ ] T018 [P] [US1] Failing tests in `tests/unit_tests/sessions/test_models.py`:
   - two `READY` `api_job` runs in one session, both with `merge_request_iid`, are allowed;
@@ -122,16 +123,22 @@ US1 starts runs through the moved service, and both stories carry `acts_as_user`
   - records `trigger_type` from `Request.source`;
   - sets `acts_as_user`, `muted` and the requester's `user` and `external_*` on the run;
   - deduplicates on `request_key`;
-  - answers an archived session with the archived reply.
+  - returns `StartOutcome.archived` with the `thread_id` for an archived session, posts nothing and enqueues nothing, while a `Mention` there still gets the archived reply.
 
-  On the owned path it posts `MERGE_REQUEST_JOB` with payload `{prompt, agent_model?, acts_as_user, source}` and source key `job({request_key})`.
+  On the owned path it posts `MERGE_REQUEST_JOB` through `MergeRequestJobs.post`, with payload `{prompt, agent_model?, acts_as_user, source}` and source key `job({request_key})`, and returns the event's own run. An archived owner returns `StartOutcome.archived` with nothing posted.
 - [ ] T020 [P] [US1] Failing tests in `tests/unit_tests/sessions/merge_request_runs/test_addressor.py`. With a `Request` input:
   - the agent input is `HumanMessage(name=requester.username, content=prompt)`;
   - a response becomes one top-level merge request comment;
-  - a question becomes a top-level comment, because there is no mention thread;
-  - a failure posts the unable note.
-- [ ] T021 [P] [US1] Failing tests in `tests/unit_tests/sessions/inbox/test_kinds.py`, `test_render.py`, `test_complete.py` and `test_drain.py` for `MERGE_REQUEST_JOB`:
-  - it wakes;
+  - a question becomes a top-level comment, because there is no mention thread, and the job's status is `WAITING_INPUT`;
+  - a failure posts the unable note;
+  - a merged or closed merge request at task start posts "This merge request was merged before the job could start, so I didn't run it." ("…closed…"), and the run finishes `FAILED`, never started, with that text as its error. No agent runs;
+  - an archived session at task start finishes the run `FAILED`, never started, and posts nothing;
+  - a `Mention` on a merged merge request still gets today's note and a successful result.
+- [ ] T021 [P] [US1] Failing tests in `tests/unit_tests/sessions/inbox/test_merge_request_jobs.py`, `test_kinds.py`, `test_splits.py`, `test_render.py`, `test_complete.py` and `test_drain.py` for `MERGE_REQUEST_JOB`:
+  - `MergeRequestJobs.post` creates the event and its own `QUEUED` run in one transaction, and refuses under the session lock when the session is archived or the merge request isn't open;
+  - it wakes, and the drain takes it alone with the remembered events and promotes its own run to `READY`;
+  - at take time, a merged or closed merge request (its ownership row's `closed_at` and `merged`) fails the event with `mr_merged` or `mr_closed`, finishes its run `FAILED` and never started, and posts the not-started note once the take commits;
+  - in an archived session, a held event fails with `session_archived`, its run finishes `FAILED`, and nothing is posted;
   - its run's trigger type is `payload.source`;
   - it renders the prompt as a request from the requester, with `MENTION_REPLY_NOTE`'s wording;
   - the reply is a new top-level comment;
@@ -145,18 +152,21 @@ US1 starts runs through the moved service, and both stories carry `acts_as_user`
 - [ ] T024 [US1] In `daiv/jobs/api/schemas.py`, add `merge_request: int | None = Field(default=None, ge=1)` to `RepoSubmitItem`. A validator refuses `merge_request` together with `ref` or `prompt` (`422`), and a request-level check returns the `400`s of T016.
 - [ ] T025 [US1] Add the `Request` input (`prompt`, `source: SessionOrigin`, `request_key`) to `daiv/sessions/merge_request_runs/service.py`.
   - **Unowned path:** `astart` passes `trigger_type=source`, `merge_request_iid`, `acts_as_user` and `muted` through `RunStarter`, and enqueues `address_merge_request_task` with `request_key`.
-  - **Owned path:** it posts `EventKind.MERGE_REQUEST_JOB` through `Inbox.apost` and returns the joined next run.
+  - **Owned path:** it posts `EventKind.MERGE_REQUEST_JOB` through `MergeRequestJobs.post` (T027) and returns the event's own run.
+  - **Archived session**, on either path: return `StartOutcome.archived` with the `thread_id`, and post nothing for a `Request`.
 
   T019 passes.
-- [ ] T026 [US1] In `daiv/sessions/merge_request_runs/addressor.py` and `tasks.py`, build the agent input from a `Request` and post its answer or question as a top-level comment. T020 passes.
+- [ ] T026 [US1] In `daiv/sessions/merge_request_runs/addressor.py` and `tasks.py`, build the agent input from a `Request` and post its answer or question as a top-level comment. Before the run starts, a `Request` checks the merge request's state and the session's `archived_at`, and stops as research R9 says. T020 passes.
 - [ ] T027 [US1] Add `EventKind.MERGE_REQUEST_JOB` in `daiv/sessions/inbox/kinds.py` (wakes; trigger type from `payload["source"]`).
+  - `daiv/sessions/inbox/merge_request_jobs.py` (new): `MergeRequestJobs.post` and `stop`, after `LegFollowUps.post` and `stop` in `leg_follow_ups.py`. `stop` posts the not-started note with `transaction.on_commit` when the merge request was merged or closed.
+  - `daiv/sessions/inbox/splits.py`: `runs_alone` and `takes_context` are true for it.
+  - `daiv/sessions/inbox/drain.py`: stop it at take time when its merge request was merged or closed, stop held ones in an archived session alongside `LegFollowUps.stop_held`, and read `acts_as_user`.
   - `daiv/sessions/inbox/render.py`: render the prompt with the mention note's wording.
   - `daiv/sessions/inbox/complete.py`: post the reply as a top-level comment when the payload has no `discussion_id`, and the failure note after `MAX_EVENT_ATTEMPTS`.
-  - `daiv/sessions/inbox/drain.py`: read `acts_as_user`.
 
   T021 passes.
 - [ ] T028 [US1] In `daiv/sessions/multi_repo.py` and `daiv/sessions/services.py`, route a `repos` entry with `merge_request` to `MergeRequestRuns.astart`. Use `Request(source=API_JOB or MCP_JOB, request_key=f"job:{uuid4().hex}")` and `Requester(user=caller, …)`.
-  - **Checks:** first check the merge request with `RepoClient.get_merge_request` (it exists in this repository and is open), and return the `failed` messages of T016 verbatim.
+  - **Checks:** first check the merge request with `RepoClient.get_merge_request` (it exists in this repository and is open), and return the `failed` messages of T016 verbatim. Map `StartOutcome.archived` to the archived-session `failed` message, linking `session_detail` for its `thread_id`.
   - **Admission:** keep `aadmit` and its write-access check unchanged.
 - [ ] T029 [US1] In `daiv/jobs/api/views.py`, map `StartOutcome` to `JobSubmitJobItem` (`READY` or `QUEUED`). T016 and T017 pass.
 - [ ] T030 [US1] In `daiv/mcp_api/server.py`, accept `merge_request` on the job tool and call the same `sessions` path. T022 passes.
@@ -174,10 +184,12 @@ US1 starts runs through the moved service, and both stories carry `acts_as_user`
 ### Tests for User Story 2
 
 - [ ] T031 [P] [US2] Failing tests in `tests/unit_tests/accounts/api/test_ci_identity.py`, for GitLab and for GitHub, with an in-test RSA key and a stubbed signing-key endpoint:
-  - **Accepted:** a valid token yields a `CIIdentity` with `provider`, `repo_id`, `repo_platform_id`, `actor_uid`, `actor_username`, `user` and `sha`, and `pk == f"ci:{provider}:{actor_uid}"`.
-  - **Refused, without saying which check failed:** another `aud`; another `iss`; an expired token; one outside the 60 s leeway; a non-`RS256` algorithm; a bad signature; a `project_id`/`repository_id` that differs from the repository's platform id (a fork).
+  - **Accepted:** a valid token yields a `CIIdentity` with `provider`, `repo_id`, `repo_platform_id`, `actor_uid`, `actor_username`, `user`, `sha`, `jti` and `expires_at`, and `pk == f"ci:{provider}:{actor_uid}"`.
+  - **Refused, without saying which check failed:** another `aud`; another `iss`; an expired token; one outside the 60 s leeway; a non-`RS256` algorithm; a bad signature; no `jti`; a `project_id`/`repository_id` that differs from the repository's platform id (a fork).
+  - **Refusal logs:** each refusal logs one WARNING naming its check and the claimed repository path, and the token's text appears in no log record.
   - **Not a token:** a non-JWT bearer value returns `None`, so an API key still authenticates through `AuthBearer`.
   - **Unreachable keys:** an unreachable signing-key endpoint refuses and logs at ERROR.
+  - **Single use (`CIIdentityTokens`):** the first claim of a `jti` succeeds and a second fails. Two concurrent claims let exactly one through. A released claim can be made again. The entry expires at `exp` plus 60 s. An unreachable cache refuses and logs at ERROR.
   - **Issuers:** `CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER` overrides the GitHub issuer. The GitLab issuer is `CODEBASE_GITLAB_URL`, else `https://gitlab.com`.
 - [ ] T032 [P] [US2] Failing tests in `tests/unit_tests/jobs/api/test_views.py` for token-authenticated submissions:
   - more than one `repos` entry, or any of `thread_id`, `shared_session` or `references` → `400` with "A CI identity token submits one job on its own repository.";
@@ -188,6 +200,10 @@ US1 starts runs through the moved service, and both stories carry `acts_as_user`
     - an unlinked actor gives `user=None` with `external_provider`, `external_uid` and `external_username` set;
     - `muted` defaults to `True`, and an explicit `"muted": false` gives `False`.
   - **Throttle:** keyed by `ci:{provider}:{actor_uid}` (clear the cache first).
+  - **Single use:**
+    - a second submission with a token whose job was accepted → `401`, and a WARNING names the `reused` check;
+    - a token whose submission got a `400` or a `failed` entry can submit again;
+    - polling with a used token still answers `200`.
 - [ ] T033 [P] [US2] Failing tests in `tests/unit_tests/jobs/api/test_views.py` for polling with a token:
   - `200` for a run on the token's repository whose person is the actor, either the linked `user` or a matching `external_provider` and `external_uid`;
   - `404` for any other run.
@@ -206,12 +222,14 @@ US1 starts runs through the moved service, and both stories carry `acts_as_user`
     - claim mapping per contracts/jobs-api.md;
     - the repository id compared with the platform id from `RepoClient`. Add the id to the `Repository` value object in `daiv/codebase/base.py` and both clients if it is missing, with a test in `tests/unit_tests/codebase/clients/`.
   - **`CIIdentity`:** the in-memory principal of data-model.md.
-  - **`CIIdentityBearer(HttpBearer)`:** returns `None` for anything that isn't a three-segment JWT whose header has a `kid`, and raises `401` with `{"detail": "Unauthorized"}` for a token that fails. Failures log at ERROR only when the issuer is unreachable.
+  - **`CIIdentityBearer(HttpBearer)`:** returns `None` for anything that isn't a three-segment JWT whose header has a `kid`, and raises `401` with `{"detail": "Unauthorized"}` for a token that fails. Each refusal logs once at WARNING with its check and the claimed repository path, never the token. Only an unreachable issuer logs at ERROR.
+  - **`CIIdentityTokens`:** `aclaim(identity) -> bool` and `arelease(identity)` over the cache entry of data-model.md (*Used CI tokens*). An unreachable cache counts as a failed claim and logs at ERROR.
 
   T031 passes.
 - [ ] T036 [US2] In `daiv/jobs/api/views.py`:
   - set `jobs_router` to `auth=[CIIdentityBearer(), AuthBearer()]`;
   - for a `CIIdentity`, enforce the submission rules of T032 and check `allowed_usernames` against `actor_username` with `RepositoryConfig.is_user_allowed`;
+  - in `submit_job`, claim the token with `CIIdentityTokens.aclaim` before starting anything (`401` on a failed claim, with the `reused` WARNING), and release it when the submission accepts no job;
   - default `muted` to `True` unless `"muted"` is in the request's set fields;
   - make `get_job_status` apply the visibility rule of T033 to a `CIIdentity`.
 - [ ] T037 [US2] In `daiv/sessions/multi_repo.py`, `daiv/sessions/services.py` and `daiv/sessions/admission.py`, accept a requester that is a `CIIdentity`:
@@ -254,7 +272,7 @@ US1 starts runs through the moved service, and both stories carry `acts_as_user`
 
 - **Setup (Phase 1)**: T003–T005 first. T004 must run before any code change.
 - **Foundational (Phase 2)**: depends on Setup and blocks both stories. Within it, T006 → T007 → T008 → T009 → T010 → T011 run in order, because they move code between the same modules. T012–T015 can run alongside them, since they touch other files.
-- **US1 (Phase 3)**: depends on Phase 2.
+- **US1 (Phase 3)**: depends on Phase 2. T027 comes before T025, which posts through `MergeRequestJobs`.
 - **US2 (Phase 4)**: depends on Phase 2. Its merge-request-targeted case reuses US1's `Request` path (T025), but a branch-target token job works without US1.
 - **Polish (Phase 5)**: T039 and T040 need US1 and US2. T041 needs T034.
 
@@ -279,7 +297,7 @@ T016, T017 tests/unit_tests/jobs/api/test_views.py      (one file: write them in
 T018 tests/unit_tests/sessions/test_models.py
 T019 tests/unit_tests/sessions/merge_request_runs/test_service.py
 T020 tests/unit_tests/sessions/merge_request_runs/test_addressor.py
-T021 tests/unit_tests/sessions/inbox/test_{kinds,render,complete,drain}.py
+T021 tests/unit_tests/sessions/inbox/test_{merge_request_jobs,kinds,splits,render,complete,drain}.py
 T022 tests/unit_tests/mcp_api/test_server_jobs.py
 ```
 

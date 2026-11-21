@@ -24,17 +24,20 @@ Changes to `POST /api/jobs` and `GET /api/jobs/{job_id}`. Everything not listed 
 | More than one `repos` entry when any entry has `merge_request` | `400` |
 | The merge request does not exist, or belongs to another repository | entry in `failed`: "Merge request !42 was not found in group/project." |
 | The merge request is closed or merged | entry in `failed`: "Merge request !42 is closed." / "…is merged." |
+| The session the job would run in is archived: the owning session, or the merge request's own session when none owns it | entry in `failed`: "The DAIV session of merge request !42 is archived. Unarchive it to run jobs on it: {session URL}". Nothing is posted on the merge request |
 | The caller lacks write access to the repository | `404`, as today, without confirming the merge request |
 
 **Where the run goes** (FR-006):
 - **No DAIV session owns the merge request:** the run goes into the merge request's session. Its status is `READY`, and it waits for the session's slot.
-- **A DAIV session owns it:** the job becomes a `MERGE_REQUEST_JOB` inbox event in the owning session and joins its next run. The status is `QUEUED` when the session is busy, else `READY`. Two jobs sent while it's busy may share a `job_id`, as thread follow-ups already do.
+- **A DAIV session owns it:** the job becomes a `MERGE_REQUEST_JOB` inbox event in the owning session, posted with a run of its own. The status is `QUEUED` when the session is busy, else `READY`. Each job has its own `job_id`, and it runs as one turn of the owning session.
 
 **Result**:
 - **Comment:** the final message is posted as one comment on the merge request, from DAIV's account.
 - **Status:** `GET /api/jobs/{id}` returns the same text in `result`, and `merge_request_url` is the merge request.
 - **Failure:** a short failure comment on the merge request, and `status: FAILED`.
-- **A question:** a reply comment on the merge request, and `status: WAITING_INPUT`. A person answers by mentioning DAIV on the merge request, or the caller sends a new job with the same target.
+- **A question:** the question is the run's one comment on the merge request, and `status: WAITING_INPUT`. A person answers by mentioning DAIV on the merge request, or the caller sends a new job with the same target.
+- **Not started, merge request merged or closed:** the run never starts when the merge request is merged or closed after the job was accepted. DAIV posts "This merge request was merged before the job could start, so I didn't run it." ("…closed…" for a closed one) on the merge request. The job is `FAILED` with that text as its error.
+- **Not started, session archived:** the run never starts when the session is archived after the job was accepted. The job is `FAILED`, and nothing is posted on the merge request.
 
 ## Authentication: CI identity token
 
@@ -73,14 +76,20 @@ TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
 | `iss` | `CODEBASE_GITLAB_URL` or `https://gitlab.com` | `CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER` |
 | `aud` | `DAIV_JOBS_CI_IDENTITY_AUDIENCE` (default `DAIV_EXTERNAL_URL`) | same |
 | `exp`, `iat` | valid, 60 s leeway | same |
+| `jti` | present | same |
 | Repository | `project_id` = the platform id of `repos[0].repo_id` | `repository_id` = the platform id of `repos[0].repo_id` |
 | Allowlist | `user_login` in `allowed_usernames` when set | `actor` in `allowed_usernames` when set |
+| Single use, on `POST` only | no accepted job for this `jti` yet | same |
+
+**Single use**: `POST /api/jobs` claims the token's `jti` before it starts anything, until the token expires. When the submission accepts no job (a `400`, a `failed` entry or an error), the claim is released, so a retry with the same token works. `GET /api/jobs/{job_id}` doesn't claim.
 
 **Responses**:
 
 | Condition | Response |
 |---|---|
-| Any verification check fails, or the signing keys are unreachable | `401` `{"detail": "Unauthorized"}`, with no detail on which check failed. An unreachable issuer logs at ERROR |
+| Any verification check fails, the token was already used for an accepted job, or the signing keys or the claim store are unreachable | `401` `{"detail": "Unauthorized"}`, with no detail on which check failed |
+
+**Logs**: every refusal logs once at WARNING with the failed check (`malformed`, `algorithm`, `signature`, `issuer`, `audience`, `expired`, `missing claim`, `repository`, `allowed usernames` or `reused`) and the repository path the token claims. The token itself is never logged. Unreachable signing keys or claim store log at ERROR instead.
 | The repository is not in DAIV's catalog | `404`, as for API keys |
 | `repos` has more than one entry, or the body has `thread_id`, `shared_session` or `references` | `400`: "A CI identity token submits one job on its own repository." |
 | `mcp_overrides` names a personal server | `400`, as an unknown server name |

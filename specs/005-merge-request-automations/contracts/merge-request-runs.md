@@ -16,21 +16,24 @@ One service that the trigger apps call to run something on a merge request: `web
 
 **Routing**:
 1. **Owning session:** when `Ownerships(repo_id).afind_open(iid)` returns one:
-   - an archived owner gets the archived reply (`_reply_archived`) and `StartOutcome.archived`;
+   - an archived owner returns `StartOutcome.archived`; a `Mention` also gets the archived reply (`_reply_archived`), and a `Request` gets nothing posted (research R9);
    - a `Mention` posts `MENTION` (today's `_post_comment`);
-   - a `Request` posts `MERGE_REQUEST_JOB` with `acts_as_user` and `source` (research R3), and returns the joined next run.
+   - a `Request` posts `MERGE_REQUEST_JOB` with `acts_as_user` and `source` through `MergeRequestJobs.post`, which creates the event and its own `QUEUED` run under the session lock and refuses when the session is archived or the merge request isn't open (research R3). It returns that run.
 2. **Otherwise, the direct path:**
    - the session is `compute_thread_id(repo_id, MERGE_REQUEST, iid)`;
-   - an archived session gets the archived reply;
+   - an archived session returns `StartOutcome.archived`; a `Mention` also gets the archived reply, and a `Request` gets nothing posted;
    - the sandbox environment resolves with `user=None`;
    - in one transaction, through `RunStarter`: `address_merge_request_task.get_or_enqueue(repo_id, merge_request_id, request_key, …)` and `create_run(trigger_type=…, merge_request_iid=iid, user=requester.user, external_*=…, acts_as_user=…, muted=…)`.
    - The dedup key is (`repo_id`, `merge_request_id`, `request_key`), where `request_key` is `note:{note_id}` for a mention or `job:{uuid}` for a job.
 
-**Outcome**: `StartOutcome(run_id, status: READY | QUEUED, archived: bool)`.
+**Outcome**: `StartOutcome(run_id: UUID | None, status: READY | QUEUED | None, archived: bool, thread_id: str)`. An archived outcome has no run, and `thread_id` gives the jobs layer the session link for its `failed` message.
 
 ## `address_merge_request_task` (moved, renamed)
 
-- **Context:** the same as today's `address_mr_comments_task`. The merged-merge-request guard and the missing-branch comment are unchanged.
+- **Context:** the same as today's `address_mr_comments_task`. For a `Mention`, the merged-merge-request guard and the missing-branch comment are unchanged.
+- **Guards for a `Request`**, checked before the run starts (research R9):
+  - a merged or closed merge request posts "This merge request was merged before the job could start, so I didn't run it." ("…closed…") and finishes the run `FAILED`, never started, with that text as its error;
+  - an archived session finishes the run `FAILED`, never started, and posts nothing.
 - **Agent input:** the `Mention`'s note text, fetched by id as today, or the `Request.prompt` as `HumanMessage(name=requester.username)`.
 - **Spec:** `Scope.MERGE_REQUEST` with the `MergeRequest` in `RuntimeCtx`, and the acting user taken from `Run.acting_user_id`.
 - **Success:** a response becomes a top-level merge request comment. A question becomes a reply in the mention's thread, or a top-level comment when there is no mention.
@@ -42,4 +45,5 @@ One service that the trigger apps call to run something on a merge request: `web
 
 - **Mentions:** a mention behaves exactly as before on both paths. The existing `webhooks` tests move with the code and keep passing.
 - **Serialisation:** runs in one session never overlap; the session slot serialises them.
-- **Archived sessions:** none gets a new run, and the trigger gets the archived reply.
+- **Archived sessions:** none gets a new run. A mention gets the archived reply, and a job gets a `failed` entry.
+- **Jobs that can't start:** a job accepted before its merge request merged or closed, or before its session was archived, ends `FAILED` without starting, on both paths. On the owned path the drain stops its `MERGE_REQUEST_JOB` event at take time (research R9).

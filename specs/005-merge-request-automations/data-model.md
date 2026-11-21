@@ -30,7 +30,10 @@ AND merge_request_iid IS NULL
 | Payload | `{prompt: str, agent_model?: str, acts_as_user: bool, source: "api_job" \| "mcp_job"}` |
 | Subject | `merge_request(iid)` |
 | Source key | `job({request_key})`, unique per session |
-| Trigger type of the run it joins | `payload.source` |
+| Run | its own `QUEUED` run, created with the event under the session lock (`MergeRequestJobs.post`), as a leg follow-up's is. The post is refused when the session is archived or the merge request isn't open |
+| Trigger type of its run | `payload.source` |
+| Taken | alone, with the session's remembered events; its own run is promoted to `READY` |
+| Stopped at take | merge request merged or closed: failure `mr_merged` or `mr_closed`, the not-started note posted on commit, the run `FAILED` and never started. Session archived: failure `session_archived`, the run `FAILED`, nothing posted |
 | Reply | the final message as a new top-level comment on the merge request; after `MAX_EVENT_ATTEMPTS`, the "could not complete" note |
 
 ## Session (`sessions.Session`, unchanged schema)
@@ -57,4 +60,15 @@ The principal `request.auth` holds on a token-authenticated request. It has no t
 | `actor_uid`, `actor_username` | `user_id`/`user_login` or `actor_id`/`actor` |
 | `user` | `resolve_linked_user(provider, actor_uid)`, or `None` |
 | `sha` | `sha` |
+| `jti`, `expires_at` | `jti`, `exp` |
 | `pk` | `"ci:{provider}:{actor_uid}"`, the throttle key |
+
+## Used CI tokens (cache, no table)
+
+| Aspect | Value |
+|---|---|
+| Key | `jobs:ci-token:{provider}:{jti}` |
+| Set | by `POST /api/jobs` with `cache.aadd`, before the submission starts anything |
+| Expires | at the token's `exp` plus the 60 s leeway |
+| Released | deleted when the submission accepts no job |
+| Unreachable | the submission is refused with `401`, and the failure logs at ERROR |

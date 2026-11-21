@@ -21,12 +21,18 @@ End-to-end checks that prove user stories 1 and 2 work, run against this checkou
    **Expected:** both `202`, no `IntegrityError` in the logs, and their two runs execute one after the other in the merge request's session.
 5. Name a closed merge request.
    **Expected:** the entry appears in `failed` with "…is closed.", and no run.
+6. Send two jobs on an open merge request `!3`, and close `!3` while the first one runs.
+   **Expected:** the first completes and posts its result. The second never starts: `!3` gets "This merge request was closed before the job could start, so I didn't run it.", and its job is `FAILED` with that text.
+7. Archive `!1`'s session in the dashboard, then send a job naming `!1`.
+   **Expected:** the entry appears in `failed` with the session link. Nothing is posted on `!1`. Unarchive the session before step 3.
 
 ## 2. A job on a merge request DAIV owns (P1)
 
 1. Let a chat or job session publish a merge request `!2`.
 2. `POST /api/jobs` naming `!2`, sent while that session is running.
    **Expected:** status `QUEUED`. When the owning session's current turn ends, the job runs as a turn of that session, acting as the caller. Its result is a new top-level comment on `!2`.
+3. Send two jobs naming `!2` while the session is running.
+   **Expected:** two different `job_id`s, each `QUEUED`, which run as two turns, one after the other.
 
 ## 3. CI identity token (P2)
 
@@ -36,13 +42,15 @@ End-to-end checks that prove user stories 1 and 2 work, run against this checkou
    - In **Insights → Spend**, the run is under the pusher, or under their GitLab account marked external.
    - The run's session shows no personal MCP servers, and its sandbox environment is not one of the pusher's personal ones.
 2. Change `aud` to another value.
-   **Expected:** `401`.
+   **Expected:** `401`, and the web log has a WARNING naming the `audience` check and the project path, without the token.
 3. Use the token of a pipeline in another project to target the test project.
    **Expected:** `401`.
 4. Poll `GET /api/jobs/{id}` with the token from step 1.
    **Expected:** `200`. With a token from another project's pipeline: `404`.
 5. Add `allowed_usernames: [someone-else]` to `.daiv.yml` on the default branch and push.
    **Expected:** `401`.
+6. In the step 1 job, send the same `curl` twice with the same `$DAIV_ID_TOKEN`.
+   **Expected:** the first gets `202`, the second `401`, and a WARNING names the `reused` check. Polling with the token still gets `200`.
 
 ## 4. Quality gates
 
