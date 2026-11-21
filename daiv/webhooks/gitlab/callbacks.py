@@ -281,11 +281,13 @@ class MergeRequestCallback(GitLabCallback):
             await self._record_merge_metrics()
         repo_id, iid = self.project.path_with_namespace, self.object_attributes.iid
         if self.object_attributes.action == MergeRequestAction.UPDATE:
-            if self.object_attributes.draft is not None:
-                await Ownerships(repo_id).aset_draft(iid, draft=self.object_attributes.draft)
+            if (draft := self.object_attributes.is_draft) is not None:
+                await Ownerships(repo_id).aset_draft(iid, draft=draft)
             return
         if self.object_attributes.action == MergeRequestAction.REOPEN:
-            await Ownerships(repo_id).areopen(iid, by_username=self.user.username)
+            await Ownerships(repo_id).areopen(
+                iid, by_username=self.user.username, draft=self.object_attributes.is_draft
+            )
             return
         merged = self.object_attributes.action == MergeRequestAction.MERGE
         await Ownerships(repo_id).aclose(

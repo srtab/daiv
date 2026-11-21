@@ -1,5 +1,7 @@
 from unittest.mock import ANY, AsyncMock, Mock, patch
 
+from django.utils import timezone
+
 import pytest
 from sessions.inbox.drain import Drain
 from sessions.inbox.ownership import Ownerships
@@ -291,14 +293,14 @@ class TestPullRequestCallback:
             ("reopened", False),
             ("converted_to_draft", False),
             ("ready_for_review", False),
+            ("synchronize", False),
         ],
     )
-    def test_accept_a_close_a_reopen_or_a_draft_toggle(self, action, merged):
+    def test_accept_a_close_a_reopen_a_draft_toggle_or_a_push(self, action, merged):
         assert create_pull_request_callback(action=action, merged=merged).accept_callback() is True
 
-    @pytest.mark.parametrize("action", ["opened", "synchronize"])
-    def test_reject_the_rest(self, action):
-        assert create_pull_request_callback(action=action, merged=False).accept_callback() is False
+    def test_reject_the_rest(self):
+        assert create_pull_request_callback(action="opened", merged=False).accept_callback() is False
 
     async def test_a_merge_into_the_default_branch_records_metrics_and_tells_the_owner(self):
         callback = create_pull_request_callback()
@@ -339,7 +341,7 @@ class TestPullRequestCallback:
         with patch.object(Ownerships, "areopen", autospec=True) as reopen:
             await callback.process_callback()
 
-        reopen.assert_awaited_once_with(ANY, 42, by_username="sfr")
+        reopen.assert_awaited_once_with(ANY, 42, by_username="sfr", draft=False)
         assert reopen.await_args.args[0].repo_id == "owner/repo"
 
     async def test_process_callback_coalesces_none_merged_at(self):
@@ -375,6 +377,24 @@ class TestPullRequestStateOnAnOwnedPullRequest:
         assert event.source_key.startswith(f"mr-state:42:{state}:")
         await ownership.arefresh_from_db()
         assert ownership.closed_at is not None
+
+    async def test_a_push_records_whether_it_is_a_draft(self):
+        ownership = await amake_owned_merge_request(repo_id="owner/repo", merge_request_iid=42)
+
+        await create_pull_request_callback(action="synchronize", merged=False, draft=True).process_callback()
+
+        await ownership.arefresh_from_db()
+        assert (ownership.draft, ownership.closed_at) == (True, None)
+
+    async def test_a_reopen_records_whether_it_is_a_draft(self):
+        ownership = await amake_owned_merge_request(
+            repo_id="owner/repo", merge_request_iid=42, closed_at=timezone.now()
+        )
+
+        await create_pull_request_callback(action="reopened", merged=False, draft=True).process_callback()
+
+        await ownership.arefresh_from_db()
+        assert (ownership.draft, ownership.closed_at) == (True, None)
 
     async def test_converting_to_draft_and_back(self):
         ownership = await amake_owned_merge_request(repo_id="owner/repo", merge_request_iid=42)

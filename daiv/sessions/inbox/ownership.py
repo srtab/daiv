@@ -385,8 +385,9 @@ class Ownerships:
         await asession_changed(owned.session_id)
         return True
 
-    async def areopen(self, merge_request_iid: int, *, by_username: str) -> bool:
-        """Watch a reopened merge request again and tell the owning session; returns whether it was closed and owned."""
+    async def areopen(self, merge_request_iid: int, *, by_username: str, draft: bool | None = None) -> bool:
+        """Watch a reopened merge request again, with its ``draft`` flag when known, and tell the owning session;
+        returns whether it was closed and owned."""
         closed = await (
             MergeRequestOwnership.objects
             .filter(repo_id=self.repo_id, merge_request_iid=merge_request_iid, closed_at__isnull=False)
@@ -395,7 +396,7 @@ class Ownerships:
         )
         if closed is None or not await MergeRequestOwnership.objects.filter(
             pk=closed.pk, closed_at=closed.closed_at
-        ).aupdate(closed_at=None):
+        ).aupdate(closed_at=None, **({} if draft is None else {"draft": draft})):
             return False
         try:
             if (owned := await self.afind_open(merge_request_iid)) is None:

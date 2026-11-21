@@ -352,6 +352,7 @@ def create_merge_request_callback(
     state: str = "merged",
     target_branch: str = "main",
     draft: bool | None = None,
+    work_in_progress: bool | None = None,
 ) -> MergeRequestCallback:
     """Helper to create a MergeRequestCallback instance."""
     return MergeRequestCallback(
@@ -369,6 +370,7 @@ def create_merge_request_callback(
             author_id=2,
             merged_at="2026-04-01T10:00:00Z",
             draft=draft,
+            work_in_progress=work_in_progress,
         ),
     )
 
@@ -418,10 +420,12 @@ class TestMergeRequestCallback:
         with (
             patch.object(Ownerships, "aclose", autospec=True) as close,
             patch.object(Ownerships, "aset_draft", autospec=True) as set_draft,
+            patch.object(MergeRequestCallback, "_record_merge_metrics", autospec=True) as metrics,
         ):
             await callback.process_callback()
 
         close.assert_not_awaited()
+        metrics.assert_not_awaited()
         set_draft.assert_awaited_once_with(ANY, 1, draft=True)
         archive.assert_not_called()
 
@@ -484,7 +488,7 @@ class TestMergeRequestCallback:
         with patch.object(Ownerships, "areopen", autospec=True) as reopen:
             await callback.process_callback()
 
-        reopen.assert_awaited_once_with(ANY, 1, by_username="developer")
+        reopen.assert_awaited_once_with(ANY, 1, by_username="developer", draft=None)
         assert reopen.await_args.args[0].repo_id == "group/repo"
 
     async def test_process_callback_coalesces_none_merged_at(self):
@@ -543,6 +547,24 @@ class TestMergeRequestStateOnAnOwnedMergeRequest:
             await ownership.arefresh_from_db()
             assert (ownership.draft, ownership.closed_at) == (draft, None)
         assert not await InboxEvent.objects.aexists()
+
+    async def test_an_update_from_a_gitlab_without_draft_reads_work_in_progress(self):
+        ownership = await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=1)
+        update = create_merge_request_callback(action=MergeRequestAction.UPDATE, state="opened", work_in_progress=True)
+
+        await update.process_callback()
+
+        await ownership.arefresh_from_db()
+        assert ownership.draft is True
+
+    async def test_a_reopen_records_whether_it_is_a_draft(self):
+        ownership = await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=1, closed_at=timezone.now())
+
+        reopen = create_merge_request_callback(action=MergeRequestAction.REOPEN, state="opened", draft=True)
+        await reopen.process_callback()
+
+        await ownership.arefresh_from_db()
+        assert (ownership.draft, ownership.closed_at) == (True, None)
 
     async def test_an_update_without_draft_leaves_it(self):
         ownership = await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=1, draft=True)

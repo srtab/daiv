@@ -301,6 +301,12 @@ class TestMergeRequestState:
         assert (await MergeRequestOwnership.objects.aget()).state == state
         assert await sync_to_async(MergeRequestOwnership.states_of)([(REPO, 9)]) == {(REPO, 9): state}
 
+    async def test_a_reopen_records_whether_it_is_a_draft(self):
+        await amake_owned_merge_request(repo_id=REPO, merge_request_iid=9, closed_at=timezone.now())
+
+        assert await Ownerships(REPO).areopen(9, by_username="sfr", draft=True)
+        assert (await MergeRequestOwnership.objects.aget()).state == MergeRequestState.DRAFT
+
     async def test_a_draft_toggle_changes_only_an_open_owned_merge_request(self):
         await amake_owned_merge_request(repo_id=REPO, merge_request_iid=9)
         await amake_owned_merge_request(

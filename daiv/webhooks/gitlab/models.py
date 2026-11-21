@@ -171,3 +171,8 @@ class MergeRequestEvent(BaseModel):
     author_id: int
     merged_at: str | None = None
     draft: bool | None = None
+    work_in_progress: bool | None = None
+
+    @property
+    def is_draft(self) -> bool | None:
+        return self.draft if self.draft is not None else self.work_in_progress

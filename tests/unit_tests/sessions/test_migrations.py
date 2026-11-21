@@ -306,9 +306,9 @@ def test_ownerships_closed_by_a_merge_before_the_merged_flag_are_marked_merged(m
             closed_at=timezone.now(),
         )
 
-    def _closed_by(kind, iid, repo_id=""):
+    def _closed_by(kind, iid, repo_id="", on=session):
         InboxEvent.objects.create(
-            session=session,
+            session=on,
             kind=kind,
             source_key=f"{kind}:{repo_id}:{iid}",
             merge_request_iid=iid,
@@ -316,12 +316,17 @@ def test_ownerships_closed_by_a_merge_before_the_merged_flag_are_marked_merged(m
             wake=False,
         )
 
-    merged, closed, sibling_closed, sibling_merged = (
+    merged, closed, sibling_closed, sibling_merged, moved = (
         _owned("group/repo", 1),
         _owned("group/repo", 2),
         _owned("group/repo", 3),
         _owned("group/other", 3),
+        _owned("group/repo", 4),
     )
+    earlier_owner = Session.objects.create(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.CHAT, repo_id="group/repo", user=member_user
+    )
+    _closed_by(EventKind.MR_MERGED, 4, on=earlier_owner)
     _closed_by(EventKind.MR_MERGED, 1)
     _closed_by(EventKind.MR_CLOSED, 2)
     _closed_by(EventKind.MR_CLOSED, 3)
@@ -330,4 +335,10 @@ def test_ownerships_closed_by_a_merge_before_the_merged_flag_are_marked_merged(m
     merged_flag_migration.backfill_merged(global_apps, None)
 
     states = {row.pk: row.merged for row in MergeRequestOwnership.objects.all()}
-    assert states == {merged.pk: True, closed.pk: False, sibling_closed.pk: False, sibling_merged.pk: True}
+    assert states == {
+        merged.pk: True,
+        closed.pk: False,
+        sibling_closed.pk: False,
+        sibling_merged.pk: True,
+        moved.pk: True,
+    }
