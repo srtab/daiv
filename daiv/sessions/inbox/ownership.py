@@ -44,7 +44,7 @@ from core.utils import build_absolute_url
 from sessions.auto_archive import MergeArchive
 from sessions.inbox import kinds
 from sessions.inbox.post import Inbox
-from sessions.live.notify import asession_changed, session_changed
+from sessions.live.notify import asession_changed, asidebar_changed, session_changed
 from sessions.models import EventKind, MergeRequestOwnership, Run, Session, SessionOrigin
 from sessions.repo_state import mr_to_payload
 from sessions.templatetags.session_tags import session_title
@@ -371,6 +371,7 @@ class Ownerships:
             raise
         await sync_to_async(MergeArchive.settle)(owned.session.thread_id)
         await asession_changed(owned.session_id)
+        await asidebar_changed(owned.owner_id)
         return True
 
     async def aset_draft(self, merge_request_iid: int, *, draft: bool) -> bool:
@@ -378,11 +379,12 @@ class Ownerships:
         changed = MergeRequestOwnership.objects.filter(
             repo_id=self.repo_id, merge_request_iid=merge_request_iid, closed_at__isnull=True
         ).exclude(draft=draft)
-        if (owned := await changed.only("pk", "session_id").afirst()) is None:
+        if (owned := await changed.only("pk", "session_id", "owner_id").afirst()) is None:
             return False
         if not await changed.filter(pk=owned.pk).aupdate(draft=draft):
             return False
         await asession_changed(owned.session_id)
+        await asidebar_changed(owned.owner_id)
         return True
 
     async def areopen(self, merge_request_iid: int, *, by_username: str, draft: bool | None = None) -> bool:
@@ -421,4 +423,5 @@ class Ownerships:
             )
             raise
         await asession_changed(owned.session_id)
+        await asidebar_changed(owned.owner_id)
         return True

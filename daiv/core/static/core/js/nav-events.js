@@ -17,7 +17,8 @@
  * function — a key renamed on the Python side then breaks both, not just the stream.
  *
  * On a session page `url` carries `?session=<thread_id>`, and each `session` frame the stream
- * then sends is re-announced to the page as a `daiv:session-changed` window event.
+ * then sends is re-announced to the page as a `daiv:session-changed` window event. Each `sidebar`
+ * frame (a merge request of the user's changed state) is re-announced as `daiv:sidebar-changed`.
  *
  * A frame that moves the user's own running snapshot (`own_running_runs` or
  * `own_latest_running_start`) is announced as `daiv:runs-changed`, and so is every reopen after
@@ -65,6 +66,7 @@ document.addEventListener("alpine:init", () => {
       this._source = new EventSource(this._url);
       this._source.addEventListener("snapshot", (event) => this._apply(event.data));
       this._source.addEventListener("session", (event) => this._announceSession(event.data));
+      this._source.addEventListener("sidebar", () => window.dispatchEvent(new CustomEvent("daiv:sidebar-changed")));
       this._source.addEventListener("end", () => this.stop());
     },
 

@@ -92,6 +92,7 @@ class UIEventKind(StrEnum):
     RUNS = "runs"
     NOTIFICATIONS = "notifications"
     SESSION = "session"
+    SIDEBAR = "sidebar"
 
     def as_payload(self) -> str:
         return json.dumps({"kind": self.value})
@@ -138,6 +139,12 @@ class UIEventPublisher:
         if user_id is None:
             return
         self._publish(Channel.for_user(user_id), UIEventKind.NOTIFICATIONS)
+
+    def sidebar_changed(self, user_id: int | str | None) -> None:
+        """Poke one user's readers to refetch their sidebar's lists."""
+        if user_id is None:
+            return
+        self._publish(Channel.for_user(user_id), UIEventKind.SIDEBAR)
 
     def session_changed(self, thread_id: str) -> bool:
         """Bump a session's revision, then poke the viewers of its page; returns whether the poke went out.

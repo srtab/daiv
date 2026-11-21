@@ -547,6 +547,23 @@ class TestOwnershipChangesPoke:
 
         publish.assert_any_call(run.session_id)
 
+    @pytest.fixture
+    def sidebar(self):
+        with patch("core.ui_events.publisher.sidebar_changed") as mock:
+            yield mock
+
+    async def test_a_merge_request_state_change_pokes_the_owners_sidebar(self, publish, sidebar):
+        alice = await self._alice()
+        await _claim(await _publishing_run(alice))
+        ownerships = Ownerships(REPO)
+
+        assert await ownerships.aset_draft(9, draft=True)
+        assert not await ownerships.aset_draft(9, draft=True)
+        assert await ownerships.aclose(9, merged=False, by_username="sfr", target_branch="main")
+        assert await ownerships.areopen(9, by_username="sfr")
+
+        assert sidebar.call_args_list == [call(alice.pk)] * 3
+
     async def test_reopening_a_merge_request_pokes_the_owning_session(self, publish):
         run = await _publishing_run(await self._alice())
         await _claim(run)
