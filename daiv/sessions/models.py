@@ -855,8 +855,13 @@ class MergeRequestState(models.TextChoices):
     """What an MR pill shows for a merge request: ``MergeRequestOwnership.state``, ``open`` for one DAIV doesn't own."""
 
     OPEN = "open", _("Open")
+    DRAFT = "draft", _("Draft")
     MERGED = "merged", _("Merged")
     CLOSED = "closed", _("Closed")
+
+    @property
+    def is_open(self) -> bool:
+        return self in (MergeRequestState.OPEN, MergeRequestState.DRAFT)
 
 
 class MergeRequestOwnership(models.Model):
@@ -892,6 +897,7 @@ class MergeRequestOwnership(models.Model):
     last_pipeline_id = models.BigIntegerField(_("last pipeline judged"), null=True, blank=True)
     last_pipeline_status = models.CharField(_("last pipeline status judged"), max_length=32, blank=True, default="")
     last_reconciled_at = models.DateTimeField(_("CI last re-read"), null=True, blank=True)
+    draft = models.BooleanField(_("draft"), default=False)
     merged = models.BooleanField(_("merged"), default=False)
     closed_at = models.DateTimeField(_("closed at"), null=True, blank=True)
     created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
@@ -919,7 +925,7 @@ class MergeRequestOwnership(models.Model):
     @property
     def state(self) -> MergeRequestState:
         if self.closed_at is None:
-            return MergeRequestState.OPEN
+            return MergeRequestState.DRAFT if self.draft else MergeRequestState.OPEN
         return MergeRequestState.MERGED if self.merged else MergeRequestState.CLOSED
 
     @classmethod
@@ -932,7 +938,7 @@ class MergeRequestOwnership(models.Model):
             (row.repo_id, row.merge_request_iid): row.state
             for row in cls.objects.filter(
                 reduce(or_, (models.Q(repo_id=repo_id, merge_request_iid=iid) for repo_id, iid in keys))
-            ).only("repo_id", "merge_request_iid", "merged", "closed_at")
+            ).only("repo_id", "merge_request_iid", "draft", "merged", "closed_at")
         }
         return {key: owned.get(key, MergeRequestState.OPEN) for key in keys}
 

@@ -302,7 +302,7 @@ documents the roles.
 | `surface-3` | hover / inset chips |
 | `border` | 1px hairline separators |
 | `text` / `text-strong` / `text-muted` / `text-faint` | text ramp |
-| `brand` / `brand-bright` | violet — WHO/brand & mark only, **never a CTA** |
+| `brand` / `brand-bright` | violet — WHO/brand & mark only, **never a CTA**; the one exception is a merged merge request's state |
 | `accent` / `accent-bright` / `accent-ink` | teal — DO/action; owns "clickable" |
 | `primary` | front matter only: names `accent`, the action color, because the design.md spec requires a `primary` |
 | `focus` | focus ring — reads the accent token, so the teal ramp moves as one |
@@ -744,7 +744,8 @@ wordmark and a teal New chat `+`) that is the only nav entry point on a phone.
   sessions page), marked as the sessions list marks them: the pulsing dot while running,
   the diamond while waiting, a red left edge (`.nav-row--failed`) when failed and nothing
   otherwise, the state word kept for screen readers (`sr-only`). In place of a time, a
-  merge-request icon (`.nav-row__mr`) coloured by its MR's state as `.mr-pill` is; the
+  merge-request icon (`.nav-row__mr`) coloured by its MR's state as `.mr-pill` is (open
+  `status-clear`, draft `text-muted`, merged `brand-bright`, closed `status-fail`); the
   last-active date moves into the row's `title`. Each row's ⋯ (`.nav-session__trigger`,
   transparent but focusable until hover or focus, always shown on touch) opens a `menuButton`
   menu — open the merge request, copy link, open in new tab, Archive (with run access to the

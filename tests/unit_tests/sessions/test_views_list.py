@@ -89,8 +89,9 @@ def _own(session: Session, iid: int, state: str = MergeRequestState.OPEN, *, rep
         repo_id=repo_id or session.repo_id,
         merge_request_iid=iid,
         source_branch=f"branch-{iid}",
+        draft=state == MergeRequestState.DRAFT,
         merged=state == MergeRequestState.MERGED,
-        closed_at=None if state == MergeRequestState.OPEN else timezone.now(),
+        closed_at=None if state in (MergeRequestState.OPEN, MergeRequestState.DRAFT) else timezone.now(),
     )
 
 

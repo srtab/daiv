@@ -294,7 +294,7 @@ class SessionJobDelegator:
             return leg, _REFUSALS["ref"]
         if target.repo_id.casefold() != session.repo_id.casefold():
             return leg, _REFUSALS["repo"].format(leg_repo_id=session.repo_id, repo_id=target.repo_id)
-        if (state := leg.merge_request_state()) != MergeRequestState.OPEN:
+        if not (state := leg.merge_request_state()).is_open:
             return leg, _REFUSALS[state]
         if leg.is_archived():
             return leg, _REFUSALS[ARCHIVED]
