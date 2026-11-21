@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess  # noqa: S404
+import tomllib
 from collections import Counter, deque
 from functools import cache, partial
 from pathlib import Path
@@ -144,6 +145,16 @@ def released_docs_tree() -> tuple[str, set[str]] | None:
     return tag, {line.strip() for line in listing.splitlines() if line.strip()}
 
 
+def _release_key(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in re.findall(r"\d+", version)[:3])
+
+
+def is_release_commit(tag: str) -> bool:
+    """True when pyproject declares a version newer than `tag`: tagging this commit points `latest` at this tree."""
+    declared = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())["project"]["version"]
+    return _release_key(declared) > _release_key(tag)
+
+
 def released_page_for(url_path: str, tag: str, tree: set[str]) -> PageRef | None:
     """Resolve a URL path against the docs sources of an already-released tag."""
     for candidate in page_candidates(url_path):
@@ -218,13 +229,15 @@ def test_absolute_docs_urls_resolve():
 
     `dev` URLs are checked against the working tree; `latest` URLs against the tag that
     alias actually serves, so a link to an unreleased page fails here rather than in
-    production.
+    production. On a release commit, whose version no tag has yet, `latest` URLs are checked
+    against the working tree that its tag will publish.
     """
     failures: list[str] = []
     scanned = list(iter_repo_files())
     files_by_suffix = Counter(path.suffix for path in scanned)
     pages_checked = 0
     released = released_docs_tree()
+    releasing = released is not None and is_release_commit(released[0])
 
     for path in scanned:
         rel = path.relative_to(REPO_ROOT)
@@ -254,8 +267,12 @@ def test_absolute_docs_urls_resolve():
                     failures.append(f"{rel}: cannot verify {url} — no git tags available to resolve the alias")
                     continue
                 tag, tree = released
-                page = released_page_for(page_path, tag, tree)
-                unresolved = f"{rel}: {url} does not exist at {tag}, which is what '{RELEASED_VERSION}' serves"
+                if releasing:
+                    page = tree_page_for(page_path)
+                    unresolved = f"{rel}: no docs page for {url}, which '{RELEASED_VERSION}' serves once tagged"
+                else:
+                    page = released_page_for(page_path, tag, tree)
+                    unresolved = f"{rel}: {url} does not exist at {tag}, which is what '{RELEASED_VERSION}' serves"
             else:
                 failures.append(f"{rel}: pins '{version}', expected '{TREE_VERSION}' or '{RELEASED_VERSION}' -> {url}")
                 continue

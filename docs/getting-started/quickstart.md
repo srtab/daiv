@@ -80,7 +80,7 @@ Create `docker-compose.yml` next to it:
 
 ```yaml
 x-daiv: &daiv
-  image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-main}
+  image: ghcr.io/srtab/daiv:${DAIV_IMAGE_TAG:-3.0.0}
   restart: unless-stopped
   env_file: .env
   environment:
@@ -153,7 +153,7 @@ services:
     command: sh /home/daiv/start-crontask # (4)!
 
   sandbox:
-    image: ghcr.io/srtab/daiv-sandbox:latest
+    image: ghcr.io/srtab/daiv-sandbox:0.6.0
     restart: unless-stopped
     group_add:
       - ${DOCKER_GID}

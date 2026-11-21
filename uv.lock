@@ -605,7 +605,7 @@ wheels = [
 
 [[package]]
 name = "daiv"
-version = "2.0.0"
+version = "3.0.0"
 source = { virtual = "." }
 default-groups = ["dev", "docs"]
 dependencies = [

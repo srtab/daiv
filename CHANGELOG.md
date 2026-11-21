@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [3.0.0] - 2026-11-18
+
 _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 
 ### Changed
@@ -14,7 +16,7 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 - **Breaking:** Replace the OpenAI-compatible chat API with the AG-UI protocol of the dashboard chat: `POST /api/chat/completions` takes an AG-UI `RunAgentInput` and returns a run handle, or AG-UI events with `Accept: text/event-stream` ([#859](https://github.com/srtab/daiv/pull/859), [#1382](https://github.com/srtab/daiv/pull/1382))
 - **Breaking:** Reject GitLab and GitHub webhooks with `401` while `CODEBASE_GITLAB_WEBHOOK_SECRET` or `CODEBASE_GITHUB_WEBHOOK_SECRET` is unset, and fail `django-admin check` until the active platform's secret is set ([#1675](https://github.com/srtab/daiv/pull/1675))
 - **Breaking:** Manage LLM providers, their API keys and base URLs under **Configuration → Providers**; the environment variables and Docker secrets seed them once, on upgrade ([#1195](https://github.com/srtab/daiv/pull/1195), [#1829](https://github.com/srtab/daiv/pull/1829))
-- **Breaking:** Run the agent's workspace inside the sandbox, where the agent commits and opens merge requests itself; this needs daiv-sandbox 0.5.0 or later, with an egress CA ([#1279](https://github.com/srtab/daiv/pull/1279))
+- **Breaking:** Run the agent's workspace inside the sandbox, where the agent commits and opens merge requests itself; this needs daiv-sandbox 0.6.0 or later, with an egress CA ([#1279](https://github.com/srtab/daiv/pull/1279))
 - **Breaking:** Require the scheduler, which now also syncs repository access and runs schedules, sweeps and memory consolidation ([#1365](https://github.com/srtab/daiv/pull/1365), [#1030](https://github.com/srtab/daiv/pull/1030))
 - **Breaking:** Close sandbox networking except to the repository's git platform, unless the run's sandbox environment allows more hosts through the egress proxy ([#1331](https://github.com/srtab/daiv/pull/1331), [#1340](https://github.com/srtab/daiv/pull/1340))
 - **Breaking:** Rename `AUTOMATION_WEB_SEARCH_*`, `AUTOMATION_WEB_FETCH_*` and `DIFF_TO_METADATA_*` to `DAIV_WEB_SEARCH_*`, `DAIV_WEB_FETCH_*` and `DAIV_DIFF_TO_METADATA_*` ([#1022](https://github.com/srtab/daiv/pull/1022))
@@ -478,7 +480,8 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 - Fix empty repositories not being considered by the repository structure tool, which caused a not found error.
 - Fix the repository index not updating the `sha` field on the `CodebaseIndex` model, which caused the index to be considered outdated even when it was not.
 
-[Unreleased]: https://github.com/srtab/daiv/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/srtab/daiv/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/srtab/daiv/compare/v2.0.0...v3.0.0
 [2.0.0]: https://github.com/srtab/daiv/compare/v1.1.0...v2.0.0
 [1.1.0]: https://github.com/srtab/daiv/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/srtab/daiv/compare/v0.3.0...v1.0.0
