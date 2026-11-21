@@ -10,7 +10,7 @@ This plan covers spec user stories 1 and 2:
 - running a prompt on a merge request from CI or a script;
 - CI identity tokens.
 
-Repository automations, user stories 3 and 4 (FR-014–FR-027, SC-003 and SC-004), are excluded and deferred to a later feature. Their design is in this branch's first commit (`ef67f2aaf`), in `research.md` R7–R14 and in the `contracts/repository-config.md` and `contracts/webhook-events.md` it held.
+Repository automations, user stories 3 and 4 (FR-014–FR-027, SC-003 and SC-004), are excluded and deferred to a later feature. Their design is in this branch's first commit (`1b15a6c93`), in `research.md` R7–R14 and in the `contracts/repository-config.md` and `contracts/webhook-events.md` it held.
 
 ## Summary
 
@@ -40,7 +40,7 @@ Today DAIV runs on a merge request only when someone mentions it there. This pla
 - one new `Run` column, `acts_as_user`;
 - a changed `run_one_active_per_session` condition.
 
-That is two schema migrations in `sessions` (`0043`, `0044`) and no data migration. Detail in [data-model.md](data-model.md).
+That is two schema migrations in `sessions` (`0045`, `0046`) and no data migration. Detail in [data-model.md](data-model.md).
 
 **Testing**: pytest, pytest-django and pytest-asyncio.
 - **Database:** async tests that write use `django_db(transaction=True)`.
@@ -60,7 +60,7 @@ That is two schema migrations in `sessions` (`0043`, `0044`) and no data migrati
 - **Unchanged behaviour:** mentions on both paths, and the existing jobs with `ref` or `thread_id`, behave exactly as before.
 - **Layering:** the trigger apps call down into `sessions`, and no trigger app imports another.
 
-**Scale/Scope**: the work lands in six apps: `accounts`, `codebase` (settings and the repository id), `core` (settings), `sessions`, `jobs` and `mcp_api`, plus the code that moves out of `webhooks`. There are no new pages.
+**Scale/Scope**: the work lands in six apps: `accounts`, `codebase` (settings, the repository id and the merge request's closed flag), `core` (settings), `sessions`, `jobs` and `mcp_api`, plus the code that moves out of `webhooks`. There are no new pages.
 
 ## Constitution Check
 
@@ -109,7 +109,7 @@ daiv/
 ├── accounts/api/ci_identity.py            # new: CIIdentityBearer, CIIdentity, CIIdentityVerifier (PyJWKClient per issuer), CIIdentityTokens (single use)
 ├── codebase/
 │   ├── conf.py                            # + GITHUB_ACTIONS_OIDC_ISSUER
-│   └── base.py, clients/                  # the repository's platform id, if Repository lacks it
+│   └── base.py, clients/                  # the repository's platform id, if Repository lacks it; MergeRequest.closed
 ├── core/conf.py                           # + JOBS_CI_IDENTITY_AUDIENCE (defaults to EXTERNAL_URL)
 ├── core/api/throttling.py                 # JobsRateThrottle keys a CIIdentity on its pk
 ├── sessions/
@@ -122,7 +122,7 @@ daiv/
 │   ├── inbox/merge_request_jobs.py        # new: MergeRequestJobs (post with its own run, stop), after leg_follow_ups.py
 │   ├── inbox/kinds.py, render.py, complete.py, drain.py, splits.py   # MERGE_REQUEST_JOB; acting user
 │   ├── queue.py, services.py, multi_repo.py, admission.py # merge_request target, acts_as_user, CI requester
-│   └── migrations/0043_run_acts_as_user.py, 0044_run_active_constraint_merge_request.py
+│   └── migrations/0045_run_acts_as_user.py, 0046_run_active_constraint_merge_request.py
 ├── jobs/api/schemas.py, views.py          # merge_request field; auth=[CIIdentityBearer(), AuthBearer()]; CI polling rule
 ├── mcp_api/server.py                      # merge_request on the job tool
 ├── webhooks/

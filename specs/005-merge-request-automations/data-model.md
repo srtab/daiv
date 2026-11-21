@@ -40,6 +40,12 @@ AND merge_request_iid IS NULL
 
 A merge-request-targeted job on a merge request no DAIV session owns uses the same session a mention would: `compute_thread_id(repo_id, MERGE_REQUEST, iid)`. When the job creates that session, its `user` is the caller, as the first commenter's is today.
 
+## MergeRequest (`codebase.base.MergeRequest`, changed)
+
+| Field | Change | Meaning |
+|---|---|---|
+| `closed` | **new**, `bool = False` | Closed without being merged. Set only by `get_merge_request`, as `merged` is: GitLab `state == "closed"`, GitHub `state == "closed"` and not merged |
+
 ## Deployment settings (changed)
 
 | Setting | Module | Default | Meaning |
@@ -59,7 +65,7 @@ The principal `request.auth` holds on a token-authenticated request. It has no t
 | `repo_id`, `repo_platform_id` | the token's `project_path`/`project_id` (GitLab) or `repository`/`repository_id` (GitHub), checked against the repository |
 | `actor_uid`, `actor_username` | `user_id`/`user_login` or `actor_id`/`actor` |
 | `user` | `resolve_linked_user(provider, actor_uid)`, or `None` |
-| `sha` | `sha` |
+| `sha` | `sha`, or `None` when a GitHub token lacks it |
 | `jti`, `expires_at` | `jti`, `exp` |
 | `pk` | `"ci:{provider}:{actor_uid}"`, the throttle key |
 

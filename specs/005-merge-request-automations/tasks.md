@@ -40,7 +40,7 @@ Principle V applies: evals run before and after (T004, T048).
 
 - [X] T001 Record the maintainer's approval of plan.md and refinements SR1–SR3 in the **Status** line of specs/005-merge-request-automations/plan.md (done 2026-11-21).
 - [X] T002 Apply refinements SR1–SR3 from specs/005-merge-request-automations/research.md to specs/005-merge-request-automations/spec.md, in FR-005, FR-011 and FR-016 (done 2026-11-21).
-- [ ] T003 Confirm the next free migration number. When planned it was `daiv/sessions/migrations/0043`; renumber the migrations named below if `main` has moved. Run `make test` once before any change, and note pre-existing failures so later ones can be told apart.
+- [ ] T003 Confirm the next free migration number. After the rebase onto `main` on 2026-11-21 it was `daiv/sessions/migrations/0045`; renumber the migrations named below if `main` has moved again. Run `make test` once before any change, and note pre-existing failures so later ones can be told apart.
 - [ ] T004 Take the eval baseline before any code change: `make eval-prompts SUITES="inbox code_review" OUT=eval-runs/005-before.jsonl`. It needs the LLM key and GitLab credentials (AGENTS.md).
 - [ ] T005 Add PyJWT as a direct, pinned dependency with `uv add "pyjwt[crypto]==2.15.1"`, the version already in uv.lock. This updates pyproject.toml and uv.lock. Do not edit either by hand.
 
@@ -80,7 +80,7 @@ US1 starts runs through the moved service, and both stories carry `acts_as_user`
 
 - [ ] T012 [P] Write failing tests in `tests/unit_tests/sessions/test_models.py`: `Run.acting_user_id` returns `user_id` when `acts_as_user` is true, and `None` when it is false, even with a user set.
 - [ ] T013 [P] Write failing tests in `tests/unit_tests/sessions/test_queue.py`, `tests/unit_tests/sessions/inbox/test_drain.py` and `tests/unit_tests/sessions/test_admission.py`: a run with `acts_as_user=False` and a linked user is enqueued and drained with acting user `None`. Admission resolves its MCP pool and sandbox environment with `user=None`, so no USER-scoped server or environment is chosen.
-- [ ] T014 Add `acts_as_user = models.BooleanField(default=True)` and the property `acting_user_id` (`user_id if acts_as_user else None`) to `Run` in `daiv/sessions/models.py`, with migration `daiv/sessions/migrations/0043_run_acts_as_user.py`. `create_run` in `daiv/sessions/services.py` accepts `acts_as_user: bool = True`.
+- [ ] T014 Add `acts_as_user = models.BooleanField(default=True)` and the property `acting_user_id` (`user_id if acts_as_user else None`) to `Run` in `daiv/sessions/models.py`, with migration `daiv/sessions/migrations/0045_run_acts_as_user.py`. `create_run` in `daiv/sessions/services.py` accepts `acts_as_user: bool = True`.
 - [ ] T015 Switch every reader that treats `Run.user_id` as the acting user to `Run.acting_user_id`:
   - `daiv/sessions/queue.py` (`aenqueue_run`);
   - `daiv/sessions/services.py` (`aget_task_run` returns it as `user_id`);
@@ -135,9 +135,9 @@ US1 starts runs through the moved service, and both stories carry `acts_as_user`
   - an archived session at task start finishes the run `FAILED`, never started, and posts nothing;
   - a `Mention` on a merged merge request still gets today's note and a successful result.
 - [ ] T021 [P] [US1] Failing tests in `tests/unit_tests/sessions/inbox/test_merge_request_jobs.py`, `test_kinds.py`, `test_splits.py`, `test_render.py`, `test_complete.py` and `test_drain.py` for `MERGE_REQUEST_JOB`:
-  - `MergeRequestJobs.post` creates the event and its own `QUEUED` run in one transaction, and refuses under the session lock when the session is archived or the merge request isn't open;
+  - `MergeRequestJobs.post` creates the event and its own `QUEUED` run in one transaction, and refuses under the session lock when the session is archived or the merge request isn't open (`MergeRequestState.is_open` from `MergeRequestOwnership.states_of`, where a draft counts as open);
   - it wakes, and the drain takes it alone with the remembered events and promotes its own run to `READY`;
-  - at take time, a merged or closed merge request (its ownership row's `closed_at` and `merged`) fails the event with `mr_merged` or `mr_closed`, finishes its run `FAILED` and never started, and posts the not-started note once the take commits;
+  - at take time, a merge request whose `MergeRequestOwnership.states_of` state is merged or closed fails the event with `mr_merged` or `mr_closed`, finishes its run `FAILED` and never started, and posts the not-started note once the take commits;
   - in an archived session, a held event fails with `session_archived`, its run finishes `FAILED`, and nothing is posted;
   - its run's trigger type is `payload.source`;
   - it renders the prompt as a request from the requester, with `MENTION_REPLY_NOTE`'s wording;
@@ -148,7 +148,7 @@ US1 starts runs through the moved service, and both stories carry `acts_as_user`
 
 ### Implementation for User Story 1
 
-- [ ] T023 [US1] In `daiv/sessions/models.py`, add `merge_request_iid__isnull=True` to the condition of the `run_one_active_per_session` constraint, with migration `daiv/sessions/migrations/0044_run_active_constraint_merge_request.py`. Update the constraint's comment to say merge-request runs share deterministic sessions like webhook runs (two lines at most). T018 passes.
+- [ ] T023 [US1] In `daiv/sessions/models.py`, add `merge_request_iid__isnull=True` to the condition of the `run_one_active_per_session` constraint, with migration `daiv/sessions/migrations/0046_run_active_constraint_merge_request.py`. Update the constraint's comment to say merge-request runs share deterministic sessions like webhook runs (two lines at most). T018 passes.
 - [ ] T024 [US1] In `daiv/jobs/api/schemas.py`, add `merge_request: int | None = Field(default=None, ge=1)` to `RepoSubmitItem`. A validator refuses `merge_request` together with `ref` or `prompt` (`422`), and a request-level check returns the `400`s of T016.
 - [ ] T025 [US1] Add the `Request` input (`prompt`, `source: SessionOrigin`, `request_key`) to `daiv/sessions/merge_request_runs/service.py`.
   - **Unowned path:** `astart` passes `trigger_type=source`, `merge_request_iid`, `acts_as_user` and `muted` through `RunStarter`, and enqueues `address_merge_request_task` with `request_key`.
@@ -156,7 +156,8 @@ US1 starts runs through the moved service, and both stories carry `acts_as_user`
   - **Archived session**, on either path: return `StartOutcome.archived` with the `thread_id`, and post nothing for a `Request`.
 
   T019 passes.
-- [ ] T026 [US1] In `daiv/sessions/merge_request_runs/addressor.py` and `tasks.py`, build the agent input from a `Request` and post its answer or question as a top-level comment. Before the run starts, a `Request` checks the merge request's state and the session's `archived_at`, and stops as research R9 says. T020 passes.
+- [ ] T026 [US1] In `daiv/sessions/merge_request_runs/addressor.py` and `tasks.py`, build the agent input from a `Request` and post its answer or question as a top-level comment. Before the run starts, a `Request` checks the `merged` and `closed` flags of `get_merge_request` and the session's `archived_at`, and stops as research R9 says. T020 passes.
+  - **Closed flag:** add `closed: bool = False` to the `MergeRequest` value object in `daiv/codebase/base.py`. `get_merge_request` sets it on both clients as it sets `merged`: GitLab `state == "closed"`, GitHub `state == "closed"` and not merged. Test each client in `tests/unit_tests/codebase/clients/`. T028's submission check reads it too.
 - [ ] T027 [US1] Add `EventKind.MERGE_REQUEST_JOB` in `daiv/sessions/inbox/kinds.py` (wakes; trigger type from `payload["source"]`).
   - `daiv/sessions/inbox/merge_request_jobs.py` (new): `MergeRequestJobs.post` and `stop`, after `LegFollowUps.post` and `stop` in `leg_follow_ups.py`. `stop` posts the not-started note with `transaction.on_commit` when the merge request was merged or closed.
   - `daiv/sessions/inbox/splits.py`: `runs_alone` and `takes_context` are true for it.
@@ -166,7 +167,7 @@ US1 starts runs through the moved service, and both stories carry `acts_as_user`
 
   T021 passes.
 - [ ] T028 [US1] In `daiv/sessions/multi_repo.py` and `daiv/sessions/services.py`, route a `repos` entry with `merge_request` to `MergeRequestRuns.astart`. Use `Request(source=API_JOB or MCP_JOB, request_key=f"job:{uuid4().hex}")` and `Requester(user=caller, …)`.
-  - **Checks:** first check the merge request with `RepoClient.get_merge_request` (it exists in this repository and is open), and return the `failed` messages of T016 verbatim. Map `StartOutcome.archived` to the archived-session `failed` message, linking `session_detail` for its `thread_id`.
+  - **Checks:** first check the merge request with `RepoClient.get_merge_request` (it exists in this repository and is open), and return the `failed` messages of T016 verbatim. "Closed" reads the `closed` flag from T026. Map `StartOutcome.archived` to the archived-session `failed` message, linking `session_detail` for its `thread_id`.
   - **Admission:** keep `aadmit` and its write-access check unchanged.
 - [ ] T029 [US1] In `daiv/jobs/api/views.py`, map `StartOutcome` to `JobSubmitJobItem` (`READY` or `QUEUED`). T016 and T017 pass.
 - [ ] T030 [US1] In `daiv/mcp_api/server.py`, accept `merge_request` on the job tool and call the same `sessions` path. T022 passes.
@@ -184,7 +185,7 @@ US1 starts runs through the moved service, and both stories carry `acts_as_user`
 ### Tests for User Story 2
 
 - [ ] T031 [P] [US2] Failing tests in `tests/unit_tests/accounts/api/test_ci_identity.py`, for GitLab and for GitHub, with an in-test RSA key and a stubbed signing-key endpoint:
-  - **Accepted:** a valid token yields a `CIIdentity` with `provider`, `repo_id`, `repo_platform_id`, `actor_uid`, `actor_username`, `user`, `sha`, `jti` and `expires_at`, and `pk == f"ci:{provider}:{actor_uid}"`.
+  - **Accepted:** a valid token yields a `CIIdentity` with `provider`, `repo_id`, `repo_platform_id`, `actor_uid`, `actor_username`, `user`, `sha` (`None` when a GitHub token has no `sha` claim), `jti` and `expires_at`, and `pk == f"ci:{provider}:{actor_uid}"`.
   - **Refused, without saying which check failed:** another `aud`; another `iss`; an expired token; one outside the 60 s leeway; a non-`RS256` algorithm; a bad signature; no `jti`; a `project_id`/`repository_id` that differs from the repository's platform id (a fork).
   - **Refusal logs:** each refusal logs one WARNING naming its check and the claimed repository path, and the token's text appears in no log record.
   - **Not a token:** a non-JWT bearer value returns `None`, so an API key still authenticates through `AuthBearer`.

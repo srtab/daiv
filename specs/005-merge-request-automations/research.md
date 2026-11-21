@@ -2,7 +2,7 @@
 
 Phase 0 of [plan.md](plan.md). Each decision names what was chosen, why, and what was rejected. Paths are under `daiv/` unless they start with `docs/`, `tests/` or `specs/`.
 
-The plan covers user stories 1 and 2 only. The decisions for repository automations (stories 3 and 4), R7–R14 in this branch's first commit `ef67f2aaf`, are deferred with them.
+The plan covers user stories 1 and 2 only. The decisions for repository automations (stories 3 and 4), R7–R14 in this branch's first commit `1b15a6c93`, are deferred with them.
 
 ## R1. A job on a merge request reuses the two mention paths
 
@@ -62,7 +62,7 @@ The moved task registers under a new path. `webhooks/tasks.py` re-exports it for
 | Signing keys | `{issuer}/oauth/discovery/keys` | `{issuer}/.well-known/jwks` |
 | Repository | `project_id`, matched against the repository's platform id; `project_path` for logs | `repository_id`, matched against the repository's id; `repository` for logs |
 | Triggering account | `user_id`, `user_login` | `actor_id`, `actor` |
-| Commit | `sha` | `sha` |
+| Commit | `sha` | `sha` when present. GitHub's claim reference doesn't list it, so it is optional |
 
 - **Audience:** `DAIV_EXTERNAL_URL` (`core/conf.py:16`), the address DAIV already advertises. Operators can override it with `DAIV_JOBS_CI_IDENTITY_AUDIENCE`.
 - **Repository match:** done by the stable numeric id the platform reports for the targeted `repo_id`, which `RepoClient` already loads. Paths can be renamed; GitLab warns against trusting mutable claims alone.
@@ -134,10 +134,12 @@ Neither changes a skill, tool description or subagent. Measure with `make eval-p
 | When | Direct path (no owner) | Owned path (inbox) | On the merge request | Job |
 |---|---|---|---|---|
 | At submission, the session is archived | `MergeRequestRuns.astart` returns `StartOutcome.archived` for a `Request`, before enqueueing | `MergeRequestJobs.post` refuses under the session lock | nothing | `failed` entry with the session link |
-| Before its run starts, the merge request was merged or closed | `address_merge_request_task` checks the merge request's state first | the drain checks the ownership row (`closed_at`, `merged`) at take time | one note, posted after the stop commits | `FAILED`, never started, with the note as its error |
+| Before its run starts, the merge request was merged or closed | `address_merge_request_task` checks the `merged` and `closed` flags of `get_merge_request` first | the drain checks `MergeRequestOwnership.states_of` at take time | one note, posted after the stop commits | `FAILED`, never started, with the note as its error |
 | Before its run starts, the session was archived | the task checks `Session.archived_at` first | the drain stops held `MERGE_REQUEST_JOB` events, as `LegFollowUps.stop_held` does | nothing | `FAILED`, never started |
 
 - **The note:** "This merge request was merged before the job could start, so I didn't run it." The closed form says "closed".
+- **Open check:** the owned path uses `MergeRequestState.is_open`, under which a draft counts as open, as leg follow-ups do.
+- **Closed flag:** the platform `MergeRequest` value object (`codebase/base.py`) carries `merged` and `draft`, but nothing that tells a closed merge request from an open one. `get_merge_request` sets a new `closed: bool` on both clients, as it sets `merged`. `codebase` can't import `sessions`' `MergeRequestState`, so the flag stays a boolean. FR-004's check at submission reads it too.
 - **Stopping on the owned path:** the event fails with `EventFailure.MR_MERGED`, `MR_CLOSED` or `SESSION_ARCHIVED`, labels that already exist. Its own run finishes through `Run.objects.finish(…, never_started=True)`, as `LegFollowUps.stop` does. The note is posted with `transaction.on_commit`, so the drain's transaction makes no platform call.
 - **Mentions are unchanged:** a mention on an archived session still gets the archived reply, and a mention's run on a merged merge request still posts today's note and ends successful.
 
