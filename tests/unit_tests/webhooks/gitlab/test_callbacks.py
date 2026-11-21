@@ -348,7 +348,10 @@ class TestNoteCallbackAllowlist:
 
 
 def create_merge_request_callback(
-    action: MergeRequestAction = MergeRequestAction.MERGE, state: str = "merged", target_branch: str = "main"
+    action: MergeRequestAction = MergeRequestAction.MERGE,
+    state: str = "merged",
+    target_branch: str = "main",
+    draft: bool | None = None,
 ) -> MergeRequestCallback:
     """Helper to create a MergeRequestCallback instance."""
     return MergeRequestCallback(
@@ -365,6 +368,7 @@ def create_merge_request_callback(
             target_branch=target_branch,
             author_id=2,
             merged_at="2026-04-01T10:00:00Z",
+            draft=draft,
         ),
     )
 
@@ -400,14 +404,26 @@ class TestMergeRequestCallback:
             (MergeRequestAction.MERGE, "merged"),
             (MergeRequestAction.CLOSE, "closed"),
             (MergeRequestAction.REOPEN, "opened"),
+            (MergeRequestAction.UPDATE, "opened"),
         ],
     )
-    def test_accept_a_merge_a_close_or_a_reopen(self, action, state):
+    def test_accept_a_merge_a_close_a_reopen_or_an_update(self, action, state):
         assert create_merge_request_callback(action=action, state=state).accept_callback() is True
 
-    @pytest.mark.parametrize("action", [MergeRequestAction.OPEN, MergeRequestAction.UPDATE])
-    def test_reject_the_rest(self, action):
-        assert create_merge_request_callback(action=action, state="opened").accept_callback() is False
+    def test_reject_the_rest(self):
+        assert create_merge_request_callback(action=MergeRequestAction.OPEN, state="opened").accept_callback() is False
+
+    async def test_an_update_never_closes(self, archive):
+        callback = create_merge_request_callback(action=MergeRequestAction.UPDATE, state="opened", draft=True)
+        with (
+            patch.object(Ownerships, "aclose", autospec=True) as close,
+            patch.object(Ownerships, "aset_draft", autospec=True) as set_draft,
+        ):
+            await callback.process_callback()
+
+        close.assert_not_awaited()
+        set_draft.assert_awaited_once_with(ANY, 1, draft=True)
+        archive.assert_not_called()
 
     async def test_a_merge_into_the_default_branch_records_metrics_and_tells_the_owner(self):
         callback = create_merge_request_callback()
@@ -517,6 +533,24 @@ class TestMergeRequestStateOnAnOwnedMergeRequest:
         assert ownership.closed_at is None
         event = await InboxEvent.objects.aget(session_id=ownership.session_id)
         assert (event.kind, event.wake) == ("notice", False)
+
+    async def test_an_update_marks_it_draft_or_ready(self):
+        ownership = await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=1)
+
+        for draft in (True, False):
+            update = create_merge_request_callback(action=MergeRequestAction.UPDATE, state="opened", draft=draft)
+            await update.process_callback()
+            await ownership.arefresh_from_db()
+            assert (ownership.draft, ownership.closed_at) == (draft, None)
+        assert not await InboxEvent.objects.aexists()
+
+    async def test_an_update_without_draft_leaves_it(self):
+        ownership = await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=1, draft=True)
+
+        await create_merge_request_callback(action=MergeRequestAction.UPDATE, state="opened").process_callback()
+
+        await ownership.arefresh_from_db()
+        assert (ownership.draft, ownership.closed_at) == (True, None)
 
     async def test_an_unowned_merge_request_posts_nothing(self):
         await create_merge_request_callback(action=MergeRequestAction.CLOSE, state="closed").process_callback()

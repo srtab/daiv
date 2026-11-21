@@ -297,8 +297,8 @@ class PullRequestReviewCommentCallback(GitHubCallback):
 
 class PullRequestCallback(GitHubCallback):
     """
-    GitHub Pull Request Webhook: merge metrics for merges into the default branch, and the merge, close and reopen of
-    a pull request a session owns.
+    GitHub Pull Request Webhook: merge metrics for merges into the default branch, and the merge, close, reopen and
+    draft toggle of a pull request a session owns.
     """
 
     action: str
@@ -309,9 +309,9 @@ class PullRequestCallback(GitHubCallback):
 
     def accept_callback(self) -> bool:
         """
-        Accept a close (merged or not) or a reopen; ``process_callback`` decides what each one concerns.
+        Accept a close (merged or not), a reopen or a draft toggle; ``process_callback`` decides what each one concerns.
         """
-        return self.action in ("closed", "reopened")
+        return self.action in ("closed", "reopened", "converted_to_draft", "ready_for_review")
 
     async def process_callback(self):
         """
@@ -326,6 +326,9 @@ class PullRequestCallback(GitHubCallback):
             await self._record_merge_metrics()
         repo_id, number = self.repository.full_name, self.pull_request.number
         by_username = self.sender.username if self.sender is not None else ""
+        if self.action in ("converted_to_draft", "ready_for_review"):
+            await Ownerships(repo_id).aset_draft(number, draft=self.pull_request.draft)
+            return
         if self.action == "reopened":
             await Ownerships(repo_id).areopen(number, by_username=by_username)
             return

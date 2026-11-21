@@ -236,6 +236,7 @@ def create_pull_request_callback(
     labels: list[Label] | None = None,
     user_login: str = "developer",
     base_ref: str = "main",
+    draft: bool = False,
 ) -> PullRequestCallback:
     """Helper to create a PullRequestCallback instance."""
     return PullRequestCallback(
@@ -247,6 +248,7 @@ def create_pull_request_callback(
             number=42,
             title="Some PR",
             state="closed" if merged else "open",
+            draft=draft,
             merged=merged,
             merged_at="2026-04-01T10:00:00Z" if merged else None,
             head=Ref(ref="feat/something", sha="abc123"),
@@ -281,8 +283,17 @@ class TestPullRequestCallback:
 
         archive.assert_not_called()
 
-    @pytest.mark.parametrize(("action", "merged"), [("closed", True), ("closed", False), ("reopened", False)])
-    def test_accept_a_close_or_a_reopen(self, action, merged):
+    @pytest.mark.parametrize(
+        ("action", "merged"),
+        [
+            ("closed", True),
+            ("closed", False),
+            ("reopened", False),
+            ("converted_to_draft", False),
+            ("ready_for_review", False),
+        ],
+    )
+    def test_accept_a_close_a_reopen_or_a_draft_toggle(self, action, merged):
         assert create_pull_request_callback(action=action, merged=merged).accept_callback() is True
 
     @pytest.mark.parametrize("action", ["opened", "synchronize"])
@@ -364,6 +375,15 @@ class TestPullRequestStateOnAnOwnedPullRequest:
         assert event.source_key.startswith(f"mr-state:42:{state}:")
         await ownership.arefresh_from_db()
         assert ownership.closed_at is not None
+
+    async def test_converting_to_draft_and_back(self):
+        ownership = await amake_owned_merge_request(repo_id="owner/repo", merge_request_iid=42)
+
+        for action, draft in (("converted_to_draft", True), ("ready_for_review", False)):
+            await create_pull_request_callback(action=action, merged=False, draft=draft).process_callback()
+            await ownership.arefresh_from_db()
+            assert (ownership.draft, ownership.closed_at) == (draft, None)
+        assert not await InboxEvent.objects.aexists()
 
     async def test_an_unowned_pull_request_posts_nothing(self):
         await create_pull_request_callback(merged=False).process_callback()

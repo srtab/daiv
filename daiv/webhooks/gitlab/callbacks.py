@@ -244,8 +244,8 @@ class NoteCallback(GitLabCallback):
 
 class MergeRequestCallback(GitLabCallback):
     """
-    Gitlab Merge Request Webhook: merge metrics for merges into the default branch, and the merge, close and reopen of
-    a merge request a session owns.
+    Gitlab Merge Request Webhook: merge metrics for merges into the default branch, and the merge, close, reopen and
+    draft toggle of a merge request a session owns.
     """
 
     object_kind: Literal["merge_request"]
@@ -254,12 +254,13 @@ class MergeRequestCallback(GitLabCallback):
 
     def accept_callback(self) -> bool:
         """
-        Accept a merge, a close or a reopen; ``process_callback`` decides what each one concerns.
+        Accept a merge, a close, a reopen or an update; ``process_callback`` decides what each one concerns.
         """
         return self.object_attributes.action in (
             MergeRequestAction.MERGE,
             MergeRequestAction.CLOSE,
             MergeRequestAction.REOPEN,
+            MergeRequestAction.UPDATE,
         )
 
     @property
@@ -279,6 +280,10 @@ class MergeRequestCallback(GitLabCallback):
         if self._merged_into_default_branch:
             await self._record_merge_metrics()
         repo_id, iid = self.project.path_with_namespace, self.object_attributes.iid
+        if self.object_attributes.action == MergeRequestAction.UPDATE:
+            if self.object_attributes.draft is not None:
+                await Ownerships(repo_id).aset_draft(iid, draft=self.object_attributes.draft)
+            return
         if self.object_attributes.action == MergeRequestAction.REOPEN:
             await Ownerships(repo_id).areopen(iid, by_username=self.user.username)
             return

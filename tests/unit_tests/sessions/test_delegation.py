@@ -879,6 +879,21 @@ class TestLegFollowUp:
         assert result.failed == []
         assert mock_task.aenqueue.call_args.kwargs["fork_branch"] is False
 
+    async def test_a_leg_whose_merge_request_is_a_draft_is_followed_up(self, admin_user, create_db_task_result):
+        _, run, leg = await _coordinated(admin_user)
+        await MergeRequestOwnership.objects.acreate(
+            repo_id="acme/api", merge_request_iid=4, session_id=leg.session_id, source_branch="daiv/leg-branch"
+        )
+        await Ownerships("acme/api").aset_draft(4, draft=True)
+        task = await sync_to_async(create_db_task_result)(status="READY")
+
+        with patch("sessions.queue.run_job_task") as mock_task:
+            _mock_enqueue(mock_task, [task])
+            result = await _delegate(run, [_follow_up(leg)])
+
+        assert result.failed == []
+        assert [started.leg_follow_up for started in result.started] == [True]
+
     async def test_a_new_leg_and_a_follow_up_share_one_batch(self, admin_user, create_db_task_result):
         _, run, leg = await _coordinated(admin_user)
         tasks = [await sync_to_async(create_db_task_result)(status="READY") for _ in range(2)]

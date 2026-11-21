@@ -79,7 +79,7 @@ class LegFollowUps:
                 raise LegFollowUpRefused(ARCHIVED)
             if leg.is_busy():
                 raise LegFollowUpRefused(BUSY)
-            if (state := leg.merge_request_state()) != MergeRequestState.OPEN:
+            if (state := leg.merge_request_state()) in _STOPS:
                 raise LegFollowUpRefused(state)
             payload: dict = {"prompt": prompt, "batch_id": str(batch_id)}
             if references:

@@ -23,6 +23,7 @@ publish has recorded its commit by then), its merge or close (``mr_merged``, ``m
 reopen (a ``notice``; the watch resumes). A close and a reopen are each keyed on when they happened, so a merge request
 closed again after a reopen is remembered again; a redelivered close finds it closed already and posts nothing. A close
 or reopen whose event could not be posted is undone, unless another was recorded meanwhile, so a redelivery posts it.
+A merge request made a draft or ready again only updates its ``draft`` flag, which its merge request icon shows.
 """
 
 from __future__ import annotations
@@ -91,7 +92,7 @@ class Ownerships:
         if not iid or not branch:
             return None
         ownership, posts = await sync_to_async(cls._claim_for_run)(
-            run_id, iid, branch, pushed_sha, payload.get("title") or "", repo_id
+            run_id, iid, branch, pushed_sha, payload.get("title") or "", repo_id, bool(payload.get("draft"))
         )
         ownerships = cls(ownership.repo_id)
         for post in posts:
@@ -100,10 +101,17 @@ class Ownerships:
 
     @classmethod
     def _claim_for_run(
-        cls, run_id: uuid.UUID | str, iid: int, branch: str, pushed_sha: str, title: str, repo_id: str | None
+        cls,
+        run_id: uuid.UUID | str,
+        iid: int,
+        branch: str,
+        pushed_sha: str,
+        title: str,
+        repo_id: str | None,
+        draft: bool,
     ) -> tuple[MergeRequestOwnership, list[dict]]:
         run = Run.objects.select_related("session__user").get(pk=run_id)
-        return cls(repo_id or run.repo_id)._claim(run, iid, branch, pushed_sha, title)
+        return cls(repo_id or run.repo_id)._claim(run, iid, branch, pushed_sha, title, draft)
 
     def _post_logged(self, post: dict[str, Any]) -> None:
         """Post ``post``, logging a failure instead of raising: the ownership change it reports has committed, and the
@@ -123,7 +131,7 @@ class Ownerships:
         return await sync_to_async(self._post_logged)(post)
 
     def _claim(
-        self, run: Run, iid: int, branch: str, pushed_sha: str, title: str
+        self, run: Run, iid: int, branch: str, pushed_sha: str, title: str, draft: bool
     ) -> tuple[MergeRequestOwnership, list[dict]]:
         session = run.session
         posts: list[dict[str, Any]] = []
@@ -143,6 +151,7 @@ class Ownerships:
                     owner=session.user,
                     source_branch=branch,
                     last_daiv_sha=pushed_sha,
+                    draft=draft,
                 )
                 session_changed(row.session_id)
                 return row, posts
@@ -361,6 +370,18 @@ class Ownerships:
             await MergeRequestOwnership.objects.filter(pk=owned.pk, closed_at=closed_at).aupdate(closed_at=None)
             raise
         await sync_to_async(MergeArchive.settle)(owned.session.thread_id)
+        await asession_changed(owned.session_id)
+        return True
+
+    async def aset_draft(self, merge_request_iid: int, *, draft: bool) -> bool:
+        """Record whether the open merge request ``merge_request_iid`` is a draft; returns whether that changed."""
+        changed = MergeRequestOwnership.objects.filter(
+            repo_id=self.repo_id, merge_request_iid=merge_request_iid, closed_at__isnull=True
+        ).exclude(draft=draft)
+        if (owned := await changed.only("pk", "session_id").afirst()) is None:
+            return False
+        if not await changed.filter(pk=owned.pk).aupdate(draft=draft):
+            return False
         await asession_changed(owned.session_id)
         return True
 

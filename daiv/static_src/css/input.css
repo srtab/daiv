@@ -5204,7 +5204,8 @@ html {
   }
   .mr-pill > span:first-child { color: var(--mr-state); }
   .mr-pill, .nav-row__mr { --mr-state: var(--color-status-clear); }
-  .mr-pill--merged, .nav-row__mr--merged { --mr-state: var(--color-text-muted); }
+  .mr-pill--draft, .nav-row__mr--draft { --mr-state: var(--color-text-muted); }
+  .mr-pill--merged, .nav-row__mr--merged { --mr-state: var(--color-brand-bright); }
   .mr-pill--closed, .nav-row__mr--closed { --mr-state: var(--color-status-fail); }
   .session-num { @apply font-mono text-[12px] tabular-nums text-text-muted; }
   .session-age { @apply text-text-faint; }

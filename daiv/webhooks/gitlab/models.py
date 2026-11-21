@@ -170,3 +170,4 @@ class MergeRequestEvent(BaseModel):
     target_branch: str
     author_id: int
     merged_at: str | None = None
+    draft: bool | None = None
