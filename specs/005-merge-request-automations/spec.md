@@ -21,6 +21,7 @@
 
 - Q: Which session does a run that targets a merge request use? → A: A job behaves like a mention by its caller: the owning session when a DAIV session owns the merge request, otherwise the merge request's own session. Each automation uses a session of its own per merge request, which the loop guards on DAIV-published merge requests need (FR-006, FR-024).
 - Q: Which refinements from planning does the spec adopt? → A: All three listed in the plan's research, approved with the plan: SR1 (FR-005), SR2 (FR-011) and SR3 (FR-016).
+- Q: Does this feature's plan include repository automations? → A: No. User stories 3 and 4, FR-014–FR-027, SC-003 and SC-004 are deferred to a later feature. The plan and tasks cover user stories 1 and 2, and FR-028's documentation covers them only.
 
 ## User Scenarios & Testing *(mandatory)*
 

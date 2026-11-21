@@ -1,6 +1,6 @@
-# Quickstart: validating merge request automations
+# Quickstart: validating merge request targets and CI identity
 
-End-to-end checks that prove the feature works, run against this checkout's local stack. The rules each step checks are in [contracts/](contracts/), and the tables in [data-model.md](data-model.md).
+End-to-end checks that prove user stories 1 and 2 work, run against this checkout's local stack. The rules each step checks are in [contracts/](contracts/), and the fields in [data-model.md](data-model.md).
 
 ## Prerequisites
 
@@ -44,42 +44,7 @@ End-to-end checks that prove the feature works, run against this checkout's loca
 5. Add `allowed_usernames: [someone-else]` to `.daiv.yml` on the default branch and push.
    **Expected:** `401`.
 
-## 4. Repository automations (P3)
-
-1. Merge to the default branch:
-
-    ```yaml
-    automations:
-      - name: review
-        on: [merge_request.opened, merge_request.updated, merge_request.ready]
-        prompt: /code-review
-    ```
-
-2. Open a merge request.
-   **Expected:** about 60 seconds later, one review comment. The session list shows a session "review on !N" with origin **Automation**, and no notification is sent.
-3. Push five commits within 30 seconds.
-   **Expected:** one run, on the fifth commit. The `AutomationFiring` rows show four `superseded` and one `fired`.
-4. Re-deliver the last merge request webhook from GitLab's webhook page.
-   **Expected:** no new run.
-5. Open a draft merge request.
-   **Expected:** nothing. Mark it ready: one review.
-6. Add a second entry with `on: [merge_request.sometimes]`.
-   **Expected:** an ERROR log names the entry, and the `review` automation still runs.
-7. Turn off **Automations** in site configuration and push.
-   **Expected:** the firing is `disabled` and no run starts.
-
-## 5. DAIV's own merge requests and loops (P4)
-
-1. On a DAIV-published merge request, mention DAIV to make a change.
-   **Expected:** DAIV pushes, and `review` does not run, because `daiv_merge_requests` defaults to false.
-2. Set `daiv_merge_requests: true` on the default branch, then make DAIV push again.
-   **Expected:** a review runs in the "review on !N" session, not in the owning session, and the owning session starts no turn.
-3. Add an automation whose prompt always commits, for example "append a line to CHANGELOG.md and push", with `daiv_merge_requests: true`. Push once as a person.
-   **Expected:** exactly one run of it. Its own commit's firing is `automation_commit`.
-4. Make DAIV push four times in a row through mentions.
-   **Expected:** three automation runs, then one `capped` firing with a single cap comment. Push as a person: the automations run again.
-
-## 6. Quality gates
+## 4. Quality gates
 
 ```bash
 make lint

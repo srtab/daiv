@@ -2,6 +2,8 @@
 
 Phase 0 of [plan.md](plan.md). Each decision names what was chosen, why, and what was rejected. Paths are under `daiv/` unless they start with `docs/`, `tests/` or `specs/`.
 
+The plan covers user stories 1 and 2 only. The decisions for repository automations (stories 3 and 4), R7–R14 in this branch's first commit `ef67f2aaf`, are deferred with them.
+
 ## R1. A job on a merge request reuses the two mention paths
 
 **Decision**: FR-006 says a job runs where a mention by its caller would. DAIV already has two paths for a mention, and the job uses whichever one a mention would take:
@@ -29,7 +31,7 @@ The moved task registers under a new path. `webhooks/tasks.py` re-exports it for
 
 ## R3. A new inbox event kind for a job on an owned merge request
 
-**Decision**: Add `EventKind.MERGE_REQUEST_JOB` (wake) with the payload `{prompt, agent_model?, acts_as_user}`.
+**Decision**: Add `EventKind.MERGE_REQUEST_JOB` (wake) with the payload `{prompt, agent_model?, acts_as_user, source}`.
 - **Requester:** the job's caller, or the token's triggering account (R5).
 - **Trigger type:** the drain gives the run `API_JOB` or `MCP_JOB`, taken from the event's `source`, and `merge_request_iid`.
 - **Rendering** (`sessions/inbox/render.py`): the prompt as a request from the requester, with the same note `MENTION_REPLY_NOTE` carries: the final message is posted on the merge request.
@@ -86,7 +88,7 @@ The moved task registers under a new path. `webhooks/tasks.py` re-exports it for
 
 ## R6. Attribution without authority: `Run.acts_as_user`
 
-**Decision**: Add `Run.acts_as_user` (boolean, default `true`). Runs started by a CI identity token and automation runs set it to `false`.
+**Decision**: Add `Run.acts_as_user` (boolean, default `true`). Runs started by a CI identity token set it to `false`.
 - **Where it applies:** every place that turns `Run.user` into an acting user — `queue.py:75`, `aget_task_run`, the drain (`drain.py:362,421`) and admission (`admission.py:103-117,134-136`) — yields `None` when it is `false`.
 - **Effect:**
   - no personal MCP servers: `build_runtime_servers` adds USER rows only for an acting user;
@@ -98,145 +100,25 @@ The moved task registers under a new path. `webhooks/tasks.py` re-exports it for
 
 **Finding (out of scope)**: [MCP tools](../../docs/customization/mcp-tools.md) line 164 says a mention on a merge request no session owns has no acting user. The code acts as the linked user there (`webhooks/dispatch.py:307`, `webhooks/tasks.py:156`). Only the sandbox environment skips USER environments. The page should be corrected separately.
 
-## R7. Automations live in `.daiv.yml` and are validated one entry at a time
-
-**Decision**: Add `RepositoryConfig.automations: list[Automation]` (`codebase/repo_config.py`), parsed the way `ModelChoiceMap` parses model choices: `SkipValidation` plus a `BeforeValidator` that validates each entry, then drops and logs any invalid one (`core/model_choice.py:81-97` is the pattern).
-- **Entry fields:** `name` (a unique slug), `on` (a non-empty subset of `merge_request.opened`, `merge_request.updated`, `merge_request.ready`), `prompt` (non-blank) and `filters`.
-- **Filters:**
-  - `drafts`: bool, default `false`;
-  - `target_branches`: glob list, default any;
-  - `paths`: glob list, default any;
-  - `daiv_merge_requests`: bool, default `false`.
-- **Duplicate names:** the first entry with a name wins, and later ones are dropped and logged.
-- **Cache:** the list round-trips through the config cache's `model_dump(exclude_unset=True)`.
-- **Reading rule:** automations come from the default branch only (FR-014), the rule the whole file already follows.
-- **Docs test:** `test_docs_reference.py` counts a list as a single leaf, so `automations` needs one row in [Repository configuration](../../docs/customization/repository-config.md). Its subkeys are documented in a table of their own.
-
-**Rationale**: FR-021 forbids losing the whole file to one bad entry. The repository already solved that for `models.skills`.
-
-## R8. Events come from the merge request webhooks on both platforms
-
-**Decision**:
-
-| Event | GitLab (`object_kind: merge_request`) | GitHub (`pull_request`) |
-|---|---|---|
-| `merge_request.opened` | `action == "open"` | `action == "opened"` |
-| `merge_request.updated` | `action == "update"` and `object_attributes.oldrev` present | `action == "synchronize"` |
-| `merge_request.ready` | `action == "update"` and `changes.draft` goes `true` → `false` | `action == "ready_for_review"` |
-| Actor | `user` (`id`, `username`) | `sender` (`id`, `login`) |
-| Head commit | `object_attributes.last_commit.id` | `pull_request.head.sha` |
-| Draft, target branch | `object_attributes.draft`, `target_branch` | `pull_request.draft`, `base.ref` |
-
-- **Model changes:** `webhooks/gitlab/models.py` gains `oldrev`, `last_commit`, `draft` and a top-level `changes`. GitHub's `PullRequest` already has `draft`, `head` and `base`.
-- **Callbacks:** each platform's `MergeRequestCallback` / `PullRequestCallback` accepts the new actions and calls `sessions.automations.Automations(repo_id).aon_event(...)`. Closing, merging and reopening keep their current handling.
-- **Routing:** no new route. Both views already dispatch on the payload's shape.
-- **Subscriptions:** GitLab's `setup_webhooks` already subscribes to merge request events (`gitlab/client.py:375`). The GitHub App already subscribes to **Pull request** ([platform setup](../../docs/getting-started/platform-setup.md)).
-
-**Rationale**: The merge request event carries the actor, head, draft state and target branch in one payload. Push events would need a lookup to find the merge request.
-
-## R9. Bursts combine on the trailing edge, and each commit fires once
-
-**Decision**: Add a new `AutomationFiring` row per (repository, merge request, automation, head commit), described in [data-model.md](data-model.md).
-
-1. **An event arrives.** For each matching automation, the service upserts the pending firing for that merge request and automation. It records the newest head, actor and event, and sets `due_at = now + AUTOMATION_SETTLE_DELAY` (60 s). Any older pending firing is marked `superseded`. Then it enqueues `fire_automation_task.using(run_after=due_at)`.
-2. **The task runs.** It loads the firing and exits unless it is still `pending` and due. Then it:
-   - re-reads the merge request (it must still be open, and its head must be the firing's head);
-   - applies the loop guards (R10) and the path filter (R12);
-   - starts the run through `MergeRequestRuns` (R1) in the automation's session (R11).
-3. **Duplicate events.** A unique constraint on (`repo_id`, `merge_request_iid`, `automation`, `head_sha`) makes a re-delivered or duplicate event a no-op (FR-017, SC-003).
-
-**Rationale**: There is no trailing-edge debounce today. `DeduplicatingTask` keeps the first task, and the inbox supersedes events only at drain time. The 60-second settle delay matches `PUSH_CLASSIFY_DELAY` (`sessions/inbox/ownership.py:57`), and for the same reason: DAIV writes `Run.pushed_sha` only after a publish finishes, so guards checked at fire time see it.
-
-**Alternatives rejected**: *`DeduplicatingTask` keyed on the merge request*: it would fire on the first push in a burst, not the last.
-
-## R10. Loop guards are checked at fire time
-
-**Decision**:
-- **Automation pushes (FR-026):** a head commit that a run with trigger type `AUTOMATION` pushed is skipped as `automation_commit`. That means `Run.pushed_sha` or `sibling_pushed_shas` on such a run.
-- **DAIV commits:** the check behind `Ownerships.aclassify_push` (`ownership.py:305-334`) moves into a `DaivCommits(repo_id).ais_daiv(sha)` method that both push classification and automations use. A commit counts as DAIV's when it is an ownership's `last_daiv_sha`, any run's `pushed_sha`, or in any session's `sibling_pushed_shas`.
-- **Cap (FR-027):** the cap is derived, not stored. The count is the `fired` firings on this merge request whose `daiv_commit` is true, counted after its latest `fired` firing that has `daiv_commit` false. When the count reaches `site_settings.automations_max_daiv_push_runs` (default 3), the firing is skipped as `capped`. DAIV posts one comment, only for the first `capped` firing since that latest person push. A person's push fires normally, which resets the count by definition.
-- **Results stay out of the owning session (FR-025):** this needs no new code. Automations post no inbox events, and DAIV's own comments are dropped before they can become one (`gitlab/callbacks.py:151`, `github/callbacks.py:143`). Tests pin it.
-
-**Rationale**: Deriving the cap keeps a single source of truth and needs no reset logic. Checking at fire time, after the settle delay, avoids the race between the webhook and DAIV's publish bookkeeping.
-
-## R11. Each automation has a session per merge request
-
-**Decision**: The session id is `compute_automation_thread_id(repo_id, automation, iid)`, a UUID derived from `"{slug}:automation:{name}/{iid}"`. It sits beside `compute_thread_id` in `sessions/ids.py`.
-- **Session fields:** origin `AUTOMATION`, `merge_request_iid` set, no `user`.
-- **Each run:** carries its triggering person (`user` and `external_*`), `acts_as_user=false`, `muted=true` and `ask_user_enabled=false`.
-- **Visibility:** people who can read the repository see these sessions through the existing rules (`sessions/managers.py` `_readable_repos_q`).
-- **Archiving:** `MergeArchive` archives them on merge, as it does any session with the merge request's iid.
-- **Title:** `"{automation name} on !{iid}"`, which gives FR-023 its session-side label.
-
-**Rationale**: FR-024 needs a session apart from the owner's. Keeping one per automation and merge request, rather than one per push, groups an automation's reports in one place, and gives the spend and session views one row per automation and merge request.
-
-## R12. Changed paths come from a new `RepoClient` method; an incomplete list doesn't block
-
-**Decision**: Add `RepoClient.get_merge_request_changed_paths(repo_id, iid) -> ChangedPaths(paths: list[str], complete: bool)`.
-- **GitLab:** reads `mr.changes()`, using `new_path` plus `old_path` on renames and the `overflow` flag (`gitlab/client.py:1030-1065` already calls it).
-- **GitHub:** pages through `pr.get_files()`, which the platform caps at 3,000 files.
-
-When `complete` is false and no listed path matches, the automation still runs and logs at INFO. (Spec refinement SR3.)
-
-**Rationale**: The path filter controls cost, not security. On a merge request too large to list, skipping the review would be the surprising outcome.
-
-## R13. Site settings
-
-**Decision**: Add two `SiteConfiguration` fields:
-- `automations_enabled` (bool, default `true`);
-- `automations_max_daiv_push_runs` (int ≥ 1, default 3).
-
-Each is also declared on `SiteSnapshot`, gets a default in `core/site_settings.py`, and gets the env vars `DAIV_AUTOMATIONS_ENABLED` and `DAIV_AUTOMATIONS_MAX_DAIV_PUSH_RUNS`. A new `FieldGroup(key="automations", match=("automations_*",), category="Runtime")` groups them, with the migration `core/0028`. The pattern is pipeline watch (`core/models.py:298-310,723-729`).
-
-The CI identity settings are deployment settings, not site configuration:
-- `CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER` (`codebase/conf.py`);
-- `DAIV_JOBS_CI_IDENTITY_AUDIENCE` (`core/conf.py`).
-
-**Rationale**: An off switch has to be changeable at runtime by an admin. Issuers and audiences are fixed per deployment, like `CODEBASE_GITLAB_URL`.
-
-## R14. A new origin, `AUTOMATION`
-
-**Decision**: Add `SessionOrigin.AUTOMATION = "automation"`, labelled "Automation". Migration `sessions/0043`:
-- alters the choices on `Run`, `Session` and `SpendRecord`;
-- drops and re-adds `run_trigger_type_valid` and `session_origin_valid`, following the precedent of `0017_delegated_jobs.py`;
-- changes `run_one_active_per_session` (R2);
-- adds `Run.acts_as_user` (R6);
-- creates `AutomationFiring`.
-
-**Membership decisions:**
-- not in `PERSON_STARTED`, so an automation run that publishes doesn't restore CI attempts;
-- not in `webhooks()`;
-- not in the inbox trigger literals;
-- in `insights.py` `ORIGIN_SEGMENT_CSS`, which a test requires;
-- in `home.py` `_started_from` as "Started by an automation";
-- `notifications/signals.py` needs no rule, because the runs are muted.
-
-CI-token jobs keep `API_JOB`, since they arrive through the jobs API.
-
-## R15. Agent behaviour and measurement
+## R7. Agent behaviour and measurement
 
 **Decision**: What the model sees changes in two places:
 1. The new `MERGE_REQUEST_JOB` rendering (R3). It reuses the mention note's wording.
-2. Automation and merge-request-targeted runs on the direct path give the model the prompt where a mention's comment would be. That is the same `HumanMessage` shape the direct path already uses, with the caller's name.
+2. Merge-request-targeted runs on the direct path give the model the prompt where a mention's comment would be. That is the same `HumanMessage` shape the direct path already uses, with the caller's name.
 
 Neither changes a skill, tool description or subagent. Measure with `make eval-prompts SUITES="inbox code_review"` before and after (Principle V), compared with `evals/compare_runs.py`. ReviewBench is not needed, because `/code-review` is unchanged.
 
-## R16. Documentation
+## R8. Documentation
 
 **Decision** (Principle VII):
-- **New page:** `docs/features/automations.md`, with automations, the events and filters, the loop guards and the cap. It goes in the `mkdocs.yml` `nav` and `llmstxt`.
 - **Jobs API** ([jobs-api.md](../../docs/features/jobs-api.md)):
   - the `merge_request` field;
   - a "CI identity tokens" section with GitLab `id_tokens` and GitHub Actions examples;
   - polling rules;
   - the code-review-on-every-push example replacing the comment-posting workaround (FR-028).
-- **Pull request assistant** ([pull-request-assistant.md](../../docs/features/pull-request-assistant.md)): a pointer from review reports to automations.
-- **Repository configuration** ([repository-config.md](../../docs/customization/repository-config.md)): the `automations` section.
-- **Reference pages:**
-  - [site-configuration.md](../../docs/reference/site-configuration.md) and [env-variables.md](../../docs/reference/env-variables.md): the new group and env vars;
-  - [sessions.md](../../docs/features/sessions.md) and [spend.md](../../docs/features/spend.md): the "Automation" origin.
-- **Glossary** (`constitutions/glossary/README.md`): add **Automation** and **Automation firing**.
-- **Changelog:** `CHANGELOG.md` gets three `Added` lines.
+- **Pull request assistant** ([pull-request-assistant.md](../../docs/features/pull-request-assistant.md)): a pointer from review reports to the jobs API merge request target.
+- **Environment variables** ([env-variables.md](../../docs/reference/env-variables.md)): `DAIV_JOBS_CI_IDENTITY_AUDIENCE` and `CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER`.
+- **Changelog:** `CHANGELOG.md` gets two `Added` lines.
 
 ## Spec refinements for approval
 
@@ -244,4 +126,4 @@ These change the spec's wording. The maintainer approved them with the plan on 2
 
 - **SR1 (FR-005):** add "For a job authenticated by a CI identity token, the platform-signed token naming the repository is the access proof" (R5).
 - **SR2 (FR-011):** add that a token-authenticated job is muted unless the request sets `muted` to false (R5).
-- **SR3 (FR-016):** add that when DAIV cannot list every changed path, the paths filter lets the run start (R12).
+- **SR3 (FR-016):** add that when DAIV cannot list every changed path, the paths filter lets the run start. It belongs to the deferred automations and applies when they are planned.
