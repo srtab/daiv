@@ -38,12 +38,6 @@ pytestmark = pytest.mark.django_db(transaction=True)
 CI_SUMMARY = "The failure is a GitHub auth error, not the change; I pushed nothing."
 
 
-@pytest.fixture
-def drain():
-    with patch.object(Drain, "start_logged", autospec=True) as drain:
-        yield drain
-
-
 async def _run_with_event(status: str, *, attempts: int = 0, **run_fields) -> tuple[Run, InboxEvent]:
     session = await amake_session()
     run = await Run.objects.acreate(

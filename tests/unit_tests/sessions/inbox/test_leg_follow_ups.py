@@ -5,7 +5,6 @@ from django.utils import timezone
 
 import pytest
 from asgiref.sync import sync_to_async
-from sessions.inbox.drain import Drain
 from sessions.inbox.leg_follow_ups import ARCHIVED, BUSY, LegFollowUpRefused, LegFollowUps
 from sessions.inbox.next_runs import NextRuns
 from sessions.inbox.ownership import Ownerships
@@ -28,12 +27,6 @@ from tests.unit_tests.sessions.inbox.conftest import amake_event, make_leg_sessi
 pytestmark = pytest.mark.django_db(transaction=True)
 
 REFERENCE = {"kind": "issue", "repo_id": "acme/api", "iid": 12}
-
-
-@pytest.fixture
-def drain():
-    with patch.object(Drain, "start_logged", autospec=True) as drain:
-        yield drain
 
 
 async def _leg_session(user, **fields):

@@ -14,12 +14,6 @@ from tests.unit_tests.sessions.inbox.conftest import amake_session, chat_payload
 pytestmark = pytest.mark.django_db(transaction=True)
 
 
-@pytest.fixture
-def drain():
-    with patch.object(Drain, "start_logged", autospec=True) as drain:
-        yield drain
-
-
 async def _post_ci(thread_id: str, *, pipeline_id: int = 1, wake: bool = True, ref: str = "", **fields):
     return await Inbox(thread_id).apost(
         kind=EventKind.CI_FAILED,

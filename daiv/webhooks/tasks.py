@@ -7,6 +7,7 @@ from django.core.management import call_command
 from django.tasks import task
 
 from crontask import cron
+from sessions.inbox.kinds import SourceKey
 from sessions.merge_request_runs.tasks import address_merge_request_task
 from sessions.services import aget_session_ref, aget_task_run
 
@@ -105,7 +106,7 @@ async def address_mr_comments_task(
         merge_request_id=merge_request_id,
         thread_id=thread_id,
         use_max=use_max,
-        request_key=f"note:{mention_note_id}",
+        request_key=SourceKey.note(mention_note_id),
         mention_comment_id=mention_comment_id,
         mention_note_id=mention_note_id,
         sandbox_environment_id=sandbox_environment_id,

@@ -1,13 +1,22 @@
 import uuid
 from datetime import timedelta
 from itertools import count
+from unittest.mock import patch
 
 from django.utils import timezone
 
+import pytest
 from sessions.inbox import kinds
+from sessions.inbox.drain import Drain
 from sessions.models import EventKind, EventState, InboxEvent, Session, SessionOrigin
 
 _clock = count()
+
+
+@pytest.fixture
+def drain():
+    with patch.object(Drain, "start_logged", autospec=True) as drain:
+        yield drain
 
 
 def ci_payload(pipeline_id: int = 830724, *, sha: str = "e96f1f77aa", status: str = "failed", jobs=("build",)) -> dict:

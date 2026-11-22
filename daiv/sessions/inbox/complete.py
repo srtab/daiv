@@ -57,10 +57,8 @@ from codebase.base import GitPlatform
 from core import ui_events
 from core.constants import BOT_NAME
 from sessions.executor.lock import SessionLock, stale_cutoff
-from sessions.inbox.drain import Drain
+from sessions.inbox.drain import OWN_RUNS, Drain
 from sessions.inbox.kinds import OWN_RUN_KINDS
-from sessions.inbox.leg_follow_ups import LegFollowUps
-from sessions.inbox.merge_request_jobs import MergeRequestJobs
 from sessions.inbox.post import Inbox
 from sessions.live.notify import session_changed
 from sessions.models import (
@@ -125,22 +123,18 @@ class RunEnd:
         return await sync_to_async(self.withdraw)()
 
     def settle_events(self) -> None:
-        """Move the events the run took to the state its outcome calls for, its leg follow-up's first, taken or not.
-        SYNC ONLY."""
+        """Move the events the run took to the state its outcome calls for, the event it was posted with first, taken
+        or not. SYNC ONLY."""
         run = self.run
-        LegFollowUps.end_with_run(run)
-        MergeRequestJobs.end_with_run(run)
+        for own_runs in OWN_RUNS.values():
+            own_runs.end_with_run(run)
         taken = InboxEvent.objects.filter(run=run, state=EventState.TAKEN)
         if run.status in (RunStatus.SUCCESSFUL, RunStatus.WAITING_INPUT):
             woken_by_ci = list(taken.filter(kind=EventKind.CI_FAILED, wake=True, merge_request_iid__isnull=False))
             mentions = list(
                 taken.filter(kind=EventKind.MENTION, merge_request_iid__isnull=False).order_by("created_at", "id")
             )
-            jobs = (
-                list(taken.filter(kind=EventKind.MERGE_REQUEST_JOB, merge_request_iid__isnull=False))
-                if run.runs_alone
-                else []
-            )
+            jobs = list(taken.filter(kind=EventKind.MERGE_REQUEST_JOB))
             if taken.update(state=EventState.HANDLED, updated_at=timezone.now()):
                 session_changed(run.session_id)
             if woken_by_ci:
@@ -149,7 +143,9 @@ class RunEnd:
             if mentions:
                 self._reply_to_mentions(mentions)
             if jobs:
-                self._comment_on_jobs(jobs, lambda replies: replies.answer(run, asker=jobs[0].author_username))
+                MergeRequestReplies.comment_on_events(
+                    jobs, run, lambda replies: replies.answer(run, asker=jobs[0].author_username)
+                )
         elif run.status == RunStatus.FAILED and run.cancel_requested_at is not None:
             if taken.update(state=EventState.DISMISSED, updated_at=timezone.now()):
                 session_changed(run.session_id)
@@ -182,16 +178,7 @@ class RunEnd:
         run = self.run
         if not Session.objects.filter(pk=run.session_id, user__isnull=True).exists() or not run.response_text:
             return
-        MergeRequestReplies.comment_on_merge_requests(
-            {(event.effective_repo_id(run.repo_id), event.merge_request_iid) for event in woken_by_ci},
-            lambda replies: replies.reply(run, asker=""),
-        )
-
-    def _comment_on_jobs(self, jobs: list[InboxEvent], body: Callable[[MergeRequestReplies], str]) -> None:
-        """Post ``body`` as a new comment on each merge request a job the run took names; a job has no thread."""
-        MergeRequestReplies.comment_on_merge_requests(
-            {(event.effective_repo_id(self.run.repo_id), event.merge_request_iid) for event in jobs}, body
-        )
+        MergeRequestReplies.comment_on_events(woken_by_ci, run, lambda replies: replies.reply(run, asker=""))
 
     def _reply_to_mentions(self, mentions: list[InboxEvent]) -> None:
         """Post the run's answer in the thread of the latest mention on each merge request, then in each earlier
@@ -344,6 +331,15 @@ class MergeRequestReplies:
                 replies.client.create_merge_request_comment(repo_id, iid, body(replies))
             except Exception:
                 logger.exception("inbox: could not comment on %s!%s", repo_id, iid)
+
+    @classmethod
+    def comment_on_events(
+        cls, events: Iterable[InboxEvent], run: Run, body: Callable[[MergeRequestReplies], str]
+    ) -> None:
+        """Post ``body`` on each merge request one of ``events``, of ``run``'s session, names."""
+        cls.comment_on_merge_requests(
+            {(event.effective_repo_id(run.repo_id), event.merge_request_iid) for event in events}, body
+        )
 
     def reply(self, run: Run, *, asker: str) -> str:
         """``run``'s final message, or its question followed by how ``asker`` answers it: a reply mentioning DAIV. A

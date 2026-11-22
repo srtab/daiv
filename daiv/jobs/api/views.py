@@ -11,7 +11,7 @@ from sessions.admission import AdmissionError, RepoAccessError
 from sessions.artifacts import aserialize_run_artifacts_for_status
 from sessions.inbox.merge_request_jobs import caller_failure_message
 from sessions.models import Run, RunStatus, SessionOrigin
-from sessions.multi_repo import asubmit_ci_job, asubmit_jobs
+from sessions.multi_repo import asubmit_jobs
 from sessions.services import RepoTarget
 
 from accounts.api.ci_identity import CIIdentity, CIIdentityBearer
@@ -67,7 +67,7 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
     }
     try:
         if ci is not None:
-            result = await asubmit_ci_job(requester=ci.requester, target=targets[0], muted=ci.muted(payload), **options)
+            result = await ci.asubmit(targets[0], payload, **options)
         else:
             result = await asubmit_jobs(
                 user=request.auth,
@@ -80,14 +80,10 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
                 **options,
             )
     except AdmissionError as err:
-        if ci is not None:
-            await ci.arelease()
         if isinstance(err, RepoAccessError):
             # Opaque 404: don't confirm the repo's existence to unauthorized callers.
             raise HttpError(404, str(err)) from err
         return 400, {"detail": str(err)}
-    if ci is not None and not result.runs:
-        await ci.arelease()
 
     jobs = [
         JobSubmitJobItem(

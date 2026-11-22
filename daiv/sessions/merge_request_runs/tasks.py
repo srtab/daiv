@@ -94,8 +94,7 @@ async def address_merge_request_task(
         merge_request_id (int): The merge request id.
         thread_id (str): The LangGraph checkpoint key minted by the caller.
         use_max (bool): The max mode the caller decided and stamped on the ``Run``.
-        request_key (str): What asked for the run, ``note:{mention_note_id}`` for a mention; with ``repo_id`` and the
-            iid, the run's dedup key, so each reply in one GitLab discussion gets its own run.
+        request_key (str): What asked for the run (``SourceKey.note`` or ``SourceKey.job``); part of its dedup key.
         mention_comment_id (str | None): The discussion of the mention.
         mention_note_id (int | None): The note that mentioned DAIV, which the run answers.
         sandbox_environment_id (str | None): The env the caller selected; ``None``: the GLOBAL default.

@@ -31,12 +31,11 @@ from sessions.models import Session
 from sessions.services import create_run
 
 if TYPE_CHECKING:
-    import uuid
     from collections.abc import Callable
 
     from accounts.models import User
     from core.backends.deduplicating import DeduplicatingTask
-    from sessions.models import SessionOrigin
+    from sessions.models import Run, SessionOrigin
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -135,14 +134,14 @@ class Request:
 class StartOutcome:
     """What a start did, in the session ``thread_id``.
 
-    ``started``: it enqueued a run or posted an event, rather than finding an earlier trigger's. ``run_id`` names the
-    run a job reports, ``None`` when a mention joined a run that doesn't exist yet. ``archived``: the session is
-    archived, so nothing started.
+    ``started``: it enqueued a run or posted an event, rather than finding an earlier trigger's. ``run`` is the run a
+    job reports, ``None`` when a mention joined a run that doesn't exist yet. ``archived``: the session is archived, so
+    nothing started.
     """
 
     thread_id: str
     started: bool = False
-    run_id: uuid.UUID | None = None
+    run: Run | None = None
     archived: bool = False
 
 
@@ -185,8 +184,9 @@ class RunStarter:
             else:
                 await self.areply_archived(reply, requester, self.thread_id, note_id=task_kwargs.get("mention_note_id"))
             return StartOutcome(thread_id=self.thread_id, archived=True)
-        sandbox_environment_id = request.sandbox_environment_id if request is not None else None
-        if sandbox_environment_id is None:
+        if request is not None:
+            sandbox_environment_id = request.sandbox_environment_id
+        else:
             # user=None: a webhook fires for whoever touched the issue/MR, not the agent owner, so no USER env applies.
             sandbox_env = await resolve_env_for_run(user=None, repo_id=self.repo_id)
             sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
@@ -223,7 +223,7 @@ class RunStarter:
                 title=title,
                 sandbox_environment_id=sandbox_environment_id,
             )
-            return StartOutcome(thread_id=self.thread_id, started=True, run_id=run.pk)
+            return StartOutcome(thread_id=self.thread_id, started=True, run=run)
 
         return await enqueue_with_run()
 

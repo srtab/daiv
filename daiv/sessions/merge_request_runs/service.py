@@ -89,7 +89,7 @@ class MergeRequestRuns:
             use_max=use_max,
             task_kwargs={
                 "merge_request_id": self.merge_request_iid,
-                "request_key": f"note:{mention.note_id}",
+                "request_key": kinds.SourceKey.note(mention.note_id),
                 "mention_comment_id": mention.comment_id,
                 "mention_note_id": mention.note_id,
             },
@@ -138,9 +138,6 @@ class MergeRequestRuns:
         self, ownership: MergeRequestOwnership, requester: Requester, request: Request, merge_request_web_url: str
     ) -> StartOutcome:
         thread_id = ownership.session.thread_id
-        if ownership.session.archived_at is not None:
-            logger.info("Ignoring a job on session %s: it is archived", thread_id)
-            return StartOutcome(thread_id=thread_id, archived=True)
         try:
             run = await MergeRequestJobs(thread_id, self.repo_id, self.merge_request_iid).apost(
                 requester, request, ref=ownership.source_branch, merge_request_web_url=merge_request_web_url
@@ -148,8 +145,9 @@ class MergeRequestRuns:
         except MergeRequestJobRefused as refused:
             if refused.reason != ARCHIVED:
                 raise
+            logger.info("Ignoring a job on session %s: it is archived", thread_id)
             return StartOutcome(thread_id=thread_id, archived=True)
-        return StartOutcome(thread_id=thread_id, started=True, run_id=run.pk)
+        return StartOutcome(thread_id=thread_id, started=True, run=run)
 
     async def asubmit_job(self, requester: Requester, request: Request) -> Run | BatchSubmitFailure:
         """Start ``request`` on the merge request (:meth:`astart_job`), or say why it can't: the merge request is
@@ -182,7 +180,8 @@ class MergeRequestRuns:
         if outcome.archived:
             url = await sync_to_async(RunStarter.session_url)(outcome.thread_id)
             return refused(SESSION_ARCHIVED.format(iid=iid, url=url))
-        run = await Run.objects.aget(pk=outcome.run_id)
+        if (run := outcome.run) is None:
+            return refused(NOT_STARTED.format(iid=iid))
         if run.status == RunStatus.FAILED:
             return refused(caller_failure_message(run) or NOT_STARTED.format(iid=iid))
         return run

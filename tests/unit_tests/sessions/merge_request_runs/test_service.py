@@ -70,7 +70,7 @@ class TestAJobOnAMergeRequestNoSessionOwns:
             CI_ACTOR, _request(source=SessionOrigin.MCP_JOB, muted=True), title="Feature", ref="feat"
         )
 
-        run = await Run.objects.aget(pk=outcome.run_id)
+        run = await Run.objects.aget(pk=outcome.run.pk)
         assert (outcome.started, run.status, outcome.thread_id) == (True, RunStatus.READY, THREAD)
         assert (run.session_id, run.trigger_type, run.merge_request_iid, run.ref, run.prompt) == (
             THREAD, SessionOrigin.MCP_JOB, 7, "feat", "/code-review",
@@ -94,7 +94,7 @@ class TestAJobOnAMergeRequestNoSessionOwns:
             Requester(user=member_user, username=username), _request(), title="Feature", ref="feat"
         )
 
-        run = await Run.objects.aget(pk=outcome.run_id)
+        run = await Run.objects.aget(pk=outcome.run.pk)
         assert (run.user_id, run.acts_as_user, run.trigger_type) == (member_user.pk, True, SessionOrigin.API_JOB)
         task = await DBTaskResult.objects.aget(pk=run.task_result_id)
         assert task.args_kwargs["kwargs"]["requester_username"] == expected
@@ -106,7 +106,7 @@ class TestAJobOnAMergeRequestNoSessionOwns:
 
         outcome = await MergeRequestRuns(client, "group/repo", 7).astart_job(CI_ACTOR, request, title="F", ref="feat")
 
-        run = await Run.objects.aget(pk=outcome.run_id)
+        run = await Run.objects.aget(pk=outcome.run.pk)
         assert run.runs_alone is True
         kwargs = (await DBTaskResult.objects.aget(pk=run.task_result_id)).args_kwargs["kwargs"]
         assert (kwargs["references"], kwargs["mcp_overrides"]) == ([{"key": "PROJ-1"}], {"grafana": "on"})
@@ -137,7 +137,7 @@ class TestAJobOnAMergeRequestNoSessionOwns:
             CI_ACTOR, _request(), title="F", ref="feat"
         )
 
-        assert (outcome.archived, outcome.thread_id, outcome.run_id) == (True, THREAD, None)
+        assert (outcome.archived, outcome.thread_id, outcome.run) == (True, THREAD, None)
         assert not await Run.objects.aexists()
         client.create_merge_request_comment.assert_not_called()
 
@@ -166,7 +166,7 @@ class TestAJobOnAnOwnedMergeRequest:
         )
 
         event = await InboxEvent.objects.aget(session_id=owned.session_id)
-        run = await Run.objects.aget(pk=outcome.run_id)
+        run = await Run.objects.aget(pk=outcome.run.pk)
         assert (outcome.thread_id, outcome.started, run.status) == (owned.session_id, True, RunStatus.QUEUED)
         assert (event.kind, event.wake, event.subject, event.source_key, event.run_id) == (
             EventKind.MERGE_REQUEST_JOB, True, "", "job:abc", run.pk,
@@ -190,7 +190,7 @@ class TestAJobOnAnOwnedMergeRequest:
             Requester(user=member_user), request, title="F", ref=owned.source_branch
         )
 
-        payload = (await InboxEvent.objects.aget(run_id=outcome.run_id)).payload
+        payload = (await InboxEvent.objects.aget(run=outcome.run)).payload
         assert (payload["references"], payload["mcp_switches"]) == ([{"key": "PROJ-1"}], {"grafana": True})
         assert payload["sandbox_environment_id"] == "env-1"
         assert "mcp_overrides" not in payload

@@ -1,5 +1,5 @@
 import uuid
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -1287,20 +1287,12 @@ def _ci_client(raw_token):
     return TestAsyncClient(api, headers={"Authorization": f"Bearer {raw_token}"})
 
 
+@contextmanager
 def _enqueued_run_job():
-    task = patch("sessions.queue.run_job_task")
-
-    class _Started:
-        def __enter__(self):
-            self.mock = task.__enter__()
-            self.mock.aenqueue.side_effect = lambda **kwargs: _make_task_row()
-            self.mock.module_path = run_job_task.module_path
-            return self.mock
-
-        def __exit__(self, *exc):
-            return task.__exit__(*exc)
-
-    return _Started()
+    with patch("sessions.queue.run_job_task") as task:
+        task.aenqueue.side_effect = lambda **kwargs: _make_task_row()
+        task.module_path = run_job_task.module_path
+        yield task
 
 
 def _ci_body(**overrides):
@@ -1426,7 +1418,7 @@ class TestCIIdentitySubmissions:
         raw = ci_token()
 
         with (
-            patch("jobs.api.views.asubmit_ci_job", new=AsyncMock(side_effect=RuntimeError("after the run"))),
+            patch("jobs.api.ci.asubmit_ci_job", new=AsyncMock(side_effect=RuntimeError("after the run"))),
             suppress(RuntimeError),
         ):
             await _ci_client(raw).post("/jobs", json=_ci_body())

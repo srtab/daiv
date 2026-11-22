@@ -13,6 +13,7 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
 from tests.unit_tests.mcp_connectors.helpers import only_servers
+from tests.unit_tests.sessions.conftest import make_task_result
 
 
 async def _user(username):
@@ -659,7 +660,7 @@ async def test_a_merge_request_target_runs_as_an_mcp_job_in_the_merge_requests_s
         patch("sessions.merge_request_runs.starter.resolve_env_for_run", new=AsyncMock(return_value=None)),
         patch("sessions.merge_request_runs.service.address_merge_request_task") as task,
     ):
-        task.get_or_enqueue.return_value = (await _task_row(), True)
+        task.get_or_enqueue.return_value = (await sync_to_async(make_task_result)(status="READY"), True)
         result = await submit_job(repos=[{"repo_id": "a/b", "merge_request": 7}], prompt="/code-review")
 
     [job] = json.loads(result)["jobs"]
@@ -668,18 +669,3 @@ async def test_a_merge_request_target_runs_as_an_mcp_job_in_the_merge_requests_s
         SessionOrigin.MCP_JOB, 7, compute_thread_id(repo_slug="a/b", scope=Scope.MERGE_REQUEST, entity_iid=7),
     )  # fmt: skip
     assert task.get_or_enqueue.call_args.kwargs["request_key"].startswith("job:")
-
-
-async def _task_row():
-    from django_tasks_db.models import DBTaskResult
-
-    return await DBTaskResult.objects.acreate(
-        id=uuid.uuid4(),
-        status="READY",
-        task_path="sessions.merge_request_runs.tasks.address_merge_request_task",
-        args_kwargs={"args": [], "kwargs": {}},
-        queue_name="default",
-        backend_name="default",
-        run_after="9999-01-01T00:00:00Z",
-        return_value={},
-    )

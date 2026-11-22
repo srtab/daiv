@@ -80,12 +80,8 @@ class OwnRunEvents:
         which marks it handled. SYNC ONLY."""
         if run.status != RunStatus.FAILED:
             return
-        events = list(
-            InboxEvent.objects.filter(run=run, kind=cls.kind, state__in=(EventState.PENDING, EventState.TAKEN))
-        )
-        unsettled = InboxEvent.objects.filter(
-            pk__in=[event.pk for event in events], state__in=(EventState.PENDING, EventState.TAKEN)
-        )
+        unsettled = InboxEvent.objects.filter(run=run, kind=cls.kind, state__in=(EventState.PENDING, EventState.TAKEN))
+        events = list(unsettled)
         now = timezone.now()
         if run.is_cancelled:
             moved = unsettled.update(state=EventState.DISMISSED, updated_at=now)

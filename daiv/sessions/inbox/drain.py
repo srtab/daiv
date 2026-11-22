@@ -80,10 +80,7 @@ logger = logging.getLogger("daiv.sessions")
 
 DRAIN_SWEEP_LIMIT = 200
 
-_OWN_RUNS: dict[str, type[OwnRunEvents]] = {
-    EventKind.LEG_FOLLOW_UP: LegFollowUps,
-    EventKind.MERGE_REQUEST_JOB: MergeRequestJobs,
-}
+OWN_RUNS: dict[str, type[OwnRunEvents]] = {own_runs.kind: own_runs for own_runs in (LegFollowUps, MergeRequestJobs)}
 
 
 class Drain:
@@ -311,7 +308,7 @@ class _Take:
         """The own run of the leg follow-up or merge request job ``own``, locked, while it may start; else ``None``,
         once ``own`` is settled because its run is gone or no longer QUEUED, or stopped because its session was
         archived or its merge request ended. SYNC ONLY."""
-        own_runs = _OWN_RUNS[own.kind]
+        own_runs = OWN_RUNS[own.kind]
         # Locked so a coordinator's cancel can't land between this read and the promotion to READY.
         run = Run.objects.select_for_update().filter(pk=own.run_id).first()
         if run is None or run.status != RunStatus.QUEUED:

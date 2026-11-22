@@ -105,8 +105,8 @@ class CIIdentityVerifier:
 
     _key_clients: ClassVar[dict[str, jwt.PyJWKClient]] = {}
 
-    def __init__(self, provider: GitPlatform | None = None):
-        self.provider = GitPlatform(provider or codebase_settings.CLIENT)
+    def __init__(self):
+        self.provider = GitPlatform(codebase_settings.CLIENT)
 
     @property
     def issuer(self) -> str:
@@ -134,10 +134,16 @@ class CIIdentityVerifier:
 
     def verify(self, token: str) -> CIIdentity:
         """The identity ``token`` proves. Raises :class:`CIIdentityRefused` naming the check it failed. SYNC ONLY."""
-        claimed_repo = self._claimed_repo(token)
+        unverified = self._unverified_claims(token)
+        claimed_repo = str(unverified.get(_CLAIMS[self.provider]["repo_path"], ""))
         try:
             if jwt.get_unverified_header(token).get("alg") not in ALGORITHMS:
                 raise CIIdentityRefused("algorithm", claimed_repo)
+            if not unverified:
+                raise CIIdentityRefused("malformed")
+            if unverified.get("iss") != self.issuer:
+                # Before the key lookup: an unknown ``kid`` refetches the platform's keys on every request.
+                raise CIIdentityRefused("issuer", claimed_repo)
             key = self._key_client().get_signing_key_from_jwt(token)
             claims = jwt.decode(
                 token,
@@ -196,13 +202,13 @@ class CIIdentityVerifier:
             expires_at=datetime.fromtimestamp(claims["exp"], tz=UTC),
         )
 
-    def _claimed_repo(self, token: str) -> str:
-        """The repository path the unverified token claims, for the refusal log only."""
+    @staticmethod
+    def _unverified_claims(token: str) -> dict[str, Any]:
+        """The claims ``token`` makes before its signature is checked; empty when it has none to read."""
         try:
-            claims = jwt.decode(token, options={"verify_signature": False})
+            return jwt.decode(token, options={"verify_signature": False})
         except jwt.PyJWTError:
-            return ""
-        return str(claims.get(_CLAIMS[self.provider]["repo_path"], ""))
+            return {}
 
     def _key_client(self) -> jwt.PyJWKClient:
         url = self.keys_url

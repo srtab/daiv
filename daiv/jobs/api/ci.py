@@ -7,13 +7,17 @@ from typing import TYPE_CHECKING
 from django.db.models import Exists, OuterRef, Q
 
 from asgiref.sync import sync_to_async
+from sessions.admission import AdmissionError
 from sessions.merge_request_runs.starter import Requester
 from sessions.models import EventKind, InboxEvent
+from sessions.multi_repo import asubmit_ci_job
 
 from accounts.api.ci_identity import CIIdentityRefused, CIIdentityTokens, CIIdentityVerifier
 from codebase.repo_config import RepositoryConfig
 
 if TYPE_CHECKING:
+    from sessions.services import BatchSubmitResult, RepoTarget
+
     from accounts.api.ci_identity import CIIdentity
 
     from .schemas import JobSubmitRequest
@@ -37,7 +41,7 @@ class CISubmission:
             return 400, {"detail": ONE_JOB_ON_ITS_REPOSITORY}
         repo_id = payload.repos[0].repo_id
         try:
-            repository = await CIIdentityVerifier(identity.provider).averify_repository(identity, repo_id)
+            repository = await CIIdentityVerifier().averify_repository(identity, repo_id)
         except CIIdentityRefused as refused:
             refused.log()
             return 401, UNAUTHORIZED
@@ -49,9 +53,17 @@ class CISubmission:
             return 401, UNAUTHORIZED
         return None
 
-    async def arelease(self) -> None:
-        """Let the token submit again, after its submission accepted no job."""
-        await CIIdentityTokens.arelease(self.identity)
+    async def asubmit(self, target: RepoTarget, payload: JobSubmitRequest, **options) -> BatchSubmitResult:
+        """Submit the job on ``target`` (:func:`sessions.multi_repo.asubmit_ci_job`), after :meth:`arefusal` claimed
+        the token; a submission that accepted no job releases it, so a retry with the token works."""
+        try:
+            result = await asubmit_ci_job(requester=self.requester, target=target, muted=self.muted(payload), **options)
+        except AdmissionError:
+            await CIIdentityTokens.arelease(self.identity)
+            raise
+        if not result.runs:
+            await CIIdentityTokens.arelease(self.identity)
+        return result
 
     @property
     def requester(self) -> Requester:

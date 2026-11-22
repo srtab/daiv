@@ -41,12 +41,6 @@ pytestmark = pytest.mark.django_db(transaction=True)
 
 
 @pytest.fixture
-def drain():
-    with patch.object(Drain, "start_logged", autospec=True) as drain:
-        yield drain
-
-
-@pytest.fixture
 async def owned():
     return await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=7)
 

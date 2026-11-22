@@ -235,8 +235,8 @@ class TaskRun:
 async def aget_task_run(task_result_id: uuid.UUID | str) -> TaskRun:
     """The ``Run`` linked to a task result; an empty :class:`TaskRun` when none is.
 
-    A webhook callback commits the Run with its task (see ``webhooks.dispatch``), so a worker that sees the task
-    sees its Run too.
+    An addressor's Run commits with its task (``sessions.merge_request_runs.starter.RunStarter``), so a worker that
+    sees the task sees its Run too.
     """
     run = await Run.objects.filter(task_result_id=task_result_id).only("pk", "user_id", "acts_as_user").afirst()
     if run is None:
@@ -468,8 +468,6 @@ async def asubmit_batch_runs(
     """
     _validate(repos)
     if user is not None and acts_as_user:
-        # Gate only when a user is attached. All current callers supply one; the None branch
-        # is a defensive allowance for future internal callers with no user context.
         await aassert_repo_access(user, [target.repo_id for target in repos])
     if thread_id is not None:
         if not thread_id:

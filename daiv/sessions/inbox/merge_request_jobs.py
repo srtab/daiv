@@ -51,8 +51,6 @@ if TYPE_CHECKING:
 ARCHIVED = "archived"
 NOT_STARTED_MERGED = "This merge request was merged before the job could start, so I didn't run it."
 NOT_STARTED_CLOSED = "This merge request was closed before the job could start, so I didn't run it."
-#: Why a merge request job ended FAILED without starting; safe to show its caller.
-NOT_STARTED_MESSAGES = frozenset({NOT_STARTED_MERGED, NOT_STARTED_CLOSED, NOT_RUN_ARCHIVED})
 
 INTERRUPTED_NOTE = f"{BOT_NAME} was restarted while working on this job, so the job stopped before it finished."
 
@@ -81,7 +79,8 @@ def failure_note(run: Run) -> str | None:
 def caller_failure_message(run: Run) -> str | None:
     """Why the FAILED ``run`` failed, when it is safe to tell the job's caller: the provider's failure, or why a job
     never started."""
-    return run.provider_failure_message() or (run.error_message if run.error_message in NOT_STARTED_MESSAGES else None)
+    not_started = run.error_message in MergeRequestJobs.not_run.values()
+    return run.provider_failure_message() or (run.error_message if not_started else None)
 
 
 class MergeRequestJobRefused(Exception):  # noqa: N818
@@ -122,7 +121,7 @@ class MergeRequestJobs(OwnRunEvents):
             session = Session.objects.select_for_update().get(pk=self.thread_id)
             if session.archived_at is not None:
                 raise MergeRequestJobRefused(ARCHIVED)
-            if not (state := self._state()).is_open:
+            if not (state := self._state(self.repo_id, self.merge_request_iid)).is_open:
                 raise MergeRequestJobRefused(state)
             payload: dict = {"prompt": request.prompt, "trigger_type": request.source}
             if request.agent_model:
@@ -166,21 +165,21 @@ class MergeRequestJobs(OwnRunEvents):
             )
             session_changed(session.thread_id)
             transaction.on_commit(Drain(session.thread_id).start_logged, robust=True)
-        run.refresh_from_db(fields=["status"])
+        run.refresh_from_db()
         return run
 
     async def apost(self, *args, **kwargs) -> Run:
         return await sync_to_async(self.post)(*args, **kwargs)
 
-    def _state(self) -> MergeRequestState:
-        key = (self.repo_id, self.merge_request_iid)
+    @staticmethod
+    def _state(repo_id: str, merge_request_iid: int) -> MergeRequestState:
+        key = (repo_id, merge_request_iid)
         return MergeRequestOwnership.states_of([key])[key]
 
     @classmethod
     @override
     def merge_request_state(cls, session: Session, event: InboxEvent) -> MergeRequestState:
-        key = (event.effective_repo_id(session.repo_id), event.merge_request_iid)
-        return MergeRequestOwnership.states_of([key])[key]
+        return cls._state(event.effective_repo_id(session.repo_id), event.merge_request_iid)
 
     @staticmethod
     def run_options(events: Iterable[InboxEvent], session: Session, *, acting_user_id: int | None) -> RunOptions:
@@ -216,8 +215,7 @@ class MergeRequestJobs(OwnRunEvents):
     def _comment_once_committed(run: Run, events: list[InboxEvent], body: Callable[[MergeRequestReplies], str]) -> None:
         from sessions.inbox.complete import MergeRequestReplies
 
-        merge_requests = {(event.effective_repo_id(run.repo_id), event.merge_request_iid) for event in events}
-        transaction.on_commit(lambda: MergeRequestReplies.comment_on_merge_requests(merge_requests, body), robust=True)
+        transaction.on_commit(lambda: MergeRequestReplies.comment_on_events(events, run, body), robust=True)
 
 
 class RunOptions(NamedTuple):
