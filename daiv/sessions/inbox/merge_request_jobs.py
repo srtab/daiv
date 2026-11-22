@@ -86,11 +86,17 @@ class MergeRequestJobs:
         agent_model: str = "",
         agent_thinking_level: str = "",
         muted: bool | None = None,
+        references: list[dict] | None = None,
+        mcp_overrides: dict[str, str] | None = None,
+        sandbox_environment_id: str | None = None,
     ) -> Run:
         """Create the ``merge_request_job`` event and its QUEUED run in one transaction, with the session row locked,
         drain the session once that commits, and return the run as the drain left it. ``user`` is the requester, else
-        the platform account ``provider``/``uid``/``username`` is. Raises :class:`MergeRequestJobRefused` when, under
-        that lock, the session is archived or the merge request is no longer open. SYNC ONLY."""
+        the platform account ``provider``/``uid``/``username`` is. ``references``, ``mcp_overrides`` and
+        ``sandbox_environment_id`` reach the run as a follow-up job's do (:mod:`sessions.inbox.drain`). A merge request
+        of another of the session's repositories is posted as that repository's event, whose run is on the session's
+        branch. Raises :class:`MergeRequestJobRefused` when, under that lock, the session is archived or the merge
+        request is no longer open. SYNC ONLY."""
         from sessions.inbox.drain import Drain
 
         with transaction.atomic():
@@ -104,6 +110,13 @@ class MergeRequestJobs:
                 payload |= {"agent_model": agent_model, "agent_thinking_level": agent_thinking_level}
             if muted is not None:
                 payload["muted"] = muted
+            if references:
+                payload["references"] = references
+            if mcp_overrides is not None:
+                payload["mcp_overrides"] = mcp_overrides
+            if sandbox_environment_id:
+                payload["sandbox_environment_id"] = sandbox_environment_id
+            other_repo = self.repo_id != session.repo_id
             run = Run.objects.create(
                 session=session,
                 trigger_type=source,
@@ -117,8 +130,8 @@ class MergeRequestJobs:
                 muted=muted,
                 prompt=prompt,
                 repo_id=session.repo_id,
-                ref=ref,
-                merge_request_iid=self.merge_request_iid,
+                ref=session.ref if other_repo else ref,
+                merge_request_iid=None if other_repo else self.merge_request_iid,
                 agent_model=agent_model,
                 agent_thinking_level=agent_thinking_level,
                 sandbox_environment_id=session.sandbox_environment_id,
@@ -130,7 +143,7 @@ class MergeRequestJobs:
                 payload=payload,
                 wake=True,
                 ref=ref,
-                repo_id="" if self.repo_id == session.repo_id else self.repo_id,
+                repo_id=self.repo_id if other_repo else "",
                 merge_request_iid=self.merge_request_iid,
                 author=user,
                 author_username=username,

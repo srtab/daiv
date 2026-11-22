@@ -1208,6 +1208,21 @@ class TestMergeRequestJob:
         assert (promoted.user_id, promoted.acting_user_id) == (member_user.pk, None)
         assert promoted.sandbox_environment_id != env.pk
 
+    async def test_its_references_tools_and_named_environment_reach_the_session_and_its_run(self, enqueue):
+        env = await SandboxEnvironment.objects.acreate(
+            scope=Visibility.GLOBAL, name="ci", base_image="python:3.14", repo_ids=["group/repo"]
+        )
+        run, job = await _merge_request_job(
+            references=[{"key": "PROJ-1"}], mcp_overrides={"grafana": "on"}, sandbox_environment_id=str(env.pk)
+        )
+
+        await Drain(job.session_id).astart()
+
+        session = await Session.objects.aget(pk=job.session_id)
+        assert [ref["key"] for ref in session.external_refs] == ["PROJ-1"]
+        assert session.mcp_overrides == {"grafana": "on"}
+        assert (await Run.objects.aget(pk=run.pk)).sandbox_environment_id == env.pk
+
     async def test_a_job_acting_as_its_caller_is_checked_against_their_access(self, enqueue, member_user):
         run, job = await _merge_request_job(user=member_user, acts_as_user=True, username="", provider="", uid="")
 

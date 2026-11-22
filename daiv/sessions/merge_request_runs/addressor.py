@@ -9,6 +9,7 @@ from django.template.loader import render_to_string
 from langchain_core.messages import HumanMessage
 
 from automation.agent.provider_errors import provider_failure_of
+from automation.agent.references import refs_from_stored
 from automation.agent.utils import repo_relative_text
 from codebase.base import GitPlatform, MergeRequest, Scope
 from codebase.clients.base import CommentThread
@@ -21,6 +22,7 @@ from sessions.merge_request_runs.base import BaseManager
 if TYPE_CHECKING:
     from langgraph.types import StateSnapshot
 
+    from automation.agent.references import ExternalRef
     from sessions.executor.result import AgentResult
     from sessions.executor.spec import RunOutcome
 
@@ -56,6 +58,8 @@ class CommentsAddressorManager(BaseManager):
         requester_username: str = "",
         agent_model: str | None = None,
         agent_thinking_level: str | None = None,
+        references: list[dict] | None = None,
+        mcp_overrides: dict[str, str] | None = None,
     ) -> AgentResult:
         """
         Process a comment left directly on the merge request (not in the diff or thread) that mentions DAIV, or a
@@ -75,6 +79,8 @@ class CommentsAddressorManager(BaseManager):
             requester_username: Who sent the job.
             agent_model: The job's model, ``None`` for the default.
             agent_thinking_level: The thinking level for ``agent_model``.
+            references: A job's stored external references.
+            mcp_overrides: A job's resolved MCP overrides.
 
         Returns:
             An :class:`AgentResult` dict with the agent response and code_changes flag. A vanished source branch
@@ -101,6 +107,8 @@ class CommentsAddressorManager(BaseManager):
                     acting_user_id=acting_user_id,
                     agent_model=agent_model,
                     agent_thinking_level=agent_thinking_level,
+                    references=refs_from_stored(references or []),
+                    mcp_overrides=mcp_overrides or {},
                 )
             return await manager._address_comments(
                 sandbox_env_id=sandbox_env_id, run_id=run_id, use_max=use_max, acting_user_id=acting_user_id
@@ -139,6 +147,8 @@ class CommentsAddressorManager(BaseManager):
         acting_user_id: int | None,
         agent_model: str | None = None,
         agent_thinking_level: str | None = None,
+        references: tuple[ExternalRef, ...] = (),
+        mcp_overrides: dict[str, str] | None = None,
     ) -> AgentResult:
         outcome = await execute_run(
             RunSpec(
@@ -155,6 +165,8 @@ class CommentsAddressorManager(BaseManager):
                 agent_thinking_level=agent_thinking_level,
                 sandbox_env_id=sandbox_env_id,
                 acting_user_id=acting_user_id,
+                mcp_overrides=mcp_overrides or {},
+                references=references,
                 run_id=run_id,
                 recover_draft=True,
                 extra_metadata={

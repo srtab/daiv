@@ -76,6 +76,30 @@ class TestPost:
         }  # fmt: skip
         drain.assert_called_once()
 
+    async def test_it_carries_the_jobs_references_mcp_overrides_and_named_environment(self, owned, drain):
+        run = await _post(
+            owned, references=[{"key": "PROJ-1"}], mcp_overrides={"grafana": "on"}, sandbox_environment_id="env-1"
+        )
+
+        payload = (await InboxEvent.objects.aget(run=run)).payload
+        assert (payload["references"], payload["mcp_overrides"], payload["sandbox_environment_id"]) == (
+            [{"key": "PROJ-1"}], {"grafana": "on"}, "env-1",
+        )  # fmt: skip
+
+    async def test_a_merge_request_of_another_of_the_sessions_repositories_runs_on_the_sessions_branch(
+        self, owned, drain
+    ):
+        other = await MergeRequestOwnership.objects.acreate(
+            repo_id="group/other", merge_request_iid=3, session_id=owned.session_id, source_branch="daiv/other"
+        )
+
+        run = await _post(other)
+
+        stored = await Run.objects.aget(pk=run.pk)
+        assert (stored.repo_id, stored.ref, stored.merge_request_iid) == ("group/repo", owned.source_branch, None)
+        event = await InboxEvent.objects.aget(run=run)
+        assert (event.repo_id, event.ref, event.merge_request_iid) == ("group/other", "daiv/other", 3)
+
     async def test_a_linked_requester_owns_its_run(self, owned, drain, member_user):
         run = await _post(owned, user=member_user, acts_as_user=True, username="", provider="", uid="")
 

@@ -49,8 +49,8 @@ class Requester:
 
     ``user`` owns the run, and is notified about it: the caller, or the DAIV user linked to the platform account
     (``None`` when no one linked it). ``provider``, ``uid`` and ``username`` name that platform account, blank for a
-    caller DAIV knows only as a user. The run acts as ``user``, loading their personal tools and environments, only
-    with ``acts_as_user``.
+    caller who never linked one; DAIV mentions ``username`` on the merge request. The run acts as ``user``, loading
+    their personal tools and environments, only with ``acts_as_user``.
     """
 
     user: User | None
@@ -90,11 +90,17 @@ class Mention:
 @dataclass(frozen=True)
 class Request:
     """A job's prompt for a merge request, from the jobs API or MCP (``source``). ``request_key`` names the job, a
-    fresh ``job:{uuid}`` each, so no two jobs are one."""
+    fresh ``job:{uuid}`` each, so no two jobs are one.
+
+    ``references`` are stored refs (``RefIn.to_stored``), ``mcp_switches`` the caller's MCP switches, unresolved, and
+    ``environment_id`` the environment the caller named, ``None`` when they named none."""
 
     prompt: str
     source: SessionOrigin
     request_key: str
+    references: tuple[dict[str, Any], ...] = ()
+    mcp_switches: dict[str, bool] | None = None
+    environment_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -138,11 +144,12 @@ class RunStarter:
         agent_model: str = "",
         agent_thinking_level: str = "",
         sandbox_environment_id: str | None = None,
+        runs_alone: bool = False,
     ) -> StartOutcome:
         """Enqueue ``task`` with ``task_kwargs`` plus what every addressor task takes, and record its ``Run`` for
-        ``requester`` in one transaction. Nothing starts when the enqueue finds an earlier trigger's task, which has
-        its ``Run`` already, or when the session is archived, which ``reply`` answers; with no ``reply`` nothing is
-        posted.
+        ``requester`` in one transaction (``runs_alone`` for a job's). Nothing starts when the enqueue finds an earlier
+        trigger's task, which has its ``Run`` already, or when the session is archived, which ``reply`` answers; with no
+        ``reply`` nothing is posted.
 
         The run uses ``agent_model`` when given, else the model ``use_max`` pins, and ``sandbox_environment_id`` when
         given, else the repository's environment for no one in particular.
@@ -186,6 +193,7 @@ class RunStarter:
                 merge_request_iid=self.iid if self.scope == Scope.MERGE_REQUEST else None,
                 **requester.run_fields,
                 acts_as_user=requester.acts_as_user,
+                runs_alone=runs_alone,
                 muted=muted,
                 title=title,
                 sandbox_environment_id=sandbox_environment_id,

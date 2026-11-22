@@ -4,15 +4,16 @@ from uuid import UUID  # noqa: TC003 - required at runtime by Pydantic
 
 from mcp_connectors.selection import McpServerSwitches  # noqa: TC002 - required at runtime by Ninja
 from ninja import Field, Schema
-from pydantic import ConfigDict, model_validator
+from pydantic import ConfigDict
 from sessions.artifacts import ArtifactPayload  # noqa: TC002 - required at runtime by Ninja
+from sessions.merge_request_runs.schemas import MergeRequestTarget
 
 from automation.agent.references import MAX_REFS_PER_SUBMISSION, RefIn  # noqa: TC001 - required at runtime by Ninja
 from codebase.base import RepoId  # noqa: TC001 - required at runtime by Ninja
 from core.models import ThinkingLevelChoices  # noqa: TC001 - required at runtime by Ninja
 
 
-class RepoSubmitItem(Schema):
+class RepoSubmitItem(MergeRequestTarget, Schema):
     repo_id: RepoId
     ref: str | None = None
     prompt: str | None = Field(
@@ -23,21 +24,6 @@ class RepoSubmitItem(Schema):
             "Refused with `shared_session`."
         ),
     )
-    merge_request: int | None = Field(
-        default=None,
-        ge=1,
-        description=(
-            "The merge request (GitLab iid, GitHub number) to run on, in place of `ref`: the run goes where a mention "
-            "by you would, and its final message is posted on the merge request. Refused with `ref`, a per-repository "
-            "`prompt`, `shared_session`, `thread_id` or another `repos` entry."
-        ),
-    )
-
-    @model_validator(mode="after")
-    def _merge_request_alone(self):
-        if self.merge_request is not None and (self.ref is not None or self.prompt is not None):
-            raise ValueError("merge_request can't be combined with ref or a per-repository prompt")
-        return self
 
 
 class JobSubmitRequest(Schema):

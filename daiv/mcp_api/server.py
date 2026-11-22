@@ -17,7 +17,7 @@ from asgiref.sync import sync_to_async
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
 from mcp_connectors.selection import McpServerSwitches  # noqa: TC002 - runtime type for MCPServer
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError as PydanticValidationError
 from sandbox_envs.selection import resolve_env_for_user
 from sandbox_envs.services import alist_visible_environments
@@ -29,6 +29,7 @@ from sessions.admission import (
     check_agent_override,
 )
 from sessions.artifacts import aserialize_run_artifacts_for_status
+from sessions.merge_request_runs.schemas import MergeRequestTarget
 from sessions.models import Run, RunStatus, SessionOrigin
 from sessions.multi_repo import THREAD_NOT_FOUND, asubmit_jobs
 from sessions.services import MAX_REPOS_PER_BATCH, RepoTarget, alist_user_runs
@@ -132,7 +133,7 @@ class RepoScheduleSpec(RepoSpec):
     model_config = ConfigDict(extra="forbid")
 
 
-class RepoSubmitSpec(RepoSpec):
+class RepoSubmitSpec(MergeRequestTarget, RepoSpec):
     prompt: str | None = Field(
         default=None,
         pattern=r"\S",
@@ -141,20 +142,6 @@ class RepoSubmitSpec(RepoSpec):
             "Refused with `shared_session`."
         ),
     )
-    merge_request: int | None = Field(
-        default=None,
-        ge=1,
-        description=(
-            "Open merge request (GitLab iid, GitHub number) to run on, in place of `ref`; its final message is posted "
-            "on it. Refused with `ref`, a per-repository `prompt`, `shared_session`, `thread_id` or another entry."
-        ),
-    )
-
-    @model_validator(mode="after")
-    def _merge_request_alone(self):
-        if self.merge_request is not None and (self.ref is not None or self.prompt is not None):
-            raise ValueError("merge_request can't be combined with ref or a per-repository prompt")
-        return self
 
 
 @mcp.tool()

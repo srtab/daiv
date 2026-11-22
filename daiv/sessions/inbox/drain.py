@@ -78,6 +78,11 @@ logger = logging.getLogger("daiv.sessions")
 
 DRAIN_SWEEP_LIMIT = 200
 
+_OWN_RUNS: dict[str, type[LegFollowUps] | type[MergeRequestJobs]] = {
+    EventKind.LEG_FOLLOW_UP: LegFollowUps,
+    EventKind.MERGE_REQUEST_JOB: MergeRequestJobs,
+}
+
 
 class Drain:
     """The drain of the session ``thread_id``: starting its next run from its pending events."""
@@ -237,13 +242,14 @@ class _Take:
         own = asked[0] if asked[0].kind in OWN_RUN_KINDS else None
         own_run = None
         if own is not None:
+            own_runs = _OWN_RUNS[own.kind]
             # Locked so a coordinator's cancel can't land between this read and the promotion to READY.
             own_run = Run.objects.select_for_update().filter(pk=own.run_id).first()
             if own_run is None or own_run.status != RunStatus.QUEUED:
-                self._settle_unstartable(own, own_run)
+                own_runs.settle_unstartable(own, own_run)
                 own_run = None
-            elif (stop := self._stop_reason(own)) is not None:
-                self._stop(own, stop, own_run)
+            elif (stop := own_runs.stop_reason(session, own)) is not None:
+                own_runs.stop(own, stop, own_run)
                 own_run = None
             if own_run is None:
                 transaction.on_commit(Drain(session.thread_id).start_logged, robust=True)
@@ -301,25 +307,6 @@ class _Take:
         self._apply_tools_selection(taken)
         return run, self._charge_ci_attempts(taken)
 
-    @staticmethod
-    def _settle_unstartable(own: InboxEvent, run: Run | None) -> None:
-        if own.kind == EventKind.MERGE_REQUEST_JOB:
-            MergeRequestJobs.settle_unstartable(own, run)
-        else:
-            LegFollowUps.settle_unstartable(own, run)
-
-    def _stop_reason(self, own: InboxEvent) -> EventFailure | None:
-        if own.kind == EventKind.MERGE_REQUEST_JOB:
-            return MergeRequestJobs.stop_reason(self.session, own)
-        return LegFollowUps.stop_reason(self.session)
-
-    @staticmethod
-    def _stop(own: InboxEvent, failure: EventFailure, run: Run) -> None:
-        if own.kind == EventKind.MERGE_REQUEST_JOB:
-            MergeRequestJobs.stop(own, failure, run)
-        else:
-            LegFollowUps.stop(own, failure, run)
-
     def _link_superseded(self, taken: list[InboxEvent], run: Run, branch: str) -> None:
         """Link to ``run`` the superseded events of the subjects it took, on its ``branch``, which it shows replaced."""
         subjects = {event.subject_key for event in taken if event.subject}
@@ -334,21 +321,21 @@ class _Take:
         ).update(run=run)
 
     def _merge_references(self, taken: list[InboxEvent]) -> None:
-        """Add the references the follow-up jobs and leg follow-ups the run took declared to the session, which the run
-        reads them from."""
+        """Add the references the jobs and leg follow-ups the run took declared to the session, which the run reads
+        them from."""
         session = self.session
         declared = [
             ref
             for event in taken
-            if event.kind in (EventKind.FOLLOW_UP_JOB, EventKind.LEG_FOLLOW_UP)
+            if event.kind in (EventKind.FOLLOW_UP_JOB, EventKind.LEG_FOLLOW_UP, EventKind.MERGE_REQUEST_JOB)
             for ref in event.payload.get("references", [])
         ]
         if declared and (merged := merge_stored_refs(session.external_refs, declared)) != session.external_refs:
             Session.objects.filter(pk=session.pk).update(external_refs=merged)
 
     def _apply_tools_selection(self, taken: list[InboxEvent]) -> None:
-        """Give the session the Tools selection the newest chat message the run took was sent with, which
-        ``run_job_task`` reads when the run starts."""
+        """Give the session the Tools selection the newest chat message or merge request job the run took was sent
+        with, which ``run_job_task`` reads when the run starts."""
         selections = [event.payload["mcp_overrides"] for event in taken if "mcp_overrides" in event.payload]
         if selections and selections[-1] != self.session.mcp_overrides:
             Session.objects.filter(pk=self.session.pk).update(mcp_overrides=selections[-1])
@@ -428,14 +415,15 @@ class _Take:
             )
 
     def _sandbox_env_id(self, user: User | None, taken: list[InboxEvent]) -> uuid.UUID | None:
-        """The environment the newest follow-up job among ``taken`` was submitted with, while ``user`` still sees it.
+        """The environment the newest job among ``taken`` was submitted with, while ``user`` still sees it.
         Else the session's, unless it is a USER environment ``user`` does not own: a run for another person, or for no
         one, never gets the owner's secrets. Then the one the repository resolves to for ``user``."""
         visible = SandboxEnvironment.objects.visible_to(user)  # ty: ignore[missing-attribute]
         asked = [
             event.payload["sandbox_environment_id"]
             for event in taken
-            if event.kind == EventKind.FOLLOW_UP_JOB and event.payload.get("sandbox_environment_id")
+            if event.kind in (EventKind.FOLLOW_UP_JOB, EventKind.MERGE_REQUEST_JOB)
+            and event.payload.get("sandbox_environment_id")
         ]
         if asked and visible.filter(pk=asked[-1]).exists():
             return uuid.UUID(asked[-1])

@@ -9,6 +9,7 @@ from django.utils import timezone
 from codebase.clients import RepoClient
 from codebase.exceptions import CloneRefNotFoundError
 from sessions.inbox.merge_request_jobs import NOT_STARTED_CLOSED, NOT_STARTED_MERGED
+from sessions.legs import NOT_RUN_ARCHIVED
 from sessions.models import Run, RunStatus, Session
 from sessions.services import aget_task_run
 
@@ -48,7 +49,8 @@ async def _astop_job(
     if task_run.run_id is not None:
         run = await Run.objects.aget(pk=task_run.run_id)
         now = timezone.now()
-        await Run.objects.afinish(run, RunStatus.FAILED, never_started=True, error_message=note or "", finished_at=now)
+        error = note or NOT_RUN_ARCHIVED
+        await Run.objects.afinish(run, RunStatus.FAILED, never_started=True, error_message=error, finished_at=now)
     if note is None:
         logger.info(
             "Not starting the job on %s!%s: its session is archived",
@@ -76,6 +78,8 @@ async def address_merge_request_task(
     requester_username: str = "",
     agent_model: str | None = None,
     agent_thinking_level: str | None = None,
+    references: list[dict[str, Any]] | None = None,
+    mcp_overrides: dict[str, str] | None = None,
 ) -> AgentResult:
     """
     Run the agent on a merge request, for a comment that mentioned DAIV on it or a job's ``prompt``.
@@ -99,6 +103,8 @@ async def address_merge_request_task(
         requester_username (str): Who sent the job, as the model sees them.
         agent_model (str | None): The job's model; ``None``: the default, or the max model with ``use_max``.
         agent_thinking_level (str | None): The thinking level for ``agent_model``.
+        references (list[dict] | None): A job's stored external references, for this run only.
+        mcp_overrides (dict[str, str] | None): A job's resolved MCP overrides, for this run only.
     """
     from sessions.merge_request_runs.addressor import CommentsAddressorManager
 
@@ -125,6 +131,8 @@ async def address_merge_request_task(
             "requester_username": requester_username,
             "agent_model": agent_model,
             "agent_thinking_level": agent_thinking_level,
+            "references": references or [],
+            "mcp_overrides": mcp_overrides or {},
         }
     try:
         return await CommentsAddressorManager.address_comments(

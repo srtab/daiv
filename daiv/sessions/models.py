@@ -436,7 +436,10 @@ class Run(models.Model):
     runs_alone = models.BooleanField(
         _("runs alone"),
         default=False,
-        help_text=_("Created with the one inbox event it runs, so it is never a next run other events join."),
+        help_text=_(
+            "Created for one job on a merge request: never a next run other events join, nor the session's one active "
+            "job run."
+        ),
     )
     title = models.CharField(_("title"), max_length=120, blank=True, default="")
     batch_id = models.UUIDField(_("batch ID"), null=True, blank=True, db_index=True)
@@ -558,7 +561,7 @@ class Run(models.Model):
         constraints = [
             # At most one active (READY or RUNNING) API/MCP/delegation run per session. QUEUED is
             # intentionally outside the constraint so FIFO siblings can stack; webhook triggers and
-            # runs on a merge request share deterministic sessions and are intentionally excluded.
+            # merge request jobs (``runs_alone``) share deterministic sessions and are intentionally excluded.
             # Exact port of activity_one_active_per_thread. The status/trigger_type
             # literals here must equal {RunStatus.READY, RunStatus.RUNNING} and
             # {SessionOrigin.API_JOB, SessionOrigin.MCP_JOB, SessionOrigin.DELEGATED_JOB,
@@ -569,7 +572,7 @@ class Run(models.Model):
                 condition=models.Q(
                     status__in=["READY", "RUNNING"],
                     trigger_type__in=["api_job", "mcp_job", "delegated_job", "delegation_resume"],
-                    merge_request_iid__isnull=True,
+                    runs_alone=False,
                 ),
                 name="run_one_active_per_session",
             ),

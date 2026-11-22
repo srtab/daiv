@@ -124,12 +124,20 @@ def test_one_active_api_run_per_session_constraint():
         _mk_run(session, status=RunStatus.RUNNING, trigger_type=SessionOrigin.API_JOB)
 
 
-def test_two_active_api_runs_on_a_merge_request_share_its_session():
+def test_two_active_merge_request_jobs_share_its_session():
     session = _mk_session()
-    _mk_run(session, status=RunStatus.READY, trigger_type=SessionOrigin.API_JOB, merge_request_iid=7)
-    _mk_run(session, status=RunStatus.READY, trigger_type=SessionOrigin.API_JOB, merge_request_iid=7)
+    _mk_run(session, status=RunStatus.READY, trigger_type=SessionOrigin.API_JOB, merge_request_iid=7, runs_alone=True)
+    _mk_run(session, status=RunStatus.READY, trigger_type=SessionOrigin.API_JOB, merge_request_iid=7, runs_alone=True)
 
     assert session.runs.count() == 2
+
+
+def test_a_job_run_that_recorded_a_merge_request_still_holds_the_active_place():
+    session = _mk_session()
+    _mk_run(session, status=RunStatus.RUNNING, trigger_type=SessionOrigin.API_JOB, merge_request_iid=7)
+
+    with pytest.raises(IntegrityError):
+        _mk_run(session, status=RunStatus.READY, trigger_type=SessionOrigin.API_JOB)
 
 
 def test_webhook_runs_exempt_from_active_constraint():
@@ -239,7 +247,7 @@ def test_active_constraint_literals_match_enums():
     conditions = dict(constraint.condition.children)
     assert set(conditions["status__in"]) == {RunStatus.READY, RunStatus.RUNNING}
     assert set(conditions["trigger_type__in"]) == SessionOrigin.one_active()
-    assert conditions["merge_request_iid__isnull"] is True
+    assert conditions["runs_alone"] is False
 
 
 @pytest.mark.parametrize("name", ["run_one_next_run_per_user", "run_one_next_run_per_account"])

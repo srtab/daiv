@@ -178,14 +178,16 @@ The run goes where a mention by you would:
 - **No DAIV session owns the merge request:** the run goes into the merge request's own session, which later mentions on the merge request share, so they have the job's result in context. The job starts `READY`, and runs after any run already in that session.
 - **A DAIV session owns it** (DAIV published the merge request): the job runs as one turn of that session, acting as you. It is `QUEUED` while the session is busy. Each job keeps its own `job_id`, so two jobs sent while the session is busy run as two turns, one after the other.
 
+`references`, `mcp_overrides` and `environment` apply to the job's run. In the merge request's own session they hold for that run only. In a session that owns the merge request they work as on a `thread_id` continuation: the references join the session, `mcp_overrides` apply on top of the session's own and stay with it, and a named `environment` replaces the session's for that turn.
+
 The job ends with one of these on the merge request:
 
 - **The result:** the final message, also returned in `result`.
-- **A question:** the question, and the job is `WAITING_INPUT`. Anyone who mentions DAIV on the merge request answers it, or you send a new job with the same target.
+- **A question:** the question, mentioning the git platform account your DAIV account is linked to, if any, and the job is `WAITING_INPUT`. Anyone who mentions DAIV on the merge request answers it, or you send a new job with the same target.
 - **A failure:** a short comment that DAIV could not complete the request, and the job is `FAILED`.
 - **A merge or close before the run started:** DAIV posts "This merge request was merged before the job could start, so I didn't run it." ("closed" for a closed one), and the job is `FAILED` with that text in `error`.
 
-DAIV refuses the job before starting a run, and puts it in `failed` with the reason, when the merge request is not in the repository (`Merge request !42 was not found in mygroup/myproject.`), is merged or closed (`Merge request !42 is merged.`), or its DAIV session is archived. An archived session's refusal links the session to unarchive, and DAIV posts nothing on the merge request. A session archived after DAIV accepted the job ends the job `FAILED`, also posting nothing.
+DAIV refuses the job before starting a run, and puts it in `failed` with the reason, when the merge request is not in the repository (`Merge request !42 was not found in mygroup/myproject.`), is merged or closed (`Merge request !42 is merged.`), or its DAIV session is archived. An archived session's refusal links the session to unarchive, and DAIV posts nothing on the merge request. A session archived after DAIV accepted the job ends the job `FAILED` with `Not run: its session was archived` in `error`, also posting nothing.
 
 To run this from CI on every push, see [Review every push to a merge request](#review-every-push-to-a-merge-request).
 

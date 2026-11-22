@@ -138,7 +138,7 @@ class TestStopReason:
     async def test_none_while_the_merge_request_is_open_or_unknown(self, admin_user):
         session = await _leg_session(admin_user, merge_request_iid=4)
 
-        assert await sync_to_async(LegFollowUps.stop_reason)(session) is None
+        assert await sync_to_async(LegFollowUps.stop_reason)(session, None) is None
 
     @pytest.mark.parametrize(
         ("merged", "failure"),
@@ -152,7 +152,7 @@ class TestStopReason:
         )
         await Ownerships("acme/api").aclose(4, merged=merged, by_username="sfr", target_branch="main")
 
-        assert await sync_to_async(LegFollowUps.stop_reason)(session) == failure
+        assert await sync_to_async(LegFollowUps.stop_reason)(session, None) == failure
 
 
 class TestEndWithRun:

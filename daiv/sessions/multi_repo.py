@@ -7,8 +7,11 @@ from django.db import transaction
 
 from asgiref.sync import sync_to_async
 
+from accounts.utils import aget_platform_identity
 from automation.agent.references import MAX_REFS_PER_SUBMISSION
+from codebase.base import GitPlatform
 from codebase.clients import RepoClient
+from codebase.conf import settings as codebase_settings
 from sessions.admission import AdmissionError, aadmit, aassert_repo_access
 from sessions.merge_request_runs.service import MergeRequestRuns
 from sessions.merge_request_runs.starter import Request, Requester
@@ -196,12 +199,15 @@ async def asubmit_jobs(
     )
     if on_merge_request:
         return await _asubmit_merge_request_job(
-            requester=Requester(user=user),
+            requester=await _arequester(user),
             target=admission.targets[0],
             prompt=prompt,
             admission=admission,
             muted=muted,
             trigger_type=trigger_type,
+            references=[ref.to_stored() for ref in references or []],
+            mcp_switches=mcp_overrides,
+            environment_named=bool(environment),
         )
     submit = _asubmit_shared_session_run if shared else asubmit_batch_runs
     return await submit(
@@ -253,6 +259,8 @@ async def asubmit_ci_job(
             admission=admission,
             muted=muted,
             trigger_type=SessionOrigin.API_JOB,
+            mcp_switches=mcp_overrides,
+            environment_named=bool(environment),
         )
     return await asubmit_batch_runs(
         user=requester.user,
@@ -271,6 +279,17 @@ async def asubmit_ci_job(
     )
 
 
+async def _arequester(user: User) -> Requester:
+    """``user`` as a merge request job's requester, with the platform account they signed in with, which DAIV
+    mentions on the merge request; never their DAIV username, which may name someone else there."""
+    provider = GitPlatform(codebase_settings.CLIENT)
+    identity = await aget_platform_identity(user_id=user.pk, provider=provider)
+    if identity is None:
+        return Requester(user=user)
+    uid = "" if identity.uid is None else identity.uid
+    return Requester(user=user, provider=provider, uid=uid, username=identity.username or "")
+
+
 async def _asubmit_merge_request_job(
     *,
     requester: Requester,
@@ -279,11 +298,22 @@ async def _asubmit_merge_request_job(
     admission: Admission,
     muted: bool | None,
     trigger_type: str,
+    references: list[dict[str, Any]] | None = None,
+    mcp_switches: dict[str, bool] | None = None,
+    environment_named: bool = False,
 ) -> BatchSubmitResult:
-    """Run ``prompt`` on the merge request ``target`` names, where a mention by ``requester`` would; one outcome."""
-    request = Request(prompt=prompt, source=SessionOrigin(trigger_type), request_key=f"job:{uuid.uuid4().hex}")
+    """Run ``prompt`` on the merge request ``target`` names, where a mention by ``requester`` would; one outcome.
+    ``environment_named``: the caller named ``target``'s environment, rather than leaving it to the repository."""
     if target.merge_request_iid is None:
         raise ValueError("a merge request job needs a merge request")
+    request = Request(
+        prompt=prompt,
+        source=SessionOrigin(trigger_type),
+        request_key=f"job:{uuid.uuid4().hex}",
+        references=tuple(references or ()),
+        mcp_switches=mcp_switches,
+        environment_id=target.sandbox_environment_id if environment_named else None,
+    )
     runs = MergeRequestRuns(await sync_to_async(RepoClient.create_instance)(), target.repo_id, target.merge_request_iid)
     outcome = await runs.asubmit_job(
         requester,

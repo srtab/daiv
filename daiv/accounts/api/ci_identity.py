@@ -29,7 +29,7 @@ from ninja.security import HttpBearer
 from accounts.utils import resolve_linked_user
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
-from codebase.clients.base import PLATFORM_ERRORS
+from codebase.clients.base import PLATFORM_ERRORS, is_not_found
 from codebase.conf import settings as codebase_settings
 from core.conf import settings as core_settings
 
@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from django.http import HttpRequest
 
     from accounts.models import User
+    from codebase.base import Repository
 
 logger = logging.getLogger("daiv.accounts")
 
@@ -81,8 +82,11 @@ class CIIdentity:
     expires_at: datetime
 
     @property
-    def pk(self) -> str:
-        """The key its jobs are rate-limited on: the triggering account."""
+    def pk(self) -> int | str:
+        """The key its jobs are rate-limited on: the triggering account's DAIV user, so CI shares their budget, else
+        the account itself."""
+        if self.user is not None:
+            return self.user.pk
         return f"ci:{self.provider}:{self.actor_uid}"
 
 
@@ -147,20 +151,22 @@ class CIIdentityVerifier:
         identity = await sync_to_async(self.verify, thread_sensitive=False)(token)
         return replace(identity, user=await resolve_linked_user(self.provider, identity.actor_uid))
 
-    def verify_repository(self, identity: CIIdentity, repo_id: str) -> None:
-        """Raise :class:`CIIdentityRefused` unless ``repo_id`` is the repository ``identity``'s pipeline belongs to,
-        by the stable id the platform reports for it; a fork's pipeline names the fork. SYNC ONLY."""
+    def verify_repository(self, identity: CIIdentity, repo_id: str) -> Repository:
+        """``repo_id``'s repository, once it is the one ``identity``'s pipeline belongs to, by the stable id the
+        platform reports for it; a fork's pipeline names the fork. Raises :class:`CIIdentityRefused` otherwise. SYNC
+        ONLY."""
         try:
             repository = RepoClient.create_instance().get_repository(repo_id)
         except PLATFORM_ERRORS as err:
-            if 404 not in (getattr(err, "response_code", None), getattr(err, "status", None)):
+            if not is_not_found(err):
                 logger.exception("Could not read repository %s to check a CI identity token", repo_id)
             raise CIIdentityRefused("repository", identity.repo_id) from err
         if repository.pk != identity.repo_platform_id:
             raise CIIdentityRefused("repository", identity.repo_id)
+        return repository
 
-    async def averify_repository(self, identity: CIIdentity, repo_id: str) -> None:
-        await sync_to_async(self.verify_repository, thread_sensitive=False)(identity, repo_id)
+    async def averify_repository(self, identity: CIIdentity, repo_id: str) -> Repository:
+        return await sync_to_async(self.verify_repository, thread_sensitive=False)(identity, repo_id)
 
     def _identity(self, claims: dict[str, Any]) -> CIIdentity:
         names = _CLAIMS[self.provider]

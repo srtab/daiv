@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.utils import timezone
 
 import pytest
+from sessions.legs import NOT_RUN_ARCHIVED
 from sessions.merge_request_runs.tasks import address_merge_request_task
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import TaskRun
@@ -167,7 +168,7 @@ class TestAJobThatCannotStart:
         address.assert_not_called()
         client.create_merge_request_comment.assert_not_called()
         await run.arefresh_from_db()
-        assert run.status == RunStatus.FAILED
+        assert (run.status, run.error_message) == (RunStatus.FAILED, NOT_RUN_ARCHIVED)
 
     async def test_a_mention_on_a_merged_merge_request_still_gets_todays_note(self, run):
         client = MagicMock()

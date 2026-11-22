@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 
 from asgiref.sync import sync_to_async
 from sessions.merge_request_runs.starter import Requester
+from sessions.models import EventKind, InboxEvent
 
 from accounts.api.ci_identity import CIIdentityRefused, CIIdentityTokens, CIIdentityVerifier
 from codebase.repo_config import RepositoryConfig
@@ -36,11 +37,11 @@ class CISubmission:
             return 400, {"detail": ONE_JOB_ON_ITS_REPOSITORY}
         repo_id = payload.repos[0].repo_id
         try:
-            await CIIdentityVerifier(identity.provider).averify_repository(identity, repo_id)
+            repository = await CIIdentityVerifier(identity.provider).averify_repository(identity, repo_id)
         except CIIdentityRefused as refused:
             refused.log()
             return 401, UNAUTHORIZED
-        config = await sync_to_async(RepositoryConfig.get_config)(repo_id)
+        config = await sync_to_async(RepositoryConfig.get_config)(repo_id, repository=repository)
         if not config.is_user_allowed(identity.actor_username):
             CIIdentityRefused("allowed usernames", identity.repo_id).log()
             return 401, UNAUTHORIZED
@@ -68,9 +69,13 @@ class CISubmission:
         return payload.muted if "muted" in payload.model_fields_set else True
 
     def visible_runs(self) -> Q:
-        """The runs the token may read: on its repository, and attributed to its triggering account."""
+        """The runs the token may read: on its repository, or a job on one of its merge requests that a session of
+        several repositories runs, and attributed to its triggering account."""
         identity = self.identity
         person = Q(external_provider=identity.provider, external_uid=identity.actor_uid)
         if identity.user is not None:
             person |= Q(user=identity.user)
-        return Q(repo_id__iexact=identity.repo_id) & person
+        job_on_its_merge_request = InboxEvent.objects.filter(
+            run=OuterRef("pk"), kind=EventKind.MERGE_REQUEST_JOB, repo_id__iexact=identity.repo_id
+        )
+        return (Q(repo_id__iexact=identity.repo_id) | Q(Exists(job_on_its_merge_request))) & person

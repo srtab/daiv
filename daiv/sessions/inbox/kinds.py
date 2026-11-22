@@ -117,6 +117,9 @@ class MergeRequestJobPayload(TypedDict):
     agent_model: NotRequired[str]
     agent_thinking_level: NotRequired[str]
     muted: NotRequired[bool]
+    references: NotRequired[list[dict[str, Any]]]
+    mcp_overrides: NotRequired[dict[str, str]]
+    sandbox_environment_id: NotRequired[str]
 
 
 PAYLOADS: dict[str, type] = {

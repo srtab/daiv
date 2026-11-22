@@ -119,9 +119,9 @@ class LegFollowUps:
         )
 
     @staticmethod
-    def stop_reason(session: Session) -> EventFailure | None:
-        """Why a leg follow-up on ``session`` must not start: its session was archived, or its leg's merge request was
-        merged or closed."""
+    def stop_reason(session: Session, event: InboxEvent) -> EventFailure | None:  # noqa: ARG004
+        """Why the leg follow-up ``event`` on ``session`` must not start: its session was archived, or its leg's merge
+        request was merged or closed."""
         if session.archived_at is not None:
             return EventFailure.SESSION_ARCHIVED
         stop = _STOPS.get(Leg(session).merge_request_state())

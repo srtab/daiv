@@ -69,7 +69,10 @@ class Migration(migrations.Migration):
             name="runs_alone",
             field=models.BooleanField(
                 default=False,
-                help_text="Created with the one inbox event it runs, so it is never a next run other events join.",
+                help_text=(
+                    "Created for one job on a merge request: never a next run other events join, nor the session's "
+                    "one active job run."
+                ),
                 verbose_name="runs alone",
             ),
         ),
@@ -77,7 +80,7 @@ class Migration(migrations.Migration):
             model_name="run",
             constraint=models.UniqueConstraint(
                 condition=models.Q(
-                    ("merge_request_iid__isnull", True),
+                    ("runs_alone", False),
                     ("status__in", ["READY", "RUNNING"]),
                     ("trigger_type__in", ["api_job", "mcp_job", "delegated_job", "delegation_resume"]),
                 ),

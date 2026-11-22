@@ -18,8 +18,9 @@ from django.urls import reverse
 from asgiref.sync import sync_to_async
 
 from codebase.base import GitPlatform, Scope
-from codebase.clients.base import PLATFORM_ERRORS, CommentThread
+from codebase.clients.base import PLATFORM_ERRORS, CommentThread, is_not_found
 from core.utils import build_absolute_url
+from sessions.admission import InvalidMcpOverridesError, aresolve_mcp_overrides
 from sessions.inbox import kinds
 from sessions.inbox.merge_request_jobs import ARCHIVED, MergeRequestJobRefused, MergeRequestJobs
 from sessions.inbox.ownership import Ownerships
@@ -70,11 +71,13 @@ class MergeRequestRuns:
         ``ref`` is the merge request's source branch, ``None`` when the caller doesn't know it (GitHub's
         ``issue_comment``); it is then fetched, and left blank if that fails, since the run is still worth starting.
         ``use_max`` runs a mention on the site's max model either way: a mention for the owning session carries that
-        model for the run that takes it. A job carries ``muted``, its own ``agent_model`` and, in the merge request's
-        session, ``sandbox_environment_id``.
+        model for the run that takes it. A job carries ``muted``, its own ``agent_model``, references and MCP switches;
+        in the merge request's session it runs in ``sandbox_environment_id``, and in the owning session in the
+        environment it names, else the session's.
 
         Raises :class:`~sessions.inbox.merge_request_jobs.MergeRequestJobRefused` with the merge request's state when a
-        job finds it merged or closed in the owning session.
+        job finds it merged or closed in the owning session, and
+        :class:`~sessions.admission.InvalidMcpOverridesError` when its MCP switches name a server the run can't load.
         """
         if (ownership := await Ownerships(self.repo_id).afind_open(self.merge_request_iid, title=title)) is not None:
             thread_id = ownership.session.thread_id
@@ -99,9 +102,11 @@ class MergeRequestRuns:
                     "merge_request_id": self.merge_request_iid,
                     "request_key": input.request_key,
                     "prompt": input.prompt,
-                    "requester_username": requester.username or getattr(requester.user, "username", ""),
+                    "requester_username": requester.username,
                     "agent_model": agent_model or None,
                     "agent_thinking_level": agent_thinking_level or None,
+                    "references": list(input.references),
+                    "mcp_overrides": await self._amcp_overrides(requester, input, thread_id=None),
                 },
                 trigger_type=input.source,
                 title=title,
@@ -112,6 +117,7 @@ class MergeRequestRuns:
                 agent_model=agent_model,
                 agent_thinking_level=agent_thinking_level,
                 sandbox_environment_id=sandbox_environment_id,
+                runs_alone=True,
             )
         return await self.starter.astart(
             address_merge_request_task,
@@ -144,6 +150,7 @@ class MergeRequestRuns:
         if ownership.session.archived_at is not None:
             logger.info("Ignoring a job on session %s: it is archived", thread_id)
             return StartOutcome(thread_id=thread_id, archived=True)
+        mcp_overrides = await self._amcp_overrides(requester, request, thread_id=thread_id)
         try:
             run = await MergeRequestJobs(thread_id, self.repo_id, self.merge_request_iid).apost(
                 prompt=request.prompt,
@@ -158,12 +165,23 @@ class MergeRequestRuns:
                 agent_model=agent_model,
                 agent_thinking_level=agent_thinking_level,
                 muted=muted,
+                references=list(request.references),
+                mcp_overrides=mcp_overrides,
+                sandbox_environment_id=request.environment_id,
             )
         except MergeRequestJobRefused as refused:
             if refused.reason != ARCHIVED:
                 raise
             return StartOutcome(thread_id=thread_id, archived=True)
         return StartOutcome(thread_id=thread_id, started=True, run_id=run.pk, status=run.status)
+
+    @staticmethod
+    async def _amcp_overrides(
+        requester: Requester, request: Request, *, thread_id: str | None
+    ) -> dict[str, str] | None:
+        """``request``'s MCP switches applied to ``thread_id``'s overrides, against the servers the run may load."""
+        acting = requester.user if requester.acts_as_user else None
+        return await aresolve_mcp_overrides(acting, request.mcp_switches, thread_id)
 
     async def asubmit_job(
         self,
@@ -176,8 +194,8 @@ class MergeRequestRuns:
         sandbox_environment_id: str | None = None,
     ) -> Run | BatchSubmitFailure:
         """Start ``request`` on the merge request (:meth:`astart`), or say why it can't: the merge request is missing
-        from the repository, merged or closed, or its session is archived. A refusal posts nothing on the merge
-        request."""
+        from the repository, merged or closed, its session is archived, or its MCP switches name a server it can't
+        load. A refusal posts nothing on the merge request."""
 
         def refused(error: str) -> BatchSubmitFailure:
             return BatchSubmitFailure(repo_id=self.repo_id, ref="", error=error)
@@ -186,7 +204,7 @@ class MergeRequestRuns:
         try:
             merge_request = await sync_to_async(self.client.get_merge_request)(self.repo_id, iid)
         except PLATFORM_ERRORS as err:
-            if self._is_missing(err):
+            if is_not_found(err):
                 return refused(NOT_FOUND.format(iid=iid, repo_id=self.repo_id))
             logger.exception("Failed to read merge request %s!%s for a job", self.repo_id, iid)
             return refused(UNREADABLE.format(iid=iid, repo_id=self.repo_id))
@@ -206,22 +224,18 @@ class MergeRequestRuns:
             )
         except MergeRequestJobRefused as job_refused:
             return refused(NOT_OPEN.format(iid=iid, state=job_refused.reason))
+        except InvalidMcpOverridesError as err:
+            return refused(str(err))
         if outcome.archived:
             url = await sync_to_async(build_absolute_url)(
                 reverse("session_detail", kwargs={"thread_id": outcome.thread_id})
             )
             return refused(SESSION_ARCHIVED.format(iid=iid, url=url))
         # The job's status links its merge request before the run reports one.
-        await Run.objects.filter(pk=outcome.run_id, merge_request_web_url="").aupdate(
+        await Run.objects.filter(pk=outcome.run_id, repo_id=self.repo_id, merge_request_web_url="").aupdate(
             merge_request_web_url=merge_request.web_url or ""
         )
         return await Run.objects.aget(pk=outcome.run_id)
-
-    @staticmethod
-    def _is_missing(err: Exception) -> bool:
-        """Whether the platform answered that the merge request doesn't exist: GitLab's ``response_code`` and
-        GitHub's ``status`` are both 404."""
-        return 404 in (getattr(err, "response_code", None), getattr(err, "status", None))
 
     async def aremember(self, requester: Requester, comment: Mention, *, title: str) -> None:
         """Remember a comment that did not mention DAIV in the session that owns the merge request; with no such
