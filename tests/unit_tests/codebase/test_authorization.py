@@ -10,6 +10,7 @@ from allauth.socialaccount.models import SocialAccount
 from codebase.authorization import (
     RepositoryAccessDenied,
     assert_can_run,
+    assert_catalogued,
     can_run,
     can_view,
     get_access_level,
@@ -413,3 +414,22 @@ class TestCanRun:
     def test_admin_can_run(self, admin_user, db):
 
         assert can_run(admin_user, "any/repo") is True
+
+
+@pytest.mark.django_db
+class TestAssertCatalogued:
+    def test_catalogued_repos_pass_with_no_access_rows(self):
+        _catalog("a/b")
+
+        assert_catalogued(["a/b"])
+
+    def test_a_repo_missing_from_the_catalog_is_denied(self):
+        _catalog("a/b")
+
+        with pytest.raises(RepositoryAccessDenied) as denied:
+            assert_catalogued(["a/b", "x/y"])
+
+        assert denied.value.repo_ids == ["x/y"]
+
+    def test_any_repo_passes_before_the_first_catalog_sync(self):
+        assert_catalogued(["x/y"])

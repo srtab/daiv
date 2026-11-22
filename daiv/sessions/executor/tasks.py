@@ -91,7 +91,7 @@ async def run_job_task(
             raise ValueError(f"inbox run {run_id} holds no event to act on; they were settled before its task started")
         input_messages = run_input.render(inbox_run).messages
         input_factory = partial(_ainbox_input, inbox_run, run_input)
-        lock, acting_user_id = Claimed(holder_id=run_id), inbox_run.user_id
+        lock, acting_user_id = Claimed(holder_id=run_id), inbox_run.acting_user_id
     else:
         input_messages = (HumanMessage(content=prompt),)
         lock, acting_user_id = wait_for_slot(run_id or f"job-{thread_id[:8]}"), user_id

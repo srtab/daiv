@@ -1,13 +1,21 @@
 from sessions.executor.lock import Wait
-from webhooks.managers.issue_addressor import IssueAddressorManager
+from sessions.merge_request_runs.addressor import CommentsAddressorManager
 
-from codebase.base import Issue, User
+from codebase.base import MergeRequest, User
 
 
-def _manager(thread_id: str) -> IssueAddressorManager:
-    return IssueAddressorManager(
+def _manager(thread_id: str) -> CommentsAddressorManager:
+    return CommentsAddressorManager(
         repo_id="owner/repo",
-        issue=Issue(id=1, iid=42, title="t", author=User(id=1, username="alice")),
+        merge_request=MergeRequest(
+            repo_id="owner/repo",
+            merge_request_id=42,
+            source_branch="feature",
+            target_branch="main",
+            title="t",
+            description="d",
+            author=User(id=1, username="alice"),
+        ),
         thread_id=thread_id,
     )
 

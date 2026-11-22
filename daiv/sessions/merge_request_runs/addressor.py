@@ -7,8 +7,6 @@ from typing import TYPE_CHECKING
 from django.template.loader import render_to_string
 
 from langchain_core.messages import HumanMessage
-from sessions.executor.run import execute_run
-from sessions.executor.spec import RunHooks, RunSpec
 
 from automation.agent.provider_errors import provider_failure_of
 from automation.agent.utils import repo_relative_text
@@ -16,11 +14,13 @@ from codebase.base import GitPlatform, MergeRequest, Scope
 from codebase.clients.base import CommentThread
 from codebase.exceptions import CloneRefNotFoundError
 from core.constants import BOT_NAME
-
-from .base import BaseManager
+from sessions.executor.run import execute_run
+from sessions.executor.spec import RunHooks, RunSpec
+from sessions.merge_request_runs.base import BaseManager
 
 if TYPE_CHECKING:
     from langgraph.types import StateSnapshot
+
     from sessions.executor.result import AgentResult
     from sessions.executor.spec import RunOutcome
 
@@ -45,16 +45,21 @@ class CommentsAddressorManager(BaseManager):
         *,
         repo_id: str,
         merge_request: MergeRequest,
-        mention_comment_id: str,
+        mention_comment_id: str | None,
         thread_id: str,
         use_max: bool,
         mention_note_id: int | None = None,
         sandbox_env_id: str | None = None,
         run_id: str | None = None,
         acting_user_id: int | None = None,
+        prompt: str | None = None,
+        requester_username: str = "",
+        agent_model: str | None = None,
+        agent_thinking_level: str | None = None,
     ) -> AgentResult:
         """
-        Process comments left directly on the merge request (not in the diff or thread) that mention DAIV.
+        Process a comment left directly on the merge request (not in the diff or thread) that mentions DAIV, or a
+        job's ``prompt``, whose answer and question go on the merge request as new comments.
 
         Args:
             repo_id: The repository slug.
@@ -66,6 +71,10 @@ class CommentsAddressorManager(BaseManager):
             sandbox_env_id: The sandbox environment the callback selected.
             run_id: The ``Run`` row this turn executes, or ``None`` when the callback created none.
             acting_user_id: The DAIV user the run acts as, its ``Run``'s user; ``None`` for none.
+            prompt: A job's prompt, in place of the mention's note.
+            requester_username: Who sent the job.
+            agent_model: The job's model, ``None`` for the default.
+            agent_thinking_level: The thinking level for ``agent_model``.
 
         Returns:
             An :class:`AgentResult` dict with the agent response and code_changes flag. A vanished source branch
@@ -80,6 +89,19 @@ class CommentsAddressorManager(BaseManager):
         )
 
         try:
+            if prompt is not None:
+                request = HumanMessage(name=requester_username or None, content=prompt)
+                return await manager._run(
+                    request,
+                    asker=requester_username,
+                    trigger="job",
+                    sandbox_env_id=sandbox_env_id,
+                    run_id=run_id,
+                    use_max=use_max,
+                    acting_user_id=acting_user_id,
+                    agent_model=agent_model,
+                    agent_thinking_level=agent_thinking_level,
+                )
             return await manager._address_comments(
                 sandbox_env_id=sandbox_env_id, run_id=run_id, use_max=use_max, acting_user_id=acting_user_id
             )
@@ -95,28 +117,53 @@ class CommentsAddressorManager(BaseManager):
         note = self.client.get_merge_request_note(
             self.repo_id, self.merge_request.merge_request_id, self._require_mention_note_id()
         )
+        return await self._run(
+            HumanMessage(name=note.author.username, id=note.id, content=note.body),
+            asker=note.author.username,
+            trigger="mention",
+            sandbox_env_id=sandbox_env_id,
+            run_id=run_id,
+            use_max=use_max,
+            acting_user_id=acting_user_id,
+        )
+
+    async def _run(
+        self,
+        request: HumanMessage,
+        *,
+        asker: str,
+        trigger: str,
+        sandbox_env_id: str | None,
+        run_id: str | None,
+        use_max: bool,
+        acting_user_id: int | None,
+        agent_model: str | None = None,
+        agent_thinking_level: str | None = None,
+    ) -> AgentResult:
         outcome = await execute_run(
             RunSpec(
                 thread_id=self.thread_id,
                 repo_id=self.repo_id,
                 scope=Scope.MERGE_REQUEST,
-                input_messages=(HumanMessage(name=note.author.username, id=note.id, content=note.body),),
-                trigger="mention",
+                input_messages=(request,),
+                trigger=trigger,
                 lock=self._lock_policy(),
                 ref=self.merge_request.source_branch,
                 merge_request=self.merge_request,
                 use_max=use_max,
+                agent_model=agent_model,
+                agent_thinking_level=agent_thinking_level,
                 sandbox_env_id=sandbox_env_id,
                 acting_user_id=acting_user_id,
                 run_id=run_id,
                 recover_draft=True,
                 extra_metadata={
                     "author": self.merge_request.author.username,
-                    "triggered_by": note.author.username,
+                    "triggered_by": asker,
                     "merge_request_id": self.merge_request.merge_request_id,
                 },
             ),
-            RunHooks(on_success=partial(self._on_success, asker=note.author.username), on_failure=self._on_failure),
+            RunHooks(on_success=partial(self._on_success, asker=asker), on_failure=self._on_failure),
         )
         return outcome.agent_result
 

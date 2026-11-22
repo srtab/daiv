@@ -1157,3 +1157,120 @@ class TestLegFollowUp:
 
         stored = await _state(follow_up)
         assert (stored.state, stored.failure, stored.run_id) == (EventState.FAILED, EventFailure.RUN_FAILED, run.pk)
+
+
+async def _merge_request_job(**fields) -> tuple[Run, InboxEvent]:
+    from tests.unit_tests.sessions.conftest import amake_owned_merge_request
+    from tests.unit_tests.sessions.inbox.conftest import post_merge_request_job
+
+    owned = await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=7)
+    with patch.object(Drain, "start_logged"):
+        run = await sync_to_async(post_merge_request_job)(owned, **fields)
+    return run, await InboxEvent.objects.select_related("session").aget(run=run)
+
+
+class TestMergeRequestJob:
+    async def test_its_own_run_is_promoted_and_takes_it_alone_with_the_remembered_events(self, enqueue):
+        run, job = await _merge_request_job(muted=True, source=SessionOrigin.MCP_JOB)
+        session = job.session
+        push = await amake_event(session, EventKind.BRANCH_PUSHED, payload=_PUSH, ref=session.ref)
+        mention = await amake_event(
+            session, EventKind.MENTION, author_provider="gitlab", author_uid="9", created_at=_after(job)
+        )
+
+        started = await Drain(session.thread_id).astart()
+
+        assert started.pk == run.pk
+        promoted = await Run.objects.aget(pk=run.pk)
+        assert (promoted.status, promoted.trigger_type, promoted.merge_request_iid, promoted.muted) == (
+            RunStatus.READY, SessionOrigin.MCP_JOB, 7, True,
+        )  # fmt: skip
+        assert (promoted.acts_as_user, promoted.runs_alone) == (False, True)
+        assert promoted.prompt.startswith("/code-review\n\npusher sent this as a job on !7.")
+        assert [(await _state(event)).state for event in (job, push, mention)] == [
+            EventState.TAKEN, EventState.TAKEN, EventState.PENDING,
+        ]  # fmt: skip
+        enqueue.assert_awaited_once()
+
+    async def test_a_ci_actor_linked_to_a_user_is_checked_against_no_ones_access_and_environments(
+        self, enqueue, member_user
+    ):
+        env = await SandboxEnvironment.objects.acreate(
+            scope=Visibility.USER, user=member_user, name="mine", base_image="python:3.14", repo_ids=["group/repo"]
+        )
+        run, job = await _merge_request_job(user=member_user, username="", provider="", uid="")
+
+        with patch("sessions.admission.assert_can_run", Mock(side_effect=RepositoryAccessDenied(["group/repo"]))):
+            started = await Drain(job.session_id).astart()
+
+        assert started.pk == run.pk
+        promoted = await Run.objects.aget(pk=run.pk)
+        assert (promoted.user_id, promoted.acting_user_id) == (member_user.pk, None)
+        assert promoted.sandbox_environment_id != env.pk
+
+    async def test_a_job_acting_as_its_caller_is_checked_against_their_access(self, enqueue, member_user):
+        run, job = await _merge_request_job(user=member_user, acts_as_user=True, username="", provider="", uid="")
+
+        with patch("sessions.admission.assert_can_run", Mock(side_effect=RepositoryAccessDenied(["group/repo"]))):
+            assert await Drain(job.session_id).astart() is None
+
+        stored = await _state(job)
+        assert (stored.state, stored.failure, stored.run_id) == (EventState.FAILED, EventFailure.ACCESS_DENIED, run.pk)
+        assert (await Run.objects.aget(pk=run.pk)).status == RunStatus.FAILED
+
+    @pytest.mark.parametrize(("merged", "failure"), [(True, EventFailure.MR_MERGED), (False, EventFailure.MR_CLOSED)])
+    async def test_a_merge_request_that_ended_meanwhile_stops_it_and_says_so(
+        self, enqueue, mock_repo_client, merged, failure
+    ):
+        run, job = await _merge_request_job()
+        await MergeRequestOwnership.objects.filter(repo_id="group/repo", merge_request_iid=7).aupdate(
+            merged=merged, closed_at=timezone.now()
+        )
+
+        assert await Drain(job.session_id).astart() is None
+
+        stored = await _state(job)
+        assert (stored.state, stored.failure) == (EventState.FAILED, failure)
+        stopped = await Run.objects.aget(pk=run.pk)
+        assert stopped.status == RunStatus.FAILED
+        mock_repo_client.create_merge_request_comment.assert_called_once_with("group/repo", 7, stopped.error_message)
+        assert "before the job could start" in stopped.error_message
+        enqueue.assert_not_awaited()
+
+    async def test_an_archived_session_stops_it_and_posts_nothing(self, enqueue, mock_repo_client):
+        run, job = await _merge_request_job()
+        await Session.objects.filter(pk=job.session_id).aupdate(archived_at=timezone.now())
+
+        assert job.session_id in await sync_to_async(Drain.sessions_to_drain)()
+        assert await Drain(job.session_id).astart() is None
+
+        stored = await _state(job)
+        assert (stored.state, stored.failure) == (EventState.FAILED, EventFailure.SESSION_ARCHIVED)
+        stopped = await Run.objects.aget(pk=run.pk)
+        assert (stopped.status, stopped.error_message) == (RunStatus.FAILED, NOT_RUN_ARCHIVED)
+        mock_repo_client.create_merge_request_comment.assert_not_called()
+        enqueue.assert_not_awaited()
+
+    async def test_posting_on_an_idle_session_starts_it_at_once(self, enqueue):
+        from tests.unit_tests.sessions.conftest import amake_owned_merge_request
+        from tests.unit_tests.sessions.inbox.conftest import post_merge_request_job
+
+        owned = await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=7)
+
+        run = await sync_to_async(post_merge_request_job)(owned)
+
+        assert run.status == RunStatus.READY
+        enqueue.assert_awaited_once()
+
+    async def test_posting_on_a_busy_session_leaves_it_queued_until_the_slot_frees(self, enqueue):
+        from tests.unit_tests.sessions.conftest import amake_owned_merge_request
+        from tests.unit_tests.sessions.inbox.conftest import post_merge_request_job
+
+        owned = await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=7)
+        await Session.objects.filter(pk=owned.session_id).aupdate(active_run_id="other", last_active_at=timezone.now())
+
+        run = await sync_to_async(post_merge_request_job)(owned)
+
+        assert run.status == RunStatus.QUEUED
+        await Session.objects.filter(pk=owned.session_id).aupdate(active_run_id=None)
+        assert (await Drain(owned.session_id).astart()).pk == run.pk

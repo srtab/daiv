@@ -1118,7 +1118,7 @@ class GitLabClient(RepoClient):
         """
         project = self.client.projects.get(repo_id, lazy=True)
         mr = project.mergerequests.get(merge_request_id)
-        return self._serialize_merge_request(repo_id, mr, merged=mr.state == "merged")
+        return self._serialize_merge_request(repo_id, mr, merged=mr.state == "merged", closed=mr.state == "closed")
 
     def get_merge_request_note(self, repo_id: str, merge_request_id: int, note_id: int) -> Note:
         """
@@ -1191,7 +1191,7 @@ class GitLabClient(RepoClient):
         raise ValueError("Couldn't get current user profile")
 
     def _serialize_merge_request(
-        self, repo_id: str, merge_request: ProjectMergeRequest, *, merged: bool = False
+        self, repo_id: str, merge_request: ProjectMergeRequest, *, merged: bool = False, closed: bool = False
     ) -> MergeRequest:
         return MergeRequest(
             repo_id=repo_id,
@@ -1210,4 +1210,5 @@ class GitLabClient(RepoClient):
             ),
             draft=merge_request.work_in_progress,
             merged=merged,
+            closed=closed,
         )

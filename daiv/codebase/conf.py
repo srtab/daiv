@@ -34,6 +34,13 @@ class CodebaseSettings(BaseSettings):
     GITHUB_APP_ID: int | None = Field(default=None, description="GitHub app ID")
     GITHUB_INSTALLATION_ID: int | None = Field(default=None, description="GitHub installation ID")
     GITHUB_PRIVATE_KEY: SecretStr | None = Field(default=None, description="GitHub private key")
+    GITHUB_ACTIONS_OIDC_ISSUER: str = Field(
+        default="https://token.actions.githubusercontent.com",
+        description=(
+            "Issuer of GitHub Actions OIDC tokens, which CI jobs present to the jobs API. GitHub Enterprise Server: "
+            "https://HOST/_services/token"
+        ),
+    )
 
 
 settings = CodebaseSettings()

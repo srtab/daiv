@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = "==3.14.*"
 resolution-markers = [
     "sys_platform == 'win32'",
@@ -607,7 +607,6 @@ wheels = [
 name = "daiv"
 version = "2.0.0"
 source = { virtual = "." }
-default-groups = ["dev", "docs"]
 dependencies = [
     { name = "ag-ui-langgraph" },
     { name = "ag-ui-protocol" },
@@ -651,6 +650,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "pygithub" },
     { name = "pygments" },
+    { name = "pyjwt", extra = ["crypto"] },
     { name = "python-decouple" },
     { name = "python-gitlab" },
     { name = "pyyaml" },
@@ -741,6 +741,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = "==2.16.3" },
     { name = "pygithub", specifier = "==2.10.0" },
     { name = "pygments", specifier = "==2.21.0" },
+    { name = "pyjwt", extras = ["crypto"], specifier = "==2.15.1" },
     { name = "python-decouple", specifier = "==3.8" },
     { name = "python-gitlab", specifier = "==8.6.0" },
     { name = "pyyaml", specifier = "==6.0.3" },

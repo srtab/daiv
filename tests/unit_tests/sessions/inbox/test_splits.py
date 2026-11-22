@@ -38,6 +38,20 @@ class TestLegFollowUp:
         assert RequestSplits.takes_context(follow_up)
 
 
+async def test_a_merge_request_job_runs_alone_but_takes_context():
+    session = await amake_session()
+    job = await amake_event(
+        session,
+        EventKind.MERGE_REQUEST_JOB,
+        payload={"prompt": "/help", "acts_as_user": False, "source": SessionOrigin.API_JOB},
+    )
+    chat = await _chat(session, "Fix the bug")
+
+    assert RequestSplits.runs_alone(job)
+    assert RequestSplits.takes_context(job)
+    assert RequestSplits([chat, job]).splits == [[chat], [job]]
+
+
 class TestTakesContext:
     async def test_a_builtin_slash_command_takes_none(self):
         command = await _chat(await amake_session(), "/help")

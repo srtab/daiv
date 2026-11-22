@@ -131,3 +131,34 @@ class TestLegFollowUp:
         batch = uuid.uuid4()
 
         assert kinds.SourceKey.leg_follow_up(batch) == f"leg-follow-up:{batch}"
+
+
+class TestMergeRequestJob:
+    PAYLOAD = {"prompt": "/code-review", "acts_as_user": False, "source": SessionOrigin.MCP_JOB}
+
+    def test_its_payload_needs_a_prompt_whom_it_acts_as_and_its_source(self):
+        EventContent(EventKind.MERGE_REQUEST_JOB, self.PAYLOAD | {"muted": True}).validate_payload()
+        for key in self.PAYLOAD:
+            payload = {name: value for name, value in self.PAYLOAD.items() if name != key}
+            with pytest.raises(ValueError, match=key):
+                EventContent(EventKind.MERGE_REQUEST_JOB, payload).validate_payload()
+
+    def test_it_wakes_as_a_persons_request_with_a_run_of_its_own(self):
+        assert EventKind.MERGE_REQUEST_JOB in kinds.WAKING_KINDS
+        assert EventKind.MERGE_REQUEST_JOB in kinds.PERSON_KINDS
+        assert EventKind.MERGE_REQUEST_JOB in kinds.OWN_RUN_KINDS
+        assert EventKind.MERGE_REQUEST_JOB not in kinds.GATED_KINDS
+
+    @pytest.mark.parametrize(
+        ("source", "trigger"),
+        [
+            (SessionOrigin.MCP_JOB, SessionOrigin.MCP_JOB),
+            (SessionOrigin.API_JOB, SessionOrigin.API_JOB),
+            ("x", "api_job"),
+        ],
+    )
+    def test_its_run_takes_the_trigger_type_of_its_source(self, source, trigger):
+        content = EventContent(EventKind.MERGE_REQUEST_JOB, self.PAYLOAD | {"source": source})
+
+        assert content.run_trigger_type() == trigger
+        assert not content.follows_session()

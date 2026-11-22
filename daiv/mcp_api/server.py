@@ -17,7 +17,7 @@ from asgiref.sync import sync_to_async
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
 from mcp_connectors.selection import McpServerSwitches  # noqa: TC002 - runtime type for MCPServer
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic import ValidationError as PydanticValidationError
 from sandbox_envs.selection import resolve_env_for_user
 from sandbox_envs.services import alist_visible_environments
@@ -80,6 +80,8 @@ in-review branch. Otherwise DAIV creates a new branch off `ref` and opens a new 
 
 Set `shared_session` to true to open one session over several repositories (at most 5, the first is the main one): \
 the agent sees all of them and DAIV opens one merge request per repository it changes.
+Set `merge_request` on the only `repos` entry, instead of `ref`, to run the prompt on that open merge request as a \
+mention would: the run works on its branch and its final message is posted on it (e.g. `/code-review`).
 A `thread_id` job sent to a session that is busy joins that session's next run for its branch, \
 so two such jobs may return the same `job_id`; poll that `job_id` and read its result once.
 
@@ -139,6 +141,20 @@ class RepoSubmitSpec(RepoSpec):
             "Refused with `shared_session`."
         ),
     )
+    merge_request: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Open merge request (GitLab iid, GitHub number) to run on, in place of `ref`; its final message is posted "
+            "on it. Refused with `ref`, a per-repository `prompt`, `shared_session`, `thread_id` or another entry."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _merge_request_alone(self):
+        if self.merge_request is not None and (self.ref is not None or self.prompt is not None):
+            raise ValueError("merge_request can't be combined with ref or a per-repository prompt")
+        return self
 
 
 @mcp.tool()
@@ -306,7 +322,10 @@ async def submit_job(
     try:
         result = await asubmit_jobs(
             user=mcp_user,
-            repos=[RepoTarget(repo_id=s.repo_id, ref=s.ref or "", prompt=s.prompt or "") for s in specs],
+            repos=[
+                RepoTarget(repo_id=s.repo_id, ref=s.ref or "", prompt=s.prompt or "", merge_request_iid=s.merge_request)
+                for s in specs
+            ],
             shared=shared_session,
             thread_id=thread_id_str,
             prompt=prompt,

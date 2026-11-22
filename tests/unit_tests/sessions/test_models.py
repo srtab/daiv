@@ -112,11 +112,24 @@ def test_retryable_origins_exclude_webhooks_and_the_runs_reporting_to_a_coordina
     }
 
 
+@pytest.mark.parametrize(("acts_as_user", "acting"), [(True, 7), (False, None)])
+def test_a_run_acts_as_its_user_only_when_it_says_so(acts_as_user, acting):
+    assert Run(user_id=7, acts_as_user=acts_as_user).acting_user_id == acting
+
+
 def test_one_active_api_run_per_session_constraint():
     session = _mk_session()
     _mk_run(session, status=RunStatus.READY, trigger_type=SessionOrigin.API_JOB)
     with pytest.raises(IntegrityError):
         _mk_run(session, status=RunStatus.RUNNING, trigger_type=SessionOrigin.API_JOB)
+
+
+def test_two_active_api_runs_on_a_merge_request_share_its_session():
+    session = _mk_session()
+    _mk_run(session, status=RunStatus.READY, trigger_type=SessionOrigin.API_JOB, merge_request_iid=7)
+    _mk_run(session, status=RunStatus.READY, trigger_type=SessionOrigin.API_JOB, merge_request_iid=7)
+
+    assert session.runs.count() == 2
 
 
 def test_webhook_runs_exempt_from_active_constraint():
@@ -226,6 +239,7 @@ def test_active_constraint_literals_match_enums():
     conditions = dict(constraint.condition.children)
     assert set(conditions["status__in"]) == {RunStatus.READY, RunStatus.RUNNING}
     assert set(conditions["trigger_type__in"]) == SessionOrigin.one_active()
+    assert conditions["merge_request_iid__isnull"] is True
 
 
 @pytest.mark.parametrize("name", ["run_one_next_run_per_user", "run_one_next_run_per_account"])
@@ -234,9 +248,39 @@ def test_next_run_constraint_literals_match_the_inbox_triggers(name):
     conditions = dict(constraint.condition.children)
     assert conditions["status"] == RunStatus.QUEUED
     assert set(conditions["trigger_type__in"]) == INBOX_TRIGGERS
+    assert conditions["runs_alone"] is False
 
 
 class TestOneNextRunPerBranch:
+    @pytest.mark.parametrize("linked", [True, False], ids=["user", "account"])
+    @pytest.mark.parametrize("second_alone", [True, False], ids=["two-jobs", "job-and-next-run"])
+    def test_a_run_that_runs_alone_never_takes_a_next_runs_place(self, django_user_model, linked, second_alone):
+        session = _mk_session()
+        person = (
+            {"user": django_user_model.objects.create_user(username="ci", email="ci@x.io")}
+            if linked
+            else {"external_provider": "gitlab", "external_uid": "77"}
+        )
+        fields = {"status": RunStatus.QUEUED, "trigger_type": SessionOrigin.API_JOB, "ref": "feat/x", **person}
+        _mk_run(session, runs_alone=True, **fields)
+        _mk_run(session, runs_alone=second_alone, **fields)
+
+        assert session.runs.count() == 2
+
+    @pytest.mark.parametrize("linked", [True, False], ids=["user", "account"])
+    def test_two_ordinary_next_runs_for_one_person_are_rejected(self, django_user_model, linked):
+        session = _mk_session()
+        person = (
+            {"user": django_user_model.objects.create_user(username="ci", email="ci@x.io")}
+            if linked
+            else {"external_provider": "gitlab", "external_uid": "77"}
+        )
+        fields = {"status": RunStatus.QUEUED, "trigger_type": SessionOrigin.API_JOB, "ref": "feat/x", **person}
+        _mk_run(session, **fields)
+
+        with pytest.raises(IntegrityError):
+            _mk_run(session, **fields)
+
     def test_a_second_next_run_on_one_branch_is_rejected(self):
         session = _mk_session()
         _mk_run(session, status=RunStatus.QUEUED, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, ref="feat/x")

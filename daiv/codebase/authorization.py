@@ -166,6 +166,19 @@ def runnable_repo_ids(user: User, repo_ids: Iterable[str]) -> set[str]:
     )
 
 
+def assert_catalogued(repo_ids: Iterable[str]) -> None:
+    """Require every repo to be in DAIV's catalog, the repositories DAIV's bot can reach; any repo while the catalog is
+    still empty. For a caller whose access the platform itself proved, such as a CI identity token's pipeline.
+
+    Raises:
+        RepositoryAccessDenied: carrying the uncatalogued repo ids.
+    """
+    repo_ids = list(repo_ids)
+    found = _catalogued_repo_ids(repo_ids)
+    if denied := [repo_id for repo_id in repo_ids if repo_id not in found]:
+        raise RepositoryAccessDenied(denied)
+
+
 def _catalogued_repo_ids(repo_ids: list[str]) -> set[str]:
     catalog = RepositoryCatalog.objects.filter(provider=_provider())
     found = set(catalog.filter(slug__in=repo_ids).values_list("slug", flat=True))

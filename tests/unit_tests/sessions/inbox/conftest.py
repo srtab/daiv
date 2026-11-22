@@ -102,3 +102,22 @@ def post_leg_follow_up(
     return LegFollowUps(Leg(session)).post(
         prompt=prompt, batch_id=batch_id or uuid.uuid4(), user=user, muted=muted, references=references or []
     )
+
+
+def post_merge_request_job(ownership, *, request_key: str = "job:1", **fields):
+    """A job on the merge request ``ownership`` names, from an unlinked CI actor unless ``fields`` say otherwise;
+    returns its run. SYNC ONLY."""
+    from sessions.inbox.merge_request_jobs import MergeRequestJobs
+
+    defaults = {
+        "prompt": "/code-review",
+        "source": SessionOrigin.API_JOB,
+        "acts_as_user": False,
+        "ref": ownership.source_branch,
+        "user": None,
+        "username": "pusher",
+        "provider": "gitlab",
+        "uid": "9",
+    }
+    jobs = MergeRequestJobs(ownership.session_id, ownership.repo_id, ownership.merge_request_iid)
+    return jobs.post(request_key=request_key, **(defaults | fields))

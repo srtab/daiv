@@ -8,8 +8,11 @@ from django.db import transaction
 from asgiref.sync import sync_to_async
 
 from automation.agent.references import MAX_REFS_PER_SUBMISSION
+from codebase.clients import RepoClient
 from sessions.admission import AdmissionError, aadmit, aassert_repo_access
-from sessions.models import Run, RunStatus, Session, SessionRepository
+from sessions.merge_request_runs.service import MergeRequestRuns
+from sessions.merge_request_runs.starter import Request, Requester
+from sessions.models import Run, RunStatus, Session, SessionOrigin, SessionRepository
 from sessions.services import (
     BatchSubmitResult,
     RepoTarget,
@@ -27,10 +30,13 @@ if TYPE_CHECKING:
     from accounts.models import User
     from automation.agent.git_state import RepoPublish
     from automation.agent.references import RefIn
+    from sessions.admission import Admission
 
 MAX_REPOS_PER_SESSION = 5
 THREAD_NOT_FOUND = "thread_id not found"
 THREAD_ARCHIVED = "thread_id is archived; unarchive the session to continue it"
+MERGE_REQUEST_NOT_SHARED = "A merge request target can't be combined with shared_session or thread_id."
+MERGE_REQUEST_ALONE = "A merge request target must be the only repos entry."
 
 
 class SharedSessionError(AdmissionError):
@@ -154,7 +160,8 @@ async def asubmit_jobs(
     mcp_overrides: dict[str, bool] | None = None,
 ) -> BatchSubmitResult:
     """Admit and submit a jobs request: one run on a shared session when ``shared`` is set or ``thread_id`` continues
-    a multi-repository session, else an independent run per repository.
+    a multi-repository session, a run on a merge request for a target that names one, else an independent run per
+    repository.
 
     ``thread_id`` must name a session ``user`` owns and has not archived; the session then decides whether the
     continuation is shared, whatever ``shared`` says, so a one-repository shared session continues like any other
@@ -162,6 +169,11 @@ async def asubmit_jobs(
     :class:`~sessions.admission.AdmissionError`. The result holds one outcome per entry of ``repos``, or a shared
     session's single one, for its main repository.
     """
+    on_merge_request = any(target.merge_request_iid is not None for target in repos)
+    if on_merge_request and (shared or thread_id is not None):
+        raise AdmissionError(MERGE_REQUEST_NOT_SHARED)
+    if on_merge_request and len(repos) != 1:
+        raise AdmissionError(MERGE_REQUEST_ALONE)
     if thread_id is not None:
         row = await Session.objects.by_owner(user).filter(thread_id=thread_id).values_list("archived_at").afirst()
         shared = row is not None and await ais_multi_repo(thread_id)
@@ -182,6 +194,15 @@ async def asubmit_jobs(
         mcp_overrides=mcp_overrides,
         thread_id=thread_id,
     )
+    if on_merge_request:
+        return await _asubmit_merge_request_job(
+            requester=Requester(user=user),
+            target=admission.targets[0],
+            prompt=prompt,
+            admission=admission,
+            muted=muted,
+            trigger_type=trigger_type,
+        )
     submit = _asubmit_shared_session_run if shared else asubmit_batch_runs
     return await submit(
         user=user,
@@ -195,6 +216,84 @@ async def asubmit_jobs(
         references=references,
         mcp_overrides=admission.mcp_overrides,
     )
+
+
+async def asubmit_ci_job(
+    *,
+    requester: Requester,
+    target: RepoTarget,
+    prompt: str,
+    agent_model: str | None,
+    agent_thinking_level: str | None,
+    environment: str | None,
+    muted: bool,
+    mcp_overrides: dict[str, bool] | None = None,
+) -> BatchSubmitResult:
+    """Admit and submit the one job a CI identity token sends, on ``target``, a branch or a merge request of the
+    token's repository.
+
+    ``requester`` is the account that triggered the pipeline. The token is the access proof, so only the catalog is
+    checked, and the run is attributed to ``requester`` and acts as no one: global MCP servers and environments only.
+    """
+    admission = await aadmit(
+        user=requester.user,
+        repos=[target],
+        agent_model=agent_model,
+        agent_thinking_level=agent_thinking_level,
+        environment=environment,
+        mcp_overrides=mcp_overrides,
+        acts_as_user=False,
+        access_proven=True,
+    )
+    if target.merge_request_iid is not None:
+        return await _asubmit_merge_request_job(
+            requester=requester,
+            target=admission.targets[0],
+            prompt=prompt,
+            admission=admission,
+            muted=muted,
+            trigger_type=SessionOrigin.API_JOB,
+        )
+    return await asubmit_batch_runs(
+        user=requester.user,
+        prompt=prompt,
+        repos=admission.targets,
+        agent_model=admission.agent_model,
+        agent_thinking_level=admission.agent_thinking_level,
+        muted=muted,
+        trigger_type=SessionOrigin.API_JOB,
+        mcp_overrides=admission.mcp_overrides,
+        external_username=requester.username,
+        external_provider=requester.provider,
+        external_uid=str(requester.uid),
+        acts_as_user=False,
+        check_access=False,
+    )
+
+
+async def _asubmit_merge_request_job(
+    *,
+    requester: Requester,
+    target: RepoTarget,
+    prompt: str,
+    admission: Admission,
+    muted: bool | None,
+    trigger_type: str,
+) -> BatchSubmitResult:
+    """Run ``prompt`` on the merge request ``target`` names, where a mention by ``requester`` would; one outcome."""
+    request = Request(prompt=prompt, source=SessionOrigin(trigger_type), request_key=f"job:{uuid.uuid4().hex}")
+    if target.merge_request_iid is None:
+        raise ValueError("a merge request job needs a merge request")
+    runs = MergeRequestRuns(await sync_to_async(RepoClient.create_instance)(), target.repo_id, target.merge_request_iid)
+    outcome = await runs.asubmit_job(
+        requester,
+        request,
+        muted=muted,
+        agent_model=admission.agent_model,
+        agent_thinking_level=admission.agent_thinking_level,
+        sandbox_environment_id=target.sandbox_environment_id,
+    )
+    return BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[outcome])
 
 
 async def _asubmit_shared_session_run(

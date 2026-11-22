@@ -4,12 +4,11 @@ from typing import TYPE_CHECKING
 
 from django.template.loader import render_to_string
 
-from sessions.executor.lock import wait_for_slot
-
 from automation.agent.validators import AgentConfigurationError
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 from codebase.exceptions import CloneCredentialUnavailableError
+from sessions.executor.lock import wait_for_slot
 
 if TYPE_CHECKING:
     from sessions.executor.lock import LockPolicy
@@ -22,7 +21,7 @@ _CANNOT_RUN_YET_ERRORS = (AgentConfigurationError, CloneCredentialUnavailableErr
 
 class BaseManager:
     """
-    Base class for the webhook managers: each builds one agent run's ``RunSpec`` and posts its outcome back on
+    Base class for the addressor managers: each builds one agent run's ``RunSpec`` and posts its outcome back on
     the issue or merge request.
     """
 
@@ -92,5 +91,6 @@ class BaseManager:
         return True
 
     def _lock_policy(self) -> LockPolicy:
-        """Wait for the session's slot, which ``webhooks.dispatch`` opened before it enqueued this run."""
+        """Wait for the session's slot, which :class:`~sessions.merge_request_runs.starter.RunStarter` opened before it
+        enqueued this run."""
         return wait_for_slot(f"webhook-{uuid.uuid4().hex}")

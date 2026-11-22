@@ -121,16 +121,18 @@ class TestSessionJobDelegator:
     @pytest.mark.parametrize(
         ("setup", "targets", "message"),
         [
-            ({"run_user": False}, [_target()], "has none"),
+            ({"run_user": False}, [_target()], "acts as none"),
+            ({"acts_as_user": False}, [_target()], "acts as none"),
             ({}, [], "at least one target"),
             ({}, [_target(f"acme/r{i}") for i in range(MAX_DELEGATED_TARGETS + 1)], "At most"),
             ({}, [_target(prompt="")], "a prompt of its own"),
         ],
-        ids=["no-user-behind-the-run", "no-targets", "too-many-targets", "blank-prompt"],
+        ids=["no-user-behind-the-run", "only-attributed-to-its-user", "no-targets", "too-many-targets", "blank-prompt"],
     )
     async def test_a_refused_call_starts_nothing(self, admin_user, setup, targets, message):
         coordinator = await sync_to_async(make_coordinator)(admin_user, ref="")
         run = await sync_to_async(make_delegating_run)(coordinator, admin_user if setup.get("run_user", True) else None)
+        await Run.objects.filter(pk=run.pk).aupdate(acts_as_user=setup.get("acts_as_user", True))
 
         with patch("sessions.queue.run_job_task") as mock_task, pytest.raises(DelegationError, match=message):
             await _delegate(run, targets)

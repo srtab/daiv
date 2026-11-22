@@ -8,6 +8,7 @@
   ``MAX_EVENT_ATTEMPTS``, logged with ``logger.error`` |
 | A leg follow-up's run ended, taken or not | ``handled`` when it succeeded, ``dismissed`` when it was cancelled, else
   ``failed`` (``run_failed``), never retried: a second run would start after its batch finished |
+| A merge request job's run ended, taken or not | as a leg follow-up's: the job reports that one run |
 
 A run that still holds its session's slot when it ends frees it: the drain claimed the slot when it created the run,
 and only the run's task releases it, so a run stopped or failed before its task ran would keep it. The session is then
@@ -20,6 +21,9 @@ CI failures no run could fix fail for good, the fixed note that DAIV could not a
 A failed post is logged; the events keep their state. When a run a CI failure woke succeeded or asked a question
 having pushed nothing, or the CI failure fails for good with none of the runs that tried it having pushed, and its
 session was delegated, the parent session remembers it as a ``no_push`` ``delegated_ci_outcome`` (FR-021).
+
+A run that took a merge request job posts its answer as a new comment on the job's merge request when it ended
+SUCCESSFUL or WAITING_INPUT, and the note that DAIV could not address it when it failed, unless it was cancelled.
 
 A run that took mentions and ended SUCCESSFUL or WAITING_INPUT answers them on their merge request (research.md R10):
 its final message, its question with how to answer it, or, when it ended with nothing to say, the note that DAIV could
@@ -54,7 +58,9 @@ from core import ui_events
 from core.constants import BOT_NAME
 from sessions.executor.lock import SessionLock, stale_cutoff
 from sessions.inbox.drain import Drain
+from sessions.inbox.kinds import OWN_RUN_KINDS
 from sessions.inbox.leg_follow_ups import LegFollowUps
+from sessions.inbox.merge_request_jobs import MergeRequestJobs
 from sessions.inbox.post import Inbox
 from sessions.live.notify import session_changed
 from sessions.models import (
@@ -123,12 +129,15 @@ class RunEnd:
         SYNC ONLY."""
         run = self.run
         LegFollowUps.end_with_run(run)
+        if failed_jobs := MergeRequestJobs.end_with_run(run):
+            self._comment_on_jobs(failed_jobs, MergeRequestReplies.unable_note)
         taken = InboxEvent.objects.filter(run=run, state=EventState.TAKEN)
         if run.status in (RunStatus.SUCCESSFUL, RunStatus.WAITING_INPUT):
             woken_by_ci = list(taken.filter(kind=EventKind.CI_FAILED, wake=True, merge_request_iid__isnull=False))
             mentions = list(
                 taken.filter(kind=EventKind.MENTION, merge_request_iid__isnull=False).order_by("created_at", "id")
             )
+            jobs = list(taken.filter(kind=EventKind.MERGE_REQUEST_JOB, merge_request_iid__isnull=False))
             if taken.update(state=EventState.HANDLED, updated_at=timezone.now()):
                 session_changed(run.session_id)
             if woken_by_ci:
@@ -136,6 +145,8 @@ class RunEnd:
                 self._tell_parent_if_nothing_was_pushed(woken_by_ci)
             if mentions:
                 self._reply_to_mentions(mentions)
+            if jobs:
+                self._comment_on_jobs(jobs, lambda replies: replies.answer(run, asker=jobs[0].author_username))
         elif run.status == RunStatus.FAILED and run.cancel_requested_at is not None:
             if taken.update(state=EventState.DISMISSED, updated_at=timezone.now()):
                 session_changed(run.session_id)
@@ -144,7 +155,7 @@ class RunEnd:
             if taken.update(state=EventState.PENDING, run=None, claim_token="", updated_at=timezone.now()):
                 session_changed(run.session_id)
         elif run.status == RunStatus.FAILED:
-            FailedAttempt(taken.exclude(kind=EventKind.LEG_FOLLOW_UP), cause=f"run={run.pk} failed").record()
+            FailedAttempt(taken.exclude(kind__in=OWN_RUN_KINDS), cause=f"run={run.pk} failed").record()
 
     @classmethod
     def recover_stale_events(cls) -> int:
@@ -171,6 +182,12 @@ class RunEnd:
         MergeRequestReplies.comment_on_merge_requests(
             {(event.effective_repo_id(run.repo_id), event.merge_request_iid) for event in woken_by_ci},
             lambda replies: replies.reply(run, asker=""),
+        )
+
+    def _comment_on_jobs(self, jobs: list[InboxEvent], body: Callable[[MergeRequestReplies], str]) -> None:
+        """Post ``body`` as a new comment on each merge request a job the run took names; a job has no thread."""
+        MergeRequestReplies.comment_on_merge_requests(
+            {(event.effective_repo_id(self.run.repo_id), event.merge_request_iid) for event in jobs}, body
         )
 
     def _reply_to_mentions(self, mentions: list[InboxEvent]) -> None:
@@ -220,7 +237,7 @@ class FailedAttempt:
         for event in self.events:
             sessions.add(event.session_id)
             event.attempts += 1
-            if event.kind == EventKind.LEG_FOLLOW_UP:
+            if event.kind in OWN_RUN_KINDS:
                 event.state, event.failure = EventState.FAILED, EventFailure.RUN_FAILED
             elif event.attempts >= MAX_EVENT_ATTEMPTS:
                 event.state, event.failure = EventState.FAILED, EventFailure.RETRIES_EXHAUSTED

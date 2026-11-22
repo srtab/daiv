@@ -89,6 +89,8 @@ def bubble(event: InboxEvent) -> dict[str, Any]:
             text = payload["text"]
         case EventKind.FOLLOW_UP_JOB | EventKind.LEG_FOLLOW_UP:
             text = payload["prompt"]
+        case EventKind.MERGE_REQUEST_JOB:
+            text = f"{EventText(event).author_name()} on !{event.merge_request_iid}: {payload['prompt']}"
         case EventKind.MENTION:
             text = f"{EventText(event).author_name()} mentioned you on !{event.merge_request_iid}: {payload['body']}"
         case _:
@@ -101,7 +103,10 @@ def bubble(event: InboxEvent) -> dict[str, Any]:
         "failed": event.kind == EventKind.CI_FAILED or payload.get("succeeded", 0) < payload.get("total", 0),
         "text": text,
         "source_iid": event.merge_request_iid,
-        "trigger_type": payload.get("trigger_type", "") if event.kind == EventKind.FOLLOW_UP_JOB else "",
+        "trigger_type": {
+            EventKind.FOLLOW_UP_JOB: payload.get("trigger_type", ""),
+            EventKind.MERGE_REQUEST_JOB: payload.get("source", ""),
+        }.get(event.kind, ""),
         "web_url": payload.get("web_url", ""),
         "created_at": event.created_at.isoformat(),
     }

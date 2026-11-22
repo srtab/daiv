@@ -10,8 +10,8 @@ Two messages, built from the events the run took:
   Capped at ``CONTEXT_MAX_CHARS``: past it, the oldest remembered lines collapse into ``N more <kind> events``.
   Omitted when there is nothing to report.
 - the **request**, a ``HumanMessage``: people's words when the run took any (chat messages, mentions with their
-  authors, the follow-up job's prompt), then DAIV's own sections (a delegated batch's summary, the CI fix prompt), in
-  precedence order and separated by a blank line.
+  authors, the follow-up job's prompt, a merge request job's prompt with whose job it is), then DAIV's own sections (a
+  delegated batch's summary, the CI fix prompt), in precedence order and separated by a blank line.
 
 An event about another of a multi-repository session's repositories names that repository beside its merge request
 and branch. Everything here is addressed to the model, so none of it is translated. The owner's identity never appears.
@@ -149,6 +149,12 @@ class RunInput:
             return "\n\n".join([*mentions, MENTION_REPLY_NOTE])
         if kind in (EventKind.FOLLOW_UP_JOB, EventKind.LEG_FOLLOW_UP):
             return "\n\n".join(event.payload["prompt"] for event in events)
+        if kind == EventKind.MERGE_REQUEST_JOB:
+            return "\n\n".join(
+                f"{event.payload['prompt']}\n\n{EventText(event).author_name()} sent this as a job on "
+                f"{EventText(event).merge_request()}. {MENTION_REPLY_NOTE}"
+                for event in events
+            )
         if kind == EventKind.DELEGATION_FINISHED:
             return "\n\n".join(event.payload["summary"] for event in events)
         return "\n\n".join(
@@ -267,7 +273,7 @@ class EventText:
                 text = payload["text"]
             case EventKind.MENTION:
                 text = f"{self.author_name()} on {self.merge_request()}: {payload['body']}"
-            case EventKind.FOLLOW_UP_JOB | EventKind.LEG_FOLLOW_UP:
+            case EventKind.FOLLOW_UP_JOB | EventKind.LEG_FOLLOW_UP | EventKind.MERGE_REQUEST_JOB:
                 text = payload["prompt"]
             case EventKind.DELEGATION_FINISHED:
                 text = f"{payload['succeeded']} of {payload['total']} succeeded" if "total" in payload else ""

@@ -9,17 +9,19 @@ requester of the oldest one (an event about another of the session's repositorie
 is gated where it is made, FR-026), and takes their waking events for the branch with every remembered one, up to their
 first request that runs alone (:meth:`sessions.inbox.splits.RequestSplits.runs_alone`). A builtin slash command that
 comes first is taken alone, with nothing remembered: the slash-command middleware answers it only as the whole request,
-and ends the run. A leg follow-up that comes first is taken alone with every remembered event, and its own run, posted
-with it, is promoted to READY to run it; when its leg's merge request was merged or closed meanwhile it is stopped
-instead, its run finishing FAILED with its not-run label (:meth:`sessions.inbox.leg_follow_ups.LegFollowUps.stop`), and
-the drain runs again once that commits. Otherwise the requester's next run for the branch is promoted to READY to run
-what was taken, unless requests it holds stay behind; it then keeps waiting for them, and a READY run is created
-instead. The drain claims the slot for that run and marks its events ``taken``. A CI failure among them spends one of
-its merge request's attempts on the commit it reports in that same transaction, so a crash before the enqueue still
-counts it. A denied requester's events fail, their next run and their leg follow-ups' runs end FAILED with the
-``access_denied`` label (a follow-up job's id still resolves, a leg follow-up's batch finishes), and the drain goes on
-to the next requester. The run is enqueued once the take commits; a failed enqueue frees the slot, puts the events back
-and refunds the attempt, for the sweep to retry.
+and ends the run. A leg follow-up or a merge request job that comes first is taken alone with every remembered event,
+and its own run, posted with it, is promoted to READY to run it; when its merge request was merged or closed meanwhile
+it is stopped instead, its run finishing FAILED never started (:meth:`sessions.inbox.leg_follow_ups.LegFollowUps.stop`,
+:meth:`sessions.inbox.merge_request_jobs.MergeRequestJobs.stop`), and the drain runs again once that commits.
+Otherwise the requester's next run for the branch is promoted to READY to run what was taken, unless requests it holds
+stay behind; it then keeps waiting for them, and a READY run is created instead. The drain claims the slot for that run
+and marks its events ``taken``. A CI failure among them spends one of its merge request's attempts on the commit it
+reports in that same transaction, so a crash before the enqueue still counts it. A denied requester's events fail,
+their next run and the own runs of their leg follow-ups and merge request jobs end FAILED with the ``access_denied``
+label (a job's id still resolves, a leg follow-up's batch finishes), and the drain goes on to the next requester. A
+merge request job only attributed to its requester, a CI identity's, is not checked: the platform proved its access.
+The run is enqueued once the take commits; a failed enqueue frees the slot, puts the events back and refunds the
+attempt, for the sweep to retry.
 
 A next run is a QUEUED run with an inbox trigger type, no task yet, and events linked to it. ``sessions.queue`` leaves
 such runs alone: only this module starts them, because only it claims the slot for them.
@@ -45,8 +47,9 @@ from sandbox_envs.selection import resolve_env_for_run
 from automation.agent.references import merge_stored_refs
 from sessions.admission import RepoAccessError, assert_repo_access
 from sessions.executor.lock import SessionLock, stale_cutoff
-from sessions.inbox.kinds import PERSON_KINDS, PRECEDENCE, EventContent
+from sessions.inbox.kinds import OWN_RUN_KINDS, PERSON_KINDS, PRECEDENCE, EventContent
 from sessions.inbox.leg_follow_ups import LegFollowUps
+from sessions.inbox.merge_request_jobs import MergeRequestJobs
 from sessions.inbox.next_runs import NextRuns
 from sessions.inbox.pending import PendingEvents
 from sessions.inbox.policy import WakePolicy
@@ -128,9 +131,9 @@ class Drain:
     @classmethod
     def sessions_to_drain(cls, limit: int = DRAIN_SWEEP_LIMIT) -> list[str]:
         """Sessions with a pending waking event and a free or stale slot, for the sweep: an archived one only for a leg
-        follow-up its drain stops. SYNC ONLY."""
+        follow-up or merge request job its drain stops. SYNC ONLY."""
         free = Q(session__active_run_id__isnull=True) | Q(session__last_active_at__lt=stale_cutoff())
-        takes_it = Q(session__archived_at__isnull=True) | Q(kind=EventKind.LEG_FOLLOW_UP)
+        takes_it = Q(session__archived_at__isnull=True) | Q(kind__in=OWN_RUN_KINDS)
         return list(
             InboxEvent.objects
             .filter(free, takes_it, state=EventState.PENDING, wake=True)
@@ -147,8 +150,8 @@ class Drain:
     def _undo_take(self, run: Run, charges: list[_Charge]) -> None:
         """Free the slot claimed for ``run``, put its events back and refund the CI attempts its take spent, after its
         enqueue failed. The slot and events are usually back already: the failed run's ``run_ended`` did both
-        (:meth:`sessions.inbox.complete.RunEnd.on_run_ended`), unless its finish did not land. A leg follow-up stays
-        with its run, whose end settles it.
+        (:meth:`sessions.inbox.complete.RunEnd.on_run_ended`), unless its finish did not land. A leg follow-up or a
+        merge request job stays with its run, whose end settles it.
 
         A refund leaves the merge request's examined commit blank, as the one before is not kept. That commit is older
         than the failure's, so it is no longer the head DAIV pushed, the only commit whose failure wakes the session. A
@@ -158,7 +161,7 @@ class Drain:
         with transaction.atomic():
             Session.objects.select_for_update().filter(pk=run.session_id).exists()
             SessionLock.release_for_run(run.session_id, run.pk)
-            InboxEvent.objects.filter(run=run, state=EventState.TAKEN).exclude(kind=EventKind.LEG_FOLLOW_UP).update(
+            InboxEvent.objects.filter(run=run, state=EventState.TAKEN).exclude(kind__in=OWN_RUN_KINDS).update(
                 state=EventState.PENDING, run=None, updated_at=timezone.now()
             )
             retaken = set(
@@ -198,6 +201,7 @@ class _Take:
         next_runs = NextRuns(session)
         if session.archived_at is not None:
             LegFollowUps.stop_held(session)
+            MergeRequestJobs.stop_held(session)
             return None
         if SessionLock.is_held(session) or next_runs.job_run_active():
             return None
@@ -230,16 +234,16 @@ class _Take:
         ]
         splits = RequestSplits(requested)
         asked = splits.splits[0]
-        follow_up = asked[0] if asked[0].kind == EventKind.LEG_FOLLOW_UP else None
+        own = asked[0] if asked[0].kind in OWN_RUN_KINDS else None
         own_run = None
-        if follow_up is not None:
+        if own is not None:
             # Locked so a coordinator's cancel can't land between this read and the promotion to READY.
-            own_run = Run.objects.select_for_update().filter(pk=follow_up.run_id).first()
+            own_run = Run.objects.select_for_update().filter(pk=own.run_id).first()
             if own_run is None or own_run.status != RunStatus.QUEUED:
-                LegFollowUps.settle_unstartable(follow_up, own_run)
+                self._settle_unstartable(own, own_run)
                 own_run = None
-            elif (stop := LegFollowUps.stop_reason(session)) is not None:
-                LegFollowUps.stop(follow_up, stop, own_run)
+            elif (stop := self._stop_reason(own)) is not None:
+                self._stop(own, stop, own_run)
                 own_run = None
             if own_run is None:
                 transaction.on_commit(Drain(session.thread_id).start_logged, robust=True)
@@ -259,7 +263,8 @@ class _Take:
             next_run = waiting_run
         else:
             next_run = None
-        user = requester.user(session, requested)
+        # A run only attributed to its requester (a CI identity's) has no one's access or environments to check.
+        user = requester.user(session, requested) if own_run is None or own_run.acts_as_user else None
         checked = any(event.kind != EventKind.MENTION for event in requested)
         if user is not None and checked and not self._may_run(user, session.repo_ids()):
             self._fail(requested, waiting_run)
@@ -295,6 +300,25 @@ class _Take:
         self._merge_references(taken)
         self._apply_tools_selection(taken)
         return run, self._charge_ci_attempts(taken)
+
+    @staticmethod
+    def _settle_unstartable(own: InboxEvent, run: Run | None) -> None:
+        if own.kind == EventKind.MERGE_REQUEST_JOB:
+            MergeRequestJobs.settle_unstartable(own, run)
+        else:
+            LegFollowUps.settle_unstartable(own, run)
+
+    def _stop_reason(self, own: InboxEvent) -> EventFailure | None:
+        if own.kind == EventKind.MERGE_REQUEST_JOB:
+            return MergeRequestJobs.stop_reason(self.session, own)
+        return LegFollowUps.stop_reason(self.session)
+
+    @staticmethod
+    def _stop(own: InboxEvent, failure: EventFailure, run: Run) -> None:
+        if own.kind == EventKind.MERGE_REQUEST_JOB:
+            MergeRequestJobs.stop(own, failure, run)
+        else:
+            LegFollowUps.stop(own, failure, run)
 
     def _link_superseded(self, taken: list[InboxEvent], run: Run, branch: str) -> None:
         """Link to ``run`` the superseded events of the subjects it took, on its ``branch``, which it shows replaced."""
@@ -366,9 +390,9 @@ class _Take:
 
     def _fail(self, asked: list[InboxEvent], next_run: Run | None) -> None:
         """Fail the events of a requester who may no longer run on the repository, and finish their QUEUED next run
-        and each leg follow-up's own run FAILED with the ``access_denied`` label, so the id a follow-up job's caller
-        polls still resolves and a leg follow-up's batch finishes. A leg follow-up stays linked to its run, which is
-        how its batch tells the run apart.
+        and the own run of each leg follow-up and merge request job FAILED with the ``access_denied`` label, so the id
+        a job's caller polls still resolves and a leg follow-up's batch finishes. Those events stay linked to their
+        runs, which is how a batch tells the run apart.
 
         The finishes say ``skip_dispatch``: the caller drains once this commits, and the events, already failed rather
         than taken, are left as they are by the run's end (:meth:`sessions.inbox.complete.RunEnd.settle_events`)."""
@@ -379,8 +403,8 @@ class _Take:
             len(asked),
         )
         now = timezone.now()
-        follow_ups = [event for event in asked if event.kind == EventKind.LEG_FOLLOW_UP]
-        InboxEvent.objects.filter(pk__in=[event.pk for event in asked]).exclude(kind=EventKind.LEG_FOLLOW_UP).update(
+        follow_ups = [event for event in asked if event.kind in OWN_RUN_KINDS]
+        InboxEvent.objects.filter(pk__in=[event.pk for event in asked]).exclude(kind__in=OWN_RUN_KINDS).update(
             state=EventState.FAILED, failure=EventFailure.ACCESS_DENIED, run=None, updated_at=now
         )
         InboxEvent.objects.filter(pk__in=[event.pk for event in follow_ups]).update(

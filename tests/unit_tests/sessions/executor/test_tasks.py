@@ -304,6 +304,14 @@ class TestInboxRun:
 
         assert spec.acting_user_id == admin_user.pk
 
+    async def test_a_run_only_attributed_to_its_user_acts_as_no_one(self, member_user):
+        run = await self._inbox_run(user=member_user)
+        await Run.objects.filter(pk=run.pk).aupdate(acts_as_user=False)
+
+        spec = (await _execute_run_call(run.session_id, run_id=str(run.pk), inbox=True))["spec"]
+
+        assert spec.acting_user_id is None
+
     async def test_the_input_factory_reuses_the_events_read_at_start(self, member_user):
         run = await self._inbox_run(user=member_user)
         spec = (await _execute_run_call(run.session_id, run_id=str(run.pk), inbox=True))["spec"]

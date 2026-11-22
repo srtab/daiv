@@ -248,6 +248,16 @@ class TestRequest:
 
         assert RunInput([quiet, follow_up]).request() == "Make the failing test pass"
 
+    def test_a_merge_request_job_is_its_prompt_from_its_requester_answered_on_the_merge_request(self):
+        payload = {"prompt": "/code-review", "acts_as_user": False, "source": "api_job"}
+        job = _event(EventKind.MERGE_REQUEST_JOB, payload, author_username="pusher")
+
+        assert RunInput([job]).request() == (
+            "/code-review\n\npusher sent this as a job on !9. Reply as you would on the merge request; your final "
+            "message is posted there."
+        )
+        assert EventText(job).summary() == "/code-review"
+
 
 class TestEventText:
     def test_a_finished_delegation_says_how_many_jobs_succeeded(self):

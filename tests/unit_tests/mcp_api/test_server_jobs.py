@@ -600,3 +600,74 @@ async def test_get_job_failed_otherwise_keeps_the_generic_error(_default_mcp_use
     run = await _run(await _session(_default_mcp_user), status=RunStatus.FAILED)
 
     assert json.loads(await get_job_status(job_id=str(run.id)))["error"] == "Job execution failed."
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"repo_id": "a/b", "merge_request": 7, "ref": "main"},
+        {"repo_id": "a/b", "merge_request": 7, "prompt": "only here"},
+        {"repo_id": "a/b", "merge_request": 0},
+    ],
+    ids=["with-ref", "with-prompt", "not-positive"],
+)
+def test_a_merge_request_target_with_a_ref_or_its_own_prompt_is_refused(entry):
+    from mcp_api.server import RepoSubmitSpec
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        RepoSubmitSpec(**entry)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_merge_request_target_in_a_shared_session_is_refused():
+    from mcp_api.server import submit_job
+
+    with patch("mcp_api.server._allow_job_submission", return_value=True):
+        result = await submit_job(repos=[{"repo_id": "a/b", "merge_request": 7}], prompt="x", shared_session=True)
+
+    assert json.loads(result)["error"] == "A merge request target can't be combined with shared_session or thread_id."
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_merge_request_target_runs_as_an_mcp_job_in_the_merge_requests_session(mock_repo_client):
+    from mcp_api.server import submit_job
+    from sessions.ids import compute_thread_id
+
+    from codebase.base import MergeRequest, Scope
+    from codebase.base import User as PlatformUser
+
+    mock_repo_client.get_merge_request.return_value = MergeRequest(
+        repo_id="a/b", merge_request_id=7, source_branch="feat", target_branch="main", title="F", description="",
+        author=PlatformUser(id=1, username="author"),
+    )  # fmt: skip
+
+    with (
+        patch("mcp_api.server._allow_job_submission", return_value=True),
+        patch("sessions.merge_request_runs.starter.resolve_env_for_run", new=AsyncMock(return_value=None)),
+        patch("sessions.merge_request_runs.service.address_merge_request_task") as task,
+    ):
+        task.get_or_enqueue.return_value = (await _task_row(), True)
+        result = await submit_job(repos=[{"repo_id": "a/b", "merge_request": 7}], prompt="/code-review")
+
+    [job] = json.loads(result)["jobs"]
+    run = await Run.objects.aget(pk=job["job_id"])
+    assert (run.trigger_type, run.merge_request_iid, run.session_id) == (
+        SessionOrigin.MCP_JOB, 7, compute_thread_id(repo_slug="a/b", scope=Scope.MERGE_REQUEST, entity_iid=7),
+    )  # fmt: skip
+    assert task.get_or_enqueue.call_args.kwargs["request_key"].startswith("job:")
+
+
+async def _task_row():
+    from django_tasks_db.models import DBTaskResult
+
+    return await DBTaskResult.objects.acreate(
+        id=uuid.uuid4(),
+        status="READY",
+        task_path="sessions.merge_request_runs.tasks.address_merge_request_task",
+        args_kwargs={"args": [], "kwargs": {}},
+        queue_name="default",
+        backend_name="default",
+        run_after="9999-01-01T00:00:00Z",
+        return_value={},
+    )

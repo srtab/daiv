@@ -6,14 +6,14 @@ description: "Trigger DAIV agents programmatically with the Jobs REST API from C
 
 The jobs API runs DAIV agents outside the git webhook flow. You send a prompt and a list of repositories, DAIV returns a job ID for each run, and you poll that ID for the result.
 
-Use it to run agents from a CI pipeline, chain agent tasks, trigger runs from Slack bots, scripts or other tools, or start a one-off run with `curl`. To run a prompt on a recurring schedule without any external trigger, use [scheduled jobs](scheduled-jobs.md).
+Use it to run agents from a CI pipeline, chain agent tasks, trigger runs from Slack bots, scripts or other tools, or start a one-off run with `curl`. A job can also run on a merge request and post its result there, for example a code review on every push ([Run a job on a merge request](#run-a-job-on-a-merge-request)). To run a prompt on a recurring schedule without any external trigger, use [scheduled jobs](scheduled-jobs.md).
 
 ## Before you start
 
 You need:
 
-- A DAIV account with an API key, created as described in [Create an API key](#create-an-api-key).
-- Write access to every repository you name in `repos`.
+- A DAIV account with an API key, created as described in [Create an API key](#create-an-api-key). A GitLab CI job or a GitHub Actions workflow can use its [CI identity token](#ci-identity-tokens) instead.
+- Write access to every repository you name in `repos`. A CI identity token is the proof of access for its own repository.
 - For multi-repository sessions (`shared_session`), a daiv-sandbox release with path-scoped egress rules and repository seeding. Deploy the sandbox release first: with an older sandbox the run fails before any command runs, with an error that says so. Single-repository runs are unaffected.
 
 ## Create an API key
@@ -56,11 +56,11 @@ curl -X POST https://daiv.example.com/api/jobs \
   -d '...'
 ```
 
-Replace `<api-key>` with your key. A missing or invalid key returns `401`.
+Replace `<api-key>` with your key. A missing or invalid key returns `401`. A CI job can pass its identity token the same way; see [CI identity tokens](#ci-identity-tokens).
 
 ## Rate limiting
 
-DAIV limits job submissions per authenticated user and returns `429 Too Many Requests` when you exceed the limit. The same budget applies to the [MCP endpoint](mcp-endpoint.md) and to chat completions. An admin sets the rate in **Configuration** under the **Jobs** group, or with `DAIV_JOBS_THROTTLE_RATE`; the default and the accepted formats are in [Environment variables](../reference/env-variables.md#jobs-api).
+DAIV limits job submissions per authenticated user, or for a [CI identity token](#ci-identity-tokens) per account that triggered the pipeline, and returns `429 Too Many Requests` when you exceed the limit. The same budget applies to the [MCP endpoint](mcp-endpoint.md) and to chat completions. An admin sets the rate in **Configuration** under the **Jobs** group, or with `DAIV_JOBS_THROTTLE_RATE`; the default and the accepted formats are in [Environment variables](../reference/env-variables.md#jobs-api).
 
 ## Submit a job
 
@@ -160,17 +160,120 @@ The `thread_id` rules in [Request fields](#request-fields) apply to the answer t
 
 You do not have to poll for the question. When a job ends in `WAITING_INPUT`, DAIV sends you a [notification](notifications.md) listing the questions, unless you muted it. For a multi-repository batch, the run counts in the batch rollup, and appears in the email and Rocket.Chat versions, once every repository's run has settled.
 
+## Run a job on a merge request
+
+Name a merge request with `merge_request` on the `repos` entry, in place of `ref`. DAIV runs the prompt with the merge request as its context, on its source branch, the way a mention of DAIV on that merge request would, and posts the run's final message as one comment on the merge request, from DAIV's account. `merge_request` is the GitLab merge request IID or the GitHub pull request number. For example, to review merge request `!42`:
+
+```json
+{
+  "repos": [{"repo_id": "mygroup/myproject", "merge_request": 42}],
+  "prompt": "/code-review"
+}
+```
+
+The entry must be the only one in `repos`, with no `ref` and no per-repository `prompt` (`422` otherwise), and the request can't set `shared_session` or `thread_id` (`400`). You need write access to the repository, as for any job; without it the request gets the usual opaque `404`, which does not confirm the merge request exists.
+
+The run goes where a mention by you would:
+
+- **No DAIV session owns the merge request:** the run goes into the merge request's own session, which later mentions on the merge request share, so they have the job's result in context. The job starts `READY`, and runs after any run already in that session.
+- **A DAIV session owns it** (DAIV published the merge request): the job runs as one turn of that session, acting as you. It is `QUEUED` while the session is busy. Each job keeps its own `job_id`, so two jobs sent while the session is busy run as two turns, one after the other.
+
+The job ends with one of these on the merge request:
+
+- **The result:** the final message, also returned in `result`.
+- **A question:** the question, and the job is `WAITING_INPUT`. Anyone who mentions DAIV on the merge request answers it, or you send a new job with the same target.
+- **A failure:** a short comment that DAIV could not complete the request, and the job is `FAILED`.
+- **A merge or close before the run started:** DAIV posts "This merge request was merged before the job could start, so I didn't run it." ("closed" for a closed one), and the job is `FAILED` with that text in `error`.
+
+DAIV refuses the job before starting a run, and puts it in `failed` with the reason, when the merge request is not in the repository (`Merge request !42 was not found in mygroup/myproject.`), is merged or closed (`Merge request !42 is merged.`), or its DAIV session is archived. An archived session's refusal links the session to unarchive, and DAIV posts nothing on the merge request. A session archived after DAIV accepted the job ends the job `FAILED`, also posting nothing.
+
+To run this from CI on every push, see [Review every push to a merge request](#review-every-push-to-a-merge-request).
+
+## CI identity tokens
+
+A GitLab CI job or a GitHub Actions workflow can authenticate to the jobs API with the short-lived identity token its platform signs for it, so your CI stores no DAIV key. The run belongs to the account that triggered the pipeline, not to a shared key's owner. DAIV accepts identity tokens from the git platform it is configured for, on `POST /api/jobs` and `GET /api/jobs/{job_id}`; the MCP endpoint does not take them.
+
+### Request a token in GitLab CI
+
+Add an `id_tokens` entry whose `aud` is DAIV's address, `DAIV_EXTERNAL_URL`, and pass it as the Bearer token:
+
+```yaml
+daiv-job:
+  id_tokens:
+    DAIV_ID_TOKEN:
+      aud: https://daiv.example.com
+  script:
+    - >
+      curl --fail-with-body -sS -X POST "https://daiv.example.com/api/jobs"
+      -H "Authorization: Bearer $DAIV_ID_TOKEN" -H "Content-Type: application/json"
+      -d "{\"repos\":[{\"repo_id\":\"$CI_PROJECT_PATH\"}],\"prompt\":\"List all TODO comments\"}"
+```
+
+### Request a token in GitHub Actions
+
+Give the workflow the `id-token: write` permission, and request a token for DAIV's address:
+
+```yaml
+permissions:
+  id-token: write
+  contents: read
+```
+
+```bash
+TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+  "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://daiv.example.com" | jq -r .value)
+```
+
+GitHub gives workflows that run for a pull request from a fork no `id-token` permission, so those workflows can't request a token.
+
+### What DAIV checks
+
+DAIV accepts a token only when all of these hold:
+
+| Check | GitLab | GitHub |
+|---|---|---|
+| Signature | `RS256`, by a key GitLab publishes at `<issuer>/oauth/discovery/keys` | `RS256`, by a key GitHub publishes at `<issuer>/.well-known/jwks` |
+| Issuer | `CODEBASE_GITLAB_URL`, or `https://gitlab.com` when it is unset | `CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER` |
+| Audience | `DAIV_JOBS_CI_IDENTITY_AUDIENCE`, by default `DAIV_EXTERNAL_URL` | the same |
+| Expiry | not expired, with 60 seconds of leeway | the same |
+| Repository | the token's `project_id` is the ID of the job's repository | the token's `repository_id` is the ID of the job's repository |
+| Allowed users | when the repository's `allowed_usernames` is set, it lists the token's `user_login` | it lists the token's `actor` |
+| Single use | no job was accepted with this token yet | the same |
+
+The repository is matched by its numeric ID, which a rename does not change, so a pipeline in a fork can't submit jobs on the repository it was forked from. A token that fails a check gets `401` with `{"detail": "Unauthorized"}`, which does not say which check failed. DAIV logs each refusal at `WARNING`, with the check and the repository path the token names, and never the token. When DAIV can't fetch the platform's signing keys, the request gets `401` and DAIV logs an `ERROR`. The variables are in [Environment variables](../reference/env-variables.md#jobs-api).
+
+### What a token can submit
+
+A request a token authenticates submits one job on the token's own repository:
+
+- `repos` has exactly one entry, the token's repository, which must be in DAIV's repository list (`404` otherwise).
+- It can't set `thread_id`, `shared_session` or `references` (`400`: `A CI identity token submits one job on its own repository.`).
+- `mcp_overrides` can name global MCP servers only; a personal server's name is an unknown server (`400`).
+- It can target a branch with `ref` or a merge request with `merge_request`.
+
+DAIV accepts one job per token: a second submission with a token whose job DAIV already accepted gets `401`. A CI job that sends two jobs requests two tokens, with two `id_tokens` entries on GitLab or two token requests on GitHub. A submission DAIV refused (`400`, `404` or a `failed` entry) does not use the token, so you can retry with it.
+
+### Who the run belongs to
+
+The run belongs to the account that triggered the pipeline, never to a value in the request body: its DAIV account when one is linked through OAuth and active, else the platform account, which spend and the sessions list show as external.
+
+The run acts as no one. It loads the global MCP servers only, never the triggering person's personal servers or personal [sandbox environments](sandbox-environments.md), DAIV does not assign merge requests it opens to them, and it can't [delegate](orchestration.md). Its notifications are muted unless the request sets `"muted": false`, which keeps them for a linked account.
+
+### Poll with a token
+
+`GET /api/jobs/{job_id}` with a token returns a job when it ran on the token's repository and belongs to the token's triggering account; any other job ID gets `404`. Polling does not use the token up, so the token that submitted a job can poll it until the token expires.
+
 ## Request fields
 
 These are the fields of the `POST /api/jobs` body.
 
 | Field                  | Type             | Required | Description |
 |------------------------|------------------|----------|-------------|
-| `repos`                | array of objects | yes      | 1–20 repositories to run against. Each item is `{ "repo_id": "group/project", "ref": "branch", "prompt": "..." }`. `ref` is optional, must be a branch that exists on the remote, and defaults to the repository's default branch. `prompt` is optional, must not be blank, and replaces the batch `prompt` for that repository only. A new merge or pull request targets `ref`, and DAIV assigns it to the API key's owner when their DAIV account is OAuth-linked to the git platform. |
+| `repos`                | array of objects | yes      | 1–20 repositories to run against. Each item is `{ "repo_id": "group/project", "ref": "branch", "prompt": "..." }`. `ref` is optional, must be a branch that exists on the remote, and defaults to the repository's default branch. `prompt` is optional, must not be blank, and replaces the batch `prompt` for that repository only. A new merge or pull request targets `ref`, and DAIV assigns it to the API key's owner when their DAIV account is OAuth-linked to the git platform. An item can name `merge_request`, a merge request number, in place of `ref`; see [Run a job on a merge request](#run-a-job-on-a-merge-request). |
 | `prompt`               | string           | yes      | The prompt to send to the agent. It runs as an independent job against each repository in `repos`, except one that gives its own `prompt`, and it titles the batch. |
 | `agent_model`          | string           | no       | The model for this batch. DAIV rejects an invalid model and thinking-level combination with `400`. |
 | `agent_thinking_level` | string           | no       | The agent's reasoning effort: `minimal`, `low`, `medium`, `high` or `xhigh`. DAIV rejects an invalid combination with `400`. |
-| `muted`                | boolean          | no       | Mute notifications for every job in this batch. Default `false`. |
+| `muted`                | boolean          | no       | Mute notifications for every job in this batch. Default `false`, or `true` for a request a [CI identity token](#ci-identity-tokens) authenticates. |
 | `environment`          | string           | no       | The [sandbox environment](sandbox-environments.md), by name or ID, for every job in the batch. DAIV rejects an environment it cannot resolve with `400`. |
 | `shared_session`       | boolean          | no       | Run all repositories in `repos` in one session instead of one job each. At most 5 entries. See [Multi-repository sessions](#multi-repository-sessions). |
 | `thread_id`            | string (UUID)    | no       | Continue an existing thread. `repos` must hold exactly one entry (a [multi-repository session](#continuing-a-multi-repository-session) also accepts its full list), the thread's most recent run must be yours, and the session must not be an [archived session](sessions.md#archived-sessions); otherwise DAIV returns `400`. If the session is busy, the job joins the session's next run for its branch in `QUEUED` state, which starts once the current run ends; see [Job lifecycle](#job-lifecycle). |
@@ -183,12 +286,12 @@ DAIV validates the body strictly and rejects unknown fields with `422`, `use_max
 
 | Status | Meaning |
 |--------|---------|
-| `QUEUED` | The job is the session's next run, waiting for its current run to finish. Only occurs for thread continuations (`thread_id` supplied). |
+| `QUEUED` | The job waits for the session's current run to finish. Only occurs for thread continuations (`thread_id` supplied) and for jobs on a merge request a busy session owns. |
 | `READY` | The job is waiting for a worker. |
 | `RUNNING` | The agent is executing. |
 | `SUCCESSFUL` | The run completed, and `result` holds the agent's last response. |
 | `WAITING_INPUT` | The agent stopped to ask you a question. This is a final state, not a step towards `SUCCESSFUL`. `question` holds the questions asked, and `result` their rendered text. |
-| `FAILED` | The agent hit an error, and `error` holds a message. When a model provider stopped the run, for example because it ran out of credits, hit its spending limit or rejected DAIV's API key, the message names the provider and the cause. Otherwise it is a generic failure text. |
+| `FAILED` | The agent hit an error, and `error` holds a message. When a model provider stopped the run, for example because it ran out of credits, hit its spending limit or rejected DAIV's API key, the message names the provider and the cause. A job on a merge request that never started says why. Otherwise it is a generic failure text. |
 
 ## Error responses
 
@@ -196,17 +299,17 @@ For `GET /api/jobs/{job_id}`:
 
 | Code | When |
 |------|------|
-| `401` | The API key is missing or invalid. |
-| `404` | The job ID is not found or is not a valid ID. |
+| `401` | The API key is missing or invalid, or the CI identity token fails a check. |
+| `404` | The job ID is not found or is not a valid ID, or, with a CI identity token, the job did not run on its repository for its triggering account. |
 
 For `POST /api/jobs`:
 
 | Code | When |
 |------|------|
-| `400` | The request is invalid: a bad `agent_model` or `agent_thinking_level`; no `agent_model` given and no system default model configured (a model set only in `.daiv.yml` does not count); an unresolvable `environment`; an unknown MCP server in `mcp_overrides`; an invalid `shared_session` list (more than 5 entries, a repository listed twice, or a per-repository `prompt`); or an invalid `thread_id` continuation (an unknown or unowned thread, an archived session, more than one repository for a single-repository session, a `ref` on a multi-repository session, or anything but the main repository alone or the full list in order). |
-| `401` | The API key is missing or invalid. |
+| `400` | The request is invalid: a bad `agent_model` or `agent_thinking_level`; no `agent_model` given and no system default model configured (a model set only in `.daiv.yml` does not count); an unresolvable `environment`; an unknown MCP server in `mcp_overrides`; an invalid `shared_session` list (more than 5 entries, a repository listed twice, or a per-repository `prompt`); an invalid `thread_id` continuation (an unknown or unowned thread, an archived session, more than one repository for a single-repository session, a `ref` on a multi-repository session, or anything but the main repository alone or the full list in order); a `merge_request` with `shared_session`, `thread_id` or another `repos` entry; or a CI identity token's request for more than one job on its own repository. |
+| `401` | The API key is missing or invalid, or the CI identity token fails a check or already submitted an accepted job. |
 | `404` | A repository in `repos` is not found, or you lack write access to it. The response does not say which one. |
-| `422` | The body is malformed or has unknown fields, for example `use_max` or `notify_on`, or a `references` entry is invalid. |
+| `422` | The body is malformed or has unknown fields, for example `use_max` or `notify_on`, a `references` entry is invalid, or a `merge_request` entry also sets `ref` or `prompt`. |
 | `429` | You exceeded the [rate limit](#rate-limiting). |
 
 ## Multi-repository sessions
@@ -258,7 +361,7 @@ The session owns every merge request it opens, the main repository's and each ot
 
 A job moves through these statuses:
 
-1. `POST /api/jobs` creates the job as `READY`, or as `QUEUED` when you supply a `thread_id` and the session is busy.
+1. `POST /api/jobs` creates the job as `READY`, or as `QUEUED` when you supply a `thread_id`, or name a merge request a session owns, and the session is busy.
 2. A `QUEUED` job becomes `READY` when the session's current run finishes.
 3. A worker picks up a `READY` job and it becomes `RUNNING`.
 4. A `RUNNING` job ends as `SUCCESSFUL` when the agent completes, `WAITING_INPUT` when the agent asks a question, or `FAILED` when the agent errors.
@@ -267,7 +370,7 @@ A job moves through these statuses:
 ```mermaid
 stateDiagram-v2
     [*] --> READY: POST /api/jobs
-    [*] --> QUEUED: POST /api/jobs (thread continuation, session busy)
+    [*] --> QUEUED: POST /api/jobs (thread continuation or owned merge request, session busy)
     QUEUED --> READY: The session's current run finishes
     READY --> RUNNING: Worker picks up job
     RUNNING --> SUCCESSFUL: Agent completes
@@ -278,7 +381,7 @@ stateDiagram-v2
     FAILED --> [*]
 ```
 
-A job starts in `QUEUED` only when you supply a `thread_id` and the session is busy. The job then joins the session's next run for its branch (`ref`, or the session's branch when you leave it out), which starts at `READY` once the current run ends. Everything waiting for the session on that branch goes into the same run: another job, a chat message, a CI failure DAIV is fixing. So two jobs sent while the session is busy can return the same `job_id`; poll it once and read one `result` for both. A job on a different branch gets a next run of its own. Every other submission starts at `READY`.
+A job on a merge request a busy session owns starts in `QUEUED` and runs as a turn of its own ([Run a job on a merge request](#run-a-job-on-a-merge-request)). Otherwise a job starts in `QUEUED` only when you supply a `thread_id` and the session is busy. The job then joins the session's next run for its branch (`ref`, or the session's branch when you leave it out), which starts at `READY` once the current run ends. Everything waiting for the session on that branch goes into the same run: another job, a chat message, a CI failure DAIV is fixing. So two jobs sent while the session is busy can return the same `job_id`; poll it once and read one `result` for both. A job on a different branch gets a next run of its own. Every other submission starts at `READY`.
 
 `SUCCESSFUL`, `WAITING_INPUT` and `FAILED` are final for that job. `WAITING_INPUT` does not progress to `SUCCESSFUL` on its own; it waits for a new job on the same thread (see [Answer a question](#answer-a-question)).
 
@@ -358,6 +461,55 @@ triage-and-create-issues:
 ```
 
 Store `DAIV_URL` and `DAIV_API_KEY` as CI/CD variables in your GitLab project settings, and turn on **Mask variable** and **Protect variable** for the API key.
+
+### Review every push to a merge request
+
+These CI jobs ask DAIV to run `/code-review` on the pipeline's merge request at every push, with the pipeline's [CI identity token](#ci-identity-tokens), so you store no DAIV key. Each review is posted on the merge request and covers only the commits since the previous one; see [Review reports](pull-request-assistant.md#review-reports). Replace `https://daiv.example.com` with DAIV's address.
+
+In GitLab CI:
+
+```yaml
+daiv-code-review:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  id_tokens:
+    DAIV_ID_TOKEN:
+      aud: https://daiv.example.com
+  script:
+    - >
+      curl --fail-with-body -sS -X POST "https://daiv.example.com/api/jobs"
+      -H "Authorization: Bearer $DAIV_ID_TOKEN" -H "Content-Type: application/json"
+      -d "{\"repos\":[{\"repo_id\":\"$CI_PROJECT_PATH\",\"merge_request\":$CI_MERGE_REQUEST_IID}],\"prompt\":\"/code-review\"}"
+```
+
+In GitHub Actions:
+
+```yaml
+# .github/workflows/daiv-code-review.yml
+name: DAIV code review
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask DAIV to review the pull request
+        env:
+          DAIV_URL: https://daiv.example.com
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$DAIV_URL" | jq -r .value)
+          curl --fail-with-body -sS -X POST "$DAIV_URL/api/jobs" \
+            -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+            -d "{\"repos\":[{\"repo_id\":\"$GITHUB_REPOSITORY\",\"merge_request\":$PR_NUMBER}],\"prompt\":\"/code-review\"}"
+```
+
+The CI job ends as soon as DAIV accepts the review; the review itself appears on the merge request when its run finishes.
 
 ## Related pages
 
