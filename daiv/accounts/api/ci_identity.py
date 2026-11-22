@@ -50,7 +50,18 @@ _CLAIMS = {
     GitPlatform.GITHUB: {"repo_path": "repository", "repo_id": "repository_id", "uid": "actor_id", "login": "actor"},
 }
 _KEYS_PATHS = {GitPlatform.GITLAB: "/oauth/discovery/keys", GitPlatform.GITHUB: "/.well-known/jwks"}
-_TIME_ERRORS = (jwt.ExpiredSignatureError, jwt.ImmatureSignatureError, jwt.InvalidIssuedAtError)
+KEYS_UNREACHABLE = "signing keys unreachable"
+# First match wins: PyJWKClientConnectionError is a PyJWKClientError, and every class here a PyJWTError.
+_REFUSALS: tuple[tuple[type[jwt.PyJWTError] | tuple[type[jwt.PyJWTError], ...], str], ...] = (
+    (jwt.PyJWKClientConnectionError, KEYS_UNREACHABLE),
+    ((jwt.PyJWKClientError, jwt.InvalidSignatureError), "signature"),
+    (jwt.InvalidAlgorithmError, "algorithm"),
+    (jwt.InvalidIssuerError, "issuer"),
+    (jwt.InvalidAudienceError, "audience"),
+    ((jwt.ExpiredSignatureError, jwt.ImmatureSignatureError, jwt.InvalidIssuedAtError), "expired"),
+    (jwt.MissingRequiredClaimError, "missing claim"),
+    (jwt.PyJWTError, "malformed"),
+)
 
 
 class CIIdentityRefused(Exception):  # noqa: N818
@@ -126,25 +137,12 @@ class CIIdentityVerifier:
                 leeway=LEEWAY_SECONDS,
                 options={"require": ["iss", "aud", "exp", "iat", "jti"]},
             )
-        except jwt.PyJWKClientConnectionError:
-            logger.exception("Could not fetch the CI identity signing keys of %s", self.issuer)
-            raise CIIdentityRefused("signing keys unreachable", claimed_repo) from None
-        except jwt.PyJWKClientError as err:
-            raise CIIdentityRefused("signature", claimed_repo) from err
-        except jwt.InvalidAlgorithmError as err:
-            raise CIIdentityRefused("algorithm", claimed_repo) from err
-        except jwt.InvalidSignatureError as err:
-            raise CIIdentityRefused("signature", claimed_repo) from err
-        except jwt.InvalidIssuerError as err:
-            raise CIIdentityRefused("issuer", claimed_repo) from err
-        except jwt.InvalidAudienceError as err:
-            raise CIIdentityRefused("audience", claimed_repo) from err
-        except _TIME_ERRORS as err:
-            raise CIIdentityRefused("expired", claimed_repo) from err
-        except jwt.MissingRequiredClaimError as err:
-            raise CIIdentityRefused("missing claim", claimed_repo) from err
         except jwt.PyJWTError as err:
-            raise CIIdentityRefused("malformed", claimed_repo) from err
+            check = next(check for errors, check in _REFUSALS if isinstance(err, errors))
+            if check == KEYS_UNREACHABLE:
+                logger.exception("Could not fetch the CI identity signing keys of %s", self.issuer)
+                raise CIIdentityRefused(check, claimed_repo) from None
+            raise CIIdentityRefused(check, claimed_repo) from err
         return self._identity(claims)
 
     async def averify(self, token: str) -> CIIdentity:
@@ -212,7 +210,7 @@ class CIIdentityBearer(HttpBearer):
         try:
             return await CIIdentityVerifier().averify(token)
         except CIIdentityRefused as refused:
-            if refused.check != "signing keys unreachable":
+            if refused.check != KEYS_UNREACHABLE:
                 refused.log()
             raise AuthenticationError from None
 

@@ -9,7 +9,7 @@ delegator drains the leg's session once every run of its batch exists, and the p
 
 The event ends with its run and is never retried (:meth:`LegFollowUps.end_with_run`). It stops at its start, without
 running, when the leg's merge request was merged or closed after it was posted (:meth:`LegFollowUps.stop`), and as soon
-as the drain sees the leg's session archived (:meth:`LegFollowUps.stop_held`), so its batch still finishes.
+as the drain sees the leg's session archived, so its batch still finishes.
 """
 
 from __future__ import annotations
@@ -143,18 +143,6 @@ class LegFollowUps:
             finished_at=now,
             started_at=now,
         )
-
-    @staticmethod
-    def stop_held(session: Session) -> None:
-        """Stop the pending leg follow-ups of the archived ``session``, whose drain holds every event, so each one's
-        batch can finish and resume its coordinator. SYNC ONLY, with the session row locked."""
-        held = InboxEvent.objects.filter(session=session, state=EventState.PENDING, kind=EventKind.LEG_FOLLOW_UP)
-        for event in held:
-            run = Run.objects.select_for_update().filter(pk=event.run_id).first()
-            if run is None or run.status != RunStatus.QUEUED:
-                LegFollowUps.settle_unstartable(event, run)
-            else:
-                LegFollowUps.stop(event, EventFailure.SESSION_ARCHIVED, run)
 
     @staticmethod
     def settle_unstartable(event: InboxEvent, run: Run | None) -> None:

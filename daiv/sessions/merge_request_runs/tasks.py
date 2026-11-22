@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from codebase.clients import RepoClient
 from codebase.exceptions import CloneRefNotFoundError
-from sessions.inbox.merge_request_jobs import NOT_STARTED_CLOSED, NOT_STARTED_MERGED
+from sessions.inbox.merge_request_jobs import not_started_note, state_of
 from sessions.legs import NOT_RUN_ARCHIVED
 from sessions.models import Run, RunStatus, Session
 from sessions.services import aget_task_run
@@ -42,7 +42,7 @@ async def _astop_job(
 ) -> AgentResult | None:
     """End the job's run FAILED, never started, when its merge request was merged or closed (saying so on it) or its
     session was archived; ``None`` when the job may start."""
-    note = NOT_STARTED_MERGED if merge_request.merged else NOT_STARTED_CLOSED if merge_request.closed else None
+    note = not_started_note(state_of(merge_request))
     if note is None and not await Session.objects.filter(pk=thread_id).archived().aexists():
         return None
     task_run = await aget_task_run(context.task_result.id)
@@ -124,16 +124,6 @@ async def address_merge_request_task(
         return _skip_result(response, merge_request)
 
     task_run = await aget_task_run(context.task_result.id)
-    job: dict[str, Any] = {}
-    if prompt is not None:
-        job = {
-            "prompt": prompt,
-            "requester_username": requester_username,
-            "agent_model": agent_model,
-            "agent_thinking_level": agent_thinking_level,
-            "references": references or [],
-            "mcp_overrides": mcp_overrides or {},
-        }
     try:
         return await CommentsAddressorManager.address_comments(
             repo_id=repo_id,
@@ -145,7 +135,12 @@ async def address_merge_request_task(
             run_id=task_run.run_id,
             use_max=use_max,
             acting_user_id=task_run.user_id,
-            **job,
+            prompt=prompt,
+            requester_username=requester_username,
+            agent_model=agent_model,
+            agent_thinking_level=agent_thinking_level,
+            references=references,
+            mcp_overrides=mcp_overrides,
         )
     except CloneRefNotFoundError:
         response = (

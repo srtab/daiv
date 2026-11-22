@@ -71,9 +71,7 @@ class TestPost:
         assert (event.kind, event.wake, event.subject, event.state, event.merge_request_iid) == (
             EventKind.MERGE_REQUEST_JOB, True, "", EventState.PENDING, 7,
         )  # fmt: skip
-        assert event.payload == {
-            "prompt": "/code-review", "acts_as_user": False, "source": SessionOrigin.MCP_JOB, "muted": True,
-        }  # fmt: skip
+        assert event.payload == {"prompt": "/code-review", "trigger_type": SessionOrigin.MCP_JOB, "muted": True}
         drain.assert_called_once()
 
     async def test_it_carries_the_jobs_references_mcp_overrides_and_named_environment(self, owned, drain):

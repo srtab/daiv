@@ -134,9 +134,9 @@ class TestLegFollowUp:
 
 
 class TestMergeRequestJob:
-    PAYLOAD = {"prompt": "/code-review", "acts_as_user": False, "source": SessionOrigin.MCP_JOB}
+    PAYLOAD = {"prompt": "/code-review", "trigger_type": SessionOrigin.MCP_JOB}
 
-    def test_its_payload_needs_a_prompt_whom_it_acts_as_and_its_source(self):
+    def test_its_payload_needs_a_prompt_and_its_trigger_type(self):
         EventContent(EventKind.MERGE_REQUEST_JOB, self.PAYLOAD | {"muted": True}).validate_payload()
         for key in self.PAYLOAD:
             payload = {name: value for name, value in self.PAYLOAD.items() if name != key}
@@ -158,7 +158,7 @@ class TestMergeRequestJob:
         ],
     )
     def test_its_run_takes_the_trigger_type_of_its_source(self, source, trigger):
-        content = EventContent(EventKind.MERGE_REQUEST_JOB, self.PAYLOAD | {"source": source})
+        content = EventContent(EventKind.MERGE_REQUEST_JOB, self.PAYLOAD | {"trigger_type": source})
 
         assert content.run_trigger_type() == trigger
         assert not content.follows_session()

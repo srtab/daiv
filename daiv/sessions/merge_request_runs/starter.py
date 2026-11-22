@@ -60,6 +60,11 @@ class Requester:
     acts_as_user: bool = True
 
     @property
+    def acting_user(self) -> User | None:
+        """The DAIV user the run acts as: ``user``, unless it is only attributed to them."""
+        return self.user if self.acts_as_user else None
+
+    @property
     def run_fields(self) -> dict[str, Any]:
         """The ``Run`` fields that name this requester."""
         return {
@@ -67,6 +72,17 @@ class Requester:
             "external_username": self.username,
             "external_provider": self.provider,
             "external_uid": str(self.uid),
+            "acts_as_user": self.acts_as_user,
+        }
+
+    @property
+    def author_fields(self) -> dict[str, Any]:
+        """The ``InboxEvent`` fields that name this requester as an event's author."""
+        return {
+            "author": self.user,
+            "author_username": self.username,
+            "author_provider": self.provider,
+            "author_uid": str(self.uid),
         }
 
 
@@ -87,35 +103,43 @@ class Mention:
     """A GitLab DiffNote or a GitHub review comment."""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class Request:
-    """A job's prompt for a merge request, from the jobs API or MCP (``source``). ``request_key`` names the job, a
-    fresh ``job:{uuid}`` each, so no two jobs are one.
+    """A job for a merge request, from the jobs API or MCP (``source``). ``request_key`` names the job, a fresh
+    ``SourceKey.job`` each, so no two jobs are one.
 
-    ``references`` are stored refs (``RefIn.to_stored``), ``mcp_switches`` the caller's MCP switches, unresolved, and
-    ``environment_id`` the environment the caller named, ``None`` when they named none."""
+    ``references`` are stored refs (``RefIn.to_stored``) and ``mcp_switches`` the caller's MCP switches, unresolved.
+    ``sandbox_environment_id`` is the environment admission resolved, which the merge request's own session runs in;
+    ``environment_named``: the caller named it, so it also replaces an owning session's."""
 
     prompt: str
     source: SessionOrigin
     request_key: str
+    muted: bool | None = None
+    agent_model: str = ""
+    agent_thinking_level: str = ""
     references: tuple[dict[str, Any], ...] = ()
     mcp_switches: dict[str, bool] | None = None
-    environment_id: str | None = None
+    sandbox_environment_id: str | None = None
+    environment_named: bool = False
+
+    @property
+    def named_environment_id(self) -> str | None:
+        return self.sandbox_environment_id if self.environment_named else None
 
 
 @dataclass(frozen=True)
 class StartOutcome:
     """What a start did, in the session ``thread_id``.
 
-    ``started``: it enqueued a run or posted an event, rather than finding an earlier trigger's. ``run_id`` and
-    ``status`` name the run a job reports, ``None`` when a mention joined a run that doesn't exist yet. ``archived``:
-    the session is archived, so nothing started.
+    ``started``: it enqueued a run or posted an event, rather than finding an earlier trigger's. ``run_id`` names the
+    run a job reports, ``None`` when a mention joined a run that doesn't exist yet. ``archived``: the session is
+    archived, so nothing started.
     """
 
     thread_id: str
     started: bool = False
     run_id: uuid.UUID | None = None
-    status: str | None = None
     archived: bool = False
 
 
@@ -139,20 +163,16 @@ class RunStarter:
         title: str,
         reply: Callable[[str], object] | None,
         ref: str = "",
-        prompt: str = "",
-        muted: bool | None = None,
-        agent_model: str = "",
-        agent_thinking_level: str = "",
-        sandbox_environment_id: str | None = None,
-        runs_alone: bool = False,
+        request: Request | None = None,
+        merge_request_web_url: str = "",
     ) -> StartOutcome:
         """Enqueue ``task`` with ``task_kwargs`` plus what every addressor task takes, and record its ``Run`` for
-        ``requester`` in one transaction (``runs_alone`` for a job's). Nothing starts when the enqueue finds an earlier
-        trigger's task, which has its ``Run`` already, or when the session is archived, which ``reply`` answers; with no
-        ``reply`` nothing is posted.
+        ``requester`` in one transaction; a job's ``request`` gives its run's prompt, options and ``runs_alone``.
+        Nothing starts when the enqueue finds an earlier trigger's task, which has its ``Run`` already, or when the
+        session is archived, which ``reply`` answers; with no ``reply`` nothing is posted.
 
-        The run uses ``agent_model`` when given, else the model ``use_max`` pins, and ``sandbox_environment_id`` when
-        given, else the repository's environment for no one in particular.
+        The run uses the job's model when it names one, else the model ``use_max`` pins, and the job's environment
+        when it has one, else the repository's environment for no one in particular.
 
         A failed session or ``Run`` write rolls the enqueue back and raises, so the platform redelivers the event.
         """
@@ -162,10 +182,12 @@ class RunStarter:
             else:
                 await self.areply_archived(reply, requester, self.thread_id, note_id=task_kwargs.get("mention_note_id"))
             return StartOutcome(thread_id=self.thread_id, archived=True)
+        sandbox_environment_id = request.sandbox_environment_id if request is not None else None
         if sandbox_environment_id is None:
             # user=None: a webhook fires for whoever touched the issue/MR, not the agent owner, so no USER env applies.
             sandbox_env = await resolve_env_for_run(user=None, repo_id=self.repo_id)
             sandbox_environment_id = str(sandbox_env.id) if sandbox_env is not None else None
+        agent_model, agent_thinking_level = (request.agent_model, request.agent_thinking_level) if request else ("", "")
         if not agent_model:
             agent_model, agent_thinking_level = self.pinned_model(use_max)
 
@@ -187,18 +209,18 @@ class RunStarter:
                 thread_id=self.thread_id,
                 repo_id=self.repo_id,
                 ref=ref,
-                prompt=prompt,
+                prompt=request.prompt if request is not None else "",
                 agent_model=agent_model,
                 agent_thinking_level=agent_thinking_level,
                 merge_request_iid=self.iid if self.scope == Scope.MERGE_REQUEST else None,
+                merge_request_web_url=merge_request_web_url,
                 **requester.run_fields,
-                acts_as_user=requester.acts_as_user,
-                runs_alone=runs_alone,
-                muted=muted,
+                runs_alone=request is not None,
+                muted=request.muted if request is not None else None,
                 title=title,
                 sandbox_environment_id=sandbox_environment_id,
             )
-            return StartOutcome(thread_id=self.thread_id, started=True, run_id=run.pk, status=run.status)
+            return StartOutcome(thread_id=self.thread_id, started=True, run_id=run.pk)
 
         return await enqueue_with_run()
 
@@ -208,6 +230,11 @@ class RunStarter:
         if use_max:
             return site_settings.agent_max_model_name, site_settings.agent_max_thinking_level
         return "", ""
+
+    @staticmethod
+    def session_url(thread_id: str) -> str:
+        """The absolute address of the session ``thread_id``'s page. SYNC ONLY."""
+        return build_absolute_url(reverse("session_detail", kwargs={"thread_id": thread_id}))
 
     @staticmethod
     async def areply_archived(
@@ -222,7 +249,7 @@ class RunStarter:
 
         @sync_to_async
         def post() -> None:
-            url = build_absolute_url(reverse("session_detail", kwargs={"thread_id": thread_id}))
+            url = RunStarter.session_url(thread_id)
             reply(
                 f"@{requester.username} This session is archived, so I won't act on this. Anyone who can run DAIV on "
                 f"this repository can unarchive it: {url}"

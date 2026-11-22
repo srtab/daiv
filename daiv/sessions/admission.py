@@ -141,13 +141,14 @@ async def aadmit(
     environment: str | None,
     mcp_overrides: dict[str, bool] | None = None,
     thread_id: str | None = None,
-    acts_as_user: bool = True,
     access_proven: bool = False,
 ) -> Admission:
-    """Run every admission check for a batch submitted now; ``environment`` names one env for all of ``repos``.
+    """Run every admission check for a batch submitted now, acting as ``user``; ``environment`` names one env for all
+    of ``repos``.
 
-    A batch that does not act as ``user`` resolves environments and MCP servers as no one's, so only global ones
-    apply. ``access_proven``: the platform proved the caller may run on ``repos``, so only the catalog is checked."""
+    ``user=None`` resolves environments and MCP servers as no one's, so only global ones apply. ``access_proven``: the
+    platform proved the caller may run on ``repos``, so only the catalog is checked; without it ``user`` must be
+    able to run on them."""
     model, level = check_agent_override(agent_model, agent_thinking_level)
     repo_ids = [target.repo_id for target in repos]
     if access_proven:
@@ -156,12 +157,11 @@ async def aadmit(
         raise RepoAccessError(repo_ids)
     else:
         await aassert_repo_access(user, repo_ids)
-    acting = user if acts_as_user else None
-    env = await aresolve_environment(acting, environment)
-    targets = await aresolve_repo_envs(user=acting, repos=repos, explicit_env_id=str(env.id) if env else None)
+    env = await aresolve_environment(user, environment)
+    targets = await aresolve_repo_envs(user=user, repos=repos, explicit_env_id=str(env.id) if env else None)
     return Admission(
         agent_model=model,
         agent_thinking_level=level,
         targets=targets,
-        mcp_overrides=await aresolve_mcp_overrides(acting, mcp_overrides, thread_id),
+        mcp_overrides=await aresolve_mcp_overrides(user, mcp_overrides, thread_id),
     )

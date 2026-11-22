@@ -280,6 +280,7 @@ def create_run(
     agent_model: str = "",
     agent_thinking_level: str = "",
     merge_request_iid: int | None = None,
+    merge_request_web_url: str = "",
     scheduled_job: ScheduledJob | None = None,
     user: User | None = None,
     external_username: str = "",
@@ -337,6 +338,7 @@ def create_run(
         title=title[: Run._meta.get_field("title").max_length],
         sandbox_environment_id=sandbox_environment_id,
         merge_request_iid=merge_request_iid,
+        merge_request_web_url=merge_request_web_url,
         waits_for_id=waits_for_id,
     )
 
@@ -439,7 +441,6 @@ async def asubmit_batch_runs(
     external_provider: str = "",
     external_uid: str = "",
     acts_as_user: bool = True,
-    check_access: bool = True,
     thread_id: str | None = None,
     mcp_overrides: dict | None = None,
     references: Sequence[RefIn] | None = None,
@@ -458,15 +459,15 @@ async def asubmit_batch_runs(
     ``thread_id`` naming an existing session posts a ``follow_up_job`` to its inbox instead
     (:func:`_asubmit_follow_up`).
 
-    ``external_*`` name the platform account a run is attributed to, and a run that doesn't act as its ``user``
-    loads none of their personal tools (``acts_as_user``). ``check_access=False`` for a caller whose access the
-    platform proved, such as a CI identity token's pipeline.
+    ``external_*`` name the platform account a run is attributed to. A run that doesn't act as its ``user``
+    (``acts_as_user=False``, a CI identity token's, whose access the platform proved) loads none of their personal
+    tools, and their access is not checked.
 
     Best-effort: a per-repo failure (run creation, refs merge, enqueue or link) lands in
     ``result.failed`` while siblings continue. Every row is created before any task is queued.
     """
     _validate(repos)
-    if user is not None and check_access:
+    if user is not None and acts_as_user:
         # Gate only when a user is attached. All current callers supply one; the None branch
         # is a defensive allowance for future internal callers with no user context.
         await aassert_repo_access(user, [target.repo_id for target in repos])

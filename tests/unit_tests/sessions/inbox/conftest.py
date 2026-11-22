@@ -104,20 +104,19 @@ def post_leg_follow_up(
     )
 
 
-def post_merge_request_job(ownership, *, request_key: str = "job:1", **fields):
+def post_merge_request_job(ownership, *, request_key: str = "job:1", mcp_overrides=None, **fields):
     """A job on the merge request ``ownership`` names, from an unlinked CI actor unless ``fields`` say otherwise;
-    returns its run. SYNC ONLY."""
+    ``fields`` are the ``Requester``'s and the ``Request``'s, a ``sandbox_environment_id`` one the caller named.
+    Returns its run. SYNC ONLY."""
     from sessions.inbox.merge_request_jobs import MergeRequestJobs
+    from sessions.merge_request_runs.starter import Request, Requester
 
-    defaults = {
-        "prompt": "/code-review",
-        "source": SessionOrigin.API_JOB,
-        "acts_as_user": False,
-        "ref": ownership.source_branch,
-        "user": None,
-        "username": "pusher",
-        "provider": "gitlab",
-        "uid": "9",
-    }
+    person = {"user": None, "username": "pusher", "provider": "gitlab", "uid": "9", "acts_as_user": False}
+    person |= {name: fields.pop(name) for name in list(fields) if name in person}
+    request = Request(
+        **{"prompt": "/code-review", "source": SessionOrigin.API_JOB, "request_key": request_key}
+        | fields
+        | {"references": tuple(fields.get("references", ())), "environment_named": "sandbox_environment_id" in fields}
+    )
     jobs = MergeRequestJobs(ownership.session_id, ownership.repo_id, ownership.merge_request_iid)
-    return jobs.post(request_key=request_key, **(defaults | fields))
+    return jobs.post(Requester(**person), request, ref=ownership.source_branch, mcp_overrides=mcp_overrides)

@@ -112,8 +112,7 @@ class LegFollowUpPayload(TypedDict):
 
 class MergeRequestJobPayload(TypedDict):
     prompt: str
-    acts_as_user: bool
-    source: str
+    trigger_type: str
     agent_model: NotRequired[str]
     agent_thinking_level: NotRequired[str]
     muted: NotRequired[bool]
@@ -212,7 +211,7 @@ class EventContent:
         if self.kind == EventKind.LEG_FOLLOW_UP:
             return SessionOrigin.DELEGATED_JOB
         if self.kind in (EventKind.FOLLOW_UP_JOB, EventKind.MERGE_REQUEST_JOB):
-            trigger = self.payload.get("trigger_type" if self.kind == EventKind.FOLLOW_UP_JOB else "source")
+            trigger = self.payload.get("trigger_type")
             return trigger if trigger in _JOB_TRIGGERS else SessionOrigin.API_JOB
         if self.kind not in _TRIGGERS:
             raise ValueError(f"a {self.kind} event never wakes the agent")

@@ -9,12 +9,11 @@ the branch's remembered events (:mod:`sessions.inbox.splits`), and promotes its 
 The event ends with its run and is never retried, since the job reports that one run
 (:meth:`MergeRequestJobs.end_with_run`). It stops at its start, without running, when its merge request was merged or
 closed after it was posted, saying so on the merge request once the stop commits (:meth:`MergeRequestJobs.stop`), and
-as soon as the drain sees the session archived (:meth:`MergeRequestJobs.stop_held`), posting nothing.
+as soon as the drain sees the session archived, posting nothing.
 """
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
 
 from django.db import transaction
@@ -37,9 +36,8 @@ from sessions.models import (
 )
 
 if TYPE_CHECKING:
-    from accounts.models import User
-
-logger = logging.getLogger("daiv.sessions")
+    from codebase.base import MergeRequest
+    from sessions.merge_request_runs.starter import Request, Requester
 
 ARCHIVED = "archived"
 NOT_STARTED_MERGED = "This merge request was merged before the job could start, so I didn't run it."
@@ -52,6 +50,21 @@ _STOPS = {
     MergeRequestState.CLOSED: (EventFailure.MR_CLOSED, NOT_STARTED_CLOSED),
 }
 _NOT_STARTED = {**dict(_STOPS.values()), EventFailure.SESSION_ARCHIVED: NOT_RUN_ARCHIVED}
+
+
+def state_of(merge_request: MergeRequest) -> MergeRequestState:
+    """The state of ``merge_request`` as the platform reports it."""
+    if merge_request.merged:
+        return MergeRequestState.MERGED
+    if merge_request.closed:
+        return MergeRequestState.CLOSED
+    return MergeRequestState.DRAFT if merge_request.draft else MergeRequestState.OPEN
+
+
+def not_started_note(state: MergeRequestState) -> str | None:
+    """Why a job doesn't start on a merge request in ``state``, said on it; ``None`` while it is open."""
+    stop = _STOPS.get(state)
+    return None if stop is None else stop[1]
 
 
 class MergeRequestJobRefused(Exception):  # noqa: N818
@@ -73,30 +86,19 @@ class MergeRequestJobs:
 
     def post(
         self,
+        requester: Requester,
+        request: Request,
         *,
-        prompt: str,
-        request_key: str,
-        source: str,
-        acts_as_user: bool,
         ref: str,
-        user: User | None,
-        username: str = "",
-        provider: str = "",
-        uid: str = "",
-        agent_model: str = "",
-        agent_thinking_level: str = "",
-        muted: bool | None = None,
-        references: list[dict] | None = None,
         mcp_overrides: dict[str, str] | None = None,
-        sandbox_environment_id: str | None = None,
+        merge_request_web_url: str = "",
     ) -> Run:
-        """Create the ``merge_request_job`` event and its QUEUED run in one transaction, with the session row locked,
-        drain the session once that commits, and return the run as the drain left it. ``user`` is the requester, else
-        the platform account ``provider``/``uid``/``username`` is. ``references``, ``mcp_overrides`` and
-        ``sandbox_environment_id`` reach the run as a follow-up job's do (:mod:`sessions.inbox.drain`). A merge request
-        of another of the session's repositories is posted as that repository's event, whose run is on the session's
-        branch. Raises :class:`MergeRequestJobRefused` when, under that lock, the session is archived or the merge
-        request is no longer open. SYNC ONLY."""
+        """Create the ``merge_request_job`` event and its QUEUED run for ``requester`` in one transaction, with the
+        session row locked, drain the session once that commits, and return the run as the drain left it. The job's
+        references, ``mcp_overrides`` (resolved) and named environment reach the run as a follow-up job's do
+        (:mod:`sessions.inbox.drain`). A merge request of another of the session's repositories is posted as that
+        repository's event, whose run is on the session's branch. Raises :class:`MergeRequestJobRefused` when, under
+        that lock, the session is archived or the merge request is no longer open. SYNC ONLY."""
         from sessions.inbox.drain import Drain
 
         with transaction.atomic():
@@ -105,50 +107,44 @@ class MergeRequestJobs:
                 raise MergeRequestJobRefused(ARCHIVED)
             if not (state := self._state()).is_open:
                 raise MergeRequestJobRefused(state)
-            payload: dict = {"prompt": prompt, "acts_as_user": acts_as_user, "source": source}
-            if agent_model:
-                payload |= {"agent_model": agent_model, "agent_thinking_level": agent_thinking_level}
-            if muted is not None:
-                payload["muted"] = muted
-            if references:
-                payload["references"] = references
+            payload: dict = {"prompt": request.prompt, "trigger_type": request.source}
+            if request.agent_model:
+                payload |= {"agent_model": request.agent_model, "agent_thinking_level": request.agent_thinking_level}
+            if request.muted is not None:
+                payload["muted"] = request.muted
+            if request.references:
+                payload["references"] = list(request.references)
             if mcp_overrides is not None:
                 payload["mcp_overrides"] = mcp_overrides
-            if sandbox_environment_id:
-                payload["sandbox_environment_id"] = sandbox_environment_id
+            if request.named_environment_id:
+                payload["sandbox_environment_id"] = request.named_environment_id
             other_repo = self.repo_id != session.repo_id
             run = Run.objects.create(
                 session=session,
-                trigger_type=source,
+                trigger_type=request.source,
                 status=RunStatus.QUEUED,
                 runs_alone=True,
-                user=user,
-                external_username=username,
-                external_provider=provider,
-                external_uid=uid,
-                acts_as_user=acts_as_user,
-                muted=muted,
-                prompt=prompt,
+                **requester.run_fields,
+                muted=request.muted,
+                prompt=request.prompt,
                 repo_id=session.repo_id,
                 ref=session.ref if other_repo else ref,
                 merge_request_iid=None if other_repo else self.merge_request_iid,
-                agent_model=agent_model,
-                agent_thinking_level=agent_thinking_level,
+                merge_request_web_url="" if other_repo else merge_request_web_url,
+                agent_model=request.agent_model,
+                agent_thinking_level=request.agent_thinking_level,
                 sandbox_environment_id=session.sandbox_environment_id,
             )
             InboxEvent.objects.create(
                 session=session,
                 kind=EventKind.MERGE_REQUEST_JOB,
-                source_key=request_key,
+                source_key=request.request_key,
                 payload=payload,
                 wake=True,
                 ref=ref,
                 repo_id=self.repo_id if other_repo else "",
                 merge_request_iid=self.merge_request_iid,
-                author=user,
-                author_username=username,
-                author_provider=provider,
-                author_uid=uid,
+                **requester.author_fields,
                 run=run,
             )
             session_changed(session.thread_id)
@@ -156,8 +152,8 @@ class MergeRequestJobs:
         run.refresh_from_db(fields=["status"])
         return run
 
-    async def apost(self, **kwargs) -> Run:
-        return await sync_to_async(self.post)(**kwargs)
+    async def apost(self, *args, **kwargs) -> Run:
+        return await sync_to_async(self.post)(*args, **kwargs)
 
     def _state(self) -> MergeRequestState:
         key = (self.repo_id, self.merge_request_iid)
@@ -192,20 +188,13 @@ class MergeRequestJobs:
             started_at=now,
         )
         if failure != EventFailure.SESSION_ARCHIVED:
-            repo_id, iid = event.effective_repo_id(run.repo_id), event.merge_request_iid
-            transaction.on_commit(lambda: MergeRequestJobs._comment(repo_id, iid, note), robust=True)
+            from sessions.inbox.complete import MergeRequestReplies
 
-    @staticmethod
-    def stop_held(session: Session) -> None:
-        """Stop the pending jobs of the archived ``session``, whose drain holds every event, so each job ends. SYNC
-        ONLY, with the session row locked."""
-        held = InboxEvent.objects.filter(session=session, state=EventState.PENDING, kind=EventKind.MERGE_REQUEST_JOB)
-        for event in held:
-            run = Run.objects.select_for_update().filter(pk=event.run_id).first()
-            if run is None or run.status != RunStatus.QUEUED:
-                MergeRequestJobs.settle_unstartable(event, run)
-            else:
-                MergeRequestJobs.stop(event, EventFailure.SESSION_ARCHIVED, run)
+            merge_request = (event.effective_repo_id(run.repo_id), event.merge_request_iid)
+            transaction.on_commit(
+                lambda: MergeRequestReplies.comment_on_merge_requests([merge_request], lambda _replies: note),
+                robust=True,
+            )
 
     @staticmethod
     def settle_unstartable(event: InboxEvent, run: Run | None) -> None:
@@ -222,8 +211,9 @@ class MergeRequestJobs:
     def end_with_run(run: Run) -> list[InboxEvent]:
         """Settle the job linked to ``run`` once it ended FAILED, whether the drain took it or not: dismissed when the
         run was cancelled, else failed (``run_failed``). Returns the jobs it failed, whose merge request is owed a note;
-        a run that succeeded leaves its taken job to the shared path, which marks it handled. SYNC ONLY."""
-        if run.status != RunStatus.FAILED:
+        a run that succeeded leaves its taken job to the shared path, which marks it handled. Only a ``runs_alone`` run
+        has a job. SYNC ONLY."""
+        if run.status != RunStatus.FAILED or not run.runs_alone:
             return []
         jobs = InboxEvent.objects.filter(
             run=run, kind=EventKind.MERGE_REQUEST_JOB, state__in=(EventState.PENDING, EventState.TAKEN)
@@ -237,12 +227,3 @@ class MergeRequestJobs:
         if jobs.update(state=EventState.FAILED, failure=EventFailure.RUN_FAILED, updated_at=now):
             session_changed(run.session_id)
         return failed
-
-    @staticmethod
-    def _comment(repo_id: str, merge_request_iid: int, body: str) -> None:
-        from codebase.clients import RepoClient
-
-        try:
-            RepoClient.create_instance().create_merge_request_comment(repo_id, merge_request_iid, body)
-        except Exception:
-            logger.exception("inbox: could not comment on %s!%s", repo_id, merge_request_iid)

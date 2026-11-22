@@ -103,10 +103,7 @@ def bubble(event: InboxEvent) -> dict[str, Any]:
         "failed": event.kind == EventKind.CI_FAILED or payload.get("succeeded", 0) < payload.get("total", 0),
         "text": text,
         "source_iid": event.merge_request_iid,
-        "trigger_type": {
-            EventKind.FOLLOW_UP_JOB: payload.get("trigger_type", ""),
-            EventKind.MERGE_REQUEST_JOB: payload.get("source", ""),
-        }.get(event.kind, ""),
+        "trigger_type": payload.get("trigger_type", ""),
         "web_url": payload.get("web_url", ""),
         "created_at": event.created_at.isoformat(),
     }

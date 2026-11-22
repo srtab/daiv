@@ -111,9 +111,7 @@ async def dispatch_mr_comment(
 ) -> None:
     """Remember a comment that did not mention DAIV in the session that owns the merge request; with no such session
     it concerns no one."""
-    await MergeRequestRuns(client, repo_id, merge_request_iid).aremember(
-        await author.arequester(), comment, title=title
-    )
+    await MergeRequestRuns(client, repo_id, merge_request_iid).aremember(author.arequester, comment, title=title)
 
 
 async def _react(add_reaction: Callable[[], object], target: str) -> None:

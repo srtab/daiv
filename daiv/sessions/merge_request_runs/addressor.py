@@ -108,7 +108,7 @@ class CommentsAddressorManager(BaseManager):
                     agent_model=agent_model,
                     agent_thinking_level=agent_thinking_level,
                     references=refs_from_stored(references or []),
-                    mcp_overrides=mcp_overrides or {},
+                    mcp_overrides=mcp_overrides,
                 )
             return await manager._address_comments(
                 sandbox_env_id=sandbox_env_id, run_id=run_id, use_max=use_max, acting_user_id=acting_user_id

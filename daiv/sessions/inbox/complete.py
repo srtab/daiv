@@ -137,7 +137,11 @@ class RunEnd:
             mentions = list(
                 taken.filter(kind=EventKind.MENTION, merge_request_iid__isnull=False).order_by("created_at", "id")
             )
-            jobs = list(taken.filter(kind=EventKind.MERGE_REQUEST_JOB, merge_request_iid__isnull=False))
+            jobs = (
+                list(taken.filter(kind=EventKind.MERGE_REQUEST_JOB, merge_request_iid__isnull=False))
+                if run.runs_alone
+                else []
+            )
             if taken.update(state=EventState.HANDLED, updated_at=timezone.now()):
                 session_changed(run.session_id)
             if woken_by_ci:

@@ -11,7 +11,7 @@ from django.db import transaction
 from asgiref.sync import sync_to_async
 
 from sessions.inbox.drain import Drain
-from sessions.inbox.kinds import KEY_MAX_LENGTH, WAKING_KINDS, EventContent, SourceKey, Subject
+from sessions.inbox.kinds import KEY_MAX_LENGTH, OWN_RUN_KINDS, WAKING_KINDS, EventContent, SourceKey, Subject
 from sessions.inbox.next_runs import NextRuns
 from sessions.live.notify import session_changed
 from sessions.models import EventKind, EventState, InboxEvent, Run, Session
@@ -76,10 +76,8 @@ class Inbox:
         :meth:`sessions.inbox.merge_request_jobs.MergeRequestJobs.post`), and
         ``Session.DoesNotExist`` when there is no such session.
         """
-        if kind == EventKind.LEG_FOLLOW_UP:
-            raise ValueError("a leg_follow_up is posted with LegFollowUps.post")
-        if kind == EventKind.MERGE_REQUEST_JOB:
-            raise ValueError("a merge_request_job is posted with MergeRequestJobs.post")
+        if kind in OWN_RUN_KINDS:
+            raise ValueError(f"a {kind} is posted with its own run")
         EventContent(kind, payload).validate_payload()
         if wake and kind not in WAKING_KINDS:
             raise ValueError(f"a {kind} event never wakes the agent")

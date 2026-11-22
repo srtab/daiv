@@ -1473,20 +1473,15 @@ class TestCIIdentityPolling:
         assert (await _ci_client(ci_token()).get(f"/jobs/{run.pk}")).status_code == 200
 
     async def test_a_job_on_its_merge_request_in_a_session_of_several_repositories_is_visible(self, ci_token):
-        from sessions.inbox.merge_request_jobs import MergeRequestJobs
-
         from tests.unit_tests.sessions.conftest import amake_owned_merge_request
+        from tests.unit_tests.sessions.inbox.conftest import post_merge_request_job
 
         owned = await amake_owned_merge_request(repo_id="group/main", merge_request_iid=1)
-        await MergeRequestOwnership.objects.acreate(
+        other = await MergeRequestOwnership.objects.acreate(
             repo_id="group/project", merge_request_iid=3, session_id=owned.session_id, source_branch="daiv/project"
         )
-        jobs = MergeRequestJobs(owned.session_id, "group/project", 3)
         with patch("sessions.inbox.drain.Drain.start_logged"):
-            run = await sync_to_async(jobs.post)(
-                prompt="/code-review", request_key="job:1", source=SessionOrigin.API_JOB, acts_as_user=False,
-                ref="daiv/project", user=None, username="pusher", provider="gitlab", uid="9",
-            )  # fmt: skip
+            run = await sync_to_async(post_merge_request_job)(other)
 
         assert run.repo_id == "group/main"
         assert (await _ci_client(ci_token()).get(f"/jobs/{run.pk}")).status_code == 200

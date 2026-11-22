@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, model_validator
 
-MERGE_REQUEST_ALONE = "merge_request can't be combined with ref or a per-repository prompt"
+MERGE_REQUEST_WITH_REF = "merge_request can't be combined with ref or a per-repository prompt"
 
 
 class MergeRequestTarget(BaseModel):
@@ -26,5 +26,5 @@ class MergeRequestTarget(BaseModel):
         if self.merge_request is not None and (
             getattr(self, "ref", None) is not None or getattr(self, "prompt", None) is not None
         ):
-            raise ValueError(MERGE_REQUEST_ALONE)
+            raise ValueError(MERGE_REQUEST_WITH_REF)
         return self

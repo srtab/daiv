@@ -58,45 +58,37 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
         )
         for spec in payload.repos
     ]
+    options = {
+        "prompt": payload.prompt,
+        "agent_model": payload.agent_model,
+        "agent_thinking_level": payload.agent_thinking_level,
+        "environment": payload.environment,
+        "mcp_overrides": payload.mcp_overrides,
+    }
+    accepted = False
     try:
         if ci is not None:
-            result = await asubmit_ci_job(
-                requester=ci.requester,
-                target=targets[0],
-                prompt=payload.prompt,
-                agent_model=payload.agent_model,
-                agent_thinking_level=payload.agent_thinking_level,
-                environment=payload.environment,
-                mcp_overrides=payload.mcp_overrides,
-                muted=ci.muted(payload),
-            )
+            result = await asubmit_ci_job(requester=ci.requester, target=targets[0], muted=ci.muted(payload), **options)
         else:
             result = await asubmit_jobs(
                 user=request.auth,
                 repos=targets,
                 shared=payload.shared_session,
                 thread_id=str(payload.thread_id) if payload.thread_id is not None else None,
-                prompt=payload.prompt,
-                agent_model=payload.agent_model,
-                agent_thinking_level=payload.agent_thinking_level,
-                environment=payload.environment,
-                mcp_overrides=payload.mcp_overrides,
                 muted=payload.muted,
                 trigger_type=SessionOrigin.API_JOB,
                 references=payload.references,
+                **options,
             )
+        accepted = bool(result.runs)
     except RepoAccessError as err:
-        await _release(ci)
         # Opaque 404: don't confirm the repo's existence to unauthorized callers.
         raise HttpError(404, str(err)) from err
     except AdmissionError as err:
-        await _release(ci)
         return 400, {"detail": str(err)}
-    except BaseException:
-        await _release(ci)
-        raise
-    if not result.runs:
-        await _release(ci)
+    finally:
+        if ci is not None and not accepted:
+            await ci.arelease()
 
     jobs = [
         JobSubmitJobItem(
@@ -112,11 +104,6 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
 
     failed = [JobSubmitFailureItem(repo_id=f.repo_id, ref=f.ref, error=f.error) for f in result.failed]
     return 202, JobSubmitResponse(batch_id=str(result.batch_id), jobs=jobs, failed=failed)
-
-
-async def _release(ci: CISubmission | None) -> None:
-    if ci is not None:
-        await ci.arelease()
 
 
 @jobs_router.get("/{job_id}", response={200: JobStatusResponse, 404: dict})

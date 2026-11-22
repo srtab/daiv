@@ -359,7 +359,7 @@ class TestSiblingRepository:
 async def test_a_leg_follow_up_is_refused_since_it_is_posted_with_its_run():
     session = await amake_session()
 
-    with pytest.raises(ValueError, match="LegFollowUps.post"):
+    with pytest.raises(ValueError, match="posted with its own run"):
         await Inbox(session.thread_id).apost(
             kind=EventKind.LEG_FOLLOW_UP,
             source_key="leg-follow-up:b",

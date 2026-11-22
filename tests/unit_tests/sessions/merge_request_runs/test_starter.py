@@ -1,7 +1,7 @@
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from sessions.merge_request_runs.starter import Requester, RunStarter
+from sessions.merge_request_runs.starter import Request, Requester, RunStarter
 
 from accounts.models import User
 from codebase.base import GitPlatform, Scope
@@ -15,6 +15,7 @@ def test_a_users_requester_names_them_alone():
         "external_username": "",
         "external_provider": "",
         "external_uid": "",
+        "acts_as_user": True,
     }
 
 
@@ -26,7 +27,14 @@ def test_a_platform_accounts_requester_names_the_account():
         "external_username": "octo",
         "external_provider": GitPlatform.GITHUB,
         "external_uid": "12",
+        "acts_as_user": True,
     }
+
+
+def test_a_requester_acts_as_its_user_only_when_it_says_so():
+    user = User(pk=4, username="alice")
+
+    assert (Requester(user=user).acting_user, Requester(user=user, acts_as_user=False).acting_user) == (user, None)
 
 
 @pytest.mark.django_db
@@ -47,9 +55,14 @@ async def test_a_given_model_and_environment_replace_the_defaults():
             trigger_type="api_job",
             title="t",
             reply=None,
-            agent_model="openrouter:x",
-            agent_thinking_level="low",
-            sandbox_environment_id="env-1",
+            request=Request(
+                prompt="p",
+                source="api_job",
+                request_key="job:1",
+                agent_model="openrouter:x",
+                agent_thinking_level="low",
+                sandbox_environment_id="env-1",
+            ),
         )
 
     resolve_env.assert_not_awaited()

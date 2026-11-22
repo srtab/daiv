@@ -577,10 +577,11 @@ class TestOwnedMergeRequest:
             "group/repo", 7, Emoji.EYES, 300, on_diff=False
         )
 
-    async def test_a_comment_on_an_unowned_merge_request_concerns_no_one(self, steps):
+    async def test_a_comment_on_an_unowned_merge_request_concerns_no_one(self, steps, linked_user):
         await dispatch_mr_comment(
             client=steps.client, repo_id="group/repo", merge_request_iid=7, title="MR", author=AUTHOR,
             comment=self._mention(),
         )  # fmt: skip
 
         assert not await InboxEvent.objects.aexists()
+        linked_user.assert_not_awaited()

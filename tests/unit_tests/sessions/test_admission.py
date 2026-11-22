@@ -140,47 +140,47 @@ async def test_aadmit_resolves_each_target_when_no_environment_is_named(member_u
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_aadmit_resolves_no_ones_environments_for_a_batch_that_acts_as_no_one(
+async def test_aadmit_resolves_no_ones_environments_for_a_caller_acting_as_no_one(
     member_user, user_env, global_default
 ):
     admission = await aadmit(
-        user=member_user,
+        user=None,
         repos=[RepoTarget(repo_id="a/b")],
         agent_model=None,
         agent_thinking_level=None,
         environment=None,
-        acts_as_user=False,
+        access_proven=True,
     )
 
     assert [t.sandbox_environment_id for t in admission.targets] == [str(global_default.id)]
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_aadmit_refuses_a_personal_environment_by_name_for_a_batch_that_acts_as_no_one(member_user, user_env):
+async def test_aadmit_refuses_a_personal_environment_by_name_for_a_caller_acting_as_no_one(member_user, user_env):
     with pytest.raises(UnknownEnvironmentError):
         await aadmit(
-            user=member_user,
+            user=None,
             repos=[RepoTarget(repo_id="a/b")],
             agent_model=None,
             agent_thinking_level=None,
             environment="mine",
-            acts_as_user=False,
+            access_proven=True,
         )
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_aadmit_refuses_a_personal_mcp_server_for_a_batch_that_acts_as_no_one(member_user, mcp_pool):
+async def test_aadmit_refuses_a_personal_mcp_server_for_a_caller_acting_as_no_one(member_user, mcp_pool):
     await sync_to_async(make_server)("mine", scope=MCPServer.Visibility.USER, user=member_user)
 
     with pytest.raises(InvalidMcpOverridesError, match="mine"):
         await aadmit(
-            user=member_user,
+            user=None,
             repos=[RepoTarget(repo_id="a/b")],
             agent_model=None,
             agent_thinking_level=None,
             environment=None,
             mcp_overrides={"mine": True},
-            acts_as_user=False,
+            access_proven=True,
         )
 
 
@@ -196,7 +196,6 @@ async def test_aadmit_with_access_proven_checks_only_the_catalog():
             agent_model=None,
             agent_thinking_level=None,
             environment=None,
-            acts_as_user=False,
             access_proven=True,
         )
 
@@ -214,7 +213,6 @@ async def test_aadmit_with_access_proven_refuses_an_uncatalogued_repository():
             agent_model=None,
             agent_thinking_level=None,
             environment=None,
-            acts_as_user=False,
             access_proven=True,
         )
 

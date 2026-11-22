@@ -66,12 +66,12 @@ def no_env():
 @pytest.mark.usefixtures("database_task_backend", "no_env")
 class TestAJobOnAMergeRequestNoSessionOwns:
     async def test_it_runs_in_the_merge_requests_session_as_the_job_it_is(self, client):
-        outcome = await MergeRequestRuns(client, "group/repo", 7).astart(
-            CI_ACTOR, _request(source=SessionOrigin.MCP_JOB), title="Feature", ref="feat", muted=True
+        outcome = await MergeRequestRuns(client, "group/repo", 7).astart_job(
+            CI_ACTOR, _request(source=SessionOrigin.MCP_JOB, muted=True), title="Feature", ref="feat"
         )
 
         run = await Run.objects.aget(pk=outcome.run_id)
-        assert (outcome.started, outcome.status, outcome.thread_id) == (True, RunStatus.READY, THREAD)
+        assert (outcome.started, run.status, outcome.thread_id) == (True, RunStatus.READY, THREAD)
         assert (run.session_id, run.trigger_type, run.merge_request_iid, run.ref, run.prompt) == (
             THREAD, SessionOrigin.MCP_JOB, 7, "feat", "/code-review",
         )  # fmt: skip
@@ -90,7 +90,7 @@ class TestAJobOnAMergeRequestNoSessionOwns:
     async def test_a_caller_owns_the_run_and_is_named_only_by_their_platform_account(
         self, client, member_user, username, expected
     ):
-        outcome = await MergeRequestRuns(client, "group/repo", 7).astart(
+        outcome = await MergeRequestRuns(client, "group/repo", 7).astart_job(
             Requester(user=member_user, username=username), _request(), title="Feature", ref="feat"
         )
 
@@ -104,7 +104,9 @@ class TestAJobOnAMergeRequestNoSessionOwns:
         request = _request(references=({"key": "PROJ-1"},), mcp_switches={"grafana": True})
 
         with patch("sessions.merge_request_runs.service.aresolve_mcp_overrides", new=resolve):
-            outcome = await MergeRequestRuns(client, "group/repo", 7).astart(CI_ACTOR, request, title="F", ref="feat")
+            outcome = await MergeRequestRuns(client, "group/repo", 7).astart_job(
+                CI_ACTOR, request, title="F", ref="feat"
+            )
 
         run = await Run.objects.aget(pk=outcome.run_id)
         assert run.runs_alone is True
@@ -115,8 +117,8 @@ class TestAJobOnAMergeRequestNoSessionOwns:
     async def test_a_repeated_request_key_starts_one_run(self, client):
         runs = MergeRequestRuns(client, "group/repo", 7)
 
-        first = await runs.astart(CI_ACTOR, _request(), title="Feature", ref="feat")
-        second = await runs.astart(CI_ACTOR, _request(), title="Feature", ref="feat")
+        first = await runs.astart_job(CI_ACTOR, _request(), title="Feature", ref="feat")
+        second = await runs.astart_job(CI_ACTOR, _request(), title="Feature", ref="feat")
 
         assert (first.started, second.started) == (True, False)
         assert await Run.objects.acount() == 1
@@ -124,8 +126,8 @@ class TestAJobOnAMergeRequestNoSessionOwns:
     async def test_two_jobs_on_one_merge_request_both_run(self, client):
         runs = MergeRequestRuns(client, "group/repo", 7)
 
-        await runs.astart(CI_ACTOR, _request(request_key="job:1"), title="Feature", ref="feat")
-        await runs.astart(CI_ACTOR, _request(request_key="job:2"), title="Feature", ref="feat")
+        await runs.astart_job(CI_ACTOR, _request(request_key="job:1"), title="Feature", ref="feat")
+        await runs.astart_job(CI_ACTOR, _request(request_key="job:2"), title="Feature", ref="feat")
 
         assert await Run.objects.filter(session_id=THREAD, status=RunStatus.READY).acount() == 2
 
@@ -134,7 +136,9 @@ class TestAJobOnAMergeRequestNoSessionOwns:
             thread_id=THREAD, origin=SessionOrigin.MR_WEBHOOK, repo_id="group/repo", archived_at=timezone.now()
         )
 
-        outcome = await MergeRequestRuns(client, "group/repo", 7).astart(CI_ACTOR, _request(), title="F", ref="feat")
+        outcome = await MergeRequestRuns(client, "group/repo", 7).astart_job(
+            CI_ACTOR, _request(), title="F", ref="feat"
+        )
 
         assert (outcome.archived, outcome.thread_id, outcome.run_id) == (True, THREAD, None)
         assert not await Run.objects.aexists()
@@ -160,19 +164,17 @@ class TestAJobOnAnOwnedMergeRequest:
         return await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=7)
 
     async def test_it_posts_a_job_with_a_run_of_its_own(self, client, owned):
-        outcome = await MergeRequestRuns(client, "group/repo", 7).astart(
-            CI_ACTOR, _request(source=SessionOrigin.MCP_JOB), title="F", muted=True
+        outcome = await MergeRequestRuns(client, "group/repo", 7).astart_job(
+            CI_ACTOR, _request(source=SessionOrigin.MCP_JOB, muted=True), title="F", ref=owned.source_branch
         )
 
         event = await InboxEvent.objects.aget(session_id=owned.session_id)
         run = await Run.objects.aget(pk=outcome.run_id)
-        assert (outcome.thread_id, outcome.started, outcome.status) == (owned.session_id, True, RunStatus.QUEUED)
+        assert (outcome.thread_id, outcome.started, run.status) == (owned.session_id, True, RunStatus.QUEUED)
         assert (event.kind, event.wake, event.subject, event.source_key, event.run_id) == (
             EventKind.MERGE_REQUEST_JOB, True, "", "job:abc", run.pk,
         )  # fmt: skip
-        assert event.payload == {
-            "prompt": "/code-review", "acts_as_user": False, "source": SessionOrigin.MCP_JOB, "muted": True,
-        }  # fmt: skip
+        assert event.payload == {"prompt": "/code-review", "trigger_type": SessionOrigin.MCP_JOB, "muted": True}
         assert (event.author_provider, event.author_uid, event.author_username) == ("gitlab", "9", "pusher")
         assert (run.trigger_type, run.runs_alone, run.acts_as_user, run.merge_request_iid, run.ref) == (
             SessionOrigin.MCP_JOB, True, False, 7, owned.source_branch,
@@ -180,11 +182,16 @@ class TestAJobOnAnOwnedMergeRequest:
 
     async def test_its_options_apply_to_the_owning_session_as_a_follow_up_jobs_do(self, client, owned, member_user):
         resolve = AsyncMock(return_value={"grafana": "on"})
-        request = _request(references=({"key": "PROJ-1"},), mcp_switches={"grafana": True}, environment_id="env-1")
+        request = _request(
+            references=({"key": "PROJ-1"},),
+            mcp_switches={"grafana": True},
+            sandbox_environment_id="env-1",
+            environment_named=True,
+        )
 
         with patch("sessions.merge_request_runs.service.aresolve_mcp_overrides", new=resolve):
-            outcome = await MergeRequestRuns(client, "group/repo", 7).astart(
-                Requester(user=member_user), request, title="F"
+            outcome = await MergeRequestRuns(client, "group/repo", 7).astart_job(
+                Requester(user=member_user), request, title="F", ref=owned.source_branch
             )
 
         event = await InboxEvent.objects.aget(run_id=outcome.run_id)
@@ -195,7 +202,7 @@ class TestAJobOnAnOwnedMergeRequest:
     async def test_an_archived_owner_posts_nothing(self, client, owned):
         await Session.objects.filter(pk=owned.session_id).aupdate(archived_at=timezone.now())
 
-        outcome = await MergeRequestRuns(client, "group/repo", 7).astart(CI_ACTOR, _request(), title="F")
+        outcome = await MergeRequestRuns(client, "group/repo", 7).astart_job(CI_ACTOR, _request(), title="F", ref="")
 
         assert (outcome.archived, outcome.thread_id) == (True, owned.session_id)
         assert not await InboxEvent.objects.aexists()
@@ -205,7 +212,7 @@ class TestAJobOnAnOwnedMergeRequest:
 @pytest.mark.usefixtures("database_task_backend", "no_env")
 class TestSubmittingAJob:
     async def test_an_open_merge_request_starts_the_job(self, client):
-        outcome = await MergeRequestRuns(client, "group/repo", 7).asubmit_job(CI_ACTOR, _request(), muted=None)
+        outcome = await MergeRequestRuns(client, "group/repo", 7).asubmit_job(CI_ACTOR, _request())
 
         assert isinstance(outcome, Run)
         assert (outcome.ref, outcome.title) == ("feat", "Feature")
@@ -217,7 +224,7 @@ class TestSubmittingAJob:
     async def test_a_merge_request_that_is_not_open_is_refused(self, client, merge_request, error):
         client.get_merge_request.return_value = _merge_request(**merge_request)
 
-        outcome = await MergeRequestRuns(client, "group/repo", 7).asubmit_job(CI_ACTOR, _request(), muted=None)
+        outcome = await MergeRequestRuns(client, "group/repo", 7).asubmit_job(CI_ACTOR, _request())
 
         assert outcome == BatchSubmitFailure(repo_id="group/repo", ref="", error=error)
         assert not await Run.objects.aexists()
@@ -225,14 +232,14 @@ class TestSubmittingAJob:
     async def test_a_missing_merge_request_is_refused(self, client):
         client.get_merge_request.side_effect = GitlabGetError("404 Not Found", response_code=404)
 
-        outcome = await MergeRequestRuns(client, "group/repo", 7).asubmit_job(CI_ACTOR, _request(), muted=None)
+        outcome = await MergeRequestRuns(client, "group/repo", 7).asubmit_job(CI_ACTOR, _request())
 
         assert outcome.error == "Merge request !7 was not found in group/repo."
 
     async def test_an_unreadable_merge_request_is_refused_and_logged(self, client, caplog):
         client.get_merge_request.side_effect = GitlabGetError("500", response_code=500)
 
-        outcome = await MergeRequestRuns(client, "group/repo", 7).asubmit_job(CI_ACTOR, _request(), muted=None)
+        outcome = await MergeRequestRuns(client, "group/repo", 7).asubmit_job(CI_ACTOR, _request())
 
         assert outcome.error == "Merge request !7 of group/repo could not be read; try again."
         assert any(record.levelname == "ERROR" for record in caplog.records)
@@ -242,7 +249,7 @@ class TestSubmittingAJob:
             thread_id=THREAD, origin=SessionOrigin.MR_WEBHOOK, repo_id="group/repo", archived_at=timezone.now()
         )
 
-        outcome = await MergeRequestRuns(client, "group/repo", 7).asubmit_job(CI_ACTOR, _request(), muted=None)
+        outcome = await MergeRequestRuns(client, "group/repo", 7).asubmit_job(CI_ACTOR, _request())
 
         assert outcome.error.startswith(
             "The DAIV session of merge request !7 is archived. Unarchive it to run jobs on it: "
@@ -255,7 +262,7 @@ class TestSubmittingAJob:
 
         with patch("sessions.merge_request_runs.service.aresolve_mcp_overrides", new=resolve):
             outcome = await MergeRequestRuns(client, "group/repo", 7).asubmit_job(
-                CI_ACTOR, _request(mcp_switches={"mine": True}), muted=None
+                CI_ACTOR, _request(mcp_switches={"mine": True})
             )
 
         assert outcome == BatchSubmitFailure(repo_id="group/repo", ref="", error="Unknown MCP server: mine")
@@ -266,7 +273,7 @@ class TestSubmittingAJob:
         await MergeRequestOwnership.objects.filter(pk=owned.pk).aupdate(closed_at=timezone.now())
 
         with patch("sessions.merge_request_runs.service.Ownerships.afind_open", new=AsyncMock(return_value=owned)):
-            outcome = await MergeRequestRuns(client, "group/repo", 7).asubmit_job(CI_ACTOR, _request(), muted=None)
+            outcome = await MergeRequestRuns(client, "group/repo", 7).asubmit_job(CI_ACTOR, _request())
 
         assert outcome.error == "Merge request !7 is closed."
         assert not await InboxEvent.objects.aexists()

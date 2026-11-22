@@ -13,6 +13,7 @@ from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
 from sessions.admission import AdmissionError, aadmit, aassert_repo_access
+from sessions.inbox import kinds
 from sessions.merge_request_runs.service import MergeRequestRuns
 from sessions.merge_request_runs.starter import Request, Requester
 from sessions.models import Run, RunStatus, Session, SessionOrigin, SessionRepository
@@ -200,14 +201,13 @@ async def asubmit_jobs(
     if on_merge_request:
         return await _asubmit_merge_request_job(
             requester=await _arequester(user),
-            target=admission.targets[0],
-            prompt=prompt,
             admission=admission,
+            prompt=prompt,
             muted=muted,
             trigger_type=trigger_type,
-            references=[ref.to_stored() for ref in references or []],
-            mcp_switches=mcp_overrides,
-            environment_named=bool(environment),
+            environment=environment,
+            mcp_overrides=mcp_overrides,
+            references=references,
         )
     submit = _asubmit_shared_session_run if shared else asubmit_batch_runs
     return await submit(
@@ -242,28 +242,26 @@ async def asubmit_ci_job(
     checked, and the run is attributed to ``requester`` and acts as no one: global MCP servers and environments only.
     """
     admission = await aadmit(
-        user=requester.user,
+        user=requester.acting_user,
         repos=[target],
         agent_model=agent_model,
         agent_thinking_level=agent_thinking_level,
         environment=environment,
         mcp_overrides=mcp_overrides,
-        acts_as_user=False,
         access_proven=True,
     )
     if target.merge_request_iid is not None:
         return await _asubmit_merge_request_job(
             requester=requester,
-            target=admission.targets[0],
-            prompt=prompt,
             admission=admission,
+            prompt=prompt,
             muted=muted,
             trigger_type=SessionOrigin.API_JOB,
-            mcp_switches=mcp_overrides,
-            environment_named=bool(environment),
+            environment=environment,
+            mcp_overrides=mcp_overrides,
         )
     return await asubmit_batch_runs(
-        user=requester.user,
+        **requester.run_fields,
         prompt=prompt,
         repos=admission.targets,
         agent_model=admission.agent_model,
@@ -271,11 +269,6 @@ async def asubmit_ci_job(
         muted=muted,
         trigger_type=SessionOrigin.API_JOB,
         mcp_overrides=admission.mcp_overrides,
-        external_username=requester.username,
-        external_provider=requester.provider,
-        external_uid=str(requester.uid),
-        acts_as_user=False,
-        check_access=False,
     )
 
 
@@ -293,37 +286,33 @@ async def _arequester(user: User) -> Requester:
 async def _asubmit_merge_request_job(
     *,
     requester: Requester,
-    target: RepoTarget,
-    prompt: str,
     admission: Admission,
+    prompt: str,
     muted: bool | None,
     trigger_type: str,
-    references: list[dict[str, Any]] | None = None,
-    mcp_switches: dict[str, bool] | None = None,
-    environment_named: bool = False,
+    environment: str | None,
+    mcp_overrides: dict[str, bool] | None,
+    references: Sequence[RefIn] | None = None,
 ) -> BatchSubmitResult:
-    """Run ``prompt`` on the merge request ``target`` names, where a mention by ``requester`` would; one outcome.
-    ``environment_named``: the caller named ``target``'s environment, rather than leaving it to the repository."""
+    """Run ``prompt`` on the merge request the admitted target names, where a mention by ``requester`` would; one
+    outcome. ``mcp_overrides`` are the caller's switches, unresolved."""
+    target = admission.targets[0]
     if target.merge_request_iid is None:
         raise ValueError("a merge request job needs a merge request")
     request = Request(
         prompt=prompt,
         source=SessionOrigin(trigger_type),
-        request_key=f"job:{uuid.uuid4().hex}",
-        references=tuple(references or ()),
-        mcp_switches=mcp_switches,
-        environment_id=target.sandbox_environment_id if environment_named else None,
-    )
-    runs = MergeRequestRuns(await sync_to_async(RepoClient.create_instance)(), target.repo_id, target.merge_request_iid)
-    outcome = await runs.asubmit_job(
-        requester,
-        request,
+        request_key=kinds.SourceKey.job(uuid.uuid4()),
         muted=muted,
         agent_model=admission.agent_model,
         agent_thinking_level=admission.agent_thinking_level,
+        references=tuple(ref.to_stored() for ref in references or ()),
+        mcp_switches=mcp_overrides,
         sandbox_environment_id=target.sandbox_environment_id,
+        environment_named=bool(environment),
     )
-    return BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[outcome])
+    runs = MergeRequestRuns(await sync_to_async(RepoClient.create_instance)(), target.repo_id, target.merge_request_iid)
+    return BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[await runs.asubmit_job(requester, request)])
 
 
 async def _asubmit_shared_session_run(

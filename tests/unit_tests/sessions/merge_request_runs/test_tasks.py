@@ -109,6 +109,12 @@ async def test_address_mr_comments_hands_the_merge_request_and_its_run_to_the_ad
         "run_id": "run-1",
         "use_max": False,
         "acting_user_id": 5,
+        "prompt": None,
+        "requester_username": "",
+        "agent_model": None,
+        "agent_thinking_level": None,
+        "references": None,
+        "mcp_overrides": None,
     }
     run_lookup.assert_awaited_once_with("tr-1")
 

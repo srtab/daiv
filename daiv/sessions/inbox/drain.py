@@ -205,8 +205,8 @@ class _Take:
         session = self.session
         next_runs = NextRuns(session)
         if session.archived_at is not None:
-            LegFollowUps.stop_held(session)
-            MergeRequestJobs.stop_held(session)
+            for held in InboxEvent.objects.filter(session=session, state=EventState.PENDING, kind__in=OWN_RUN_KINDS):
+                self._stop_or_settle(held)
             return None
         if SessionLock.is_held(session) or next_runs.job_run_active():
             return None
@@ -239,21 +239,10 @@ class _Take:
         ]
         splits = RequestSplits(requested)
         asked = splits.splits[0]
-        own = asked[0] if asked[0].kind in OWN_RUN_KINDS else None
         own_run = None
-        if own is not None:
-            own_runs = _OWN_RUNS[own.kind]
-            # Locked so a coordinator's cancel can't land between this read and the promotion to READY.
-            own_run = Run.objects.select_for_update().filter(pk=own.run_id).first()
-            if own_run is None or own_run.status != RunStatus.QUEUED:
-                own_runs.settle_unstartable(own, own_run)
-                own_run = None
-            elif (stop := own_runs.stop_reason(session, own)) is not None:
-                own_runs.stop(own, stop, own_run)
-                own_run = None
-            if own_run is None:
-                transaction.on_commit(Drain(session.thread_id).start_logged, robust=True)
-                return None
+        if asked[0].kind in OWN_RUN_KINDS and (own_run := self._stop_or_settle(asked[0])) is None:
+            transaction.on_commit(Drain(session.thread_id).start_logged, robust=True)
+            return None
         if RequestSplits.takes_context(asked[0]):
             taken = [
                 event
@@ -307,6 +296,21 @@ class _Take:
         self._apply_tools_selection(taken)
         return run, self._charge_ci_attempts(taken)
 
+    def _stop_or_settle(self, own: InboxEvent) -> Run | None:
+        """The own run of the leg follow-up or merge request job ``own``, locked, while it may start; else ``None``,
+        once ``own`` is settled because its run is gone or no longer QUEUED, or stopped because its session was
+        archived or its merge request ended. SYNC ONLY."""
+        own_runs = _OWN_RUNS[own.kind]
+        # Locked so a coordinator's cancel can't land between this read and the promotion to READY.
+        run = Run.objects.select_for_update().filter(pk=own.run_id).first()
+        if run is None or run.status != RunStatus.QUEUED:
+            own_runs.settle_unstartable(own, run)
+            return None
+        if (stop := own_runs.stop_reason(self.session, own)) is not None:
+            own_runs.stop(own, stop, run)
+            return None
+        return run
+
     def _link_superseded(self, taken: list[InboxEvent], run: Run, branch: str) -> None:
         """Link to ``run`` the superseded events of the subjects it took, on its ``branch``, which it shows replaced."""
         subjects = {event.subject_key for event in taken if event.subject}
@@ -324,12 +328,7 @@ class _Take:
         """Add the references the jobs and leg follow-ups the run took declared to the session, which the run reads
         them from."""
         session = self.session
-        declared = [
-            ref
-            for event in taken
-            if event.kind in (EventKind.FOLLOW_UP_JOB, EventKind.LEG_FOLLOW_UP, EventKind.MERGE_REQUEST_JOB)
-            for ref in event.payload.get("references", [])
-        ]
+        declared = [ref for event in taken for ref in event.payload.get("references", [])]
         if declared and (merged := merge_stored_refs(session.external_refs, declared)) != session.external_refs:
             Session.objects.filter(pk=session.pk).update(external_refs=merged)
 
@@ -420,10 +419,7 @@ class _Take:
         one, never gets the owner's secrets. Then the one the repository resolves to for ``user``."""
         visible = SandboxEnvironment.objects.visible_to(user)  # ty: ignore[missing-attribute]
         asked = [
-            event.payload["sandbox_environment_id"]
-            for event in taken
-            if event.kind in (EventKind.FOLLOW_UP_JOB, EventKind.MERGE_REQUEST_JOB)
-            and event.payload.get("sandbox_environment_id")
+            event.payload["sandbox_environment_id"] for event in taken if event.payload.get("sandbox_environment_id")
         ]
         if asked and visible.filter(pk=asked[-1]).exists():
             return uuid.UUID(asked[-1])
