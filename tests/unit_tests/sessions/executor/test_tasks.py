@@ -8,6 +8,7 @@ from django.db import DatabaseError
 
 import pytest
 from asgiref.sync import sync_to_async
+from mcp_connectors.models import MCPServer
 from sessions.executor.lock import Claimed, SessionLock, Wait
 from sessions.executor.run import RunStoppedError
 from sessions.executor.tasks import run_job_task
@@ -16,6 +17,7 @@ from sessions.models import EventKind, EventState, InboxEvent, Run, RunStatus, S
 
 from core.constants import INTERRUPTED_MESSAGE
 from tests.unit_tests.conftest import stub_sandbox_spec
+from tests.unit_tests.mcp_connectors.helpers import only_servers
 from tests.unit_tests.sessions.conftest import active_holder, amake_job_session, claim_recorder, make_task_result
 from tests.unit_tests.sessions.executor.conftest import disk_ctx, resolved_to
 
@@ -311,6 +313,36 @@ class TestInboxRun:
         spec = (await _execute_run_call(run.session_id, run_id=str(run.pk), inbox=True))["spec"]
 
         assert spec.acting_user_id is None
+
+    async def test_a_merge_request_jobs_switches_and_references_apply_to_its_run_only(self, member_user):
+        run = await self._inbox_run(user=member_user)
+        await Session.objects.filter(pk=run.session_id).aupdate(
+            mcp_overrides={"rt": "off"}, external_refs=[{"key": "PROJ-0"}]
+        )
+        await InboxEvent.objects.acreate(
+            session_id=run.session_id,
+            kind=EventKind.MERGE_REQUEST_JOB,
+            source_key="job:1",
+            payload={
+                "prompt": "/code-review",
+                "trigger_type": SessionOrigin.API_JOB,
+                "mcp_switches": {"grafana": True},
+                "references": [{"key": "PROJ-1"}],
+            },
+            wake=True,
+            ref="main",
+            merge_request_iid=9,
+            state=EventState.TAKEN,
+            run=run,
+        )
+        await sync_to_async(only_servers)(("rt", MCPServer.Status.ACTIVE), ("grafana", MCPServer.Status.ON_DEMAND))
+
+        spec = (await _execute_run_call(run.session_id, run_id=str(run.pk), inbox=True))["spec"]
+
+        assert spec.mcp_overrides == {"rt": "off", "grafana": "on"}
+        assert [ref.key for ref in spec.references] == ["PROJ-0", "PROJ-1"]
+        session = await Session.objects.aget(pk=run.session_id)
+        assert (session.mcp_overrides, session.external_refs) == ({"rt": "off"}, [{"key": "PROJ-0"}])
 
     async def test_the_input_factory_reuses_the_events_read_at_start(self, member_user):
         run = await self._inbox_run(user=member_user)

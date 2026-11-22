@@ -104,7 +104,7 @@ def post_leg_follow_up(
     )
 
 
-def post_merge_request_job(ownership, *, request_key: str = "job:1", mcp_overrides=None, **fields):
+def post_merge_request_job(ownership, *, request_key: str = "job:1", **fields):
     """A job on the merge request ``ownership`` names, from an unlinked CI actor unless ``fields`` say otherwise;
     ``fields`` are the ``Requester``'s and the ``Request``'s, a ``sandbox_environment_id`` one the caller named.
     Returns its run. SYNC ONLY."""
@@ -119,4 +119,4 @@ def post_merge_request_job(ownership, *, request_key: str = "job:1", mcp_overrid
         | {"references": tuple(fields.get("references", ())), "environment_named": "sandbox_environment_id" in fields}
     )
     jobs = MergeRequestJobs(ownership.session_id, ownership.repo_id, ownership.merge_request_iid)
-    return jobs.post(Requester(**person), request, ref=ownership.source_branch, mcp_overrides=mcp_overrides)
+    return jobs.post(Requester(**person), request, ref=ownership.source_branch)

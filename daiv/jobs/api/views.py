@@ -9,7 +9,7 @@ from ninja import Router
 from ninja.errors import HttpError
 from sessions.admission import AdmissionError, RepoAccessError
 from sessions.artifacts import aserialize_run_artifacts_for_status
-from sessions.inbox.merge_request_jobs import NOT_STARTED_MESSAGES
+from sessions.inbox.merge_request_jobs import caller_failure_message
 from sessions.models import Run, RunStatus, SessionOrigin
 from sessions.multi_repo import asubmit_ci_job, asubmit_jobs
 from sessions.services import RepoTarget
@@ -65,7 +65,6 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
         "environment": payload.environment,
         "mcp_overrides": payload.mcp_overrides,
     }
-    accepted = False
     try:
         if ci is not None:
             result = await asubmit_ci_job(requester=ci.requester, target=targets[0], muted=ci.muted(payload), **options)
@@ -80,15 +79,15 @@ async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
                 references=payload.references,
                 **options,
             )
-        accepted = bool(result.runs)
-    except RepoAccessError as err:
-        # Opaque 404: don't confirm the repo's existence to unauthorized callers.
-        raise HttpError(404, str(err)) from err
     except AdmissionError as err:
-        return 400, {"detail": str(err)}
-    finally:
-        if ci is not None and not accepted:
+        if ci is not None:
             await ci.arelease()
+        if isinstance(err, RepoAccessError):
+            # Opaque 404: don't confirm the repo's existence to unauthorized callers.
+            raise HttpError(404, str(err)) from err
+        return 400, {"detail": str(err)}
+    if ci is not None and not result.runs:
+        await ci.arelease()
 
     jobs = [
         JobSubmitJobItem(
@@ -124,8 +123,7 @@ async def get_job_status(request: HttpRequest, job_id: str):
 
     error = None
     if run.status == RunStatus.FAILED:
-        not_started = run.error_message if run.error_message in NOT_STARTED_MESSAGES else None
-        error = run.provider_failure_message() or not_started or "Job execution failed"
+        error = caller_failure_message(run) or "Job execution failed"
     artifacts, artifacts_error = await aserialize_run_artifacts_for_status(run)
     return 200, JobStatusResponse(
         job_id=str(run.id),

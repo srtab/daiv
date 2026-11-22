@@ -14,6 +14,7 @@ from sessions.inbox.render import (
 )
 from sessions.models import EventKind, EventState, InboxEvent, QuietReason, Run, SessionOrigin
 
+from accounts.models import User
 from automation.agent.synthetic import synthetic_kind
 from tests.unit_tests.sessions.inbox.conftest import amake_event, amake_session, ci_payload
 
@@ -257,6 +258,12 @@ class TestRequest:
             "message is posted there."
         )
         assert EventText(job).summary() == "/code-review"
+
+    def test_a_merge_request_job_never_names_its_sender_by_their_daiv_username(self):
+        payload = {"prompt": "/code-review", "acts_as_user": True, "source": "api_job"}
+        job = _event(EventKind.MERGE_REQUEST_JOB, payload, author_username="", author=User(username="alex"))
+
+        assert RunInput([job]).request().startswith("/code-review\n\nThis was sent as a job on !9.")
 
 
 class TestEventText:

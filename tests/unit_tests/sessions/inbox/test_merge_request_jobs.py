@@ -4,9 +4,11 @@ from django.utils import timezone
 
 import pytest
 from asgiref.sync import sync_to_async
+from mcp_connectors.models import MCPServer
 from sessions.inbox.drain import Drain
 from sessions.inbox.merge_request_jobs import (
     ARCHIVED,
+    INTERRUPTED_NOTE,
     NOT_STARTED_CLOSED,
     NOT_STARTED_MERGED,
     MergeRequestJobRefused,
@@ -28,8 +30,12 @@ from sessions.models import (
 )
 from sessions.queue import dispatch_next_queued
 
+from core.constants import INTERRUPTED_MESSAGE
+from core.models import ProviderFailureKind
+from tests.unit_tests.mcp_connectors.helpers import only_servers
 from tests.unit_tests.sessions.conftest import amake_owned_merge_request
 from tests.unit_tests.sessions.inbox.conftest import mention_payload, post_merge_request_job
+from tests.unit_tests.webhooks.conftest import make_db_task_result
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -74,14 +80,14 @@ class TestPost:
         assert event.payload == {"prompt": "/code-review", "trigger_type": SessionOrigin.MCP_JOB, "muted": True}
         drain.assert_called_once()
 
-    async def test_it_carries_the_jobs_references_mcp_overrides_and_named_environment(self, owned, drain):
+    async def test_it_carries_the_jobs_references_mcp_switches_and_named_environment(self, owned, drain):
         run = await _post(
-            owned, references=[{"key": "PROJ-1"}], mcp_overrides={"grafana": "on"}, sandbox_environment_id="env-1"
+            owned, references=[{"key": "PROJ-1"}], mcp_switches={"grafana": True}, sandbox_environment_id="env-1"
         )
 
         payload = (await InboxEvent.objects.aget(run=run)).payload
-        assert (payload["references"], payload["mcp_overrides"], payload["sandbox_environment_id"]) == (
-            [{"key": "PROJ-1"}], {"grafana": "on"}, "env-1",
+        assert (payload["references"], payload["mcp_switches"], payload["sandbox_environment_id"]) == (
+            [{"key": "PROJ-1"}], {"grafana": True}, "env-1",
         )  # fmt: skip
 
     async def test_a_merge_request_of_another_of_the_sessions_repositories_runs_on_the_sessions_branch(
@@ -224,26 +230,102 @@ class TestStop:
 
 
 class TestEndWithRun:
-    async def test_a_cancelled_run_dismisses_its_job_and_owes_no_note(self, owned, drain):
+    async def test_a_cancelled_run_dismisses_its_job_and_posts_nothing(self, owned, drain, mock_repo_client):
         run = await _post(owned)
         await Run.objects.filter(pk=run.pk).aupdate(status=RunStatus.FAILED, cancel_requested_at=timezone.now())
 
-        assert await sync_to_async(MergeRequestJobs.end_with_run)(await Run.objects.aget(pk=run.pk)) == []
-        assert (await InboxEvent.objects.aget(run=run)).state == EventState.DISMISSED
+        await sync_to_async(MergeRequestJobs.end_with_run)(await Run.objects.aget(pk=run.pk))
 
-    async def test_a_failed_run_fails_its_job_and_owes_a_note(self, owned, drain):
+        assert (await InboxEvent.objects.aget(run=run)).state == EventState.DISMISSED
+        mock_repo_client.create_merge_request_comment.assert_not_called()
+
+    async def test_a_failed_run_fails_its_job_and_says_so_on_the_merge_request_once(
+        self, owned, drain, mock_repo_client
+    ):
         run = await _post(owned)
         await Run.objects.filter(pk=run.pk).aupdate(status=RunStatus.FAILED)
+        failed = await Run.objects.aget(pk=run.pk)
 
-        failed = await sync_to_async(MergeRequestJobs.end_with_run)(await Run.objects.aget(pk=run.pk))
+        await sync_to_async(MergeRequestJobs.end_with_run)(failed)
+        await sync_to_async(MergeRequestJobs.end_with_run)(failed)
 
         stored = await InboxEvent.objects.aget(run=run)
-        assert [event.pk for event in failed] == [stored.pk]
         assert (stored.state, stored.failure) == (EventState.FAILED, EventFailure.RUN_FAILED)
+        mock_repo_client.create_merge_request_comment.assert_called_once()
+        repo_id, iid, body = mock_repo_client.create_merge_request_comment.call_args.args
+        assert (repo_id, iid) == ("group/repo", 7)
+        assert body.startswith("An unexpected error occurred")
 
-    async def test_a_successful_run_leaves_its_job_to_the_shared_path(self, owned, drain):
+    @pytest.mark.parametrize(
+        ("fields", "note"),
+        [
+            ({"error_message": INTERRUPTED_MESSAGE, "task_result_id": None}, INTERRUPTED_NOTE),
+            ({"failure_kind": ProviderFailureKind.RATE_LIMITED, "failure_provider": "anthropic"}, "rate"),
+        ],
+        ids=["interrupted", "provider"],
+    )
+    async def test_the_note_says_what_stopped_the_run(self, owned, drain, mock_repo_client, fields, note):
+        run = await _post(owned)
+        if "task_result_id" in fields:
+            fields["task_result_id"] = await make_db_task_result()
+        await Run.objects.filter(pk=run.pk).aupdate(status=RunStatus.FAILED, **fields)
+
+        await sync_to_async(MergeRequestJobs.end_with_run)(await Run.objects.aget(pk=run.pk))
+
+        body = mock_repo_client.create_merge_request_comment.call_args.args[2]
+        assert note.lower() in body.lower()
+        assert not body.startswith("An unexpected error occurred")
+
+    async def test_a_successful_run_leaves_its_job_to_the_shared_path(self, owned, drain, mock_repo_client):
         run = await _post(owned)
         await Run.objects.filter(pk=run.pk).aupdate(status=RunStatus.SUCCESSFUL)
 
-        assert await sync_to_async(MergeRequestJobs.end_with_run)(await Run.objects.aget(pk=run.pk)) == []
+        await sync_to_async(MergeRequestJobs.end_with_run)(await Run.objects.aget(pk=run.pk))
+
         assert (await InboxEvent.objects.aget(run=run)).state == EventState.PENDING
+        mock_repo_client.create_merge_request_comment.assert_not_called()
+
+
+class TestSettleUnstartable:
+    async def test_a_job_whose_run_failed_before_the_drain_took_it_says_so_on_the_merge_request(
+        self, owned, drain, mock_repo_client
+    ):
+        run = await _post(owned)
+        event = await InboxEvent.objects.aget(run=run)
+        await Run.objects.filter(pk=run.pk).aupdate(status=RunStatus.FAILED)
+
+        await sync_to_async(MergeRequestJobs.settle_unstartable)(event, await Run.objects.aget(pk=run.pk))
+
+        assert (await InboxEvent.objects.aget(pk=event.pk)).state == EventState.FAILED
+        mock_repo_client.create_merge_request_comment.assert_called_once()
+
+
+class TestRunOptions:
+    async def _options(self, owned, *, acting_user_id=None):
+        session = await Session.objects.aget(pk=owned.session_id)
+        events = [event async for event in InboxEvent.objects.filter(session=session)]
+        return await sync_to_async(MergeRequestJobs.run_options)(events, session, acting_user_id=acting_user_id)
+
+    async def test_without_a_job_a_run_uses_the_sessions_own(self, owned):
+        await Session.objects.filter(pk=owned.session_id).aupdate(
+            mcp_overrides={"rt": "off"}, external_refs=[{"key": "PROJ-0"}]
+        )
+
+        options = await self._options(owned)
+
+        assert options.mcp_overrides == {"rt": "off"}
+        assert [ref.key for ref in options.references] == ["PROJ-0"]
+
+    async def test_a_jobs_switches_and_references_apply_on_top_of_the_sessions_for_its_run(self, owned, drain):
+        await sync_to_async(only_servers)(("rt", MCPServer.Status.ACTIVE), ("grafana", MCPServer.Status.ON_DEMAND))
+        await Session.objects.filter(pk=owned.session_id).aupdate(
+            mcp_overrides={"rt": "off"}, external_refs=[{"key": "PROJ-0"}]
+        )
+        await _post(owned, references=[{"key": "PROJ-1"}], mcp_switches={"grafana": True, "gone": True})
+
+        options = await self._options(owned)
+
+        assert options.mcp_overrides == {"rt": "off", "grafana": "on"}
+        assert [ref.key for ref in options.references] == ["PROJ-0", "PROJ-1"]
+        session = await Session.objects.aget(pk=owned.session_id)
+        assert (session.mcp_overrides, session.external_refs) == ({"rt": "off"}, [{"key": "PROJ-0"}])

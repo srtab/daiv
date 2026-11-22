@@ -1,4 +1,5 @@
 import uuid
+from contextlib import suppress
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -1420,6 +1421,20 @@ class TestCIIdentitySubmissions:
             accepted = await _ci_client(raw).post("/jobs", json=_ci_body())
 
         assert (failed.status_code, failed.json()["jobs"], accepted.status_code) == (202, [], 202)
+
+    async def test_a_submission_that_failed_unexpectedly_uses_the_token_up(self, ci_token):
+        raw = ci_token()
+
+        with (
+            patch("jobs.api.views.asubmit_ci_job", new=AsyncMock(side_effect=RuntimeError("after the run"))),
+            suppress(RuntimeError),
+        ):
+            await _ci_client(raw).post("/jobs", json=_ci_body())
+        with _enqueued_run_job():
+            retried = await _ci_client(raw).post("/jobs", json=_ci_body())
+
+        assert retried.status_code == 401
+        assert not await Run.objects.aexists()
 
     async def test_a_merge_request_job_is_attributed_to_the_actor_and_acts_as_no_one(self, ci_token, mock_repo_client):
         with (

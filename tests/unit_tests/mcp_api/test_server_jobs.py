@@ -540,6 +540,18 @@ async def test_job_status_lists_every_mr_and_error(_default_mcp_user):
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_a_job_that_did_not_start_says_why(_default_mcp_user):
+    from mcp_api.server import get_job_status
+    from sessions.inbox.merge_request_jobs import NOT_STARTED_CLOSED
+
+    run = await _run(await _session(_default_mcp_user), status=RunStatus.FAILED, error_message=NOT_STARTED_CLOSED)
+
+    data = json.loads(await get_job_status(job_id=str(run.id)))
+
+    assert data["error"] == NOT_STARTED_CLOSED
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_job_status_legacy_run_lists_its_single_mr(_default_mcp_user):
     from mcp_api.server import get_job_status
 

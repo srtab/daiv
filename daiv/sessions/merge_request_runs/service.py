@@ -18,14 +18,19 @@ from asgiref.sync import sync_to_async
 
 from codebase.base import GitPlatform, Scope
 from codebase.clients.base import PLATFORM_ERRORS, CommentThread, is_not_found
-from sessions.admission import InvalidMcpOverridesError, aresolve_mcp_overrides
 from sessions.inbox import kinds
-from sessions.inbox.merge_request_jobs import ARCHIVED, MergeRequestJobRefused, MergeRequestJobs, state_of
+from sessions.inbox.merge_request_jobs import (
+    ARCHIVED,
+    MergeRequestJobRefused,
+    MergeRequestJobs,
+    caller_failure_message,
+    state_of,
+)
 from sessions.inbox.ownership import Ownerships
 from sessions.inbox.post import Inbox
 from sessions.merge_request_runs.starter import Mention, Request, RunStarter, StartOutcome
 from sessions.merge_request_runs.tasks import address_merge_request_task
-from sessions.models import EventKind, Run, SessionOrigin
+from sessions.models import EventKind, Run, RunStatus, SessionOrigin
 from sessions.services import BatchSubmitFailure
 
 if TYPE_CHECKING:
@@ -41,6 +46,7 @@ NOT_FOUND = "Merge request !{iid} was not found in {repo_id}."
 NOT_OPEN = "Merge request !{iid} is {state}."
 UNREADABLE = "Merge request !{iid} of {repo_id} could not be read; try again."
 SESSION_ARCHIVED = "The DAIV session of merge request !{iid} is archived. Unarchive it to run jobs on it: {url}"
+NOT_STARTED = "The job on merge request !{iid} could not start."
 
 
 class MergeRequestRuns:
@@ -102,8 +108,7 @@ class MergeRequestRuns:
         and nothing is posted on the merge request.
 
         Raises :class:`~sessions.inbox.merge_request_jobs.MergeRequestJobRefused` with the merge request's state when it
-        finds the merge request merged or closed in the owning session, and
-        :class:`~sessions.admission.InvalidMcpOverridesError` when its MCP switches name a server the run can't load.
+        finds the merge request merged or closed in the owning session.
         """
         if (ownership := await Ownerships(self.repo_id).afind_open(self.merge_request_iid, title=title)) is not None:
             return await self._apost_job(ownership, requester, request, merge_request_web_url)
@@ -119,7 +124,7 @@ class MergeRequestRuns:
                 "agent_model": request.agent_model or None,
                 "agent_thinking_level": request.agent_thinking_level or None,
                 "references": list(request.references),
-                "mcp_overrides": await self._amcp_overrides(requester, request, thread_id=None),
+                "mcp_overrides": request.mcp_overrides,
             },
             trigger_type=request.source,
             title=title,
@@ -138,11 +143,7 @@ class MergeRequestRuns:
             return StartOutcome(thread_id=thread_id, archived=True)
         try:
             run = await MergeRequestJobs(thread_id, self.repo_id, self.merge_request_iid).apost(
-                requester,
-                request,
-                ref=ownership.source_branch,
-                mcp_overrides=await self._amcp_overrides(requester, request, thread_id=thread_id),
-                merge_request_web_url=merge_request_web_url,
+                requester, request, ref=ownership.source_branch, merge_request_web_url=merge_request_web_url
             )
         except MergeRequestJobRefused as refused:
             if refused.reason != ARCHIVED:
@@ -150,17 +151,10 @@ class MergeRequestRuns:
             return StartOutcome(thread_id=thread_id, archived=True)
         return StartOutcome(thread_id=thread_id, started=True, run_id=run.pk)
 
-    @staticmethod
-    async def _amcp_overrides(
-        requester: Requester, request: Request, *, thread_id: str | None
-    ) -> dict[str, str] | None:
-        """``request``'s MCP switches applied to ``thread_id``'s overrides, against the servers the run may load."""
-        return await aresolve_mcp_overrides(requester.acting_user, request.mcp_switches, thread_id)
-
     async def asubmit_job(self, requester: Requester, request: Request) -> Run | BatchSubmitFailure:
         """Start ``request`` on the merge request (:meth:`astart_job`), or say why it can't: the merge request is
-        missing from the repository, merged or closed, its session is archived, or its MCP switches name a server it
-        can't load. A refusal posts nothing on the merge request."""
+        missing from the repository, merged or closed, its session is archived, or its run failed before it could
+        start. A refusal posts nothing on the merge request."""
 
         def refused(error: str) -> BatchSubmitFailure:
             return BatchSubmitFailure(repo_id=self.repo_id, ref="", error=error)
@@ -185,12 +179,13 @@ class MergeRequestRuns:
             )
         except MergeRequestJobRefused as job_refused:
             return refused(NOT_OPEN.format(iid=iid, state=job_refused.reason))
-        except InvalidMcpOverridesError as err:
-            return refused(str(err))
         if outcome.archived:
             url = await sync_to_async(RunStarter.session_url)(outcome.thread_id)
             return refused(SESSION_ARCHIVED.format(iid=iid, url=url))
-        return await Run.objects.aget(pk=outcome.run_id)
+        run = await Run.objects.aget(pk=outcome.run_id)
+        if run.status == RunStatus.FAILED:
+            return refused(caller_failure_message(run) or NOT_STARTED.format(iid=iid))
+        return run
 
     async def aremember(self, requester: Callable[[], Awaitable[Requester]], comment: Mention, *, title: str) -> None:
         """Remember a comment that did not mention DAIV in the session that owns the merge request, by the requester

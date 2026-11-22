@@ -295,7 +295,7 @@ async def _asubmit_merge_request_job(
     references: Sequence[RefIn] | None = None,
 ) -> BatchSubmitResult:
     """Run ``prompt`` on the merge request the admitted target names, where a mention by ``requester`` would; one
-    outcome. ``mcp_overrides`` are the caller's switches, unresolved."""
+    outcome. ``mcp_overrides`` are the caller's switches, which ``admission`` resolved."""
     target = admission.targets[0]
     if target.merge_request_iid is None:
         raise ValueError("a merge request job needs a merge request")
@@ -308,6 +308,7 @@ async def _asubmit_merge_request_job(
         agent_thinking_level=admission.agent_thinking_level,
         references=tuple(ref.to_stored() for ref in references or ()),
         mcp_switches=mcp_overrides,
+        mcp_overrides=admission.mcp_overrides,
         sandbox_environment_id=target.sandbox_environment_id,
         environment_named=bool(environment),
     )

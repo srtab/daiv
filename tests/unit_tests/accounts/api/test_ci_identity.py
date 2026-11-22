@@ -78,6 +78,7 @@ def platform():
     with (
         patch.object(codebase_settings, "CLIENT", GitPlatform.GITLAB),
         patch.object(codebase_settings, "GITLAB_URL", GITLAB),
+        patch.object(codebase_settings, "GITLAB_ID_TOKEN_ISSUER", None),
         patch.object(core_settings, "EXTERNAL_URL", f"{AUDIENCE}/"),
         patch.object(core_settings, "JOBS_CI_IDENTITY_AUDIENCE", None),
         patch.object(jwt.PyJWKClient, "fetch_data", return_value=_jwks()) as fetch,
@@ -154,6 +155,16 @@ class TestVerify:
         assert CIIdentityVerifier().issuer == GITLAB
         with patch.object(codebase_settings, "GITLAB_URL", None):
             assert CIIdentityVerifier().issuer == "https://gitlab.com"
+
+    def test_a_gitlab_reached_at_an_internal_address_checks_the_issuer_it_names(self, platform):
+        with (
+            patch.object(codebase_settings, "GITLAB_URL", "http://gitlab:8929/"),
+            patch.object(codebase_settings, "GITLAB_ID_TOKEN_ISSUER", f"{GITLAB}/"),
+        ):
+            identity = CIIdentityVerifier().verify(token(gitlab_claims()))
+
+        assert identity.jti == "jti-1"
+        assert CIIdentityVerifier._key_clients.keys() == {"http://gitlab:8929/oauth/discovery/keys"}
 
     def test_the_audience_setting_replaces_daivs_address(self):
         with patch.object(core_settings, "JOBS_CI_IDENTITY_AUDIENCE", "daiv-ci"):

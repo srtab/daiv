@@ -150,11 +150,7 @@ class RunInput:
         if kind in (EventKind.FOLLOW_UP_JOB, EventKind.LEG_FOLLOW_UP):
             return "\n\n".join(event.payload["prompt"] for event in events)
         if kind == EventKind.MERGE_REQUEST_JOB:
-            return "\n\n".join(
-                f"{event.payload['prompt']}\n\n{EventText(event).author_name()} sent this as a job on "
-                f"{EventText(event).merge_request()}. {MENTION_REPLY_NOTE}"
-                for event in events
-            )
+            return "\n\n".join(f"{event.payload['prompt']}\n\n{EventText(event).job_origin()}" for event in events)
         if kind == EventKind.DELEGATION_FINISHED:
             return "\n\n".join(event.payload["summary"] for event in events)
         return "\n\n".join(
@@ -254,6 +250,13 @@ class EventText:
     def author_name(self) -> str:
         event = self.event
         return event.author_username or (event.author.username if event.author is not None else "someone")
+
+    def job_origin(self) -> str:
+        """Where a merge request job came from, naming its sender only by their platform account, which the model may
+        mention on the merge request."""
+        event = self.event
+        sender = f"{event.author_username} sent this" if event.author_username else "This was sent"
+        return f"{sender} as a job on {self.merge_request()}. {MENTION_REPLY_NOTE}"
 
     def merge_request(self, iid: int | None = None) -> str:
         """The event's merge request, or ``iid``, prefixed with its repository when it is not the session's own."""

@@ -20,6 +20,13 @@ class CodebaseSettings(BaseSettings):
         default=True,
         description="Use GITLAB_AUTH_TOKEN for git clone/push when a per-project clone token can't be created",
     )
+    GITLAB_ID_TOKEN_ISSUER: str | None = Field(
+        default=None,
+        description=(
+            "Issuer of GitLab CI ID tokens, which CI jobs present to the jobs API: GitLab's external URL. Defaults to "
+            "GITLAB_URL; set it when DAIV reaches GitLab at another address"
+        ),
+    )
 
     REPO_ACCESS_SYNC_CRON: str = Field(
         default="*/15 * * * *", description="Cron expression for the periodic repository access sync"

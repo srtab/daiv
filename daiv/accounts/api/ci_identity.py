@@ -49,7 +49,6 @@ _CLAIMS = {
     GitPlatform.GITLAB: {"repo_path": "project_path", "repo_id": "project_id", "uid": "user_id", "login": "user_login"},
     GitPlatform.GITHUB: {"repo_path": "repository", "repo_id": "repository_id", "uid": "actor_id", "login": "actor"},
 }
-_KEYS_PATHS = {GitPlatform.GITLAB: "/oauth/discovery/keys", GitPlatform.GITHUB: "/.well-known/jwks"}
 KEYS_UNREACHABLE = "signing keys unreachable"
 # First match wins: PyJWKClientConnectionError is a PyJWKClientError, and every class here a PyJWTError.
 _REFUSALS: tuple[tuple[type[jwt.PyJWTError] | tuple[type[jwt.PyJWTError], ...], str], ...] = (
@@ -113,7 +112,19 @@ class CIIdentityVerifier:
     def issuer(self) -> str:
         if self.provider == GitPlatform.GITHUB:
             return codebase_settings.GITHUB_ACTIONS_OIDC_ISSUER.rstrip("/")
-        return str(codebase_settings.GITLAB_URL or GITLAB_ISSUER).rstrip("/")
+        return (codebase_settings.GITLAB_ID_TOKEN_ISSUER or self._gitlab_url).rstrip("/")
+
+    @property
+    def keys_url(self) -> str:
+        """Where the platform publishes its signing keys: GitLab's at the address DAIV reaches it, which may differ from
+        the issuer its tokens name."""
+        if self.provider == GitPlatform.GITHUB:
+            return f"{self.issuer}/.well-known/jwks"
+        return f"{self._gitlab_url.rstrip('/')}/oauth/discovery/keys"
+
+    @property
+    def _gitlab_url(self) -> str:
+        return str(codebase_settings.GITLAB_URL or GITLAB_ISSUER)
 
     @property
     def audiences(self) -> list[str]:
@@ -140,7 +151,7 @@ class CIIdentityVerifier:
         except jwt.PyJWTError as err:
             check = next(check for errors, check in _REFUSALS if isinstance(err, errors))
             if check == KEYS_UNREACHABLE:
-                logger.exception("Could not fetch the CI identity signing keys of %s", self.issuer)
+                logger.exception("Could not fetch the CI identity signing keys at %s", self.keys_url)
                 raise CIIdentityRefused(check, claimed_repo) from None
             raise CIIdentityRefused(check, claimed_repo) from err
         return self._identity(claims)
@@ -194,7 +205,7 @@ class CIIdentityVerifier:
         return str(claims.get(_CLAIMS[self.provider]["repo_path"], ""))
 
     def _key_client(self) -> jwt.PyJWKClient:
-        url = f"{self.issuer}{_KEYS_PATHS[self.provider]}"
+        url = self.keys_url
         if url not in self._key_clients:
             self._key_clients[url] = jwt.PyJWKClient(url, cache_keys=True, timeout=10)
         return self._key_clients[url]

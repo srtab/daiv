@@ -6,9 +6,9 @@ from django.utils import timezone
 import pytest
 from django_tasks_db.models import DBTaskResult
 from gitlab.exceptions import GitlabGetError
-from sessions.admission import InvalidMcpOverridesError
 from sessions.ids import compute_thread_id
 from sessions.inbox.drain import Drain
+from sessions.inbox.merge_request_jobs import NOT_STARTED_MERGED
 from sessions.merge_request_runs.service import MergeRequestRuns
 from sessions.merge_request_runs.starter import Mention, Request, Requester
 from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
@@ -99,20 +99,17 @@ class TestAJobOnAMergeRequestNoSessionOwns:
         task = await DBTaskResult.objects.aget(pk=run.task_result_id)
         assert task.args_kwargs["kwargs"]["requester_username"] == expected
 
-    async def test_its_run_runs_alone_with_the_jobs_references_and_mcp_overrides(self, client):
-        resolve = AsyncMock(return_value={"grafana": "on"})
-        request = _request(references=({"key": "PROJ-1"},), mcp_switches={"grafana": True})
+    async def test_its_run_runs_alone_with_the_jobs_references_and_the_overrides_admission_resolved(self, client):
+        request = _request(
+            references=({"key": "PROJ-1"},), mcp_switches={"grafana": True}, mcp_overrides={"grafana": "on"}
+        )
 
-        with patch("sessions.merge_request_runs.service.aresolve_mcp_overrides", new=resolve):
-            outcome = await MergeRequestRuns(client, "group/repo", 7).astart_job(
-                CI_ACTOR, request, title="F", ref="feat"
-            )
+        outcome = await MergeRequestRuns(client, "group/repo", 7).astart_job(CI_ACTOR, request, title="F", ref="feat")
 
         run = await Run.objects.aget(pk=outcome.run_id)
         assert run.runs_alone is True
         kwargs = (await DBTaskResult.objects.aget(pk=run.task_result_id)).args_kwargs["kwargs"]
         assert (kwargs["references"], kwargs["mcp_overrides"]) == ([{"key": "PROJ-1"}], {"grafana": "on"})
-        resolve.assert_awaited_once_with(None, {"grafana": True}, None)
 
     async def test_a_repeated_request_key_starts_one_run(self, client):
         runs = MergeRequestRuns(client, "group/repo", 7)
@@ -180,24 +177,23 @@ class TestAJobOnAnOwnedMergeRequest:
             SessionOrigin.MCP_JOB, True, False, 7, owned.source_branch,
         )  # fmt: skip
 
-    async def test_its_options_apply_to_the_owning_session_as_a_follow_up_jobs_do(self, client, owned, member_user):
-        resolve = AsyncMock(return_value={"grafana": "on"})
+    async def test_its_options_ride_on_its_event_for_its_run(self, client, owned, member_user):
         request = _request(
             references=({"key": "PROJ-1"},),
             mcp_switches={"grafana": True},
+            mcp_overrides={"grafana": "on"},
             sandbox_environment_id="env-1",
             environment_named=True,
         )
 
-        with patch("sessions.merge_request_runs.service.aresolve_mcp_overrides", new=resolve):
-            outcome = await MergeRequestRuns(client, "group/repo", 7).astart_job(
-                Requester(user=member_user), request, title="F", ref=owned.source_branch
-            )
+        outcome = await MergeRequestRuns(client, "group/repo", 7).astart_job(
+            Requester(user=member_user), request, title="F", ref=owned.source_branch
+        )
 
-        event = await InboxEvent.objects.aget(run_id=outcome.run_id)
-        assert (event.payload["references"], event.payload["mcp_overrides"]) == ([{"key": "PROJ-1"}], {"grafana": "on"})
-        assert event.payload["sandbox_environment_id"] == "env-1"
-        resolve.assert_awaited_once_with(member_user, {"grafana": True}, owned.session_id)
+        payload = (await InboxEvent.objects.aget(run_id=outcome.run_id)).payload
+        assert (payload["references"], payload["mcp_switches"]) == ([{"key": "PROJ-1"}], {"grafana": True})
+        assert payload["sandbox_environment_id"] == "env-1"
+        assert "mcp_overrides" not in payload
 
     async def test_an_archived_owner_posts_nothing(self, client, owned):
         await Session.objects.filter(pk=owned.session_id).aupdate(archived_at=timezone.now())
@@ -257,16 +253,27 @@ class TestSubmittingAJob:
         assert outcome.error.endswith(f"/sessions/{THREAD}/")
         client.create_merge_request_comment.assert_not_called()
 
-    async def test_mcp_switches_naming_a_server_it_cannot_load_are_refused(self, client):
-        resolve = AsyncMock(side_effect=InvalidMcpOverridesError("Unknown MCP server: mine"))
+    @pytest.mark.parametrize(
+        ("error_message", "error"),
+        [
+            ("access_denied: internal detail", "The job on merge request !7 could not start."),
+            (NOT_STARTED_MERGED, NOT_STARTED_MERGED),
+        ],
+        ids=["generic", "not-started"],
+    )
+    async def test_a_job_whose_run_failed_before_it_started_is_refused(self, client, error_message, error):
+        owned = await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=7)
 
-        with patch("sessions.merge_request_runs.service.aresolve_mcp_overrides", new=resolve):
-            outcome = await MergeRequestRuns(client, "group/repo", 7).asubmit_job(
-                CI_ACTOR, _request(mcp_switches={"mine": True})
-            )
+        async def fail(_self, *args, **kwargs):
+            return await Run.objects.acreate(
+                session_id=owned.session_id, trigger_type=SessionOrigin.API_JOB, repo_id="group/repo",
+                status=RunStatus.FAILED, error_message=error_message,
+            )  # fmt: skip
 
-        assert outcome == BatchSubmitFailure(repo_id="group/repo", ref="", error="Unknown MCP server: mine")
-        assert not await Run.objects.aexists()
+        with patch("sessions.merge_request_runs.service.MergeRequestJobs.apost", new=fail):
+            outcome = await MergeRequestRuns(client, "group/repo", 7).asubmit_job(CI_ACTOR, _request())
+
+        assert outcome == BatchSubmitFailure(repo_id="group/repo", ref="", error=error)
 
     async def test_a_merge_request_that_closed_before_the_post_is_refused(self, client):
         owned = await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=7)

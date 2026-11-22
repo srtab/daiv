@@ -215,6 +215,7 @@ Set `CODEBASE_CLIENT` to `gitlab` or `github`. Only one platform is active at a 
 | :material-asterisk: `CODEBASE_GITLAB_AUTH_TOKEN`  :material-lock:    | Authentication token for GitLab             | *(none)*  | `glpat-xyz`          |
 | :material-asterisk: `CODEBASE_GITLAB_WEBHOOK_SECRET` :material-lock:| Secret token for GitLab webhook validation. Without it, every GitLab webhook request is rejected with 401 | *(none)*  | `random-webhook-secret` |
 | `CODEBASE_GITLAB_PAT_FALLBACK`  | Use `CODEBASE_GITLAB_AUTH_TOKEN` for `git clone` and `git push` when a per-project clone token can't be created | `true` | `false` |
+| `CODEBASE_GITLAB_ID_TOKEN_ISSUER` | Issuer of the GitLab CI ID tokens that pipelines present to the jobs API as [CI identity tokens](../features/jobs-api.md#ci-identity-tokens): GitLab's external URL. Set it when `CODEBASE_GITLAB_URL` is another address, such as an internal host name. *env-only* | `CODEBASE_GITLAB_URL` | `https://gitlab.example.com` |
 
 `CODEBASE_GITLAB_AUTH_TOKEN` is a personal access token with the `api` scope.
 

@@ -1208,20 +1208,65 @@ class TestMergeRequestJob:
         assert (promoted.user_id, promoted.acting_user_id) == (member_user.pk, None)
         assert promoted.sandbox_environment_id != env.pk
 
-    async def test_its_references_tools_and_named_environment_reach_the_session_and_its_run(self, enqueue):
+    async def test_its_named_environment_reaches_its_run_while_the_session_keeps_its_references_and_tools(
+        self, enqueue
+    ):
         env = await SandboxEnvironment.objects.acreate(
             scope=Visibility.GLOBAL, name="ci", base_image="python:3.14", repo_ids=["group/repo"]
         )
         run, job = await _merge_request_job(
-            references=[{"key": "PROJ-1"}], mcp_overrides={"grafana": "on"}, sandbox_environment_id=str(env.pk)
+            references=[{"key": "PROJ-1"}], mcp_switches={"grafana": True}, sandbox_environment_id=str(env.pk)
         )
+        await Session.objects.filter(pk=job.session_id).aupdate(mcp_overrides={"mine": "on"})
 
         await Drain(job.session_id).astart()
 
         session = await Session.objects.aget(pk=job.session_id)
-        assert [ref["key"] for ref in session.external_refs] == ["PROJ-1"]
-        assert session.mcp_overrides == {"grafana": "on"}
+        assert (session.external_refs, session.mcp_overrides) == ([], {"mine": "on"})
         assert (await Run.objects.aget(pk=run.pk)).sandbox_environment_id == env.pk
+
+    async def test_a_ci_job_on_a_session_of_one_repository_needs_no_access(self, enqueue):
+        run, job = await _merge_request_job()
+
+        with patch("sessions.admission.assert_can_run", Mock(side_effect=RepositoryAccessDenied(["group/repo"]))):
+            started = await Drain(job.session_id).astart()
+
+        assert started.pk == run.pk
+
+    @pytest.mark.parametrize("linked", [True, False], ids=["user", "account"])
+    async def test_a_ci_job_is_refused_on_a_session_whose_other_repositories_it_cant_run_on(
+        self, enqueue, member_user, linked
+    ):
+        person = {"user": member_user, "username": "", "provider": "", "uid": ""} if linked else {}
+        run, job = await _merge_request_job(**person)
+        await SessionRepository.objects.acreate(session_id=job.session_id, position=1, repo_id="group/private")
+        mention = await amake_event(
+            job.session, EventKind.MENTION, author_provider="gitlab", author_uid="9", created_at=_after(job)
+        )
+
+        denied = Mock(side_effect=RepositoryAccessDenied(["group/private"]))
+        with patch("sessions.admission.assert_can_run", denied):
+            await Drain(job.session_id).astart()
+
+        stored = await _state(job)
+        assert (stored.state, stored.failure, stored.run_id) == (EventState.FAILED, EventFailure.ACCESS_DENIED, run.pk)
+        assert (await Run.objects.aget(pk=run.pk)).status == RunStatus.FAILED
+        assert (await _state(mention)).state != EventState.FAILED
+        if linked:
+            denied.assert_called_once_with(member_user, ["group/private"])
+
+    async def test_a_ci_job_runs_on_a_session_whose_other_repositories_its_linked_user_can_run_on(
+        self, enqueue, member_user
+    ):
+        run, job = await _merge_request_job(user=member_user, username="", provider="", uid="")
+        await SessionRepository.objects.acreate(session_id=job.session_id, position=1, repo_id="group/other")
+
+        with patch("sessions.admission.assert_can_run") as can_run:
+            started = await Drain(job.session_id).astart()
+
+        assert started.pk == run.pk
+        can_run.assert_called_once_with(member_user, ["group/other"])
+        assert (await Run.objects.aget(pk=run.pk)).acting_user_id is None
 
     async def test_a_job_acting_as_its_caller_is_checked_against_their_access(self, enqueue, member_user):
         run, job = await _merge_request_job(user=member_user, acts_as_user=True, username="", provider="", uid="")

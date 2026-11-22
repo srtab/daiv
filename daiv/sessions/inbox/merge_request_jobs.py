@@ -6,27 +6,32 @@ and CI identity polling find it, and ``runs_alone``, so it is never another even
 id and status. The event has no subject, so a newer job never supersedes an older one. The drain takes it alone, with
 the branch's remembered events (:mod:`sessions.inbox.splits`), and promotes its run to READY.
 
-The event ends with its run and is never retried, since the job reports that one run
-(:meth:`MergeRequestJobs.end_with_run`). It stops at its start, without running, when its merge request was merged or
-closed after it was posted, saying so on the merge request once the stop commits (:meth:`MergeRequestJobs.stop`), and
-as soon as the drain sees the session archived, posting nothing.
+The job's MCP switches and references apply to its run only (:meth:`MergeRequestJobs.run_options`): the session's
+Tools selection and references, which may be another person's, stay as they are.
+
+The event ends with its run and is never retried, since the job reports that one run (:mod:`sessions.inbox.own_runs`).
+A failed run is told on the merge request, with the provider's failure or the restart that interrupted it. A job stops
+at its start, without running, when its merge request was merged or closed after it was posted, saying so on the merge
+request once the stop commits, and as soon as the drain sees the session archived, posting nothing.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar, NamedTuple, override
 
 from django.db import transaction
-from django.utils import timezone
 
 from asgiref.sync import sync_to_async
+from mcp_connectors.selection import build_selection_pool, overrides_from_switches
 
+from automation.agent.references import merge_stored_refs, refs_from_stored
+from core.constants import BOT_NAME
+from sessions.inbox.own_runs import MERGE_REQUEST_STOPS, OwnRunEvents
 from sessions.legs import NOT_RUN_ARCHIVED
 from sessions.live.notify import session_changed
 from sessions.models import (
     EventFailure,
     EventKind,
-    EventState,
     InboxEvent,
     MergeRequestOwnership,
     MergeRequestState,
@@ -36,7 +41,11 @@ from sessions.models import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
+
+    from automation.agent.references import ExternalRef
     from codebase.base import MergeRequest
+    from sessions.inbox.complete import MergeRequestReplies
     from sessions.merge_request_runs.starter import Request, Requester
 
 ARCHIVED = "archived"
@@ -45,11 +54,7 @@ NOT_STARTED_CLOSED = "This merge request was closed before the job could start, 
 #: Why a merge request job ended FAILED without starting; safe to show its caller.
 NOT_STARTED_MESSAGES = frozenset({NOT_STARTED_MERGED, NOT_STARTED_CLOSED, NOT_RUN_ARCHIVED})
 
-_STOPS = {
-    MergeRequestState.MERGED: (EventFailure.MR_MERGED, NOT_STARTED_MERGED),
-    MergeRequestState.CLOSED: (EventFailure.MR_CLOSED, NOT_STARTED_CLOSED),
-}
-_NOT_STARTED = {**dict(_STOPS.values()), EventFailure.SESSION_ARCHIVED: NOT_RUN_ARCHIVED}
+INTERRUPTED_NOTE = f"{BOT_NAME} was restarted while working on this job, so the job stopped before it finished."
 
 
 def state_of(merge_request: MergeRequest) -> MergeRequestState:
@@ -63,8 +68,20 @@ def state_of(merge_request: MergeRequest) -> MergeRequestState:
 
 def not_started_note(state: MergeRequestState) -> str | None:
     """Why a job doesn't start on a merge request in ``state``, said on it; ``None`` while it is open."""
-    stop = _STOPS.get(state)
-    return None if stop is None else stop[1]
+    failure = MERGE_REQUEST_STOPS.get(state)
+    return None if failure is None else MergeRequestJobs.not_run[failure]
+
+
+def failure_note(run: Run) -> str | None:
+    """Why the job's ``run`` failed, said on its merge request in place of the generic first line: the provider's
+    failure, or the restart that interrupted it; ``None`` for any other failure."""
+    return run.provider_failure_message() or (INTERRUPTED_NOTE if run.is_interrupted else None)
+
+
+def caller_failure_message(run: Run) -> str | None:
+    """Why the FAILED ``run`` failed, when it is safe to tell the job's caller: the provider's failure, or why a job
+    never started."""
+    return run.provider_failure_message() or (run.error_message if run.error_message in NOT_STARTED_MESSAGES else None)
 
 
 class MergeRequestJobRefused(Exception):  # noqa: N818
@@ -76,29 +93,29 @@ class MergeRequestJobRefused(Exception):  # noqa: N818
         self.reason = reason
 
 
-class MergeRequestJobs:
+class MergeRequestJobs(OwnRunEvents):
     """The jobs on merge request ``merge_request_iid`` of ``repo_id``, which the session ``thread_id`` owns."""
+
+    kind = EventKind.MERGE_REQUEST_JOB
+    not_run: ClassVar[dict[EventFailure, str]] = {
+        EventFailure.MR_MERGED: NOT_STARTED_MERGED,
+        EventFailure.MR_CLOSED: NOT_STARTED_CLOSED,
+        EventFailure.SESSION_ARCHIVED: NOT_RUN_ARCHIVED,
+    }
 
     def __init__(self, thread_id: str, repo_id: str, merge_request_iid: int):
         self.thread_id = thread_id
         self.repo_id = repo_id
         self.merge_request_iid = merge_request_iid
 
-    def post(
-        self,
-        requester: Requester,
-        request: Request,
-        *,
-        ref: str,
-        mcp_overrides: dict[str, str] | None = None,
-        merge_request_web_url: str = "",
-    ) -> Run:
+    def post(self, requester: Requester, request: Request, *, ref: str, merge_request_web_url: str = "") -> Run:
         """Create the ``merge_request_job`` event and its QUEUED run for ``requester`` in one transaction, with the
         session row locked, drain the session once that commits, and return the run as the drain left it. The job's
-        references, ``mcp_overrides`` (resolved) and named environment reach the run as a follow-up job's do
-        (:mod:`sessions.inbox.drain`). A merge request of another of the session's repositories is posted as that
-        repository's event, whose run is on the session's branch. Raises :class:`MergeRequestJobRefused` when, under
-        that lock, the session is archived or the merge request is no longer open. SYNC ONLY."""
+        named environment reaches its run as a follow-up job's does (:mod:`sessions.inbox.drain`), and its MCP switches
+        and references as :meth:`run_options` applies them. A merge request of another of the session's repositories
+        is posted as that repository's event, whose run is on the session's branch. Raises
+        :class:`MergeRequestJobRefused` when, under that lock, the session is archived or the merge request is no longer
+        open. SYNC ONLY."""
         from sessions.inbox.drain import Drain
 
         with transaction.atomic():
@@ -114,8 +131,8 @@ class MergeRequestJobs:
                 payload["muted"] = request.muted
             if request.references:
                 payload["references"] = list(request.references)
-            if mcp_overrides is not None:
-                payload["mcp_overrides"] = mcp_overrides
+            if request.mcp_switches:
+                payload["mcp_switches"] = request.mcp_switches
             if request.named_environment_id:
                 payload["sandbox_environment_id"] = request.named_environment_id
             other_repo = self.repo_id != session.repo_id
@@ -159,71 +176,50 @@ class MergeRequestJobs:
         key = (self.repo_id, self.merge_request_iid)
         return MergeRequestOwnership.states_of([key])[key]
 
-    @staticmethod
-    def stop_reason(session: Session, event: InboxEvent) -> EventFailure | None:
-        """Why the job ``event`` on ``session`` must not start: its session was archived, or its merge request was
-        merged or closed."""
-        if session.archived_at is not None:
-            return EventFailure.SESSION_ARCHIVED
+    @classmethod
+    @override
+    def merge_request_state(cls, session: Session, event: InboxEvent) -> MergeRequestState:
         key = (event.effective_repo_id(session.repo_id), event.merge_request_iid)
-        stop = _STOPS.get(MergeRequestOwnership.states_of([key])[key])
-        return None if stop is None else stop[0]
+        return MergeRequestOwnership.states_of([key])[key]
 
     @staticmethod
-    def stop(event: InboxEvent, failure: EventFailure, run: Run) -> None:
-        """Fail the job ``event`` with ``failure`` and finish its ``run`` FAILED, never started, with why; a merged or
-        closed merge request is told so once this commits. The finish says ``skip_dispatch``: the caller drains once
-        this commits."""
-        now = timezone.now()
-        InboxEvent.objects.filter(pk=event.pk).update(state=EventState.FAILED, failure=failure, updated_at=now)
-        session_changed(event.session_id)
-        note = _NOT_STARTED[failure]
-        Run.objects.finish(
-            run,
-            RunStatus.FAILED,
-            skip_dispatch=True,
-            never_started=True,
-            error_message=note,
-            finished_at=now,
-            started_at=now,
-        )
-        if failure != EventFailure.SESSION_ARCHIVED:
-            from sessions.inbox.complete import MergeRequestReplies
-
-            merge_request = (event.effective_repo_id(run.repo_id), event.merge_request_iid)
-            transaction.on_commit(
-                lambda: MergeRequestReplies.comment_on_merge_requests([merge_request], lambda _replies: note),
-                robust=True,
+    def run_options(events: Iterable[InboxEvent], session: Session, *, acting_user_id: int | None) -> RunOptions:
+        """The Tools selection and references of a run that took ``events`` in ``session``: the session's, with the MCP
+        switches and references of a merge request job among them applied, against the servers the run's acting user
+        may load. A switch for a server removed since the job was admitted is skipped. SYNC ONLY."""
+        job = next((event for event in events if event.kind == EventKind.MERGE_REQUEST_JOB), None)
+        if job is None:
+            return RunOptions(session.mcp_overrides, session.external_references())
+        mcp_overrides = session.mcp_overrides
+        if switches := job.payload.get("mcp_switches"):
+            pool = build_selection_pool(acting_user_id)
+            loadable = {entry.name for entry in pool}
+            mcp_overrides = overrides_from_switches(
+                {name: on for name, on in switches.items() if name in loadable}, pool, mcp_overrides
             )
+        references = merge_stored_refs(session.external_refs, job.payload.get("references", []))
+        return RunOptions(mcp_overrides, refs_from_stored(references))
+
+    @classmethod
+    @override
+    def _stopped(cls, event: InboxEvent, failure: EventFailure, run: Run) -> None:
+        if failure != EventFailure.SESSION_ARCHIVED:
+            note = cls.not_run[failure]
+            cls._comment_once_committed(run, [event], lambda _replies: note)
+
+    @classmethod
+    @override
+    def _failed(cls, run: Run, events: list[InboxEvent]) -> None:
+        cls._comment_once_committed(run, events, lambda replies: replies.unable_note(failure_message=failure_note(run)))
 
     @staticmethod
-    def settle_unstartable(event: InboxEvent, run: Run | None) -> None:
-        """Settle the pending job ``event`` whose own ``run`` is gone or no longer QUEUED, so the drain moves on: as
-        :meth:`end_with_run` settles it when that run failed, else failed (``run_failed``). SYNC ONLY."""
-        if run is not None and run.status == RunStatus.FAILED:
-            MergeRequestJobs.end_with_run(run)
-        elif InboxEvent.objects.filter(pk=event.pk, state=EventState.PENDING).update(
-            state=EventState.FAILED, failure=EventFailure.RUN_FAILED, updated_at=timezone.now()
-        ):
-            session_changed(event.session_id)
+    def _comment_once_committed(run: Run, events: list[InboxEvent], body: Callable[[MergeRequestReplies], str]) -> None:
+        from sessions.inbox.complete import MergeRequestReplies
 
-    @staticmethod
-    def end_with_run(run: Run) -> list[InboxEvent]:
-        """Settle the job linked to ``run`` once it ended FAILED, whether the drain took it or not: dismissed when the
-        run was cancelled, else failed (``run_failed``). Returns the jobs it failed, whose merge request is owed a note;
-        a run that succeeded leaves its taken job to the shared path, which marks it handled. Only a ``runs_alone`` run
-        has a job. SYNC ONLY."""
-        if run.status != RunStatus.FAILED or not run.runs_alone:
-            return []
-        jobs = InboxEvent.objects.filter(
-            run=run, kind=EventKind.MERGE_REQUEST_JOB, state__in=(EventState.PENDING, EventState.TAKEN)
-        )
-        now = timezone.now()
-        if run.is_cancelled:
-            if jobs.update(state=EventState.DISMISSED, updated_at=now):
-                session_changed(run.session_id)
-            return []
-        failed = list(jobs)
-        if jobs.update(state=EventState.FAILED, failure=EventFailure.RUN_FAILED, updated_at=now):
-            session_changed(run.session_id)
-        return failed
+        merge_requests = {(event.effective_repo_id(run.repo_id), event.merge_request_iid) for event in events}
+        transaction.on_commit(lambda: MergeRequestReplies.comment_on_merge_requests(merge_requests, body), robust=True)
+
+
+class RunOptions(NamedTuple):
+    mcp_overrides: dict[str, str]
+    references: tuple[ExternalRef, ...]

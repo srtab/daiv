@@ -19,7 +19,8 @@ and marks its events ``taken``. A CI failure among them spends one of its merge 
 reports in that same transaction, so a crash before the enqueue still counts it. A denied requester's events fail,
 their next run and the own runs of their leg follow-ups and merge request jobs end FAILED with the ``access_denied``
 label (a job's id still resolves, a leg follow-up's batch finishes), and the drain goes on to the next requester. A
-merge request job only attributed to its requester, a CI identity's, is not checked: the platform proved its access.
+merge request job only attributed to its requester, a CI identity's, needs no access to the repository the platform
+proved, but its linked user must be able to run on the session's others, and with none there must be none.
 The run is enqueued once the take commits; a failed enqueue frees the slot, puts the events back and refunds the
 attempt, for the sweep to retry.
 
@@ -73,12 +74,13 @@ from sessions.services import pinned_agent_override
 
 if TYPE_CHECKING:
     from accounts.models import User
+    from sessions.inbox.own_runs import OwnRunEvents
 
 logger = logging.getLogger("daiv.sessions")
 
 DRAIN_SWEEP_LIMIT = 200
 
-_OWN_RUNS: dict[str, type[LegFollowUps] | type[MergeRequestJobs]] = {
+_OWN_RUNS: dict[str, type[OwnRunEvents]] = {
     EventKind.LEG_FOLLOW_UP: LegFollowUps,
     EventKind.MERGE_REQUEST_JOB: MergeRequestJobs,
 }
@@ -258,11 +260,20 @@ class _Take:
             next_run = waiting_run
         else:
             next_run = None
-        # A run only attributed to its requester (a CI identity's) has no one's access or environments to check.
-        user = requester.user(session, requested) if own_run is None or own_run.acts_as_user else None
-        checked = any(event.kind != EventKind.MENTION for event in requested)
-        if user is not None and checked and not self._may_run(user, session.repo_ids()):
-            self._fail(requested, waiting_run)
+        user = requester.user(session, requested)
+        refused: tuple[list[InboxEvent], Run | None] | None = None
+        if own_run is not None and not own_run.acts_as_user:
+            if not self._proves_access(user, asked[0]):
+                refused = (asked, None)
+            user = None
+        elif (
+            user is not None
+            and any(event.kind != EventKind.MENTION for event in requested)
+            and not self._may_run(user, session.repo_ids())
+        ):
+            refused = (requested, waiting_run)
+        if refused is not None:
+            self._fail(*refused)
             next_runs.drop_emptied(queued_runs)
             transaction.on_commit(Drain(session.thread_id).start_logged, robust=True)
             return None
@@ -325,16 +336,21 @@ class _Take:
         ).update(run=run)
 
     def _merge_references(self, taken: list[InboxEvent]) -> None:
-        """Add the references the jobs and leg follow-ups the run took declared to the session, which the run reads
-        them from."""
+        """Add the references the follow-up jobs and leg follow-ups the run took declared to the session, which the run
+        reads them from; a merge request job's apply to its run only."""
         session = self.session
-        declared = [ref for event in taken for ref in event.payload.get("references", [])]
+        declared = [
+            ref
+            for event in taken
+            if event.kind in (EventKind.FOLLOW_UP_JOB, EventKind.LEG_FOLLOW_UP)
+            for ref in event.payload.get("references", [])
+        ]
         if declared and (merged := merge_stored_refs(session.external_refs, declared)) != session.external_refs:
             Session.objects.filter(pk=session.pk).update(external_refs=merged)
 
     def _apply_tools_selection(self, taken: list[InboxEvent]) -> None:
-        """Give the session the Tools selection the newest chat message or merge request job the run took was sent
-        with, which ``run_job_task`` reads when the run starts."""
+        """Give the session the Tools selection the newest chat message the run took was sent with, which
+        ``run_job_task`` reads when the run starts."""
         selections = [event.payload["mcp_overrides"] for event in taken if "mcp_overrides" in event.payload]
         if selections and selections[-1] != self.session.mcp_overrides:
             Session.objects.filter(pk=self.session.pk).update(mcp_overrides=selections[-1])
@@ -365,6 +381,15 @@ class _Take:
             session_changed(self.session.thread_id)
         if QuietReason.RUN_LIMIT in reasons.values():
             transaction.on_commit(WakePolicy(self.session).report_run_limit, robust=True)
+
+    def _proves_access(self, user: User | None, job: InboxEvent) -> bool:
+        """Whether a job only attributed to ``user`` (a CI identity's) may run in the session. The platform proved the
+        job's own repository, so ``user`` must be able to run on the session's other repositories, which its run checks
+        out too; with no linked user, there must be none."""
+        others = [
+            repo_id for repo_id in self.session.repo_ids() if repo_id != job.effective_repo_id(self.session.repo_id)
+        ]
+        return not others or (user is not None and self._may_run(user, others))
 
     @staticmethod
     def _may_run(user: User, repo_ids: list[str]) -> bool:

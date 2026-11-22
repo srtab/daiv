@@ -178,16 +178,16 @@ The run goes where a mention by you would:
 - **No DAIV session owns the merge request:** the run goes into the merge request's own session, which later mentions on the merge request share, so they have the job's result in context. The job starts `READY`, and runs after any run already in that session.
 - **A DAIV session owns it** (DAIV published the merge request): the job runs as one turn of that session, acting as you. It is `QUEUED` while the session is busy. Each job keeps its own `job_id`, so two jobs sent while the session is busy run as two turns, one after the other.
 
-`references`, `mcp_overrides` and `environment` apply to the job's run. In the merge request's own session they hold for that run only. In a session that owns the merge request they work as on a `thread_id` continuation: the references join the session, `mcp_overrides` apply on top of the session's own and stay with it, and a named `environment` replaces the session's for that turn.
+`references`, `mcp_overrides` and `environment` apply to the job's run only. In a session that owns the merge request, the references join the session's for that run, and `mcp_overrides` apply on top of the session's own; the session keeps its own references and MCP servers for later turns. A named `environment` replaces the session's for that turn.
 
 The job ends with one of these on the merge request:
 
 - **The result:** the final message, also returned in `result`.
 - **A question:** the question, mentioning the git platform account your DAIV account is linked to, if any, and the job is `WAITING_INPUT`. Anyone who mentions DAIV on the merge request answers it, or you send a new job with the same target.
-- **A failure:** a short comment that DAIV could not complete the request, and the job is `FAILED`.
+- **A failure:** a short comment that DAIV could not complete the request, naming the provider's failure or a DAIV restart that interrupted the run when either caused it, and the job is `FAILED`.
 - **A merge or close before the run started:** DAIV posts "This merge request was merged before the job could start, so I didn't run it." ("closed" for a closed one), and the job is `FAILED` with that text in `error`.
 
-DAIV refuses the job before starting a run, and puts it in `failed` with the reason, when the merge request is not in the repository (`Merge request !42 was not found in mygroup/myproject.`), is merged or closed (`Merge request !42 is merged.`), or its DAIV session is archived. An archived session's refusal links the session to unarchive, and DAIV posts nothing on the merge request. A session archived after DAIV accepted the job ends the job `FAILED` with `Not run: its session was archived` in `error`, also posting nothing.
+DAIV refuses the job, and puts it in `failed` with the reason, when the merge request is not in the repository (`Merge request !42 was not found in mygroup/myproject.`), is merged or closed (`Merge request !42 is merged.`), its DAIV session is archived, or the run could not start (`The job on merge request !42 could not start.`), for example because the owning session also covers a repository you can't run on. An archived session's refusal links the session to unarchive, and DAIV posts nothing on the merge request. A session archived after DAIV accepted the job ends the job `FAILED` with `Not run: its session was archived` in `error`, also posting nothing.
 
 To run this from CI on every push, see [Review every push to a merge request](#review-every-push-to-a-merge-request).
 
@@ -234,8 +234,8 @@ DAIV accepts a token only when all of these hold:
 
 | Check | GitLab | GitHub |
 |---|---|---|
-| Signature | `RS256`, by a key GitLab publishes at `<issuer>/oauth/discovery/keys` | `RS256`, by a key GitHub publishes at `<issuer>/.well-known/jwks` |
-| Issuer | `CODEBASE_GITLAB_URL`, or `https://gitlab.com` when it is unset | `CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER` |
+| Signature | `RS256`, by a key GitLab publishes at `<CODEBASE_GITLAB_URL>/oauth/discovery/keys` | `RS256`, by a key GitHub publishes at `<issuer>/.well-known/jwks` |
+| Issuer | `CODEBASE_GITLAB_ID_TOKEN_ISSUER`, by default `CODEBASE_GITLAB_URL`, or `https://gitlab.com` when both are unset | `CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER` |
 | Audience | `DAIV_JOBS_CI_IDENTITY_AUDIENCE`, by default `DAIV_EXTERNAL_URL` | the same |
 | Expiry | not expired, with 60 seconds of leeway | the same |
 | Repository | the token's `project_id` is the ID of the job's repository | the token's `repository_id` is the ID of the job's repository |
@@ -251,9 +251,9 @@ A request a token authenticates submits one job on the token's own repository:
 - `repos` has exactly one entry, the token's repository, which must be in DAIV's repository list (`404` otherwise).
 - It can't set `thread_id`, `shared_session` or `references` (`400`: `A CI identity token submits one job on its own repository.`).
 - `mcp_overrides` can name global MCP servers only; a personal server's name is an unknown server (`400`).
-- It can target a branch with `ref` or a merge request with `merge_request`.
+- It can target a branch with `ref` or a merge request with `merge_request`. When a DAIV session that covers other repositories owns the merge request, the run checks them out too, so the triggering account must be linked to a DAIV account that can run on each of them; otherwise the job is refused in `failed`.
 
-DAIV accepts one job per token: a second submission with a token whose job DAIV already accepted gets `401`. A CI job that sends two jobs requests two tokens, with two `id_tokens` entries on GitLab or two token requests on GitHub. A submission DAIV refused (`400`, `404` or a `failed` entry) does not use the token, so you can retry with it.
+DAIV accepts one job per token: a second submission with a token whose job DAIV already accepted gets `401`. A CI job that sends two jobs requests two tokens, with two `id_tokens` entries on GitLab or two token requests on GitHub. A submission DAIV refused (`400`, `404` or a `failed` entry) does not use the token, so you can retry with it. A submission that fails with a server error does use it, since DAIV may have started its job.
 
 ### Who the run belongs to
 

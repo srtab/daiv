@@ -108,9 +108,11 @@ class Request:
     """A job for a merge request, from the jobs API or MCP (``source``). ``request_key`` names the job, a fresh
     ``SourceKey.job`` each, so no two jobs are one.
 
-    ``references`` are stored refs (``RefIn.to_stored``) and ``mcp_switches`` the caller's MCP switches, unresolved.
-    ``sandbox_environment_id`` is the environment admission resolved, which the merge request's own session runs in;
-    ``environment_named``: the caller named it, so it also replaces an owning session's."""
+    ``references`` are stored refs (``RefIn.to_stored``). ``mcp_switches`` are the caller's MCP switches, which an
+    owning session's run applies to its own selection, and ``mcp_overrides`` the selection admission resolved them to,
+    which the merge request's own session runs with. ``sandbox_environment_id`` is the environment admission resolved,
+    which the merge request's own session runs in; ``environment_named``: the caller named it, so it also replaces an
+    owning session's."""
 
     prompt: str
     source: SessionOrigin
@@ -120,6 +122,7 @@ class Request:
     agent_thinking_level: str = ""
     references: tuple[dict[str, Any], ...] = ()
     mcp_switches: dict[str, bool] | None = None
+    mcp_overrides: dict[str, str] | None = None
     sandbox_environment_id: str | None = None
     environment_named: bool = False
 

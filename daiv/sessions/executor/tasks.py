@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING
 
 from django.tasks import task
 
+from asgiref.sync import sync_to_async
+
 from codebase.base import Scope
 from core import worker_shutdown
 from sessions.executor.lock import Claimed, wait_for_slot
@@ -52,7 +54,8 @@ async def run_job_task(
     ``inbox``: the run was started by ``sessions.inbox.drain``. It runs on the slot the drain claimed for it
     (``Claimed``), and takes its input from the events it took (``sessions.inbox.render``) rather than ``prompt``; one
     whose events were settled before its task started fails instead of running without a request. It acts as the
-    run's user, whom ``sessions.inbox.drain`` chose, not the session's.
+    run's user, whom ``sessions.inbox.drain`` chose, not the session's, and a merge request job's MCP switches and
+    references apply to it alone (``MergeRequestJobs.run_options``).
     A shutdown of the worker stops the run as a stop request does (``execute_run``); the inbox events it took go back
     for the session's next run without spending an attempt (``RunEnd.settle_events``).
     Webhook callers (issue/review addressors) bypass this task; ``use_max`` is therefore
@@ -63,6 +66,7 @@ async def run_job_task(
     from langchain_core.messages import HumanMessage
 
     from sessions.executor.run import RunStoppedError, execute_run
+    from sessions.inbox.merge_request_jobs import MergeRequestJobs, RunOptions
     from sessions.inbox.render import RunInput
     from sessions.multi_repo import acontinues_multi_repo_session
 
@@ -92,9 +96,11 @@ async def run_job_task(
         input_messages = run_input.render(inbox_run).messages
         input_factory = partial(_ainbox_input, inbox_run, run_input)
         lock, acting_user_id = Claimed(holder_id=run_id), inbox_run.acting_user_id
+        options = await sync_to_async(MergeRequestJobs.run_options)(events, session_row, acting_user_id=acting_user_id)
     else:
         input_messages = (HumanMessage(content=prompt),)
         lock, acting_user_id = wait_for_slot(run_id or f"job-{thread_id[:8]}"), user_id
+        options = RunOptions(session_row.mcp_overrides, session_row.external_references())
 
     async def _log_failure(exc: Exception, *, draft_published: bool, snapshot: StateSnapshot | None) -> None:
         if isinstance(exc, RunStoppedError):
@@ -124,8 +130,8 @@ async def run_job_task(
             agent_thinking_level=agent_thinking_level,
             sandbox_env_id=sandbox_environment_id,
             acting_user_id=acting_user_id,
-            mcp_overrides=session_row.mcp_overrides,
-            references=session_row.external_references(),
+            mcp_overrides=options.mcp_overrides,
+            references=options.references,
             run_id=run_id,
             persist_ref=True,
             arm_watch=True,

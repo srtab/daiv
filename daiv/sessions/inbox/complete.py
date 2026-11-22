@@ -23,7 +23,7 @@ having pushed nothing, or the CI failure fails for good with none of the runs th
 session was delegated, the parent session remembers it as a ``no_push`` ``delegated_ci_outcome`` (FR-021).
 
 A run that took a merge request job posts its answer as a new comment on the job's merge request when it ended
-SUCCESSFUL or WAITING_INPUT, and the note that DAIV could not address it when it failed, unless it was cancelled.
+SUCCESSFUL or WAITING_INPUT; its failure is said there by :mod:`sessions.inbox.merge_request_jobs`.
 
 A run that took mentions and ended SUCCESSFUL or WAITING_INPUT answers them on their merge request (research.md R10):
 its final message, its question with how to answer it, or, when it ended with nothing to say, the note that DAIV could
@@ -129,8 +129,7 @@ class RunEnd:
         SYNC ONLY."""
         run = self.run
         LegFollowUps.end_with_run(run)
-        if failed_jobs := MergeRequestJobs.end_with_run(run):
-            self._comment_on_jobs(failed_jobs, MergeRequestReplies.unable_note)
+        MergeRequestJobs.end_with_run(run)
         taken = InboxEvent.objects.filter(run=run, state=EventState.TAKEN)
         if run.status in (RunStatus.SUCCESSFUL, RunStatus.WAITING_INPUT):
             woken_by_ci = list(taken.filter(kind=EventKind.CI_FAILED, wake=True, merge_request_iid__isnull=False))
@@ -366,14 +365,15 @@ class MergeRequestReplies:
             return self.unable_note()
         return self.reply(run, asker=asker)
 
-    def unable_note(self) -> str:
-        """The note that DAIV could not address the request."""
+    def unable_note(self, *, failure_message: str | None = None) -> str:
+        """The note that DAIV could not address the request; ``failure_message`` replaces its generic first line."""
         return render_to_string(
             "core/unable_address_review.txt",
             {
                 "bot_name": BOT_NAME,
                 "bot_username": self.client.current_user.username,
                 "draft_published": False,
+                "failure_message": failure_message,
                 "is_gitlab": self.client.git_platform == GitPlatform.GITLAB,
             },
         )

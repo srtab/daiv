@@ -29,6 +29,7 @@ from sessions.admission import (
     check_agent_override,
 )
 from sessions.artifacts import aserialize_run_artifacts_for_status
+from sessions.inbox.merge_request_jobs import caller_failure_message
 from sessions.merge_request_runs.schemas import MergeRequestTarget
 from sessions.models import Run, RunStatus, SessionOrigin
 from sessions.multi_repo import THREAD_NOT_FOUND, asubmit_jobs
@@ -355,7 +356,7 @@ async def _build_job_response_dict(run: Run) -> dict:
     """Build a dict response from a Run (shared by single + batch paths)."""
     error = None
     if run.status == RunStatus.FAILED:
-        error = run.provider_failure_message() or "Job execution failed."
+        error = caller_failure_message(run) or "Job execution failed."
     artifacts, artifacts_error = await aserialize_run_artifacts_for_status(run)
     result = await sync_to_async(lambda: run.response_text)()
     return {

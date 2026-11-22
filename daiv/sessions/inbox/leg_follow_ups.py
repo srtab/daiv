@@ -7,27 +7,26 @@ is outside ``INBOX_TRIGGERS``, and ``sessions.queue`` leaves QUEUED runs with in
 starts it, alone, with the branch's remembered events (:mod:`sessions.inbox.splits`). Posting does not drain: the
 delegator drains the leg's session once every run of its batch exists, and the per-minute sweep is the backstop.
 
-The event ends with its run and is never retried (:meth:`LegFollowUps.end_with_run`). It stops at its start, without
-running, when the leg's merge request was merged or closed after it was posted (:meth:`LegFollowUps.stop`), and as soon
-as the drain sees the leg's session archived, so its batch still finishes.
+The event ends with its run and is never retried. It stops at its start, without running, when the leg's merge request
+was merged or closed after it was posted, and as soon as the drain sees the leg's session archived, so its batch still
+finishes (:mod:`sessions.inbox.own_runs`).
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar, override
 
 from django.db import transaction
-from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 
 from sessions.inbox.kinds import SourceKey
+from sessions.inbox.own_runs import OwnRunEvents
 from sessions.legs import NOT_RUN_ARCHIVED, NOT_RUN_CLOSED, NOT_RUN_MERGED, Leg
 from sessions.live.notify import session_changed
 from sessions.models import (
     EventFailure,
     EventKind,
-    EventState,
     InboxEvent,
     MergeRequestState,
     Run,
@@ -39,18 +38,10 @@ from sessions.models import (
 if TYPE_CHECKING:
     import uuid
 
-    from django.db.models import QuerySet
-
     from accounts.models import User
 
 BUSY = "busy"
 ARCHIVED = "archived"
-
-_STOPS = {
-    MergeRequestState.MERGED: (EventFailure.MR_MERGED, NOT_RUN_MERGED),
-    MergeRequestState.CLOSED: (EventFailure.MR_CLOSED, NOT_RUN_CLOSED),
-}
-_NOT_RUN = {**dict(_STOPS.values()), EventFailure.SESSION_ARCHIVED: NOT_RUN_ARCHIVED}
 
 
 class LegFollowUpRefused(Exception):  # noqa: N818
@@ -62,8 +53,15 @@ class LegFollowUpRefused(Exception):  # noqa: N818
         self.reason = reason
 
 
-class LegFollowUps:
+class LegFollowUps(OwnRunEvents):
     """The leg follow-ups of ``leg``."""
+
+    kind = EventKind.LEG_FOLLOW_UP
+    not_run: ClassVar[dict[EventFailure, str]] = {
+        EventFailure.MR_MERGED: NOT_RUN_MERGED,
+        EventFailure.MR_CLOSED: NOT_RUN_CLOSED,
+        EventFailure.SESSION_ARCHIVED: NOT_RUN_ARCHIVED,
+    }
 
     def __init__(self, leg: Leg):
         self.leg = leg
@@ -118,60 +116,7 @@ class LegFollowUps:
             prompt=prompt, batch_id=batch_id, user=user, muted=muted, references=references
         )
 
-    @staticmethod
-    def stop_reason(session: Session, event: InboxEvent) -> EventFailure | None:  # noqa: ARG004
-        """Why the leg follow-up ``event`` on ``session`` must not start: its session was archived, or its leg's merge
-        request was merged or closed."""
-        if session.archived_at is not None:
-            return EventFailure.SESSION_ARCHIVED
-        stop = _STOPS.get(Leg(session).merge_request_state())
-        return None if stop is None else stop[0]
-
-    @staticmethod
-    def stop(event: InboxEvent, failure: EventFailure, run: Run) -> None:
-        """Fail the leg follow-up ``event`` with ``failure`` and finish its ``run`` FAILED, never started, with the
-        matching not-run label. The finish says ``skip_dispatch``: the caller drains once this commits."""
-        now = timezone.now()
-        InboxEvent.objects.filter(pk=event.pk).update(state=EventState.FAILED, failure=failure, updated_at=now)
-        session_changed(event.session_id)
-        Run.objects.finish(
-            run,
-            RunStatus.FAILED,
-            skip_dispatch=True,
-            never_started=True,
-            error_message=_NOT_RUN[failure],
-            finished_at=now,
-            started_at=now,
-        )
-
-    @staticmethod
-    def settle_unstartable(event: InboxEvent, run: Run | None) -> None:
-        """Settle the pending leg follow-up ``event`` whose own ``run`` is gone or no longer QUEUED, so the drain moves
-        on: as :meth:`end_with_run` settles it when that run failed, else failed (``run_failed``). SYNC ONLY."""
-        if run is not None and run.status == RunStatus.FAILED:
-            LegFollowUps.end_with_run(run)
-        else:
-            LegFollowUps._settle(InboxEvent.objects.filter(pk=event.pk, state=EventState.PENDING), event.session_id)
-
-    @staticmethod
-    def end_with_run(run: Run) -> None:
-        """Settle the leg follow-up linked to ``run`` once it ended, whether the drain took it or not: dismissed when
-        the run was cancelled, failed (``run_failed``) when it failed. A run that succeeded leaves its taken event to
-        the shared path, which marks it handled. SYNC ONLY."""
-        if run.status != RunStatus.FAILED:
-            return
-        follow_ups = InboxEvent.objects.filter(
-            run=run, kind=EventKind.LEG_FOLLOW_UP, state__in=(EventState.PENDING, EventState.TAKEN)
-        )
-        LegFollowUps._settle(follow_ups, run.session_id, dismissed=run.is_cancelled)
-
-    @staticmethod
-    def _settle(follow_ups: QuerySet[InboxEvent], thread_id: str, *, dismissed: bool = False) -> None:
-        """Dismiss ``follow_ups``, or fail them (``run_failed``), telling the session's page when any moved."""
-        now = timezone.now()
-        if dismissed:
-            moved = follow_ups.update(state=EventState.DISMISSED, updated_at=now)
-        else:
-            moved = follow_ups.update(state=EventState.FAILED, failure=EventFailure.RUN_FAILED, updated_at=now)
-        if moved:
-            session_changed(thread_id)
+    @classmethod
+    @override
+    def merge_request_state(cls, session: Session, event: InboxEvent) -> MergeRequestState:
+        return Leg(session).merge_request_state()
