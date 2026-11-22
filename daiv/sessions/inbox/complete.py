@@ -32,7 +32,8 @@ Mentions whose runs kept failing get that note in their threads once they fail f
 events keep their state.
 
 The sweep (``sessions.tasks.drain_inboxes_cron_task``) settles events the same way when their run's slot went stale
-before the run ended.
+before the run ended. A leg follow-up or a merge request job waits for its run's end instead, which ``sync_stuck_runs``
+writes when the run's worker died.
 
 An inline chat turn takes its events under its holder id until its clone is ready; when the turn ends before that,
 :meth:`sessions.inbox.chat_claim.ChatClaim.arelease` puts them back as ``pending`` for the next turn, without spending
@@ -159,13 +160,16 @@ class RunEnd:
     @classmethod
     def recover_stale_events(cls) -> int:
         """Settle the events taken on sessions whose slot went stale: by their run's outcome when it ended, else as a
-        failed attempt, since their run will never end. Returns how many events moved. SYNC ONLY."""
+        failed attempt, since their run will never end. A leg follow-up or merge request job whose run has not ended is
+        left to that end, which settles it and tells its merge request (:mod:`sessions.inbox.own_runs`). Returns how
+        many events moved. SYNC ONLY."""
         stale = InboxEvent.objects.filter(state=EventState.TAKEN, session__last_active_at__lt=stale_cutoff())
         moved = 0
         for run in Run.objects.filter(pk__in=stale.filter(run__status__in=RunStatus.terminal()).values("run_id")):
             moved += InboxEvent.objects.filter(run=run, state=EventState.TAKEN).count()
             cls(run).settle_events()
-        orphaned = stale.filter(Q(run__isnull=True) | ~Q(run__status__in=RunStatus.terminal()))
+        unended = ~Q(run__status__in=RunStatus.terminal()) & ~Q(kind__in=OWN_RUN_KINDS)
+        orphaned = stale.filter(Q(run__isnull=True) | unended)
         for thread_id in set(orphaned.values_list("session_id", flat=True)):
             events = orphaned.filter(session_id=thread_id)
             moved += events.count()

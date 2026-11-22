@@ -158,7 +158,7 @@ When a job comes back `WAITING_INPUT`, the agent stopped to ask you a question i
 
 The `thread_id` rules in [Request fields](#request-fields) apply to the answer too: `repos` has exactly one entry, or for a [multi-repository session](#continuing-a-multi-repository-session) the main repository alone or the session's full list, and the thread's most recent run must be yours.
 
-You do not have to poll for the question. When a job ends in `WAITING_INPUT`, DAIV sends you a [notification](notifications.md) listing the questions, unless you muted it. For a multi-repository batch, the run counts in the batch rollup, and appears in the email and Rocket.Chat versions, once every repository's run has settled.
+You do not have to poll for the question. When a job ends in `WAITING_INPUT`, DAIV sends you a [notification](notifications.md) listing the questions, unless you muted it or the job asked on a merge request, mentioning you ([Run a job on a merge request](#run-a-job-on-a-merge-request)). For a multi-repository batch, the run counts in the batch rollup, and appears in the email and Rocket.Chat versions, once every repository's run has settled.
 
 ## Run a job on a merge request
 
@@ -183,11 +183,13 @@ The run goes where a mention by you would:
 The job ends with one of these on the merge request:
 
 - **The result:** the final message, also returned in `result`.
-- **A question:** the question, mentioning the git platform account your DAIV account is linked to, if any, and the job is `WAITING_INPUT`. Anyone who mentions DAIV on the merge request answers it, or you send a new job with the same target.
-- **A failure:** a short comment that DAIV could not complete the request, naming the provider's failure or a DAIV restart that interrupted the run when either caused it, and the job is `FAILED`.
-- **A merge or close before the run started:** DAIV posts "This merge request was merged before the job could start, so I didn't run it." ("closed" for a closed one), and the job is `FAILED` with that text in `error`.
+- **A question:** the question, mentioning the git platform account your DAIV account is linked to, if any, and the job is `WAITING_INPUT`. Anyone who mentions DAIV on the merge request answers it, or you send a new job with the same target. A question that mentions you sends no separate [notification](notifications.md#what-produces-a-notification).
+- **A failure:** a short comment that DAIV could not complete the request, naming the provider's failure or a DAIV restart that interrupted the run when either caused it, and the job is `FAILED`. To run it again, send the job again: its session does not offer **Retry** for it ([Retry a run](sessions.md#retry-a-run)).
+- **A merge or close before the run started**, including while the job waited for another run in its session: DAIV posts "This merge request was merged before the job could start, so I didn't run it." ("closed" for a closed one), and the job is `FAILED` with that text in `error`.
+- **A deleted source branch:** when the run goes into the merge request's own session and the source branch no longer exists, DAIV posts "The source branch of this merge request no longer exists, so I didn't run the job.", and the job is `FAILED` with that text in `error`. A merge request merged or closed meanwhile gets the merge or close note instead.
+- **A repository you can't run on:** when the session that owns the merge request also works on a repository you can't run on, DAIV posts "The person this job would run as can't run on every repository its session works on, so I didn't run it." The job is `FAILED` with that text in `error`, or, when the session was idle, refused in `failed` with that text.
 
-DAIV refuses the job, and puts it in `failed` with the reason, when the merge request is not in the repository (`Merge request !42 was not found in mygroup/myproject.`), is merged or closed (`Merge request !42 is merged.`), its DAIV session is archived, or the run could not start (`The job on merge request !42 could not start.`), for example because the owning session also covers a repository you can't run on. An archived session's refusal links the session to unarchive, and DAIV posts nothing on the merge request. A session archived after DAIV accepted the job ends the job `FAILED` with `Not run: its session was archived` in `error`, also posting nothing.
+DAIV refuses the job, and puts it in `failed` with the reason, when the merge request is not in the repository (`Merge request !42 was not found in mygroup/myproject.`), is merged or closed (`Merge request !42 is merged.`), its DAIV session is archived, the owning session works on a repository you can't run on (above), or the run could not start (`The job on merge request !42 could not start.`). Only the refusal for a repository you can't run on posts on the merge request. An archived session's refusal links the session to unarchive. A session archived after DAIV accepted the job ends the job `FAILED` with `Not run: its session was archived` in `error`, and DAIV posts nothing on the merge request.
 
 To run this from CI on every push, see [Review every push to a merge request](#review-every-push-to-a-merge-request).
 
@@ -226,7 +228,7 @@ TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
   "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://daiv.example.com" | jq -r .value)
 ```
 
-GitHub gives workflows that run for a pull request from a fork no `id-token` permission, so those workflows can't request a token.
+A `pull_request` workflow for a pull request from a fork gets no `id-token` permission, so it can't request a token, unless your repository is private and its Actions settings send write tokens to workflows from fork pull requests. Such a workflow runs in your repository, so its token names your repository, and DAIV accepts its job unless `allowed_usernames` leaves out the account that triggered it.
 
 ### What DAIV checks
 
@@ -235,14 +237,17 @@ DAIV accepts a token only when all of these hold:
 | Check | GitLab | GitHub |
 |---|---|---|
 | Signature | `RS256`, by a key GitLab publishes at `<CODEBASE_GITLAB_URL>/oauth/discovery/keys` | `RS256`, by a key GitHub publishes at `<issuer>/.well-known/jwks` |
-| Issuer | `CODEBASE_GITLAB_ID_TOKEN_ISSUER`, by default `CODEBASE_GITLAB_URL`, or `https://gitlab.com` when both are unset | `CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER` |
+| Issuer | `CODEBASE_GITLAB_ID_TOKEN_ISSUER`, by default `CODEBASE_GITLAB_URL`, or `https://gitlab.com` when both are unset | `CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER`, by default `https://token.actions.<subdomain>.ghe.com` when `CODEBASE_GITHUB_URL` is a GHE.com enterprise at `<subdomain>.ghe.com`, `https://<host>/_services/token` when it is a GitHub Enterprise Server at `<host>`, else `https://token.actions.githubusercontent.com` |
 | Audience | `DAIV_JOBS_CI_IDENTITY_AUDIENCE`, by default `DAIV_EXTERNAL_URL` | the same |
 | Expiry | not expired, with 60 seconds of leeway | the same |
 | Repository | the token's `project_id` is the ID of the job's repository | the token's `repository_id` is the ID of the job's repository |
 | Allowed users | when the repository's `allowed_usernames` is set, it lists the token's `user_login` | it lists the token's `actor` |
+| First attempt | not checked | the token's `run_attempt` is `1` |
 | Single use | no job was accepted with this token yet | the same |
 
-The repository is matched by its numeric ID, which a rename does not change, so a pipeline in a fork can't submit jobs on the repository it was forked from. A token that fails a check gets `401` with `{"detail": "Unauthorized"}`, which does not say which check failed. DAIV logs each refusal at `WARNING`, with the check and the repository path the token names, and never the token. When DAIV can't fetch the platform's signing keys, the request gets `401` and DAIV logs an `ERROR`. The variables are in [Environment variables](../reference/env-variables.md#jobs-api).
+The repository is matched by its numeric ID, which a rename does not change, so a pipeline in a fork can't submit jobs on the repository it was forked from. A token that fails a check gets `401` with `{"detail": "Unauthorized"}`, which does not say which check failed. DAIV logs each refusal once at `WARNING`, with the check and the repository path the token names, and never the token. When DAIV can't get a usable set of signing keys from the platform, or the platform fails to answer when DAIV reads the job's repository, the request gets `401` and DAIV logs an `ERROR` instead. The variables are in [Environment variables](../reference/env-variables.md#jobs-api).
+
+On GitHub, the token of a re-run names the account that started the workflow run's first attempt, not the account that re-ran it, so DAIV refuses it rather than attribute the job to the wrong account. To submit the job again, start a new workflow run instead, for example by pushing a commit, or with a `workflow_dispatch` trigger.
 
 ### What a token can submit
 
@@ -251,7 +256,7 @@ A request a token authenticates submits one job on the token's own repository:
 - `repos` has exactly one entry, the token's repository, which must be in DAIV's repository list (`404` otherwise).
 - It can't set `thread_id`, `shared_session` or `references` (`400`: `A CI identity token submits one job on its own repository.`).
 - `mcp_overrides` can name global MCP servers only; a personal server's name is an unknown server (`400`).
-- It can target a branch with `ref` or a merge request with `merge_request`. When a DAIV session that covers other repositories owns the merge request, the run checks them out too, so the triggering account must be linked to a DAIV account that can run on each of them; otherwise the job is refused in `failed`.
+- It can target a branch with `ref` or a merge request with `merge_request`. When a DAIV session that covers other repositories owns the merge request, the run checks them out too, so the triggering account must be linked to a DAIV account that can run on each of them; otherwise DAIV doesn't run the job ([Run a job on a merge request](#run-a-job-on-a-merge-request)).
 
 DAIV accepts one job per token: a second submission with a token whose job DAIV already accepted gets `401`. A CI job that sends two jobs requests two tokens, with two `id_tokens` entries on GitLab or two token requests on GitHub. A submission DAIV refused (`400`, `404` or a `failed` entry) does not use the token, so you can retry with it. A submission that fails with a server error does use it, since DAIV may have started its job.
 

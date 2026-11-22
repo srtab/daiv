@@ -14,7 +14,7 @@ import pytest
 from sessions.executor.lock import NoLock
 from sessions.merge_request_runs.base import BaseManager
 
-from codebase.base import GitPlatform
+from codebase.base import GitPlatform, Scope
 from tests.unit_tests.sessions.executor.conftest import agent_stack, resolved_to
 
 
@@ -56,6 +56,20 @@ def clone_raising(exc: Exception) -> MagicMock:
     entered = MagicMock()
     entered.__aenter__ = AsyncMock(side_effect=exc)
     return MagicMock(return_value=entered)
+
+
+def addressor_ctx() -> SimpleNamespace:
+    """The ``RuntimeCtx`` the stubbed clone yields: only what the executor reads, the clone's working dir included."""
+    return SimpleNamespace(
+        config=MagicMock(),
+        repo=SimpleNamespace(ref="feature", clone_seconds=0.0),
+        gitrepo=SimpleNamespace(working_dir="/clone"),
+        extra_repos=(),
+        sandbox=None,
+        sandbox_client=None,
+        bot_username="daiv",
+        scope=Scope.MERGE_REQUEST,
+    )
 
 
 def addressor_agent(*, state_values: dict | None = None, **ainvoke) -> MagicMock:

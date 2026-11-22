@@ -1,7 +1,7 @@
 """A job on a merge request a session owns: a ``merge_request_job`` inbox event posted with a QUEUED run of its own.
 
 A job sent through the jobs API or MCP that names a merge request a session owns runs where a mention by its caller
-would, as one turn of that session (``sessions.merge_request_runs.service``). Its run carries the requester, so spend
+would, as one turn of that session (``sessions.merge_request_runs.service``). Its run carries the caller, so spend
 and CI identity polling find it, and ``runs_alone``, so it is never another event's next run: each job keeps its own
 id and status. The event has no subject, so a newer job never supersedes an older one. The drain takes it alone, with
 the branch's remembered events (:mod:`sessions.inbox.splits`), and promotes its run to READY.
@@ -11,8 +11,9 @@ Tools selection and references, which may be another person's, stay as they are.
 
 The event ends with its run and is never retried, since the job reports that one run (:mod:`sessions.inbox.own_runs`).
 A failed run is told on the merge request, with the provider's failure or the restart that interrupted it. A job stops
-at its start, without running, when its merge request was merged or closed after it was posted, saying so on the merge
-request once the stop commits, and as soon as the drain sees the session archived, posting nothing.
+at its start, without running, when its merge request was merged or closed after it was posted, or its requester may no
+longer run on the session's repositories, saying so on the merge request once the stop commits, and as soon as the drain
+sees the session archived, posting nothing.
 """
 
 from __future__ import annotations
@@ -46,41 +47,17 @@ if TYPE_CHECKING:
     from automation.agent.references import ExternalRef
     from codebase.base import MergeRequest
     from sessions.inbox.complete import MergeRequestReplies
-    from sessions.merge_request_runs.starter import Request, Requester
+    from sessions.merge_request_runs.starter import Caller, Request
 
 ARCHIVED = "archived"
 NOT_STARTED_MERGED = "This merge request was merged before the job could start, so I didn't run it."
 NOT_STARTED_CLOSED = "This merge request was closed before the job could start, so I didn't run it."
+NOT_STARTED_ACCESS_DENIED = (
+    "The person this job would run as can't run on every repository its session works on, so I didn't run it."
+)
+NOT_STARTED_BRANCH_GONE = "The source branch of this merge request no longer exists, so I didn't run the job."
 
 INTERRUPTED_NOTE = f"{BOT_NAME} was restarted while working on this job, so the job stopped before it finished."
-
-
-def state_of(merge_request: MergeRequest) -> MergeRequestState:
-    """The state of ``merge_request`` as the platform reports it."""
-    if merge_request.merged:
-        return MergeRequestState.MERGED
-    if merge_request.closed:
-        return MergeRequestState.CLOSED
-    return MergeRequestState.DRAFT if merge_request.draft else MergeRequestState.OPEN
-
-
-def not_started_note(state: MergeRequestState) -> str | None:
-    """Why a job doesn't start on a merge request in ``state``, said on it; ``None`` while it is open."""
-    failure = MERGE_REQUEST_STOPS.get(state)
-    return None if failure is None else MergeRequestJobs.not_run[failure]
-
-
-def failure_note(run: Run) -> str | None:
-    """Why the job's ``run`` failed, said on its merge request in place of the generic first line: the provider's
-    failure, or the restart that interrupted it; ``None`` for any other failure."""
-    return run.provider_failure_message() or (INTERRUPTED_NOTE if run.is_interrupted else None)
-
-
-def caller_failure_message(run: Run) -> str | None:
-    """Why the FAILED ``run`` failed, when it is safe to tell the job's caller: the provider's failure, or why a job
-    never started."""
-    not_started = run.error_message in MergeRequestJobs.not_run.values()
-    return run.provider_failure_message() or (run.error_message if not_started else None)
 
 
 class MergeRequestJobRefused(Exception):  # noqa: N818
@@ -100,6 +77,7 @@ class MergeRequestJobs(OwnRunEvents):
         EventFailure.MR_MERGED: NOT_STARTED_MERGED,
         EventFailure.MR_CLOSED: NOT_STARTED_CLOSED,
         EventFailure.SESSION_ARCHIVED: NOT_RUN_ARCHIVED,
+        EventFailure.ACCESS_DENIED: NOT_STARTED_ACCESS_DENIED,
     }
 
     def __init__(self, thread_id: str, repo_id: str, merge_request_iid: int):
@@ -107,8 +85,8 @@ class MergeRequestJobs(OwnRunEvents):
         self.repo_id = repo_id
         self.merge_request_iid = merge_request_iid
 
-    def post(self, requester: Requester, request: Request, *, ref: str, merge_request_web_url: str = "") -> Run:
-        """Create the ``merge_request_job`` event and its QUEUED run for ``requester`` in one transaction, with the
+    def post(self, caller: Caller, request: Request, *, ref: str, merge_request_web_url: str = "") -> Run:
+        """Create the ``merge_request_job`` event and its QUEUED run for ``caller`` in one transaction, with the
         session row locked, drain the session once that commits, and return the run as the drain left it. The job's
         named environment reaches its run as a follow-up job's does (:mod:`sessions.inbox.drain`), and its MCP switches
         and references as :meth:`run_options` applies them. A merge request of another of the session's repositories
@@ -123,7 +101,7 @@ class MergeRequestJobs(OwnRunEvents):
                 raise MergeRequestJobRefused(ARCHIVED)
             if not (state := self._state(self.repo_id, self.merge_request_iid)).is_open:
                 raise MergeRequestJobRefused(state)
-            payload: dict = {"prompt": request.prompt, "trigger_type": request.source}
+            payload: dict = {"prompt": request.prompt, "trigger_type": request.trigger_type}
             if request.agent_model:
                 payload |= {"agent_model": request.agent_model, "agent_thinking_level": request.agent_thinking_level}
             if request.muted is not None:
@@ -137,10 +115,10 @@ class MergeRequestJobs(OwnRunEvents):
             other_repo = self.repo_id != session.repo_id
             run = Run.objects.create(
                 session=session,
-                trigger_type=request.source,
+                trigger_type=request.trigger_type,
                 status=RunStatus.QUEUED,
                 runs_alone=True,
-                **requester.run_fields,
+                **caller.run_fields,
                 muted=request.muted,
                 prompt=request.prompt,
                 repo_id=session.repo_id,
@@ -160,7 +138,7 @@ class MergeRequestJobs(OwnRunEvents):
                 ref=ref,
                 repo_id=self.repo_id if other_repo else "",
                 merge_request_iid=self.merge_request_iid,
-                **requester.author_fields,
+                **caller.author_fields,
                 run=run,
             )
             session_changed(session.thread_id)
@@ -170,6 +148,28 @@ class MergeRequestJobs(OwnRunEvents):
 
     async def apost(self, *args, **kwargs) -> Run:
         return await sync_to_async(self.post)(*args, **kwargs)
+
+    @staticmethod
+    def state_of(merge_request: MergeRequest) -> MergeRequestState:
+        """The state of ``merge_request`` as the platform reports it."""
+        if merge_request.merged:
+            return MergeRequestState.MERGED
+        if merge_request.closed:
+            return MergeRequestState.CLOSED
+        return MergeRequestState.DRAFT if merge_request.draft else MergeRequestState.OPEN
+
+    @classmethod
+    def not_started_note(cls, state: MergeRequestState) -> str | None:
+        """Why a job doesn't start on a merge request in ``state``, said on it; ``None`` while it is open."""
+        failure = MERGE_REQUEST_STOPS.get(state)
+        return None if failure is None else cls.not_run[failure]
+
+    @classmethod
+    def caller_failure_message(cls, run: Run) -> str | None:
+        """Why the FAILED ``run`` failed, when it is safe to tell the job's caller: the provider's failure, or why a job
+        never started."""
+        not_started = run.error_message in (*cls.not_run.values(), NOT_STARTED_BRANCH_GONE)
+        return run.provider_failure_message() or (run.error_message if not_started else None)
 
     @staticmethod
     def _state(repo_id: str, merge_request_iid: int) -> MergeRequestState:
@@ -209,7 +209,14 @@ class MergeRequestJobs(OwnRunEvents):
     @classmethod
     @override
     def _failed(cls, run: Run, events: list[InboxEvent]) -> None:
-        cls._comment_once_committed(run, events, lambda replies: replies.unable_note(failure_message=failure_note(run)))
+        note = cls._failure_note(run)
+        cls._comment_once_committed(run, events, lambda replies: replies.unable_note(failure_message=note))
+
+    @staticmethod
+    def _failure_note(run: Run) -> str | None:
+        """Why the job's ``run`` failed, said on its merge request in place of the generic first line: the provider's
+        failure, or the restart that interrupted it; ``None`` for any other failure."""
+        return run.provider_failure_message() or (INTERRUPTED_NOTE if run.is_interrupted else None)
 
     @staticmethod
     def _comment_once_committed(run: Run, events: list[InboxEvent], body: Callable[[MergeRequestReplies], str]) -> None:

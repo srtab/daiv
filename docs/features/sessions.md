@@ -385,7 +385,7 @@ You can retry when all of these hold:
 
 - You own the session, can run agents on its repository, and the session is not archived.
 - The failed run is the newest one, and no run is working or queued.
-- The run was a chat turn, or an API, MCP, UI or scheduled run. A webhook run, or a run delegated by another session, reports back through its own flow and does not offer **Retry**.
+- The run was a chat turn, or an API, MCP, UI or scheduled run. A webhook run, a run delegated by another session, or a [job on a merge request](jobs-api.md#run-a-job-on-a-merge-request) reports back through its own flow and does not offer **Retry**.
 
 To retry:
 

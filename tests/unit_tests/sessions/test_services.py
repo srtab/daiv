@@ -940,6 +940,15 @@ async def test_task_run_is_the_run_linked_to_the_task_result_and_its_current_use
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_a_task_run_only_attributed_to_its_user_acts_as_no_one(admin_user):
+    task_result = await _make_db_task_result()
+    run = await acreate_run(trigger_type=SessionOrigin.API_JOB, task_result_id=task_result.id, repo_id="a/b")
+    await Run.objects.filter(pk=run.pk).aupdate(user=admin_user, acts_as_user=False)
+
+    assert await aget_task_run(task_result.id) == TaskRun(run_id=str(run.pk), user_id=None)
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_task_run_is_empty_when_no_run_is_linked(caplog):
     task_result = await _make_db_task_result()
 

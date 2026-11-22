@@ -50,14 +50,13 @@ def notify_worthy(status: str) -> bool:
 
 
 def notifies(run, status: str) -> bool:
-    """Whether this run's outcome notifies. A webhook question is already posted on the forge, mentioning the asker.
-    A run a CI failure woke always tells its owner how it ended, ``all-clear`` included (FR-018)."""
+    """Whether this run's outcome notifies. A webhook question is already posted on the forge, mentioning the asker,
+    and so is a merge request job's (``runs_alone``) when its requester has a platform account to mention. A run a CI
+    failure woke always tells its owner how it ended, ``all-clear`` included (FR-018)."""
     from sessions.models import SessionOrigin
 
-    if status == EnvelopeStatus.NEEDS_INPUT and run.trigger_type in SessionOrigin.webhooks():
-        worthy = False
-    else:
-        worthy = notify_worthy(status)
+    asked_on_the_forge = run.trigger_type in SessionOrigin.webhooks() or (run.runs_alone and run.external_username)
+    worthy = False if status == EnvelopeStatus.NEEDS_INPUT and asked_on_the_forge else notify_worthy(status)
     return worthy or woke_on_ci_failure(run)
 
 

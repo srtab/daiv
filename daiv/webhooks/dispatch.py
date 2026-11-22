@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from asgiref.sync import sync_to_async
 from sessions.merge_request_runs.service import MergeRequestRuns
-from sessions.merge_request_runs.starter import Mention, Requester, RunStarter
+from sessions.merge_request_runs.starter import Caller, Mention, RunStarter
 from sessions.models import SessionOrigin
 
 from accounts.utils import resolve_linked_user
@@ -39,10 +39,10 @@ class Author:
     uid: int
     username: str
 
-    async def arequester(self) -> Requester:
-        """This account as a run's requester: the DAIV user who signed in with it
+    async def acaller(self) -> Caller:
+        """This account as a run's caller: the DAIV user who signed in with it
         (:func:`accounts.utils.resolve_linked_user`) owns, acts in and is notified about what it starts."""
-        return Requester(
+        return Caller(
             user=await resolve_linked_user(self.provider, self.uid),
             provider=self.provider,
             uid=self.uid,
@@ -64,7 +64,7 @@ async def dispatch_issue_run(
     note_id, comment_id = (mention.note_id, mention.comment_id) if mention else (None, None)
     outcome = await RunStarter(repo_id=repo_id, scope=Scope.ISSUE, iid=issue_iid).astart(
         address_issue_task if mention else address_issue_label_task,
-        await author.arequester(),
+        await author.acaller(),
         use_max=use_max,
         task_kwargs={"issue_iid": issue_iid, "mention_comment_id": comment_id, "mention_note_id": note_id},
         trigger_type=SessionOrigin.ISSUE_WEBHOOK,
@@ -90,7 +90,7 @@ async def dispatch_mr_comment_run(
 ) -> None:
     """Address a comment that mentioned DAIV on a merge request, in the session that owns it when one does."""
     outcome = await MergeRequestRuns(client, repo_id, merge_request_iid).astart(
-        await author.arequester(), mention, title=title, ref=ref, use_max=use_max
+        await author.acaller(), mention, title=title, ref=ref, use_max=use_max
     )
     if outcome.started:
         await _react(
@@ -111,7 +111,7 @@ async def dispatch_mr_comment(
 ) -> None:
     """Remember a comment that did not mention DAIV in the session that owns the merge request; with no such session
     it concerns no one."""
-    await MergeRequestRuns(client, repo_id, merge_request_iid).aremember(author.arequester, comment, title=title)
+    await MergeRequestRuns(client, repo_id, merge_request_iid).aremember(author.acaller, comment, title=title)
 
 
 async def _react(add_reaction: Callable[[], object], target: str) -> None:

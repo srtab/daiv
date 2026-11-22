@@ -8,7 +8,7 @@ from django.db.models import Exists, OuterRef, Q
 
 from asgiref.sync import sync_to_async
 from sessions.admission import AdmissionError
-from sessions.merge_request_runs.starter import Requester
+from sessions.merge_request_runs.starter import Caller
 from sessions.models import EventKind, InboxEvent
 from sessions.multi_repo import asubmit_ci_job
 
@@ -57,7 +57,7 @@ class CISubmission:
         """Submit the job on ``target`` (:func:`sessions.multi_repo.asubmit_ci_job`), after :meth:`arefusal` claimed
         the token; a submission that accepted no job releases it, so a retry with the token works."""
         try:
-            result = await asubmit_ci_job(requester=self.requester, target=target, muted=self.muted(payload), **options)
+            result = await asubmit_ci_job(caller=self.caller, target=target, muted=self.muted(payload), **options)
         except AdmissionError:
             await CIIdentityTokens.arelease(self.identity)
             raise
@@ -66,9 +66,9 @@ class CISubmission:
         return result
 
     @property
-    def requester(self) -> Requester:
+    def caller(self) -> Caller:
         identity = self.identity
-        return Requester(
+        return Caller(
             user=identity.user,
             provider=identity.provider,
             uid=identity.actor_uid,

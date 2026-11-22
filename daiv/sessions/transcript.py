@@ -448,7 +448,8 @@ def _arrival(event: InboxEvent) -> tuple[Any, str]:
 def retry_message(turns: list[dict[str, Any]], runs: list[Run]) -> str:
     """What Retry on the newest of ``runs`` sends, for ``turns`` annotated from them; empty when it offers none.
 
-    Offered on a run that failed rather than stopped, from a ``SessionOrigin.retryable`` trigger. Retry posts a chat
+    Offered on a run that failed rather than stopped, from a ``SessionOrigin.retryable`` trigger, unless it was a job on
+    a merge request (``runs_alone``), which reports on the merge request as a chat turn doesn't. Retry posts a chat
     turn, which hands the agent only its own message: a run whose turns are in the checkpoint gets
     ``RETRY_MESSAGE``, and one ``rebuilt`` from its row has its prompt sent again.
     """
@@ -457,6 +458,8 @@ def retry_message(turns: list[dict[str, Any]], runs: list[Run]) -> str:
     run = runs[-1]
     marker = _marker(run)
     if marker is None or marker["status"] != "failed" or run.trigger_type not in SessionOrigin.retryable():
+        return ""
+    if run.runs_alone:
         return ""
     run_id = str(run.id)
     anchor = next((turn for turn in turns if turn.get("run_id") == run_id), None)

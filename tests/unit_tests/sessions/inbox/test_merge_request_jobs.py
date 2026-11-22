@@ -9,6 +9,8 @@ from sessions.inbox.drain import Drain
 from sessions.inbox.merge_request_jobs import (
     ARCHIVED,
     INTERRUPTED_NOTE,
+    NOT_STARTED_ACCESS_DENIED,
+    NOT_STARTED_BRANCH_GONE,
     NOT_STARTED_CLOSED,
     NOT_STARTED_MERGED,
     MergeRequestJobRefused,
@@ -55,7 +57,7 @@ async def _busy(owned) -> None:
 
 class TestPost:
     async def test_it_creates_the_event_and_its_queued_run_linked(self, owned, drain):
-        run = await _post(owned, muted=True, source=SessionOrigin.MCP_JOB)
+        run = await _post(owned, muted=True, trigger_type=SessionOrigin.MCP_JOB)
 
         stored = await Run.objects.aget(pk=run.pk)
         assert (stored.status, stored.trigger_type, stored.runs_alone, stored.acts_as_user) == (
@@ -98,7 +100,7 @@ class TestPost:
         event = await InboxEvent.objects.aget(run=run)
         assert (event.repo_id, event.ref, event.merge_request_iid) == ("group/other", "daiv/other", 3)
 
-    async def test_a_linked_requester_owns_its_run(self, owned, drain, member_user):
+    async def test_a_linked_caller_owns_its_run(self, owned, drain, member_user):
         run = await _post(owned, user=member_user, acts_as_user=True, username="", provider="", uid="")
 
         stored = await Run.objects.aget(pk=run.pk)
@@ -197,7 +199,11 @@ class TestStopReason:
 class TestStop:
     @pytest.mark.parametrize(
         ("failure", "note"),
-        [(EventFailure.MR_MERGED, NOT_STARTED_MERGED), (EventFailure.MR_CLOSED, NOT_STARTED_CLOSED)],
+        [
+            (EventFailure.MR_MERGED, NOT_STARTED_MERGED),
+            (EventFailure.MR_CLOSED, NOT_STARTED_CLOSED),
+            (EventFailure.ACCESS_DENIED, NOT_STARTED_ACCESS_DENIED),
+        ],
     )
     async def test_it_fails_the_job_its_run_and_says_why_on_the_merge_request(
         self, owned, drain, mock_repo_client, failure, note
@@ -292,6 +298,27 @@ class TestSettleUnstartable:
 
         assert (await InboxEvent.objects.aget(pk=event.pk)).state == EventState.FAILED
         mock_repo_client.create_merge_request_comment.assert_called_once()
+
+
+class TestCallerFailureMessage:
+    async def test_a_job_that_never_started_tells_its_caller_why(self, owned, drain):
+        run = await _post(owned)
+        event = await InboxEvent.objects.aget(run=run)
+        await sync_to_async(MergeRequestJobs.stop)(event, EventFailure.ACCESS_DENIED, run)
+
+        assert MergeRequestJobs.caller_failure_message(await Run.objects.aget(pk=run.pk)) == NOT_STARTED_ACCESS_DENIED
+
+    async def test_a_job_whose_source_branch_was_gone_tells_its_caller_why(self, owned, drain):
+        run = await _post(owned)
+        await Run.objects.filter(pk=run.pk).aupdate(status=RunStatus.FAILED, error_message=NOT_STARTED_BRANCH_GONE)
+
+        assert MergeRequestJobs.caller_failure_message(await Run.objects.aget(pk=run.pk)) == NOT_STARTED_BRANCH_GONE
+
+    async def test_any_other_failure_is_kept_from_its_caller(self, owned, drain):
+        run = await _post(owned)
+        await Run.objects.filter(pk=run.pk).aupdate(status=RunStatus.FAILED, error_message="KeyError: 'token'")
+
+        assert MergeRequestJobs.caller_failure_message(await Run.objects.aget(pk=run.pk)) is None
 
 
 class TestRunOptions:

@@ -46,8 +46,8 @@ async def run_job_task(
     A silent UUID fallback here would break that contract on the resume path.
 
     ``sandbox_environment_id`` is the environment the caller selected; ``None`` runs on the GLOBAL default.
-    ``user_id``: DAIV user id that triggered the run; forwarded as ``acting_user_id``
-    to select the user's personal MCP servers.
+    ``user_id``: the DAIV user the run acts as (``Run.acting_user_id``), ``None`` for a run only attributed to its
+    user, such as a CI identity token's; forwarded as ``acting_user_id`` to select the user's personal MCP servers.
     ``ask_user_enabled``: whether someone can answer a question the agent asks mid-run.
     ``fork_branch``: publish to a new branch and merge request even when ``ref`` has an open one (a delegated leg).
 

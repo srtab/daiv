@@ -1,6 +1,10 @@
 import asyncio
+import base64
+import io
+import json
 import logging
 import time
+import urllib.request
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -9,6 +13,7 @@ from django.core.cache import cache
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
+from gitlab.exceptions import GitlabGetError
 from ninja.errors import AuthenticationError
 
 from accounts.api.ci_identity import CIIdentityBearer, CIIdentityRefused, CIIdentityTokens, CIIdentityVerifier
@@ -26,6 +31,7 @@ def _rsa_key():
 
 SIGNING_KEY = _rsa_key()
 OTHER_KEY = _rsa_key()
+FETCH_DATA = jwt.PyJWKClient.fetch_data
 
 
 def _jwks():
@@ -62,6 +68,7 @@ def github_claims(**claims):
         "repository": "octo/repo",
         "actor_id": "12",
         "actor": "octocat",
+        "run_attempt": "1",
     } | claims
 
 
@@ -69,6 +76,20 @@ def token(claims, *, key=SIGNING_KEY, algorithm="RS256", kid="k1"):
     if algorithm.startswith("HS"):
         return jwt.encode(claims, "a-shared-secret-of-at-least-32-bytes!", algorithm=algorithm, headers={"kid": kid})
     return jwt.encode(claims, key, algorithm=algorithm, headers={"kid": kid})
+
+
+def _segment(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+class _KeysResponse(io.BytesIO):
+    """What the signing-keys endpoint answers, in place of an HTTP response."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        self.close()
 
 
 @pytest.fixture(autouse=True)
@@ -79,6 +100,8 @@ def platform():
         patch.object(codebase_settings, "CLIENT", GitPlatform.GITLAB),
         patch.object(codebase_settings, "GITLAB_URL", GITLAB),
         patch.object(codebase_settings, "GITLAB_ID_TOKEN_ISSUER", None),
+        patch.object(codebase_settings, "GITHUB_URL", None),
+        patch.object(codebase_settings, "GITHUB_ACTIONS_OIDC_ISSUER", None),
         patch.object(core_settings, "EXTERNAL_URL", f"{AUDIENCE}/"),
         patch.object(core_settings, "JOBS_CI_IDENTITY_AUDIENCE", None),
         patch.object(jwt.PyJWKClient, "fetch_data", return_value=_jwks()) as fetch,
@@ -139,17 +162,105 @@ class TestVerify:
     def test_unreachable_signing_keys_refuse_and_log_an_error(self, platform, caplog):
         platform.side_effect = jwt.PyJWKClientConnectionError("down")
 
-        with caplog.at_level(logging.WARNING), pytest.raises(CIIdentityRefused):
+        with caplog.at_level(logging.WARNING), pytest.raises(CIIdentityRefused) as refused:
             CIIdentityVerifier().verify(token(gitlab_claims()))
 
+        assert refused.value.check == "signing keys unreachable"
         assert [record.levelno for record in caplog.records] == [logging.ERROR]
+
+    @pytest.mark.parametrize(
+        "body", [b"<html>Sign in</html>", b'{"keys": []}', b"[1, 2]"], ids=["not-json", "no-keys", "not-an-object"]
+    )
+    def test_an_endpoint_without_a_usable_key_set_is_unreachable(self, body, caplog):
+        with (
+            patch.object(jwt.PyJWKClient, "fetch_data", FETCH_DATA),
+            patch.object(urllib.request.OpenerDirector, "open", return_value=_KeysResponse(body)),
+            caplog.at_level(logging.WARNING),
+            pytest.raises(CIIdentityRefused) as refused,
+        ):
+            CIIdentityVerifier().verify(token(gitlab_claims()))
+
+        assert (refused.value.check, refused.value.claimed_repo) == ("signing keys unreachable", "group/project")
+        assert [record.levelno for record in caplog.records] == [logging.ERROR]
+
+    def test_a_token_from_another_issuer_is_refused_before_any_key_fetch(self, platform):
+        with pytest.raises(CIIdentityRefused) as refused:
+            CIIdentityVerifier().verify(token(gitlab_claims(iss="https://gitlab.attacker.example.com")))
+
+        assert refused.value.check == "issuer"
+        platform.assert_not_called()
+
+    def test_a_token_with_no_claims_to_read_is_malformed(self, platform):
+        header = _segment(json.dumps({"alg": "RS256", "kid": "k1"}).encode())
+
+        with pytest.raises(CIIdentityRefused) as refused:
+            CIIdentityVerifier().verify(f"{header}.{_segment(b'not json')}.{_segment(b'signature')}")
+
+        assert (refused.value.check, refused.value.claimed_repo) == ("malformed", "")
+        platform.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("attempt", "check"), [({"run_attempt": "2"}, "re-run"), ({"run_attempt": None}, "missing claim")],
+        ids=["re-run", "no-attempt"],
+    )  # fmt: skip
+    def test_a_github_token_of_anything_but_a_first_attempt_is_refused(self, attempt, check):
+        claims = {k: v for k, v in (github_claims() | attempt).items() if v is not None}
+
+        with patch.object(codebase_settings, "CLIENT", GitPlatform.GITHUB), pytest.raises(CIIdentityRefused) as refused:
+            CIIdentityVerifier().verify(token(claims))
+
+        assert (refused.value.check, refused.value.claimed_repo) == (check, "octo/repo")
+
+    def test_a_gitlab_retry_is_accepted(self):
+        assert CIIdentityVerifier().verify(token(gitlab_claims(run_attempt="2"))).jti == "jti-1"
 
     def test_the_github_issuer_is_the_configured_one(self):
         with (
             patch.object(codebase_settings, "CLIENT", GitPlatform.GITHUB),
-            patch.object(codebase_settings, "GITHUB_ACTIONS_OIDC_ISSUER", "https://ghe.example.com/_services/token"),
+            patch.object(codebase_settings, "GITHUB_URL", "https://github.example.com"),
+            patch.object(codebase_settings, "GITHUB_ACTIONS_OIDC_ISSUER", "https://ghe.example.com/_services/token/"),
         ):
             assert CIIdentityVerifier().issuer == "https://ghe.example.com/_services/token"
+
+    @pytest.mark.parametrize("url", [None, "https://github.com", "https://api.github.com/"])
+    def test_the_github_issuer_is_github_com_s_for_github_com(self, url):
+        with (
+            patch.object(codebase_settings, "CLIENT", GitPlatform.GITHUB),
+            patch.object(codebase_settings, "GITHUB_URL", url),
+        ):
+            assert CIIdentityVerifier().issuer == "https://token.actions.githubusercontent.com"
+
+    @pytest.mark.parametrize("url", ["https://github.example.com", "https://GitHub.example.com/api/v3/"])
+    def test_a_github_enterprise_server_issues_tokens_under_its_host(self, url):
+        with (
+            patch.object(codebase_settings, "CLIENT", GitPlatform.GITHUB),
+            patch.object(codebase_settings, "GITHUB_URL", url),
+        ):
+            verifier = CIIdentityVerifier()
+
+            assert verifier.issuer == "https://github.example.com/_services/token"
+            assert verifier.keys_url == "https://github.example.com/_services/token/.well-known/jwks"
+
+    @pytest.mark.parametrize("url", ["https://api.octocorp.ghe.com", "https://OctoCorp.ghe.com/"])
+    def test_a_ghe_com_enterprise_issues_tokens_under_its_subdomain(self, url):
+        with (
+            patch.object(codebase_settings, "CLIENT", GitPlatform.GITHUB),
+            patch.object(codebase_settings, "GITHUB_URL", url),
+        ):
+            verifier = CIIdentityVerifier()
+
+            assert verifier.issuer == "https://token.actions.octocorp.ghe.com"
+            assert verifier.keys_url == "https://token.actions.octocorp.ghe.com/.well-known/jwks"
+
+    def test_a_github_com_token_is_refused_by_a_github_enterprise_server(self, platform):
+        with (
+            patch.object(codebase_settings, "CLIENT", GitPlatform.GITHUB),
+            patch.object(codebase_settings, "GITHUB_URL", "https://github.example.com"),
+            pytest.raises(CIIdentityRefused) as refused,
+        ):
+            CIIdentityVerifier().verify(token(github_claims()))
+
+        assert refused.value.check == "issuer"
 
     def test_the_gitlab_issuer_is_the_instance_or_gitlab_com(self):
         assert CIIdentityVerifier().issuer == GITLAB
@@ -194,6 +305,25 @@ class TestVerifyRepository:
 
         assert refused.value.check == "repository"
 
+    def test_a_repository_the_platform_does_not_find_is_refused_without_an_error(self, mock_repo_client, caplog):
+        mock_repo_client.get_repository.side_effect = GitlabGetError("404 Project Not Found", response_code=404)
+
+        with caplog.at_level(logging.WARNING), pytest.raises(CIIdentityRefused) as refused:
+            CIIdentityVerifier().verify_repository(self._identity(), "group/project")
+
+        assert refused.value.check == "repository"
+        assert caplog.records == []
+
+    def test_a_platform_failure_is_an_outage_logged_once_at_error(self, mock_repo_client, caplog):
+        mock_repo_client.get_repository.side_effect = GitlabGetError("500 Internal Server Error", response_code=500)
+
+        with caplog.at_level(logging.WARNING), pytest.raises(CIIdentityRefused) as refused:
+            CIIdentityVerifier().verify_repository(self._identity(), "group/project")
+        refused.value.log()
+
+        assert (refused.value.check, refused.value.claimed_repo) == ("repository unreachable", "group/project")
+        assert [record.levelno for record in caplog.records] == [logging.ERROR]
+
 
 class TestBearer:
     @pytest.mark.parametrize("key", ["daiv_abc123", "not.a.jwt", None])
@@ -219,6 +349,35 @@ class TestBearer:
         assert "audience" in record.getMessage()
         assert "group/project" in record.getMessage()
         assert all(raw not in r.getMessage() and raw.split(".")[1] not in r.getMessage() for r in caplog.records)
+
+    async def test_unreachable_signing_keys_are_logged_once_at_error(self, platform, caplog):
+        platform.side_effect = jwt.PyJWKClientConnectionError("down")
+
+        with caplog.at_level(logging.WARNING), pytest.raises(AuthenticationError):
+            await CIIdentityBearer().authenticate(SimpleNamespace(), token(gitlab_claims()))
+
+        assert [record.levelno for record in caplog.records] == [logging.ERROR]
+
+
+class TestRefused:
+    def test_the_claimed_repository_is_logged_escaped_and_truncated(self, caplog):
+        forged = "group/project\nCI identity token refused (forged) for the repository it claims: x" + "a" * 500
+
+        with caplog.at_level(logging.WARNING):
+            CIIdentityRefused("audience", forged).log()
+
+        [record] = caplog.records
+        message = record.getMessage()
+        assert "\n" not in message
+        assert repr(forged[:200]) in message
+        assert len(message) < 300
+
+    @pytest.mark.parametrize("check", ["signing keys unreachable", "repository unreachable"])
+    def test_an_outage_logged_where_it_was_raised_is_not_logged_again(self, check, caplog):
+        with caplog.at_level(logging.WARNING):
+            CIIdentityRefused(check, "group/project").log()
+
+        assert caplog.records == []
 
 
 class TestTokens:
@@ -262,6 +421,15 @@ class TestTokens:
 
         assert add.await_args.args[0] == "jobs:ci-token:gitlab:jti-1"
         assert 355 <= add.await_args.args[2] <= 360
+
+    async def test_a_failed_release_logs_an_error_and_does_not_raise(self, caplog):
+        with (
+            patch("accounts.api.ci_identity.cache.adelete", new=AsyncMock(side_effect=ConnectionError("redis down"))),
+            caplog.at_level(logging.WARNING),
+        ):
+            await CIIdentityTokens.arelease(self._identity())
+
+        assert [record.levelno for record in caplog.records] == [logging.ERROR]
 
     async def test_an_unreachable_cache_refuses_and_logs_an_error(self, caplog):
         with (

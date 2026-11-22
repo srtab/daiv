@@ -12,6 +12,7 @@ from sessions.executor.lock import SessionLock, stale_cutoff
 from sessions.inbox import kinds
 from sessions.inbox.complete import RunEnd
 from sessions.inbox.drain import Drain
+from sessions.inbox.merge_request_jobs import MergeRequestJobs
 from sessions.inbox.ownership import Ownerships
 from sessions.inbox.policy import WakePolicy
 from sessions.legs import NOT_RUN_ARCHIVED, NOT_RUN_CLOSED, NOT_RUN_MERGED
@@ -1171,7 +1172,7 @@ async def _merge_request_job(**fields) -> tuple[Run, InboxEvent]:
 
 class TestMergeRequestJob:
     async def test_its_own_run_is_promoted_and_takes_it_alone_with_the_remembered_events(self, enqueue):
-        run, job = await _merge_request_job(muted=True, source=SessionOrigin.MCP_JOB)
+        run, job = await _merge_request_job(muted=True, trigger_type=SessionOrigin.MCP_JOB)
         session = job.session
         push = await amake_event(session, EventKind.BRANCH_PUSHED, payload=_PUSH, ref=session.ref)
         mention = await amake_event(
@@ -1191,6 +1192,40 @@ class TestMergeRequestJob:
             EventState.TAKEN, EventState.TAKEN, EventState.PENDING,
         ]  # fmt: skip
         enqueue.assert_awaited_once()
+
+    @pytest.mark.parametrize(
+        ("account", "notifies_question"),
+        [({"username": "alice-gl", "provider": "gitlab", "uid": "77"}, False), ({}, True)],
+        ids=["platform-account", "no-platform-account"],
+    )
+    async def test_a_linked_callers_question_notifies_unless_the_merge_request_mentions_them(
+        self, enqueue, member_user, account, notifies_question
+    ):
+        from notifications.choices import EnvelopeStatus
+        from notifications.policy import notifies
+
+        account = {"username": "", "provider": "", "uid": ""} | account
+        run, job = await _merge_request_job(user=member_user, acts_as_user=True, **account)
+
+        with patch("sessions.admission.assert_can_run"):
+            await Drain(job.session_id).astart()
+
+        promoted = await Run.objects.aget(pk=run.pk)
+        assert (promoted.status, promoted.user_id) == (RunStatus.READY, member_user.pk)
+        assert (promoted.external_username, promoted.external_provider, promoted.external_uid) == (
+            account["username"], account["provider"], account["uid"],
+        )  # fmt: skip
+        assert promoted.external_username == job.author_username
+        assert await sync_to_async(notifies)(promoted, EnvelopeStatus.NEEDS_INPUT) is notifies_question
+
+    async def test_a_builtin_command_leaves_the_remembered_events_for_the_next_run(self, enqueue):
+        run, job = await _merge_request_job(prompt="/help")
+        push = await amake_event(job.session, EventKind.BRANCH_PUSHED, payload=_PUSH, ref=job.session.ref)
+
+        started = await Drain(job.session_id).astart()
+
+        assert started.pk == run.pk
+        assert [(await _state(event)).state for event in (job, push)] == [EventState.TAKEN, EventState.PENDING]
 
     async def test_a_ci_actor_linked_to_a_user_is_checked_against_no_ones_access_and_environments(
         self, enqueue, member_user
@@ -1268,15 +1303,46 @@ class TestMergeRequestJob:
         can_run.assert_called_once_with(member_user, ["group/other"])
         assert (await Run.objects.aget(pk=run.pk)).acting_user_id is None
 
-    async def test_a_job_acting_as_its_caller_is_checked_against_their_access(self, enqueue, member_user):
+    async def test_a_job_acting_as_its_caller_is_checked_against_their_access(
+        self, enqueue, mock_repo_client, member_user
+    ):
         run, job = await _merge_request_job(user=member_user, acts_as_user=True, username="", provider="", uid="")
 
         with patch("sessions.admission.assert_can_run", Mock(side_effect=RepositoryAccessDenied(["group/repo"]))):
             assert await Drain(job.session_id).astart() is None
+        failed = await Run.objects.aget(pk=run.pk)
+        await RunEnd(failed).aon_run_ended(drain=False)
 
         stored = await _state(job)
         assert (stored.state, stored.failure, stored.run_id) == (EventState.FAILED, EventFailure.ACCESS_DENIED, run.pk)
-        assert (await Run.objects.aget(pk=run.pk)).status == RunStatus.FAILED
+        note = MergeRequestJobs.not_run[EventFailure.ACCESS_DENIED]
+        assert (failed.status, failed.error_message) == (RunStatus.FAILED, note)
+        mock_repo_client.create_merge_request_comment.assert_called_once_with("group/repo", 7, note)
+
+    async def test_a_ci_job_attributed_to_a_user_does_not_gate_their_own_older_mention(self, enqueue, member_user):
+        run, job = await _merge_request_job(user=member_user, username="", provider="", uid="")
+        mention = await amake_event(
+            job.session, EventKind.MENTION, author=member_user, created_at=job.created_at - timedelta(minutes=1)
+        )
+
+        with patch("sessions.admission.assert_can_run", Mock(side_effect=RepositoryAccessDenied(["group/repo"]))):
+            started = await Drain(job.session_id).astart()
+
+        assert (await _state(mention)).run_id == started.pk != run.pk
+        assert (await _state(job)).state == EventState.PENDING
+
+    async def test_a_ci_job_attributed_to_a_user_is_not_failed_with_their_own_refused_chat(self, enqueue, member_user):
+        run, job = await _merge_request_job(user=member_user, username="", provider="", uid="")
+        chat = await amake_event(
+            job.session, EventKind.CHAT_MESSAGE, author=member_user, created_at=job.created_at - timedelta(minutes=1)
+        )
+
+        with patch("sessions.admission.assert_can_run", Mock(side_effect=RepositoryAccessDenied(["group/repo"]))):
+            await Drain(job.session_id).astart()
+
+        assert (await _state(chat)).failure == EventFailure.ACCESS_DENIED
+        stored = await _state(job)
+        assert (stored.state, stored.run_id) == (EventState.TAKEN, run.pk)
 
     @pytest.mark.parametrize(("merged", "failure"), [(True, EventFailure.MR_MERGED), (False, EventFailure.MR_CLOSED)])
     async def test_a_merge_request_that_ended_meanwhile_stops_it_and_says_so(

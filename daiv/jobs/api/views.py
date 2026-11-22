@@ -9,7 +9,7 @@ from ninja import Router
 from ninja.errors import HttpError
 from sessions.admission import AdmissionError, RepoAccessError
 from sessions.artifacts import aserialize_run_artifacts_for_status
-from sessions.inbox.merge_request_jobs import caller_failure_message
+from sessions.inbox.merge_request_jobs import MergeRequestJobs
 from sessions.models import Run, RunStatus, SessionOrigin
 from sessions.multi_repo import asubmit_jobs
 from sessions.services import RepoTarget
@@ -119,7 +119,7 @@ async def get_job_status(request: HttpRequest, job_id: str):
 
     error = None
     if run.status == RunStatus.FAILED:
-        error = caller_failure_message(run) or "Job execution failed"
+        error = MergeRequestJobs.caller_failure_message(run) or "Job execution failed"
     artifacts, artifacts_error = await aserialize_run_artifacts_for_status(run)
     return 200, JobStatusResponse(
         job_id=str(run.id),

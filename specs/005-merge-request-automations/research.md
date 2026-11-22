@@ -31,11 +31,11 @@ The moved task registers under a new path. `webhooks/tasks.py` re-exports it for
 
 ## R3. A new inbox event kind for a job on an owned merge request, with a run of its own
 
-**Decision**: Add `EventKind.MERGE_REQUEST_JOB` (wake) with the payload `{prompt, agent_model?, acts_as_user, source}`. It follows the leg follow-up pattern (`sessions/inbox/leg_follow_ups.py`) rather than joining the requester's next run:
+**Decision**: Add `EventKind.MERGE_REQUEST_JOB` (wake) with the payload `{prompt, trigger_type, agent_model?, agent_thinking_level?, muted?, references?, mcp_switches?, sandbox_environment_id?}`; `acts_as_user` lives on its run. It follows the leg follow-up pattern (`sessions/inbox/leg_follow_ups.py`) rather than joining the requester's next run:
 - **Posting** (`sessions/inbox/merge_request_jobs.py`, `MergeRequestJobs.post`): the event and its own `QUEUED` run are created in one transaction, with the session row locked. Under that lock, an archived session or a merge request that is no longer open refuses the post, so the job lands in `failed` (R9).
 - **Requester:** the job's caller, or the token's triggering account (R5).
 - **Its run** carries what a direct-path run carries:
-  - the requester as its person, through `Requester.run_fields` (`user`, or `external_provider`, `external_uid` and `external_username`), so spend and token polling find it;
+  - the requester as its person, through `Caller.run_fields` (`user`, or `external_provider`, `external_uid` and `external_username`), so spend and token polling find it;
   - `acts_as_user`, `muted`, the prompt and `merge_request_iid`;
   - trigger type `API_JOB` or `MCP_JOB`, from the event's `source`;
   - `runs_alone = True` (below).
@@ -60,22 +60,24 @@ The moved task registers under a new path. `webhooks/tasks.py` re-exports it for
 ## R4. CI identity tokens are verified with PyJWT against the platform's published keys
 
 **Decision**:
-- **Library:** add `pyjwt[crypto]` as a direct dependency. It is already in `uv.lock` at 2.15.1, pulled in by allauth, mcp and pygithub. `jwt.PyJWKClient` fetches the platform's published signing keys (JWKS), caches them and refetches on an unknown `kid`.
+- **Library:** add `pyjwt[crypto]` as a direct dependency. It is already in `uv.lock` at 2.15.1, pulled in by allauth, mcp and pygithub. `jwt.PyJWKClient` fetches the platform's published signing keys (JWKS), caches them for 5 minutes and refetches on an unknown `kid` at most once per 30 s cooldown. DAIV's subclass reports every failure to get a usable key set (unreachable, not JSON, not an object, no usable key) as unreachable, so the only signature refusal from the lookup is a `kid` no key matches.
 - **Algorithms:** only `RS256`.
 - **Clock leeway:** 60 seconds.
 - **Required claims:** `iss`, `aud`, `exp`, `iat`, `jti` (R10), plus the repository and actor claims below.
 
 | | GitLab | GitHub |
 |---|---|---|
-| Issuer (`iss`) | `CODEBASE_GITLAB_URL`, else `https://gitlab.com` | `https://token.actions.githubusercontent.com`; GitHub Enterprise Server sets `CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER` (`https://HOST/_services/token`) |
-| Signing keys | `{issuer}/oauth/discovery/keys` | `{issuer}/.well-known/jwks` |
+| Issuer (`iss`) | `CODEBASE_GITLAB_ID_TOKEN_ISSUER`, else `CODEBASE_GITLAB_URL`, else `https://gitlab.com` | `CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER`, else `https://token.actions.SUBDOMAIN.ghe.com` when the host of `CODEBASE_GITHUB_URL` is `SUBDOMAIN.ghe.com` or `api.SUBDOMAIN.ghe.com` (GHE.com), else `https://HOST/_services/token` when the host of `CODEBASE_GITHUB_URL` is neither `github.com` nor `api.github.com` (GitHub Enterprise Server), else `https://token.actions.githubusercontent.com` |
+| Signing keys | `{CODEBASE_GITLAB_URL}/oauth/discovery/keys`, else `https://gitlab.com/oauth/discovery/keys` | `{issuer}/.well-known/jwks` |
 | Repository | `project_id`, matched against the repository's platform id; `project_path` for logs | `repository_id`, matched against the repository's id; `repository` for logs |
 | Triggering account | `user_id`, `user_login` | `actor_id`, `actor` |
 | Commit | `sha` | `sha` when present. GitHub's claim reference doesn't list it, so it is optional |
+| Attempt | not checked | `run_attempt` must be `1` |
 
 - **Audience:** `DAIV_EXTERNAL_URL` (`core/conf.py:16`), the address DAIV already advertises. Operators can override it with `DAIV_JOBS_CI_IDENTITY_AUDIENCE`.
 - **Repository match:** done by the stable numeric id the platform reports for the targeted `repo_id`, which `RepoClient` already loads. Paths can be renamed; GitLab warns against trusting mutable claims alone.
-- **Fail closed:** when the signing keys cannot be fetched, the request gets `401` and the failure logs at ERROR. Every other refusal logs at WARNING (R10). GitLab can't issue a token for a fork pipeline that names the upstream project, because in merge request pipelines `project_path` is the source project. GitHub gives fork `pull_request` workflows no `id-token` permission. Both therefore fail the repository match.
+- **Re-runs:** GitHub's `actor` claim is `github.actor`, the account that started the run's first attempt; a re-run's token does not carry the re-runner (`github.triggering_actor`). DAIV refuses a GitHub token whose `run_attempt` is above 1 (check `re-run`), and one without `run_attempt` as a missing claim, so a re-run can't be attributed to, or pass `allowed_usernames` as, someone else. GitLab retries name the retrier.
+- **Fail closed:** when DAIV can't get a usable key set, or the platform fails to answer for the repository, the request gets `401` and the failure logs once at ERROR. Every other refusal logs at WARNING (R10). GitLab can't issue a token for a fork pipeline that names the upstream project, because in merge request pipelines `project_path` is the source project, so it fails the repository match. GitHub gives fork `pull_request` workflows no `id-token` permission unless a private repository sends write tokens to workflows from fork pull requests; such a workflow runs in the base repository, so its token passes the repository match and `allowed_usernames` is what limits it.
 
 **Rationale**: This is the standard keyless CI-to-service exchange (cloud workload identity, Vault, PyPI trusted publishing). It removes the long-lived key from CI and binds each request to one pipeline, one repository and one person.
 
@@ -88,7 +90,7 @@ The moved task registers under a new path. `webhooks/tasks.py` re-exports it for
 
 **Decision**: Add `CIIdentityBearer` (`accounts/api/ci_identity.py`). `jobs_router` uses `auth=[CIIdentityBearer(), AuthBearer()]`; django-ninja tries them in order (`operation.py:575-592`).
 - **Which tokens it claims:** only a bearer value that is a three-segment JWT whose header names a `kid`. For anything else it returns `None`, so API keys keep working. Being first, it stops JWTs from costing an API-key lookup.
-- **`request.auth`:** a `CIIdentity`, not a `User`. It carries the platform, the repository id and path, the actor id and login, the linked DAIV user or `None`, and `pk = "ci:{provider}:{actor_id}"`, which `JobsRateThrottle` keys on (FR-012).
+- **`request.auth`:** a `CIIdentity`, not a `User`. It carries the platform, the repository id and path, the actor id and login, the linked DAIV user or `None`, and `pk`, the linked user's pk, else `"ci:{provider}:{actor_id}"`, which `JobsRateThrottle` keys on (FR-012).
 - **Submissions:**
   - exactly one `repos` entry, whose repository is the token's;
   - no `thread_id`, no `shared_session`, no `references`;
@@ -133,7 +135,7 @@ Neither changes a skill, tool description or subagent. Measure with `make eval-p
   - polling rules;
   - the code-review-on-every-push example replacing the comment-posting workaround (FR-028).
 - **Pull request assistant** ([pull-request-assistant.md](../../docs/features/pull-request-assistant.md)): a pointer from review reports to the jobs API merge request target.
-- **Environment variables** ([env-variables.md](../../docs/reference/env-variables.md)): `DAIV_JOBS_CI_IDENTITY_AUDIENCE` and `CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER`.
+- **Environment variables** ([env-variables.md](../../docs/reference/env-variables.md)): `DAIV_JOBS_CI_IDENTITY_AUDIENCE`, `CODEBASE_GITLAB_ID_TOKEN_ISSUER` and `CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER`.
 - **Changelog:** `CHANGELOG.md` gets two `Added` lines.
 
 ## R9. A job that cannot start
@@ -162,11 +164,11 @@ Neither changes a skill, tool description or subagent. Measure with `make eval-p
 ## R10. One submission per CI token, and refusal logs
 
 **Decision**:
-- **Single use (FR-009):** `CIIdentity` carries the token's `jti` and expiry. `submit_job` claims the token before it starts anything, with `cache.aadd(f"jobs:ci-token:{provider}:{jti}", …)`, which is atomic in Redis. The entry expires at the token's `exp` plus the 60 s leeway. A claim that finds the key refuses with `401`.
-- **Release:** when the submission accepts no job (a `400`, a `failed` entry or an exception), `submit_job` deletes the key, so a retry with the same token works.
+- **Single use (FR-009):** `CIIdentity` carries the token's `jti` and expiry. `CISubmission.arefusal` claims the token after its other checks and before anything starts, with `cache.aadd(f"jobs:ci-token:{provider}:{jti}", …)`, which is atomic in Redis. The entry expires at the token's `exp` plus the 60 s leeway. A claim that finds the key refuses with `401`.
+- **Release:** a submission refused before the claim (its shape, the repository or the allowlist) never holds the key. When admission refuses the submission (`AdmissionError`: `400` or `404`) or it accepts no job (a `failed` entry), `CISubmission.asubmit` deletes the key, so a retry with the same token works. An unexpected exception keeps it, since the job may have started.
 - **Polling:** `GET /api/jobs/{id}` never claims, so a used token still reads its job's status.
 - **Fail closed:** when the cache can't be reached, the submission gets `401` and the failure logs at ERROR.
-- **Refusal logs (FR-008):** every refusal logs once at WARNING with the check that failed and the repository path the token claims, never the token. The checks are `malformed`, `algorithm`, `signature`, `issuer`, `audience`, `expired`, `missing claim`, `repository`, `allowed usernames` and `reused`. Signing keys or a cache that can't be reached log at ERROR instead. Before the signature is verified the path is unverified, so the message calls it "claimed".
+- **Refusal logs (FR-008):** every refusal logs once at WARNING with the check that failed and the repository path the token claims, never the token. The checks are `malformed`, `algorithm`, `signature`, `issuer`, `audience`, `expired`, `missing claim`, `re-run`, `repository`, `allowed usernames` and `reused`. Signing keys or a repository that can't be read from the platform (`signing keys unreachable`, `repository unreachable`) log once at ERROR where they are raised and not again at WARNING, and a cache that can't be reached logs at ERROR. Before the signature is verified the path is unverified, so the message calls it "claimed", and logs it escaped (`%r`) and cut to 200 characters.
 
 **Rationale**:
 - A leaked token, for example one printed in a public job log, can otherwise start runs with any prompt until it expires, and GitLab tokens can live as long as the job timeout. Single use bounds that to the one job the pipeline sent (Principle I).

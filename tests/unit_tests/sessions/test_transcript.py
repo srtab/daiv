@@ -87,6 +87,7 @@ def _run(
     repo_publishes=(),
     failure_kind="",
     failure_provider="",
+    runs_alone=False,
 ):
     return SimpleNamespace(
         id=rid,
@@ -113,6 +114,7 @@ def _run(
         repo_publishes=list(repo_publishes),
         failure_kind=failure_kind,
         failure_provider=failure_provider,
+        runs_alone=runs_alone,
     )
 
 
@@ -783,8 +785,9 @@ def test_retry_message_looks_at_the_newest_run_only():
         _failed(trigger_type=SessionOrigin.API_JOB, is_cancelled=True),
         _failed(trigger_type=SessionOrigin.ISSUE_WEBHOOK),
         _failed(trigger_type=SessionOrigin.DELEGATED_JOB),
+        _failed(trigger_type=SessionOrigin.API_JOB, runs_alone=True),
     ],
-    ids=["user-cancel", "interrupted", "coordinator-cancel", "issue-webhook", "delegated"],
+    ids=["user-cancel", "interrupted", "coordinator-cancel", "issue-webhook", "delegated", "merge-request-job"],
 )
 def test_retry_message_offers_nothing_for_a_stopped_run_or_one_a_chat_turn_cannot_stand_in_for(run):
     assert retry_message(annotate_transcript([], [run]), [run]) == ""

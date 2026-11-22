@@ -8,7 +8,8 @@ and its own id (``jti``). The jobs API then checks that the token's repository i
 platform reports, and claims the token so it submits one accepted job.
 
 Every refusal logs once at WARNING with the failed check and the repository path the token claims, never the token;
-the caller is told only ``401``. Signing keys or a claim store that can't be reached refuse too, and log at ERROR.
+the caller is told only ``401``. Signing keys, a repository or a claim store that can't be reached refuse too, and log
+once at ERROR instead. A GitHub token of a re-run is refused: it names the account that started the first attempt.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import logging
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, ClassVar
+from urllib.parse import urlsplit
 
 from django.core.cache import cache
 from django.utils import timezone
@@ -44,12 +46,18 @@ logger = logging.getLogger("daiv.accounts")
 ALGORITHMS = ["RS256"]
 LEEWAY_SECONDS = 60
 GITLAB_ISSUER = "https://gitlab.com"
+GITHUB_ISSUER = "https://token.actions.githubusercontent.com"
+GITHUB_COM_HOSTS = frozenset({"github.com", "api.github.com"})
+GHE_COM_SUFFIX = ".ghe.com"
 
 _CLAIMS = {
     GitPlatform.GITLAB: {"repo_path": "project_path", "repo_id": "project_id", "uid": "user_id", "login": "user_login"},
     GitPlatform.GITHUB: {"repo_path": "repository", "repo_id": "repository_id", "uid": "actor_id", "login": "actor"},
 }
 KEYS_UNREACHABLE = "signing keys unreachable"
+REPOSITORY_UNREACHABLE = "repository unreachable"
+RERUN = "re-run"
+LOGGED_REPO_CHARS = 200
 # First match wins: PyJWKClientConnectionError is a PyJWKClientError, and every class here a PyJWTError.
 _REFUSALS: tuple[tuple[type[jwt.PyJWTError] | tuple[type[jwt.PyJWTError], ...], str], ...] = (
     (jwt.PyJWKClientConnectionError, KEYS_UNREACHABLE),
@@ -72,8 +80,34 @@ class CIIdentityRefused(Exception):  # noqa: N818
         self.check = check
         self.claimed_repo = claimed_repo
 
+    @property
+    def is_outage(self) -> bool:
+        """Whether DAIV could not reach the platform, rather than the token failing a check: logged at ERROR where it
+        was raised."""
+        return self.check in (KEYS_UNREACHABLE, REPOSITORY_UNREACHABLE)
+
     def log(self) -> None:
-        logger.warning("CI identity token refused (%s) for the repository it claims: %s", self.check, self.claimed_repo)
+        """Log the refusal at WARNING, unless it is an outage, which was logged already."""
+        if self.is_outage:
+            return
+        logger.warning(
+            "CI identity token refused (%s) for the repository it claims: %r",
+            self.check,
+            self.claimed_repo[:LOGGED_REPO_CHARS],
+        )
+
+
+class _KeyClient(jwt.PyJWKClient):
+    """Raises ``PyJWKClientConnectionError`` for every failure to get a usable key set, so the only other
+    ``PyJWKClientError`` its key lookup raises is a ``kid`` that no key of a usable set matches."""
+
+    def get_signing_keys(self, refresh: bool = False) -> list[jwt.PyJWK]:
+        try:
+            return super().get_signing_keys(refresh)
+        except jwt.PyJWKClientConnectionError:
+            raise
+        except (jwt.PyJWTError, ValueError, OSError) as err:
+            raise jwt.PyJWKClientConnectionError(f"No usable key set: {err!r}") from err
 
 
 @dataclass(frozen=True)
@@ -103,7 +137,7 @@ class CIIdentity:
 class CIIdentityVerifier:
     """Verifies the CI identity tokens of the configured git platform against the signing keys it publishes."""
 
-    _key_clients: ClassVar[dict[str, jwt.PyJWKClient]] = {}
+    _key_clients: ClassVar[dict[str, _KeyClient]] = {}
 
     def __init__(self):
         self.provider = GitPlatform(codebase_settings.CLIENT)
@@ -111,8 +145,19 @@ class CIIdentityVerifier:
     @property
     def issuer(self) -> str:
         if self.provider == GitPlatform.GITHUB:
-            return codebase_settings.GITHUB_ACTIONS_OIDC_ISSUER.rstrip("/")
+            return (codebase_settings.GITHUB_ACTIONS_OIDC_ISSUER or self._github_issuer).rstrip("/")
         return (codebase_settings.GITLAB_ID_TOKEN_ISSUER or self._gitlab_url).rstrip("/")
+
+    @property
+    def _github_issuer(self) -> str:
+        """The issuer of the instance ``GITHUB_URL`` names: a GHE.com enterprise's, whose web or API host it may be, a
+        GitHub Enterprise Server's, else GitHub.com's."""
+        host = urlsplit(str(codebase_settings.GITHUB_URL or "")).hostname
+        if host and host.endswith(GHE_COM_SUFFIX):
+            return f"https://token.actions.{host.removeprefix('api.')}"
+        if host and host not in GITHUB_COM_HOSTS:
+            return f"https://{host}/_services/token"
+        return GITHUB_ISSUER
 
     @property
     def keys_url(self) -> str:
@@ -142,7 +187,6 @@ class CIIdentityVerifier:
             if not unverified:
                 raise CIIdentityRefused("malformed")
             if unverified.get("iss") != self.issuer:
-                # Before the key lookup: an unknown ``kid`` refetches the platform's keys on every request.
                 raise CIIdentityRefused("issuer", claimed_repo)
             key = self._key_client().get_signing_key_from_jwt(token)
             claims = jwt.decode(
@@ -157,7 +201,7 @@ class CIIdentityVerifier:
         except jwt.PyJWTError as err:
             check = next(check for errors, check in _REFUSALS if isinstance(err, errors))
             if check == KEYS_UNREACHABLE:
-                logger.exception("Could not fetch the CI identity signing keys at %s", self.keys_url)
+                logger.exception("Could not get usable CI identity signing keys from %s", self.keys_url)
                 raise CIIdentityRefused(check, claimed_repo) from None
             raise CIIdentityRefused(check, claimed_repo) from err
         return self._identity(claims)
@@ -173,9 +217,10 @@ class CIIdentityVerifier:
         try:
             repository = RepoClient.create_instance().get_repository(repo_id)
         except PLATFORM_ERRORS as err:
-            if not is_not_found(err):
-                logger.exception("Could not read repository %s to check a CI identity token", repo_id)
-            raise CIIdentityRefused("repository", identity.repo_id) from err
+            if is_not_found(err):
+                raise CIIdentityRefused("repository", identity.repo_id) from err
+            logger.exception("Could not read repository %r to check a CI identity token", repo_id)
+            raise CIIdentityRefused(REPOSITORY_UNREACHABLE, identity.repo_id) from err
         if repository.pk != identity.repo_platform_id:
             raise CIIdentityRefused("repository", identity.repo_id)
         return repository
@@ -185,11 +230,15 @@ class CIIdentityVerifier:
 
     def _identity(self, claims: dict[str, Any]) -> CIIdentity:
         names = _CLAIMS[self.provider]
+        claimed_repo = str(claims.get(names["repo_path"], ""))
         try:
             repo_path, repo_id = claims[names["repo_path"]], int(claims[names["repo_id"]])
             uid, login = str(claims[names["uid"]]), claims[names["login"]]
+            attempt = int(claims["run_attempt"]) if self.provider == GitPlatform.GITHUB else 1
         except KeyError, TypeError, ValueError:
-            raise CIIdentityRefused("missing claim", str(claims.get(names["repo_path"], ""))) from None
+            raise CIIdentityRefused("missing claim", claimed_repo) from None
+        if attempt > 1:
+            raise CIIdentityRefused(RERUN, claimed_repo)
         return CIIdentity(
             provider=self.provider,
             repo_id=repo_path,
@@ -210,10 +259,10 @@ class CIIdentityVerifier:
         except jwt.PyJWTError:
             return {}
 
-    def _key_client(self) -> jwt.PyJWKClient:
+    def _key_client(self) -> _KeyClient:
         url = self.keys_url
         if url not in self._key_clients:
-            self._key_clients[url] = jwt.PyJWKClient(url, cache_keys=True, timeout=10)
+            self._key_clients[url] = _KeyClient(url, cache_keys=True, timeout=10)
         return self._key_clients[url]
 
 
@@ -227,8 +276,7 @@ class CIIdentityBearer(HttpBearer):
         try:
             return await CIIdentityVerifier().averify(token)
         except CIIdentityRefused as refused:
-            if refused.check != KEYS_UNREACHABLE:
-                refused.log()
+            refused.log()
             raise AuthenticationError from None
 
     @staticmethod

@@ -38,18 +38,34 @@ class TestLegFollowUp:
         assert RequestSplits.takes_context(follow_up)
 
 
-async def test_a_merge_request_job_runs_alone_but_takes_context():
-    session = await amake_session()
-    job = await amake_event(
+async def _merge_request_job(session, prompt: str):
+    return await amake_event(
         session,
         EventKind.MERGE_REQUEST_JOB,
-        payload={"prompt": "/help", "acts_as_user": False, "source": SessionOrigin.API_JOB},
+        payload={"prompt": prompt, "trigger_type": SessionOrigin.API_JOB},
+        merge_request_iid=7,
+        author_username="pusher",
     )
+
+
+async def test_a_merge_request_job_runs_alone_but_takes_context():
+    session = await amake_session()
+    job = await _merge_request_job(session, "/code-review")
     chat = await _chat(session, "Fix the bug")
 
     assert RequestSplits.runs_alone(job)
     assert RequestSplits.takes_context(job)
     assert RequestSplits([chat, job]).splits == [[chat], [job]]
+
+
+@pytest.mark.parametrize("command", ["/help", "/agents"])
+async def test_an_own_run_request_that_is_a_builtin_command_takes_no_context(command):
+    session = await amake_session()
+    job = await _merge_request_job(session, command)
+    follow_up = await amake_event(session, EventKind.LEG_FOLLOW_UP, payload={"prompt": command, "batch_id": "b"})
+
+    assert [RequestSplits.runs_alone(job), RequestSplits.runs_alone(follow_up)] == [True, True]
+    assert [RequestSplits.takes_context(job), RequestSplits.takes_context(follow_up)] == [False, False]
 
 
 class TestTakesContext:

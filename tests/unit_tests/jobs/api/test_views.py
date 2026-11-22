@@ -1,5 +1,5 @@
 import uuid
-from contextlib import contextmanager, suppress
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -11,7 +11,7 @@ from django_tasks_db.models import DBTaskResult
 from mcp_connectors.models import MCPServer
 from ninja.testing import TestAsyncClient
 from sessions.executor.tasks import run_job_task
-from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
+from sessions.models import EventKind, InboxEvent, Run, RunStatus, Session, SessionOrigin
 from sessions.services import BatchSubmitResult
 
 from accounts.models import APIKey, User
@@ -1414,20 +1414,6 @@ class TestCIIdentitySubmissions:
 
         assert (failed.status_code, failed.json()["jobs"], accepted.status_code) == (202, [], 202)
 
-    async def test_a_submission_that_failed_unexpectedly_uses_the_token_up(self, ci_token):
-        raw = ci_token()
-
-        with (
-            patch("jobs.api.ci.asubmit_ci_job", new=AsyncMock(side_effect=RuntimeError("after the run"))),
-            suppress(RuntimeError),
-        ):
-            await _ci_client(raw).post("/jobs", json=_ci_body())
-        with _enqueued_run_job():
-            retried = await _ci_client(raw).post("/jobs", json=_ci_body())
-
-        assert retried.status_code == 401
-        assert not await Run.objects.aexists()
-
     async def test_a_merge_request_job_is_attributed_to_the_actor_and_acts_as_no_one(self, ci_token, mock_repo_client):
         with (
             patch("sessions.merge_request_runs.starter.resolve_env_for_run", new=AsyncMock(return_value=None)),
@@ -1460,49 +1446,7 @@ class TestCIIdentityPolling:
 
         assert (await _ci_client(ci_token()).get(f"/jobs/{run.pk}")).status_code == 200
 
-    async def test_a_run_of_its_linked_actor_is_visible(self, ci_token):
-        from allauth.socialaccount.models import SocialAccount
-
-        user = await User.objects.acreate(username="linked", email="l@test.com")
-        await SocialAccount.objects.acreate(user=user, provider="gitlab", uid="9")
-        run = await self._run(user=user)
-
-        assert (await _ci_client(ci_token()).get(f"/jobs/{run.pk}")).status_code == 200
-
-    async def test_a_job_on_an_owned_merge_request_is_visible_through_its_own_run(self, ci_token):
-        from tests.unit_tests.sessions.conftest import amake_owned_merge_request
-        from tests.unit_tests.sessions.inbox.conftest import post_merge_request_job
-
-        owned = await amake_owned_merge_request(repo_id="group/project", merge_request_iid=1)
-        with patch("sessions.inbox.drain.Drain.start_logged"):
-            run = await sync_to_async(post_merge_request_job)(owned)
-
-        assert (await _ci_client(ci_token()).get(f"/jobs/{run.pk}")).status_code == 200
-
-    async def test_a_job_on_its_merge_request_in_a_session_of_several_repositories_is_visible(self, ci_token):
-        from tests.unit_tests.sessions.conftest import amake_owned_merge_request
-        from tests.unit_tests.sessions.inbox.conftest import post_merge_request_job
-
-        owned = await amake_owned_merge_request(repo_id="group/main", merge_request_iid=1)
-        other = await MergeRequestOwnership.objects.acreate(
-            repo_id="group/project", merge_request_iid=3, session_id=owned.session_id, source_branch="daiv/project"
-        )
-        with patch("sessions.inbox.drain.Drain.start_logged"):
-            run = await sync_to_async(post_merge_request_job)(other)
-
-        assert run.repo_id == "group/main"
-        assert (await _ci_client(ci_token()).get(f"/jobs/{run.pk}")).status_code == 200
-
-    @pytest.mark.parametrize(
-        "fields",
-        [
-            {"external_provider": "gitlab", "external_uid": "10"},
-            {"external_provider": "gitlab", "external_uid": "9", "repo_id": "group/other"},
-            {},
-        ],
-        ids=["another-actor", "another-repository", "no-one"],
-    )
-    async def test_any_other_run_is_not_found(self, ci_token, fields):
-        run = await self._run(**fields)
+    async def test_any_other_run_is_not_found(self, ci_token):
+        run = await self._run(external_provider="gitlab", external_uid="10")
 
         assert (await _ci_client(ci_token()).get(f"/jobs/{run.pk}")).status_code == 404

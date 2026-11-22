@@ -17,9 +17,11 @@ from typing import TYPE_CHECKING, Any
 
 from django.core.cache import cache
 from django.db import transaction
+from django.tasks.base import TaskResultStatus
 from django.urls import reverse
 
 from asgiref.sync import sync_to_async
+from django_tasks_db.models import DBTaskResult
 from sandbox_envs.selection import resolve_env_for_run
 
 from codebase.base import GitPlatform, Scope
@@ -40,15 +42,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.sessions")
 
 ARCHIVED_REPLY_TTL = 24 * 60 * 60
+MENTION_TASK_PATH_BEFORE_THE_MOVE = "webhooks.tasks.address_mr_comments_task"
 
 
 @dataclass(frozen=True, kw_only=True)
-class Requester:
-    """Who asks for a run: a mention's author, a job's caller or the account that triggered a CI pipeline.
+class Caller:
+    """Who asks for a run: a mention's author, a job's submitter or the account that triggered a CI pipeline.
 
-    ``user`` owns the run, and is notified about it: the caller, or the DAIV user linked to the platform account
+    ``user`` owns the run, and is notified about it: the submitter, or the DAIV user linked to the platform account
     (``None`` when no one linked it). ``provider``, ``uid`` and ``username`` name that platform account, blank for a
-    caller who never linked one; DAIV mentions ``username`` on the merge request. The run acts as ``user``, loading
+    submitter who never linked one; DAIV mentions ``username`` on the merge request. The run acts as ``user``, loading
     their personal tools and environments, only with ``acts_as_user``.
     """
 
@@ -65,7 +68,7 @@ class Requester:
 
     @property
     def run_fields(self) -> dict[str, Any]:
-        """The ``Run`` fields that name this requester."""
+        """The ``Run`` fields that name this caller."""
         return {
             "user": self.user,
             "external_username": self.username,
@@ -76,7 +79,7 @@ class Requester:
 
     @property
     def author_fields(self) -> dict[str, Any]:
-        """The ``InboxEvent`` fields that name this requester as an event's author."""
+        """The ``InboxEvent`` fields that name this caller as an event's author."""
         return {
             "author": self.user,
             "author_username": self.username,
@@ -104,7 +107,7 @@ class Mention:
 
 @dataclass(frozen=True, kw_only=True)
 class Request:
-    """A job for a merge request, from the jobs API or MCP (``source``). ``request_key`` names the job, a fresh
+    """A job for a merge request, from the jobs API or MCP (``trigger_type``). ``request_key`` names the job, a fresh
     ``SourceKey.job`` each, so no two jobs are one.
 
     ``references`` are stored refs (``RefIn.to_stored``). ``mcp_switches`` are the caller's MCP switches, which an
@@ -114,7 +117,7 @@ class Request:
     owning session's."""
 
     prompt: str
-    source: SessionOrigin
+    trigger_type: SessionOrigin
     request_key: str
     muted: bool | None = None
     agent_model: str = ""
@@ -157,7 +160,7 @@ class RunStarter:
     async def astart(
         self,
         task: DeduplicatingTask,
-        requester: Requester,
+        caller: Caller,
         *,
         use_max: bool,
         task_kwargs: dict[str, Any],
@@ -169,7 +172,7 @@ class RunStarter:
         merge_request_web_url: str = "",
     ) -> StartOutcome:
         """Enqueue ``task`` with ``task_kwargs`` plus what every addressor task takes, and record its ``Run`` for
-        ``requester`` in one transaction; a job's ``request`` gives its run's prompt, options and ``runs_alone``.
+        ``caller`` in one transaction; a job's ``request`` gives its run's prompt, options and ``runs_alone``.
         Nothing starts when the enqueue finds an earlier trigger's task, which has its ``Run`` already, or when the
         session is archived, which ``reply`` answers; with no ``reply`` nothing is posted.
 
@@ -182,7 +185,7 @@ class RunStarter:
             if reply is None:
                 logger.info("Ignoring a request on session %s: it is archived", self.thread_id)
             else:
-                await self.areply_archived(reply, requester, self.thread_id, note_id=task_kwargs.get("mention_note_id"))
+                await self.areply_archived(reply, caller, self.thread_id, note_id=task_kwargs.get("mention_note_id"))
             return StartOutcome(thread_id=self.thread_id, archived=True)
         if request is not None:
             sandbox_environment_id = request.sandbox_environment_id
@@ -197,6 +200,8 @@ class RunStarter:
         @sync_to_async
         @transaction.atomic
         def enqueue_with_run() -> StartOutcome:
+            if self._queued_before_the_move(task_kwargs.get("mention_note_id")):
+                return StartOutcome(thread_id=self.thread_id)
             result, created = task.get_or_enqueue(
                 repo_id=self.repo_id,
                 thread_id=self.thread_id,
@@ -217,7 +222,7 @@ class RunStarter:
                 agent_thinking_level=agent_thinking_level,
                 merge_request_iid=self.iid if self.scope == Scope.MERGE_REQUEST else None,
                 merge_request_web_url=merge_request_web_url,
-                **requester.run_fields,
+                **caller.run_fields,
                 runs_alone=request is not None,
                 muted=request.muted if request is not None else None,
                 title=title,
@@ -226,6 +231,19 @@ class RunStarter:
             return StartOutcome(thread_id=self.thread_id, started=True, run=run)
 
         return await enqueue_with_run()
+
+    def _queued_before_the_move(self, note_id: int | None) -> bool:
+        """Whether the merge request mention ``note_id`` has a task queued, running or done under the path and key it
+        had before it moved to this app, which the new task's dedup can't see. SYNC ONLY. For one release."""
+        if self.scope != Scope.MERGE_REQUEST or note_id is None:
+            return False
+        return DBTaskResult.objects.filter(
+            task_path=MENTION_TASK_PATH_BEFORE_THE_MOVE,
+            status__in=[TaskResultStatus.READY, TaskResultStatus.RUNNING, TaskResultStatus.SUCCESSFUL],
+            args_kwargs__kwargs__repo_id=self.repo_id,
+            args_kwargs__kwargs__merge_request_id=self.iid,
+            args_kwargs__kwargs__mention_note_id=note_id,
+        ).exists()
 
     @staticmethod
     def pinned_model(use_max: bool) -> tuple[str, str]:
@@ -241,9 +259,9 @@ class RunStarter:
 
     @staticmethod
     async def areply_archived(
-        reply: Callable[[str], object], requester: Requester, thread_id: str, *, note_id: int | None
+        reply: Callable[[str], object], caller: Caller, thread_id: str, *, note_id: int | None
     ) -> None:
-        """Tell ``requester`` the session ``thread_id`` is archived, once per trigger, so a redelivery posts nothing; a
+        """Tell ``caller`` the session ``thread_id`` is archived, once per trigger, so a redelivery posts nothing; a
         label trigger has no ``note_id`` and is told once a day."""
         logger.info("Ignoring a trigger on session %s: it is archived", thread_id)
         key = f"webhooks:archived-reply:{thread_id}:{note_id or 'label'}"
@@ -254,7 +272,7 @@ class RunStarter:
         def post() -> None:
             url = RunStarter.session_url(thread_id)
             reply(
-                f"@{requester.username} This session is archived, so I won't act on this. Anyone who can run DAIV on "
+                f"@{caller.username} This session is archived, so I won't act on this. Anyone who can run DAIV on "
                 f"this repository can unarchive it: {url}"
             )
 
@@ -262,4 +280,4 @@ class RunStarter:
             await post()
         except PLATFORM_ERRORS:
             await cache.adelete(key)
-            logger.exception("Failed to tell %s that session %s is archived", requester.username, thread_id)
+            logger.exception("Failed to tell %s that session %s is archived", caller.username, thread_id)

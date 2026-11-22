@@ -5,7 +5,7 @@ from django.utils import timezone
 
 import pytest
 from asgiref.sync import sync_to_async
-from sessions.executor.lock import stale_cutoff
+from sessions.executor.lock import DEAD_RUN_MESSAGE, stale_cutoff
 from sessions.inbox.complete import ANSWERED_IN_ANOTHER_THREAD, MAX_EVENT_ATTEMPTS, MergeRequestReplies, RunEnd
 from sessions.inbox.drain import Drain
 from sessions.models import (
@@ -676,16 +676,18 @@ class TestLegFollowUp:
         stored = await _state(remembered)
         assert (stored.state, stored.attempts) == (EventState.PENDING, 1)
 
-    async def test_the_stale_slot_sweep_fails_it_on_its_first_attempt(self, admin_user):
+    async def test_the_stale_slot_sweep_leaves_it_to_its_runs_end(self, drain, admin_user):
         run, event = await self._taken(admin_user, RunStatus.RUNNING)
         await Session.objects.filter(pk=run.session_id).aupdate(
             active_run_id=str(run.pk), last_active_at=stale_cutoff() - timedelta(minutes=1)
         )
 
-        assert await _recover() == 1
+        assert await _recover() == 0
+        assert (await _state(event)).state == EventState.TAKEN
+        await sync_to_async(Run.objects.finish)(run, RunStatus.FAILED, error_message="Dead run")
 
         stored = await _state(event)
-        assert (stored.state, stored.failure, stored.attempts) == (EventState.FAILED, EventFailure.RUN_FAILED, 1)
+        assert (stored.state, stored.failure, stored.attempts) == (EventState.FAILED, EventFailure.RUN_FAILED, 0)
 
 
 class TestMergeRequestJob:
@@ -743,3 +745,20 @@ class TestMergeRequestJob:
 
         assert (await _state(event)).state == EventState.DISMISSED
         client.create_merge_request_comment.assert_not_called()
+
+    async def test_a_run_that_died_with_its_slot_says_so_once_when_it_is_reaped(self, drain, client, caplog):
+        run, event = await self._taken(RunStatus.RUNNING)
+        await Session.objects.filter(pk=run.session_id).aupdate(
+            active_run_id=str(run.pk), last_active_at=stale_cutoff() - timedelta(minutes=1)
+        )
+
+        assert await _recover() == 0
+        assert (await _state(event)).state == EventState.TAKEN
+        await sync_to_async(Run.objects.finish)(run, RunStatus.FAILED, error_message=DEAD_RUN_MESSAGE)
+        await _recover()
+
+        stored = await _state(event)
+        assert (stored.state, stored.failure) == (EventState.FAILED, EventFailure.RUN_FAILED)
+        client.create_merge_request_comment.assert_called_once()
+        errors = [record for record in caplog.records if record.name == "daiv.sessions" and record.levelname == "ERROR"]
+        assert [str(run.pk) in record.getMessage() for record in errors] == [True]

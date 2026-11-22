@@ -15,7 +15,7 @@ from codebase.conf import settings as codebase_settings
 from sessions.admission import AdmissionError, aadmit, aassert_repo_access
 from sessions.inbox import kinds
 from sessions.merge_request_runs.service import MergeRequestRuns
-from sessions.merge_request_runs.starter import Request, Requester
+from sessions.merge_request_runs.starter import Caller, Request
 from sessions.models import Run, RunStatus, Session, SessionOrigin, SessionRepository
 from sessions.services import (
     BatchSubmitResult,
@@ -200,7 +200,7 @@ async def asubmit_jobs(
     )
     if on_merge_request:
         return await _asubmit_merge_request_job(
-            requester=await _arequester(user),
+            caller=await _acaller(user),
             admission=admission,
             prompt=prompt,
             muted=muted,
@@ -226,7 +226,7 @@ async def asubmit_jobs(
 
 async def asubmit_ci_job(
     *,
-    requester: Requester,
+    caller: Caller,
     target: RepoTarget,
     prompt: str,
     agent_model: str | None,
@@ -238,11 +238,11 @@ async def asubmit_ci_job(
     """Admit and submit the one job a CI identity token sends, on ``target``, a branch or a merge request of the
     token's repository.
 
-    ``requester`` is the account that triggered the pipeline. The token is the access proof, so only the catalog is
-    checked, and the run is attributed to ``requester`` and acts as no one: global MCP servers and environments only.
+    ``caller`` is the account that triggered the pipeline. The token is the access proof, so only the catalog is
+    checked, and the run is attributed to ``caller`` and acts as no one: global MCP servers and environments only.
     """
     admission = await aadmit(
-        user=requester.acting_user,
+        user=caller.acting_user,
         repos=[target],
         agent_model=agent_model,
         agent_thinking_level=agent_thinking_level,
@@ -252,7 +252,7 @@ async def asubmit_ci_job(
     )
     if target.merge_request_iid is not None:
         return await _asubmit_merge_request_job(
-            requester=requester,
+            caller=caller,
             admission=admission,
             prompt=prompt,
             muted=muted,
@@ -261,7 +261,7 @@ async def asubmit_ci_job(
             mcp_overrides=mcp_overrides,
         )
     return await asubmit_batch_runs(
-        **requester.run_fields,
+        **caller.run_fields,
         prompt=prompt,
         repos=admission.targets,
         agent_model=admission.agent_model,
@@ -272,20 +272,20 @@ async def asubmit_ci_job(
     )
 
 
-async def _arequester(user: User) -> Requester:
-    """``user`` as a merge request job's requester, with the platform account they signed in with, which DAIV
+async def _acaller(user: User) -> Caller:
+    """``user`` as a merge request job's caller, with the platform account they signed in with, which DAIV
     mentions on the merge request; never their DAIV username, which may name someone else there."""
     provider = GitPlatform(codebase_settings.CLIENT)
     identity = await aget_platform_identity(user_id=user.pk, provider=provider)
     if identity is None:
-        return Requester(user=user)
+        return Caller(user=user)
     uid = "" if identity.uid is None else identity.uid
-    return Requester(user=user, provider=provider, uid=uid, username=identity.username or "")
+    return Caller(user=user, provider=provider, uid=uid, username=identity.username or "")
 
 
 async def _asubmit_merge_request_job(
     *,
-    requester: Requester,
+    caller: Caller,
     admission: Admission,
     prompt: str,
     muted: bool | None,
@@ -294,14 +294,14 @@ async def _asubmit_merge_request_job(
     mcp_overrides: dict[str, bool] | None,
     references: Sequence[RefIn] | None = None,
 ) -> BatchSubmitResult:
-    """Run ``prompt`` on the merge request the admitted target names, where a mention by ``requester`` would; one
+    """Run ``prompt`` on the merge request the admitted target names, where a mention by ``caller`` would; one
     outcome. ``mcp_overrides`` are the caller's switches, which ``admission`` resolved."""
     target = admission.targets[0]
     if target.merge_request_iid is None:
         raise ValueError("a merge request job needs a merge request")
     request = Request(
         prompt=prompt,
-        source=SessionOrigin(trigger_type),
+        trigger_type=SessionOrigin(trigger_type),
         request_key=kinds.SourceKey.job(uuid.uuid4()),
         muted=muted,
         agent_model=admission.agent_model,
@@ -313,7 +313,7 @@ async def _asubmit_merge_request_job(
         environment_named=bool(environment),
     )
     runs = MergeRequestRuns(await sync_to_async(RepoClient.create_instance)(), target.repo_id, target.merge_request_iid)
-    return BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[await runs.asubmit_job(requester, request)])
+    return BatchSubmitResult(batch_id=uuid.uuid4(), outcomes=[await runs.asubmit_job(caller, request)])
 
 
 async def _asubmit_shared_session_run(

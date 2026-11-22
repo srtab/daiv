@@ -250,7 +250,7 @@ class TestRequest:
         assert RunInput([quiet, follow_up]).request() == "Make the failing test pass"
 
     def test_a_merge_request_job_is_its_prompt_from_its_requester_answered_on_the_merge_request(self):
-        payload = {"prompt": "/code-review", "acts_as_user": False, "source": "api_job"}
+        payload = {"prompt": "/code-review", "trigger_type": "api_job"}
         job = _event(EventKind.MERGE_REQUEST_JOB, payload, author_username="pusher")
 
         assert RunInput([job]).request() == (
@@ -260,7 +260,7 @@ class TestRequest:
         assert EventText(job).summary() == "/code-review"
 
     def test_a_merge_request_job_never_names_its_sender_by_their_daiv_username(self):
-        payload = {"prompt": "/code-review", "acts_as_user": True, "source": "api_job"}
+        payload = {"prompt": "/code-review", "trigger_type": "api_job"}
         job = _event(EventKind.MERGE_REQUEST_JOB, payload, author_username="", author=User(username="alex"))
 
         assert RunInput([job]).request().startswith("/code-review\n\nThis was sent as a job on !9.")

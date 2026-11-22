@@ -18,8 +18,11 @@ from core.constants import BOT_NAME
 from sessions.executor.run import execute_run
 from sessions.executor.spec import RunHooks, RunSpec
 from sessions.merge_request_runs.base import BaseManager
+from sessions.merge_request_runs.guards import JobNotStarted
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from langgraph.types import StateSnapshot
 
     from automation.agent.references import ExternalRef
@@ -37,9 +40,12 @@ class CommentsAddressorManager(BaseManager):
     else may own. Pinned by ``test_a_successful_run_neither_moves_the_ref_nor_arms_the_watch``.
     """
 
-    def __init__(self, *, merge_request: MergeRequest, **kwargs):
+    def __init__(
+        self, *, merge_request: MergeRequest, on_context_ready: Callable[[str], Awaitable[None]] | None = None, **kwargs
+    ):
         super().__init__(**kwargs)
         self.merge_request = merge_request
+        self.on_context_ready = on_context_ready
 
     @classmethod
     async def address_comments(
@@ -60,6 +66,7 @@ class CommentsAddressorManager(BaseManager):
         agent_thinking_level: str | None = None,
         references: list[dict] | None = None,
         mcp_overrides: dict[str, str] | None = None,
+        on_context_ready: Callable[[str], Awaitable[None]] | None = None,
     ) -> AgentResult:
         """
         Process a comment left directly on the merge request (not in the diff or thread) that mentions DAIV, or a
@@ -81,10 +88,12 @@ class CommentsAddressorManager(BaseManager):
             agent_thinking_level: The thinking level for ``agent_model``.
             references: A job's stored external references.
             mcp_overrides: A job's resolved MCP overrides.
+            on_context_ready: The run's ``RunHooks.on_context_ready``, awaited once it holds the session's slot.
 
         Returns:
             An :class:`AgentResult` dict with the agent response and code_changes flag. A vanished source branch
-            raises ``CloneRefNotFoundError`` for the task to answer.
+            raises ``CloneRefNotFoundError`` for the task to answer, and a job its ``on_context_ready`` stopped raises
+            ``JobNotStarted``; neither posts the "unable" note.
         """
         manager = cls(
             repo_id=repo_id,
@@ -92,6 +101,7 @@ class CommentsAddressorManager(BaseManager):
             mention_comment_id=mention_comment_id,
             mention_note_id=mention_note_id,
             thread_id=thread_id,
+            on_context_ready=on_context_ready,
         )
 
         try:
@@ -113,7 +123,7 @@ class CommentsAddressorManager(BaseManager):
             return await manager._address_comments(
                 sandbox_env_id=sandbox_env_id, run_id=run_id, use_max=use_max, acting_user_id=acting_user_id
             )
-        except CloneRefNotFoundError:
+        except CloneRefNotFoundError, JobNotStarted:
             raise
         except Exception:
             manager._add_unable_to_address_review_note()
@@ -175,7 +185,11 @@ class CommentsAddressorManager(BaseManager):
                     "merge_request_id": self.merge_request.merge_request_id,
                 },
             ),
-            RunHooks(on_success=partial(self._on_success, asker=asker), on_failure=self._on_failure),
+            RunHooks(
+                on_context_ready=self.on_context_ready,
+                on_success=partial(self._on_success, asker=asker),
+                on_failure=self._on_failure,
+            ),
         )
         return outcome.agent_result
 
@@ -191,7 +205,7 @@ class CommentsAddressorManager(BaseManager):
             self._add_unable_to_address_review_note(fallback_footer=fallback_footer)
 
     async def _on_failure(self, exc: Exception, *, draft_published: bool, snapshot: StateSnapshot | None) -> None:
-        if isinstance(exc, CloneRefNotFoundError):
+        if isinstance(exc, CloneRefNotFoundError | JobNotStarted):
             return
         if self._said_cannot_run_yet(exc, author=self.merge_request.author.username):
             return

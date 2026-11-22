@@ -72,33 +72,34 @@ TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
 
 | Check | GitLab | GitHub |
 |---|---|---|
-| Signature | `RS256` by a key in `{iss}/oauth/discovery/keys` | `RS256` by a key in `{iss}/.well-known/jwks` |
-| `iss` | `CODEBASE_GITLAB_URL` or `https://gitlab.com` | `CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER` |
+| Signature | `RS256` by a key in `{CODEBASE_GITLAB_URL}/oauth/discovery/keys` (`https://gitlab.com` when unset) | `RS256` by a key in `{iss}/.well-known/jwks` |
+| `iss` | `CODEBASE_GITLAB_ID_TOKEN_ISSUER`, else `CODEBASE_GITLAB_URL`, else `https://gitlab.com` | `CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER`, else `https://token.actions.SUBDOMAIN.ghe.com` when the host of `CODEBASE_GITHUB_URL` is `SUBDOMAIN.ghe.com` or `api.SUBDOMAIN.ghe.com`, else `https://HOST/_services/token` when the host of `CODEBASE_GITHUB_URL` is neither `github.com` nor `api.github.com`, else `https://token.actions.githubusercontent.com` |
 | `aud` | `DAIV_JOBS_CI_IDENTITY_AUDIENCE` (default `DAIV_EXTERNAL_URL`) | same |
 | `exp`, `iat` | valid, 60 s leeway | same |
 | `jti` | present | same |
 | Repository | `project_id` = the platform id of `repos[0].repo_id` | `repository_id` = the platform id of `repos[0].repo_id` |
 | Allowlist | `user_login` in `allowed_usernames` when set | `actor` in `allowed_usernames` when set |
+| First attempt | not checked | `run_attempt` = `1`; a re-run's `actor` is the first attempt's |
 | Single use, on `POST` only | no accepted job for this `jti` yet | same |
 
-**Single use**: `POST /api/jobs` claims the token's `jti` before it starts anything, until the token expires. When the submission accepts no job (a `400`, a `failed` entry or an error), the claim is released, so a retry with the same token works. `GET /api/jobs/{job_id}` doesn't claim.
+**Single use**: `POST /api/jobs` claims the token's `jti` after the checks above and before it starts anything, until the token expires, so a submission they refuse never holds it. When admission refuses the submission (`400` or `404`) or it accepts no job (a `failed` entry), the claim is released, so a retry with the same token works. A submission that fails with an unexpected server error keeps the claim, since its job may have started. `GET /api/jobs/{job_id}` doesn't claim.
 
 **Responses**:
 
 | Condition | Response |
 |---|---|
-| Any verification check fails, the token was already used for an accepted job, or the signing keys or the claim store are unreachable | `401` `{"detail": "Unauthorized"}`, with no detail on which check failed |
-
-**Logs**: every refusal logs once at WARNING with the failed check (`malformed`, `algorithm`, `signature`, `issuer`, `audience`, `expired`, `missing claim`, `repository`, `allowed usernames` or `reused`) and the repository path the token claims. The token itself is never logged. Unreachable signing keys or claim store log at ERROR instead.
+| Any verification check fails, the token was already used for an accepted job, or the signing keys, the repository or the claim store are unreachable | `401` `{"detail": "Unauthorized"}`, with no detail on which check failed |
 | The repository is not in DAIV's catalog | `404`, as for API keys |
 | `repos` has more than one entry, or the body has `thread_id`, `shared_session` or `references` | `400`: "A CI identity token submits one job on its own repository." |
 | `mcp_overrides` names a personal server | `400`, as an unknown server name |
+
+**Logs**: every refusal logs once at WARNING with the failed check (`malformed`, `algorithm`, `signature`, `issuer`, `audience`, `expired`, `missing claim`, `re-run`, `repository`, `allowed usernames` or `reused`) and the repository path the token claims, escaped and cut to 200 characters. The token itself is never logged. Signing keys or a repository the platform fails to serve (`signing keys unreachable`, `repository unreachable`), and an unreachable claim store, log once at ERROR instead.
 
 **Attribution**:
 - **Person:** the run's `user` is the actor's linked, active DAIV account. Otherwise it is null, with `external_provider`, `external_uid` and `external_username` set to the actor.
 - **No personal tools:** `acts_as_user` is false.
 - **Notifications:** `muted` defaults to `true`, and `"muted": false` keeps notifications for a linked actor.
-- **Rate limit:** counted per `ci:{provider}:{actor_uid}`.
+- **Rate limit:** counted per the actor's linked user (its pk), else per `ci:{provider}:{actor_uid}`.
 
 ## Polling with a CI identity token
 

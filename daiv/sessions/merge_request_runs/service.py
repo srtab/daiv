@@ -19,13 +19,7 @@ from asgiref.sync import sync_to_async
 from codebase.base import GitPlatform, Scope
 from codebase.clients.base import PLATFORM_ERRORS, CommentThread, is_not_found
 from sessions.inbox import kinds
-from sessions.inbox.merge_request_jobs import (
-    ARCHIVED,
-    MergeRequestJobRefused,
-    MergeRequestJobs,
-    caller_failure_message,
-    state_of,
-)
+from sessions.inbox.merge_request_jobs import ARCHIVED, MergeRequestJobRefused, MergeRequestJobs
 from sessions.inbox.ownership import Ownerships
 from sessions.inbox.post import Inbox
 from sessions.merge_request_runs.starter import Mention, Request, RunStarter, StartOutcome
@@ -37,7 +31,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from codebase.clients import RepoClient
-    from sessions.merge_request_runs.starter import Requester
+    from sessions.merge_request_runs.starter import Caller
     from sessions.models import MergeRequestOwnership
 
 logger = logging.getLogger("daiv.sessions")
@@ -50,7 +44,7 @@ NOT_STARTED = "The job on merge request !{iid} could not start."
 
 
 class MergeRequestRuns:
-    """Starts runs on one merge request, where a mention by the requester would run (FR-006)."""
+    """Starts runs on one merge request, where a mention by the caller would run (FR-006)."""
 
     def __init__(self, client: RepoClient, repo_id: str, merge_request_iid: int):
         self.client = client
@@ -59,7 +53,7 @@ class MergeRequestRuns:
         self.starter = RunStarter(repo_id=repo_id, scope=Scope.MERGE_REQUEST, iid=merge_request_iid)
 
     async def astart(
-        self, requester: Requester, mention: Mention, *, title: str, ref: str | None = None, use_max: bool = False
+        self, caller: Caller, mention: Mention, *, title: str, ref: str | None = None, use_max: bool = False
     ) -> StartOutcome:
         """Address ``mention`` in the session that owns the merge request when one does, else in the merge request's
         own session.
@@ -72,11 +66,9 @@ class MergeRequestRuns:
         if (ownership := await Ownerships(self.repo_id).afind_open(self.merge_request_iid, title=title)) is not None:
             thread_id = ownership.session.thread_id
             if ownership.session.archived_at is not None:
-                await RunStarter.areply_archived(
-                    self._reply_under(mention), requester, thread_id, note_id=mention.note_id
-                )
+                await RunStarter.areply_archived(self._reply_under(mention), caller, thread_id, note_id=mention.note_id)
                 return StartOutcome(thread_id=thread_id, archived=True)
-            created = await self._apost_comment(ownership, requester, mention, kind=EventKind.MENTION, use_max=use_max)
+            created = await self._apost_comment(ownership, caller, mention, kind=EventKind.MENTION, use_max=use_max)
             return StartOutcome(thread_id=thread_id, started=created)
         if mention.on_diff:
             logger.info("Ignoring a diff mention on %s#%s: no session owns it", self.repo_id, self.merge_request_iid)
@@ -85,7 +77,7 @@ class MergeRequestRuns:
             ref = await self._afetch_source_branch()
         return await self.starter.astart(
             address_merge_request_task,
-            requester,
+            caller,
             use_max=use_max,
             task_kwargs={
                 "merge_request_id": self.merge_request_iid,
@@ -100,7 +92,7 @@ class MergeRequestRuns:
         )
 
     async def astart_job(
-        self, requester: Requester, request: Request, *, title: str, ref: str, merge_request_web_url: str = ""
+        self, caller: Caller, request: Request, *, title: str, ref: str, merge_request_web_url: str = ""
     ) -> StartOutcome:
         """Start ``request`` on the merge request's branch ``ref``: as a ``merge_request_job`` with a run of its own in
         the session that owns the merge request when one does, in the environment it names, else the session's; else
@@ -111,22 +103,22 @@ class MergeRequestRuns:
         finds the merge request merged or closed in the owning session.
         """
         if (ownership := await Ownerships(self.repo_id).afind_open(self.merge_request_iid, title=title)) is not None:
-            return await self._apost_job(ownership, requester, request, merge_request_web_url)
+            return await self._apost_job(ownership, caller, request, merge_request_web_url)
         return await self.starter.astart(
             address_merge_request_task,
-            requester,
+            caller,
             use_max=False,
             task_kwargs={
                 "merge_request_id": self.merge_request_iid,
                 "request_key": request.request_key,
                 "prompt": request.prompt,
-                "requester_username": requester.username,
+                "requester_username": caller.username,
                 "agent_model": request.agent_model or None,
                 "agent_thinking_level": request.agent_thinking_level or None,
                 "references": list(request.references),
                 "mcp_overrides": request.mcp_overrides,
             },
-            trigger_type=request.source,
+            trigger_type=request.trigger_type,
             title=title,
             reply=None,
             ref=ref,
@@ -135,12 +127,12 @@ class MergeRequestRuns:
         )
 
     async def _apost_job(
-        self, ownership: MergeRequestOwnership, requester: Requester, request: Request, merge_request_web_url: str
+        self, ownership: MergeRequestOwnership, caller: Caller, request: Request, merge_request_web_url: str
     ) -> StartOutcome:
         thread_id = ownership.session.thread_id
         try:
             run = await MergeRequestJobs(thread_id, self.repo_id, self.merge_request_iid).apost(
-                requester, request, ref=ownership.source_branch, merge_request_web_url=merge_request_web_url
+                caller, request, ref=ownership.source_branch, merge_request_web_url=merge_request_web_url
             )
         except MergeRequestJobRefused as refused:
             if refused.reason != ARCHIVED:
@@ -149,7 +141,7 @@ class MergeRequestRuns:
             return StartOutcome(thread_id=thread_id, archived=True)
         return StartOutcome(thread_id=thread_id, started=True, run=run)
 
-    async def asubmit_job(self, requester: Requester, request: Request) -> Run | BatchSubmitFailure:
+    async def asubmit_job(self, caller: Caller, request: Request) -> Run | BatchSubmitFailure:
         """Start ``request`` on the merge request (:meth:`astart_job`), or say why it can't: the merge request is
         missing from the repository, merged or closed, its session is archived, or its run failed before it could
         start. A refusal posts nothing on the merge request."""
@@ -165,11 +157,11 @@ class MergeRequestRuns:
                 return refused(NOT_FOUND.format(iid=iid, repo_id=self.repo_id))
             logger.exception("Failed to read merge request %s!%s for a job", self.repo_id, iid)
             return refused(UNREADABLE.format(iid=iid, repo_id=self.repo_id))
-        if not (state := state_of(merge_request)).is_open:
+        if not (state := MergeRequestJobs.state_of(merge_request)).is_open:
             return refused(NOT_OPEN.format(iid=iid, state=state.value))
         try:
             outcome = await self.astart_job(
-                requester,
+                caller,
                 request,
                 title=merge_request.title,
                 ref=merge_request.source_branch,
@@ -183,14 +175,14 @@ class MergeRequestRuns:
         if (run := outcome.run) is None:
             return refused(NOT_STARTED.format(iid=iid))
         if run.status == RunStatus.FAILED:
-            return refused(caller_failure_message(run) or NOT_STARTED.format(iid=iid))
+            return refused(MergeRequestJobs.caller_failure_message(run) or NOT_STARTED.format(iid=iid))
         return run
 
-    async def aremember(self, requester: Callable[[], Awaitable[Requester]], comment: Mention, *, title: str) -> None:
-        """Remember a comment that did not mention DAIV in the session that owns the merge request, by the requester
-        ``requester`` resolves once a session does; with no such session it concerns no one."""
+    async def aremember(self, caller: Callable[[], Awaitable[Caller]], comment: Mention, *, title: str) -> None:
+        """Remember a comment that did not mention DAIV in the session that owns the merge request, by the caller
+        ``caller`` resolves once a session does; with no such session it concerns no one."""
         if (ownership := await Ownerships(self.repo_id).afind_open(self.merge_request_iid, title=title)) is not None:
-            await self._apost_comment(ownership, await requester(), comment, kind=EventKind.COMMENT)
+            await self._apost_comment(ownership, await caller(), comment, kind=EventKind.COMMENT)
 
     def _reply_under(self, mention: Mention):
         thread = CommentThread(mention.comment_id, on_diff=mention.on_diff)
@@ -201,13 +193,7 @@ class MergeRequestRuns:
         return reply
 
     async def _apost_comment(
-        self,
-        ownership: MergeRequestOwnership,
-        requester: Requester,
-        comment: Mention,
-        *,
-        kind: str,
-        use_max: bool = False,
+        self, ownership: MergeRequestOwnership, caller: Caller, comment: Mention, *, kind: str, use_max: bool = False
     ) -> bool:
         """Post ``comment`` to the owning session's inbox, on the merge request's branch; returns whether it is new,
         since an edit keeps the comment's key. A remembered comment has a key of its own, so editing it to mention
@@ -234,7 +220,7 @@ class MergeRequestRuns:
             ref=ownership.source_branch,
             merge_request_iid=ownership.merge_request_iid,
             repo_id=ownership.repo_id,
-            **requester.author_fields,
+            **caller.author_fields,
         )
         return result.created
 

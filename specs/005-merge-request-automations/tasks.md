@@ -230,7 +230,7 @@ US1 starts runs through the moved service, and both stories carry `acts_as_user`
 
 - [X] T034 [P] [US2] Add the deployment settings:
   - `JOBS_CI_IDENTITY_AUDIENCE: str | None`, default `None` meaning `EXTERNAL_URL`, in `daiv/core/conf.py` (env `DAIV_JOBS_CI_IDENTITY_AUDIENCE`);
-  - `GITHUB_ACTIONS_OIDC_ISSUER: str = "https://token.actions.githubusercontent.com"` in `daiv/codebase/conf.py` (env `CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER`).
+  - `GITHUB_ACTIONS_OIDC_ISSUER: str | None`, default `None` meaning `https://HOST/_services/token` when the host of `CODEBASE_GITHUB_URL` is neither `github.com` nor `api.github.com` (GitHub Enterprise Server), else `https://token.actions.githubusercontent.com`, in `daiv/codebase/conf.py` (env `CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER`).
 - [X] T035 [US2] Create `daiv/accounts/api/ci_identity.py` with three classes:
   - **`CIIdentityVerifier`:**
     - one `jwt.PyJWKClient` per issuer, cached at module level;

@@ -10,7 +10,7 @@ from sessions.ids import compute_thread_id
 from sessions.inbox.drain import Drain
 from sessions.inbox.merge_request_jobs import NOT_STARTED_MERGED
 from sessions.merge_request_runs.service import MergeRequestRuns
-from sessions.merge_request_runs.starter import Mention, Request, Requester
+from sessions.merge_request_runs.starter import Caller, Mention, Request
 from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
 from sessions.services import BatchSubmitFailure
 
@@ -21,11 +21,13 @@ from tests.unit_tests.sessions.conftest import amake_owned_merge_request
 pytestmark = pytest.mark.django_db(transaction=True)
 
 THREAD = compute_thread_id(repo_slug="group/repo", scope=Scope.MERGE_REQUEST, entity_iid=7)
-CI_ACTOR = Requester(user=None, provider=GitPlatform.GITLAB, uid=9, username="pusher", acts_as_user=False)
+CI_ACTOR = Caller(user=None, provider=GitPlatform.GITLAB, uid=9, username="pusher", acts_as_user=False)
 
 
 def _request(**fields) -> Request:
-    return Request(**{"prompt": "/code-review", "source": SessionOrigin.API_JOB, "request_key": "job:abc"} | fields)
+    return Request(
+        **{"prompt": "/code-review", "trigger_type": SessionOrigin.API_JOB, "request_key": "job:abc"} | fields
+    )
 
 
 def _merge_request(**fields) -> MergeRequest:
@@ -67,7 +69,7 @@ def no_env():
 class TestAJobOnAMergeRequestNoSessionOwns:
     async def test_it_runs_in_the_merge_requests_session_as_the_job_it_is(self, client):
         outcome = await MergeRequestRuns(client, "group/repo", 7).astart_job(
-            CI_ACTOR, _request(source=SessionOrigin.MCP_JOB, muted=True), title="Feature", ref="feat"
+            CI_ACTOR, _request(trigger_type=SessionOrigin.MCP_JOB, muted=True), title="Feature", ref="feat"
         )
 
         run = await Run.objects.aget(pk=outcome.run.pk)
@@ -91,7 +93,7 @@ class TestAJobOnAMergeRequestNoSessionOwns:
         self, client, member_user, username, expected
     ):
         outcome = await MergeRequestRuns(client, "group/repo", 7).astart_job(
-            Requester(user=member_user, username=username), _request(), title="Feature", ref="feat"
+            Caller(user=member_user, username=username), _request(), title="Feature", ref="feat"
         )
 
         run = await Run.objects.aget(pk=outcome.run.pk)
@@ -162,7 +164,7 @@ class TestAJobOnAnOwnedMergeRequest:
 
     async def test_it_posts_a_job_with_a_run_of_its_own(self, client, owned):
         outcome = await MergeRequestRuns(client, "group/repo", 7).astart_job(
-            CI_ACTOR, _request(source=SessionOrigin.MCP_JOB, muted=True), title="F", ref=owned.source_branch
+            CI_ACTOR, _request(trigger_type=SessionOrigin.MCP_JOB, muted=True), title="F", ref=owned.source_branch
         )
 
         event = await InboxEvent.objects.aget(session_id=owned.session_id)
@@ -187,7 +189,7 @@ class TestAJobOnAnOwnedMergeRequest:
         )
 
         outcome = await MergeRequestRuns(client, "group/repo", 7).astart_job(
-            Requester(user=member_user), request, title="F", ref=owned.source_branch
+            Caller(user=member_user), request, title="F", ref=owned.source_branch
         )
 
         payload = (await InboxEvent.objects.aget(run=outcome.run)).payload

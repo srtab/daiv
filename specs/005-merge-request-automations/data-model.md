@@ -63,9 +63,8 @@ A merge-request-targeted job on a merge request no DAIV session owns uses the sa
 | Setting | Module | Default | Meaning |
 |---|---|---|---|
 | `DAIV_JOBS_CI_IDENTITY_AUDIENCE` | `core/conf.py` | `DAIV_EXTERNAL_URL` | The `aud` a CI identity token must carry |
-| `CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER` | `codebase/conf.py` | `https://token.actions.githubusercontent.com` | The GitHub Actions token issuer; GitHub Enterprise Server sets `https://HOST/_services/token` |
-
-The GitLab issuer is `CODEBASE_GITLAB_URL`, else `https://gitlab.com`.
+| `CODEBASE_GITLAB_ID_TOKEN_ISSUER` | `codebase/conf.py` | `CODEBASE_GITLAB_URL`, else `https://gitlab.com` | The GitLab CI ID token issuer, GitLab's external URL, when DAIV reaches GitLab at another address |
+| `CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER` | `codebase/conf.py` | `https://token.actions.SUBDOMAIN.ghe.com` when the host of `CODEBASE_GITHUB_URL` is `SUBDOMAIN.ghe.com` or `api.SUBDOMAIN.ghe.com`, else `https://HOST/_services/token` when the host of `CODEBASE_GITHUB_URL` is neither `github.com` nor `api.github.com`, else `https://token.actions.githubusercontent.com` | The GitHub Actions token issuer |
 
 ## CIIdentity (`accounts.api.ci_identity`, in memory)
 
@@ -79,7 +78,7 @@ The principal `request.auth` holds on a token-authenticated request. It has no t
 | `user` | `resolve_linked_user(provider, actor_uid)`, or `None` |
 | `sha` | `sha`, or `None` when a GitHub token lacks it |
 | `jti`, `expires_at` | `jti`, `exp` |
-| `pk` | `"ci:{provider}:{actor_uid}"`, the throttle key |
+| `pk` | `user`'s pk, else `"ci:{provider}:{actor_uid}"`: the throttle key |
 
 ## Used CI tokens (cache, no table)
 
@@ -88,5 +87,5 @@ The principal `request.auth` holds on a token-authenticated request. It has no t
 | Key | `jobs:ci-token:{provider}:{jti}` |
 | Set | by `POST /api/jobs` with `cache.aadd`, before the submission starts anything |
 | Expires | at the token's `exp` plus the 60 s leeway |
-| Released | deleted when the submission accepts no job |
+| Released | deleted when admission refuses the submission or it accepts no job; an unexpected error keeps it |
 | Unreachable | the submission is refused with `401`, and the failure logs at ERROR |
