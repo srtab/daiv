@@ -799,6 +799,100 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#run-a-job-on-a-merge-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run a job on a merge request
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ci-identity-tokens" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CI identity tokens
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CI identity tokens">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#request-a-token-in-gitlab-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Request a token in GitLab CI
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#request-a-token-in-github-actions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Request a token in GitHub Actions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-daiv-checks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What DAIV checks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-a-token-can-submit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a token can submit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#who-the-run-belongs-to" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who the run belongs to
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#poll-with-a-token" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Poll with a token
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#request-fields" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -920,6 +1014,17 @@
     <span class="md-ellipsis">
       
         Chain two jobs in a scheduled GitLab pipeline
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#review-every-push-to-a-merge-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Review every push to a merge request
       
     </span>
   </a>
@@ -1839,6 +1944,100 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#run-a-job-on-a-merge-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run a job on a merge request
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ci-identity-tokens" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CI identity tokens
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CI identity tokens">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#request-a-token-in-gitlab-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Request a token in GitLab CI
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#request-a-token-in-github-actions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Request a token in GitHub Actions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-daiv-checks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What DAIV checks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-a-token-can-submit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a token can submit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#who-the-run-belongs-to" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who the run belongs to
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#poll-with-a-token" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Poll with a token
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#request-fields" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1966,6 +2165,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#review-every-push-to-a-merge-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Review every push to a merge request
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2057,12 +2267,12 @@
 
 <h1 id="jobs-api">Jobs API</h1>
 <p>The jobs API runs DAIV agents outside the git webhook flow. You send a prompt and a list of repositories, DAIV returns a job ID for each run, and you poll that ID for the result.</p>
-<p>Use it to run agents from a CI pipeline, chain agent tasks, trigger runs from Slack bots, scripts or other tools, or start a one-off run with <code>curl</code>. To run a prompt on a recurring schedule without any external trigger, use <a href="../scheduled-jobs/">scheduled jobs</a>.</p>
+<p>Use it to run agents from a CI pipeline, chain agent tasks, trigger runs from Slack bots, scripts or other tools, or start a one-off run with <code>curl</code>. A job can also run on a merge request and post its result there, for example a code review on every push (<a href="#run-a-job-on-a-merge-request">Run a job on a merge request</a>). To run a prompt on a recurring schedule without any external trigger, use <a href="../scheduled-jobs/">scheduled jobs</a>.</p>
 <h2 id="before-you-start">Before you start</h2>
 <p>You need:</p>
 <ul>
-<li>A DAIV account with an API key, created as described in <a href="#create-an-api-key">Create an API key</a>.</li>
-<li>Write access to every repository you name in <code>repos</code>.</li>
+<li>A DAIV account with an API key, created as described in <a href="#create-an-api-key">Create an API key</a>. A GitLab CI job or a GitHub Actions workflow can use its <a href="#ci-identity-tokens">CI identity token</a> instead.</li>
+<li>Write access to every repository you name in <code>repos</code>. A CI identity token is the proof of access for its own repository.</li>
 <li>For multi-repository sessions (<code>shared_session</code>), a daiv-sandbox release with path-scoped egress rules and repository seeding. Deploy the sandbox release first: with an older sandbox the run fails before any command runs, with an error that says so. Single-repository runs are unaffected.</li>
 </ul>
 <h2 id="create-an-api-key">Create an API key</h2>
@@ -2098,9 +2308,9 @@
 <a id="__codelineno-1-3" name="__codelineno-1-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
 <a id="__codelineno-1-4" name="__codelineno-1-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'...'</span>
 </code></pre></div></td></tr></table></div>
-<p>Replace <code>&lt;api-key&gt;</code> with your key. A missing or invalid key returns <code>401</code>.</p>
+<p>Replace <code>&lt;api-key&gt;</code> with your key. A missing or invalid key returns <code>401</code>. A CI job can pass its identity token the same way; see <a href="#ci-identity-tokens">CI identity tokens</a>.</p>
 <h2 id="rate-limiting">Rate limiting</h2>
-<p>DAIV limits job submissions per authenticated user and returns <code>429 Too Many Requests</code> when you exceed the limit. The same budget applies to the <a href="../mcp-endpoint/">MCP endpoint</a> and to chat completions. An admin sets the rate in <strong>Configuration</strong> under the <strong>Jobs</strong> group, or with <code>DAIV_JOBS_THROTTLE_RATE</code>; the default and the accepted formats are in <a href="../../reference/env-variables/#jobs-api">Environment variables</a>.</p>
+<p>DAIV limits job submissions per authenticated user, or for a <a href="#ci-identity-tokens">CI identity token</a> per account that triggered the pipeline, and returns <code>429 Too Many Requests</code> when you exceed the limit. The same budget applies to the <a href="../mcp-endpoint/">MCP endpoint</a> and to chat completions. An admin sets the rate in <strong>Configuration</strong> under the <strong>Jobs</strong> group, or with <code>DAIV_JOBS_THROTTLE_RATE</code>; the default and the accepted formats are in <a href="../../reference/env-variables/#jobs-api">Environment variables</a>.</p>
 <h2 id="submit-a-job">Submit a job</h2>
 <p>Send a <code>POST</code> request to <code>/api/jobs</code> with a prompt and the repositories to run it on. For example:</p>
 <div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span>
@@ -2226,7 +2436,139 @@
 </li>
 </ol>
 <p>The <code>thread_id</code> rules in <a href="#request-fields">Request fields</a> apply to the answer too: <code>repos</code> has exactly one entry, or for a <a href="#continuing-a-multi-repository-session">multi-repository session</a> the main repository alone or the session's full list, and the thread's most recent run must be yours.</p>
-<p>You do not have to poll for the question. When a job ends in <code>WAITING_INPUT</code>, DAIV sends you a <a href="../notifications/">notification</a> listing the questions, unless you muted it. For a multi-repository batch, the run counts in the batch rollup, and appears in the email and Rocket.Chat versions, once every repository's run has settled.</p>
+<p>You do not have to poll for the question. When a job ends in <code>WAITING_INPUT</code>, DAIV sends you a <a href="../notifications/">notification</a> listing the questions, unless you muted it or the job asked on a merge request, mentioning you (<a href="#run-a-job-on-a-merge-request">Run a job on a merge request</a>). For a multi-repository batch, the run counts in the batch rollup, and appears in the email and Rocket.Chat versions, once every repository's run has settled.</p>
+<h2 id="run-a-job-on-a-merge-request">Run a job on a merge request</h2>
+<p>Name a merge request with <code>merge_request</code> on the <code>repos</code> entry, in place of <code>ref</code>. DAIV runs the prompt with the merge request as its context, on its source branch, the way a mention of DAIV on that merge request would, and posts the run's final message as one comment on the merge request, from DAIV's account. <code>merge_request</code> is the GitLab merge request IID or the GitHub pull request number. For example, to review merge request <code>!42</code>:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">JSON</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span>
+<span class="normal"><a href="#__codelineno-6-2">2</a></span>
+<span class="normal"><a href="#__codelineno-6-3">3</a></span>
+<span class="normal"><a href="#__codelineno-6-4">4</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a><span class="p">{</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2"></a><span class="w">  </span><span class="nt">"repos"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="nt">"repo_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"mygroup/myproject"</span><span class="p">,</span><span class="w"> </span><span class="nt">"merge_request"</span><span class="p">:</span><span class="w"> </span><span class="mi">42</span><span class="p">}],</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3"></a><span class="w">  </span><span class="nt">"prompt"</span><span class="p">:</span><span class="w"> </span><span class="s2">"/code-review"</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4"></a><span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+<p>The entry must be the only one in <code>repos</code>, with no <code>ref</code> and no per-repository <code>prompt</code> (<code>422</code> otherwise), and the request can't set <code>shared_session</code> or <code>thread_id</code> (<code>400</code>). You need write access to the repository, as for any job; without it the request gets the usual opaque <code>404</code>, which does not confirm the merge request exists.</p>
+<p>The run goes where a mention by you would:</p>
+<ul>
+<li><strong>No DAIV session owns the merge request:</strong> the run goes into the merge request's own session, which later mentions on the merge request share, so they have the job's result in context. The job starts <code>READY</code>, and runs after any run already in that session.</li>
+<li><strong>A DAIV session owns it</strong> (DAIV published the merge request): the job runs as one turn of that session, acting as you. It is <code>QUEUED</code> while the session is busy. Each job keeps its own <code>job_id</code>, so two jobs sent while the session is busy run as two turns, one after the other.</li>
+</ul>
+<p><code>references</code>, <code>mcp_overrides</code> and <code>environment</code> apply to the job's run only. In a session that owns the merge request, the references join the session's for that run, and <code>mcp_overrides</code> apply on top of the session's own; the session keeps its own references and MCP servers for later turns. A named <code>environment</code> replaces the session's for that turn.</p>
+<p>The job ends with one of these on the merge request:</p>
+<ul>
+<li><strong>The result:</strong> the final message, also returned in <code>result</code>.</li>
+<li><strong>A question:</strong> the question, mentioning the git platform account your DAIV account is linked to, if any, and the job is <code>WAITING_INPUT</code>. Anyone who mentions DAIV on the merge request answers it, or you send a new job with the same target. A question that mentions you sends no separate <a href="../notifications/#what-produces-a-notification">notification</a>.</li>
+<li><strong>A failure:</strong> a short comment that DAIV could not complete the request, naming the provider's failure or a DAIV restart that interrupted the run when either caused it, and the job is <code>FAILED</code>. To run it again, send the job again: its session does not offer <strong>Retry</strong> for it (<a href="../sessions/#retry-a-run">Retry a run</a>).</li>
+<li><strong>A merge or close before the run started</strong>, including while the job waited for another run in its session: DAIV posts "This merge request was merged before the job could start, so I didn't run it." ("closed" for a closed one), and the job is <code>FAILED</code> with that text in <code>error</code>.</li>
+<li><strong>A deleted source branch:</strong> when the run goes into the merge request's own session and the source branch no longer exists, DAIV posts "The source branch of this merge request no longer exists, so I didn't run the job.", and the job is <code>FAILED</code> with that text in <code>error</code>. A merge request merged or closed meanwhile gets the merge or close note instead.</li>
+<li><strong>A repository you can't run on:</strong> when the session that owns the merge request also works on a repository you can't run on, DAIV posts "The person this job would run as can't run on every repository its session works on, so I didn't run it." The job is <code>FAILED</code> with that text in <code>error</code>, or, when the session was idle, refused in <code>failed</code> with that text.</li>
+</ul>
+<p>DAIV refuses the job, and puts it in <code>failed</code> with the reason, when the merge request is not in the repository (<code>Merge request !42 was not found in mygroup/myproject.</code>), is merged or closed (<code>Merge request !42 is merged.</code>), its DAIV session is archived, the owning session works on a repository you can't run on (above), or the run could not start (<code>The job on merge request !42 could not start.</code>). Only the refusal for a repository you can't run on posts on the merge request. An archived session's refusal links the session to unarchive. A session archived after DAIV accepted the job ends the job <code>FAILED</code> with <code>Not run: its session was archived</code> in <code>error</code>, and DAIV posts nothing on the merge request.</p>
+<p>To run this from CI on every push, see <a href="#review-every-push-to-a-merge-request">Review every push to a merge request</a>.</p>
+<h2 id="ci-identity-tokens">CI identity tokens</h2>
+<p>A GitLab CI job or a GitHub Actions workflow can authenticate to the jobs API with the short-lived identity token its platform signs for it, so your CI stores no DAIV key. The run belongs to the account that triggered the pipeline, not to a shared key's owner. DAIV accepts identity tokens from the git platform it is configured for, on <code>POST /api/jobs</code> and <code>GET /api/jobs/{job_id}</code>; the MCP endpoint does not take them.</p>
+<h3 id="request-a-token-in-gitlab-ci">Request a token in GitLab CI</h3>
+<p>Add an <code>id_tokens</code> entry whose <code>aud</code> is DAIV's address, <code>DAIV_EXTERNAL_URL</code>, and pass it as the Bearer token:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span>
+<span class="normal"><a href="#__codelineno-7-2">2</a></span>
+<span class="normal"><a href="#__codelineno-7-3">3</a></span>
+<span class="normal"><a href="#__codelineno-7-4">4</a></span>
+<span class="normal"><a href="#__codelineno-7-5">5</a></span>
+<span class="normal"><a href="#__codelineno-7-6">6</a></span>
+<span class="normal"><a href="#__codelineno-7-7">7</a></span>
+<span class="normal"><a href="#__codelineno-7-8">8</a></span>
+<span class="normal"><a href="#__codelineno-7-9">9</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a><span class="nt">daiv-job</span><span class="p">:</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2"></a><span class="w">  </span><span class="nt">id_tokens</span><span class="p">:</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3"></a><span class="w">    </span><span class="nt">DAIV_ID_TOKEN</span><span class="p">:</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4"></a><span class="w">      </span><span class="nt">aud</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://daiv.example.com</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5"></a><span class="w">  </span><span class="nt">script</span><span class="p">:</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">&gt;</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7"></a><span class="w">      </span><span class="no">curl --fail-with-body -sS -X POST "https://daiv.example.com/api/jobs"</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8"></a><span class="w">      </span><span class="no">-H "Authorization: Bearer $DAIV_ID_TOKEN" -H "Content-Type: application/json"</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9"></a><span class="w">      </span><span class="no">-d "{\"repos\":[{\"repo_id\":\"$CI_PROJECT_PATH\"}],\"prompt\":\"List all TODO comments\"}"</span>
+</code></pre></div></td></tr></table></div>
+<h3 id="request-a-token-in-github-actions">Request a token in GitHub Actions</h3>
+<p>Give the workflow the <code>id-token: write</code> permission, and request a token for DAIV's address:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1">1</a></span>
+<span class="normal"><a href="#__codelineno-8-2">2</a></span>
+<span class="normal"><a href="#__codelineno-8-3">3</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1"></a><span class="nt">permissions</span><span class="p">:</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2"></a><span class="w">  </span><span class="nt">id-token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">write</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3"></a><span class="w">  </span><span class="nt">contents</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">read</span>
+</code></pre></div></td></tr></table></div>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-9-1">1</a></span>
+<span class="normal"><a href="#__codelineno-9-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1"></a><span class="nv">TOKEN</span><span class="o">=</span><span class="k">$(</span>curl<span class="w"> </span>-sS<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Authorization: bearer </span><span class="nv">$ACTIONS_ID_TOKEN_REQUEST_TOKEN</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2"></a><span class="w">  </span><span class="s2">"</span><span class="nv">$ACTIONS_ID_TOKEN_REQUEST_URL</span><span class="s2">&amp;audience=https://daiv.example.com"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span>.value<span class="k">)</span>
+</code></pre></div></td></tr></table></div>
+<p>A <code>pull_request</code> workflow for a pull request from a fork gets no <code>id-token</code> permission, so it can't request a token, unless your repository is private and its Actions settings send write tokens to workflows from fork pull requests. Such a workflow runs in your repository, so its token names your repository, and DAIV accepts its job unless <code>allowed_usernames</code> leaves out the account that triggered it.</p>
+<h3 id="what-daiv-checks">What DAIV checks</h3>
+<p>DAIV accepts a token only when all of these hold:</p>
+<table>
+<thead>
+<tr>
+<th>Check</th>
+<th>GitLab</th>
+<th>GitHub</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Signature</td>
+<td><code>RS256</code>, by a key GitLab publishes at <code>&lt;CODEBASE_GITLAB_URL&gt;/oauth/discovery/keys</code></td>
+<td><code>RS256</code>, by a key GitHub publishes at <code>&lt;issuer&gt;/.well-known/jwks</code></td>
+</tr>
+<tr>
+<td>Issuer</td>
+<td><code>CODEBASE_GITLAB_ID_TOKEN_ISSUER</code>, by default <code>CODEBASE_GITLAB_URL</code>, or <code>https://gitlab.com</code> when both are unset</td>
+<td><code>CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER</code>, by default <code>https://token.actions.&lt;subdomain&gt;.ghe.com</code> when <code>CODEBASE_GITHUB_URL</code> is a GHE.com enterprise at <code>&lt;subdomain&gt;.ghe.com</code>, <code>https://&lt;host&gt;/_services/token</code> when it is a GitHub Enterprise Server at <code>&lt;host&gt;</code>, else <code>https://token.actions.githubusercontent.com</code></td>
+</tr>
+<tr>
+<td>Audience</td>
+<td><code>DAIV_JOBS_CI_IDENTITY_AUDIENCE</code>, by default <code>DAIV_EXTERNAL_URL</code></td>
+<td>the same</td>
+</tr>
+<tr>
+<td>Expiry</td>
+<td>not expired, with 60 seconds of leeway</td>
+<td>the same</td>
+</tr>
+<tr>
+<td>Repository</td>
+<td>the token's <code>project_id</code> is the ID of the job's repository</td>
+<td>the token's <code>repository_id</code> is the ID of the job's repository</td>
+</tr>
+<tr>
+<td>Allowed users</td>
+<td>when the repository's <code>allowed_usernames</code> is set, it lists the token's <code>user_login</code></td>
+<td>it lists the token's <code>actor</code></td>
+</tr>
+<tr>
+<td>First attempt</td>
+<td>not checked</td>
+<td>the token's <code>run_attempt</code> is <code>1</code></td>
+</tr>
+<tr>
+<td>Single use</td>
+<td>no job was accepted with this token yet</td>
+<td>the same</td>
+</tr>
+</tbody>
+</table>
+<p>The repository is matched by its numeric ID, which a rename does not change, so a pipeline in a fork can't submit jobs on the repository it was forked from. A token that fails a check gets <code>401</code> with <code>{"detail": "Unauthorized"}</code>, which does not say which check failed. DAIV logs each refusal once at <code>WARNING</code>, with the check and the repository path the token names, and never the token. When DAIV can't get a usable set of signing keys from the platform, or the platform fails to answer when DAIV reads the job's repository, the request gets <code>401</code> and DAIV logs an <code>ERROR</code> instead. The variables are in <a href="../../reference/env-variables/#jobs-api">Environment variables</a>.</p>
+<p>On GitHub, the token of a re-run names the account that started the workflow run's first attempt, not the account that re-ran it, so DAIV refuses it rather than attribute the job to the wrong account. To submit the job again, start a new workflow run instead, for example by pushing a commit, or with a <code>workflow_dispatch</code> trigger.</p>
+<h3 id="what-a-token-can-submit">What a token can submit</h3>
+<p>A request a token authenticates submits one job on the token's own repository:</p>
+<ul>
+<li><code>repos</code> has exactly one entry, the token's repository, which must be in DAIV's repository list (<code>404</code> otherwise).</li>
+<li>It can't set <code>thread_id</code>, <code>shared_session</code> or <code>references</code> (<code>400</code>: <code>A CI identity token submits one job on its own repository.</code>).</li>
+<li><code>mcp_overrides</code> can name global MCP servers only; a personal server's name is an unknown server (<code>400</code>).</li>
+<li>It can target a branch with <code>ref</code> or a merge request with <code>merge_request</code>. When a DAIV session that covers other repositories owns the merge request, the run checks them out too, so the triggering account must be linked to a DAIV account that can run on each of them; otherwise DAIV doesn't run the job (<a href="#run-a-job-on-a-merge-request">Run a job on a merge request</a>).</li>
+</ul>
+<p>DAIV accepts one job per token: a second submission with a token whose job DAIV already accepted gets <code>401</code>. A CI job that sends two jobs requests two tokens, with two <code>id_tokens</code> entries on GitLab or two token requests on GitHub. A submission DAIV refused (<code>400</code>, <code>404</code> or a <code>failed</code> entry) does not use the token, so you can retry with it. A submission that fails with a server error does use it, since DAIV may have started its job.</p>
+<h3 id="who-the-run-belongs-to">Who the run belongs to</h3>
+<p>The run belongs to the account that triggered the pipeline, never to a value in the request body: its DAIV account when one is linked through OAuth and active, else the platform account, which spend and the sessions list show as external.</p>
+<p>The run acts as no one. It loads the global MCP servers only, never the triggering person's personal servers or personal <a href="../sandbox-environments/">sandbox environments</a>, DAIV does not assign merge requests it opens to them, and it can't <a href="../orchestration/">delegate</a>. Its notifications are muted unless the request sets <code>"muted": false</code>, which keeps them for a linked account.</p>
+<h3 id="poll-with-a-token">Poll with a token</h3>
+<p><code>GET /api/jobs/{job_id}</code> with a token returns a job when it ran on the token's repository and belongs to the token's triggering account; any other job ID gets <code>404</code>. Polling does not use the token up, so the token that submitted a job can poll it until the token expires.</p>
 <h2 id="request-fields">Request fields</h2>
 <p>These are the fields of the <code>POST /api/jobs</code> body.</p>
 <table>
@@ -2243,7 +2585,7 @@
 <td><code>repos</code></td>
 <td>array of objects</td>
 <td>yes</td>
-<td>1–20 repositories to run against. Each item is <code>{ "repo_id": "group/project", "ref": "branch", "prompt": "..." }</code>. <code>ref</code> is optional, must be a branch that exists on the remote, and defaults to the repository's default branch. <code>prompt</code> is optional, must not be blank, and replaces the batch <code>prompt</code> for that repository only. A new merge or pull request targets <code>ref</code>, and DAIV assigns it to the API key's owner when their DAIV account is OAuth-linked to the git platform.</td>
+<td>1–20 repositories to run against. Each item is <code>{ "repo_id": "group/project", "ref": "branch", "prompt": "..." }</code>. <code>ref</code> is optional, must be a branch that exists on the remote, and defaults to the repository's default branch. <code>prompt</code> is optional, must not be blank, and replaces the batch <code>prompt</code> for that repository only. A new merge or pull request targets <code>ref</code>, and DAIV assigns it to the API key's owner when their DAIV account is OAuth-linked to the git platform. An item can name <code>merge_request</code>, a merge request number, in place of <code>ref</code>; see <a href="#run-a-job-on-a-merge-request">Run a job on a merge request</a>.</td>
 </tr>
 <tr>
 <td><code>prompt</code></td>
@@ -2267,7 +2609,7 @@
 <td><code>muted</code></td>
 <td>boolean</td>
 <td>no</td>
-<td>Mute notifications for every job in this batch. Default <code>false</code>.</td>
+<td>Mute notifications for every job in this batch. Default <code>false</code>, or <code>true</code> for a request a <a href="#ci-identity-tokens">CI identity token</a> authenticates.</td>
 </tr>
 <tr>
 <td><code>environment</code></td>
@@ -2313,7 +2655,7 @@
 <tbody>
 <tr>
 <td><code>QUEUED</code></td>
-<td>The job is the session's next run, waiting for its current run to finish. Only occurs for thread continuations (<code>thread_id</code> supplied).</td>
+<td>The job waits for the session's current run to finish. Only occurs for thread continuations (<code>thread_id</code> supplied) and for jobs on a merge request a busy session owns.</td>
 </tr>
 <tr>
 <td><code>READY</code></td>
@@ -2333,7 +2675,7 @@
 </tr>
 <tr>
 <td><code>FAILED</code></td>
-<td>The agent hit an error, and <code>error</code> holds a message. When a model provider stopped the run, for example because it ran out of credits, hit its spending limit or rejected DAIV's API key, the message names the provider and the cause. Otherwise it is a generic failure text.</td>
+<td>The agent hit an error, and <code>error</code> holds a message. When a model provider stopped the run, for example because it ran out of credits, hit its spending limit or rejected DAIV's API key, the message names the provider and the cause. A job on a merge request that never started says why. Otherwise it is a generic failure text.</td>
 </tr>
 </tbody>
 </table>
@@ -2349,11 +2691,11 @@
 <tbody>
 <tr>
 <td><code>401</code></td>
-<td>The API key is missing or invalid.</td>
+<td>The API key is missing or invalid, or the CI identity token fails a check.</td>
 </tr>
 <tr>
 <td><code>404</code></td>
-<td>The job ID is not found or is not a valid ID.</td>
+<td>The job ID is not found or is not a valid ID, or, with a CI identity token, the job did not run on its repository for its triggering account.</td>
 </tr>
 </tbody>
 </table>
@@ -2368,11 +2710,11 @@
 <tbody>
 <tr>
 <td><code>400</code></td>
-<td>The request is invalid: a bad <code>agent_model</code> or <code>agent_thinking_level</code>; no <code>agent_model</code> given and no system default model configured (a model set only in <code>.daiv.yml</code> does not count); an unresolvable <code>environment</code>; an unknown MCP server in <code>mcp_overrides</code>; an invalid <code>shared_session</code> list (more than 5 entries, a repository listed twice, or a per-repository <code>prompt</code>); or an invalid <code>thread_id</code> continuation (an unknown or unowned thread, an archived session, more than one repository for a single-repository session, a <code>ref</code> on a multi-repository session, or anything but the main repository alone or the full list in order).</td>
+<td>The request is invalid: a bad <code>agent_model</code> or <code>agent_thinking_level</code>; no <code>agent_model</code> given and no system default model configured (a model set only in <code>.daiv.yml</code> does not count); an unresolvable <code>environment</code>; an unknown MCP server in <code>mcp_overrides</code>; an invalid <code>shared_session</code> list (more than 5 entries, a repository listed twice, or a per-repository <code>prompt</code>); an invalid <code>thread_id</code> continuation (an unknown or unowned thread, an archived session, more than one repository for a single-repository session, a <code>ref</code> on a multi-repository session, or anything but the main repository alone or the full list in order); a <code>merge_request</code> with <code>shared_session</code>, <code>thread_id</code> or another <code>repos</code> entry; or a CI identity token's request for more than one job on its own repository.</td>
 </tr>
 <tr>
 <td><code>401</code></td>
-<td>The API key is missing or invalid.</td>
+<td>The API key is missing or invalid, or the CI identity token fails a check or already submitted an accepted job.</td>
 </tr>
 <tr>
 <td><code>404</code></td>
@@ -2380,7 +2722,7 @@
 </tr>
 <tr>
 <td><code>422</code></td>
-<td>The body is malformed or has unknown fields, for example <code>use_max</code> or <code>notify_on</code>, or a <code>references</code> entry is invalid.</td>
+<td>The body is malformed or has unknown fields, for example <code>use_max</code> or <code>notify_on</code>, a <code>references</code> entry is invalid, or a <code>merge_request</code> entry also sets <code>ref</code> or <code>prompt</code>.</td>
 </tr>
 <tr>
 <td><code>429</code></td>
@@ -2390,21 +2732,21 @@
 </table>
 <h2 id="multi-repository-sessions">Multi-repository sessions</h2>
 <p>By default, several entries in <code>repos</code> fan out into independent jobs, one session per repository. To let the agent work across repositories in one conversation, for example a backend change and the client that consumes it, set <code>shared_session: true</code>:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">JSON</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span>
-<span class="normal"><a href="#__codelineno-6-2">2</a></span>
-<span class="normal"><a href="#__codelineno-6-3">3</a></span>
-<span class="normal"><a href="#__codelineno-6-4">4</a></span>
-<span class="normal"><a href="#__codelineno-6-5">5</a></span>
-<span class="normal"><a href="#__codelineno-6-6">6</a></span>
-<span class="normal"><a href="#__codelineno-6-7">7</a></span>
-<span class="normal"><a href="#__codelineno-6-8">8</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a><span class="p">{</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2"></a><span class="w">  </span><span class="nt">"repos"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3"></a><span class="w">    </span><span class="p">{</span><span class="nt">"repo_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"mygroup/backend"</span><span class="p">},</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4"></a><span class="w">    </span><span class="p">{</span><span class="nt">"repo_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"mygroup/client"</span><span class="p">,</span><span class="w"> </span><span class="nt">"ref"</span><span class="p">:</span><span class="w"> </span><span class="s2">"develop"</span><span class="p">}</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5"></a><span class="w">  </span><span class="p">],</span>
-<a id="__codelineno-6-6" name="__codelineno-6-6"></a><span class="w">  </span><span class="nt">"shared_session"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-<a id="__codelineno-6-7" name="__codelineno-6-7"></a><span class="w">  </span><span class="nt">"prompt"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Add a `locale` field to the profile endpoint and use it in the client."</span>
-<a id="__codelineno-6-8" name="__codelineno-6-8"></a><span class="p">}</span>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">JSON</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-10-1">1</a></span>
+<span class="normal"><a href="#__codelineno-10-2">2</a></span>
+<span class="normal"><a href="#__codelineno-10-3">3</a></span>
+<span class="normal"><a href="#__codelineno-10-4">4</a></span>
+<span class="normal"><a href="#__codelineno-10-5">5</a></span>
+<span class="normal"><a href="#__codelineno-10-6">6</a></span>
+<span class="normal"><a href="#__codelineno-10-7">7</a></span>
+<span class="normal"><a href="#__codelineno-10-8">8</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1"></a><span class="p">{</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2"></a><span class="w">  </span><span class="nt">"repos"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3"></a><span class="w">    </span><span class="p">{</span><span class="nt">"repo_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"mygroup/backend"</span><span class="p">},</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4"></a><span class="w">    </span><span class="p">{</span><span class="nt">"repo_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"mygroup/client"</span><span class="p">,</span><span class="w"> </span><span class="nt">"ref"</span><span class="p">:</span><span class="w"> </span><span class="s2">"develop"</span><span class="p">}</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5"></a><span class="w">  </span><span class="p">],</span>
+<a id="__codelineno-10-6" name="__codelineno-10-6"></a><span class="w">  </span><span class="nt">"shared_session"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<a id="__codelineno-10-7" name="__codelineno-10-7"></a><span class="w">  </span><span class="nt">"prompt"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Add a `locale` field to the profile endpoint and use it in the client."</span>
+<a id="__codelineno-10-8" name="__codelineno-10-8"></a><span class="p">}</span>
 </code></pre></div></td></tr></table></div>
 <ul>
 <li>You can also start such a session from the dashboard chat, which takes the same list: see <a href="../sessions/#start-a-chat-over-several-repositories">Start a chat over several repositories</a>.</li>
@@ -2444,7 +2786,7 @@
 <h2 id="job-lifecycle">Job lifecycle</h2>
 <p>A job moves through these statuses:</p>
 <ol>
-<li><code>POST /api/jobs</code> creates the job as <code>READY</code>, or as <code>QUEUED</code> when you supply a <code>thread_id</code> and the session is busy.</li>
+<li><code>POST /api/jobs</code> creates the job as <code>READY</code>, or as <code>QUEUED</code> when you supply a <code>thread_id</code>, or name a merge request a session owns, and the session is busy.</li>
 <li>A <code>QUEUED</code> job becomes <code>READY</code> when the session's current run finishes.</li>
 <li>A worker picks up a <code>READY</code> job and it becomes <code>RUNNING</code>.</li>
 <li>A <code>RUNNING</code> job ends as <code>SUCCESSFUL</code> when the agent completes, <code>WAITING_INPUT</code> when the agent asks a question, or <code>FAILED</code> when the agent errors.</li>
@@ -2452,7 +2794,7 @@
 </ol>
 <pre class="mermaid"><code>stateDiagram-v2
     [*] --&gt; READY: POST /api/jobs
-    [*] --&gt; QUEUED: POST /api/jobs (thread continuation, session busy)
+    [*] --&gt; QUEUED: POST /api/jobs (thread continuation or owned merge request, session busy)
     QUEUED --&gt; READY: The session's current run finishes
     READY --&gt; RUNNING: Worker picks up job
     RUNNING --&gt; SUCCESSFUL: Agent completes
@@ -2461,132 +2803,203 @@
     SUCCESSFUL --&gt; [*]
     WAITING_INPUT --&gt; [*]: Answer with a new job on the same thread_id
     FAILED --&gt; [*]</code></pre>
-<p>A job starts in <code>QUEUED</code> only when you supply a <code>thread_id</code> and the session is busy. The job then joins the session's next run for its branch (<code>ref</code>, or the session's branch when you leave it out), which starts at <code>READY</code> once the current run ends. Everything waiting for the session on that branch goes into the same run: another job, a chat message, a CI failure DAIV is fixing. So two jobs sent while the session is busy can return the same <code>job_id</code>; poll it once and read one <code>result</code> for both. A job on a different branch gets a next run of its own. Every other submission starts at <code>READY</code>.</p>
+<p>A job on a merge request a busy session owns starts in <code>QUEUED</code> and runs as a turn of its own (<a href="#run-a-job-on-a-merge-request">Run a job on a merge request</a>). Otherwise a job starts in <code>QUEUED</code> only when you supply a <code>thread_id</code> and the session is busy. The job then joins the session's next run for its branch (<code>ref</code>, or the session's branch when you leave it out), which starts at <code>READY</code> once the current run ends. Everything waiting for the session on that branch goes into the same run: another job, a chat message, a CI failure DAIV is fixing. So two jobs sent while the session is busy can return the same <code>job_id</code>; poll it once and read one <code>result</code> for both. A job on a different branch gets a next run of its own. Every other submission starts at <code>READY</code>.</p>
 <p><code>SUCCESSFUL</code>, <code>WAITING_INPUT</code> and <code>FAILED</code> are final for that job. <code>WAITING_INPUT</code> does not progress to <code>SUCCESSFUL</code> on its own; it waits for a new job on the same thread (see <a href="#answer-a-question">Answer a question</a>).</p>
 <h2 id="examples">Examples</h2>
 <h3 id="poll-from-a-shell-script">Poll from a shell script</h3>
 <p>Replace <code>&lt;api-key&gt;</code> with your DAIV API key before you run the script.</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1"> 1</a></span>
-<span class="normal"><a href="#__codelineno-7-2"> 2</a></span>
-<span class="normal"><a href="#__codelineno-7-3"> 3</a></span>
-<span class="normal"><a href="#__codelineno-7-4"> 4</a></span>
-<span class="normal"><a href="#__codelineno-7-5"> 5</a></span>
-<span class="normal"><a href="#__codelineno-7-6"> 6</a></span>
-<span class="normal"><a href="#__codelineno-7-7"> 7</a></span>
-<span class="normal"><a href="#__codelineno-7-8"> 8</a></span>
-<span class="normal"><a href="#__codelineno-7-9"> 9</a></span>
-<span class="normal"><a href="#__codelineno-7-10">10</a></span>
-<span class="normal"><a href="#__codelineno-7-11">11</a></span>
-<span class="normal"><a href="#__codelineno-7-12">12</a></span>
-<span class="normal"><a href="#__codelineno-7-13">13</a></span>
-<span class="normal"><a href="#__codelineno-7-14">14</a></span>
-<span class="normal"><a href="#__codelineno-7-15">15</a></span>
-<span class="normal"><a href="#__codelineno-7-16">16</a></span>
-<span class="normal"><a href="#__codelineno-7-17">17</a></span>
-<span class="normal"><a href="#__codelineno-7-18">18</a></span>
-<span class="normal"><a href="#__codelineno-7-19">19</a></span>
-<span class="normal"><a href="#__codelineno-7-20">20</a></span>
-<span class="normal"><a href="#__codelineno-7-21">21</a></span>
-<span class="normal"><a href="#__codelineno-7-22">22</a></span>
-<span class="normal"><a href="#__codelineno-7-23">23</a></span>
-<span class="normal"><a href="#__codelineno-7-24">24</a></span>
-<span class="normal"><a href="#__codelineno-7-25">25</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a><span class="ch">#!/bin/bash</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2"></a><span class="nv">DAIV_URL</span><span class="o">=</span><span class="s2">"https://daiv.example.com"</span>
-<a id="__codelineno-7-3" name="__codelineno-7-3"></a><span class="nv">API_KEY</span><span class="o">=</span><span class="s2">"&lt;api-key&gt;"</span>
-<a id="__codelineno-7-4" name="__codelineno-7-4"></a>
-<a id="__codelineno-7-5" name="__codelineno-7-5"></a><span class="c1"># Submit (single-repo batch)</span>
-<a id="__codelineno-7-6" name="__codelineno-7-6"></a><span class="nv">JOB_ID</span><span class="o">=</span><span class="k">$(</span>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">"</span><span class="nv">$DAIV_URL</span><span class="s2">/api/jobs"</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-7" name="__codelineno-7-7"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$API_KEY</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-8" name="__codelineno-7-8"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-9" name="__codelineno-7-9"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"repos":[{"repo_id":"mygroup/myproject"}],"prompt":"List all TODO comments"}'</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-10" name="__codelineno-7-10"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="s1">'.jobs[0].job_id'</span><span class="k">)</span>
-<a id="__codelineno-7-11" name="__codelineno-7-11"></a>
-<a id="__codelineno-7-12" name="__codelineno-7-12"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">"Job submitted: </span><span class="nv">$JOB_ID</span><span class="s2">"</span>
-<a id="__codelineno-7-13" name="__codelineno-7-13"></a>
-<a id="__codelineno-7-14" name="__codelineno-7-14"></a><span class="c1"># Poll until done</span>
-<a id="__codelineno-7-15" name="__codelineno-7-15"></a><span class="k">while</span><span class="w"> </span>true<span class="p">;</span><span class="w"> </span><span class="k">do</span>
-<a id="__codelineno-7-16" name="__codelineno-7-16"></a><span class="w">  </span><span class="nv">RESPONSE</span><span class="o">=</span><span class="k">$(</span>curl<span class="w"> </span>-s<span class="w"> </span><span class="s2">"</span><span class="nv">$DAIV_URL</span><span class="s2">/api/jobs/</span><span class="nv">$JOB_ID</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-7-17" name="__codelineno-7-17"></a><span class="w">    </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$API_KEY</span><span class="s2">"</span><span class="k">)</span>
-<a id="__codelineno-7-18" name="__codelineno-7-18"></a><span class="w">  </span><span class="nv">STATUS</span><span class="o">=</span><span class="k">$(</span><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$RESPONSE</span><span class="s2">"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="s1">'.status'</span><span class="k">)</span>
-<a id="__codelineno-7-19" name="__codelineno-7-19"></a>
-<a id="__codelineno-7-20" name="__codelineno-7-20"></a><span class="w">  </span><span class="k">case</span><span class="w"> </span><span class="s2">"</span><span class="nv">$STATUS</span><span class="s2">"</span><span class="w"> </span><span class="k">in</span>
-<a id="__codelineno-7-21" name="__codelineno-7-21"></a><span class="w">    </span>SUCCESSFUL<span class="o">)</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$RESPONSE</span><span class="s2">"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="s1">'.result'</span><span class="p">;</span><span class="w"> </span><span class="k">break</span><span class="w"> </span><span class="p">;;</span>
-<a id="__codelineno-7-22" name="__codelineno-7-22"></a><span class="w">    </span>FAILED<span class="o">)</span><span class="w">     </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"Job failed"</span><span class="p">;</span><span class="w"> </span><span class="nb">exit</span><span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="p">;;</span>
-<a id="__codelineno-7-23" name="__codelineno-7-23"></a><span class="w">    </span>*<span class="o">)</span><span class="w">          </span>sleep<span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="p">;;</span>
-<a id="__codelineno-7-24" name="__codelineno-7-24"></a><span class="w">  </span><span class="k">esac</span>
-<a id="__codelineno-7-25" name="__codelineno-7-25"></a><span class="k">done</span>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-11-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-11-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-11-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-11-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-11-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-11-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-11-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-11-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-11-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-11-10">10</a></span>
+<span class="normal"><a href="#__codelineno-11-11">11</a></span>
+<span class="normal"><a href="#__codelineno-11-12">12</a></span>
+<span class="normal"><a href="#__codelineno-11-13">13</a></span>
+<span class="normal"><a href="#__codelineno-11-14">14</a></span>
+<span class="normal"><a href="#__codelineno-11-15">15</a></span>
+<span class="normal"><a href="#__codelineno-11-16">16</a></span>
+<span class="normal"><a href="#__codelineno-11-17">17</a></span>
+<span class="normal"><a href="#__codelineno-11-18">18</a></span>
+<span class="normal"><a href="#__codelineno-11-19">19</a></span>
+<span class="normal"><a href="#__codelineno-11-20">20</a></span>
+<span class="normal"><a href="#__codelineno-11-21">21</a></span>
+<span class="normal"><a href="#__codelineno-11-22">22</a></span>
+<span class="normal"><a href="#__codelineno-11-23">23</a></span>
+<span class="normal"><a href="#__codelineno-11-24">24</a></span>
+<span class="normal"><a href="#__codelineno-11-25">25</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1"></a><span class="ch">#!/bin/bash</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2"></a><span class="nv">DAIV_URL</span><span class="o">=</span><span class="s2">"https://daiv.example.com"</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3"></a><span class="nv">API_KEY</span><span class="o">=</span><span class="s2">"&lt;api-key&gt;"</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4"></a>
+<a id="__codelineno-11-5" name="__codelineno-11-5"></a><span class="c1"># Submit (single-repo batch)</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6"></a><span class="nv">JOB_ID</span><span class="o">=</span><span class="k">$(</span>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">"</span><span class="nv">$DAIV_URL</span><span class="s2">/api/jobs"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$API_KEY</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-9" name="__codelineno-11-9"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"repos":[{"repo_id":"mygroup/myproject"}],"prompt":"List all TODO comments"}'</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-10" name="__codelineno-11-10"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="s1">'.jobs[0].job_id'</span><span class="k">)</span>
+<a id="__codelineno-11-11" name="__codelineno-11-11"></a>
+<a id="__codelineno-11-12" name="__codelineno-11-12"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">"Job submitted: </span><span class="nv">$JOB_ID</span><span class="s2">"</span>
+<a id="__codelineno-11-13" name="__codelineno-11-13"></a>
+<a id="__codelineno-11-14" name="__codelineno-11-14"></a><span class="c1"># Poll until done</span>
+<a id="__codelineno-11-15" name="__codelineno-11-15"></a><span class="k">while</span><span class="w"> </span>true<span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<a id="__codelineno-11-16" name="__codelineno-11-16"></a><span class="w">  </span><span class="nv">RESPONSE</span><span class="o">=</span><span class="k">$(</span>curl<span class="w"> </span>-s<span class="w"> </span><span class="s2">"</span><span class="nv">$DAIV_URL</span><span class="s2">/api/jobs/</span><span class="nv">$JOB_ID</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-17" name="__codelineno-11-17"></a><span class="w">    </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$API_KEY</span><span class="s2">"</span><span class="k">)</span>
+<a id="__codelineno-11-18" name="__codelineno-11-18"></a><span class="w">  </span><span class="nv">STATUS</span><span class="o">=</span><span class="k">$(</span><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$RESPONSE</span><span class="s2">"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="s1">'.status'</span><span class="k">)</span>
+<a id="__codelineno-11-19" name="__codelineno-11-19"></a>
+<a id="__codelineno-11-20" name="__codelineno-11-20"></a><span class="w">  </span><span class="k">case</span><span class="w"> </span><span class="s2">"</span><span class="nv">$STATUS</span><span class="s2">"</span><span class="w"> </span><span class="k">in</span>
+<a id="__codelineno-11-21" name="__codelineno-11-21"></a><span class="w">    </span>SUCCESSFUL<span class="o">)</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$RESPONSE</span><span class="s2">"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="s1">'.result'</span><span class="p">;</span><span class="w"> </span><span class="k">break</span><span class="w"> </span><span class="p">;;</span>
+<a id="__codelineno-11-22" name="__codelineno-11-22"></a><span class="w">    </span>FAILED<span class="o">)</span><span class="w">     </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"Job failed"</span><span class="p">;</span><span class="w"> </span><span class="nb">exit</span><span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="p">;;</span>
+<a id="__codelineno-11-23" name="__codelineno-11-23"></a><span class="w">    </span>*<span class="o">)</span><span class="w">          </span>sleep<span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="p">;;</span>
+<a id="__codelineno-11-24" name="__codelineno-11-24"></a><span class="w">  </span><span class="k">esac</span>
+<a id="__codelineno-11-25" name="__codelineno-11-25"></a><span class="k">done</span>
 </code></pre></div></td></tr></table></div>
 <h3 id="chain-two-jobs-in-a-scheduled-gitlab-pipeline">Chain two jobs in a scheduled GitLab pipeline</h3>
 <p>This job in a scheduled GitLab CI pipeline triages support tickets, then creates issues from the report:</p>
-<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1"> 1</a></span>
-<span class="normal"><a href="#__codelineno-8-2"> 2</a></span>
-<span class="normal"><a href="#__codelineno-8-3"> 3</a></span>
-<span class="normal"><a href="#__codelineno-8-4"> 4</a></span>
-<span class="normal"><a href="#__codelineno-8-5"> 5</a></span>
-<span class="normal"><a href="#__codelineno-8-6"> 6</a></span>
-<span class="normal"><a href="#__codelineno-8-7"> 7</a></span>
-<span class="normal"><a href="#__codelineno-8-8"> 8</a></span>
-<span class="normal"><a href="#__codelineno-8-9"> 9</a></span>
-<span class="normal"><a href="#__codelineno-8-10">10</a></span>
-<span class="normal"><a href="#__codelineno-8-11">11</a></span>
-<span class="normal"><a href="#__codelineno-8-12">12</a></span>
-<span class="normal"><a href="#__codelineno-8-13">13</a></span>
-<span class="normal"><a href="#__codelineno-8-14">14</a></span>
-<span class="normal"><a href="#__codelineno-8-15">15</a></span>
-<span class="normal"><a href="#__codelineno-8-16">16</a></span>
-<span class="normal"><a href="#__codelineno-8-17">17</a></span>
-<span class="normal"><a href="#__codelineno-8-18">18</a></span>
-<span class="normal"><a href="#__codelineno-8-19">19</a></span>
-<span class="normal"><a href="#__codelineno-8-20">20</a></span>
-<span class="normal"><a href="#__codelineno-8-21">21</a></span>
-<span class="normal"><a href="#__codelineno-8-22">22</a></span>
-<span class="normal"><a href="#__codelineno-8-23">23</a></span>
-<span class="normal"><a href="#__codelineno-8-24">24</a></span>
-<span class="normal"><a href="#__codelineno-8-25">25</a></span>
-<span class="normal"><a href="#__codelineno-8-26">26</a></span>
-<span class="normal"><a href="#__codelineno-8-27">27</a></span>
-<span class="normal"><a href="#__codelineno-8-28">28</a></span>
-<span class="normal"><a href="#__codelineno-8-29">29</a></span>
-<span class="normal"><a href="#__codelineno-8-30">30</a></span>
-<span class="normal"><a href="#__codelineno-8-31">31</a></span>
-<span class="normal"><a href="#__codelineno-8-32">32</a></span>
-<span class="normal"><a href="#__codelineno-8-33">33</a></span>
-<span class="normal"><a href="#__codelineno-8-34">34</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1"></a><span class="c1"># .gitlab-ci.yml</span>
-<a id="__codelineno-8-2" name="__codelineno-8-2"></a><span class="nt">triage-and-create-issues</span><span class="p">:</span>
-<a id="__codelineno-8-3" name="__codelineno-8-3"></a><span class="w">  </span><span class="nt">rules</span><span class="p">:</span>
-<a id="__codelineno-8-4" name="__codelineno-8-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">if</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">$CI_PIPELINE_SOURCE == "schedule"</span>
-<a id="__codelineno-8-5" name="__codelineno-8-5"></a><span class="w">  </span><span class="nt">script</span><span class="p">:</span>
-<a id="__codelineno-8-6" name="__codelineno-8-6"></a><span class="w">    </span><span class="c1"># Step 1: Triage tickets</span>
-<a id="__codelineno-8-7" name="__codelineno-8-7"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">|</span>
-<a id="__codelineno-8-8" name="__codelineno-8-8"></a><span class="w">      </span><span class="no">JOB_ID=$(curl -s -X POST "$DAIV_URL/api/jobs" \</span>
-<a id="__codelineno-8-9" name="__codelineno-8-9"></a><span class="w">        </span><span class="no">-H "Authorization: Bearer $DAIV_API_KEY" \</span>
-<a id="__codelineno-8-10" name="__codelineno-8-10"></a><span class="w">        </span><span class="no">-H "Content-Type: application/json" \</span>
-<a id="__codelineno-8-11" name="__codelineno-8-11"></a><span class="w">        </span><span class="no">-d '{</span>
-<a id="__codelineno-8-12" name="__codelineno-8-12"></a><span class="w">          </span><span class="no">"repos": [{"repo_id": "mygroup/myproject"}],</span>
-<a id="__codelineno-8-13" name="__codelineno-8-13"></a><span class="w">          </span><span class="no">"prompt": "Triage the RT queue and identify code-related tickets. Return a summary with ticket IDs, descriptions, and priorities."</span>
-<a id="__codelineno-8-14" name="__codelineno-8-14"></a><span class="w">        </span><span class="no">}' | jq -r '.jobs[0].job_id')</span>
-<a id="__codelineno-8-15" name="__codelineno-8-15"></a>
-<a id="__codelineno-8-16" name="__codelineno-8-16"></a><span class="w">    </span><span class="c1"># Step 2: Poll until done</span>
-<a id="__codelineno-8-17" name="__codelineno-8-17"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">|</span>
-<a id="__codelineno-8-18" name="__codelineno-8-18"></a><span class="w">      </span><span class="no">while true; do</span>
-<a id="__codelineno-8-19" name="__codelineno-8-19"></a><span class="w">        </span><span class="no">STATUS=$(curl -s "$DAIV_URL/api/jobs/$JOB_ID" \</span>
-<a id="__codelineno-8-20" name="__codelineno-8-20"></a><span class="w">          </span><span class="no">-H "Authorization: Bearer $DAIV_API_KEY" | jq -r '.status')</span>
-<a id="__codelineno-8-21" name="__codelineno-8-21"></a><span class="w">        </span><span class="no">[ "$STATUS" = "SUCCESSFUL" ] &amp;&amp; break</span>
-<a id="__codelineno-8-22" name="__codelineno-8-22"></a><span class="w">        </span><span class="no">[ "$STATUS" = "FAILED" ] &amp;&amp; exit 1</span>
-<a id="__codelineno-8-23" name="__codelineno-8-23"></a><span class="w">        </span><span class="no">sleep 30</span>
-<a id="__codelineno-8-24" name="__codelineno-8-24"></a><span class="w">      </span><span class="no">done</span>
-<a id="__codelineno-8-25" name="__codelineno-8-25"></a><span class="w">      </span><span class="no">TRIAGE=$(curl -s "$DAIV_URL/api/jobs/$JOB_ID" \</span>
-<a id="__codelineno-8-26" name="__codelineno-8-26"></a><span class="w">        </span><span class="no">-H "Authorization: Bearer $DAIV_API_KEY" | jq -r '.result')</span>
-<a id="__codelineno-8-27" name="__codelineno-8-27"></a>
-<a id="__codelineno-8-28" name="__codelineno-8-28"></a><span class="w">    </span><span class="c1"># Step 3: Chain — create issues from the triage report</span>
-<a id="__codelineno-8-29" name="__codelineno-8-29"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">|</span>
-<a id="__codelineno-8-30" name="__codelineno-8-30"></a><span class="w">      </span><span class="no">curl -s -X POST "$DAIV_URL/api/jobs" \</span>
-<a id="__codelineno-8-31" name="__codelineno-8-31"></a><span class="w">        </span><span class="no">-H "Authorization: Bearer $DAIV_API_KEY" \</span>
-<a id="__codelineno-8-32" name="__codelineno-8-32"></a><span class="w">        </span><span class="no">-H "Content-Type: application/json" \</span>
-<a id="__codelineno-8-33" name="__codelineno-8-33"></a><span class="w">        </span><span class="no">-d "$(jq -n --arg prompt "Based on this triage report, create GitLab issues for each actionable item: $TRIAGE" \</span>
-<a id="__codelineno-8-34" name="__codelineno-8-34"></a><span class="w">          </span><span class="no">'{repos: [{repo_id: "mygroup/myproject"}], prompt: $prompt}')"</span>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-12-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-12-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-12-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-12-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-12-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-12-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-12-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-12-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-12-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-12-10">10</a></span>
+<span class="normal"><a href="#__codelineno-12-11">11</a></span>
+<span class="normal"><a href="#__codelineno-12-12">12</a></span>
+<span class="normal"><a href="#__codelineno-12-13">13</a></span>
+<span class="normal"><a href="#__codelineno-12-14">14</a></span>
+<span class="normal"><a href="#__codelineno-12-15">15</a></span>
+<span class="normal"><a href="#__codelineno-12-16">16</a></span>
+<span class="normal"><a href="#__codelineno-12-17">17</a></span>
+<span class="normal"><a href="#__codelineno-12-18">18</a></span>
+<span class="normal"><a href="#__codelineno-12-19">19</a></span>
+<span class="normal"><a href="#__codelineno-12-20">20</a></span>
+<span class="normal"><a href="#__codelineno-12-21">21</a></span>
+<span class="normal"><a href="#__codelineno-12-22">22</a></span>
+<span class="normal"><a href="#__codelineno-12-23">23</a></span>
+<span class="normal"><a href="#__codelineno-12-24">24</a></span>
+<span class="normal"><a href="#__codelineno-12-25">25</a></span>
+<span class="normal"><a href="#__codelineno-12-26">26</a></span>
+<span class="normal"><a href="#__codelineno-12-27">27</a></span>
+<span class="normal"><a href="#__codelineno-12-28">28</a></span>
+<span class="normal"><a href="#__codelineno-12-29">29</a></span>
+<span class="normal"><a href="#__codelineno-12-30">30</a></span>
+<span class="normal"><a href="#__codelineno-12-31">31</a></span>
+<span class="normal"><a href="#__codelineno-12-32">32</a></span>
+<span class="normal"><a href="#__codelineno-12-33">33</a></span>
+<span class="normal"><a href="#__codelineno-12-34">34</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1"></a><span class="c1"># .gitlab-ci.yml</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2"></a><span class="nt">triage-and-create-issues</span><span class="p">:</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3"></a><span class="w">  </span><span class="nt">rules</span><span class="p">:</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">if</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">$CI_PIPELINE_SOURCE == "schedule"</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5"></a><span class="w">  </span><span class="nt">script</span><span class="p">:</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6"></a><span class="w">    </span><span class="c1"># Step 1: Triage tickets</span>
+<a id="__codelineno-12-7" name="__codelineno-12-7"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<a id="__codelineno-12-8" name="__codelineno-12-8"></a><span class="w">      </span><span class="no">JOB_ID=$(curl -s -X POST "$DAIV_URL/api/jobs" \</span>
+<a id="__codelineno-12-9" name="__codelineno-12-9"></a><span class="w">        </span><span class="no">-H "Authorization: Bearer $DAIV_API_KEY" \</span>
+<a id="__codelineno-12-10" name="__codelineno-12-10"></a><span class="w">        </span><span class="no">-H "Content-Type: application/json" \</span>
+<a id="__codelineno-12-11" name="__codelineno-12-11"></a><span class="w">        </span><span class="no">-d '{</span>
+<a id="__codelineno-12-12" name="__codelineno-12-12"></a><span class="w">          </span><span class="no">"repos": [{"repo_id": "mygroup/myproject"}],</span>
+<a id="__codelineno-12-13" name="__codelineno-12-13"></a><span class="w">          </span><span class="no">"prompt": "Triage the RT queue and identify code-related tickets. Return a summary with ticket IDs, descriptions, and priorities."</span>
+<a id="__codelineno-12-14" name="__codelineno-12-14"></a><span class="w">        </span><span class="no">}' | jq -r '.jobs[0].job_id')</span>
+<a id="__codelineno-12-15" name="__codelineno-12-15"></a>
+<a id="__codelineno-12-16" name="__codelineno-12-16"></a><span class="w">    </span><span class="c1"># Step 2: Poll until done</span>
+<a id="__codelineno-12-17" name="__codelineno-12-17"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<a id="__codelineno-12-18" name="__codelineno-12-18"></a><span class="w">      </span><span class="no">while true; do</span>
+<a id="__codelineno-12-19" name="__codelineno-12-19"></a><span class="w">        </span><span class="no">STATUS=$(curl -s "$DAIV_URL/api/jobs/$JOB_ID" \</span>
+<a id="__codelineno-12-20" name="__codelineno-12-20"></a><span class="w">          </span><span class="no">-H "Authorization: Bearer $DAIV_API_KEY" | jq -r '.status')</span>
+<a id="__codelineno-12-21" name="__codelineno-12-21"></a><span class="w">        </span><span class="no">[ "$STATUS" = "SUCCESSFUL" ] &amp;&amp; break</span>
+<a id="__codelineno-12-22" name="__codelineno-12-22"></a><span class="w">        </span><span class="no">[ "$STATUS" = "FAILED" ] &amp;&amp; exit 1</span>
+<a id="__codelineno-12-23" name="__codelineno-12-23"></a><span class="w">        </span><span class="no">sleep 30</span>
+<a id="__codelineno-12-24" name="__codelineno-12-24"></a><span class="w">      </span><span class="no">done</span>
+<a id="__codelineno-12-25" name="__codelineno-12-25"></a><span class="w">      </span><span class="no">TRIAGE=$(curl -s "$DAIV_URL/api/jobs/$JOB_ID" \</span>
+<a id="__codelineno-12-26" name="__codelineno-12-26"></a><span class="w">        </span><span class="no">-H "Authorization: Bearer $DAIV_API_KEY" | jq -r '.result')</span>
+<a id="__codelineno-12-27" name="__codelineno-12-27"></a>
+<a id="__codelineno-12-28" name="__codelineno-12-28"></a><span class="w">    </span><span class="c1"># Step 3: Chain — create issues from the triage report</span>
+<a id="__codelineno-12-29" name="__codelineno-12-29"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<a id="__codelineno-12-30" name="__codelineno-12-30"></a><span class="w">      </span><span class="no">curl -s -X POST "$DAIV_URL/api/jobs" \</span>
+<a id="__codelineno-12-31" name="__codelineno-12-31"></a><span class="w">        </span><span class="no">-H "Authorization: Bearer $DAIV_API_KEY" \</span>
+<a id="__codelineno-12-32" name="__codelineno-12-32"></a><span class="w">        </span><span class="no">-H "Content-Type: application/json" \</span>
+<a id="__codelineno-12-33" name="__codelineno-12-33"></a><span class="w">        </span><span class="no">-d "$(jq -n --arg prompt "Based on this triage report, create GitLab issues for each actionable item: $TRIAGE" \</span>
+<a id="__codelineno-12-34" name="__codelineno-12-34"></a><span class="w">          </span><span class="no">'{repos: [{repo_id: "mygroup/myproject"}], prompt: $prompt}')"</span>
 </code></pre></div></td></tr></table></div>
 <p>Store <code>DAIV_URL</code> and <code>DAIV_API_KEY</code> as CI/CD variables in your GitLab project settings, and turn on <strong>Mask variable</strong> and <strong>Protect variable</strong> for the API key.</p>
+<h3 id="review-every-push-to-a-merge-request">Review every push to a merge request</h3>
+<p>These CI jobs ask DAIV to run <code>/code-review</code> on the pipeline's merge request at every push, with the pipeline's <a href="#ci-identity-tokens">CI identity token</a>, so you store no DAIV key. Each review is posted on the merge request and covers only the commits since the previous one; see <a href="../pull-request-assistant/#review-reports">Review reports</a>. Replace <code>https://daiv.example.com</code> with DAIV's address.</p>
+<p>In GitLab CI:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-13-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-13-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-13-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-13-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-13-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-13-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-13-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-13-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-13-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-13-10">10</a></span>
+<span class="normal"><a href="#__codelineno-13-11">11</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1"></a><span class="nt">daiv-code-review</span><span class="p">:</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2"></a><span class="w">  </span><span class="nt">rules</span><span class="p">:</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">if</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">$CI_PIPELINE_SOURCE == "merge_request_event"</span>
+<a id="__codelineno-13-4" name="__codelineno-13-4"></a><span class="w">  </span><span class="nt">id_tokens</span><span class="p">:</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5"></a><span class="w">    </span><span class="nt">DAIV_ID_TOKEN</span><span class="p">:</span>
+<a id="__codelineno-13-6" name="__codelineno-13-6"></a><span class="w">      </span><span class="nt">aud</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://daiv.example.com</span>
+<a id="__codelineno-13-7" name="__codelineno-13-7"></a><span class="w">  </span><span class="nt">script</span><span class="p">:</span>
+<a id="__codelineno-13-8" name="__codelineno-13-8"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">&gt;</span>
+<a id="__codelineno-13-9" name="__codelineno-13-9"></a><span class="w">      </span><span class="no">curl --fail-with-body -sS -X POST "https://daiv.example.com/api/jobs"</span>
+<a id="__codelineno-13-10" name="__codelineno-13-10"></a><span class="w">      </span><span class="no">-H "Authorization: Bearer $DAIV_ID_TOKEN" -H "Content-Type: application/json"</span>
+<a id="__codelineno-13-11" name="__codelineno-13-11"></a><span class="w">      </span><span class="no">-d "{\"repos\":[{\"repo_id\":\"$CI_PROJECT_PATH\",\"merge_request\":$CI_MERGE_REQUEST_IID}],\"prompt\":\"/code-review\"}"</span>
+</code></pre></div></td></tr></table></div>
+<p>In GitHub Actions:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-14-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-14-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-14-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-14-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-14-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-14-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-14-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-14-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-14-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-14-10">10</a></span>
+<span class="normal"><a href="#__codelineno-14-11">11</a></span>
+<span class="normal"><a href="#__codelineno-14-12">12</a></span>
+<span class="normal"><a href="#__codelineno-14-13">13</a></span>
+<span class="normal"><a href="#__codelineno-14-14">14</a></span>
+<span class="normal"><a href="#__codelineno-14-15">15</a></span>
+<span class="normal"><a href="#__codelineno-14-16">16</a></span>
+<span class="normal"><a href="#__codelineno-14-17">17</a></span>
+<span class="normal"><a href="#__codelineno-14-18">18</a></span>
+<span class="normal"><a href="#__codelineno-14-19">19</a></span>
+<span class="normal"><a href="#__codelineno-14-20">20</a></span>
+<span class="normal"><a href="#__codelineno-14-21">21</a></span>
+<span class="normal"><a href="#__codelineno-14-22">22</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1"></a><span class="c1"># .github/workflows/daiv-code-review.yml</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2"></a><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DAIV code review</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3"></a><span class="nt">on</span><span class="p">:</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4"></a><span class="w">  </span><span class="nt">pull_request</span><span class="p">:</span>
+<a id="__codelineno-14-5" name="__codelineno-14-5"></a><span class="w">    </span><span class="nt">types</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">opened</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">synchronize</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">reopened</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-14-6" name="__codelineno-14-6"></a><span class="nt">permissions</span><span class="p">:</span>
+<a id="__codelineno-14-7" name="__codelineno-14-7"></a><span class="w">  </span><span class="nt">id-token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">write</span>
+<a id="__codelineno-14-8" name="__codelineno-14-8"></a><span class="w">  </span><span class="nt">contents</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">read</span>
+<a id="__codelineno-14-9" name="__codelineno-14-9"></a><span class="nt">jobs</span><span class="p">:</span>
+<a id="__codelineno-14-10" name="__codelineno-14-10"></a><span class="w">  </span><span class="nt">review</span><span class="p">:</span>
+<a id="__codelineno-14-11" name="__codelineno-14-11"></a><span class="w">    </span><span class="nt">runs-on</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ubuntu-latest</span>
+<a id="__codelineno-14-12" name="__codelineno-14-12"></a><span class="w">    </span><span class="nt">steps</span><span class="p">:</span>
+<a id="__codelineno-14-13" name="__codelineno-14-13"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Ask DAIV to review the pull request</span>
+<a id="__codelineno-14-14" name="__codelineno-14-14"></a><span class="w">        </span><span class="nt">env</span><span class="p">:</span>
+<a id="__codelineno-14-15" name="__codelineno-14-15"></a><span class="w">          </span><span class="nt">DAIV_URL</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://daiv.example.com</span>
+<a id="__codelineno-14-16" name="__codelineno-14-16"></a><span class="w">          </span><span class="nt">PR_NUMBER</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${{ github.event.pull_request.number }}</span>
+<a id="__codelineno-14-17" name="__codelineno-14-17"></a><span class="w">        </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<a id="__codelineno-14-18" name="__codelineno-14-18"></a><span class="w">          </span><span class="no">TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \</span>
+<a id="__codelineno-14-19" name="__codelineno-14-19"></a><span class="w">            </span><span class="no">"$ACTIONS_ID_TOKEN_REQUEST_URL&amp;audience=$DAIV_URL" | jq -r .value)</span>
+<a id="__codelineno-14-20" name="__codelineno-14-20"></a><span class="w">          </span><span class="no">curl --fail-with-body -sS -X POST "$DAIV_URL/api/jobs" \</span>
+<a id="__codelineno-14-21" name="__codelineno-14-21"></a><span class="w">            </span><span class="no">-H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \</span>
+<a id="__codelineno-14-22" name="__codelineno-14-22"></a><span class="w">            </span><span class="no">-d "{\"repos\":[{\"repo_id\":\"$GITHUB_REPOSITORY\",\"merge_request\":$PR_NUMBER}],\"prompt\":\"/code-review\"}"</span>
+</code></pre></div></td></tr></table></div>
+<p>The CI job ends as soon as DAIV accepts the review; the review itself appears on the merge request when its run finishes.</p>
 <h2 id="related-pages">Related pages</h2>
 <ul>
 <li><a href="../../integrations/rt/">Request Tracker triage</a>: an end-to-end example of using the jobs API from an RT Scrip to triage new support tickets.</li>
@@ -2615,7 +3028,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 19, 2026 03:09:01 UTC">November 19, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 22, 2026 23:52:14 UTC">November 22, 2026</span>
   </span>
 
     

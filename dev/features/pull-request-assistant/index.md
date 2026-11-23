@@ -91,6 +91,8 @@ Each report carries a hidden marker with its number and the commit it reviewed, 
 
 To ask about a finding or have DAIV apply a fix, reply on the pull request and mention DAIV.
 
+To review every push without a comment, run `/code-review` from CI through the jobs API's merge request target: see [Review every push to a merge request](https://docs.daivagent.com/dev/features/jobs-api/#review-every-push-to-a-merge-request).
+
 ## Custom review rules
 
 Define team-specific review rules in `.agents/review-rules.md` at the repository root. Write them in plain language, one rule per bullet, with any path scope expressed in prose:
