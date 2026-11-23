@@ -29,7 +29,7 @@ from mcp_connectors.selection import build_selection_pool, overrides_from_switch
 from sandbox_envs.selection import aresolve_repo_envs, resolve_env_for_user
 
 from automation.agent import validators
-from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, assert_can_run
+from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied, assert_can_run, assert_catalogued
 from sessions.models import Session
 
 if TYPE_CHECKING:
@@ -95,7 +95,19 @@ def assert_repo_access(user: User, repo_ids: Iterable[str]) -> None:
 aassert_repo_access = sync_to_async(assert_repo_access)
 
 
-async def aresolve_environment(user: User, name_or_id: str | None) -> SandboxEnvironment | None:
+def assert_repo_catalogued(repo_ids: Iterable[str]) -> None:
+    """The access check for a caller the platform already proved may run on ``repo_ids`` (a CI identity token): the
+    repositories must still be ones DAIV serves."""
+    try:
+        assert_catalogued(repo_ids)
+    except RepositoryAccessDenied as err:
+        raise RepoAccessError(err.repo_ids) from err
+
+
+aassert_repo_catalogued = sync_to_async(assert_repo_catalogued)
+
+
+async def aresolve_environment(user: User | None, name_or_id: str | None) -> SandboxEnvironment | None:
     """The environment ``name_or_id`` names, or ``None`` when it is empty."""
     try:
         return await resolve_env_for_user(user, name_or_id)
@@ -104,7 +116,7 @@ async def aresolve_environment(user: User, name_or_id: str | None) -> SandboxEnv
 
 
 async def aresolve_mcp_overrides(
-    user: User, switches: dict[str, bool] | None, thread_id: str | None = None
+    user: User | None, switches: dict[str, bool] | None, thread_id: str | None = None
 ) -> dict[str, str] | None:
     """``switches`` applied to ``thread_id``'s MCP overrides against the caller's servers, or ``None`` when none are
     sent: a server they don't name keeps its setting."""
@@ -114,24 +126,37 @@ async def aresolve_mcp_overrides(
     if thread_id is not None:
         current = await Session.objects.filter(thread_id=thread_id).values_list("mcp_overrides", flat=True).afirst()
     try:
-        return overrides_from_switches(switches, await sync_to_async(build_selection_pool)(user.pk), current)
+        pool = await sync_to_async(build_selection_pool)(user.pk if user is not None else None)
+        return overrides_from_switches(switches, pool, current)
     except ValueError as err:
         raise InvalidMcpOverridesError(str(err)) from err
 
 
 async def aadmit(
     *,
-    user: User,
+    user: User | None,
     repos: list[RepoTarget],
     agent_model: str | None,
     agent_thinking_level: str | None,
     environment: str | None,
     mcp_overrides: dict[str, bool] | None = None,
     thread_id: str | None = None,
+    access_proven: bool = False,
 ) -> Admission:
-    """Run every admission check for a batch submitted now; ``environment`` names one env for all of ``repos``."""
+    """Run every admission check for a batch submitted now, acting as ``user``; ``environment`` names one env for all
+    of ``repos``.
+
+    ``user=None`` resolves environments and MCP servers as no one's, so only global ones apply. ``access_proven``: the
+    platform proved the caller may run on ``repos``, so only the catalog is checked; without it ``user`` must be
+    able to run on them."""
     model, level = check_agent_override(agent_model, agent_thinking_level)
-    await aassert_repo_access(user, [target.repo_id for target in repos])
+    repo_ids = [target.repo_id for target in repos]
+    if access_proven:
+        await aassert_repo_catalogued(repo_ids)
+    elif user is None:
+        raise RepoAccessError(repo_ids)
+    else:
+        await aassert_repo_access(user, repo_ids)
     env = await aresolve_environment(user, environment)
     targets = await aresolve_repo_envs(user=user, repos=repos, explicit_env_id=str(env.id) if env else None)
     return Admission(

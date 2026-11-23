@@ -13,7 +13,7 @@ logger = logging.getLogger("daiv.accounts")
 _PLATFORM_USERNAME_KEYS = {GitPlatform.GITLAB: "username", GitPlatform.GITHUB: "login"}
 
 
-async def resolve_linked_user(provider: str, uid: int) -> User | None:
+async def resolve_linked_user(provider: str, uid: int | str) -> User | None:
     """The DAIV user who signed in with this git platform account (``provider`` + ``uid``), else ``None``. Never a
     match by username or email: those may name someone else, who would then own, act in and be notified about runs the
     platform user started. A failed read raises: ``None`` would record a linked user's request as no one's, for good."""

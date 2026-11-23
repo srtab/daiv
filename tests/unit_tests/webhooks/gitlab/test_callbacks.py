@@ -796,7 +796,7 @@ class TestNotesOnAnOwnedMergeRequest:
         assert (event.kind, event.payload["agent_model"]) == ("mention", site_settings.agent_max_model_name)
 
     async def test_a_diff_mention_on_an_unowned_merge_request_is_still_ignored(self):
-        with patch("webhooks.dispatch.address_mr_comments_task") as task:
+        with patch("sessions.merge_request_runs.service.address_merge_request_task") as task:
             await create_note_callback("@daiv why this line?", note_type="DiffNote").process_callback()
 
         task.get_or_enqueue.assert_not_called()
@@ -823,7 +823,7 @@ class TestNotesOnAnOwnedMergeRequest:
         repo_config.allowed_usernames = ("alice",)
         await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=1)
 
-        with patch("webhooks.dispatch.address_mr_comments_task") as task:
+        with patch("sessions.merge_request_runs.service.address_merge_request_task") as task:
             await deliver(create_note_callback("@daiv fix it", username="mallory"))
 
         task.get_or_enqueue.assert_not_called()

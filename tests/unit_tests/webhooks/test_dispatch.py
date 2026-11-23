@@ -75,9 +75,9 @@ def steps():
     with (
         patch("webhooks.dispatch.address_issue_task", steps.address_issue_task),
         patch("webhooks.dispatch.address_issue_label_task", steps.address_issue_label_task),
-        patch("webhooks.dispatch.address_mr_comments_task", steps.address_mr_comments_task),
-        patch("webhooks.dispatch.create_run", steps.create_run),
-        patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
+        patch("sessions.merge_request_runs.service.address_merge_request_task", steps.address_mr_comments_task),
+        patch("sessions.merge_request_runs.starter.create_run", steps.create_run),
+        patch("sessions.merge_request_runs.starter.resolve_env_for_run", new=AsyncMock(return_value=None)),
     ):
         yield steps
 
@@ -159,7 +159,9 @@ async def test_a_missing_source_branch_is_fetched_before_the_run_is_recorded(ste
         "create_run",
         "client.create_merge_request_note_emoji",
     ]
-    steps.client.create_merge_request_note_emoji.assert_called_once_with("owner/repo", 99, Emoji.EYES, 300)
+    steps.client.create_merge_request_note_emoji.assert_called_once_with(
+        "owner/repo", 99, Emoji.EYES, 300, on_diff=False
+    )
     assert steps.address_mr_comments_task.get_or_enqueue.call_args.kwargs["mention_note_id"] == 300
     assert steps.create_run.call_args.kwargs["ref"] == "feat/x"
 
@@ -202,7 +204,9 @@ async def test_the_task_and_the_run_share_the_entitys_thread(steps, dispatch, ta
 @each_run_kind
 @pytest.mark.parametrize(("env", "env_id"), [(Mock(id="env-1"), "env-1"), (None, None)], ids=["env", "no_env"])
 async def test_the_task_and_the_run_get_the_repos_sandbox_env(steps, dispatch, task, scope, env, env_id):
-    with patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=env)) as resolve_env:
+    with patch(
+        "sessions.merge_request_runs.starter.resolve_env_for_run", new=AsyncMock(return_value=env)
+    ) as resolve_env:
         await dispatch(steps)
 
     resolve_env.assert_awaited_once_with(user=None, repo_id="group/repo")
@@ -313,7 +317,7 @@ async def test_a_repeat_records_no_run_and_does_not_react(steps):
 @pytest.fixture
 def real_dispatch(database_task_backend):
     """Dispatch against the database task backend, with only the platform and user lookups stubbed."""
-    with patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)):
+    with patch("sessions.merge_request_runs.starter.resolve_env_for_run", new=AsyncMock(return_value=None)):
         yield
 
 
@@ -388,7 +392,7 @@ async def test_a_label_trigger_repeats_a_queued_run_but_not_a_finished_one():
 @pytest.mark.usefixtures("real_dispatch")
 async def test_a_failed_run_write_rolls_the_enqueue_back():
     with (
-        patch("webhooks.dispatch.create_run", side_effect=RuntimeError("db down")),
+        patch("sessions.merge_request_runs.starter.create_run", side_effect=RuntimeError("db down")),
         pytest.raises(RuntimeError, match="db down"),
     ):
         await _dispatch_mention()
@@ -405,7 +409,7 @@ async def test_two_triggers_on_one_issue_share_its_session():
 
     with (
         patch("webhooks.dispatch.address_issue_task") as task,
-        patch("webhooks.dispatch.resolve_env_for_run", new=AsyncMock(return_value=None)),
+        patch("sessions.merge_request_runs.starter.resolve_env_for_run", new=AsyncMock(return_value=None)),
     ):
         task.get_or_enqueue.side_effect = [(Mock(id=task_id), True) for task_id in task_ids]
         for note_id in (200, 201):
@@ -573,10 +577,11 @@ class TestOwnedMergeRequest:
             "group/repo", 7, Emoji.EYES, 300, on_diff=False
         )
 
-    async def test_a_comment_on_an_unowned_merge_request_concerns_no_one(self, steps):
+    async def test_a_comment_on_an_unowned_merge_request_concerns_no_one(self, steps, linked_user):
         await dispatch_mr_comment(
             client=steps.client, repo_id="group/repo", merge_request_iid=7, title="MR", author=AUTHOR,
             comment=self._mention(),
         )  # fmt: skip
 
         assert not await InboxEvent.objects.aexists()
+        linked_user.assert_not_awaited()

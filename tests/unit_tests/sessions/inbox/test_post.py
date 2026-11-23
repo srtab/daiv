@@ -14,12 +14,6 @@ from tests.unit_tests.sessions.inbox.conftest import amake_session, chat_payload
 pytestmark = pytest.mark.django_db(transaction=True)
 
 
-@pytest.fixture
-def drain():
-    with patch.object(Drain, "start_logged", autospec=True) as drain:
-        yield drain
-
-
 async def _post_ci(thread_id: str, *, pipeline_id: int = 1, wake: bool = True, ref: str = "", **fields):
     return await Inbox(thread_id).apost(
         kind=EventKind.CI_FAILED,
@@ -356,15 +350,17 @@ class TestSiblingRepository:
         assert (run.repo_id, run.ref, run.merge_request_iid) == (session.repo_id, "chore/x", None)
 
 
-async def test_a_leg_follow_up_is_refused_since_it_is_posted_with_its_run():
+@pytest.mark.parametrize(
+    ("kind", "payload"),
+    [
+        (EventKind.LEG_FOLLOW_UP, {"prompt": "Make the failing test pass", "batch_id": "b"}),
+        (EventKind.MERGE_REQUEST_JOB, {"prompt": "/code-review", "trigger_type": SessionOrigin.API_JOB}),
+    ],
+)
+async def test_a_kind_posted_with_its_own_run_is_refused(kind, payload):
     session = await amake_session()
 
-    with pytest.raises(ValueError, match="LegFollowUps.post"):
-        await Inbox(session.thread_id).apost(
-            kind=EventKind.LEG_FOLLOW_UP,
-            source_key="leg-follow-up:b",
-            payload={"prompt": "Make the failing test pass", "batch_id": "b"},
-            wake=True,
-        )
+    with pytest.raises(ValueError, match="posted with its own run"):
+        await Inbox(session.thread_id).apost(kind=kind, source_key=f"{kind}:1", payload=payload, wake=True)
 
     assert not await InboxEvent.objects.filter(session=session).aexists()

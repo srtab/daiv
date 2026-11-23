@@ -42,6 +42,7 @@ class NextRuns:
             status=RunStatus.QUEUED,
             task_result__isnull=True,
             trigger_type__in=INBOX_TRIGGERS,
+            runs_alone=False,
         ).order_by("created_at")
 
     def branch_of(self, event: InboxEvent) -> str:

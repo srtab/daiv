@@ -24,7 +24,7 @@ from django.db.models import Q
 from asgiref.sync import sync_to_async
 
 from sessions.executor.lock import session_activity
-from sessions.inbox.kinds import PERSON_KINDS
+from sessions.inbox.kinds import OWN_RUN_KINDS, PERSON_KINDS
 from sessions.inbox.next_runs import NextRuns
 from sessions.inbox.pending import PendingEvents
 from sessions.inbox.policy import WakePolicy
@@ -32,7 +32,7 @@ from sessions.inbox.render import EventText
 from sessions.inbox.requester import Requester
 from sessions.inbox.splits import RequestSplits
 from sessions.inbox_display import bubble, run_bubble
-from sessions.models import EventKind, EventState, InboxEvent, RunStatus
+from sessions.models import EventState, InboxEvent, RunStatus
 from sessions.transcript import inbox_event_entry
 
 if TYPE_CHECKING:
@@ -61,9 +61,7 @@ def up_next_payload(
     )
     queued = {run.pk: run for run in runs if run.status == RunStatus.QUEUED}
     follow_ups = {
-        event.run_id: queued[event.run_id]
-        for event in events
-        if event.kind == EventKind.LEG_FOLLOW_UP and event.run_id in queued
+        event.run_id: queued[event.run_id] for event in events if event.kind in OWN_RUN_KINDS and event.run_id in queued
     }
     not_jobs = inbox_ids | follow_ups.keys()
     jobs = [run for run in queued.values() if run.pk not in not_jobs and run not in waiting]

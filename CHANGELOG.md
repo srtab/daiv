@@ -47,6 +47,8 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 
 ### Added
 
+- Add `merge_request` to `repos` entries of the jobs API and the MCP `submit_job` tool: the job runs on that merge request where a mention would, and posts its result there ([#1864](https://github.com/srtab/daiv/pull/1864))
+- Accept GitLab CI ID tokens and GitHub Actions OIDC tokens on the jobs API in place of an API key, one accepted job per token and none from a GitHub re-run, attributing the run to the account that triggered the pipeline without its personal tools; set the audience with `DAIV_JOBS_CI_IDENTITY_AUDIENCE`, and the issuer with `CODEBASE_GITLAB_ID_TOKEN_ISSUER` or `CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER` when DAIV reaches the platform at another address than the one its tokens name ([#1864](https://github.com/srtab/daiv/pull/1864))
 - Add a menu to each session in the sidebar to open its merge request, copy its link, open it in a new tab or archive it; the rows mark running, waiting and failed sessions as the sessions list does and show a merge request icon instead of the date ([#1857](https://github.com/srtab/daiv/pull/1857))
 - Colour merge request pills and sidebar icons by state: open in green, draft in grey, merged in violet and closed in red ([#1863](https://github.com/srtab/daiv/pull/1863))
 - Add `CODEBASE_GITLAB_PAT_FALLBACK`: set it to `false` to fail GitLab runs instead of cloning and pushing with the personal access token when a short-lived project access token can't be created ([#1852](https://github.com/srtab/daiv/pull/1852))

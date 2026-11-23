@@ -215,6 +215,7 @@ Set `CODEBASE_CLIENT` to `gitlab` or `github`. Only one platform is active at a 
 | :material-asterisk: `CODEBASE_GITLAB_AUTH_TOKEN`  :material-lock:    | Authentication token for GitLab             | *(none)*  | `glpat-xyz`          |
 | :material-asterisk: `CODEBASE_GITLAB_WEBHOOK_SECRET` :material-lock:| Secret token for GitLab webhook validation. Without it, every GitLab webhook request is rejected with 401 | *(none)*  | `random-webhook-secret` |
 | `CODEBASE_GITLAB_PAT_FALLBACK`  | Use `CODEBASE_GITLAB_AUTH_TOKEN` for `git clone` and `git push` when a per-project clone token can't be created | `true` | `false` |
+| `CODEBASE_GITLAB_ID_TOKEN_ISSUER` | Issuer of the GitLab CI ID tokens that pipelines present to the jobs API as [CI identity tokens](../features/jobs-api.md#ci-identity-tokens): GitLab's external URL. Set it when `CODEBASE_GITLAB_URL` is another address, such as an internal host name. *env-only* | `CODEBASE_GITLAB_URL` | `https://gitlab.example.com` |
 
 `CODEBASE_GITLAB_AUTH_TOKEN` is a personal access token with the `api` scope.
 
@@ -236,8 +237,9 @@ The project access token pushes at the Developer level. If a branch protection r
 | :material-asterisk: `CODEBASE_GITHUB_INSTALLATION_ID`      | GitHub App Installation ID                  | *(none)*  | `789012`             |
 | :material-asterisk: `CODEBASE_GITHUB_PRIVATE_KEY` :material-lock:         | GitHub App private key (PEM format)         | *(none)*  |                      |
 | :material-asterisk: `CODEBASE_GITHUB_WEBHOOK_SECRET` :material-lock:| Secret token for GitHub webhook validation. Without it, every GitHub webhook request is rejected with 401 | *(none)*  | `random-webhook-secret` |
+| `CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER` | Issuer of the GitHub Actions OIDC tokens that workflows present to the jobs API as [CI identity tokens](../features/jobs-api.md#ci-identity-tokens). Set it when the tokens name another issuer, such as when `CODEBASE_GITHUB_URL` is an internal address of GitHub Enterprise Server. *env-only* | `https://token.actions.<subdomain>.ghe.com` when the host of `CODEBASE_GITHUB_URL` is `<subdomain>.ghe.com` or `api.<subdomain>.ghe.com`, else `https://<host>/_services/token` when that host, `<host>`, is neither `github.com` nor `api.github.com`, else `https://token.actions.githubusercontent.com` | `https://github.example.com/_services/token` |
 
-GitHub uses GitHub App authentication, so you create a GitHub App in your account or organization settings. The private key is a multi-line PEM file; store it as a Docker secret. For GitHub Enterprise Server, set `CODEBASE_GITHUB_URL` to its URL, for example `https://github.example.com`. For GitHub.com, you can omit it.
+GitHub uses GitHub App authentication, so you create a GitHub App in your account or organization settings. The private key is a multi-line PEM file; store it as a Docker secret. For GitHub Enterprise Server, set `CODEBASE_GITHUB_URL` to its URL, for example `https://github.example.com`; DAIV then accepts CI identity tokens issued by `https://<host>/_services/token`, where `<host>` is that URL's host name. For GitHub Enterprise Cloud with data residency (GHE.com), set it to your enterprise's API URL, `https://api.<subdomain>.ghe.com`; DAIV then accepts CI identity tokens issued by `https://token.actions.<subdomain>.ghe.com`. For GitHub.com, you can omit `CODEBASE_GITHUB_URL`.
 
 ---
 
@@ -389,6 +391,7 @@ The [Jobs API](../features/jobs-api.md) runs the agent from your own code.
 | Variable | Description | Default |
 |-------------------------------|----------------------------------------------|------------------------|
 | `DAIV_JOBS_THROTTLE_RATE` | Rate limit for job submissions per authenticated user. Format: `N/sec`, `N/min`, `N/hour`, or `N/day`, or the short forms `N/s`, `N/m`, `N/h` and `N/d` | `20/hour` |
+| `DAIV_JOBS_CI_IDENTITY_AUDIENCE` | The audience (`aud`) a [CI identity token](../features/jobs-api.md#ci-identity-tokens) must carry. *env-only* | `DAIV_EXTERNAL_URL` |
 
 ### Diff to metadata
 

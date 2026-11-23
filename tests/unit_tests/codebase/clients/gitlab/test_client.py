@@ -455,10 +455,12 @@ class TestGitLabClient:
         assert exc_info.value.repo_slug == "group/repo"
         assert clone_from.call_count == 1
 
-    @pytest.mark.parametrize("merged", [True, False])
-    def test_get_merge_request_maps_merged_state(self, gitlab_client, merged):
-        """get_merge_request maps GitLab ``state == "merged"`` onto ``MergeRequest.merged`` — the
-        value the merged-MR skip guard in address_mr_comments_task reads."""
+    @pytest.mark.parametrize(
+        ("state", "merged", "closed"), [("merged", True, False), ("opened", False, False), ("closed", False, True)]
+    )
+    def test_get_merge_request_maps_its_state(self, gitlab_client, state, merged, closed):
+        """get_merge_request maps GitLab's ``state`` onto ``MergeRequest.merged`` and ``closed``, which the
+        merged-MR skip guard and the merge request job checks read."""
 
         def _mr(state):
             mock_mr = Mock()
@@ -478,8 +480,9 @@ class TestGitLabClient:
         mock_project = Mock()
         gitlab_client.client.projects.get.return_value = mock_project
 
-        mock_project.mergerequests.get.return_value = _mr("merged" if merged else "opened")
-        assert gitlab_client.get_merge_request("group/repo", 7).merged is merged
+        mock_project.mergerequests.get.return_value = _mr(state)
+        merge_request = gitlab_client.get_merge_request("group/repo", 7)
+        assert (merge_request.merged, merge_request.closed) == (merged, closed)
 
     @pytest.mark.parametrize(
         ("noteable", "fetch", "noteable_type"),

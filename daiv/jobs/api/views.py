@@ -2,19 +2,23 @@ import logging
 import uuid as uuid_mod
 from typing import Literal, cast
 
+from django.db.models import Q
 from django.http import HttpRequest  # noqa: TC002 - required at runtime by Django
 
 from ninja import Router
 from ninja.errors import HttpError
 from sessions.admission import AdmissionError, RepoAccessError
 from sessions.artifacts import aserialize_run_artifacts_for_status
+from sessions.inbox.merge_request_jobs import MergeRequestJobs
 from sessions.models import Run, RunStatus, SessionOrigin
 from sessions.multi_repo import asubmit_jobs
 from sessions.services import RepoTarget
 
+from accounts.api.ci_identity import CIIdentity, CIIdentityBearer
 from accounts.api.security import AuthBearer
 from core.api.throttling import JobsRateThrottle
 
+from .ci import CISubmission
 from .schemas import (
     JobMergeRequestItem,
     JobPublishErrorItem,
@@ -27,40 +31,58 @@ from .schemas import (
 
 logger = logging.getLogger("daiv.jobs")
 
-jobs_router = Router(auth=AuthBearer(), tags=["jobs"])
+jobs_router = Router(auth=[CIIdentityBearer(), AuthBearer()], tags=["jobs"])
 
 
-@jobs_router.post("", response={202: JobSubmitResponse, 400: dict, 404: dict, 503: dict}, throttle=[JobsRateThrottle()])
+@jobs_router.post(
+    "", response={202: JobSubmitResponse, 400: dict, 401: dict, 404: dict, 503: dict}, throttle=[JobsRateThrottle()]
+)
 async def submit_job(request: HttpRequest, payload: JobSubmitRequest):
-    """Submit a batch of 1-20 agent jobs. Each repository runs as an independent job.
+    """Submit a batch of 1-20 agent jobs. Each repository runs as an independent job, and a ``merge_request`` target
+    runs where a mention by the caller would on that merge request.
 
     If ``thread_id`` is supplied, the new job continues an existing thread: exactly one
     repo must be provided (a multi-repository session also takes its full list) and the
     session owning that thread must belong to the caller and not be archived for them.
     If the session is busy, the job joins its next run for the job's branch (``QUEUED``), which
     other jobs on that branch may share, and so their ``job_id``.
+
+    A CI identity token submits one job on its own repository, once (:class:`jobs.api.ci.CISubmission`).
     """
-    try:
-        result = await asubmit_jobs(
-            user=request.auth,
-            repos=[
-                RepoTarget(repo_id=spec.repo_id, ref=spec.ref or "", prompt=spec.prompt or "") for spec in payload.repos
-            ],
-            shared=payload.shared_session,
-            thread_id=str(payload.thread_id) if payload.thread_id is not None else None,
-            prompt=payload.prompt,
-            agent_model=payload.agent_model,
-            agent_thinking_level=payload.agent_thinking_level,
-            environment=payload.environment,
-            mcp_overrides=payload.mcp_overrides,
-            muted=payload.muted,
-            trigger_type=SessionOrigin.API_JOB,
-            references=payload.references,
+    ci = CISubmission(request.auth) if isinstance(request.auth, CIIdentity) else None
+    if ci is not None and (refusal := await ci.arefusal(payload)) is not None:
+        return refusal
+    targets = [
+        RepoTarget(
+            repo_id=spec.repo_id, ref=spec.ref or "", prompt=spec.prompt or "", merge_request_iid=spec.merge_request
         )
-    except RepoAccessError as err:
-        # Opaque 404: don't confirm the repo's existence to unauthorized callers.
-        raise HttpError(404, str(err)) from err
+        for spec in payload.repos
+    ]
+    options = {
+        "prompt": payload.prompt,
+        "agent_model": payload.agent_model,
+        "agent_thinking_level": payload.agent_thinking_level,
+        "environment": payload.environment,
+        "mcp_overrides": payload.mcp_overrides,
+    }
+    try:
+        if ci is not None:
+            result = await ci.asubmit(targets[0], payload, **options)
+        else:
+            result = await asubmit_jobs(
+                user=request.auth,
+                repos=targets,
+                shared=payload.shared_session,
+                thread_id=str(payload.thread_id) if payload.thread_id is not None else None,
+                muted=payload.muted,
+                trigger_type=SessionOrigin.API_JOB,
+                references=payload.references,
+                **options,
+            )
     except AdmissionError as err:
+        if isinstance(err, RepoAccessError):
+            # Opaque 404: don't confirm the repo's existence to unauthorized callers.
+            raise HttpError(404, str(err)) from err
         return 400, {"detail": str(err)}
 
     jobs = [
@@ -87,14 +109,17 @@ async def get_job_status(request: HttpRequest, job_id: str):
     except ValueError:
         return 404, {"detail": "Job not found"}
 
+    visible = (
+        CISubmission(request.auth).visible_runs() if isinstance(request.auth, CIIdentity) else Q(user=request.auth)
+    )
     try:
-        run = await Run.objects.select_related("task_result").aget(id=run_uuid, user=request.auth)
+        run = await Run.objects.select_related("task_result").aget(visible, id=run_uuid)
     except Run.DoesNotExist:
         return 404, {"detail": "Job not found"}
 
     error = None
     if run.status == RunStatus.FAILED:
-        error = run.provider_failure_message() or "Job execution failed"
+        error = MergeRequestJobs.caller_failure_message(run) or "Job execution failed"
     artifacts, artifacts_error = await aserialize_run_artifacts_for_status(run)
     return 200, JobStatusResponse(
         job_id=str(run.id),

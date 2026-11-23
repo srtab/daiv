@@ -428,6 +428,19 @@ class Run(models.Model):
     external_username = models.CharField(_("external username"), max_length=255, blank=True, default="")
     external_provider = models.CharField(_("external provider"), max_length=32, blank=True, default="")
     external_uid = models.CharField(_("external account ID"), max_length=191, blank=True, default="")
+    acts_as_user = models.BooleanField(
+        _("acts as user"),
+        default=True,
+        help_text=_("Whether the run loads its user's personal tools and environments; false for CI identity runs."),
+    )
+    runs_alone = models.BooleanField(
+        _("runs alone"),
+        default=False,
+        help_text=_(
+            "Created for one job on a merge request: never a next run other events join, nor the session's one active "
+            "job run."
+        ),
+    )
     title = models.CharField(_("title"), max_length=120, blank=True, default="")
     batch_id = models.UUIDField(_("batch ID"), null=True, blank=True, db_index=True)
     continuation_of_batch_id = models.UUIDField(
@@ -547,8 +560,8 @@ class Run(models.Model):
         ]
         constraints = [
             # At most one active (READY or RUNNING) API/MCP/delegation run per session. QUEUED is
-            # intentionally outside the constraint so FIFO siblings can stack; webhook
-            # triggers share deterministic sessions and are intentionally excluded.
+            # intentionally outside the constraint so FIFO siblings can stack; webhook triggers and
+            # merge request jobs (``runs_alone``) share deterministic sessions and are intentionally excluded.
             # Exact port of activity_one_active_per_thread. The status/trigger_type
             # literals here must equal {RunStatus.READY, RunStatus.RUNNING} and
             # {SessionOrigin.API_JOB, SessionOrigin.MCP_JOB, SessionOrigin.DELEGATED_JOB,
@@ -559,6 +572,7 @@ class Run(models.Model):
                 condition=models.Q(
                     status__in=["READY", "RUNNING"],
                     trigger_type__in=["api_job", "mcp_job", "delegated_job", "delegation_resume"],
+                    runs_alone=False,
                 ),
                 name="run_one_active_per_session",
             ),
@@ -566,12 +580,16 @@ class Run(models.Model):
             # linked. The literals must equal ``inbox.kinds.INBOX_TRIGGERS``.
             models.UniqueConstraint(
                 fields=["session", "ref", "user"],
-                condition=models.Q(status="QUEUED", trigger_type__in=_INBOX_TRIGGER_LITERALS, user__isnull=False),
+                condition=models.Q(
+                    status="QUEUED", trigger_type__in=_INBOX_TRIGGER_LITERALS, user__isnull=False, runs_alone=False
+                ),
                 name="run_one_next_run_per_user",
             ),
             models.UniqueConstraint(
                 fields=["session", "ref", "external_provider", "external_uid"],
-                condition=models.Q(status="QUEUED", trigger_type__in=_INBOX_TRIGGER_LITERALS, user__isnull=True),
+                condition=models.Q(
+                    status="QUEUED", trigger_type__in=_INBOX_TRIGGER_LITERALS, user__isnull=True, runs_alone=False
+                ),
                 name="run_one_next_run_per_account",
             ),
             # The insert of a batch's continuation is the election when several legs finish at once; a FAILED one
@@ -615,6 +633,11 @@ class Run(models.Model):
         if not links and self.merge_request_web_url:
             links = [{"repo_id": self.repo_id, "url": self.merge_request_web_url}]
         return links
+
+    @property
+    def acting_user_id(self) -> int | None:
+        """The DAIV user the run acts as: its ``user``, unless it is only attributed to them."""
+        return self.user_id if self.acts_as_user else None
 
     @property
     def effective_muted(self) -> bool:
@@ -980,6 +1003,7 @@ class EventKind(models.TextChoices):
     DELEGATED_CI_OUTCOME = "delegated_ci_outcome", _("Delegated session CI")
     NOTICE = "notice", _("Notice")
     LEG_FOLLOW_UP = "leg_follow_up", _("Leg follow-up")
+    MERGE_REQUEST_JOB = "merge_request_job", _("Merge request job")
 
 
 class EventState(models.TextChoices):

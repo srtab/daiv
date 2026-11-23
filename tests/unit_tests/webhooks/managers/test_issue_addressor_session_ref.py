@@ -14,7 +14,7 @@ from langchain_core.messages import AIMessage
 from webhooks.managers.issue_addressor import IssueAddressorManager
 
 from codebase.base import Issue, MergeRequest, Scope, User
-from tests.unit_tests.webhooks.managers.conftest import addressor_agent, addressor_run
+from tests.unit_tests.sessions.merge_request_runs.conftest import addressor_agent, addressor_run
 
 _AUTHOR = User(id=1, username="alice")
 

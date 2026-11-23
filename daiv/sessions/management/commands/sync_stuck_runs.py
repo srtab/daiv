@@ -11,7 +11,7 @@ from django.utils import timezone
 from django_tasks_db.models import DBTaskResult
 
 from core import worker_liveness
-from sessions.executor.lock import DeadWorkerError, stale_cutoff
+from sessions.executor.lock import DEAD_RUN_MESSAGE, DeadWorkerError, stale_cutoff
 from sessions.managers import fail_tasks
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.queue import ENQUEUE_FAILED_PREFIX
@@ -117,10 +117,9 @@ class Command(BaseCommand):
         cutoff = stale_cutoff(now)
         stale_sessions = Session.objects.filter(last_active_at__lt=cutoff).values("pk")
         dead = Q(status=RunStatus.RUNNING, started_at__lt=cutoff, session_id__in=stale_sessions)
-        message = "Dead run: its worker stopped heartbeating (crash); reaped by sync_stuck_runs."
         runs = Run.objects.filter(dead, task_result__isnull=False).select_related("task_result")
         reaped = sum(
-            Run.objects.finish_dead(run, where=dead, error=DeadWorkerError, message=message, now=now)
+            Run.objects.finish_dead(run, where=dead, error=DeadWorkerError, message=DEAD_RUN_MESSAGE, now=now)
             for run in runs
             if not worker_liveness.claimant_alive(run.task_result.worker_ids)
         )

@@ -175,9 +175,9 @@ class SessionJobDelegator:
         run = await self._aactive_run()
         if run is None:
             raise DelegationError("This run has no session to resume, so it cannot delegate.")
-        if run.user is None:
+        if run.acting_user_id is None:
             raise DelegationError(
-                "Sub-jobs run as the DAIV user who triggered this run, and it has none, so it cannot delegate."
+                "Sub-jobs run as the DAIV user who triggered this run, and it acts as none, so it cannot delegate."
             )
         self.check(goal, targets)
 

@@ -128,6 +128,22 @@ def test_a_follow_up_job_bubble_carries_its_prompt_and_trigger(session):
     assert (result["text"], result["trigger_type"]) == ("Bump the version", SessionOrigin.API_JOB)
 
 
+def test_a_merge_request_job_bubble_names_its_sender_merge_request_and_trigger(session):
+    payload = {"prompt": "/code-review", "trigger_type": SessionOrigin.MCP_JOB}
+
+    result = bubble(
+        make_event(session, EventKind.MERGE_REQUEST_JOB, payload=payload, merge_request_iid=7, author_username="pusher")
+    )
+
+    assert (result["kind"], result["text"], result["trigger_type"], result["received"]) == (
+        EventKind.MERGE_REQUEST_JOB, "pusher on !7: /code-review", SessionOrigin.MCP_JOB, False
+    )  # fmt: skip
+
+
+def test_a_bubble_whose_payload_has_no_trigger_has_none(session):
+    assert bubble(make_event(session, EventKind.CHAT_MESSAGE))["trigger_type"] == ""
+
+
 def test_a_leg_follow_up_bubble_carries_its_prompt_and_is_not_received(session):
     payload = {"prompt": "Make the failing test pass", "batch_id": "b"}
 

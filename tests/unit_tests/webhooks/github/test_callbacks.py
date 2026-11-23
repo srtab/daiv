@@ -651,7 +651,7 @@ class TestReviewCommentsOnAnOwnedPullRequest:
         mock_repo_config.allowed_usernames = ("someone-else",)
         await amake_owned_merge_request(repo_id="owner/repo", merge_request_iid=42)
 
-        with patch("webhooks.dispatch.address_mr_comments_task") as task:
+        with patch("sessions.merge_request_runs.service.address_merge_request_task") as task:
             await deliver(create_review_comment_callback())
 
         task.get_or_enqueue.assert_not_called()
@@ -660,7 +660,7 @@ class TestReviewCommentsOnAnOwnedPullRequest:
 
     @pytest.mark.parametrize("body", ["@daiv why this line?", "Nit: rename this"])
     async def test_an_unowned_pull_request_gets_nothing(self, mock_repo_client, body):
-        with patch("webhooks.dispatch.address_mr_comments_task") as task:
+        with patch("sessions.merge_request_runs.service.address_merge_request_task") as task:
             await create_review_comment_callback(body).process_callback()
 
         task.get_or_enqueue.assert_not_called()
@@ -769,7 +769,7 @@ class TestPullRequestCommentsOutsideTheAllowlist:
     async def test_a_mention_posts_and_starts_nothing(self, mock_repo_client):
         await amake_owned_merge_request(repo_id="owner/repo", merge_request_iid=99)
 
-        with patch("webhooks.dispatch.address_mr_comments_task") as task:
+        with patch("sessions.merge_request_runs.service.address_merge_request_task") as task:
             await deliver(self._comment("@daiv fix it"))
 
         task.get_or_enqueue.assert_not_called()

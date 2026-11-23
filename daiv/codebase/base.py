@@ -136,6 +136,8 @@ class MergeRequest(BaseModel):
     """Whether the MR/PR is merged. Only populated by ``get_merge_request`` — the fetch path the
     merged-MR skip guard reads. Other construction sites keep the ``False`` default, so do not
     treat it as a source of truth off those paths."""
+    closed: bool = False
+    """Whether the MR/PR was closed without being merged. Populated only by ``get_merge_request``, as ``merged``."""
 
 
 class User(BaseModel):

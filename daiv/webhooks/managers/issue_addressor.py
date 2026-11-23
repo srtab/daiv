@@ -11,14 +11,13 @@ from django.template.loader import render_to_string
 from langchain_core.messages import HumanMessage
 from sessions.executor.run import execute_run
 from sessions.executor.spec import RunHooks, RunSpec
+from sessions.merge_request_runs.base import BaseManager
 
 from automation.agent.provider_errors import provider_failure_of
 from automation.agent.synthetic import ISSUE_CONTEXT_KIND, synthetic_message
 from automation.agent.utils import repo_relative_text
 from codebase.base import GitPlatform, Scope
 from core.constants import BOT_NAME, has_auto_label
-
-from .base import BaseManager
 
 if TYPE_CHECKING:
     from langgraph.types import StateSnapshot

@@ -35,7 +35,7 @@ from tests.unit_tests.conftest import (
 )
 from tests.unit_tests.sessions.conftest import active_holder
 from tests.unit_tests.sessions.executor.conftest import publisher_through_workspace
-from tests.unit_tests.webhooks.managers.conftest import addressor_agent, addressor_run, clone_raising
+from tests.unit_tests.sessions.merge_request_runs.conftest import addressor_agent, addressor_run, clone_raising
 
 _AUTHOR = User(id=1, username="alice")
 _UNABLE = "An unexpected error occurred while working on this issue."
